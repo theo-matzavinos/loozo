@@ -1,0 +1,9 @@
+{
+  "generators": {
+    "lucide": {
+      "factory": "./src/generators/lucide/generator",
+      "schema": "./src/generators/lucide/schema.json",
+      "description": "Generates components for lucide icons."
+    }
+  }
+}

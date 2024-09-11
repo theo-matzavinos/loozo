@@ -1,0 +1,10 @@
+// THIS FILE IS GENERATED!!!
+import { Component, ChangeDetectionStrategy } from '@angular/core';
+
+@Component({
+  selector: 'lucide-<%= fileName %>',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<%- icon %>`
+})
+export class Lucide<%= className %> {}
