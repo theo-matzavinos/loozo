@@ -76,8 +76,7 @@
       "preVersionCommand": "npx nx run-many -t build --exclude example",
       "conventionalCommits": true,
       "generatorOptions": {
-        "packageRoot": "dist/libs/{projectName}",
-        "currentVersionResolver": "registry"
+        "packageRoot": "dist/libs/{projectName}"
       }
     },
     "changelog": {
