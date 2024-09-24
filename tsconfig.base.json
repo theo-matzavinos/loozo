@@ -15,6 +15,7 @@
     "skipDefaultLibCheck": true,
     "baseUrl": ".",
     "paths": {
+      "@loozo/forms": ["libs/forms/src/index.ts"],
       "@loozo/ng-lucide": ["libs/lucide/src/index.ts"],
       "@loozo/nx-plugin": ["nx-plugin/src/index.ts"]
     }
