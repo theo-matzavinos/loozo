@@ -112,4 +112,34 @@ export abstract class LoozoAbstractControlContainer<T = unknown> {
       });
     });
   }
+
+  markAsTouched(...args: Parameters<AbstractControl['markAsTouched']>) {
+    this.abstractControl.markAsTouched(...args);
+  }
+
+  markAllAsTouched(...args: Parameters<AbstractControl['markAllAsTouched']>) {
+    this.abstractControl.markAllAsTouched(...args);
+  }
+
+  markAsUntouched(...args: Parameters<AbstractControl['markAsUntouched']>) {
+    this.abstractControl.markAsUntouched(...args);
+  }
+
+  markAsDirty(...args: Parameters<AbstractControl['markAsDirty']>) {
+    this.abstractControl.markAsDirty(...args);
+  }
+
+  markAsPristine(...args: Parameters<AbstractControl['markAsPristine']>) {
+    this.abstractControl.markAsPristine(...args);
+  }
+
+  markAsPending(...args: Parameters<AbstractControl['markAsPending']>) {
+    this.abstractControl.markAsPending(...args);
+  }
+
+  updateValueAndValidity(
+    ...args: Parameters<AbstractControl['updateValueAndValidity']>
+  ) {
+    this.abstractControl.updateValueAndValidity(...args);
+  }
 }

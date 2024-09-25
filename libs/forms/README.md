@@ -1,3 +1,5 @@
-# forms
+# @loozo/forms
 
-This library was generated with [Nx](https://nx.dev).
+## Why?
+
+What if Template-Driven Forms and Reactive Forms had a baby?

@@ -3,17 +3,17 @@ import { AbstractControl, FormGroup } from '@angular/forms';
 import { LoozoFieldContainer } from './field-container';
 import { LoozoAbstractControlContainer } from './abstract-control-container';
 
-export type LoozoFormSubmitInvalid<T> = {
+export type LoozoFormSubmitInvalid<T = unknown> = {
   valid: false;
   value: Partial<T>;
 };
 
-export type LoozoFormSubmitValid<T> = {
+export type LoozoFormSubmitValid<T = unknown> = {
   valid: true;
   value: T;
 };
 
-export type LoozoFormSubmit<T> =
+export type LoozoFormSubmit<T = unknown> =
   | LoozoFormSubmitInvalid<T>
   | LoozoFormSubmitValid<T>;
 
