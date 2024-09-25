@@ -10,6 +10,8 @@ import { LoozoAbstractField } from './abstract-field';
   exportAs: 'loozoForm',
   providers: [
     { provide: AbstractControl, useFactory: () => new FormGroup({}) },
+    { provide: LoozoAbstractControlContainer, useExisting: LoozoFieldGroup },
+    { provide: LoozoAbstractField, useExisting: LoozoFieldGroup },
     {
       provide: LoozoFieldContainer,
       useFactory: () => {
@@ -31,30 +33,13 @@ import { LoozoAbstractField } from './abstract-field';
       },
     },
   ],
-  hostDirectives: [
-    {
-      directive: LoozoAbstractControlContainer,
-      inputs: ['type:loozoFieldGroupType', 'disabled'],
-    },
-    {
-      directive: LoozoAbstractField,
-      inputs: ['name:loozoFieldGroup'],
-    },
-  ],
 })
 export class LoozoFieldGroup<
   T extends Record<string, unknown> = Record<string, unknown>,
-> {
+> extends LoozoAbstractField<T> {
+  override name = input.required<string | number>({ alias: 'loozoFieldGroup' });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type = input<T>(undefined as any, { alias: 'loozoFieldGroupType' });
+  valueType = input<T>(undefined as any, { alias: 'loozoFieldGroupType' });
 
-  control = inject<LoozoAbstractControlContainer<T>>(
-    LoozoAbstractControlContainer,
-    { self: true },
-  );
-  validationMessages = this.control.validationMessages;
-  controlEvent = this.control.controlEvent;
-  statusChange = this.control.statusChange;
-  valueChange = this.control.valueChange;
-  config = inject<LoozoAbstractField<T>>(LoozoAbstractField, { self: true });
+  protected override type!: T;
 }

@@ -24,29 +24,17 @@ import { LoozoAbstractControlContainer } from './abstract-control-container';
   exportAs: 'loozoField',
   providers: [
     { provide: AbstractControl, useFactory: () => new FormControl() },
-  ],
-  hostDirectives: [
-    {
-      directive: LoozoAbstractControlContainer,
-      inputs: ['type:loozoFieldType', 'disabled'],
-    },
-    {
-      directive: LoozoAbstractField,
-      inputs: ['name:loozoField'],
-    },
+    { provide: LoozoAbstractControlContainer, useExisting: LoozoField },
+    { provide: LoozoAbstractField, useExisting: LoozoField },
   ],
 })
-export class LoozoField<T = unknown> {
-  type = input<T>(undefined as T, { alias: 'loozoFieldType' });
+export class LoozoField<T = unknown> extends LoozoAbstractField<T> {
+  override name = input.required<string | number>({ alias: 'loozoField' });
 
-  control = inject<LoozoAbstractControlContainer<T>>(
-    LoozoAbstractControlContainer,
-  );
-  validationMessages = this.control.validationMessages;
-  controlEvent = this.control.controlEvent;
-  statusChange = this.control.statusChange;
-  valueChange = this.control.valueChange;
-  config = inject<LoozoAbstractField<T>>(LoozoAbstractField, { self: true });
+  fieldType = input<T>(undefined as T, { alias: 'loozoFieldType' });
+
+  protected override type!: T;
+
   private formControl = inject(AbstractControl, {
     self: true,
   }) as FormControl<T>;
@@ -62,6 +50,7 @@ export class LoozoField<T = unknown> {
   });
 
   constructor() {
+    super();
     effect(() => {
       for (const valueAccessor of this.valueAccessors()) {
         valueAccessor.registerOnChange((value?: unknown) => {
@@ -69,7 +58,7 @@ export class LoozoField<T = unknown> {
         });
         valueAccessor.registerOnTouched(() => this.formControl.markAsTouched());
 
-        const initialValue = this.config.initialValue();
+        const initialValue = this.initialValue();
 
         for (const valueAccessor of this.valueAccessors()) {
           valueAccessor.writeValue(initialValue);
@@ -78,10 +67,10 @@ export class LoozoField<T = unknown> {
     });
 
     effect(() => {
-      const initialValue = this.config.initialValue();
+      const initialValue = this.initialValue();
 
       untracked(() => {
-        const value = this.control.value();
+        const value = this.value();
 
         if (initialValue !== value) {
           this.formControl.reset(initialValue as T);
@@ -94,7 +83,7 @@ export class LoozoField<T = unknown> {
     });
 
     effect(() => {
-      const disabled = this.control.disabled();
+      const disabled = this.disabled();
 
       untracked(() => {
         for (const valueAccessor of this.valueAccessors()) {
@@ -104,7 +93,7 @@ export class LoozoField<T = unknown> {
     });
 
     this.form.resetted.subscribe(() => {
-      const initialValue = this.config.initialValue();
+      const initialValue = this.initialValue();
 
       this.formControl.reset(initialValue);
 

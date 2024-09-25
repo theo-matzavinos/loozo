@@ -4,6 +4,7 @@ import {
   effect,
   EmbeddedViewRef,
   inject,
+  input,
   numberAttribute,
   untracked,
 } from '@angular/core';
@@ -13,9 +14,9 @@ import {
 } from './field-array-item';
 import { AbstractControl, FormArray } from '@angular/forms';
 import { LoozoForm } from './form';
-import { LoozoAbstractControlContainer } from './abstract-control-container';
 import { LoozoAbstractField } from './abstract-field';
 import { LoozoFieldContainer } from './field-container';
+import { LoozoAbstractControlContainer } from './abstract-control-container';
 
 @Directive({
   selector: '[loozoFieldArray]',
@@ -23,6 +24,8 @@ import { LoozoFieldContainer } from './field-container';
   exportAs: 'loozoFieldArray',
   providers: [
     { provide: AbstractControl, useFactory: () => new FormArray([]) },
+    { provide: LoozoAbstractControlContainer, useExisting: LoozoFieldArray },
+    { provide: LoozoAbstractField, useExisting: LoozoFieldArray },
     {
       provide: LoozoFieldContainer,
       useFactory: () => {
@@ -56,22 +59,15 @@ import { LoozoFieldContainer } from './field-container';
       },
     },
   ],
-  hostDirectives: [
-    {
-      directive: LoozoAbstractControlContainer,
-      inputs: ['type:loozoFieldArrayType', 'disabled'],
-    },
-    {
-      directive: LoozoAbstractField,
-      inputs: ['name:loozoFieldArray'],
-    },
-  ],
 })
-export class LoozoFieldArray {
+export class LoozoFieldArray<T = unknown> extends LoozoAbstractField<T[]> {
+  override name = input.required<string | number>({ alias: 'loozoFieldArray' });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  itemType = input<T>(undefined as any, { alias: 'loozoFieldArrayType' });
+
   private formArray = inject(AbstractControl, { self: true }) as FormArray;
-  config = inject<LoozoAbstractField<unknown[]>>(LoozoAbstractField, {
-    self: true,
-  });
+
+  protected override type!: T[];
 
   private fieldArrayItemFactory = contentChild.required(
     LoozoArrayFieldItemFactory,
@@ -82,10 +78,11 @@ export class LoozoFieldArray {
   private nextItemId = 0;
 
   constructor() {
+    super();
     const form = inject(LoozoForm);
 
     effect(() => {
-      const initialValue = this.config.initialValue();
+      const initialValue = this.initialValue();
 
       if (this.formArray.dirty) {
         return;
@@ -95,7 +92,7 @@ export class LoozoFieldArray {
     });
 
     form.resetted.subscribe(() => {
-      this.resetItems(this.config.initialValue()?.length);
+      this.resetItems(this.initialValue()?.length);
     });
   }
 

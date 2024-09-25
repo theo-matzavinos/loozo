@@ -25,6 +25,7 @@ let nextId = 0;
   exportAs: 'loozoForm',
   providers: [
     { provide: AbstractControl, useFactory: () => new FormGroup({}) },
+    { provide: LoozoAbstractControlContainer, useExisting: LoozoForm },
     {
       provide: LoozoFieldContainer,
       useFactory: () => {
@@ -46,12 +47,6 @@ let nextId = 0;
       },
     },
   ],
-  hostDirectives: [
-    {
-      directive: LoozoAbstractControlContainer,
-      inputs: ['type:loozoForm', 'disabled'],
-    },
-  ],
   host: {
     '[id]': 'id()',
     novalidate: '',
@@ -61,20 +56,16 @@ let nextId = 0;
 })
 export class LoozoForm<
   T extends Record<string, unknown> = Record<string, unknown>,
-> {
+> extends LoozoAbstractControlContainer<T> {
   id = input(`loozo-form-${nextId++}`);
   initialValue = input<T | undefined>(undefined, { alias: 'loozoForm' });
+
+  protected override type!: T;
 
   submitted = output<LoozoFormSubmit<T>>({ alias: 'loozoSubmit' });
   submittedValid = output<T>({ alias: 'loozoSubmit.valid' });
   submittedInvalid = output<Partial<T>>({ alias: 'loozoSubmit.invalid' });
   resetted = output<void>({ alias: 'loozoReset' });
-
-  control = inject(LoozoAbstractControlContainer, { self: true });
-  validationMessages = this.control.validationMessages;
-  controlEvent = this.control.controlEvent;
-  statusChange = this.control.statusChange;
-  valueChange = this.control.valueChange;
 
   private formGroup = inject(AbstractControl, { self: true }) as FormGroup;
 

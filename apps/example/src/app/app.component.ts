@@ -15,7 +15,7 @@ import { LoozoFormImports } from '@loozo/forms';
         <div *loozoRequiredValidator>Required</div>
         <div *loozoMaxValidator="10">Max value 10</div>
 
-        @if (a.control.invalid()) {
+        @if (a.invalid()) {
           @for (message of a.validationMessages(); track message) {
             <ng-container [ngTemplateOutlet]="message" />
           }
@@ -28,7 +28,7 @@ import { LoozoFormImports } from '@loozo/forms';
         <div *loozoRequiredValidator>Required</div>
         <div *loozoMinValidator="0">Min value 0</div>
 
-        @if (b.control.invalid()) {
+        @if (b.invalid()) {
           @for (message of b.validationMessages(); track message) {
             <ng-container [ngTemplateOutlet]="message" />
           }
@@ -71,7 +71,7 @@ import { LoozoFormImports } from '@loozo/forms';
     </form>
 
     <div>
-      {{ form.control.value() | json }}
+      {{ form.value() | json }}
     </div>
   `,
 })

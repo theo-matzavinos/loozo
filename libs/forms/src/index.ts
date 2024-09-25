@@ -59,5 +59,3 @@ export { LoozoValidator } from './lib/validator';
 export { LoozoFieldGroup } from './lib/field-group';
 export { LoozoFieldArray } from './lib/field-array';
 export { LoozoFieldArrayItem } from './lib/field-array-item';
-export { LoozoAbstractControlContainer as ɵLoozoAbstractControlContainer } from './lib/abstract-control-container';
-export { LoozoAbstractField as ɵLoozoAbstractField } from './lib/abstract-field';

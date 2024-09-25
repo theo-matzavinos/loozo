@@ -12,16 +12,22 @@ import {
 } from '@angular/core';
 import { AbstractControl } from '@angular/forms';
 import { LoozoFieldContainer } from './field-container';
+import { LoozoAbstractControlContainer } from './abstract-control-container';
 
 @Directive({
   standalone: true,
 })
-export class LoozoAbstractField<T = unknown> {
+export abstract class LoozoAbstractField<
+  T = unknown,
+> extends LoozoAbstractControlContainer {
   name = input.required<string | number>();
 
-  private abstractControl = inject<AbstractControl<T>>(AbstractControl, {
-    self: true,
-  });
+  protected override abstractControl = inject<AbstractControl<T>>(
+    AbstractControl,
+    {
+      self: true,
+    },
+  );
 
   private parent = inject(LoozoFieldContainer, {
     skipSelf: true,
@@ -37,6 +43,7 @@ export class LoozoAbstractField<T = unknown> {
   initialValue = computed(() => this.initialValueHack()());
 
   constructor() {
+    super();
     const injector = inject(Injector);
 
     afterNextRender(() => {

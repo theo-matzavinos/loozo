@@ -31,11 +31,12 @@ import { LoozoAsyncValidator } from './async-validator';
     '[attr.data-status]': 'status()',
   },
 })
-export class LoozoAbstractControlContainer<T = unknown> {
+export abstract class LoozoAbstractControlContainer<T = unknown> {
   disabled = input(false, { transform: booleanAttribute });
-  type = input<T>();
+  // type = input<T>();
+  protected abstract type: T;
 
-  private abstractControl = inject<AbstractControl<T>>(AbstractControl, {
+  protected abstractControl = inject<AbstractControl<T>>(AbstractControl, {
     self: true,
   });
 
@@ -89,8 +90,9 @@ export class LoozoAbstractControlContainer<T = unknown> {
         this.validators().find((v) => v.key() === key) ??
         this.asyncValidators().find((v) => v.key() === key);
 
-      if (validator) {
-        result.push(validator.message());
+      if (validator?.message()) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        result.push(validator.message()!);
       }
     }
 
