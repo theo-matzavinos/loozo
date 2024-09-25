@@ -2,93 +2,54 @@
   "name": "example",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
-  "prefix": "app",
-  "sourceRoot": "apps/example/src",
-  "tags": [],
   "targets": {
     "build": {
-      "executor": "@angular-devkit/build-angular:application",
-      "outputs": ["{options.outputPath}"],
-      "options": {
-        "outputPath": "dist/apps/example",
-        "index": "apps/example/src/index.html",
-        "browser": "apps/example/src/main.ts",
-        "polyfills": [],
-        "tsConfig": "apps/example/tsconfig.app.json",
-        "assets": [
-          {
-            "glob": "**/*",
-            "input": "apps/example/public"
-          }
-        ],
-        "styles": ["apps/example/src/styles.css"],
-        "scripts": [],
-        "server": "apps/example/src/main.server.ts",
-        "prerender": true,
-        "ssr": {
-          "entry": "apps/example/server.ts"
-        }
-      },
+      "executor": "@analogjs/platform:vite",
+      "defaultConfiguration": "production",
       "configurations": {
-        "production": {
-          "budgets": [
-            {
-              "type": "initial",
-              "maximumWarning": "500kb",
-              "maximumError": "1mb"
-            },
-            {
-              "type": "anyComponentStyle",
-              "maximumWarning": "2kb",
-              "maximumError": "4kb"
-            }
-          ],
-          "outputHashing": "all"
-        },
         "development": {
-          "optimization": false,
-          "extractLicenses": false,
-          "sourceMap": true
+          "mode": "development"
+        },
+        "production": {
+          "sourcemap": false,
+          "mode": "production"
         }
       },
-      "defaultConfiguration": "production"
+      "outputs": [
+        "{options.outputPath}",
+        "{workspaceRoot}/dist/apps/example/.nitro",
+        "{workspaceRoot}/dist/apps/example/ssr",
+        "{workspaceRoot}/dist/apps/example/analog"
+      ],
+      "options": {
+        "main": "apps/example/src/main.ts",
+        "configFile": "apps/example/vite.config.ts",
+        "outputPath": "dist/apps/example/client",
+        "tsConfig": "apps/example/tsconfig.app.json"
+      }
     },
     "serve": {
-      "executor": "@angular-devkit/build-angular:dev-server",
-      "configurations": {
-        "production": {
-          "buildTarget": "example:build:production"
-        },
-        "development": {
-          "buildTarget": "example:build:development"
-        }
-      },
-      "defaultConfiguration": "development"
-    },
-    "extract-i18n": {
-      "executor": "@angular-devkit/build-angular:extract-i18n",
-      "options": {
-        "buildTarget": "example:build"
-      }
-    },
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    },
-    "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
-      "options": {
-        "jestConfig": "apps/example/jest.config.ts"
-      }
-    },
-    "serve-static": {
-      "executor": "@nx/web:file-server",
+      "executor": "@analogjs/platform:vite-dev-server",
+      "defaultConfiguration": "development",
       "options": {
         "buildTarget": "example:build",
-        "port": 4200,
-        "staticFilePath": "dist/apps/example/browser",
-        "spa": true
+        "port": 4200
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "example:build:development",
+          "hmr": true
+        },
+        "production": {
+          "buildTarget": "example:build:production"
+        }
       }
+    },
+    "test": {
+      "executor": "@analogjs/vitest-angular:test",
+      "outputs": ["{projectRoot}/coverage"]
     }
-  }
+  },
+  "tags": [],
+  "sourceRoot": "apps/example/src"
 }
