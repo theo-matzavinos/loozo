@@ -24,7 +24,9 @@ export default async function (tree: Tree) {
       continue;
     }
 
-    const icon = icons[iconName];
+    const icon = icons[iconName]
+      .replace(/width="\d+"/, '')
+      .replace(/height="\d+"/, '');
 
     generateFiles(
       tree,
