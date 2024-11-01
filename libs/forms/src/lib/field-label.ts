@@ -1,11 +1,13 @@
 import { Directive, inject } from '@angular/core';
 import { LoozoAbstractField } from './abstract-field';
 
+/** Component that renders a label for a field. */
 @Directive({
-  selector: 'label[loozoFieldLabel]',
+  selector: '[loozoFieldLabel]',
   standalone: true,
   host: {
-    '[htmlFor]': 'field.id()',
+    '[id]': 'field.labelId()',
+    '[htmlFor]': 'field.controlId()',
   },
 })
 export class LoozoFieldLabel {

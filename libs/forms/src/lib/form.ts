@@ -2,6 +2,7 @@ import { Directive, inject, input, output } from '@angular/core';
 import { AbstractControl, FormGroup } from '@angular/forms';
 import { LoozoFieldContainer } from './field-container';
 import { LoozoAbstractControlContainer } from './abstract-control-container';
+import { createFieldsProxy } from './fields-proxy';
 
 export type LoozoFormSubmitInvalid<T = unknown> = {
   valid: false;
@@ -17,8 +18,9 @@ export type LoozoFormSubmit<T = unknown> =
   | LoozoFormSubmitInvalid<T>
   | LoozoFormSubmitValid<T>;
 
-let nextId = 0;
+let uniqueId = 0;
 
+/** Directive that creates a form. */
 @Directive({
   selector: 'form[loozoForm]',
   standalone: true,
@@ -54,18 +56,30 @@ let nextId = 0;
     '(reset)': 'onReset($event)',
   },
 })
-export class LoozoForm<
-  T extends Record<string, unknown> = Record<string, unknown>,
-> extends LoozoAbstractControlContainer<T> {
-  id = input(`loozo-form-${nextId++}`);
-  initialValue = input<T | undefined>(undefined, { alias: 'loozoForm' });
+export class LoozoForm<T> extends LoozoAbstractControlContainer<T> {
+  /** @internal */
+  id = input(`loozo-form-${uniqueId++}`);
+  /**
+   * The initial value of the form (optional).
+   * Can be used to define the type of this form's value.
+   *  */
+  initialValue = input<T | undefined>(undefined);
 
-  protected override type!: T;
-
+  /** Emits everytime the form is submitted. */
   submitted = output<LoozoFormSubmit<T>>({ alias: 'loozoSubmit' });
+  /** Emits when the form is submitted and is valid. */
   submittedValid = output<T>({ alias: 'loozoSubmit.valid' });
+  /** Emits when the form is submitted and is invalid. */
   submittedInvalid = output<Partial<T>>({ alias: 'loozoSubmit.invalid' });
+  /** Emits when the form is reset. */
   resetted = output<void>({ alias: 'loozoReset' });
+
+  /**
+   * Can be used to get the property names from the form's value
+   * to be bind them to the `name` input on `loozo-field`s.
+   * You must provide the correct type with the `initialValue` input.
+   * */
+  fields = createFieldsProxy<T>();
 
   private formGroup = inject(AbstractControl, { self: true }) as FormGroup;
 
@@ -88,6 +102,12 @@ export class LoozoForm<
   protected onReset(event: Event) {
     event.preventDefault();
     event.stopImmediatePropagation();
+    this.resetted.emit();
+  }
+
+  /** Resets the form. */
+  reset(value?: T, options?: Parameters<FormGroup['reset']>[1]): void {
+    this.abstractControl.reset(value, options);
     this.resetted.emit();
   }
 }

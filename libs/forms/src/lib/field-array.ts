@@ -18,6 +18,7 @@ import { LoozoAbstractField } from './abstract-field';
 import { LoozoFieldContainer } from './field-container';
 import { LoozoAbstractControlContainer } from './abstract-control-container';
 
+/** Directive used to define a field that has an array value. */
 @Directive({
   selector: '[loozoFieldArray]',
   standalone: true,
@@ -60,14 +61,14 @@ import { LoozoAbstractControlContainer } from './abstract-control-container';
     },
   ],
 })
-export class LoozoFieldArray<T = unknown> extends LoozoAbstractField<T[]> {
+export class LoozoFieldArray<T> extends LoozoAbstractField<T[]> {
+  /** The name of the field. */
   override name = input.required<string | number>({ alias: 'loozoFieldArray' });
+  /** The type of this field's items' value (optional). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   itemType = input<T>(undefined as any, { alias: 'loozoFieldArrayType' });
 
   private formArray = inject(AbstractControl, { self: true }) as FormArray;
-
-  protected override type!: T[];
 
   private fieldArrayItemFactory = contentChild.required(
     LoozoArrayFieldItemFactory,
@@ -96,6 +97,7 @@ export class LoozoFieldArray<T = unknown> extends LoozoAbstractField<T[]> {
     });
   }
 
+  /** Adds an empty item to the array. */
   addItem() {
     const index = this.nextItemId++;
     const viewRef = this.fieldArrayItemFactory()(index);
@@ -105,6 +107,11 @@ export class LoozoFieldArray<T = unknown> extends LoozoAbstractField<T[]> {
     viewRef.onDestroy(() => {
       this.renderedItems.delete(viewRef);
     });
+  }
+
+  setValue(value: T[]) {
+    this.resetItems(value.length);
+    this._initialValue.set(value);
   }
 
   private resetItems(targetCount = 0) {

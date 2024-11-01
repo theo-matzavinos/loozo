@@ -1,11 +1,11 @@
 import {
   computed,
   contentChild,
-  Directive,
   effect,
   inject,
   input,
   untracked,
+  Directive,
 } from '@angular/core';
 import { LoozoForm } from './form';
 import {
@@ -14,14 +14,14 @@ import {
   FormControl,
   NG_VALUE_ACCESSOR,
 } from '@angular/forms';
-import { LoozoFieldControl } from './field-control';
 import { LoozoAbstractField } from './abstract-field';
 import { LoozoAbstractControlContainer } from './abstract-control-container';
 
+/** Component that contains a field. */
 @Directive({
   selector: '[loozoField]',
-  standalone: true,
   exportAs: 'loozoField',
+  standalone: true,
   providers: [
     { provide: AbstractControl, useFactory: () => new FormControl() },
     { provide: LoozoAbstractControlContainer, useExisting: LoozoField },
@@ -29,19 +29,16 @@ import { LoozoAbstractControlContainer } from './abstract-control-container';
   ],
 })
 export class LoozoField<T = unknown> extends LoozoAbstractField<T> {
-  override name = input.required<string | number>({ alias: 'loozoField' });
-
-  fieldType = input<T>(undefined as T, { alias: 'loozoFieldType' });
-
-  protected override type!: T;
+  /** The type of this field's value (optional). */
+  type = input<T>();
 
   private formControl = inject(AbstractControl, {
     self: true,
   }) as FormControl<T>;
   private form = inject(LoozoForm);
 
-  private valueAccessorsQuery = contentChild.required(LoozoFieldControl, {
-    read: NG_VALUE_ACCESSOR,
+  private valueAccessorsQuery = contentChild.required(NG_VALUE_ACCESSOR, {
+    descendants: true,
   });
   private valueAccessors = computed<ControlValueAccessor[]>(() => {
     const result = this.valueAccessorsQuery();
@@ -101,5 +98,23 @@ export class LoozoField<T = unknown> extends LoozoAbstractField<T> {
         valueAccessor.writeValue(initialValue);
       }
     });
+  }
+
+  /** Sets the value of the control. */
+  setValue(value: T, options?: Parameters<FormControl['setValue']>[1]): void {
+    throw this.abstractControl.setValue(value, options);
+  }
+
+  /** Patches the value of the control. */
+  patchValue(
+    value: T,
+    options?: Parameters<FormControl['patchValue']>[1],
+  ): void {
+    this.abstractControl.patchValue(value, options);
+  }
+
+  /** Resets the control. */
+  reset(value?: T, options?: Parameters<FormControl['reset']>[1]): void {
+    this.abstractControl.reset(value, options);
   }
 }

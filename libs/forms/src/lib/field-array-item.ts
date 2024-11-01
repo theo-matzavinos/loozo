@@ -16,8 +16,10 @@ export type LoozoFieldArrayItemContext = {
   remove: () => void;
 };
 
+/** Structural directive used to define the template of a `FieldArray`'s items. */
 @Directive({
   selector: '[loozoFieldArrayItem]',
+  exportAs: 'loozoFieldArrayItem',
   standalone: true,
   providers: [
     {
@@ -44,6 +46,7 @@ export type LoozoFieldArrayItemContext = {
   ],
 })
 export class LoozoFieldArrayItem {
+  /** @internal */
   template = inject<TemplateRef<LoozoFieldArrayItemContext>>(TemplateRef, {
     self: true,
   });

@@ -14,12 +14,14 @@ import { AbstractControl } from '@angular/forms';
 import { LoozoFieldContainer } from './field-container';
 import { LoozoAbstractControlContainer } from './abstract-control-container';
 
+/** Base class for components that map to a field of a form's value. */
 @Directive({
   standalone: true,
 })
 export abstract class LoozoAbstractField<
   T = unknown,
 > extends LoozoAbstractControlContainer {
+  /** Name of the field */
   name = input.required<string | number>();
 
   protected override abstractControl = inject<AbstractControl<T>>(
@@ -32,6 +34,7 @@ export abstract class LoozoAbstractField<
   private parent = inject(LoozoFieldContainer, {
     skipSelf: true,
   });
+  /** @internal */
   id: Signal<string> = computed(() => {
     if (!this.parent) {
       return `${this.name()}`;
@@ -39,17 +42,22 @@ export abstract class LoozoAbstractField<
 
     return `${this.parent.id()}-${this.name()}`;
   });
-  private initialValueHack = signal<() => T | undefined>(() => undefined as T);
-  initialValue = computed(() => this.initialValueHack()());
+  /** @internal */
+  labelId = computed(() => `${this.id()}-label`);
+  /** @internal */
+  controlId = computed(() => `${this.id()}-control`);
+
+  protected _initialValue = signal<T | undefined>(undefined);
+  /** @internal */
+  initialValue = this._initialValue.asReadonly();
 
   constructor() {
     super();
     const injector = inject(Injector);
 
     afterNextRender(() => {
-      this.initialValueHack.set(() =>
-        this.parent.getInitialValue<T>(this.name()),
-      );
+      // WARNING!! HERE BE DRAGONS!
+      this._initialValue.set(this.parent.getInitialValue<T>(this.name()));
 
       effect(
         (onCleanup) => {

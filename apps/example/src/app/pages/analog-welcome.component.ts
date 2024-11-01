@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'example-analog-welcome',
@@ -7,6 +8,7 @@ import { Component } from '@angular/core';
     class:
       'flex min-h-screen flex-col text-zinc-900 bg-zinc-50 px-4 pt-8 pb-32',
   },
+  imports: [RouterLink],
   template: `
     <main class="flex-1 mx-auto">
       <section class="space-y-6 pb-8 pt-6 md:pb-12 md:pt-10 lg:py-32">
@@ -67,6 +69,7 @@ import { Component } from '@angular/core';
           >
             Count: <span class="ml-1 font-mono">{{ count }}</span>
           </button>
+          <a [routerLink]="['/', 'form']">Form</a>
         </div>
       </section>
     </main>

@@ -1,10 +1,20 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
-import { LoozoFormImports, LoozoFormSubmit } from '@loozo/forms';
-import { Label } from '../shared/label';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import {
+  LoozoFieldArray,
+  LoozoFieldArrayItem,
+  LoozoFieldGroup,
+  LoozoForm,
+  LoozoFormSubmit,
+} from '@loozo/forms';
 import { Input } from '../shared/input';
 import { Button } from '../shared/button';
+import { Field } from '../shared/form/field';
+import { FieldLabel } from '../shared/form/field-label';
+import { RequiredValidator } from '../shared/form/required-validator';
+import { LoozoMaxLengthValidator } from '../shared/form/max-length-validator';
+import { MaxValidator } from '../shared/form/max-validator';
 
-export type Form = {
+export type FormValue = {
   name: string;
   address: {
     street: string;
@@ -16,47 +26,59 @@ export type Form = {
 @Component({
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Label, Input, Button, LoozoFormImports],
+  imports: [
+    Input,
+    Button,
+    LoozoForm,
+    Field,
+    FieldLabel,
+    RequiredValidator,
+    LoozoMaxLengthValidator,
+    MaxValidator,
+    LoozoFieldGroup,
+    LoozoFieldArray,
+    LoozoFieldArrayItem,
+  ],
   template: `
     <form
-      [loozoForm]="formValue()"
+      #form="loozoForm"
+      loozoForm
+      [initialValue]="formValue"
       (loozoSubmit)="submit($event)"
       (loozoSubmit.invalid)="submitInvalid($event)"
       (loozoSubmit.valid)="submitValid($event)"
     >
       <div class="flex gap-2">
-        <button type="reset" appBtn>Submit</button>
+        <button type="submit" appBtn>Submit</button>
         <button type="reset" appBtn variant="secondary">Reset</button>
       </div>
 
-      <div #name="loozoField" loozoField="name">
-        <label loozoFieldLabel appLabel>Name</label>
-        <input loozoFieldControl appInput />
-        <div *loozoRequiredValidator>Required</div>
-        <div *loozoMaxValidator="10">Max value 10</div>
+      <app-field [name]="form.fields.name">
+        <label appFieldLabel>Name</label>
+        <input appInput />
+        <app-required-validator />
+        <app-max-validator value="10" />
+      </app-field>
 
-        <!-- @if (a.invalid()) {
-          @for (message of a.validationMessages(); track message) {
-            <ng-container [ngTemplateOutlet]="message" />
-          }
-        } -->
-      </div>
+      <fieldset
+        #address="loozoFieldGroup"
+        [loozoFieldGroup]="form.fields.address"
+        [loozoFieldGroupType]="formValue?.address"
+      >
+        <legend>Address</legend>
 
-      <fieldset loozoFieldGroup="address">
-        <legend appLabel>Address</legend>
+        <app-field [name]="address.fields.street">
+          <label appLabel>Street</label>
+          <input appInput />
+        </app-field>
 
-        <div loozoField="street">
-          <label loozoFieldLabel appLabel>Street</label>
-          <input loozoFieldControl appInput />
-        </div>
-
-        <div loozoField="number">
-          <label loozoFieldLabel appLabel>Number</label>
-          <input loozoFieldControl appInput />
-        </div>
+        <app-field [name]="address.fields.number">
+          <label appLabel>Number</label>
+          <input appInput />
+        </app-field>
       </fieldset>
 
-      <fieldset #email="loozoFieldArray" loozoFieldArray="email">
+      <fieldset #email="loozoFieldArray" [loozoFieldArray]="form.fields.email">
         <legend>
           Email
           <button type="button" appBtn size="sm" (click)="email.addItem()">
@@ -65,10 +87,7 @@ export type Form = {
         </legend>
 
         <ul>
-          <li
-            *loozoFieldArrayItem="let index; let remove = remove"
-            [loozoField]="index"
-          >
+          <li *loozoFieldArrayItem="let index; let remove = remove">
             <button
               type="button"
               appBtn
@@ -78,7 +97,9 @@ export type Form = {
             >
               Remove
             </button>
-            <input loozoFieldControl appInput />
+            <app-field [name]="index">
+              <input appInput />
+            </app-field>
           </li>
         </ul>
       </fieldset>
@@ -86,24 +107,17 @@ export type Form = {
   `,
 })
 export default class FormPage {
-  formValue = signal<Form>({
-    name: '',
-    address: {
-      number: '',
-      street: '',
-    },
-    email: [],
-  });
+  formValue!: FormValue;
 
   submit(event: LoozoFormSubmit) {
     console.log('Submit', event);
   }
 
-  submitInvalid(event: Partial<Form>) {
+  submitInvalid(event: Partial<FormValue>) {
     console.log('Submit Invalid', event);
   }
 
-  submitValid(event: Form) {
+  submitValid(event: FormValue) {
     console.log('Submit Valid', event);
   }
 }
