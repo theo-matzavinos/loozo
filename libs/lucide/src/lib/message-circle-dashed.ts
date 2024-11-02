@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-message-circle-dashed
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNMTMuNSAzLjFjLS41IDAtMS0uMS0xLjUtLjFzLTEgLjEtMS41LjEiIC8+CiAgPHBhdGggZD0iTTE5LjMgNi44YTEwLjQ1IDEwLjQ1IDAgMCAwLTIuMS0yLjEiIC8+CiAgPHBhdGggZD0iTTIwLjkgMTMuNWMuMS0uNS4xLTEgLjEtMS41cy0uMS0xLS4xLTEuNSIgLz4KICA8cGF0aCBkPSJNMTcuMiAxOS4zYTEwLjQ1IDEwLjQ1IDAgMCAwIDIuMS0yLjEiIC8+CiAgPHBhdGggZD0iTTEwLjUgMjAuOWMuNS4xIDEgLjEgMS41LjFzMS0uMSAxLjUtLjEiIC8+CiAgPHBhdGggZD0iTTMuNSAxNy41IDIgMjJsNC41LTEuNSIgLz4KICA8cGF0aCBkPSJNMy4xIDEwLjVjMCAuNS0uMSAxLS4xIDEuNXMuMSAxIC4xIDEuNSIgLz4KICA8cGF0aCBkPSJNNi44IDQuN2ExMC40NSAxMC40NSAwIDAgMC0yLjEgMi4xIiAvPgo8L3N2Zz4K) - https://lucide.dev/icons/message-circle-dashed
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-message-circle-dashed',
   standalone: true,

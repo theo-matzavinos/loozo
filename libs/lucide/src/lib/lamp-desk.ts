@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-lamp-desk
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJtMTQgNS0zIDMgMiA3IDgtOC03LTJaIiAvPgogIDxwYXRoIGQ9Im0xNCA1LTMgMy0zLTMgMy0zIDMgM1oiIC8+CiAgPHBhdGggZD0iTTkuNSA2LjUgNCAxMmwzIDYiIC8+CiAgPHBhdGggZD0iTTMgMjJ2LTJjMC0xLjEuOS0yIDItMmg0YTIgMiAwIDAgMSAyIDJ2MkgzWiIgLz4KPC9zdmc+Cg==) - https://lucide.dev/icons/lamp-desk
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-lamp-desk',
   standalone: true,

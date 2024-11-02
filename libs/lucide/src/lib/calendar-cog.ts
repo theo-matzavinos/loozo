@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-calendar-cog
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJtMTUuMiAxNi45LS45LS40IiAvPgogIDxwYXRoIGQ9Im0xNS4yIDE5LjEtLjkuNCIgLz4KICA8cGF0aCBkPSJNMTYgMnY0IiAvPgogIDxwYXRoIGQ9Im0xNi45IDE1LjItLjQtLjkiIC8+CiAgPHBhdGggZD0ibTE2LjkgMjAuOC0uNC45IiAvPgogIDxwYXRoIGQ9Im0xOS41IDE0LjMtLjQuOSIgLz4KICA8cGF0aCBkPSJtMTkuNSAyMS43LS40LS45IiAvPgogIDxwYXRoIGQ9Ik0yMSAxMC41VjZhMiAyIDAgMCAwLTItMkg1YTIgMiAwIDAgMC0yIDJ2MTRhMiAyIDAgMCAwIDIgMmg2IiAvPgogIDxwYXRoIGQ9Im0yMS43IDE2LjUtLjkuNCIgLz4KICA8cGF0aCBkPSJtMjEuNyAxOS41LS45LS40IiAvPgogIDxwYXRoIGQ9Ik0zIDEwaDE4IiAvPgogIDxwYXRoIGQ9Ik04IDJ2NCIgLz4KICA8Y2lyY2xlIGN4PSIxOCIgY3k9IjE4IiByPSIzIiAvPgo8L3N2Zz4K) - https://lucide.dev/icons/calendar-cog
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-calendar-cog',
   standalone: true,

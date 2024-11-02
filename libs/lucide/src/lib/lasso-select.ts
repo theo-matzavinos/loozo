@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-lasso-select
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNNyAyMmE1IDUgMCAwIDEtMi00IiAvPgogIDxwYXRoIGQ9Ik03IDE2LjkzYy45Ni40MyAxLjk2Ljc0IDIuOTkuOTEiIC8+CiAgPHBhdGggZD0iTTMuMzQgMTRBNi44IDYuOCAwIDAgMSAyIDEwYzAtNC40MiA0LjQ4LTggMTAtOHMxMCAzLjU4IDEwIDhhNy4xOSA3LjE5IDAgMCAxLS4zMyAyIiAvPgogIDxwYXRoIGQ9Ik01IDE4YTIgMiAwIDEgMCAwLTQgMiAyIDAgMCAwIDAgNHoiIC8+CiAgPHBhdGggZD0iTTE0LjMzIDIyaC0uMDlhLjM1LjM1IDAgMCAxLS4yNC0uMzJ2LTEwYS4zNC4zNCAwIDAgMSAuMzMtLjM0Yy4wOCAwIC4xNS4wMy4yMS4wOGw3LjM0IDZhLjMzLjMzIDAgMCAxLS4yMS41OWgtNC40OWwtMi41NyAzLjg1YS4zNS4zNSAwIDAgMS0uMjguMTR6IiAvPgo8L3N2Zz4K) - https://lucide.dev/icons/lasso-select
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-lasso-select',
   standalone: true,

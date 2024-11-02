@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-user-round-cog
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNMiAyMWE4IDggMCAwIDEgMTAuNDM0LTcuNjIiIC8+CiAgPGNpcmNsZSBjeD0iMTAiIGN5PSI4IiByPSI1IiAvPgogIDxjaXJjbGUgY3g9IjE4IiBjeT0iMTgiIHI9IjMiIC8+CiAgPHBhdGggZD0ibTE5LjUgMTQuMy0uNC45IiAvPgogIDxwYXRoIGQ9Im0xNi45IDIwLjgtLjQuOSIgLz4KICA8cGF0aCBkPSJtMjEuNyAxOS41LS45LS40IiAvPgogIDxwYXRoIGQ9Im0xNS4yIDE2LjktLjktLjQiIC8+CiAgPHBhdGggZD0ibTIxLjcgMTYuNS0uOS40IiAvPgogIDxwYXRoIGQ9Im0xNS4yIDE5LjEtLjkuNCIgLz4KICA8cGF0aCBkPSJtMTkuNSAyMS43LS40LS45IiAvPgogIDxwYXRoIGQ9Im0xNi45IDE1LjItLjQtLjkiIC8+Cjwvc3ZnPgo=) - https://lucide.dev/icons/user-round-cog
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-user-round-cog',
   standalone: true,

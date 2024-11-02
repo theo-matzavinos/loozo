@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-train-front-tunnel
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNMiAyMlYxMmExMCAxMCAwIDEgMSAyMCAwdjEwIiAvPgogIDxwYXRoIGQ9Ik0xNSA2Ljh2MS40YTMgMi44IDAgMSAxLTYgMFY2LjgiIC8+CiAgPHBhdGggZD0iTTEwIDE1aC4wMSIgLz4KICA8cGF0aCBkPSJNMTQgMTVoLjAxIiAvPgogIDxwYXRoIGQ9Ik0xMCAxOWE0IDQgMCAwIDEtNC00di0zYTYgNiAwIDEgMSAxMiAwdjNhNCA0IDAgMCAxLTQgNFoiIC8+CiAgPHBhdGggZD0ibTkgMTktMiAzIiAvPgogIDxwYXRoIGQ9Im0xNSAxOSAyIDMiIC8+Cjwvc3ZnPgo=) - https://lucide.dev/icons/train-front-tunnel
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-train-front-tunnel',
   standalone: true,

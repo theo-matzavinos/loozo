@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-hand-metal
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNMTggMTIuNVYxMGEyIDIgMCAwIDAtMi0yYTIgMiAwIDAgMC0yIDJ2MS40IiAvPgogIDxwYXRoIGQ9Ik0xNCAxMVY5YTIgMiAwIDEgMC00IDB2MiIgLz4KICA8cGF0aCBkPSJNMTAgMTAuNVY1YTIgMiAwIDEgMC00IDB2OSIgLz4KICA8cGF0aCBkPSJtNyAxNS0xLjc2LTEuNzZhMiAyIDAgMCAwLTIuODMgMi44MmwzLjYgMy42QzcuNSAyMS4xNCA5LjIgMjIgMTIgMjJoMmE4IDggMCAwIDAgOC04VjdhMiAyIDAgMSAwLTQgMHY1IiAvPgo8L3N2Zz4K) - https://lucide.dev/icons/hand-metal
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-hand-metal',
   standalone: true,

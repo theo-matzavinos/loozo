@@ -10,23 +10,27 @@ export default async function (tree: Tree) {
       '../../../../node_modules/lucide-static/dist/lucide-static.d.ts',
     ),
   );
-  const deprecatedMatches = declarationFile
-    .toString()
-    .matchAll(/@deprecated.+\n.+\n\s*declare const (.+):/gm);
-  const deprecated = [];
-
-  for (const match of deprecatedMatches) {
-    deprecated.push(match[1]);
-  }
 
   for (const iconName in icons) {
-    if (deprecated.includes(iconName)) {
+    const iconJsDocEndIndex = declarationFile.indexOf(
+      `declare const ${iconName}`,
+    );
+    const iconJsDocStartIndex = declarationFile
+      .subarray(0, iconJsDocEndIndex)
+      .lastIndexOf('/**');
+    const iconJsDoc = declarationFile
+      .subarray(iconJsDocStartIndex, iconJsDocEndIndex)
+      .toString();
+
+    if (/@deprecated/.test(iconJsDoc)) {
       continue;
     }
 
     const icon = icons[iconName]
       .replace(/width="\d+"/, '')
       .replace(/height="\d+"/, '');
+    const [, preview] = /@preview (.+)\n/.exec(iconJsDoc);
+    const [, docs] = /@see (.+)\n/.exec(iconJsDoc);
 
     generateFiles(
       tree,
@@ -36,6 +40,8 @@ export default async function (tree: Tree) {
         tmpl: '',
         ...names(iconName),
         icon,
+        preview,
+        docs,
       },
     );
   }

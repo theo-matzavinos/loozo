@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-heart-off
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8bGluZSB4MT0iMiIgeTE9IjIiIHgyPSIyMiIgeTI9IjIyIiAvPgogIDxwYXRoIGQ9Ik0xNi41IDE2LjUgMTIgMjFsLTctN2MtMS41LTEuNDUtMy0zLjItMy01LjVhNS41IDUuNSAwIDAgMSAyLjE0LTQuMzUiIC8+CiAgPHBhdGggZD0iTTguNzYgMy4xYzEuMTUuMjIgMi4xMy43OCAzLjI0IDEuOSAxLjUtMS41IDIuNzQtMiA0LjUtMkE1LjUgNS41IDAgMCAxIDIyIDguNWMwIDIuMTItMS4zIDMuNzgtMi42NyA1LjE3IiAvPgo8L3N2Zz4K) - https://lucide.dev/icons/heart-off
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-heart-off',
   standalone: true,

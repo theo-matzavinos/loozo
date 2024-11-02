@@ -1,6 +1,12 @@
 // THIS FILE IS GENERATED!!!
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 
+/**
+ * @name lucide-beer
+ *
+ * @preview ![img](data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogIHdpZHRoPSIyNCIKICBoZWlnaHQ9IjI0IgogIHZpZXdCb3g9IjAgMCAyNCAyNCIKICBmaWxsPSJub25lIgogIHN0cm9rZT0iIzAwMCIgc3R5bGU9ImJhY2tncm91bmQtY29sb3I6ICNmZmY7IGJvcmRlci1yYWRpdXM6IDJweCIKICBzdHJva2Utd2lkdGg9IjIiCiAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogIHN0cm9rZS1saW5lam9pbj0icm91bmQiCj4KICA8cGF0aCBkPSJNMTMgMTN2NSIgLz4KICA8cGF0aCBkPSJNMTcgMTEuNDdWOCIgLz4KICA8cGF0aCBkPSJNMTcgMTFoMWEzIDMgMCAwIDEgMi43NDUgNC4yMTEiIC8+CiAgPHBhdGggZD0ibTIgMiAyMCAyMCIgLz4KICA8cGF0aCBkPSJNNSA4djEyYTIgMiAwIDAgMCAyIDJoOGEyIDIgMCAwIDAgMi0ydi0zIiAvPgogIDxwYXRoIGQ9Ik03LjUzNiA3LjUzNUM2Ljc2NiA3LjY0OSA2LjE1NCA4IDUuNSA4YTIuNSAyLjUgMCAwIDEtMS43NjgtNC4yNjgiIC8+CiAgPHBhdGggZD0iTTguNzI3IDMuMjA0QzkuMzA2IDIuNzY3IDkuODg1IDIgMTEgMmMxLjU2IDAgMiAxLjUgMyAxLjVzMS43Mi0uNSAyLjUtLjVhMSAxIDAgMSAxIDAgNWMtLjc4IDAtMS41LS41LTIuNS0uNWEzLjE0OSAzLjE0OSAwIDAgMC0uODQyLjEyIiAvPgogIDxwYXRoIGQ9Ik05IDE0LjZWMTgiIC8+Cjwvc3ZnPgo=) - https://lucide.dev/icons/beer-off
+ * @see https://lucide.dev/guide/packages/lucide-static - Documentation
+ */
 @Component({
   selector: 'lucide-beer',
   standalone: true,

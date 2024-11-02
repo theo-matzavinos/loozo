@@ -74,7 +74,7 @@
     "jest-preset-angular": "~14.1.0",
     "jsdom": "^22.1.0",
     "jsonc-eslint-parser": "^2.1.0",
-    "lucide-static": "^0.439.0",
+    "lucide-static": "^0.454.0",
     "ng-packagr": "~18.2.0",
     "nx": "19.7.2",
     "postcss": "^8.4.5",
