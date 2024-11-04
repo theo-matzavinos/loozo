@@ -1,10 +1,8 @@
 import {
-  afterNextRender,
   computed,
   Directive,
   effect,
   inject,
-  Injector,
   input,
   signal,
   Signal,
@@ -22,7 +20,7 @@ export abstract class LoozoAbstractField<
   T = unknown,
 > extends LoozoAbstractControlContainer {
   /** Name of the field */
-  name = input.required<string | number>();
+  _name = input.required<string | number>();
 
   protected override abstractControl = inject<AbstractControl<T>>(
     AbstractControl,
@@ -37,40 +35,33 @@ export abstract class LoozoAbstractField<
   /** @internal */
   id: Signal<string> = computed(() => {
     if (!this.parent) {
-      return `${this.name()}`;
+      return `${this._name()}`;
     }
 
-    return `${this.parent.id()}-${this.name()}`;
+    return `${this.parent.id()}-${this._name()}`;
   });
   /** @internal */
   labelId = computed(() => `${this.id()}-label`);
   /** @internal */
   controlId = computed(() => `${this.id()}-control`);
 
-  protected _initialValue = signal<T | undefined>(undefined);
+  protected _initialValue = computed(() =>
+    signal<T | undefined>(this.parent.getInitialValue(this._name())),
+  );
   /** @internal */
-  initialValue = this._initialValue.asReadonly();
+  initialValue = computed(() => this._initialValue()());
 
   constructor() {
     super();
-    const injector = inject(Injector);
 
-    afterNextRender(() => {
-      // WARNING!! HERE BE DRAGONS!
-      this._initialValue.set(this.parent.getInitialValue<T>(this.name()));
+    effect((onCleanup) => {
+      const name = this._name();
 
-      effect(
-        (onCleanup) => {
-          const name = this.name();
+      untracked(() => {
+        this.parent.addField(name, this.abstractControl);
+      });
 
-          untracked(() => {
-            this.parent.addField(name, this.abstractControl);
-          });
-
-          onCleanup(() => this.parent.removeField(name));
-        },
-        { injector },
-      );
+      onCleanup(() => this.parent.removeField(name));
     });
   }
 }

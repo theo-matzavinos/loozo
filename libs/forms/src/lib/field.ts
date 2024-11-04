@@ -29,6 +29,7 @@ import { LoozoAbstractControlContainer } from './abstract-control-container';
   ],
 })
 export class LoozoField<T = unknown> extends LoozoAbstractField<T> {
+  override _name = input.required<string | number>({ alias: 'loozoField' });
   /** The type of this field's value (optional). */
   type = input<T>();
 

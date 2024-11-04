@@ -38,7 +38,9 @@ import { createFieldsProxy } from './fields-proxy';
 })
 export class LoozoFieldGroup<T> extends LoozoAbstractField<T> {
   /** The name of the field. */
-  override name = input.required<string | number>({ alias: 'loozoFieldGroup' });
+  override _name = input.required<string | number>({
+    alias: 'loozoFieldGroup',
+  });
   /** The type of this field's value (optional). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   valueType = input<T>(undefined as any, { alias: 'loozoFieldGroupType' });

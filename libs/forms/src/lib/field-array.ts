@@ -63,7 +63,9 @@ import { LoozoAbstractControlContainer } from './abstract-control-container';
 })
 export class LoozoFieldArray<T> extends LoozoAbstractField<T[]> {
   /** The name of the field. */
-  override name = input.required<string | number>({ alias: 'loozoFieldArray' });
+  override _name = input.required<string | number>({
+    alias: 'loozoFieldArray',
+  });
   /** The type of this field's items' value (optional). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   itemType = input<T>(undefined as any, { alias: 'loozoFieldArrayType' });
@@ -111,7 +113,7 @@ export class LoozoFieldArray<T> extends LoozoAbstractField<T[]> {
 
   setValue(value: T[]) {
     this.resetItems(value.length);
-    this._initialValue.set(value);
+    this._initialValue().set(value);
   }
 
   private resetItems(targetCount = 0) {
