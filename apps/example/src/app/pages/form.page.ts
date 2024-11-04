@@ -11,8 +11,11 @@ import { Button } from '../shared/button';
 import { Field } from '../shared/form/field';
 import { FieldLabel } from '../shared/form/field-label';
 import { RequiredValidator } from '../shared/form/required-validator';
-import { LoozoMaxLengthValidator } from '../shared/form/max-length-validator';
+import { MaxLengthValidator } from '../shared/form/max-length-validator';
 import { MaxValidator } from '../shared/form/max-validator';
+import { Form } from '../shared/form/form';
+import { FieldGroup } from '../shared/form/field-group';
+import { FormImports } from '../shared/form';
 
 export type FormValue = {
   name: string;
@@ -26,83 +29,61 @@ export type FormValue = {
 @Component({
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    Input,
-    Button,
-    LoozoForm,
-    Field,
-    FieldLabel,
-    RequiredValidator,
-    LoozoMaxLengthValidator,
-    MaxValidator,
-    LoozoFieldGroup,
-    LoozoFieldArray,
-    LoozoFieldArrayItem,
-  ],
+  imports: [Input, Button, FormImports],
+  host: {
+    class: 'block py-6',
+  },
   template: `
     <form
-      #form="loozoForm"
-      loozoForm
+      #form="appForm"
+      appForm
       [initialValue]="formValue"
-      (loozoSubmit)="submit($event)"
-      (loozoSubmit.invalid)="submitInvalid($event)"
-      (loozoSubmit.valid)="submitValid($event)"
+      (formSubmit)="submit($event)"
+      (formSubmit.invalid)="submitInvalid($event)"
+      (formSubmit.valid)="submitValid($event)"
     >
-      <div class="flex gap-2">
+      <div class="flex gap-2 p-1 border border-border rounded">
         <button type="submit" appBtn>Submit</button>
         <button type="reset" appBtn variant="secondary">Reset</button>
       </div>
 
-      <app-field [name]="form.fields.name">
-        <label appFieldLabel>Name</label>
+      <app-field [name]="form.api.fields.name">
+        <app-field-label>Name</app-field-label>
         <input appInput />
         <app-required-validator />
         <app-max-validator value="10" />
       </app-field>
 
-      <fieldset
-        #address="loozoFieldGroup"
-        [loozoFieldGroup]="form.fields.address"
-        [loozoFieldGroupType]="formValue?.address"
+      <app-field-group
+        #address
+        [name]="form.api.fields.address"
+        [type]="formValue?.address"
       >
-        <legend>Address</legend>
+        <app-field-label>Address</app-field-label>
 
-        <app-field [name]="address.fields.street">
-          <label appLabel>Street</label>
+        <app-field [name]="address.api.fields.street">
+          <app-field-label>Street</app-field-label>
           <input appInput />
         </app-field>
 
-        <app-field [name]="address.fields.number">
-          <label appLabel>Number</label>
+        <app-field [name]="address.api.fields.number">
+          <app-field-label>Number</app-field-label>
           <input appInput />
         </app-field>
-      </fieldset>
+      </app-field-group>
 
-      <fieldset #email="loozoFieldArray" [loozoFieldArray]="form.fields.email">
-        <legend>
-          Email
-          <button type="button" appBtn size="sm" (click)="email.addItem()">
-            Add
-          </button>
-        </legend>
+      <app-field-array #email [name]="form.api.fields.email">
+        <app-field-label> Email </app-field-label>
 
-        <ul>
-          <li *loozoFieldArrayItem="let index; let remove = remove">
-            <button
-              type="button"
-              appBtn
-              variant="destructive"
-              size="sm"
-              (click)="remove()"
-            >
-              Remove
-            </button>
-            <app-field [name]="index">
-              <input appInput />
-            </app-field>
-          </li>
-        </ul>
-      </fieldset>
+        <app-field-array-item
+          *appFieldArrayItem="let index; let remove = remove"
+          (remove)="remove()"
+        >
+          <app-field [name]="index">
+            <input appInput />
+          </app-field>
+        </app-field-array-item>
+      </app-field-array>
     </form>
   `,
 })

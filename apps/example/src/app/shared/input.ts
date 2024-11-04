@@ -29,7 +29,7 @@ const inputClasses = [
   'disabled:cursor-not-allowed',
   'disabled:opacity-50',
   'group-data-[touched]/field:group-data-[invalid]/field:text-destructive',
-  'group-data-[touched]/field:group-data-[invalid]/field:border-b-destructive',
+  'group-data-[touched]/field:group-data-[invalid]/field:border-destructive',
   'group-data-[touched]/field:group-data-[invalid]/field:placeholder-destructive',
 ];
 

@@ -6,8 +6,8 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { ClassValue } from 'clsx';
-import { JsonPipe, NgTemplateOutlet } from '@angular/common';
-import { LoozoField } from '@loozo/forms';
+import { NgTemplateOutlet } from '@angular/common';
+import { LoozoField, LoozoFieldLabel } from '@loozo/forms';
 import { mergeClasses } from '../merge-classes';
 
 /** Component that contains a field. */
@@ -18,18 +18,23 @@ import { mergeClasses } from '../merge-classes';
   hostDirectives: [
     {
       directive: LoozoField,
-      inputs: ['name', 'type'],
+      inputs: ['loozoField:name', 'type'],
+      outputs: ['valueChange', 'statusChange', 'controlEvent'],
     },
   ],
   host: {
     '[class]': 'computedClass()',
   },
-  imports: [NgTemplateOutlet, JsonPipe],
+  imports: [NgTemplateOutlet, LoozoFieldLabel],
   template: `
+    <label class="contents" loozoFieldLabel>
+      <ng-content select="app-field-label" />
+    </label>
+
     <ng-content />
 
-    @if (loozoField.touched() && loozoField.validationMessages().length) {
-      <ng-container [ngTemplateOutlet]="loozoField.validationMessages()[0]" />
+    @if (api.touched() && api.validationMessages().length) {
+      <ng-container [ngTemplateOutlet]="api.validationMessages()[0]" />
     }
   `,
 })
@@ -37,9 +42,9 @@ export class Field<T> {
   /** @internal */
   class = input<ClassValue>();
 
-  loozoField = inject<LoozoField<T>>(LoozoField);
+  api = inject<LoozoField<T>>(LoozoField);
 
   protected computedClass = computed(() =>
-    mergeClasses('block relative group/field pb-5', this.class()),
+    mergeClasses('block relative group/field pb-6', this.class()),
   );
 }

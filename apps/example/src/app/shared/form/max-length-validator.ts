@@ -20,7 +20,7 @@ import { LoozoValidator } from '@loozo/forms';
   providers: [
     {
       provide: LoozoValidator,
-      useExisting: LoozoMaxLengthValidator,
+      useExisting: MaxLengthValidator,
     },
   ],
   imports: [ValidationMessage],
@@ -34,7 +34,7 @@ import { LoozoValidator } from '@loozo/forms';
     </ng-template>
   `,
 })
-export class LoozoMaxLengthValidator implements LoozoValidator {
+export class MaxLengthValidator implements LoozoValidator {
   /** Max length value. */
   value = input.required({ transform: numberAttribute });
   /** @internal */

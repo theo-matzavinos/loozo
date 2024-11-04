@@ -1,11 +1,9 @@
 import { Component } from '@angular/core';
 
-import { AnalogWelcomeComponent } from './analog-welcome.component';
-
 @Component({
-  selector: 'example-home',
+  selector: 'app-home',
   standalone: true,
-  imports: [AnalogWelcomeComponent],
-  template: ` <example-analog-welcome /> `,
+  imports: [],
+  template: ``,
 })
-export default class HomeComponent {}
+export default class HomePage {}

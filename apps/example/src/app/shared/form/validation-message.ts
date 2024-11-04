@@ -17,7 +17,7 @@ export class ValidationMessage {
 
   protected computedClass = computed(() =>
     mergeClasses(
-      'absolute -bottom-2 left-0 text-destructive text-sm truncate',
+      'absolute bottom-0 left-0 text-destructive text-sm truncate',
       this.class(),
     ),
   );

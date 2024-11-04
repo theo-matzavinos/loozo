@@ -1,17 +1,17 @@
-import { Directive } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { Label } from '../label';
-import { LoozoFieldLabel } from '@loozo/forms';
 
 /** Component that renders a label for a field. */
-@Directive({
-  selector: 'label[appFieldLabel]',
+@Component({
+  selector: 'app-field-label',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   hostDirectives: [
-    LoozoFieldLabel,
     {
       directive: Label,
       inputs: ['class'],
     },
   ],
+  template: `<ng-content />`,
 })
 export class FieldLabel {}
