@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "defaultProject": "docs",
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
@@ -71,6 +72,14 @@
     },
     "@nx/angular:component": {
       "style": "css"
+    },
+    "@nx/angular:library-secondary-entry-point": {
+      "library": "radian",
+      "skipModule": true
+    },
+    "@ng-doc/builder:page": {
+      "category": true,
+      "path": "docs/src/app/components"
     }
   },
   "release": {
@@ -93,5 +102,6 @@
         }
       }
     }
-  }
+  },
+  "useLegacyCache": true
 }

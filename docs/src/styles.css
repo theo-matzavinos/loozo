@@ -1,0 +1,116 @@
+/* You can add global styles to this file, and also import other style files */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: '';
+}
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 224 71.4% 4.1%;
+  --muted: 220 14.3% 95.9%;
+  --muted-foreground: 220 8.9% 46.1%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 224 71.4% 4.1%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 71.4% 4.1%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --primary: 262.1 83.3% 57.8%;
+  --primary-foreground: 210 20% 98%;
+  --secondary: 220 14.3% 95.9%;
+  --secondary-foreground: 220.9 39.3% 11%;
+  --accent: 220 14.3% 95.9%;
+  --accent-foreground: 220.9 39.3% 11%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 20% 98%;
+  --ring: 262.1 83.3% 57.8%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+}
+
+.dark,
+[data-theme='dark'] {
+  --background: 224 71.4% 4.1%;
+  --foreground: 210 20% 98%;
+  --muted: 215 27.9% 16.9%;
+  --muted-foreground: 217.9 10.6% 64.9%;
+  --popover: 224 71.4% 4.1%;
+  --popover-foreground: 210 20% 98%;
+  --card: 224 71.4% 4.1%;
+  --card-foreground: 210 20% 98%;
+  --border: 215 27.9% 16.9%;
+  --input: 215 27.9% 16.9%;
+  --primary: 263.4 70% 50.4%;
+  --primary-foreground: 210 20% 98%;
+  --secondary: 215 27.9% 16.9%;
+  --secondary-foreground: 210 20% 98%;
+  --accent: 215 27.9% 16.9%;
+  --accent-foreground: 210 20% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 20% 98%;
+  --ring: 263.4 70% 50.4%;
+  --sidebar-background: 230 15.9% 9%;
+  --sidebar-foreground: 240 4.8% 95.9%;
+  --sidebar-primary: 224.3 76.3% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3.7% 15.9%;
+  --sidebar-accent-foreground: 240 4.8% 95.9%;
+  --sidebar-border: 240 3.7% 15.9%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+:root {
+  --ng-doc-primary: hsl(var(--primary));
+  --ng-doc-primary-text: hsl(var(--primary-foreground));
+
+  --ng-doc-alert: hsl(var(--destructive));
+  --ng-doc-alert-text: hsl(var(--destructive-foreground));
+
+  --ng-doc-warning: hsl(var(--accent));
+  --ng-doc-warning-text: hsl(var(--accent-foreground));
+
+  --ng-doc-info: hsl(var(--muted));
+  --ng-doc-info-text: hsl(var(--muted-foreground));
+
+  --ng-doc-success: hsl(var(--secondary));
+  --ng-doc-success-text: hsl(var(--secondary-foreground));
+
+  --ng-doc-background: hsl(var(--background));
+  --ng-doc-hover-background: hsl(var(--primary-foreground) / 0.25);
+  --ng-doc-border-color: hsl(var(--border));
+  --ng-doc-border-hover-color: hsl(var(--border));
+  --ng-doc-shadow-color: hsl(var(--foreground) 0.25);
+
+  --ng-doc-heading-color: hsl(var(--primary));
+  --ng-doc-inline-code-background: hsl(var(--primary));
+  --ng-doc-inline-code-color: hsl(var(--primary-foreground));
+
+  --ng-doc-base-1: hsl(var(--background));
+  --ng-doc-demo-displayer-background: hsl(var(--background));
+  --ng-doc-text: hsl(var(--foreground));
+  --ng-doc-navbar-background: hsl(var(--primary));
+  --ng-doc-button-hover-background: hsl(var(--foreground));
+  --ng-doc-button-hover-color: hsl(var(--background));
+  --ng-doc-input-background-color: hsl(var(--background));
+  --ng-doc-input-color: hsl(var(--foreground));
+  --ng-doc-base-0: hsl(var(--background));
+}
