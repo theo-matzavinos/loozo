@@ -1,0 +1,29 @@
+{
+  "name": "radian",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "radian/src",
+  "prefix": "radian",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/angular:package",
+      "outputs": ["{workspaceRoot}/dist/{projectRoot}"],
+      "options": {
+        "project": "radian/ng-package.json"
+      },
+      "configurations": {
+        "production": {
+          "tsConfig": "radian/tsconfig.lib.prod.json"
+        },
+        "development": {
+          "tsConfig": "radian/tsconfig.lib.json"
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

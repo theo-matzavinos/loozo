@@ -17,7 +17,40 @@
     "paths": {
       "@loozo/forms": ["libs/forms/src/index.ts"],
       "@loozo/ng-lucide": ["libs/lucide/src/index.ts"],
-      "@loozo/nx-plugin": ["nx-plugin/src/index.ts"]
+      "@loozo/nx-plugin": ["nx-plugin/src/index.ts"],
+      "@loozo/radian": ["radian/src/index.ts"],
+      "@loozo/radian/accessible-icon": ["radian/accessible-icon/src/index.ts"],
+      "@loozo/radian/accordion": ["radian/accordion/src/index.ts"],
+      "@loozo/radian/arrow": ["radian/arrow/src/index.ts"],
+      "@loozo/radian/aspect-ratio": ["radian/aspect-ratio/src/index.ts"],
+      "@loozo/radian/avatar": ["radian/avatar/src/index.ts"],
+      "@loozo/radian/checkbox": ["radian/checkbox/src/index.ts"],
+      "@loozo/radian/collapsible": ["radian/collapsible/src/index.ts"],
+      "@loozo/radian/common": ["radian/common/src/index.ts"],
+      "@loozo/radian/direction": ["radian/direction/src/index.ts"],
+      "@loozo/radian/dismissible-layer": [
+        "radian/dismissible-layer/src/index.ts"
+      ],
+      "@loozo/radian/focus-guards": ["radian/focus-guards/src/index.ts"],
+      "@loozo/radian/focus-scope": ["radian/focus-scope/src/index.ts"],
+      "@loozo/radian/label": ["radian/label/src/index.ts"],
+      "@loozo/radian/popper": ["radian/popper/src/index.ts"],
+      "@loozo/radian/portal": ["radian/portal/src/index.ts"],
+      "@loozo/radian/progress": ["radian/progress/src/index.ts"],
+      "@loozo/radian/radio": ["radian/radio/src/index.ts"],
+      "@loozo/radian/remove-scroll": ["radian/remove-scroll/src/index.ts"],
+      "@loozo/radian/roving-focus": ["radian/roving-focus/src/index.ts"],
+      "@loozo/radian/scroll-area": ["radian/scroll-area/src/index.ts"],
+      "@loozo/radian/separator": ["radian/separator/src/index.ts"],
+      "@loozo/radian/slider": ["radian/slider/src/index.ts"],
+      "@loozo/radian/switch": ["radian/switch/src/index.ts"],
+      "@loozo/radian/tabs": ["radian/tabs/src/index.ts"],
+      "@loozo/radian/toggle": ["radian/toggle/src/index.ts"],
+      "@loozo/radian/toggle-group": ["radian/toggle-group/src/index.ts"],
+      "@loozo/radian/tooltip": ["radian/tooltip/src/index.ts"],
+      "@loozo/radian/visually-hidden": ["radian/visually-hidden/src/index.ts"],
+      "@ng-doc/generated": ["ng-doc/docs/index.ts"],
+      "@ng-doc/generated/*": ["ng-doc/docs/*"]
     }
   },
   "exclude": ["node_modules", "tmp"]
