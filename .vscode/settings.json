@@ -1,0 +1,14 @@
+{
+  "tailwindCSS.experimental.classRegex": [
+    "class:\\s*[\"'`]([^\"'`]*)",
+    [".+Classes = ([^)]*)", "(?:'|\"|`)([^']*)(?:'|\"|`)"],
+    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"],
+    ["clsx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"],
+    ["mergeClasses\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+  ],
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "nxConsole.nxWorkspacePath": "",
+  "nxConsole.enableLibraryImports": true,
+  "javascript.preferences.importModuleSpecifier": "project-relative"
+}

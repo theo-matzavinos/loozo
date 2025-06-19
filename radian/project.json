@@ -1,0 +1,83 @@
+{
+  "name": "radian",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "radian/src",
+  "prefix": "radian",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/angular:package",
+      "outputs": ["{workspaceRoot}/dist/{projectRoot}"],
+      "options": {
+        "project": "radian/ng-package.json"
+      },
+      "configurations": {
+        "production": {
+          "tsConfig": "radian/tsconfig.lib.prod.json"
+        },
+        "development": {
+          "tsConfig": "radian/tsconfig.lib.json"
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "storybook": {
+      "executor": "@storybook/angular:start-storybook",
+      "options": {
+        "port": 4400,
+        "configDir": "radian/.storybook",
+        "browserTarget": "radian:build-storybook",
+        "compodoc": true,
+        "compodocArgs": ["-e", "json"],
+        "styles": ["radian/styles.css"],
+        "open": false
+      },
+      "configurations": {
+        "ci": {
+          "quiet": true
+        }
+      }
+    },
+    "build-storybook": {
+      "executor": "@storybook/angular:build-storybook",
+      "outputs": ["{options.outputDir}"],
+      "options": {
+        "outputDir": "dist/storybook/radian",
+        "configDir": "radian/.storybook",
+        "browserTarget": "radian:build-storybook",
+        "compodoc": true,
+        "compodocArgs": ["-e", "json"],
+        "styles": ["radian/styles.css"]
+      },
+      "configurations": {
+        "ci": {
+          "quiet": true
+        }
+      }
+    },
+    "test-storybook": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "test-storybook -c radian/.storybook --url=http://localhost:4400"
+      }
+    },
+    "static-storybook": {
+      "executor": "@nx/web:file-server",
+      "dependsOn": ["build-storybook"],
+      "options": {
+        "buildTarget": "radian:build-storybook",
+        "staticFilePath": "dist/storybook/radian",
+        "spa": true
+      },
+      "configurations": {
+        "ci": {
+          "buildTarget": "radian:build-storybook:ci"
+        }
+      }
+    }
+  }
+}

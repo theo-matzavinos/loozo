@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "$id": "Lucide",
+  "title": "",
+  "type": "object",
+  "properties": {
+  },
+  "required": []
+}
