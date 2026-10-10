@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/@angular-devkit/architect/src/builders-schema.json",
+  "builders": {
+    "application": {
+      "implementation": "./node/src/builders/application.js",
+      "schema": "./schemas/application.json",
+      "description": "Generate/check authored routes, then build with the official Angular application target."
+    },
+    "serve": {
+      "implementation": "./node/src/builders/serve.js",
+      "schema": "./schemas/serve.json",
+      "description": "Watch authored routes and delegate to the official Angular dev-server target."
+    }
+  }
+}

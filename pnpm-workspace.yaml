@@ -1,0 +1,13 @@
+packages:
+  - packages/angular-router
+  - consumer
+
+# Keep evaluator/native Vite on the selected Vite+ implementation.
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.5
+
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true

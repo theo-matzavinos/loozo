@@ -1,0 +1,226 @@
+import { lstat, readdir, readFile, realpath } from "node:fs/promises";
+import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+
+export const markers = {
+  "routes.generated.ts": "// @loozo/angular-router routegen: owned routes.generated.ts",
+  "destinations.generated.ts": "// @loozo/angular-router routegen: owned destinations.generated.ts",
+  "route.generated.ts": "// @loozo/angular-router routegen: owned route.generated.ts",
+} as const;
+
+export function contains(directory: string, file: string): boolean {
+  const suffix = relative(directory, file);
+
+  return (
+    suffix === "" || (!isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith(`..${sep}`))
+  );
+}
+
+export async function metadata(path: string) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+// Resolve only aliases for the workspace access prefix, never a source/output suffix.
+export async function workspacePaths(workspace: string) {
+  const canonical = await realpath(workspace);
+
+  return {
+    canonical,
+    async resolve(path: string): Promise<string> {
+      let absolute = resolve(workspace, path);
+
+      if (contains(workspace, absolute)) {
+        absolute = resolve(canonical, relative(workspace, absolute));
+      }
+
+      const ancestors: string[] = [];
+      let current = dirname(absolute);
+
+      while (dirname(current) !== current) {
+        ancestors.unshift(current);
+        current = dirname(current);
+      }
+
+      for (const ancestor of ancestors) {
+        const info = await metadata(ancestor);
+
+        if (info?.isSymbolicLink()) {
+          const target = await realpath(ancestor);
+
+          if (target === canonical) {
+            return resolve(canonical, relative(ancestor, absolute));
+          }
+
+          // A source/output link cannot become legitimate by resolving its target.
+          return absolute;
+        }
+      }
+
+      return absolute;
+    },
+  };
+}
+
+export async function auditPath(path: string): Promise<void> {
+  const parent = dirname(path);
+
+  if (parent !== path) {
+    await auditPath(parent);
+  }
+
+  const info = await metadata(path);
+
+  if (info?.isSymbolicLink()) {
+    throw new Error(`Unsafe source/output symbolic link: ${path}`);
+  }
+
+  if (info && parent !== path && !info.isDirectory() && !info.isFile()) {
+    throw new Error(`Unsafe filesystem entry: ${path}`);
+  }
+}
+
+export async function walk(directory: string): Promise<string[]> {
+  await auditPath(directory);
+
+  const info = await metadata(directory);
+
+  if (!info) {
+    return [];
+  }
+
+  if (!info.isDirectory()) {
+    throw new Error(`Scan/output directory is not a directory: ${directory}`);
+  }
+
+  const result: string[] = [];
+
+  async function visit(path: string): Promise<void> {
+    const entries = await readdir(path, { withFileTypes: true });
+
+    entries.sort((a, b) => a.name.localeCompare(b.name, "en"));
+
+    for (const entry of entries) {
+      const child = resolve(path, entry.name);
+
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Unsafe source/output symbolic link: ${child}`);
+      }
+
+      if (entry.isDirectory()) {
+        // Dependency package-manager links are not application sources.
+        if (entry.name !== "node_modules") {
+          await visit(child);
+        }
+      } else if (entry.isFile()) {
+        result.push(child);
+      } else {
+        throw new Error(`Unsafe filesystem entry: ${child}`);
+      }
+    }
+  }
+
+  await visit(directory);
+
+  return result;
+}
+
+export interface OutputPlan {
+  changed: string[];
+  missing: string[];
+  stale: string[];
+  desired: ReadonlyMap<string, string>;
+}
+
+export async function planOutputs(
+  desired: ReadonlyMap<string, string>,
+  encountered: readonly string[],
+  globals: readonly string[],
+): Promise<OutputPlan> {
+  const changed: string[] = [];
+  const missing: string[] = [];
+  const stale: string[] = [];
+  const possible = new Set([...desired.keys(), ...globals]);
+
+  for (const path of encountered) {
+    if (path.endsWith(`${sep}route.generated.ts`)) {
+      possible.add(path);
+    }
+  }
+
+  for (const path of [...possible].sort()) {
+    await auditPath(path);
+
+    const info = await metadata(path);
+    const expected = desired.get(path);
+
+    if (!info) {
+      if (expected !== undefined) {
+        missing.push(path);
+      }
+
+      continue;
+    }
+
+    if (!info.isFile()) {
+      throw new Error(`Generated output is not a regular file: ${path}`);
+    }
+
+    const bytes = await readFile(path, "utf8");
+    const name = path.slice(path.lastIndexOf(sep) + 1) as keyof typeof markers;
+    const owned = bytes.split("\n", 1)[0] === markers[name];
+
+    if (!owned) {
+      if (expected !== undefined) {
+        throw new Error(`Unmarked generated-output collision: ${path}`);
+      }
+
+      continue;
+    }
+
+    if (expected === undefined) {
+      stale.push(path);
+    } else if (bytes !== expected) {
+      changed.push(path);
+    }
+  }
+
+  return { changed, missing, stale, desired };
+}
+
+export function publish(plan: OutputPlan, check: boolean, stopped: () => boolean): void {
+  if (stopped()) {
+    return;
+  }
+
+  if (check) {
+    for (const [kind, paths] of [
+      ["changed", plan.changed],
+      ["missing", plan.missing],
+      ["stale", plan.stale],
+    ] as const) {
+      if (paths.length > 0) {
+        throw new Error(`Generated artifacts ${kind}:\n${paths.join("\n")}`);
+      }
+    }
+
+    return;
+  }
+
+  // No awaits from the final stop check through this short publication section.
+  for (const path of [...plan.changed, ...plan.missing]) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, plan.desired.get(path)!, "utf8");
+  }
+
+  for (const path of plan.stale) {
+    unlinkSync(path);
+  }
+}

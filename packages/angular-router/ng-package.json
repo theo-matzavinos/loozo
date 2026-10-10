@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/ng-packagr/ng-package.schema.json",
+  "dest": "dist",
+  "lib": { "entryFile": "src/index.ts" },
+  "assets": [
+    "builders.json",
+    { "glob": "*.json", "input": "schemas", "output": "schemas" },
+    { "glob": "**/*.js", "input": "node", "output": "node" }
+  ],
+  "allowedNonPeerDependencies": [
+    "^@angular-devkit/architect$",
+    "^chokidar$",
+    "^rxjs$",
+    "^typescript$",
+    "^tslib$"
+  ]
+}

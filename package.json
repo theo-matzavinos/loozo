@@ -1,0 +1,32 @@
+{
+  "name": "angular-router-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @loozo/angular-router run build",
+    "check": "pnpm --filter @loozo/angular-router run check",
+    "typecheck": "pnpm --filter @loozo/angular-router run typecheck",
+    "test": "pnpm --filter @loozo/angular-router run test:root",
+    "consumer:build": "pnpm --dir consumer exec ng run proof:build",
+    "consumer:check": "pnpm --dir consumer exec ng run proof:build:ci",
+    "consumer:serve": "pnpm --dir consumer exec ng run proof:serve"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.5",
+    "vite-plus": "0.2.5"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.9.1",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": "24.21.0"
+  }
+}

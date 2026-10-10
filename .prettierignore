@@ -1,0 +1,11 @@
+# Preserve the immutable public contract and generation-owned outputs byte-for-byte.
+SPEC.md
+consumer/generated/destinations.generated.ts
+consumer/generated/routes.generated.ts
+consumer/src/routes/home/route.generated.ts
+consumer/ssr-proof/generated/destinations.generated.ts
+consumer/ssr-proof/generated/routes.generated.ts
+consumer/ssr-proof/src/routes/handle-only/route.generated.ts
+consumer/ssr-proof/src/routes/home/route.generated.ts
+consumer/ssr-proof/src/routes/item/route.generated.ts
+consumer/ssr-proof/src/routes/team/route.generated.ts

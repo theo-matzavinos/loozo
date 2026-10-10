@@ -1,0 +1,74 @@
+{
+  "name": "@loozo/angular-router",
+  "version": "0.0.1",
+  "description": "Typed route declarations, URLs, navigation and route handles for Angular's native router.",
+  "bugs": "https://github.com/theo-matzavinos/loozo/issues",
+  "license": "MIT",
+  "author": "Theophilos Matzavinos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theo-matzavinos/loozo.git",
+    "directory": "packages/angular-router"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/loozo-angular-router.d.ts",
+      "default": "./dist/fesm2022/loozo-angular-router.mjs"
+    },
+    "./_core": {
+      "types": "./dist/types/loozo-angular-router-_core.d.ts",
+      "default": "./dist/fesm2022/loozo-angular-router-_core.mjs"
+    },
+    "./_generated": {
+      "types": "./dist/types/loozo-angular-router-_generated.d.ts",
+      "default": "./dist/fesm2022/loozo-angular-router-_generated.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "rm -rf node && tsc -p tsconfig.node.json && ng-packagr -p ng-package.json -c tsconfig.build.json",
+    "check": "vp check",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "test:root": "node --test tests/root.test.mjs",
+    "test:application": "node tests/application.mjs",
+    "test:navigation": "node tests/navigation.mjs",
+    "test:lifecycle": "node tests/lifecycle.mjs",
+    "test:ssr": "node tests/ssr.mjs",
+    "typecheck:consumers": "tsc -p tests/tsconfig.nodenext.json && tsc -p tests/tsconfig.bundler.json"
+  },
+  "dependencies": {
+    "@angular-devkit/architect": "0.2201.5",
+    "chokidar": "5.0.0",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1",
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {
+    "@angular/build": "22.1.5",
+    "@angular/cli": "22.1.5",
+    "@angular/common": "22.1.5",
+    "@angular/compiler": "22.1.5",
+    "@angular/compiler-cli": "22.1.5",
+    "@angular/core": "22.1.5",
+    "@angular/platform-browser": "22.1.5",
+    "@angular/platform-server": "22.1.5",
+    "@angular/router": "22.1.5",
+    "@angular/ssr": "22.1.5",
+    "@types/node": "24.13.3",
+    "happy-dom": "20.13.2",
+    "ng-packagr": "22.1.1",
+    "playwright": "1.63.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.5",
+    "vite-plus": "0.2.5"
+  },
+  "peerDependencies": {
+    "@angular/core": "^22.0.0",
+    "@angular/router": "^22.0.0"
+  },
+  "builders": "./builders.json"
+}

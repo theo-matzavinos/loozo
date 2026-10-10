@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.angular/
+.scratch/
+.acceptance-evidence/
+.vite-hooks/_/
+/packages/angular-router/node/
