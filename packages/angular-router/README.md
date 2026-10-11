@@ -32,6 +32,10 @@ Paths are decoded authored text. `$id` consumes one logical value (repeated loca
 
 Route membership is per physical package instance. Routes and owned containers are shallow-frozen; application codecs, callbacks/providers and opaque values retain identity and are not recursively frozen. `Route<Path, Params, Search, Resolvers = {}>` has readonly optional input/data witnesses. Callback inputs infer effective params/search, except matching guards see only local positional params. Local data unwraps Promise/Observable outputs and excludes RedirectCommand.
 
+- [Public contract](SPEC.md)
+- [Consumer example](../../examples/angular-router/)
+- [Handwritten SSR/hydration proof](../../examples/angular-router/ssr-proof/README.md)
+
 ## Commands
 
 Prerequisites: Node 24.21.0, pnpm 12.9.1, ordinary workspace installation. Run installation from the workspace with `pnpm_config_pm_on_fail=error pnpm_config_verify_deps_before_run=error pnpm install --frozen-lockfile`.
@@ -43,7 +47,8 @@ pnpm run build                 # NodeNext tsc + native ng-packagr primary/_core/
 pnpm run check                 # no-fix source formatting/lint checks
 pnpm run typecheck             # strict source check, no output
 pnpm run typecheck:consumers   # strict NodeNext and ESNext/Bundler against actual APF
-pnpm run test:root             # durable public-root runtime regressions; plain Node
+pnpm run test                  # durable public-root runtime regressions; plain Node
+pnpm run test:root             # explicit alias for the same runtime suite
 pnpm run test:application /absolute/task-owned/absent-evidence-directory
 pnpm run test:navigation /absolute/task-owned/absent-evidence-directory
 pnpm run test:lifecycle /absolute/task-owned/absent-evidence-directory
@@ -55,14 +60,14 @@ Build cleans/emits only package `node/`, then ng-packagr cleans/emits `dist/` an
 
 ## Authored application → native Angular
 
-The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `consumer/angular.json` generate only exact-name marked artifacts and delegate directly to the official application/dev-server targets. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. `_generated` is internal generator coupling, not a supported graph API.
+The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `examples/angular-router/angular.json` generate only exact-name marked artifacts and delegate directly to the official application/dev-server targets. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. `_generated` is internal generator coupling, not a supported graph API.
 
 From the workspace root, after package build:
 
 ```sh
-pnpm run consumer:build       # development generation + official Angular build
-pnpm run consumer:check       # read-only check:true before official Angular build
-pnpm run consumer:serve       # ready watcher → generation → official dev-server
+pnpm --filter @loozo/angular-router run example:build  # generation + official Angular build
+pnpm --filter @loozo/angular-router run example:check  # read-only generation check + build
+pnpm --filter @loozo/angular-router run example:serve  # generation + official dev-server
 ```
 
 The colocated facade exports parameterless `injectRoute()` and an inert `destination`. Definition getters/reference construction avoid eager ESM binding reads. Normal lazy page imports are extensionless direct import promises; emitted `.js` is used only when native Bundler resolution needs it to preserve the discovered identity.
@@ -104,12 +109,12 @@ Each handle owns paired params/search visibility and independent local data, pro
 
 `test:lifecycle` uses actual Architect/Angular/Chromium and public Router/ApplicationRef/PendingTasks with asynchronous gates, a never-settling obsolete survivor, terminal-listener construction, own string/symbol data, nearest declaring-parent ancestry, injector destruction during task acquisition, same-URL skip reentry, iframe/host Promise guards/resolvers, and synchronous preserved-search failure with a later source rejection. Like the other public tests it requires a fresh absent evidence-directory argument.
 
-Full acceptance passed against the reviewed rebuild using the explicitly approved v2 copy. That copy corrects two fixture assumptions: an already-current native redirect resolves `false`, and the SSR route TypeScript program needs Node ambient types. Original inputs and earlier failed results remain preserved separately; this is not a claim that the unchanged original suite passed. The supplied handwritten home consumer remains unchanged.
+The independent rebuild acceptance suite and its preserved results live outside this product repository. Full acceptance passed against the reviewed rebuild using the explicitly approved v2 copy. That copy corrects two fixture assumptions: an already-current native redirect resolves `false`, and the SSR route TypeScript program needs Node ambient types. Original inputs and earlier failed results remain preserved separately; this is not a claim that the unchanged original suite passed. The supplied handwritten home consumer remains unchanged.
 
 ## Native SSR and hydration proof
 
-`consumer/ssr-proof/` is a separate handwritten Angular application. Componentless team inputs, delayed item/score codecs (75 ms), local deterministic catalog resolution, a query/hash-dropping alias, and a resolver-free delayed handle page use genuine generated facades. Shared configuration uses native hydration with no HTTP transfer cache and no blocking initial navigation.
+`examples/angular-router/ssr-proof/` is a separate handwritten Angular application. Componentless team inputs, delayed item/score codecs (75 ms), local deterministic catalog resolution, a query/hash-dropping alias, and a resolver-free delayed handle page use genuine generated facades. Shared configuration uses native hydration with no HTTP transfer cache and no blocking initial navigation.
 
 `test:ssr` copies that actual application into the required fresh absent evidence directory, runs ordinary Architect production builds and read-only generation checks, and checks strict native TypeScript/Angular templates. Built `AngularNodeAppEngine` + Node HTTP demonstrate native302, matched-position matrix isolation, concurrent request isolation and handle-only stability. Official dev-server + Chromium preserve exact original SSR document/element/text Nodes during hydration, then reuse the same component/DOM for typed alias and query-only SPA navigation. Native production metafile evidence checks browser closure and genuinely lazy page chunks. Servers/browser/Architect runs are stopped in `finally`; raw HTTP HTML/headers, logs, stats and observations remain inspectable.
 
-This is a bounded SSR/hydration proof, not cross-browser certification or exhaustive request/fault coverage. The Node entry is a loopback SSR HTTP proof server, not a production static-asset deployment server; use official companion serve for browser demonstration. See `consumer/ssr-proof/README.md`.
+This is a bounded SSR/hydration proof, not cross-browser certification or exhaustive request/fault coverage. The Node entry is a loopback SSR HTTP proof server, not a production static-asset deployment server; use official companion serve for browser demonstration. See the [SSR proof README](../../examples/angular-router/ssr-proof/README.md).

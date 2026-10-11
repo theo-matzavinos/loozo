@@ -1,10 +1,17 @@
-# @loozo/angular-router
+# loozo
 
-An experimental typed layer over Angular’s native router: authored route declarations, codecs, URL creation, generated destinations, navigation and route handles.
+A monorepo for Angular-related packages. Each package owns its API, contract, documentation and package-specific proofs. Angular Router is the first package, not the scope of the repository.
 
-- [Package API and development commands](packages/angular-router/README.md)
-- [Public contract](SPEC.md)
-- [Handwritten SSR/hydration consumer](consumer/ssr-proof/README.md)
+## Packages
+
+| Package                                                    | Purpose                                                                                   | Status       |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------ |
+| [@loozo/angular-router](packages/angular-router/README.md) | Typed route declarations, URLs, navigation and route handles over Angular’s native router | Experimental |
+
+## Repository layout
+
+- `packages/*` — publishable packages and their contracts, tests and documentation.
+- `examples/*` — private, package-specific consumer applications and proofs.
 
 ## Development
 
@@ -16,12 +23,8 @@ pnpm build
 pnpm check
 pnpm typecheck
 pnpm test
-pnpm consumer:build
-pnpm consumer:check
 ```
 
-`pnpm test` runs the durable public-root runtime regressions. The package also provides native application, navigation, lifecycle, packed-package and SSR/browser proofs; their commands require separate fresh evidence directories. See the package README.
+Root commands run the corresponding script across `packages/*`, not the example applications. Run package-specific commands with `pnpm --filter <package-name> run <script>`; see each package’s README for its examples and extended proofs.
 
-The independent rebuild acceptance suite and its preserved results live outside this product repository. All 126 cases passed using the explicitly approved fixture corrections described in the package README; the original suite is not being relabeled as passing.
-
-`@loozo/angular-router@0.0.1` is experimental and [MIT-licensed](LICENSE). The workspace and proof applications remain private.
+The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).

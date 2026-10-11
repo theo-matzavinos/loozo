@@ -1,17 +1,14 @@
 {
-  "name": "angular-router-workspace",
+  "name": "loozo",
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @loozo/angular-router run build",
-    "check": "pnpm --filter @loozo/angular-router run check",
-    "typecheck": "pnpm --filter @loozo/angular-router run typecheck",
-    "test": "pnpm --filter @loozo/angular-router run test:root",
-    "consumer:build": "pnpm --dir consumer exec ng run proof:build",
-    "consumer:check": "pnpm --dir consumer exec ng run proof:build:ci",
-    "consumer:serve": "pnpm --dir consumer exec ng run proof:serve"
+    "build": "pnpm --filter './packages/*' run build",
+    "check": "pnpm --filter './packages/*' run check",
+    "typecheck": "pnpm --filter './packages/*' run typecheck",
+    "test": "pnpm --filter './packages/*' run test"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

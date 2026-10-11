@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "ng run proof:build",
+    "check": "ng run proof:build:ci",
+    "serve": "ng run proof:serve"
+  },
   "dependencies": {
     "@angular/core": "22.1.5",
     "@angular/platform-browser": "22.1.5",

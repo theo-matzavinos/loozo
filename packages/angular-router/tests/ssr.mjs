@@ -21,7 +21,7 @@ await mkdir(evidence);
 
 const fixture = join(evidence, "consumer");
 
-await cp(join(repository, "consumer/ssr-proof"), fixture, {
+await cp(join(repository, "examples/angular-router/ssr-proof"), fixture, {
   recursive: true,
   filter: (path) => !/(?:^|\/)(?:node_modules|dist|\.angular|out-tsc)(?:\/|$)/.test(path),
 });

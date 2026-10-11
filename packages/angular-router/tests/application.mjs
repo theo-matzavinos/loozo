@@ -25,7 +25,7 @@ await mkdir(evidence); // Require a fresh receipt/fixture directory.
 
 const fixture = join(evidence, "consumer");
 
-await cp(join(repository, "consumer"), fixture, {
+await cp(join(repository, "examples/angular-router"), fixture, {
   recursive: true,
   filter: (path) =>
     !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&

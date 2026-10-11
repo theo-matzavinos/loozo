@@ -1,6 +1,6 @@
 # Native Angular SSR and hydration proof
 
-Independent handwritten dark-mode application; supplied `consumer/src/` and its configuration remain untouched. `teams/$teamId` owns numeric teamId and optional75ms numeric score; child `items/$id` owns75ms id and deterministic local catalog resolution. The alias drops query/fragment. Typed links demonstrate direct, alias and query-only native navigation. `handle-only/$id` has delayed input parsing and no resolver.
+Independent handwritten dark-mode application; supplied `examples/angular-router/src/` and its configuration remain untouched. `teams/$teamId` owns numeric teamId and optional75ms numeric score; child `items/$id` owns75ms id and deterministic local catalog resolution. The alias drops query/fragment. Typed links demonstrate direct, alias and query-only native navigation. `handle-only/$id` has delayed input parsing and no resolver.
 
 Ordinary generated facades/routes/destinations live here only. Shared native hydration config has no blocking initial navigation or HTTP transfer cache. No custom renderer, router, product-state transfer, graph service or input cache.
 
@@ -15,9 +15,9 @@ The durable harness copies this actual app, binds genuine installed dependency l
 For ordinary manual demonstration after the app's normal dependency leaves are bound, run the actual Angular CLI in this directory:
 
 ```sh
-node ../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:build
-node ../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:build:ci
-node ../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:serve
+node ../../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:build
+node ../../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:build:ci
+node ../../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:serve
 ```
 
 `proof:build` delegates production to `@angular/build:application`; `proof:serve` delegates development to the official dev-server. The loopback built Node entry is intentionally only the SSR HTTP proof surface, not a production static-asset hosting solution. No frozen Ginitial/final qualification is implied.

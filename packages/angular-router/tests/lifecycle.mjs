@@ -13,7 +13,7 @@ await mkdir(evidence);
 
 const fixture = join(evidence, "consumer");
 
-await cp(join(repository, "consumer"), fixture, {
+await cp(join(repository, "examples/angular-router"), fixture, {
   recursive: true,
   filter: (path) =>
     !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&
