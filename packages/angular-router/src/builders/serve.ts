@@ -89,10 +89,8 @@ export default createBuilder<Options>(
           return;
         }
 
-        const configFile = await access.resolve(options.tsconfig);
-        const roots = await Promise.all(
-          options.scanDirectories.map((scan) => access.resolve(resolve(dirname(configFile), scan))),
-        );
+        const configFile = access.resolve(options.tsconfig);
+        const roots = [access.resolve(resolve(dirname(configFile), options.scanDirectories[0]))];
 
         if (stopped) {
           return;

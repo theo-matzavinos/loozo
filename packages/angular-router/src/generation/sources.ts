@@ -4,11 +4,14 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parsePath, type Segment } from "../../_core/src/path.js";
 import { auditPath, contains, metadata, walk, workspacePaths, markers } from "./files.js";
+import { overlayDirectory, overlayHost } from "./overlay.js";
+import { synchronize, transparent, type AutoDefineRoutes } from "./filesystem.js";
 
 export interface Declaration {
   file: string;
   id: string;
   source: ts.SourceFile;
+  rawText: string;
   config: Map<string, ts.Expression>;
   path: string;
   segments: readonly Segment[];
@@ -30,6 +33,8 @@ export interface Sources {
   declarations: Declaration[];
   factoryEntry: string;
   deferredFactories: Declaration[];
+  authored: ReadonlyMap<string, string>;
+  filesystem: boolean;
 }
 
 export function fail(node: ts.Node, message: string): never {
@@ -159,8 +164,14 @@ async function genuineImport(
   statement: ts.ImportDeclaration,
   expected: string,
   options: ts.CompilerOptions,
+  host: ts.ModuleResolutionHost = ts.sys,
 ): Promise<boolean> {
-  const actual = resolveModule(moduleText(statement), statement.getSourceFile().fileName, options);
+  const actual = resolveModule(
+    moduleText(statement),
+    statement.getSourceFile().fileName,
+    options,
+    host,
+  );
 
   if (!actual) {
     return false;
@@ -279,33 +290,35 @@ export async function discover(
   config: string,
   scans: readonly string[],
   out: string,
+  auto?: AutoDefineRoutes,
+  authored: ReadonlyMap<string, string> = new Map(),
+  filesystem = auto !== undefined,
 ): Promise<Sources> {
-  const access = await workspacePaths(workspace);
-  const configFile = await access.resolve(config);
-  const configDirectory = dirname(configFile);
-  const output = await access.resolve(out);
-  const resolvedRoots = await Promise.all(
-    scans.map((scan) => access.resolve(resolve(configDirectory, scan))),
-  );
-  const roots = [...new Set(resolvedRoots)].sort();
+  if (scans.length !== 1) {
+    throw new Error("scanDirectories must contain exactly one directory");
+  }
 
-  for (const root of roots) {
-    if (contains(root, output) || contains(output, root)) {
-      throw new Error(`Output and scan directory overlap: ${output}; ${root}`);
-    }
+  const access = await workspacePaths(workspace);
+  const configFile = access.resolve(config);
+  const configDirectory = dirname(configFile);
+  const output = access.resolve(out);
+  const root = access.resolve(resolve(configDirectory, scans[0]));
+  const roots = [root];
+
+  if (contains(root, output) || contains(output, root)) {
+    throw new Error(`Output and scan directory overlap: ${output}; ${root}`);
   }
 
   await Promise.all([auditPath(configFile), auditPath(output)]);
 
-  const encountered = [
-    ...new Set((await Promise.all(roots.map((root) => walk(root)))).flat()),
-  ].sort();
+  const encountered = (await walk(root)).sort();
   const fatal: ts.Diagnostic[] = [];
   const parsed = ts.getParsedCommandLineOfConfigFile(
     configFile,
     {},
     {
       ...ts.sys,
+      readDirectory: overlayDirectory(authored, (directory) => access.resolve(directory, true)),
       onUnRecoverableConfigFileDiagnostic: (diagnostic) => fatal.push(diagnostic),
     },
   );
@@ -324,11 +337,25 @@ export async function discover(
     );
   }
 
-  const candidates: string[] = [];
+  // Canonicalize only permitted workspace-access prefixes, never source links.
+  // Membership, candidate discovery and the final program share these roots.
+  const admitted = new Set<string>();
 
   for (const file of parsed.fileNames) {
-    const normalized = await access.resolve(file);
+    admitted.add(access.resolve(file));
+  }
 
+  parsed.fileNames = [...admitted];
+
+  for (const file of authored.keys()) {
+    if (!admitted.has(file)) {
+      throw new Error(`TypeScript config does not admit filesystem definition: ${file}`);
+    }
+  }
+
+  const candidates: string[] = [];
+
+  for (const normalized of parsed.fileNames) {
     if (
       !normalized.endsWith(".ts") ||
       normalized.endsWith(".d.ts") ||
@@ -339,7 +366,7 @@ export async function discover(
 
     await auditPath(normalized);
 
-    if (roots.some((root) => contains(root, normalized))) {
+    if (contains(root, normalized)) {
       candidates.push(normalized);
     }
   }
@@ -353,14 +380,24 @@ export async function discover(
   const declarations: Declaration[] = [];
   const pages = new Map<string, string>();
   const deferredFactories: Declaration[] = [];
+  const syntaxHost = overlayHost(parsed.options, authored);
   const syntaxProgram = ts.createProgram({
     rootNames: candidates,
     options: parsed.options,
-    host: ts.createCompilerHost(parsed.options, true),
+    host: syntaxHost,
   });
 
   for (const file of candidates) {
-    const bytes = await readFile(file, "utf8");
+    const bytes = syntaxHost.readFile(file);
+
+    if (bytes === undefined) {
+      if (auto) {
+        // An explicit tsconfig files entry may name a not-yet-seeded definition.
+        continue;
+      }
+
+      throw new Error(`Cannot read admitted TypeScript source: ${file}`);
+    }
 
     if (
       file.endsWith(`${sep}route.generated.ts`) &&
@@ -458,7 +495,9 @@ export async function discover(
 
     const needsParams = segments.some((segment) => segment.kind !== "static");
 
-    if (needsParams !== config.has("params")) {
+    const ignored = filesystem && transparent(roots[0], dirname(file));
+
+    if (!auto && !ignored && needsParams !== config.has("params")) {
       fail(configNode, "Local params must be present exactly when the path declares placeholders");
     }
 
@@ -488,6 +527,7 @@ export async function discover(
       file,
       id,
       source,
+      rawText: authored.get(resolve(file)) ?? (await readFile(file, "utf8")),
       config,
       path: path.text,
       segments,
@@ -497,13 +537,13 @@ export async function discover(
       full: false,
     };
     const ownFacade = resolve(dirname(file), "route.generated.ts");
-    const resolved = resolveModule(moduleText(imported), file, parsed.options);
+    const resolved = resolveModule(moduleText(imported), file, parsed.options, syntaxHost);
     const facadeSpelling = resolve(dirname(file), moduleText(imported)).replace(/\.js$/, ".ts");
 
     if (resolved === ownFacade || (!resolved && facadeSpelling === ownFacade)) {
       deferredFactories.push(declaration);
     } else {
-      const genuine = await genuineImport(imported, factoryEntry, parsed.options);
+      const genuine = await genuineImport(imported, factoryEntry, parsed.options, syntaxHost);
 
       if (!genuine) {
         fail(
@@ -514,6 +554,35 @@ export async function discover(
     }
 
     declarations.push(declaration);
+  }
+
+  if (auto) {
+    const edits = await synchronize(
+      roots[0],
+      declarations,
+      pages,
+      parsed.options,
+      auto,
+      syntaxProgram.getTypeChecker(),
+    );
+
+    return discover(workspace, config, scans, out, undefined, edits, true);
+  }
+
+  if (filesystem) {
+    for (let index = declarations.length - 1; index >= 0; index -= 1) {
+      const declaration = declarations[index];
+
+      if (transparent(roots[0], dirname(declaration.file))) {
+        declarations.splice(index, 1);
+
+        const deferred = deferredFactories.indexOf(declaration);
+
+        if (deferred >= 0) {
+          deferredFactories.splice(deferred, 1);
+        }
+      }
+    }
   }
 
   const byDirectory = new Map<string, Declaration>();
@@ -556,7 +625,12 @@ export async function discover(
         continue;
       }
 
-      const file = resolveModule(moduleText(statement), declaration.file, compilerOptions);
+      const file = resolveModule(
+        moduleText(statement),
+        declaration.file,
+        compilerOptions,
+        syntaxHost,
+      );
       const target = file && byFile.get(file);
 
       if (target) {
@@ -722,5 +796,7 @@ export async function discover(
     declarations,
     factoryEntry,
     deferredFactories,
+    authored,
+    filesystem,
   };
 }

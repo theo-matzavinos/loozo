@@ -40,6 +40,7 @@
     "example:check": "pnpm --dir ../../examples/angular-router run check",
     "example:serve": "pnpm --dir ../../examples/angular-router run serve",
     "test:application": "node tests/application.mjs",
+    "test:filesystem": "node tests/filesystem.mjs",
     "test:navigation": "node tests/navigation.mjs",
     "test:lifecycle": "node tests/lifecycle.mjs",
     "test:ssr": "node tests/ssr.mjs",

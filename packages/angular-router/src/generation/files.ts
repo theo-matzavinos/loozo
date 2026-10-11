@@ -1,5 +1,5 @@
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
-import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { lstatSync, realpathSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 export const markers = {
@@ -34,15 +34,27 @@ export async function workspacePaths(workspace: string) {
 
   return {
     canonical,
-    async resolve(path: string): Promise<string> {
-      let absolute = resolve(workspace, path);
+    // Config matching needs synchronous directory-entry lookup. The optional
+    // directory leaf uses the same restricted prefix policy as file ancestors.
+    resolve(path: string, directory = false): string {
+      const absolute = resolve(workspace, path);
+
+      // Inside the workspace every link is a suffix, even a link back to its root.
+      // Preserve that spelling for audit; only external access aliases may map.
+      if (contains(canonical, absolute)) {
+        return absolute;
+      }
 
       if (contains(workspace, absolute)) {
-        absolute = resolve(canonical, relative(workspace, absolute));
+        return resolve(canonical, relative(workspace, absolute));
       }
 
       const ancestors: string[] = [];
       let current = dirname(absolute);
+
+      if (directory) {
+        current = absolute;
+      }
 
       while (dirname(current) !== current) {
         ancestors.unshift(current);
@@ -50,10 +62,10 @@ export async function workspacePaths(workspace: string) {
       }
 
       for (const ancestor of ancestors) {
-        const info = await metadata(ancestor);
+        const info = lstatSync(ancestor, { throwIfNoEntry: false });
 
         if (info?.isSymbolicLink()) {
-          const target = await realpath(ancestor);
+          const target = realpathSync(ancestor);
 
           if (target === canonical) {
             return resolve(canonical, relative(ancestor, absolute));
@@ -195,12 +207,24 @@ export async function planOutputs(
   return { changed, missing, stale, desired };
 }
 
-export function publish(plan: OutputPlan, check: boolean, stopped: () => boolean): void {
+export function publish(
+  plan: OutputPlan,
+  check: boolean,
+  stopped: () => boolean,
+  authored: ReadonlyMap<string, string>,
+  seeds: ReadonlySet<string>,
+): void {
   if (stopped()) {
     return;
   }
 
   if (check) {
+    if (authored.size > 0) {
+      throw new Error(
+        `Filesystem definitions missing/changed:\n${[...authored.keys()].join("\n")}`,
+      );
+    }
+
     for (const [kind, paths] of [
       ["changed", plan.changed],
       ["missing", plan.missing],
@@ -215,6 +239,14 @@ export function publish(plan: OutputPlan, check: boolean, stopped: () => boolean
   }
 
   // No awaits from the final stop check through this short publication section.
+  for (const [file, bytes] of authored) {
+    if (seeds.has(file)) {
+      writeFileSync(file, bytes, { encoding: "utf8", flag: "wx" });
+    } else {
+      writeFileSync(file, bytes, "utf8");
+    }
+  }
+
   for (const path of [...plan.changed, ...plan.missing]) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, plan.desired.get(path)!, "utf8");

@@ -14,7 +14,13 @@ export function validateOptions(value: Options, serve: boolean): void {
     throw new Error("Companion options must be an object");
   }
 
-  const allowed = new Set(["tsconfig", "scanDirectories", "outDirectory", "delegateTarget"]);
+  const allowed = new Set([
+    "tsconfig",
+    "scanDirectories",
+    "outDirectory",
+    "delegateTarget",
+    "autoDefineRoutes",
+  ]);
 
   if (!serve) {
     allowed.add("check");
@@ -34,10 +40,41 @@ export function validateOptions(value: Options, serve: boolean): void {
 
   if (
     !Array.isArray(value.scanDirectories) ||
-    value.scanDirectories.length === 0 ||
+    value.scanDirectories.length !== 1 ||
     value.scanDirectories.some((scan) => typeof scan !== "string" || scan.trim() === "")
   ) {
-    throw new Error("scanDirectories must contain at least one nonempty string");
+    throw new Error("scanDirectories must contain exactly one nonempty string");
+  }
+
+  if (value.autoDefineRoutes !== undefined) {
+    const auto = value.autoDefineRoutes;
+
+    if (!auto || typeof auto !== "object" || Array.isArray(auto)) {
+      throw new Error("autoDefineRoutes must be an object");
+    }
+
+    for (const key of Object.keys(auto)) {
+      if (key !== "filename") {
+        throw new Error(`Unknown autoDefineRoutes option: ${key}`);
+      }
+    }
+
+    if (auto.filename !== undefined) {
+      const filename = auto.filename;
+
+      if (
+        typeof filename !== "string" ||
+        !/^[A-Za-z0-9_$][A-Za-z0-9_$.-]*\.ts$/.test(filename) ||
+        filename.endsWith(".d.ts") ||
+        ["route.generated.ts", "routes.generated.ts", "destinations.generated.ts"].includes(
+          filename,
+        )
+      ) {
+        throw new Error(
+          "autoDefineRoutes.filename must be a simple implementation .ts basename, not a generated artifact",
+        );
+      }
+    }
   }
 
   if (Object.hasOwn(value, "check") && typeof value.check !== "boolean") {

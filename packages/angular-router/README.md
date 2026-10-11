@@ -53,6 +53,7 @@ pnpm run test:application /absolute/task-owned/absent-evidence-directory
 pnpm run test:navigation /absolute/task-owned/absent-evidence-directory
 pnpm run test:lifecycle /absolute/task-owned/absent-evidence-directory
 pnpm run test:ssr /absolute/task-owned/absent-evidence-directory
+pnpm run test:filesystem /absolute/task-owned/absent-evidence-directory
 node tests/packed.mjs /absolute/task-owned/fresh-evidence-directory
 ```
 
@@ -60,7 +61,7 @@ Build cleans/emits only package `node/`, then ng-packagr cleans/emits `dist/` an
 
 ## Authored application → native Angular
 
-The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `examples/angular-router/angular.json` generate only exact-name marked artifacts and delegate directly to the official application/dev-server targets. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. `_generated` is internal generator coupling, not a supported graph API.
+The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `examples/angular-router/angular.json` generate only exact-name marked artifacts and delegate directly to the official application/dev-server targets. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. Each companion requires exactly one `scanDirectories` entry, including in explicit-authoring mode. `_generated` is internal generator coupling, not a supported graph API.
 
 From the workspace root, after package build:
 
@@ -79,6 +80,28 @@ pnpm --filter @loozo/angular-router run test:application /absolute/task-owned/ab
 ```
 
 The evidence-directory argument is required and must not exist. This creates an owned consumer copy, checks concrete facade-factory provenance, literal module-reference preflight, native exact/wildcard ambient helpers, drift priority/nonwrites/byte-identical modes/nanosecond mtimes, and native watch/repair/stop. Its page.js.ts + named-only page.ts collision is built by real Angular and rendered in Chromium.
+
+## Opt-in filesystem definitions
+
+Both companion targets accept `autoDefineRoutes: { filename?: string }`. Omit it for explicit authoring; `{}` enables editable `route.ts` seeds. A custom simple implementation `.ts` basename affects only new seeds: existing declarations are discovered by content/provenance, never renamed by this option. Declaration/generated filenames cannot collide.
+
+```json
+{
+  "tsconfig": "tsconfig.routes.json",
+  "scanDirectories": ["src/routes"],
+  "outDirectory": "generated",
+  "delegateTarget": "proof:official",
+  "autoDefineRoutes": {}
+}
+```
+
+The scan root has path `""`. Plain directories contribute their basename, `+layout` contributes `""`, and `-helpers` is transparent (no record; descendants attach to the nearest included ancestor). Admitted pages/declarations and necessary included ancestors participate; unused helper/empty directories do not. Transparent directories cannot own pages or declarations with behavior. Editable files are never automatically deleted.
+
+Seeds use ordinary `defineRoute`, default-imported parents and local `stringParam` codecs (per element for `$parts[]`). Moves/renames synchronize only the path literal, parent field/import and unambiguous local-param keys. An inline one-param rename preserves its exact codec expression. Opaque/ambiguous codec changes and stale parent imports with unrelated uses fail rather than guessing; callback/navigation input accesses are not renamed. All other authored expressions and bytes, including UTF-8 BOM and CRLF, are preserved; new static imports are appended at the complete module EOF boundary, retaining all existing statement/comment attachments, shebangs and triple-slash references. Native ESM import bindings are hoisted; new seed files still place their imports at the top. Removing an authored local codec requires explicit author repair. Parent imports/properties with directives in leading trivia, inside the removed syntax or in adjacent retained trivia up to the next actual token/EOF are not deleted: repair them explicitly before synchronization. This includes compiler-control pragmas (`@ts-check`/`@ts-nocheck`, triple-slash reference/AMD and JSX pragmas), which must not be activated by retaining a dormant comment at module start. Ordinary comments are retained when obsolete syntax is removed; adjacent trivia is validated only, never copied into the replacement or deleted.
+
+The compiler overlays all planned seeds/patches and generated artifacts before publication. Native tsconfig membership/exclusions (including explicit files and wildcard includes through permitted external workspace-access aliases), source syntax/provenance, admitted declaration-file semantic diagnostics, tree/matching rules, application module references and filesystem/ownership checks must all pass before any source or generated write. Whole-program semantic, compiler option/global and Angular/template checks remain native build responsibilities: unrelated type errors may fail the delegate after valid source/generated changes have been published. `check: true` validates the same result, reports editable/generated drift and writes nothing. Byte-identical files retain nanosecond mtimes. Publication remains individual file writes, not a crash/concurrent-writer transaction. Alias substitution ends at the canonical workspace boundary: links inside it remain unsafe source/root suffixes even when they point back to the workspace itself.
+
+`test:filesystem` uses fresh owned evidence, public Architect and native Angular builds/Chromium/dev-server to prove seeding, filename-independent discovery, structural moves, codec typing, conservative preflight nonwrites and watch/add/change/remove/repair/stop.
 
 ## Generated selection → native navigation
 

@@ -4,6 +4,7 @@ import { basename, dirname, resolve, sep } from "node:path";
 import { auditPath, contains } from "./files.js";
 import { fail, properties, resolveModule, type Declaration, type Sources } from "./sources.js";
 import type { Segment } from "../../_core/src/path.js";
+import { overlayHost } from "./overlay.js";
 
 export function authoredPath(declaration: Declaration): string {
   const parts: string[] = [];
@@ -159,7 +160,7 @@ export async function validateProgram(
   generated: ReadonlyMap<string, string>,
   stale: readonly string[],
 ): Promise<void> {
-  const host = ts.createCompilerHost(sources.parsed.options);
+  const host = overlayHost(sources.parsed.options, sources.authored);
   const originalRead = host.readFile.bind(host);
   const originalExists = host.fileExists.bind(host);
   const originalDirectoryExists = host.directoryExists!.bind(host);
@@ -204,6 +205,30 @@ export async function validateProgram(
     options: sources.parsed.options,
     host,
   });
+
+  if (sources.filesystem) {
+    const diagnostics: ts.Diagnostic[] = [];
+
+    for (const declaration of sources.declarations) {
+      const source = program.getSourceFile(declaration.file)!;
+
+      diagnostics.push(
+        ...program.getSyntacticDiagnostics(source),
+        ...program.getSemanticDiagnostics(source),
+      );
+    }
+
+    if (diagnostics.length > 0) {
+      throw new Error(
+        ts.formatDiagnostics(diagnostics, {
+          getCanonicalFileName: (name) => name,
+          getCurrentDirectory: () => dirname(sources.configFile),
+          getNewLine: () => "\n",
+        }),
+      );
+    }
+  }
+
   const checker = program.getTypeChecker();
 
   const entry = program.getSourceFile(sources.factoryEntry)!;
