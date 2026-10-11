@@ -19,7 +19,9 @@ export type Selected<Id extends keyof RelativeTargets> = {
     Definitions[(Expression extends keyof AbsoluteTargets ? AbsoluteTargets[Expression] :
       Expression extends keyof RelativeTargets[Id] ? RelativeTargets[Id][Expression] : never) & keyof Definitions];
 };
+/** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
 export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+/** A same-set nominal reference; use the destination exported by a colocated facade. */
 export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
 "src/routes/home/definition.ts": { definition: () => definition0, owners: ["src/routes/home/definition.ts"] },

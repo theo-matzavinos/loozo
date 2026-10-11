@@ -235,7 +235,12 @@ export function emit(
   }
 
   routes.push(
-    `\nexport const routes: Routes = [${[...before, ...ordinary, ...after].map(record).join(",\n")}];\n`,
+    `
+/**
+ * Generated native Angular route configuration; install with provideRouter(routes).
+ * Regenerate through the router's Architect companions instead of editing this file.
+ */
+export const routes: Routes = [${[...before, ...ordinary, ...after].map(record).join(",\n")}];\n`,
   );
   desired.set(routesFile, routes.join("\n"));
 
@@ -290,7 +295,9 @@ export type Selected<Id extends keyof RelativeTargets> = {
     Definitions[(Expression extends keyof AbsoluteTargets ? AbsoluteTargets[Expression] :
       Expression extends keyof RelativeTargets[Id] ? RelativeTargets[Id][Expression] : never) & keyof Definitions];
 };
+/** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
 export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+/** A same-set nominal reference; use the destination exported by a colocated facade. */
 export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {`,
   );
@@ -338,7 +345,25 @@ const routeSet: RouteSet = { records: {`,
       "import { createDestination, injectGeneratedRoute } from '@loozo/angular-router/_generated';",
       `import { getRouteSet, type Destination, type Handle } from ${JSON.stringify(specifier(facade, sharedFile))};`,
       "export { defineRoute } from '@loozo/angular-router';",
+      `/**
+ * Inert reference to this exact declaration for same-set handle link/navigate calls.
+ * No injection context is required; copies and foreign-set references are invalid.
+ * This is not an authored route and cannot be passed to the root createUrl function.
+ */`,
       `export const destination: Destination<${JSON.stringify(declaration.id)}> = createDestination(() => getRouteSet(), ${JSON.stringify(declaration.id)});`,
+      `/**
+ * Injects a typed handle bound to this exact generated activated route record.
+ *
+ * @remarks
+ * Call in an Angular injection context. The handle exposes readonly native
+ * params/search/data Resources and destination-typed link/navigate methods.
+ * Data includes local resolver results only, not static or inherited data.
+ * All navigation values are explicit; current inputs are never reused implicitly.
+ *
+ * @returns A noncallable handle for this declaration.
+ * @throws A synchronous wiring error outside an injection context or when the
+ * activated record does not carry this declaration's own generated identity.
+ */`,
       `export function injectRoute(): Handle<${JSON.stringify(declaration.id)}> { return injectGeneratedRoute(getRouteSet(), ${JSON.stringify(declaration.id)}); }`,
       "",
     ];

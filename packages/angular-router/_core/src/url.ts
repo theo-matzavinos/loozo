@@ -21,6 +21,42 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
   return encode(text);
 }
 
+/**
+ * Synchronously serializes a route's explicit values into a root-relative URL.
+ *
+ * @remarks
+ * Includes inherited path/search declarations, but only this route's fragment
+ * names. Every effective path value and required search key must be supplied.
+ * Optional-only search may be omitted; searchless/paramless routes forbid those
+ * records. Catchalls require readonly arrays, including a valid empty array.
+ * Values are never taken from a current navigation.
+ *
+ * Stringifies without calling parsers, guards, resolvers or redirects. Static
+ * segments and logical values are component-encoded (also escaping parentheses),
+ * so a dynamic slash becomes `%2F`. Search keys are globally sorted; optional
+ * `undefined` values are omitted. An empty effective path produces `/`.
+ * Redirect declarations serialize their source URL, not their redirect target.
+ *
+ * @param route - A genuine declaration from this physical package instance,
+ * not a generated destination, spread/copy or structural lookalike.
+ * @param values - Explicit destination-typed params, search and optional fragment.
+ * Pass an empty object when the route needs no values.
+ * @returns A root-relative URL string; this does not navigate or return a UrlTree.
+ * @throws TypeError for invalid routes/records, missing or unknown keys,
+ * undeclared fragments, nonarray catchalls, nonstring codec output, or empty/dot
+ * path output. Application stringifier failures propagate unchanged.
+ * @throws URIError for ill-formed Unicode in a serialized value.
+ *
+ * @example
+ * ```ts
+ * const product = defineRoute("products/$productId", {
+ *   params: { productId: numberParam },
+ *   fragments: ["summary"],
+ * });
+ * createUrl(product, { params: { productId: 42 }, fragment: "summary" });
+ * // /products/42#summary
+ * ```
+ */
 export function createUrl<
   Target extends AnyRoute,
   SearchKeys extends keyof SearchOf<NoInfer<Target>> = never,

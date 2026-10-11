@@ -5,6 +5,10 @@ import { nativeOptions, callbacks, redirect } from '@loozo/angular-router/_gener
 import definition0 from "../src/routes/alias/definition.js";
 import definition3 from "../src/routes/item/definition.js";
 
+/**
+ * Generated native Angular route configuration; install with provideRouter(routes).
+ * Regenerate through the router's Architect companions instead of editing this file.
+ */
 export const routes: Routes = [{ path: "teams/:teamId/old-items/:id",
 pathMatch: 'full',
 data: { __loozoAngularRouterRouteId: "src/routes/alias/definition.ts" },

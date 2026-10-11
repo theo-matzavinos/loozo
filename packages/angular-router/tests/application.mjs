@@ -214,6 +214,18 @@ assert.match(
   /import\("\.\.\/src\/routes\/home\/page"\)/,
 );
 assert.doesNotMatch(initial["generated/routes.generated.ts"].bytes, /\.then\(/);
+assert.match(
+  initial["generated/routes.generated.ts"].bytes,
+  /\/\*\*[\s\S]*?provideRouter\(routes\)[\s\S]*?\*\/\nexport const routes/,
+);
+assert.match(
+  initial["src/routes/home/route.generated.ts"].bytes,
+  /\/\*\*[\s\S]*?Inert reference[\s\S]*?\*\/\nexport const destination/,
+);
+assert.match(
+  initial["src/routes/home/route.generated.ts"].bytes,
+  /\/\*\*[\s\S]*?@returns A noncallable handle[\s\S]*?\*\/\nexport function injectRoute/,
+);
 await expectBuild(true);
 await expectUnchanged(initial, "Identical generation must preserve nanosecond mtimes");
 await expectBuild(true, { check: true });

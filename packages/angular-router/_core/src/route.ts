@@ -178,6 +178,43 @@ export function validateSearchValues(
   }
 }
 
+/**
+ * Declares a nominal typed route without executing codecs or native callbacks.
+ *
+ * @remarks
+ * Paths are decoded authored text, not URLs: use `""` for root/pathless nodes,
+ * `$name` for a scalar segment and terminal `$name[]` for a zero-or-more
+ * catchall. Repeated local scalar names reuse one value. Leading/trailing or
+ * repeated slashes, dot segments and Angular `:name`/wildcard notation are invalid.
+ *
+ * Parents compose effective params/search transitively, including through
+ * pathless nodes. Children cannot redeclare ancestor-owned keys or have a
+ * catchall parent. Fragment names belong only to this declaration.
+ * The route and copied containers are shallow-frozen; application codecs,
+ * callbacks, providers and opaque values retain identity and are not deep-frozen.
+ *
+ * For generation, author a direct default export of this call with a literal
+ * path and inline config. Parent and redirect targets must be direct default
+ * imports of admitted declarations. Angular owns activation and navigation;
+ * declaration alone does not register a route with Angular.
+ *
+ * @param path - The literal local path, relative to the authored parent.
+ * @param config - Local codecs, parent, fragments and supported native behavior.
+ * Structural Angular options such as children, component and matcher are
+ * generator-owned and cannot be overridden.
+ * @returns A frozen route preserving inferred effective input and local data types.
+ * @throws TypeError for invalid paths/configuration, missing or extra local
+ * codecs, inherited key conflicts, or nongenuine parent/redirect routes.
+ *
+ * @example
+ * ```ts
+ * const product = defineRoute("products/$productId", {
+ *   params: { productId: numberParam },
+ *   search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+ *   fragments: ["summary", "reviews"],
+ * });
+ * ```
+ */
 export function defineRoute<
   const Path extends string,
   Parent extends AnyRoute | undefined = undefined,

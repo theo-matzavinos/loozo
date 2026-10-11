@@ -2,7 +2,7 @@
 
 Typed route declarations, codecs, URLs and navigation on top of Angular’s native router. Static generation supplies route configuration, typed destinations and route handles without introducing a second router. Angular owns matching, activation, guards, resolvers, redirects, history and stability.
 
-This is an experimental implementation. The reviewed rebuild passed all 126 cases in the approved acceptance copy, plus source review and native consumer/build/browser checks. It is not yet broadly battle-tested. Version `0.0.1` is experimental and MIT-licensed.
+This is an experimental implementation. The reviewed rebuild passed all 126 cases in the approved acceptance copy, plus source review and native consumer/build/browser checks. It is not yet broadly battle-tested. Version `0.0.2` is experimental and MIT-licensed.
 
 ```ts
 import {
@@ -47,8 +47,9 @@ pnpm run build                 # NodeNext tsc + native ng-packagr primary/_core/
 pnpm run check                 # no-fix source formatting/lint checks
 pnpm run typecheck             # strict source check, no output
 pnpm run typecheck:consumers   # strict NodeNext and ESNext/Bundler against actual APF
-pnpm run test                  # durable public-root runtime regressions; plain Node
-pnpm run test:root             # explicit alias for the same runtime suite
+pnpm run test                  # public-root runtime + published/generated documentation regressions
+pnpm run test:root             # public-root runtime regressions; plain Node
+pnpm run test:docs             # TSDoc coverage in published declarations and generated examples
 pnpm run test:application /absolute/task-owned/absent-evidence-directory
 pnpm run test:navigation /absolute/task-owned/absent-evidence-directory
 pnpm run test:lifecycle /absolute/task-owned/absent-evidence-directory
