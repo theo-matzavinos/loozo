@@ -433,15 +433,20 @@ test("combined semantic preflight is strict and prevents all router and Launch w
     "src/routes/left/rpc.ts",
     `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{list:query({handler:()=>7})});`,
   );
-  await put(root, "src/broken.d.ts", "export interface Broken { value: MissingType; }");
-  await rejectUnchanged(root, /MissingType/);
-  await rm(resolve(root, "src/broken.d.ts"));
+
+  const route = await readFile(resolve(root, "src/routes/left/route.ts"), "utf8");
+
   await put(
     root,
     "src/routes/left/route.ts",
     `import {defineRoute} from '@loozo/angular-router'; import parent from '../+auth/route'; export default defineRoute('left',{parent,resolve:{x:()=>missingRouteValue}});`,
   );
   await rejectUnchanged(root, /missingRouteValue/);
+  // Generation checks only its own domain; an unrelated application declaration
+  // error is left to the application's build and no longer blocks publication.
+  await put(root, "src/routes/left/route.ts", route);
+  await put(root, "src/broken.d.ts", "export interface Broken { value: MissingType; }");
+  await generate(root, options);
 
   const stale = await fixture();
 
@@ -458,6 +463,35 @@ test("combined semantic preflight is strict and prevents all router and Launch w
     `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{list:query({handler:({context})=>context.nonexistent})});`,
   );
   await rejectUnchanged(stale, /nonexistent/);
+});
+
+test("final check covers generated outputs, declarations and direct importers but not unrelated files", async () => {
+  const root = await fixture();
+
+  await put(root, "src/unrelated.ts", "export const wrong: number = 'unrelated';");
+  await generate(root, options);
+  await generate(root, { ...options, check: true });
+
+  for (const reference of [
+    "import {injectRpc} from './routes/left/rpc.generated'; void injectRpc;",
+    "export {injectRpc} from './routes/left/rpc.generated';",
+    "export const load = () => import('./routes/left/rpc.generated');",
+    "export type Rpc = import('./routes/left/rpc.generated').Rpc;",
+  ]) {
+    await put(root, "src/consumer.ts", `${reference}\nexport const wrong: number = 'importer';`);
+    await rejectUnchanged(root, /consumer\.ts/);
+  }
+
+  await rm(resolve(root, "src/consumer.ts"));
+  await generate(root, { ...options, check: true });
+
+  // The generated registration is checked despite the consumer's skipLibCheck:true.
+  await put(
+    root,
+    "src/register.d.ts",
+    "declare module '@loozo/angular-launch/server' { interface Register { context: number } } export {};",
+  );
+  await rejectUnchanged(root, /context\.generated\.d\.ts/);
 });
 
 test("only __proto__ namespace/procedure is reserved before cold publication, updates or check", async () => {
