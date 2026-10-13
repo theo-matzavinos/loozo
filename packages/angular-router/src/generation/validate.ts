@@ -6,6 +6,7 @@ import { fail, properties, resolveModule, type Declaration, type Sources } from 
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
+import { AnchorState } from "./anchor.js";
 
 export function authoredPath(declaration: Declaration): string {
   const parts: string[] = [];
@@ -237,7 +238,7 @@ export async function validateRoutes(
   sources: Sources,
   generated: ReadonlyMap<string, string>,
   validation: ReturnType<typeof createValidationProgram>,
-  canonical?: CompilerState,
+  canonical?: AnchorState,
 ): Promise<void> {
   const { program, host, obsolete } = validation;
 
@@ -280,33 +281,12 @@ export async function validateRoutes(
   // Anchor the public export's declaration independently of application paths,
   // which can also redirect imports inside the concrete public type entry.
   const canonicalOptions = { ...sources.parsed.options, paths: undefined, baseUrl: undefined };
-  const canonicalHost = ts.createCompilerHost(canonicalOptions, true);
-  let canonicalProgram: ts.Program;
-
-  if (canonical) {
-    canonicalProgram = canonical.createProgram(
-      [sources.factoryEntry],
-      canonicalOptions,
-      canonicalHost,
-    );
-  } else {
-    canonicalProgram = ts.createProgram({
-      rootNames: [sources.factoryEntry],
-      options: canonicalOptions,
-      host: canonicalHost,
-    });
-  }
-
-  const canonicalChecker = canonicalProgram.getTypeChecker();
-  const canonicalEntry = canonicalProgram.getSourceFile(sources.factoryEntry)!;
-  const canonicalModule = canonicalChecker.getSymbolAtLocation(canonicalEntry)!;
-  let canonicalFactory = canonicalChecker
-    .getExportsOfModule(canonicalModule)
-    .find((symbol) => symbol.name === "defineRoute")!;
-
-  if (canonicalFactory.flags & ts.SymbolFlags.Alias) {
-    canonicalFactory = canonicalChecker.getAliasedSymbol(canonicalFactory);
-  }
+  const anchor = await (canonical ?? new AnchorState()).anchor(
+    sources.factoryEntry,
+    ["defineRoute"],
+    canonicalOptions,
+  );
+  const canonicalFactory = anchor.get("defineRoute");
 
   // Tentative own-facade admission is not authority for its re-exported binding.
   // Prove both the concrete module boundary and the final native alias identity.
@@ -349,21 +329,18 @@ export async function validateRoutes(
     if (
       !actualFactory?.declarations?.length ||
       actualFactory !== concreteFactory ||
-      actualFactory.declarations.length !== canonicalFactory.declarations?.length
+      actualFactory.declarations.length !== canonicalFactory?.length
     ) {
       fail(call, "Factory binding does not resolve to the concrete defineRoute export");
     }
 
     for (let index = 0; index < actualFactory.declarations.length; index += 1) {
       const actual = actualFactory.declarations[index];
-      const canonical = canonicalFactory.declarations[index];
-      const [actualFile, canonicalFile] = await Promise.all([
-        realpath(actual.getSourceFile().fileName),
-        realpath(canonical.getSourceFile().fileName),
-      ]);
+      const canonical = canonicalFactory[index];
+      const actualFile = await realpath(actual.getSourceFile().fileName);
 
       if (
-        actualFile !== canonicalFile ||
+        actualFile !== canonical.file ||
         actual.kind !== canonical.kind ||
         actual.pos !== canonical.pos ||
         actual.end !== canonical.end

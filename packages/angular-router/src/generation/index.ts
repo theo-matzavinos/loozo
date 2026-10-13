@@ -27,6 +27,7 @@ export async function prepareLaunchRoutes(
 }
 
 export { CompilerState } from "./compiler.js";
+export { AnchorState } from "./anchor.js";
 export { createValidationProgram, validateRoutes } from "./validate.js";
 export { planOutputs, publish, walk, auditPath, launchMarkers } from "./files.js";
 export { fail, properties, namedImport, genuineImport } from "./sources.js";

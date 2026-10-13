@@ -282,9 +282,11 @@ test("warm transitive schema/context/import edits, invalid diagnostics and decla
     await put(root, "src/value.ts", "export const value = 'repaired';");
     await session.generate({ check: true });
 
-    // The consumer requests skipLibCheck:true, but the producer must check d.ts.
+    // Generation checks only its own domain; an unrelated application declaration
+    // error is left to the application's build and no longer blocks publication.
     await put(root, "src/broken.d.ts", "export interface Broken {value:MissingType}");
-    await rejectsUnchanged(root, session, /MissingType/);
+    await session.generate();
+    await session.generate({ check: true });
     await rm(resolve(root, "src/broken.d.ts"));
     await session.generate({ check: true });
     await put(root, "src/value.ts", "export const value = ;");
@@ -362,9 +364,20 @@ test("warm config strict/noCheck/inherited flags and declaration diagnostics pre
       }),
     );
     await session.generate();
-    await put(root, "src/private.ts", "export const exposed = new class {private secret=1;}();");
-    await rejectsUnchanged(root, session, /private|named/);
+
+    const exposed = "export const exposed = new class {private secret=1;}();";
+
+    // Declaration emit is checked for generation's own domain only: an unrelated
+    // file is left to the application's build, a direct importer still blocks.
+    await put(root, "src/private.ts", exposed);
+    await session.generate();
     await rm(resolve(root, "src/private.ts"));
+
+    const checks = await readFile(resolve(root, "src/checks.ts"), "utf8");
+
+    await put(root, "src/checks.ts", `${checks}\n${exposed}`);
+    await rejectsUnchanged(root, session, /private|named/);
+    await put(root, "src/checks.ts", checks);
     await session.generate({ check: true });
   } finally {
     await session.dispose();

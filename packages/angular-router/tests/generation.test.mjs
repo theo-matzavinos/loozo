@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, writeFile, rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, writeFile, rm, realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import ts from "typescript";
-import { CompilerState } from "../node/src/generation/index.js";
+import { AnchorState, CompilerState } from "../node/src/generation/index.js";
 
 const scratch = resolve(import.meta.dirname, "../../../.scratch/router-generation");
 let sequence = 0;
@@ -197,4 +197,78 @@ test("full diagnostics reject transitive declaration changes and fresh module ca
   await writeFile(declaration, "export declare const value:number;");
   assert.deepEqual(diagnostics(state, [consumer], options), []);
   state.clear();
+});
+
+test("session anchors reuse factory descriptors until options, the entry or any file it read changes", async () => {
+  const root = await fixture();
+  const entry = resolve(root, "node_modules/factory/index.d.ts");
+  const inner = resolve(root, "node_modules/inner");
+  const manifest = resolve(inner, "package.json");
+  const first = resolve(inner, "first.d.ts");
+  const second = resolve(inner, "second.d.ts");
+  const options = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    types: [],
+    noEmit: true,
+  };
+  const names = ["defineRoute", "missing"];
+  const state = new AnchorState();
+
+  await Promise.all([
+    mkdir(dirname(entry), { recursive: true }),
+    mkdir(inner, { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(entry, "export {defineRoute} from 'inner';"),
+    writeFile(manifest, JSON.stringify({ name: "inner", exports: { ".": "./first.d.ts" } })),
+    writeFile(first, "export declare function defineRoute(): void;"),
+    writeFile(second, "// second\nexport declare function defineRoute(): void;"),
+  ]);
+
+  const initial = await state.anchor(entry, names, options);
+  const [firstFile, secondFile] = await Promise.all([realpath(first), realpath(second)]);
+
+  assert.deepEqual(initial.get("defineRoute"), [
+    { file: firstFile, kind: ts.SyntaxKind.FunctionDeclaration, pos: 0, end: 44 },
+  ]);
+  assert.equal(initial.get("missing"), undefined);
+  assert.equal(await state.anchor(entry, names, options), initial);
+
+  // A transitive declaration read by the anchor program moves the declaration.
+  await writeFile(first, "// moved\nexport declare function defineRoute(): void;");
+
+  const moved = await state.anchor(entry, names, options);
+
+  assert.notEqual(moved, initial);
+  assert.deepEqual(moved.get("defineRoute"), [
+    { file: firstFile, kind: ts.SyntaxKind.FunctionDeclaration, pos: 0, end: 53 },
+  ]);
+
+  // Package metadata consulted during resolution retargets the export.
+  await writeFile(manifest, JSON.stringify({ name: "inner", exports: { ".": "./second.d.ts" } }));
+  assert.equal((await state.anchor(entry, names, options)).get("defineRoute")[0].file, secondFile);
+
+  // Editing the entry itself.
+  await writeFile(entry, "export {};");
+
+  const removed = await state.anchor(entry, names, options);
+
+  assert.equal(removed.get("defineRoute"), undefined);
+  assert.equal(await state.anchor(entry, names, options), removed);
+
+  const changedOptions = await state.anchor(entry, names, { ...options, noImplicitAny: false });
+
+  assert.notEqual(changedOptions, removed);
+  assert.equal(
+    await state.anchor(entry, names, { ...options, noImplicitAny: false }),
+    changedOptions,
+  );
+  state.clear();
+  assert.notEqual(
+    await state.anchor(entry, names, { ...options, noImplicitAny: false }),
+    changedOptions,
+  );
 });

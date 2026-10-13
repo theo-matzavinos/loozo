@@ -20,6 +20,7 @@ import {
   genuineImport,
   specifier,
   CompilerState,
+  AnchorState,
 } from "@loozo/angular-router/_generation";
 import type { Declaration, Sources, LaunchDeclaration } from "@loozo/angular-router/_generation";
 
@@ -37,8 +38,8 @@ export interface GenerationSession {
 interface GenerationCompilerState {
   discovery: CompilerState;
   overlay: CompilerState;
-  routerAnchor: CompilerState;
-  launchAnchor: CompilerState;
+  routerAnchor: AnchorState;
+  launchAnchor: AnchorState;
 }
 
 interface RpcGroup {
@@ -463,23 +464,13 @@ async function validateBindings(
     baseUrl: undefined,
     skipLibCheck: false,
   };
-  let canonical: ts.Program;
-
-  if (compiler) {
-    canonical = compiler.launchAnchor.createProgram(
-      [entryFile],
-      canonicalOptions,
-      ts.createCompilerHost(canonicalOptions, true),
-    );
-  } else {
-    canonical = ts.createProgram([entryFile], canonicalOptions);
-  }
-
-  const canonicalChecker = canonical.getTypeChecker();
+  const anchor = await (compiler?.launchAnchor ?? new AnchorState()).anchor(
+    entryFile,
+    ["defineContext", "defineRpc", "query", "mutation"],
+    canonicalOptions,
+  );
   const actualEntry = program.getSourceFile(entryFile)!;
-  const canonicalEntry = canonical.getSourceFile(entryFile)!;
   const actualModule = checker.getSymbolAtLocation(actualEntry)!;
-  const canonicalModule = canonicalChecker.getSymbolAtLocation(canonicalEntry)!;
   const expectedCalls = new Map<string, string>();
 
   function key(node: ts.Node): string {
@@ -545,28 +536,22 @@ async function validateBindings(
                 checker,
                 checker.getExportsOfModule(actualModule).find((symbol) => symbol.name === expected),
               );
-              const anchored = unalias(
-                canonicalChecker,
-                canonicalChecker
-                  .getExportsOfModule(canonicalModule)
-                  .find((symbol) => symbol.name === expected),
-              );
+              const anchored = anchor.get(expected);
 
               if (
                 !actual?.declarations?.length ||
                 actual !== exported ||
-                actual.declarations.length !== anchored?.declarations?.length
+                actual.declarations.length !== anchored?.length
               ) {
                 fail(node, "Launch factory binding is not the concrete canonical export");
               }
 
               for (let index = 0; index < actual.declarations.length; index += 1) {
                 const a = actual.declarations[index];
-                const b = anchored.declarations[index];
+                const b = anchored[index];
 
                 if (
-                  (await realpath(a.getSourceFile().fileName)) !==
-                    (await realpath(b.getSourceFile().fileName)) ||
+                  (await realpath(a.getSourceFile().fileName)) !== b.file ||
                   a.pos !== b.pos ||
                   a.end !== b.end ||
                   a.kind !== b.kind
@@ -617,12 +602,121 @@ async function validateBindings(
       }
     }
   }
+}
 
-  const diagnostics = ts.getPreEmitDiagnostics(program);
+function moduleReferences(source: ts.SourceFile): ts.StringLiteralLike[] {
+  const references: ts.StringLiteralLike[] = [];
 
-  if (diagnostics.length > 0) {
+  function visit(node: ts.Node): void {
+    let specifier: ts.Node | undefined;
+
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      specifier = node.moduleSpecifier;
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      specifier = node.arguments[0];
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      specifier = node.argument.literal;
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
+      specifier = node.moduleReference.expression;
+    }
+
+    if (specifier && ts.isStringLiteralLike(specifier)) {
+      references.push(specifier);
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(source);
+
+  return references;
+}
+
+// Check generation's own domain before publication: generated outputs, discovered
+// route/Launch declarations and application TypeScript files that directly import
+// a generated output (import/export-from, import(), import types, import =). Other
+// application files and dependencies are left to the application's own build.
+function checkGeneratedDomain(
+  sources: Sources,
+  validation: ReturnType<typeof createValidationProgram>,
+  generated: ReadonlyMap<string, string>,
+): void {
+  const { program, host } = validation;
+  const options = program.getCompilerOptions();
+  const selected = new Set(generated.keys());
+
+  for (const declaration of sources.declarations) {
+    selected.add(declaration.file);
+  }
+
+  for (const declaration of sources.launch!.declarations) {
+    selected.add(declaration.file);
+  }
+
+  const cache = ts.createModuleResolutionCache(
+    program.getCurrentDirectory(),
+    (file) => host.getCanonicalFileName(file),
+    options,
+  );
+
+  for (const source of program.getSourceFiles()) {
+    const file = resolve(source.fileName);
+
+    if (
+      selected.has(file) ||
+      source.fileName.includes("/node_modules/") ||
+      program.isSourceFileFromExternalLibrary(source) ||
+      program.isSourceFileDefaultLibrary(source)
+    ) {
+      continue;
+    }
+
+    for (const specifier of moduleReferences(source)) {
+      const resolved = ts.resolveModuleName(
+        specifier.text,
+        source.fileName,
+        options,
+        host,
+        cache,
+        undefined,
+        program.getModeForUsageLocation(source, specifier),
+      ).resolvedModule;
+
+      if (resolved && generated.has(resolve(resolved.resolvedFileName))) {
+        selected.add(file);
+
+        break;
+      }
+    }
+  }
+
+  const declarationEmit = options.declaration || options.composite;
+  const diagnostics: ts.Diagnostic[] = [...program.getOptionsDiagnostics()];
+
+  for (const file of selected) {
+    const source = program.getSourceFile(file)!;
+
+    diagnostics.push(
+      ...program.getSyntacticDiagnostics(source),
+      ...program.getSemanticDiagnostics(source),
+    );
+
+    if (declarationEmit && !source.isDeclarationFile) {
+      diagnostics.push(...program.getDeclarationDiagnostics(source));
+    }
+  }
+
+  // Global diagnostics can surface while checking the selected files.
+  diagnostics.push(...program.getGlobalDiagnostics());
+
+  const unique = ts.sortAndDeduplicateDiagnostics(diagnostics);
+
+  if (unique.length > 0) {
     throw new Error(
-      ts.formatDiagnosticsWithColorAndContext(diagnostics, {
+      ts.formatDiagnosticsWithColorAndContext(unique, {
         getCanonicalFileName: (name) => name,
         getCurrentDirectory: () => dirname(sources.configFile),
         getNewLine: () => "\n",
@@ -737,6 +831,7 @@ async function runGeneration(
   await validateRoutes(sources, desired, validation, compiler?.routerAnchor);
   await validatePayloadImports(validation, payloads);
   await validateBindings(sources, validation, context, groups, compiler);
+  checkGeneratedDomain(sources, validation, desired);
   publish(plan, options.check === true, stopped, new Map(), new Set());
 }
 
@@ -758,8 +853,8 @@ export function createGenerationSession(
   const compiler: GenerationCompilerState = {
     discovery: new CompilerState(),
     overlay: new CompilerState(),
-    routerAnchor: new CompilerState(),
-    launchAnchor: new CompilerState(),
+    routerAnchor: new AnchorState(),
+    launchAnchor: new AnchorState(),
   };
   let closed = false;
   let active: Promise<void> | undefined;
