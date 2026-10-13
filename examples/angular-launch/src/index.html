@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Personal todos</title>
+    <base href="/" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        background: #15171b;
+        color: #e5e7eb;
+        font: 18px system-ui;
+        margin: 3rem auto;
+        max-width: 45rem;
+        padding: 1rem;
+      }
+      button,
+      input {
+        font: inherit;
+        padding: 0.5rem 1rem;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: wait;
+      }
+      label {
+        display: block;
+        margin-bottom: 0.5rem;
+      }
+      .todo-entry {
+        display: flex;
+        gap: 0.5rem;
+      }
+      input {
+        min-width: 0;
+        flex: 1;
+      }
+      ul {
+        padding: 0;
+        list-style: none;
+      }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-block: 1rem;
+      }
+      li > span:first-child {
+        flex: 1;
+        overflow-wrap: anywhere;
+      }
+      .completed {
+        color: #a7d8b4;
+      }
+      #identity {
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <launch-root></launch-root>
+  </body>
+</html>

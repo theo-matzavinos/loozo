@@ -24,6 +24,10 @@
       "types": "./dist/types/loozo-angular-router-_generated.d.ts",
       "default": "./dist/fesm2022/loozo-angular-router-_generated.mjs"
     },
+    "./_generation": {
+      "types": "./node/src/generation/index.d.ts",
+      "node": "./node/src/generation/index.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -31,7 +35,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "rm -rf node && tsc -p tsconfig.node.json && ng-packagr -p ng-package.json -c tsconfig.build.json",
+    "build": "rm -rf node && tsc -p tsconfig.node.json && tsc -p src/generation/tsconfig.json && ng-packagr -p ng-package.json -c tsconfig.build.json",
     "check": "vp check",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "pnpm run test:root && pnpm run test:docs",

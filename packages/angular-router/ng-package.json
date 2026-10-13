@@ -5,7 +5,8 @@
   "assets": [
     "builders.json",
     { "glob": "*.json", "input": "schemas", "output": "schemas" },
-    { "glob": "**/*.js", "input": "node", "output": "node" }
+    { "glob": "**/*.js", "input": "node", "output": "node" },
+    { "glob": "**/*.d.ts", "input": "node", "output": "node" }
   ],
   "allowedNonPeerDependencies": [
     "^@angular-devkit/architect$",

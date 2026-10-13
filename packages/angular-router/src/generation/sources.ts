@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parsePath, type Segment } from "../../_core/src/path.js";
 import { auditPath, contains, metadata, walk, workspacePaths, markers } from "./files.js";
 import { overlayDirectory, overlayHost } from "./overlay.js";
+import type { CompilerState } from "./compiler.js";
 import { synchronize, transparent, type AutoDefineRoutes } from "./filesystem.js";
 
 export interface Declaration {
@@ -24,6 +25,16 @@ export interface Declaration {
   full: boolean;
 }
 
+export interface LaunchDeclaration {
+  file: string;
+  kind: "defineContext" | "defineRpc";
+  call: ts.CallExpression;
+}
+
+export interface LaunchMode {
+  typeEntry: string;
+}
+
 export interface Sources {
   configFile: string;
   parsed: ts.ParsedCommandLine;
@@ -35,6 +46,7 @@ export interface Sources {
   deferredFactories: Declaration[];
   authored: ReadonlyMap<string, string>;
   filesystem: boolean;
+  launch?: { typeEntry: string; declarations: LaunchDeclaration[] };
 }
 
 export function fail(node: ts.Node, message: string): never {
@@ -89,7 +101,7 @@ export function resolveModule(
   return ts.resolveModuleName(name, source, options, host).resolvedModule?.resolvedFileName;
 }
 
-function namedImport(
+export function namedImport(
   source: ts.SourceFile,
   name: ts.Expression,
   imported: string,
@@ -160,7 +172,7 @@ function moduleText(statement: ts.ImportDeclaration): string {
   return statement.moduleSpecifier.text;
 }
 
-async function genuineImport(
+export async function genuineImport(
   statement: ts.ImportDeclaration,
   expected: string,
   options: ts.CompilerOptions,
@@ -293,6 +305,8 @@ export async function discover(
   auto?: AutoDefineRoutes,
   authored: ReadonlyMap<string, string> = new Map(),
   filesystem = auto !== undefined,
+  launch?: LaunchMode,
+  compiler?: CompilerState,
 ): Promise<Sources> {
   if (scans.length !== 1) {
     throw new Error("scanDirectories must contain exactly one directory");
@@ -366,7 +380,7 @@ export async function discover(
 
     await auditPath(normalized);
 
-    if (contains(root, normalized)) {
+    if (launch || contains(root, normalized)) {
       candidates.push(normalized);
     }
   }
@@ -378,14 +392,22 @@ export async function discover(
   const manifest = JSON.parse(manifestBytes);
   const factoryEntry = await realpath(resolve(packageRoot, manifest.exports["."].types));
   const declarations: Declaration[] = [];
+  const launchDeclarations: LaunchDeclaration[] = [];
+  const launchEntry = launch && (await realpath(launch.typeEntry));
   const pages = new Map<string, string>();
   const deferredFactories: Declaration[] = [];
   const syntaxHost = overlayHost(parsed.options, authored);
-  const syntaxProgram = ts.createProgram({
-    rootNames: candidates,
-    options: parsed.options,
-    host: syntaxHost,
-  });
+  let syntaxProgram: ts.Program;
+
+  if (compiler) {
+    syntaxProgram = compiler.createProgram(candidates, parsed.options, syntaxHost);
+  } else {
+    syntaxProgram = ts.createProgram({
+      rootNames: candidates,
+      options: parsed.options,
+      host: syntaxHost,
+    });
+  }
 
   for (const file of candidates) {
     const bytes = syntaxHost.readFile(file);
@@ -444,6 +466,39 @@ export async function discover(
     }
 
     const node = defaults[0];
+    const inRoutes = contains(root, file);
+
+    if (launchEntry && ts.isExportAssignment(node) && ts.isCallExpression(node.expression)) {
+      const call = node.expression;
+      let kind: "defineContext" | "defineRpc" | undefined;
+      let imported = namedImport(source, call.expression, "defineContext");
+
+      if (imported) {
+        kind = "defineContext";
+      } else if (inRoutes) {
+        imported = namedImport(source, call.expression, "defineRpc");
+
+        if (imported) {
+          kind = "defineRpc";
+        }
+      }
+
+      if (kind && imported) {
+        if (!(await genuineImport(imported, launchEntry, parsed.options, syntaxHost))) {
+          fail(imported, `${kind} must resolve to Launch's concrete server entry`);
+        }
+
+        launchDeclarations.push({ file, kind, call });
+
+        continue;
+      }
+    }
+
+    // Context is audited over all application roots; unrelated bootstrap defaults
+    // outside route scans are not route declarations.
+    if (!inRoutes) {
+      continue;
+    }
 
     if (ts.isClassDeclaration(node)) {
       await component(source, node, parsed.options);
@@ -787,6 +842,12 @@ export async function discover(
     }
   }
 
+  let launchSources: Sources["launch"];
+
+  if (launchEntry) {
+    launchSources = { typeEntry: launchEntry, declarations: launchDeclarations };
+  }
+
   return {
     configFile,
     parsed,
@@ -798,5 +859,6 @@ export async function discover(
     deferredFactories,
     authored,
     filesystem,
+    launch: launchSources,
   };
 }

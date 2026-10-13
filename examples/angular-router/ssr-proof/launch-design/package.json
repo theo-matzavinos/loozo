@@ -1,0 +1,14 @@
+{
+  "name": "angular-launch-design-proof",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p type-proof/tsconfig.json && tsc -p tsconfig.app.json --noEmit",
+    "build": "ng run launch-proof:build",
+    "build:prerender": "ng run launch-proof:build:prerender",
+    "build:static": "ng run launch-proof:build:static",
+    "serve:built": "node dist/launch-proof/server/server.mjs",
+    "verify": "node verify.mjs"
+  }
+}
