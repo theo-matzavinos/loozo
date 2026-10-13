@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "todos": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/main.ts",
+            "server": "src/main.server.ts",
+            "ssr": { "entry": "src/server.ts" },
+            "outputMode": "server",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "outputPath": "dist/todos",
+            "optimization": { "scripts": true, "styles": true, "fonts": false },
+            "sourceMap": false,
+            "statsJson": true,
+            "security": { "allowedHosts": ["127.0.0.1", "localhost"] }
+          },
+          "configurations": {
+            "verification": {
+              "outputPath": "dist/todos",
+              "fileReplacements": [{ "replace": "src/main.ts", "with": "src/main.verification.ts" }]
+            },
+            "prerender": {
+              "outputPath": "dist/prerender-blocked",
+              "fileReplacements": [
+                { "replace": "src/rendering.ts", "with": "src/rendering.prerender.ts" }
+              ]
+            },
+            "static": {
+              "outputPath": "dist/static-supported",
+              "fileReplacements": [
+                { "replace": "src/rendering.ts", "with": "src/rendering.static.ts" }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

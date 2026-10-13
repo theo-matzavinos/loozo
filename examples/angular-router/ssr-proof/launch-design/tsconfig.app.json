@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "skipLibCheck": false,
+    "experimentalDecorators": true,
+    "types": ["node"],
+    "outDir": "out-tsc/app"
+  },
+  "angularCompilerOptions": { "strictTemplates": true },
+  "include": ["src/**/*.ts", "type-proof/api.d.ts"]
+}

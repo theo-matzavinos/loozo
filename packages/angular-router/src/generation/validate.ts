@@ -5,6 +5,7 @@ import { auditPath, contains } from "./files.js";
 import { fail, properties, resolveModule, type Declaration, type Sources } from "./sources.js";
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
+import type { CompilerState } from "./compiler.js";
 
 export function authoredPath(declaration: Declaration): string {
   const parts: string[] = [];
@@ -154,13 +155,20 @@ export function selections(sources: Sources): Map<string, Declaration> {
   return result;
 }
 
-// Overlay only the final generated locations. Never evaluate application code.
-export async function validateProgram(
+// Overlay only final generated locations. Never evaluate application code.
+export function createValidationProgram(
   sources: Sources,
   generated: ReadonlyMap<string, string>,
   stale: readonly string[],
-): Promise<void> {
-  const host = overlayHost(sources.parsed.options, sources.authored);
+  compiler?: CompilerState,
+) {
+  const options = { ...sources.parsed.options };
+
+  if (sources.launch) {
+    options.skipLibCheck = false;
+  }
+
+  const host = overlayHost(options, sources.authored);
   const originalRead = host.readFile.bind(host);
   const originalExists = host.fileExists.bind(host);
   const originalDirectoryExists = host.directoryExists!.bind(host);
@@ -197,14 +205,41 @@ export async function validateProgram(
     return ts.createSourceFile(file, text, language, true);
   };
 
-  const program = ts.createProgram({
-    rootNames: [
-      ...sources.parsed.fileNames.filter((file) => !obsolete.has(resolve(file))),
-      sources.factoryEntry,
-    ],
-    options: sources.parsed.options,
-    host,
-  });
+  const rootNames = [
+    ...sources.parsed.fileNames.filter((file) => !obsolete.has(resolve(file))),
+    sources.factoryEntry,
+  ];
+
+  if (sources.launch) {
+    rootNames.push(sources.launch.typeEntry, ...generated.keys());
+  }
+
+  let program: ts.Program;
+
+  if (compiler) {
+    program = compiler.createProgram(rootNames, options, host);
+  } else {
+    program = ts.createProgram({ rootNames, options, host });
+  }
+
+  return { program, host, obsolete };
+}
+
+export async function validateProgram(
+  sources: Sources,
+  generated: ReadonlyMap<string, string>,
+  stale: readonly string[],
+): Promise<void> {
+  await validateRoutes(sources, generated, createValidationProgram(sources, generated, stale));
+}
+
+export async function validateRoutes(
+  sources: Sources,
+  generated: ReadonlyMap<string, string>,
+  validation: ReturnType<typeof createValidationProgram>,
+  canonical?: CompilerState,
+): Promise<void> {
+  const { program, host, obsolete } = validation;
 
   if (sources.filesystem) {
     const diagnostics: ts.Diagnostic[] = [];
@@ -245,11 +280,23 @@ export async function validateProgram(
   // Anchor the public export's declaration independently of application paths,
   // which can also redirect imports inside the concrete public type entry.
   const canonicalOptions = { ...sources.parsed.options, paths: undefined, baseUrl: undefined };
-  const canonicalProgram = ts.createProgram({
-    rootNames: [sources.factoryEntry],
-    options: canonicalOptions,
-    host: ts.createCompilerHost(canonicalOptions, true),
-  });
+  const canonicalHost = ts.createCompilerHost(canonicalOptions, true);
+  let canonicalProgram: ts.Program;
+
+  if (canonical) {
+    canonicalProgram = canonical.createProgram(
+      [sources.factoryEntry],
+      canonicalOptions,
+      canonicalHost,
+    );
+  } else {
+    canonicalProgram = ts.createProgram({
+      rootNames: [sources.factoryEntry],
+      options: canonicalOptions,
+      host: canonicalHost,
+    });
+  }
+
   const canonicalChecker = canonicalProgram.getTypeChecker();
   const canonicalEntry = canonicalProgram.getSourceFile(sources.factoryEntry)!;
   const canonicalModule = canonicalChecker.getSymbolAtLocation(canonicalEntry)!;
@@ -331,6 +378,11 @@ export async function validateProgram(
     resolve(sources.output, "destinations.generated.ts"),
   ]);
 
+  if (sources.launch) {
+    globalTargets.add(resolve(sources.output, "context.generated.d.ts"));
+    globalTargets.add(resolve(sources.output, "server.generated.ts"));
+  }
+
   for (const source of program.getSourceFiles()) {
     if (
       source.fileName.includes("/node_modules/") ||
@@ -410,7 +462,8 @@ export async function validateProgram(
 
       for (const candidate of candidates) {
         const facadeTarget =
-          basename(candidate) === "route.generated.ts" &&
+          (basename(candidate) === "route.generated.ts" ||
+            (sources.launch && basename(candidate) === "rpc.generated.ts")) &&
           !candidate.split(sep).includes("node_modules") &&
           sources.roots.some((root) => contains(root, candidate));
 

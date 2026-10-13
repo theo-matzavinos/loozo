@@ -8,6 +8,12 @@ export const markers = {
   "route.generated.ts": "// @loozo/angular-router routegen: owned route.generated.ts",
 } as const;
 
+export const launchMarkers = {
+  "rpc.generated.ts": "// @loozo/angular-launch: owned rpc.generated.ts",
+  "context.generated.d.ts": "// @loozo/angular-launch: owned context.generated.d.ts",
+  "server.generated.ts": "// @loozo/angular-launch: owned server.generated.ts",
+} as const;
+
 export function contains(directory: string, file: string): boolean {
   const suffix = relative(directory, file);
 
@@ -155,6 +161,7 @@ export async function planOutputs(
   desired: ReadonlyMap<string, string>,
   encountered: readonly string[],
   globals: readonly string[],
+  mode?: "router-and-launch",
 ): Promise<OutputPlan> {
   const changed: string[] = [];
   const missing: string[] = [];
@@ -162,7 +169,11 @@ export async function planOutputs(
   const possible = new Set([...desired.keys(), ...globals]);
 
   for (const path of encountered) {
-    if (path.endsWith(`${sep}route.generated.ts`)) {
+    if (
+      path.endsWith(`${sep}route.generated.ts`) ||
+      (mode === "router-and-launch" &&
+        Object.keys(launchMarkers).some((name) => path.endsWith(`${sep}${name}`)))
+    ) {
       possible.add(path);
     }
   }
@@ -186,8 +197,14 @@ export async function planOutputs(
     }
 
     const bytes = await readFile(path, "utf8");
-    const name = path.slice(path.lastIndexOf(sep) + 1) as keyof typeof markers;
-    const owned = bytes.split("\n", 1)[0] === markers[name];
+    const ownership: Record<string, string> = { ...markers };
+
+    if (mode === "router-and-launch") {
+      Object.assign(ownership, launchMarkers);
+    }
+
+    const name = path.slice(path.lastIndexOf(sep) + 1);
+    const owned = bytes.split("\n", 1)[0] === ownership[name];
 
     if (!owned) {
       if (expected !== undefined) {
