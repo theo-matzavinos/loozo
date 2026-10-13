@@ -621,7 +621,7 @@ export async function discover(
       syntaxProgram.getTypeChecker(),
     );
 
-    return discover(workspace, config, scans, out, undefined, edits, true);
+    return discover(workspace, config, scans, out, undefined, edits, true, launch, compiler);
   }
 
   if (filesystem) {

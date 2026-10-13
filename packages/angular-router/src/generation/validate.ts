@@ -226,14 +226,6 @@ export function createValidationProgram(
   return { program, host, obsolete };
 }
 
-export async function validateProgram(
-  sources: Sources,
-  generated: ReadonlyMap<string, string>,
-  stale: readonly string[],
-): Promise<void> {
-  await validateRoutes(sources, generated, createValidationProgram(sources, generated, stale));
-}
-
 export async function validateRoutes(
   sources: Sources,
   generated: ReadonlyMap<string, string>,

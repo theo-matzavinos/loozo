@@ -5,7 +5,7 @@ import { delegate, type Options } from "./options.js";
 export default createBuilder<Options>(async (options, context): Promise<BuilderOutput> => {
   let stopped = false;
   let acquisition: Promise<BuilderRun> | undefined;
-  let generation: Promise<void> | undefined;
+  let generation: Promise<string[]> | undefined;
   let cleanup: Promise<void> | undefined;
 
   function stop(): Promise<void> {

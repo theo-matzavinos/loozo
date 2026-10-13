@@ -1,9 +1,11 @@
 import { resolve } from "node:path";
 import { discover } from "./sources.js";
-import { selections, validateProgram } from "./validate.js";
+import { createValidationProgram, selections, validateRoutes } from "./validate.js";
 import { emit } from "./emit.js";
 import { auditPath, metadata, planOutputs, publish, walk } from "./files.js";
 import type { AutoDefineRoutes } from "./filesystem.js";
+import type { CompilerState } from "./compiler.js";
+import type { AnchorState } from "./anchor.js";
 
 export interface GenerationOptions {
   tsconfig: string;
@@ -13,17 +15,31 @@ export interface GenerationOptions {
   autoDefineRoutes?: AutoDefineRoutes;
 }
 
+// Compiler state reused across one owner's sequential passes. The owner clears
+// every slot after a failed or stopped pass and when it is released.
+export interface GenerationState {
+  discovery: CompilerState;
+  overlay: CompilerState;
+  anchor: AnchorState;
+}
+
+// Returns the paths this pass wrote; check mode and stopped passes write nothing.
 export async function generate(
   workspace: string,
   options: GenerationOptions,
   stopped: () => boolean,
-): Promise<void> {
+  state?: GenerationState,
+): Promise<string[]> {
   const sources = await discover(
     workspace,
     options.tsconfig,
     options.scanDirectories,
     options.outDirectory,
     options.autoDefineRoutes,
+    undefined,
+    undefined,
+    undefined,
+    state?.discovery,
   );
   const selected = selections(sources);
   const desired = emit(sources, selected);
@@ -51,6 +67,9 @@ export async function generate(
     }
   }
 
-  await validateProgram(sources, desired, plan.stale);
-  publish(plan, options.check === true, stopped, sources.authored, seeds);
+  const validation = createValidationProgram(sources, desired, plan.stale, state?.overlay);
+
+  await validateRoutes(sources, desired, validation, state?.anchor);
+
+  return publish(plan, options.check === true, stopped, sources.authored, seeds);
 }
