@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, writeFile, rm, realpath } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rm, realpath, symlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import ts from "typescript";
 import { AnchorState, CompilerState } from "../node/src/generation/index.js";
+import { generate } from "../node/src/generation/generate.js";
 
 const scratch = resolve(import.meta.dirname, "../../../.scratch/router-generation");
 let sequence = 0;
@@ -271,4 +272,99 @@ test("session anchors reuse factory descriptors until options, the entry or any 
     await state.anchor(entry, names, { ...options, noImplicitAny: false }),
     changedOptions,
   );
+});
+
+test("session-backed generation follows edits across passes and recovers after a failed pass", async () => {
+  const root = await fixture();
+  const packageDirectory = resolve(import.meta.dirname, "..");
+  const routes = resolve(root, "generated/routes.generated.ts");
+  const definition = resolve(root, "src/routes/docs/route.ts");
+  const options = {
+    tsconfig: "tsconfig.json",
+    scanDirectories: ["src/routes"],
+    outDirectory: "generated",
+    autoDefineRoutes: {},
+  };
+  const state = {
+    discovery: new CompilerState(),
+    overlay: new CompilerState(),
+    anchor: new AnchorState(),
+  };
+
+  function page(template) {
+    return `import { Component } from "@angular/core";\n\n@Component({ template: "${template}" })\nexport default class Page {}\n`;
+  }
+
+  // The serve builder's contract: any failed pass clears every slot.
+  async function pass() {
+    try {
+      return await generate(root, options, () => false, state);
+    } catch (error) {
+      state.discovery.clear();
+      state.overlay.clear();
+      state.anchor.clear();
+
+      throw error;
+    }
+  }
+
+  await Promise.all([
+    mkdir(resolve(root, "src/routes/docs"), { recursive: true }),
+    mkdir(resolve(root, "node_modules/@loozo"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(
+      resolve(root, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          strict: true,
+          skipLibCheck: true,
+          experimentalDecorators: true,
+          lib: ["ES2022", "DOM"],
+          types: [],
+        },
+        include: ["src/**/*.ts"],
+      }),
+    ),
+    writeFile(resolve(root, "src/routes/docs/page.ts"), page("docs")),
+    symlink(packageDirectory, resolve(root, "node_modules/@loozo/angular-router"), "dir"),
+    symlink(
+      resolve(packageDirectory, "node_modules/@angular"),
+      resolve(root, "node_modules/@angular"),
+      "dir",
+    ),
+  ]);
+
+  await pass();
+  assert.match(await readFile(routes, "utf8"), /path: "docs"/);
+  assert.doesNotMatch(await readFile(routes, "utf8"), /path: "guide"/);
+
+  // A new page is seeded and routed by the warm second pass.
+  await mkdir(resolve(root, "src/routes/docs/guide"));
+  await writeFile(resolve(root, "src/routes/docs/guide/page.ts"), page("guide"));
+
+  // Each pass reports the paths it wrote; an unchanged pass writes nothing.
+  const written = await pass();
+
+  assert.match(await readFile(routes, "utf8"), /path: "guide"/);
+  assert.ok(written.includes(routes));
+  assert.ok(written.includes(resolve(root, "src/routes/docs/guide/route.ts")));
+  assert.ok(written.includes(resolve(root, "src/routes/docs/guide/route.generated.ts")));
+  assert.deepEqual(await pass(), []);
+
+  const seeded = await readFile(definition, "utf8");
+
+  await writeFile(definition, `${seeded}const broken: number = "text";\n`);
+  await assert.rejects(pass(), /TS2322/);
+
+  // The repair also edits a native option, which the next pass must emit.
+  await writeFile(definition, seeded.replace("{ parent }", '{ parent, title: "Manual" }'));
+  await pass();
+  assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition1\)/);
+
+  // Session passes leave exactly what stateless generation would publish.
+  assert.deepEqual(await generate(root, { ...options, check: true }, () => false), []);
 });

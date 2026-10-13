@@ -2,9 +2,11 @@ import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-dev
 import chokidar, { type FSWatcher } from "chokidar";
 import { Observable, type Subscription } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
-import { readFile } from "node:fs/promises";
-import { generate } from "../generation/generate.js";
-import { workspacePaths, markers } from "../generation/files.js";
+import { readFile, utimes } from "node:fs/promises";
+import { generate, type GenerationState } from "../generation/generate.js";
+import { auditPath, workspacePaths, markers } from "../generation/files.js";
+import { CompilerState } from "../generation/compiler.js";
+import { AnchorState } from "../generation/anchor.js";
 import { delegate, type Options } from "./options.js";
 
 export default createBuilder<Options>(
@@ -16,9 +18,38 @@ export default createBuilder<Options>(
       let watcher: FSWatcher | undefined;
       let acquisition: Promise<BuilderRun> | undefined;
       let forwarding: Subscription | undefined;
-      let active: Promise<void> | undefined;
+      let active: Promise<unknown> | undefined;
       let cleanup: Promise<void> | undefined;
       let cancelReady: (() => void) | undefined;
+      let touching: Promise<void> | undefined;
+      let touches = 0;
+      const published = new Set<string>();
+      const state: GenerationState = {
+        discovery: new CompilerState(),
+        overlay: new CompilerState(),
+        anchor: new AnchorState(),
+      };
+
+      function clear(): void {
+        state.discovery.clear();
+        state.overlay.clear();
+        state.anchor.clear();
+      }
+
+      // A failed or stopped pass may leave partial state; the next pass starts fresh.
+      async function regenerate(): Promise<string[]> {
+        try {
+          return await generate(context.workspaceRoot, options, () => stopped, state);
+        } catch (error) {
+          clear();
+
+          throw error;
+        } finally {
+          if (stopped) {
+            clear();
+          }
+        }
+      }
 
       function stop(): Promise<void> {
         stopped = true;
@@ -34,13 +65,37 @@ export default createBuilder<Options>(
           );
           const drain = active?.catch(() => undefined);
 
-          cleanup = Promise.all([close, delegateStop, drain]).then(() => undefined);
+          cleanup = Promise.all([close, delegateStop, drain, touching]).then(() => clear());
         }
 
         return cleanup;
       }
 
       context.addTeardown(stop);
+
+      // Angular's dev server can miss a warm rewrite: a build in flight reads the old bytes of a
+      // file it watches only afterwards, and watchpack's initial scan absorbs our newer mtime
+      // without reporting it. Touching the published paths after a failed build makes it report
+      // them. The first touch can be absorbed the same way, hence two. Remove this once Angular
+      // passes a start time when it watches newly discovered files.
+      function touch(paths: string[]): void {
+        const now = new Date();
+        const batch = Promise.all(
+          paths.map(async (path) => {
+            try {
+              // A published path may have been replaced since; never follow a symlink out.
+              await auditPath(path);
+              await utimes(path, now, now);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+                context.logger.error(String(error));
+              }
+            }
+          }),
+        );
+
+        touching = Promise.all([touching, batch]).then(() => undefined);
+      }
 
       function pump(): void {
         if (stopped || initial || active || !dirty) {
@@ -52,7 +107,15 @@ export default createBuilder<Options>(
             dirty = false;
 
             try {
-              await generate(context.workspaceRoot, options, () => stopped);
+              const written = await regenerate();
+
+              if (written.length > 0) {
+                for (const path of written) {
+                  published.add(path);
+                }
+
+                touches = 2;
+              }
             } catch (error) {
               let message = String(error);
 
@@ -148,7 +211,7 @@ export default createBuilder<Options>(
 
         dirty = false;
 
-        const generation = generate(context.workspaceRoot, options, () => stopped);
+        const generation = regenerate();
 
         active = generation;
         await generation;
@@ -179,7 +242,34 @@ export default createBuilder<Options>(
         }
 
         forwarding = run.output.subscribe({
-          next: (output) => subscriber.next(output),
+          next: (output) => {
+            subscriber.next(output);
+
+            if (stopped) {
+              return;
+            }
+
+            if (output.success) {
+              published.clear();
+              touches = 0;
+
+              return;
+            }
+
+            if (published.size === 0 || touches === 0) {
+              return;
+            }
+
+            const paths = [...published];
+
+            touches -= 1;
+
+            if (touches === 0) {
+              published.clear();
+            }
+
+            touch(paths);
+          },
           error: (error) => {
             void stop().then(
               () => subscriber.error(error),
