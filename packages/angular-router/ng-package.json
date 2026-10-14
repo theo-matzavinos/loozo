@@ -6,7 +6,8 @@
     "builders.json",
     { "glob": "*.json", "input": "schemas", "output": "schemas" },
     { "glob": "**/*.js", "input": "node", "output": "node" },
-    { "glob": "**/*.d.ts", "input": "node", "output": "node" }
+    { "glob": "**/*.d.ts", "input": "node", "output": "node" },
+    { "glob": "**/*", "input": "snippets", "output": "snippets" }
   ],
   "allowedNonPeerDependencies": [
     "^@angular-devkit/architect$",

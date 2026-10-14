@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, cp, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, cp, readdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -93,6 +93,48 @@ for (const [directory, declaration] of [
     assert.equal((await stat(join(directory, path))).isFile(), true);
   }
 }
+
+// The source README embeds snippets by linking to them; the packed one inlines them and ships the files.
+const sourceReadme = await readFile(join(packageDirectory, "README.md"), "utf8");
+const packedReadme = await readFile(join(first, "README.md"), "utf8");
+const embeds = [...sourceReadme.matchAll(/^\[[^\]]*\]\((snippets\/[^)#]+)(?:#[^)]*)?\)$/gm)];
+
+assert.ok(embeds.length > 0, "The source README embeds snippets");
+assert.equal(packedReadme.includes("](snippets/"), false, "Packed README still links to snippets");
+
+// Every snippet file ships, including generated files the embedded snippets import.
+const snippetEntries = await readdir(join(packageDirectory, "snippets"), {
+  recursive: true,
+  withFileTypes: true,
+});
+const snippetFiles = [];
+
+for (const entry of snippetEntries) {
+  if (entry.isFile()) {
+    snippetFiles.push(join(entry.parentPath, entry.name).slice(packageDirectory.length));
+  }
+}
+
+assert.ok(
+  snippetFiles.some((path) => path.endsWith(".generated.ts")),
+  "Snippets include generated files",
+);
+
+for (const path of snippetFiles) {
+  assert.equal((await stat(join(first, path))).isFile(), true, `Packed snippet missing: ${path}`);
+}
+
+for (const [, path] of embeds) {
+  assert.ok(snippetFiles.includes(path), `README embeds a file outside snippets/: ${path}`);
+}
+
+const productDefinition = "snippets/src/routes/product/definition.ts";
+const productSource = await readFile(join(first, productDefinition), "utf8");
+
+assert.ok(
+  packedReadme.includes(`\`${productDefinition}\`\n\n\`\`\`ts\n${productSource.trim()}\n\`\`\`\n`),
+  "Packed README inlines the product definition snippet under its caption",
+);
 
 await cp(join(packageDirectory, "tests/consumer.ts"), join(first, "consumer.ts"));
 

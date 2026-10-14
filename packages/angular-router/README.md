@@ -30,50 +30,21 @@ Generation runs inside two Angular builders that replace your project's `build` 
 
 In `angular.json`:
 
-```json
-"build": {
-  "builder": "@loozo/angular-router:application",
-  "options": {
-    "tsconfig": "tsconfig.routes.json",
-    "scanDirectories": ["src/routes"],
-    "outDirectory": "generated",
-    "browser": "src/main.ts",
-    "index": "src/index.html",
-    "tsConfig": "tsconfig.app.json",
-    "outputPath": "dist/app"
-  },
-  "configurations": { "ci": { "check": true } }
-},
-"serve": {
-  "builder": "@loozo/angular-router:serve",
-  "options": { "buildTarget": "app:build" }
-}
-```
+[angular.json](snippets/angular.json)
 
 The application builder takes the router options (`tsconfig`, `scanDirectories`, `outDirectory`, and optionally `check` and `autoDefineRoutes`) next to your normal Angular application options, which it passes through unchanged. The serve builder takes normal dev-server options and reads the router options from its `buildTarget`. See [Builder options](#builder-options).
 
 Note that `tsconfig` and `tsConfig` are different options. `tsconfig` is the TypeScript config used to find route declarations; `tsConfig` is Angular's own compilation config. The example app uses a small `tsconfig.routes.json` that extends the app config:
 
-```json
-{
-  "extends": "./tsconfig.app.json",
-  "files": [],
-  "include": ["src/**/*.ts"]
-}
-```
+[tsconfig.routes.json](snippets/tsconfig.routes.json)
 
-Your app's `tsconfig.app.json` must include the generated files, for example `"include": ["src/**/*.ts", "generated/**/*.ts"]`.
+Your app's `tsconfig.app.json` must include the generated files, as its `"include"` does here:
+
+[tsconfig.app.json](snippets/tsconfig.app.json)
 
 Then install the generated routes with Angular's `provideRouter`:
 
-```ts
-import { bootstrapApplication } from "@angular/platform-browser";
-import { provideRouter } from "@angular/router";
-import Shell from "./shell.js";
-import { routes } from "../generated/routes.generated.js";
-
-void bootstrapApplication(Shell, { providers: [provideRouter(routes)] });
-```
+[src/main.ts](snippets/src/main.ts)
 
 Use the Angular CLI as usual:
 
@@ -89,46 +60,9 @@ Commit the generated files along with your route declarations, and run the `ci` 
 
 A route is a directory under the scan directory with a declaration file and, optionally, a page. In explicit mode (the default) the file names are up to you: the builder finds declarations by their `export default defineRoute(...)` and pages by their default-exported standalone component, not by name.
 
-```ts
-// src/routes/product/definition.ts
-import { defineRoute, enumParam, numberParam, optionalSearchParam } from "@loozo/angular-router";
+[src/routes/product/definition.ts](snippets/src/routes/product/definition.ts)
 
-export default defineRoute("products/$productId", {
-  params: { productId: numberParam },
-  search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
-  fragments: ["summary", "reviews"],
-});
-```
-
-```ts
-// src/routes/product/page.ts
-import { Component } from "@angular/core";
-import { RouterLink } from "@angular/router";
-import { injectRoute } from "./route.generated.js";
-
-@Component({
-  imports: [RouterLink],
-  template: `
-    @if (route.params.hasValue() && route.search.hasValue()) {
-      <h1>Product {{ route.params.value().productId }}</h1>
-      <p>Tab: {{ route.search.value().tab ?? "details" }}</p>
-    } @else if (route.params.error()) {
-      <p>This product link isn't valid.</p>
-    } @else {
-      <p>Loading…</p>
-    }
-    <a [routerLink]="reviews">Reviews</a>
-  `,
-})
-export default class Product {
-  readonly route = injectRoute();
-  readonly reviews = this.route.link({
-    params: { productId: 42 },
-    search: { tab: "reviews" },
-    fragment: "reviews",
-  });
-}
-```
+[src/routes/product/page.ts](snippets/src/routes/product/page.ts)
 
 Running `ng build` or `ng serve` writes `generated/routes.generated.ts`, `generated/destinations.generated.ts` and `src/routes/product/route.generated.ts`. The page is lazy-loaded with `loadComponent`.
 
@@ -173,23 +107,11 @@ Structural keys such as `path`, `children`, `component`, `loadComponent`, `redir
 
 ### Parents
 
-```ts
-// src/routes/team/definition.ts
-export default defineRoute("teams/$teamId", {
-  params: { teamId: numberParam },
-  search: { score: optionalSearchParam(numberParam) },
-});
+[src/routes/team/definition.ts](snippets/src/routes/team/definition.ts)
 
-// src/routes/item/definition.ts
-import team from "../team/definition.js";
+[src/routes/member/definition.ts](snippets/src/routes/member/definition.ts)
 
-export default defineRoute("items/$id", {
-  parent: team,
-  params: { id: numberParam },
-});
-```
-
-A child declares only its own params; it inherits its ancestors' params and search params, so the item route above has `params: { teamId, id }` and `search: { score }`. A child can't redeclare a param or search key its ancestors own. Pathless routes (`""` with a parent) add no URL segment but still contribute their inputs to descendants. A route with neither a page nor children is an error, unless it's a redirect.
+A child declares only its own params; it inherits its ancestors' params and search params, so the member route above has `params: { teamId, memberId }` and `search: { score }`. A child can't redeclare a param or search key its ancestors own. Pathless routes (`""` with a parent) add no URL segment but still contribute their inputs to descendants. A route with neither a page nor children is an error, unless it's a redirect.
 
 ### Codecs
 
@@ -206,22 +128,7 @@ Search params are required unless wrapped in `optionalSearchParam`. `optionalSea
 
 A custom codec implements `ParamCodec<Value>`. `parse` receives the already-decoded text and may be async; `stringify` must be synchronous:
 
-```ts
-import type { ParamCodec } from "@loozo/angular-router";
-
-export const slug: ParamCodec<string> = {
-  parse(raw) {
-    if (!/^[a-z0-9-]+$/.test(raw)) {
-      throw new Error("invalid slug");
-    }
-
-    return raw;
-  },
-  stringify(value) {
-    return value;
-  },
-};
-```
+[src/slug.ts](snippets/src/slug.ts)
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
@@ -235,25 +142,11 @@ The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `num
 
 `createUrl` builds a root-relative URL from a declaration, synchronously and without running any parsers:
 
-```ts
-import { createUrl } from "@loozo/angular-router";
-import product from "./routes/product/definition.js";
-
-createUrl(product, {
-  params: { productId: 42 },
-  search: { tab: "reviews" },
-  fragment: "summary",
-}); // "/products/42?tab=reviews#summary"
-```
+[src/product-url.ts](snippets/src/product-url.ts)
 
 All path params are required, including inherited ones. Search params follow their codecs (required, optional or nullable). Query keys are sorted, values are percent-encoded, and a `/` inside a param value becomes `%2F`. Catchall values are arrays:
 
-```ts
-const docs = defineRoute("docs/$segments[]", { params: { segments: stringParam } });
-
-createUrl(docs, { params: { segments: ["guides", "setup"] } }); // "/docs/guides/setup"
-createUrl(docs, { params: { segments: [] } }); // "/docs"
-```
+[src/docs-url.ts](snippets/src/docs-url.ts#catchall)
 
 Pass `{}` for a route without params or search. Wrong values fail to type-check. Unknown keys fail to type-check in an object literal; an object passed through a variable can carry extra keys past TypeScript, but `createUrl` still throws a `TypeError` for them at runtime.
 
@@ -264,15 +157,7 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 - `injectRoute()`: call it in an injection context (a field initializer or constructor) to get the handle for this route.
 - `destination`: an inert reference to this route that other routes can link to.
 
-```ts
-import { injectRoute } from "./route.generated.js";
-
-const route = injectRoute();
-
-route.params; // Resource<{ teamId: number; id: number } | undefined>
-route.search; // Resource<{ score?: number } | undefined>
-route.data; // Resource<{ item: Item } | undefined>, local resolver results only
-```
+[src/routes/item/inputs.ts](snippets/src/routes/item/inputs.ts#inputs)
 
 `params`, `search` and `data` are read-only Angular Resources, so `status()`, `isLoading()`, `hasValue()`, `value()` and `error()` all work. Check `hasValue()` before reading `value()`: reading the value of a Resource in the error state throws. While a navigation is in progress they're loading with `undefined` values rather than showing stale ones.
 
@@ -286,15 +171,7 @@ Parsing keeps Angular's stability pending until the values are published, so ser
 
 `link` returns an Angular `UrlTree` for `RouterLink`; `navigate` calls `Router.navigateByUrl` and returns Angular's own promise. Both take the same arguments:
 
-```ts
-import { destination as report } from "../report/route.generated.js";
-
-route.link({ params: { teamId: 7, id: 8 } }); // this route
-route.link(".", { params: { teamId: 7, id: 8 } }); // same as above
-route.link("/teams/$teamId/items/$id", { params: { teamId: 7, id: 9 } }); // absolute
-route.link("../..", { params: { teamId: 7 } }); // relative
-route.navigate(report, { params: { reportId: 42 } }); // another route's destination
-```
+[src/routes/item/links.ts](snippets/src/routes/item/links.ts)
 
 The first argument, when given, is a string literal selecting a route by its full authored path, never a concrete URL. Absolute selectors start with `/`. Relative selectors start with `.`, `./` or `..`; each `..` removes one segment of the path template, not one directory or parent. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
 
@@ -306,12 +183,7 @@ A `destination` must come from the same generated route set as the handle. Desti
 
 `canActivate`, `canActivateChild` and `canMatch` take arrays of functions whose first argument is the parsed inputs. Angular's native arguments follow:
 
-```ts
-export default defineRoute("teams/$teamId", {
-  params: { teamId: numberParam },
-  canActivate: [({ params }) => params.teamId > 0],
-});
-```
+[src/routes/report/definition.ts](snippets/src/routes/report/definition.ts)
 
 | Guard              | Inputs                                                                       |
 | ------------------ | ---------------------------------------------------------------------------- |
@@ -324,45 +196,13 @@ Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`,
 
 Resolvers get the parsed inputs too, and `inject()` works at the start of the callback:
 
-```ts
-import { inject } from "@angular/core";
-import { defineRoute, numberParam } from "@loozo/angular-router";
-import team from "../team/definition.js";
-import { ItemCatalog } from "../../catalog.js";
-
-export default defineRoute("items/$id", {
-  parent: team,
-  params: { id: numberParam },
-  runGuardsAndResolvers: "paramsOrQueryParamsChange",
-  resolve: {
-    item: ({ params, search }) => {
-      const catalog = inject(ItemCatalog);
-
-      return catalog({ teamId: params.teamId, id: params.id, score: search.score });
-    },
-  },
-});
-```
+[src/routes/item/definition.ts](snippets/src/routes/item/definition.ts)
 
 Angular's default rerun policy, `paramsChange`, reruns resolvers when the path or its path/matrix params change, but not when only search params change. Set `runGuardsAndResolvers` when a resolver reads search params, as above.
 
 A redirect targets another declaration and must say what happens to search and fragment:
 
-```ts
-import { defineRoute, numberParam } from "@loozo/angular-router";
-import team from "../team/definition.js";
-import item from "../item/definition.js";
-
-export default defineRoute("old-items/$id", {
-  parent: team,
-  params: { id: numberParam },
-  redirect: {
-    to: item,
-    search: { mode: "drop" }, // or "preserve", or { mode: "replace", values }
-    fragment: { mode: "drop" }, // or "preserve", or { mode: "replace", value }
-  },
-});
-```
+[src/routes/old-item/definition.ts](snippets/src/routes/old-item/definition.ts)
 
 Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. A redirect route can't have a page, children, `canActivate` or `canMatch`.
 
