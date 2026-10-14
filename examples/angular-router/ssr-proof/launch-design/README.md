@@ -67,6 +67,6 @@ Verified on Angular 22.2.2 / TypeScript 6.0.3 / Node 24.21.0 (first verified on 
 - Static page without RPC: native build exits 0 and emits the expected page.
 - Explicit task-owned Oxfmt/Oxlint checks: pass.
 
-Final runtime evidence: repository `.scratch/angular-launch-design-proof-20261011/native-reviewed-03/`. Native build/type logs are `types-reviewed.log`, `build-reviewed.log`, `prerender-reviewed.log` and `static-reviewed.log` in its parent. The earlier successful-exit prerender attempt is preserved as `prerender-final.log` / `.exit`; it is evidence of the problem, not a passed contract. Preliminary native results are kept separately.
+Final runtime evidence on Angular 22.2.2: repository `.scratch/angular-launch-design-proof-22.2.2-20261014/native-01/`. Its parent holds the type, build, server, verifier, prerender and static logs with their exit codes, plus `summary.txt`. The original 22.1.5 evidence is in `.scratch/angular-launch-design-proof-20261011/` (`native-reviewed-03/` and its `*-reviewed.log` files); its earlier successful-exit prerender attempt is preserved there as `prerender-final.log` / `.exit`, as evidence of the problem, not a passed contract.
 
 Final source review and read-only adversarial findings are recorded with the task evidence. This remains the bounded proof described above; future framework/build-security requirements are not declared complete.
