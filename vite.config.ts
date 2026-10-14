@@ -6,6 +6,8 @@ export default defineConfig({
   },
   fmt: {
     ignorePatterns: [
+      "docs/generated/**/*.generated.ts",
+      "docs/src/routes/**/route.generated.ts",
       "packages/angular-router/SPEC.md",
       "examples/angular-router/generated/destinations.generated.ts",
       "examples/angular-router/generated/routes.generated.ts",

@@ -1,0 +1,32 @@
+{
+  "name": "@loozo/docs",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "content": "node ../tools/docs-content/src/cli.ts --out generated/content",
+    "build": "pnpm run content && ng build --configuration production,check && cp dist/docs/browser/404/index.html dist/docs/browser/404.html",
+    "generate": "pnpm run content && ng build --configuration development",
+    "serve": "pnpm run content && ng serve"
+  },
+  "dependencies": {
+    "@angular/common": "22.2.2",
+    "@angular/core": "22.2.2",
+    "@angular/platform-browser": "22.2.2",
+    "@angular/platform-server": "22.2.2",
+    "@angular/router": "22.2.2",
+    "@angular/ssr": "22.2.2",
+    "@loozo/angular-router": "workspace:*",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.2",
+    "@angular/cli": "22.2.2",
+    "@angular/compiler": "22.2.2",
+    "@angular/compiler-cli": "22.2.2",
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3"
+  }
+}

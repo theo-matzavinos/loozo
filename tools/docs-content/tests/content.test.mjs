@@ -80,6 +80,23 @@ test("orders packages by slug and copies package.json listing data", () => {
   assert.equal(widgets.description, "Fixture widgets.");
 });
 
+test("leaves private packages out of the docs", async () => {
+  const root = await brokenFixture(async (dir) => {
+    const manifestPath = join(dir, "packages/notes/package.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+
+    await writeFile(manifestPath, JSON.stringify({ ...manifest, private: true }));
+  });
+  const contents = await buildContent({ root, commit });
+  const slugs = [];
+
+  for (const content of contents) {
+    slugs.push(content.slug);
+  }
+
+  assert.deepEqual(slugs, ["widgets"]);
+});
+
 test("splits the README into an overview and one guide per H2", () => {
   assert.doesNotMatch(widgets.overviewHtml, /<h1/);
   assert.match(widgets.overviewHtml, /^<p>Widgets overview/);
@@ -118,6 +135,13 @@ test("same-README anchors resolve to the guide page and heading that contain the
   assert.match(
     widgets.guides[0].html,
     /<a href="widgets\/guide\/setup#details" data-docs-link="">details/,
+  );
+});
+
+test("wraps tables in a scrollable region named after their heading and column headers", () => {
+  assert.match(
+    widgets.guides[2].html,
+    /<div class="table-scroll" role="region" aria-label="Option, Meaning table" tabindex="0"><table>\n<thead>[\s\S]*<code>label<\/code>[\s\S]*<\/table>\n<\/div>/,
   );
 });
 

@@ -1,7 +1,6 @@
 {
   "name": "@fixture/widgets",
   "version": "1.2.3",
-  "private": true,
   "description": "Fixture widgets.",
   "repository": {
     "type": "git",

@@ -26,3 +26,7 @@ Linked code [`Toggle`](#setup) stays as written.
 ## Setup
 
 The second setup heading.
+
+| Option  | Meaning           |
+| ------- | ----------------- |
+| `label` | The toggle's text |

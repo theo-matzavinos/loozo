@@ -5,3 +5,4 @@ dist/
 .acceptance-evidence/
 .vite-hooks/_/
 /packages/angular-router/node/
+/docs/generated/content/
