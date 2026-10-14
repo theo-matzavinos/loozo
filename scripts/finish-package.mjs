@@ -6,6 +6,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { renderPublishedReadme } from "../tools/docs-content/src/readme.ts";
 
 const packageArgument = process.argv[2];
 
@@ -55,10 +56,11 @@ async function copyLicense() {
   await copyFile(join(packageDirectory, "LICENSE"), join(distDirectory, "LICENSE"));
 }
 
-async function copyReadme() {
-  await copyFile(join(packageDirectory, "README.md"), join(distDirectory, "README.md"));
+// Snippet embeds become captioned code blocks; a README without embeds is copied unchanged.
+async function writePublishedReadme() {
+  await writeFile(join(distDirectory, "README.md"), renderPublishedReadme(packageDirectory));
 }
 
 await writeManifest();
 await copyLicense();
-await copyReadme();
+await writePublishedReadme();
