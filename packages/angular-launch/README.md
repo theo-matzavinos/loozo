@@ -170,43 +170,69 @@ export default async function bootstrap(context: BootstrapContext) {
 }
 ```
 
-In the server entry, let `handleRequest` answer RPC requests (it returns `null` for anything else), and render pages with a request scope from `createContext`:
+In the server entry, let `handleRequest` answer RPC requests (it returns `null` for anything else), and render pages with a request scope from `createContext`. This is the Express server that Angular's SSR setup generates, with Launch added:
 
 ```ts
 // src/server.ts
+import { join } from "node:path";
 import {
   AngularNodeAppEngine,
   createNodeRequestHandler,
   createWebRequestFromNodeRequest,
+  isMainModule,
   writeResponseToNodeResponse,
 } from "@angular/ssr/node";
+import express from "express";
 import { createContext, handleRequest } from "../generated/server.generated";
 
+const browser = join(import.meta.dirname, "../browser");
 const angular = new AngularNodeAppEngine();
+const app = express();
 
-export const reqHandler = createNodeRequestHandler(async (request, response) => {
-  const web = createWebRequestFromNodeRequest(request);
-  const rpc = await handleRequest(web);
+app.use(express.static(browser, { maxAge: "1y", index: false, redirect: false }));
 
-  if (rpc) {
-    await writeResponseToNodeResponse(rpc, response);
+app.use(async (request, response, next) => {
+  try {
+    const web = createWebRequestFromNodeRequest(request);
+    const rpc = await handleRequest(web);
 
-    return;
+    if (rpc) {
+      await writeResponseToNodeResponse(rpc, response);
+
+      return;
+    }
+
+    const scope = await createContext(web);
+    const page = await angular.handle(scope.request, scope);
+
+    if (!page) {
+      next();
+
+      return;
+    }
+
+    await writeResponseToNodeResponse(page, response);
+  } catch (error) {
+    next(error);
   }
-
-  const scope = await createContext(web);
-  const result = await angular.handle(scope.request, scope);
-
-  if (!result) {
-    response.statusCode = 404;
-    response.end("Not found");
-
-    return;
-  }
-
-  await writeResponseToNodeResponse(result, response);
 });
+
+if (isMainModule(import.meta.url)) {
+  const port = process.env["PORT"] || 4000;
+
+  app.listen(port, (error) => {
+    if (error) {
+      throw error;
+    }
+
+    console.log(`Listening on http://localhost:${port}`);
+  });
+}
+
+export const reqHandler = createNodeRequestHandler(app);
 ```
+
+Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks).
 
 Always pass `scope.request` together with `scope`, not your original request. The scope ties the context to the request Angular renders; if they don't match, RPC calls during rendering fail with `INTERNAL` and a server log entry. This catches wiring mistakes only; it doesn't check your authentication.
 
@@ -345,11 +371,94 @@ export default defineRoute("todos", {
 
 During server rendering, calls run directly on the server with the context created for that page request. Queries are stored in Angular's HTTP transfer cache, so hydration reuses the responses instead of calling the server again. After the app is stable, calls are ordinary HTTP requests, each with a fresh context. Opt a query out with `{ transferCache: false }`.
 
+The reuse has limits, all of them Angular's transfer cache behaving as designed:
+
+- Only successful responses transfer. A query that fails during server rendering, with a declared error or a framework code, runs again over HTTP during hydration, with a fresh context. The handler runs twice, and the browser shows whatever the second call returns.
+- The cache serves calls made before the app first becomes stable. RPCs called later, for example from a `@defer` block that hydrates on interaction or when it enters the viewport, go over HTTP.
+- Launch relies on your app's transfer cache settings. `withNoHttpTransferCache()`, or a `withHttpTransferCacheOptions` `filter` that rejects `/_rpc/` requests, turns reuse off without any error, and every query runs again in the browser.
+
 Mutations are refused during server rendering with `FORBIDDEN`, before validation, guards or the handler run. Rendering should only read.
 
 RPCs need a live request. Prerendering a page that calls an RPC fails the build (with `finishLaunchRendering` in place); static pages that don't call RPCs prerender normally. Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported.
 
 Transferred responses end up in the HTML. Only return data that the user may see, and serve personalized pages with `Cache-Control: private, no-store`.
+
+## Deploying
+
+With `outputMode: "server"`, `ng build` writes the browser files and a bundled server:
+
+```text
+dist/<app>/
+├── browser/            scripts, styles and index.csr.html
+└── server/server.mjs   your server.ts with Angular, Launch and their dependencies
+```
+
+Copy `dist/<app>` to the host and start the server with Node:
+
+```sh
+PORT=8080 NG_ALLOWED_HOSTS=example.com node dist/<app>/server/server.mjs
+```
+
+The server bundle includes your dependencies by default, so the host doesn't need `node_modules`. `AngularNodeAppEngine` reads two environment variables:
+
+| Variable                 | Effect                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NG_ALLOWED_HOSTS`       | Comma-separated hostnames allowed to render pages, in addition to `security.allowedHosts` in `angular.json`. Pages for other hosts get a 400.                |
+| `NG_TRUST_PROXY_HEADERS` | Comma-separated `Forwarded` and `X-Forwarded-*` headers that Angular should trust. Set it only behind a proxy that overwrites those headers. Off by default. |
+
+The host check covers page rendering only. `handleRequest` runs before Angular and answers RPC requests for any host.
+
+Launch calls `/_rpc/<group>/<procedure>` from the root of the domain, even when the app has a different `<base href>`. If the app is served under a path prefix, route `/_rpc/` to the same server.
+
+Browser tabs opened before a deploy keep calling the procedures they were built with. After you move an `rpc.ts`, rename a procedure or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
+
+Launch has been verified on Node only.
+
+### Other server frameworks
+
+`handleRequest` and `createContext` take a web `Request`, so any framework that gives you one works. `AngularNodeAppEngine` also accepts a web `Request`, and keeps the environment variables above. With [Hono](https://hono.dev) on Node:
+
+```ts
+// src/server.ts
+import { fileURLToPath } from "node:url";
+import { createRequestHandler } from "@angular/ssr";
+import { AngularNodeAppEngine, isMainModule } from "@angular/ssr/node";
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { Hono } from "hono";
+import { createContext, handleRequest } from "../generated/server.generated";
+
+const browser = fileURLToPath(new URL("../browser", import.meta.url));
+const angular = new AngularNodeAppEngine();
+const app = new Hono();
+
+app.use("*", serveStatic({ root: browser }));
+
+app.all("*", async (c) => {
+  const rpc = await handleRequest(c.req.raw);
+
+  if (rpc) {
+    return rpc;
+  }
+
+  const scope = await createContext(c.req.raw);
+  const page = await angular.handle(scope.request, scope);
+
+  return page ?? c.notFound();
+});
+
+if (isMainModule(import.meta.url)) {
+  const port = Number(process.env["PORT"] ?? 4000);
+
+  serve({ fetch: app.fetch, port }, ({ port }) => {
+    console.log(`Listening on http://localhost:${port}`);
+  });
+}
+
+export const reqHandler = createRequestHandler(app.fetch);
+```
+
+Export the handler as `reqHandler`; Angular's dev server and build don't look for a default export. Under `ng serve`, `serveStatic` logs that the `browser` directory doesn't exist. That's expected: the dev server serves those files itself.
 
 ## Generation
 
