@@ -1,10 +1,22 @@
+/**
+ * A strict JSON value: `null`, a boolean, a finite number, a string, an array or a plain
+ * object of JSON values.
+ *
+ * @remarks
+ * Procedure inputs and results must be strict JSON on both transports. At runtime,
+ * `Date`, `undefined`, non-finite numbers, functions, class instances, sparse arrays,
+ * extra array properties, symbol keys, accessors and cycles are rejected.
+ */
 export type Json =
   | null
   | boolean
   | number
   | string
   | readonly Json[]
-  | { readonly [key: string]: Json };
+  | {
+      /** A property: any JSON value under a string key. */
+      readonly [key: string]: Json;
+    };
 
 // Structural DTO compatibility, without requiring interface index signatures.
 // Keep the original inferred type; this shape is only a compile-time constraint.

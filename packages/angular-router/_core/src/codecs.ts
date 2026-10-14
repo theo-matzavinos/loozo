@@ -252,7 +252,10 @@ export function optionalSearchParam<Value>(codec: ParamCodec<Value>): OptionalCo
  * ```
  */
 export function nullableSearchParam<Value>(
-  codec: ParamCodec<Value> & { readonly [searchPresence]?: "nullable" },
+  codec: ParamCodec<Value> & {
+    /** Type-only: rejects an optional search wrapper at compile time; never read. */
+    readonly [searchPresence]?: "nullable";
+  },
 ): NullableCodec<Value> {
   validateCodec(codec);
 

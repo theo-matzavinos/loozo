@@ -10,18 +10,70 @@ async function source(path) {
   return ts.createSourceFile(file.pathname, text, ts.ScriptTarget.Latest, true);
 }
 
+// A summary containing {@link} is a node array, not a string.
 function documented(node) {
-  assert.ok(
-    node.jsDoc?.some((doc) => typeof doc.comment === "string" && doc.comment.trim()),
-    `Missing documentation for ${node.name?.getText() ?? ts.SyntaxKind[node.kind]}`,
-  );
+  return node.jsDoc?.some((doc) => ts.getTextOfJSDocComment(doc.comment)?.trim()) === true;
+}
+
+function memberName(member) {
+  if (member.name) {
+    return member.name.getText();
+  }
+
+  return ts.SyntaxKind[member.kind];
+}
+
+// Type literals inside exported types and signatures are API too. A conditional type's check
+// is a pattern, not API.
+function checkTypeLiterals(node, owner, missing) {
+  if (ts.isConditionalTypeNode(node)) {
+    checkTypeLiterals(node.trueType, owner, missing);
+    checkTypeLiterals(node.falseType, owner, missing);
+
+    return;
+  }
+
+  if (ts.isTypeLiteralNode(node)) {
+    for (const member of node.members) {
+      const path = `${owner}.${memberName(member)}`;
+
+      if (!documented(member)) {
+        missing.push(path);
+      }
+
+      checkTypeLiterals(member, path, missing);
+    }
+
+    return;
+  }
+
+  ts.forEachChild(node, (child) => {
+    checkTypeLiterals(child, owner, missing);
+  });
+}
+
+// An ECMAScript-private member is an emitted nominal marker, not API.
+function checkMembers(node, owner, missing) {
+  for (const member of node.members) {
+    if (member.name && ts.isPrivateIdentifier(member.name)) {
+      continue;
+    }
+
+    const path = `${owner}.${memberName(member)}`;
+
+    if (!documented(member)) {
+      missing.push(path);
+    }
+
+    checkTypeLiterals(member, path, missing);
+  }
 }
 
 function declaration(file, name) {
   const found = file.statements.find((statement) => statement.name?.getText(file) === name);
 
   assert.ok(found, `Missing declaration: ${name}`);
-  documented(found);
+  assert.ok(documented(found), `Missing documentation for ${name}`);
 
   return found;
 }
@@ -51,6 +103,8 @@ await test("published root declarations retain documentation for every supported
 
   assert.equal(exports.length, 10);
 
+  const missing = [];
+
   for (const exported of exports) {
     const symbol = checker.getAliasedSymbol(exported);
 
@@ -60,27 +114,33 @@ await test("published root declarations retain documentation for every supported
     );
 
     for (const node of symbol.declarations ?? []) {
-      if (ts.isInterfaceDeclaration(node)) {
-        for (const member of node.members) {
-          if (ts.isIdentifier(member.name)) {
-            documented(member);
-          }
-        }
+      if (ts.isFunctionDeclaration(node)) {
+        checkTypeLiterals(node, exported.name, missing);
+      }
+
+      if (ts.isTypeAliasDeclaration(node)) {
+        checkTypeLiterals(node.type, exported.name, missing);
+      }
+
+      if (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node)) {
+        checkMembers(node, exported.name, missing);
       }
     }
   }
+
+  assert.deepEqual(missing, [], "Published exports and members need documentation");
 });
 
 await test("published handle resources and every navigation overload retain documentation", async () => {
   const file = await source("../dist/types/loozo-angular-router-_generated.d.ts");
   const handle = declaration(file, "Handle");
+  const destination = declaration(file, "Destination");
+  const missing = [];
 
-  declaration(file, "Destination");
   assert.equal(handle.members.length, 11);
-
-  for (const member of handle.members) {
-    documented(member);
-  }
+  checkMembers(handle, "Handle", missing);
+  checkMembers(destination, "Destination", missing);
+  assert.deepEqual(missing, [], "Published handle and destination members need documentation");
 });
 
 await test("checked-in generated application exports carry documentation", async () => {
@@ -103,7 +163,7 @@ await test("checked-in generated application exports carry documentation", async
       );
 
       assert.ok(statement, `Missing generated export: ${name}`);
-      documented(statement);
+      assert.ok(documented(statement), `Missing documentation for ${name}`);
     }
 
     declaration(facade, "injectRoute");

@@ -13,27 +13,69 @@ import type {
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
 
+/**
+ * The application's RPC groups, keyed by generated group ID.
+ *
+ * @remarks
+ * Generation writes it as `registry` in `server.generated.ts`.
+ */
 export type Registry = Readonly<Record<string, Group<string, Record<string, ProcedureDefinition>>>>;
 
 const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v1");
 
+/**
+ * The application identity and context definition that requests are bound to.
+ *
+ * @remarks
+ * Generation writes it as `appBinding` in `server.generated.ts`.
+ *
+ * @typeParam Definition - The application's context definition.
+ */
 export interface ApplicationBinding<
   Definition extends ContextDefinition<unknown> = ContextDefinition<unknown>,
 > {
+  /** The generated application identity. */
   readonly id: string;
+  /** The application's context definition. */
   readonly context: Definition;
 }
 
 const bindingHeader = "x-loozo-launch-scope";
 
+/**
+ * A live server request bound to the context created for it.
+ *
+ * @remarks
+ * Created by {@link createRequestScope}, which the generated `createContext` calls.
+ * Render a page by passing `scope.request` together with `scope` as Angular's request
+ * context; RPC calls during that render fail with `INTERNAL` if the two don't belong
+ * together.
+ *
+ * @typeParam Value - The context value.
+ */
 export interface RequestScope<Value = unknown> {
+  /** The identity of the application the scope was created for. */
   readonly appId: string;
+  /** A random identifier tying `request` to this scope. */
   readonly binding: string;
+  /** A clone of the original request that carries the scope binding. */
   readonly request: Request;
+  /** The awaited context value created for `request`. */
   readonly value: Value;
+  /** Internal brand of genuine request scopes; not public API. */
   readonly [scopeMarker]: true;
 }
 
+/**
+ * Checks whether a value has the shape of a {@link RequestScope}.
+ *
+ * @remarks
+ * Not used by generated code. It doesn't check which application or request the scope
+ * belongs to; Launch checks that separately before dispatching.
+ *
+ * @param value - The value to check.
+ * @returns `true` for values carrying the request scope brand and fields.
+ */
 export function isRequestScope(value: unknown): value is RequestScope {
   return (
     typeof value === "object" &&
@@ -50,6 +92,23 @@ export function isRequestScope(value: unknown): value is RequestScope {
   );
 }
 
+/**
+ * Creates the context for a live server request and binds them into a
+ * {@link RequestScope}.
+ *
+ * @remarks
+ * Used by the generated `createContext` in `server.generated.ts`; call that instead.
+ * The scope's `request` is a clone of `request` with an added
+ * `x-loozo-launch-scope` header, so the original stays usable. The context factory
+ * receives that clone.
+ *
+ * @typeParam Definition - The application's context definition.
+ * @param application - The application binding.
+ * @param request - The live server request.
+ * @returns The request scope.
+ * @throws Rejects with whatever the context factory throws or rejects with, or with a
+ * `TypeError` when `request`'s body was already read and can't be cloned.
+ */
 export async function createRequestScope<Definition extends ContextDefinition<unknown>>(
   application: ApplicationBinding<Definition>,
   request: Request,
@@ -88,8 +147,11 @@ export function assertBoundScope(
   }
 }
 
+/** The HTTP status and JSON body {@link dispatch} produces for one call. */
 export interface Reply {
+  /** The HTTP status: 200 for a result, otherwise the error's status. */
   readonly status: number;
+  /** The result, or an `{ error: { code, message, data } }` frame. */
   readonly body: unknown;
 }
 
@@ -115,6 +177,35 @@ interface RuntimeProcedure extends ProcedureDefinition {
   readonly handler: (args: { context: Context; input: unknown }) => unknown;
 }
 
+/**
+ * Runs one procedure call within a request scope and produces its reply.
+ *
+ * @remarks
+ * The shared pipeline behind {@link handleRpc} and the server-rendering backend of
+ * {@link provideLaunchServer}; not used by generated code and not meant for direct
+ * use. It never rejects: every failure becomes a framework failure reply, and
+ * unexpected errors are logged on the server.
+ *
+ * In order: the scope must belong to `application` and `request` (`INTERNAL`); the
+ * path must be `/_rpc/<group ID>/<procedure>` for a registered procedure
+ * (`RPC_NOT_FOUND`); a mutation in `"rendering"` mode is refused (`FORBIDDEN`); the
+ * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
+ * a cycle or an accessor); it must then be exactly `{ input }` (`INVALID_INPUT`) with
+ * input that passes the schema, or `null` without one (`INVALID_INPUT`); the group's
+ * guards and then the procedure's guards must return `true` (`FORBIDDEN`). The
+ * handler's strict JSON result is returned with status 200, and its declared errors
+ * with their status.
+ *
+ * @param registry - The application's RPC groups.
+ * @param path - The request path.
+ * @param envelope - The parsed request body.
+ * @param scope - The request scope whose context the call receives.
+ * @param application - The application binding the scope must belong to.
+ * @param request - The request the scope must be bound to.
+ * @param mode - `"http"` for browser requests (the default) or `"rendering"` for calls
+ * made during server rendering.
+ * @returns The reply to send.
+ */
 export async function dispatch(
   registry: Registry,
   path: string,
@@ -235,6 +326,24 @@ export async function dispatch(
   }
 }
 
+/**
+ * Answers an RPC HTTP request, or returns `null` for any other request.
+ *
+ * @remarks
+ * Used by the generated `handleRequest` in `server.generated.ts`; call that instead.
+ * Any path starting with `/_rpc/` is treated as an RPC request. It must be a `POST`
+ * with an `application/json` content type and no query string, otherwise the reply is
+ * `INVALID_INPUT` and no context is created. A fresh context is then created before the
+ * body is parsed; if that fails the reply is `INTERNAL`, even when the body isn't JSON.
+ * Otherwise a body that isn't JSON gives `INVALID_INPUT`. Responses are JSON with
+ * `Cache-Control: private, no-store` and `Vary: Cookie`.
+ *
+ * @typeParam Definition - The application's context definition.
+ * @param registry - The application's RPC groups.
+ * @param application - The application binding.
+ * @param request - The incoming server request.
+ * @returns The RPC response, or `null` when the path doesn't start with `/_rpc/`.
+ */
 export async function handleRpc<Definition extends ContextDefinition<unknown>>(
   registry: Registry,
   application: ApplicationBinding<Definition>,

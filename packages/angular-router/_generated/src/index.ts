@@ -39,7 +39,15 @@ export declare class Destination<
   // Type-only identity, intentionally not read; object spreads must lose this member.
   // oxlint-disable-next-line no-unused-private-class-members
   readonly #nominal: void;
-  readonly [destinationBrand]: { readonly target: Target; readonly set: Set; readonly id: Id };
+  /** Type-only nominal brand carrying the reference's identity; not populated at runtime. */
+  readonly [destinationBrand]: {
+    /** Type-only: the referenced route's input and fragment schema. */
+    readonly target: Target;
+    /** Type-only: the generator's nominal route-set identity. */
+    readonly set: Set;
+    /** Type-only: the exact generated declaration identity. */
+    readonly id: Id;
+  };
 }
 
 const destinations = new WeakMap<object, { getSet: () => RouteSet; id: string }>();
