@@ -27,8 +27,9 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  * current request's context.
  *
  * @remarks
- * Used by the generated `provideServer` in `server.generated.ts`; add that to your
- * server application config, after `provideHttpClient()`, instead of calling this.
+ * Internal: exported only from `@loozo/angular-launch/_server` for the generated
+ * `provideServer` in `server.generated.ts`; add that to your server application config,
+ * after `provideHttpClient()`, instead of calling this.
  *
  * It replaces Angular's `HttpBackend` on the server. Calls from generated clients, and
  * any other request to `/_rpc/` on the current request's origin, are intercepted and
@@ -197,8 +198,8 @@ export function provideLaunchServer(
  * @remarks
  * Angular's prerendering can swallow resolver errors and still report success. Return
  * this from your server bootstrap so a page that calls an RPC during prerendering fails
- * the build instead of producing a broken page. The application must include
- * {@link provideLaunchServer}, through the generated `provideServer`.
+ * the build instead of producing a broken page. The application must include the
+ * generated `provideServer()`.
  *
  * @example
  * ```ts

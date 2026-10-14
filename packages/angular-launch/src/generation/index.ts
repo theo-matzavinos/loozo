@@ -344,7 +344,7 @@ function emitLaunch(
   const server = [
     launchMarkers["server.generated.ts"],
     payloadImport(registry, context.file, "context"),
-    `import { createRequestScope, handleRpc, provideLaunchServer } from '@loozo/angular-launch/server';`,
+    `import { createRequestScope, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
   ];
 
   for (let index = 0; index < groups.length; index += 1) {

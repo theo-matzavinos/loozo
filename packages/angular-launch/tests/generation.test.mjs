@@ -284,9 +284,8 @@ badUndefinedInput:query({input:undefinedInput,handler:()=>null}),
     `import {injectRpc} from './routes/left/rpc.generated';
 import type {Todo,ReadonlyTodo,Input,MutableInput,AliasTodo} from './dto';
 import context from './context';
-import {createRequestScope,provideLaunchServer} from '@loozo/angular-launch/server';
-import type {ApplicationBinding} from '@loozo/angular-launch/server';
-const binding:ApplicationBinding<typeof context>={id:'compile-app',context};
+import {createRequestScope,provideLaunchServer} from '@loozo/angular-launch/_server';
+const binding={id:'compile-app',context};
 const scope=createRequestScope(binding,new Request('http://test'));
 // @ts-expect-error no unbound factory-only fallback
 createRequestScope(context,new Request('http://test'));

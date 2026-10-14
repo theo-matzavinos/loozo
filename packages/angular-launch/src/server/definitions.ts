@@ -169,7 +169,7 @@ export function defineContext<Value>(
   return { create };
 }
 
-/** The awaited context type of a {@link ContextDefinition}. */
+/** The awaited context type of a context created by {@link defineContext}. */
 export type ContextOf<Definition> =
   Definition extends ContextDefinition<infer Value> ? Awaited<Value> : never;
 
@@ -226,6 +226,10 @@ export type ErrorStatus = StatusNumber<`${4 | 5}${Digit}${Digit}`>;
 
 /**
  * The declaration of one error a procedure can return.
+ *
+ * @remarks
+ * Declare errors inline in `query` or `mutation`. The type is public so that
+ * application code can name a procedure's `errors` metadata.
  *
  * @typeParam Data - The schema for the error's data.
  */
@@ -326,13 +330,38 @@ export interface Procedure<
   readonly [declaredFailures]: WeakMap<object, DeclaredFailure>;
 }
 
-interface ProcedureOptions<Input, Output, Errors extends ErrorDefinitions> {
+/**
+ * The options {@link query} and {@link mutation} take.
+ *
+ * @remarks
+ * Write them inline in the call; generation reads them statically.
+ *
+ * @typeParam Input - The input schema, or `undefined` without input.
+ * @typeParam Output - The handler's return type.
+ * @typeParam Errors - The declared errors.
+ */
+export interface ProcedureOptions<Input, Output, Errors extends ErrorDefinitions> {
+  /** The schema the server validates the input with; omit it for a procedure without input. */
   readonly input?: Input & InputContract<NoInfer<Input>>;
+  /** The declared errors, keyed by error code. */
   readonly errors?: Errors & ErrorContract<NoInfer<Errors>>;
+  /**
+   * Guards run in order after the group's guards. The first to return `false` rejects the
+   * call as `FORBIDDEN`.
+   */
   readonly canActivate?: readonly ProcedureGuard<Input>[];
+  /**
+   * Runs the call and returns its strict JSON result.
+   *
+   * @param args - The request's context, the validated input and the error factories.
+   * @returns The call's result, or a promise of it.
+   */
   readonly handler: (args: {
+    /** The context created for the request. */
     readonly context: Context;
+    /** The validated input: the schema's output, or `undefined` without an input schema. */
     readonly input: OutputOf<Input>;
+    /** One factory per declared error code, creating an error to `throw`. */
     readonly errors: ErrorFactories<Errors>;
   }) => Output & JsonResult<NoInfer<Output>>;
 }
@@ -360,7 +389,7 @@ function procedure<Input, Output, Kind extends ProcedureKind, Errors extends Err
  * @remarks
  * The handler receives `{ context, input, errors }`: the request's {@link Context},
  * the validated input (`undefined` without an input schema) and the
- * {@link ErrorFactories} for the declared errors. A call validates the input, runs the
+ * error factories for the declared errors. A call validates the input, runs the
  * group's guards, then the procedure's guards, then the handler. Inputs and results
  * must be strict JSON; a result that isn't fails the call with `INTERNAL`. Throwing an
  * error created by `errors` returns that declared error; any other exception fails the
@@ -405,7 +434,7 @@ export function query<
  * @remarks
  * The handler receives `{ context, input, errors }`: the request's {@link Context},
  * the validated input (`undefined` without an input schema) and the
- * {@link ErrorFactories} for the declared errors. A call validates the input, runs the
+ * error factories for the declared errors. A call validates the input, runs the
  * group's guards, then the procedure's guards, then the handler. Inputs and results
  * must be strict JSON; a result that isn't fails the call with `INTERNAL`. Throwing an
  * error created by `errors` returns that declared error; any other exception fails the
@@ -457,11 +486,6 @@ export function mutation<
 export interface ProcedureDefinition {
   /** Whether the procedure is a `"query"` or a `"mutation"`. */
   readonly kind: ProcedureKind;
-}
-/** A {@link ProcedureDefinition} narrowed to queries. */
-export interface QueryDefinition extends ProcedureDefinition {
-  /** Always `"query"`. */
-  readonly kind: "query";
 }
 /**
  * An RPC group created by {@link defineRpc}.

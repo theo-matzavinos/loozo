@@ -1,25 +1,14 @@
-/**
- * A strict JSON value: `null`, a boolean, a finite number, a string, an array or a plain
- * object of JSON values.
- *
- * @remarks
- * Procedure inputs and results must be strict JSON on both transports. At runtime,
- * `Date`, `undefined`, non-finite numbers, functions, class instances, sparse arrays,
- * extra array properties, symbol keys, accessors and cycles are rejected.
- */
-export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly Json[]
-  | {
-      /** A property: any JSON value under a string key. */
-      readonly [key: string]: Json;
-    };
-
 // Structural DTO compatibility, without requiring interface index signatures.
 // Keep the original inferred type; this shape is only a compile-time constraint.
+/**
+ * The strict JSON shape of `Value`: `never` wherever `Value` isn't strict JSON.
+ *
+ * @remarks
+ * Procedure inputs, results and error data must satisfy it. Functions become `never`;
+ * arrays and objects are checked element by element.
+ *
+ * @typeParam Value - The type to check.
+ */
 export type JsonShape<Value> = Value extends null | boolean | number | string
   ? Value
   : Value extends (...args: never[]) => unknown

@@ -5,9 +5,19 @@ import type { ErrorDefinition, ErrorDefinitions, ErrorFactories } from "./defini
 // A native SSR bundle may load this module twice; both copies read that same map.
 export const declaredFailures = Symbol.for("@loozo/angular-launch/private-declared-failures/v1");
 
+/**
+ * An error a procedure's error factory created, as recorded on the procedure.
+ *
+ * @remarks
+ * The server looks it up when a handler throws, to send the declared error. Application
+ * code doesn't create or read it.
+ */
 export interface DeclaredFailure {
+  /** The declared error code. */
   readonly code: string;
+  /** The error's declaration. */
   readonly definition: ErrorDefinition;
+  /** The data passed to the factory, before validation. */
   readonly data: unknown;
 }
 

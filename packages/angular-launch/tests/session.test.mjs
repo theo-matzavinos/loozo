@@ -365,6 +365,15 @@ test("warm config strict/noCheck/inherited flags and declaration diagnostics pre
     );
     await session.generate();
 
+    // Exported generated callables must stay nameable through public entry points.
+    await put(
+      root,
+      "src/callable.ts",
+      "import {injectRpc} from './routes/left/rpc.generated';export const read = injectRpc().todos.read;",
+    );
+    await session.generate();
+    await rm(resolve(root, "src/callable.ts"));
+
     const exposed = "export const exposed = new class {private secret=1;}();";
 
     // Declaration emit is checked for generation's own domain only: an unrelated

@@ -17,12 +17,16 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/client.d.ts",
-      "default": "./dist/client.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
+    },
+    "./_server": {
+      "types": "./dist/server/generated.d.ts",
+      "default": "./dist/server/generated.js"
     },
     "./_generated": {
       "types": "./dist/generated.d.ts",

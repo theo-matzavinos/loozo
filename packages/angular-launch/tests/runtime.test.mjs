@@ -18,16 +18,9 @@ import {
   HttpErrorResponse,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import {
-  defineContext,
-  defineRpc,
-  query,
-  createRequestScope,
-  isRequestScope,
-  dispatch,
-  handleRpc,
-  provideLaunchServer,
-} from "../dist/server/index.js";
+import { defineContext, defineRpc, query } from "../dist/server/index.js";
+import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
+import { isRequestScope, dispatch } from "../dist/server/dispatch.js";
 import { injectClient, RPC_CALL } from "../dist/generated.js";
 import { RpcError, recognizedFailure, frameworkFailures } from "../dist/client.js";
 import { serializeJson } from "../dist/json.js";

@@ -165,21 +165,26 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir,readFile,readdir,stat,writeFile} from 'node:fs/promises';
 import {generate,createGenerationSession} from '@loozo/angular-launch/generation';
-import { defineContext, defineRpc, mutation, createRequestScope, isRequestScope, provideLaunchServer, dispatch, handleRpc } from '@loozo/angular-launch/server';
+import { defineContext, defineRpc, mutation } from '@loozo/angular-launch/server';
 import {RpcError} from '@loozo/angular-launch';
+import * as client from '@loozo/angular-launch';
+import * as server from '@loozo/angular-launch/server';
+import * as generatedServer from '@loozo/angular-launch/_server';
+import {createRequestScope, handleRpc} from '@loozo/angular-launch/_server';
 import {injectClient} from '@loozo/angular-launch/_generated';
 import {prepareLaunchRoutes,createValidationProgram} from '@loozo/angular-router/_generation';
 const require=createRequire(import.meta.url);
-for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_generated','@loozo/angular-launch/generation','@loozo/angular-router/_generation']) {
+for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-launch/_generated','@loozo/angular-launch/generation','@loozo/angular-router/_generation']) {
  assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
 }
 const router=JSON.parse(await readFile(require.resolve('@loozo/angular-router/package.json'),'utf8'));
 const entry=new URL(router.exports['./_generation'].types,'file://'+require.resolve('@loozo/angular-router/package.json'));
 assert.ok((await readFile(entry,'utf8')).includes('prepareLaunchRoutes'));
 assert.equal(typeof prepareLaunchRoutes,'function');assert.equal(typeof createValidationProgram,'function');assert.equal(typeof injectClient,'function');assert.equal(new RpcError('FORBIDDEN',403).code,'FORBIDDEN');
+assert.deepEqual(Object.keys(client).sort(),['RpcError','frameworkFailures']);
+assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','mutation','query']);
+assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleRpc','provideLaunchServer']);
 const binding={id:'packed-test-app',context:defineContext(()=>({value:1}))};
-const scope = await createRequestScope(binding, new Request('http://test'));
-assert.equal(isRequestScope(scope), true);
 const id = 'd'.repeat(24);
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
   if (typeof value !== 'string') { return { issues: [{ message: 'private string detail' }] }; }
@@ -190,13 +195,12 @@ const registry = { [id]: defineRpc('packed', { write: mutation({
   handler: ({ errors }) => { throw errors.NOT_FOUND(' packed-id '); },
 }) }) };
 const expected = { error: { code: 'NOT_FOUND', message: 'Missing packed todo', data: { id: 'packed-id' } } };
-const direct = await dispatch(registry, '/_rpc/'+id+'/write', { input: null }, scope, binding, scope.request);
-assert.equal(direct.status, 404); assert.deepEqual(direct.body, expected);
 const response = await handleRpc(registry, binding, new Request('http://test/_rpc/'+id+'/write', {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input: null }),
 }));
 assert.equal(response.status, 404); assert.deepEqual(await response.json(), expected);
-assert.equal((await dispatch(registry, '/_rpc/'+id+'/write', { input: null }, scope, binding, scope.request, 'rendering')).status, 403);
+const scope = await createRequestScope(binding, new Request('http://test'));
+assert.equal(scope.appId, binding.id); assert.equal(scope.value.value, 1);
 const launch=JSON.parse(await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8'));
 for(const entry of [router.exports['./_generation'],launch.exports['./generation']]) {
 assert.equal(typeof entry.types,'string');assert.equal(typeof entry.node,'string');assert.equal(entry.default,undefined);
@@ -298,7 +302,7 @@ await assert.rejects(disposing.generate(),/disposed/);
 await generate(import.meta.dirname,options);
 assert.notEqual((await snapshot())['generated/server.generated.ts'].bytes,beforeDispose['generated/server.generated.ts'].bytes);
 const generated=await readFile(import.meta.dirname+'/generated/server.generated.ts','utf8');
-assert.ok(generated.includes('createRequestScope(appBinding, request)'));assert.ok(generated.includes('provideLaunchServer(registry, appBinding)'));
+assert.ok(generated.includes("from '@loozo/angular-launch/_server';"));assert.ok(generated.includes('createRequestScope(appBinding, request)'));assert.ok(generated.includes('provideLaunchServer(registry, appBinding)'));
 console.log('Packed exports, generation, mutation/error payloads and bound request scope: PASS');`,
 );
 await run("node", ["verify.mjs"], consumer, "exports-and-generation");
@@ -347,6 +351,43 @@ await writeFile(
 );
 await run("pnpm", ["exec", "tsc", "-p", "tsconfig.nodenext.json"], consumer, "types-nodenext");
 
+// Application exports inferred from public server APIs must emit declarations: every type
+// their inferred types name has to be public (TS2883 otherwise). Only an installed package
+// shows this; a workspace source path would be written as a relative import instead.
+await writeFile(
+  join(consumer, "src/declarations.ts"),
+  `import {defineRpc, query} from '@loozo/angular-launch/server';
+export const listHandler = (({context}) => context.value) satisfies Parameters<typeof query<undefined, number>>[0]['handler'];
+export const list = query({handler: listHandler});
+export function errorsOf(procedure: ReturnType<typeof query>) { return procedure.errors; }
+export function proceduresOf(group: ReturnType<typeof defineRpc>) { return group.procedures; }
+export function statusOf(procedure: ReturnType<typeof query>) { return procedure.errors.NOT_FOUND.status; }`,
+);
+await writeFile(
+  join(consumer, "tsconfig.declarations.json"),
+  JSON.stringify({
+    compilerOptions: {
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      target: "ES2022",
+      types: ["node"],
+      strict: true,
+      skipLibCheck: false,
+      declaration: true,
+      emitDeclarationOnly: true,
+      rootDir: ".",
+      outDir: "declarations",
+    },
+    files: ["src/declarations.ts", "generated/context.generated.d.ts"],
+  }),
+);
+await run(
+  "pnpm",
+  ["exec", "tsc", "-p", "tsconfig.declarations.json"],
+  consumer,
+  "types-declarations",
+);
+
 const lock = await readFile(join(consumer, "pnpm-lock.yaml"), "utf8");
 
 assert.ok(lock.includes("22.2.2") && lock.includes("6.0.3") && lock.includes("7.8.2"));
@@ -367,7 +408,8 @@ await writeFile(
         "packed session types, cold/session byte+mtime parity, invalid-edit repair and updated output parity",
         "metadata-only export swap rejects warm/cold generate/check, blocks identity publication and repairs on the same session",
         "reentrant stop-predicate disposal suppresses changed publication and settles generation/disposal promises",
-        "HTTP/direct transformed declared-error payloads and rendering mutation denial",
+        "public and internal entry export lists",
+        "HTTP transformed declared-error payloads and bound request scope",
         "strict Bundler native routes and strict NodeNext exports/generated mutation/error consumer",
       ],
     },

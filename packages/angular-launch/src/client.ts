@@ -7,7 +7,6 @@ import type {
   Schema,
 } from "./server/definitions.js";
 import { serializeJson } from "./json.js";
-export type { Json } from "./json.js";
 
 /** Per-call options for a generated query callable. */
 export interface CallOptions {
@@ -46,8 +45,9 @@ export interface MutationCallOptions {
  * Browser-safe metadata for one declared error of a procedure.
  *
  * @remarks
- * Generation writes these entries into each `rpc.generated.ts` so the client can
- * recognize the procedure's declared error responses without the server's schemas.
+ * Internal; not exported from a public entry point. Generation writes these entries
+ * into each `rpc.generated.ts` so the client can recognize the procedure's declared
+ * error responses without the server's schemas.
  */
 export interface ErrorMetadata {
   /** The declared error code, such as `"NOT_FOUND"`. */
@@ -132,10 +132,10 @@ export class RpcError<Code extends string = FrameworkCode, Data = null> extends 
  * Recognizes a response body that is exactly a Launch framework failure.
  *
  * @remarks
- * Used by the generated client to convert responses into {@link RpcError}s; not
- * meant for direct use. The body must be strict JSON shaped exactly as
- * `{ error: { code, message, data: null } }`, with the framework code's own status
- * and message.
+ * Internal; not exported from a public entry point. Used by the generated client to
+ * convert responses into {@link RpcError}s. The body must be strict JSON shaped
+ * exactly as `{ error: { code, message, data: null } }`, with the framework code's own
+ * status and message.
  *
  * @param value - The parsed response body.
  * @param status - The response's HTTP status.
@@ -192,9 +192,10 @@ export function recognizedFailure(value: unknown, status: number): FrameworkCode
  * declared errors.
  *
  * @remarks
- * Used by the generated client to convert responses into {@link RpcError}s; not
- * meant for direct use. A declared error matches only when its code, status and
- * message all equal one entry of `declared`. Entries using framework codes are ignored.
+ * Internal; not exported from a public entry point. Used by the generated client to
+ * convert responses into {@link RpcError}s. A declared error matches only when its
+ * code, status and message all equal one entry of `declared`. Entries using framework
+ * codes are ignored.
  *
  * @param value - The parsed response body.
  * @param status - The response's HTTP status.
@@ -306,8 +307,9 @@ type Callable<Input, Output, Kind extends ProcedureKind> =
  * The generated client callable for a procedure.
  *
  * @remarks
- * A procedure with an input schema is called as `(input, options?)`, where `input` is
- * the schema's input type; one without input is called as `(options?)`. Every call
+ * The type of `Client<typeof group>["name"]`. A procedure with an input schema is called as
+ * `(input, options?)`, where `input` is the schema's input type; one without input is
+ * called as `(options?)`. Every call
  * returns a promise of the handler's awaited result. Queries take {@link CallOptions}
  * and mutations take {@link MutationCallOptions}.
  *
@@ -329,7 +331,7 @@ export type ClientProcedure<Value> =
       }
     : never;
 /**
- * The generated client for an RPC group: one {@link ClientProcedure} per procedure.
+ * The generated client for an RPC group: one callable per procedure.
  *
  * @remarks
  * Generated `injectRpc()` functions return an object of these, keyed by namespace.

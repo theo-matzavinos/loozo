@@ -17,7 +17,8 @@ import type { DeclaredFailure } from "./errors.js";
  * The application's RPC groups, keyed by generated group ID.
  *
  * @remarks
- * Generation writes it as `registry` in `server.generated.ts`.
+ * Internal; not exported from a public entry point. Generation writes it as
+ * `registry` in `server.generated.ts`.
  */
 export type Registry = Readonly<Record<string, Group<string, Record<string, ProcedureDefinition>>>>;
 
@@ -27,7 +28,8 @@ const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v1")
  * The application identity and context definition that requests are bound to.
  *
  * @remarks
- * Generation writes it as `appBinding` in `server.generated.ts`.
+ * Internal; not exported from a public entry point. Generation writes it as
+ * `appBinding` in `server.generated.ts`.
  *
  * @typeParam Definition - The application's context definition.
  */
@@ -46,7 +48,7 @@ const bindingHeader = "x-loozo-launch-scope";
  * A live server request bound to the context created for it.
  *
  * @remarks
- * Created by {@link createRequestScope}, which the generated `createContext` calls.
+ * Created by the generated `createContext` in `server.generated.ts`.
  * Render a page by passing `scope.request` together with `scope` as Angular's request
  * context; RPC calls during that render fail with `INTERNAL` if the two don't belong
  * together.
@@ -70,8 +72,8 @@ export interface RequestScope<Value = unknown> {
  * Checks whether a value has the shape of a {@link RequestScope}.
  *
  * @remarks
- * Not used by generated code. It doesn't check which application or request the scope
- * belongs to; Launch checks that separately before dispatching.
+ * Internal; not exported from a public entry point. It doesn't check which application
+ * or request the scope belongs to; Launch checks that separately before dispatching.
  *
  * @param value - The value to check.
  * @returns `true` for values carrying the request scope brand and fields.
@@ -97,7 +99,8 @@ export function isRequestScope(value: unknown): value is RequestScope {
  * {@link RequestScope}.
  *
  * @remarks
- * Used by the generated `createContext` in `server.generated.ts`; call that instead.
+ * Internal: exported only from `@loozo/angular-launch/_server` for the generated
+ * `createContext` in `server.generated.ts`; call that instead.
  * The scope's `request` is a clone of `request` with an added
  * `x-loozo-launch-scope` header, so the original stays usable. The context factory
  * receives that clone.
@@ -147,7 +150,7 @@ export function assertBoundScope(
   }
 }
 
-/** The HTTP status and JSON body {@link dispatch} produces for one call. */
+/** The HTTP status and JSON body {@link dispatch} produces for one call. Internal. */
 export interface Reply {
   /** The HTTP status: 200 for a result, otherwise the error's status. */
   readonly status: number;
@@ -182,8 +185,8 @@ interface RuntimeProcedure extends ProcedureDefinition {
  *
  * @remarks
  * The shared pipeline behind {@link handleRpc} and the server-rendering backend of
- * {@link provideLaunchServer}; not used by generated code and not meant for direct
- * use. It never rejects: every failure becomes a framework failure reply, and
+ * {@link provideLaunchServer}. Internal; not exported from a public entry point. It
+ * never rejects: every failure becomes a framework failure reply, and
  * unexpected errors are logged on the server.
  *
  * In order: the scope must belong to `application` and `request` (`INTERNAL`); the
@@ -330,7 +333,8 @@ export async function dispatch(
  * Answers an RPC HTTP request, or returns `null` for any other request.
  *
  * @remarks
- * Used by the generated `handleRequest` in `server.generated.ts`; call that instead.
+ * Internal: exported only from `@loozo/angular-launch/_server` for the generated
+ * `handleRequest` in `server.generated.ts`; call that instead.
  * Any path starting with `/_rpc/` is treated as an RPC request. It must be a `POST`
  * with an `application/json` content type and no query string, otherwise the reply is
  * `INVALID_INPUT` and no context is created. A fresh context is then created before the
