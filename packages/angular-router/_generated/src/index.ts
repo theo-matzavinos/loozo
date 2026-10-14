@@ -79,9 +79,11 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  * not static/ancestor data or title. Resources are native readonly Angular
  * Resources: use hasValue before value access; error-state value reads throw.
  *
- * Navigation hides old values. Cancellation/same-URL skip restores the survivor
- * without reparsing; obsolete work cannot publish. Relevant parsing participates
- * in Angular stability until publication, error, replacement or destruction.
+ * While a navigation is pending, resources keep the current snapshot's values and
+ * report reloading; a committed navigation publishes the new snapshot's values.
+ * Cancellation, failure or same-URL skip keeps the survivor without reparsing;
+ * obsolete work cannot publish. Relevant parsing participates in Angular
+ * stability until publication, error, replacement or destruction.
  * Codecs are not abortable and there is no package timeout or resolved-data cache.
  *
  * Selectors are single known authored literals, not concrete URLs or string
@@ -112,7 +114,7 @@ export interface Handle<
   Set = unknown,
   References extends Record<string, AnyRoute> = {},
 > {
-  /** Effective positional params; undefined while pending or without a value. */
+  /** Effective positional params; kept and reloading during a pending navigation, undefined until first parsed. */
   readonly params: Resource<Readonly<ParamsOf<Target>> | undefined>;
   /** Effective declared search; paired with params from the same parse operation. */
   readonly search: Resource<Readonly<SearchOf<Target>> | undefined>;

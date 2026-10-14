@@ -44,9 +44,11 @@ export function observeRoute(set: RouteSet, id: string) {
     value: undefined,
   });
   let survivor: ActivatedRouteSnapshot | undefined;
+  let local: Readonly<Record<PropertyKey, unknown>> | undefined;
   let work: Operation | undefined;
   let commitment = -1;
   let pending: number | undefined;
+  let latest = -1;
   let visible = false;
   let destroyed = false;
   let release: (() => void) | undefined;
@@ -80,6 +82,15 @@ export function observeRoute(set: RouteSet, id: string) {
     cleanup?.();
   }
 
+  // A pending navigation keeps the current snapshot's values: Angular hasn't replaced its routes yet.
+  function settled(): "resolved" | "reloading" {
+    if (pending === undefined) {
+      return "resolved";
+    }
+
+    return "reloading";
+  }
+
   function publish(): void {
     if (!visible || destroyed || !work) {
       return;
@@ -93,9 +104,12 @@ export function observeRoute(set: RouteSet, id: string) {
     }
 
     if ("value" in work.outcome) {
-      paired.set({ status: "resolved", value: work.outcome.value });
-    } else {
+      paired.set({ status: settled(), value: work.outcome.value });
+    } else if (pending === undefined) {
       paired.set({ status: "error", error: work.outcome.error });
+    } else {
+      // A Resource snapshot can't be loading and in error: like a reload from error, the value is absent.
+      paired.set({ status: "loading", value: undefined });
     }
 
     // A synchronous paired write always precedes package task removal.
@@ -110,6 +124,18 @@ export function observeRoute(set: RouteSet, id: string) {
     }
 
     survivor = snapshot;
+
+    // Built once per snapshot, so pending and settled views share one data object.
+    const own: Record<PropertyKey, unknown> = Object.create(null);
+    const resolvers = routeMetadata(set.records[id].definition()).config.resolve ?? {};
+
+    for (const key of Reflect.ownKeys(resolvers)) {
+      if (Object.hasOwn(snapshot.data, key)) {
+        own[key] = snapshot.data[key];
+      }
+    }
+
+    local = Object.freeze(own);
 
     const joined = fullOperation(set, id, snapshot);
 
@@ -153,16 +179,7 @@ export function observeRoute(set: RouteSet, id: string) {
       adopt(activated.snapshot);
     }
 
-    const local: Record<PropertyKey, unknown> = Object.create(null);
-    const resolvers = routeMetadata(set.records[id].definition()).config.resolve ?? {};
-
-    for (const key of Reflect.ownKeys(resolvers)) {
-      if (Object.hasOwn(survivor!.data, key)) {
-        local[key] = survivor!.data[key];
-      }
-    }
-
-    data.set({ status: "resolved", value: Object.freeze(local) });
+    data.set({ status: settled(), value: local });
     visible = true;
     publish();
   }
@@ -191,7 +208,8 @@ export function observeRoute(set: RouteSet, id: string) {
       return false;
     }
 
-    return pending === undefined || pending === id;
+    // Ids only grow. A same-URL replacement is skipped under a newer id without its own Start.
+    return pending === undefined || id >= pending;
   }
 
   // Subscribe before reading native phase: constructors can run inside event delivery.
@@ -201,54 +219,43 @@ export function observeRoute(set: RouteSet, id: string) {
     }
 
     if (event instanceof NavigationStart) {
+      // A listener ahead of this one can start and finish a newer navigation before this Start arrives.
+      if (event.id < latest) {
+        return;
+      }
+
+      latest = event.id;
       pending = event.id;
-      visible = false;
-      reconcile();
-      paired.set({ status: "loading", value: undefined });
-      data.set({ status: "loading", value: undefined });
-    } else if (event instanceof NavigationEnd) {
+
+      if (visible) {
+        restore();
+      } else {
+        reconcile();
+      }
+    } else if (
+      event instanceof NavigationEnd ||
+      event instanceof NavigationCancel ||
+      event instanceof NavigationSkipped ||
+      event instanceof NavigationError
+    ) {
+      latest = Math.max(latest, event.id);
+
       // Even an old End may expose a newer true survivor; it cannot settle a newer Start.
       reconcile();
 
-      if (eligible(event.id)) {
-        pending = undefined;
-        restore();
-      }
-    } else if (event instanceof NavigationCancel) {
-      reconcile();
-
       if (
-        event.code === NavigationCancellationCode.Redirect ||
-        event.code === NavigationCancellationCode.SupersededByNewNavigation
+        event instanceof NavigationCancel &&
+        (event.code === NavigationCancellationCode.Redirect ||
+          event.code === NavigationCancellationCode.SupersededByNewNavigation)
       ) {
         return;
       }
 
+      // A failed navigation leaves the surviving snapshot active, so it settles like a cancellation.
       if (eligible(event.id)) {
         pending = undefined;
         restore();
       }
-    } else if (event instanceof NavigationSkipped) {
-      reconcile();
-
-      if (eligible(event.id)) {
-        pending = undefined;
-        restore();
-      }
-    } else if (event instanceof NavigationError && eligible(event.id)) {
-      reconcile();
-      pending = undefined;
-      visible = false;
-
-      let error = event.error;
-
-      if (!(error instanceof Error)) {
-        error = new Error("Navigation failure", { cause: event.error });
-      }
-
-      paired.set({ status: "error", error });
-      data.set({ status: "error", error });
-      untrack();
     }
   });
 

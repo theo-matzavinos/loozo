@@ -481,6 +481,7 @@ await write(
   `import { ApplicationRef, inject, provideEnvironmentInitializer } from '@angular/core';
 import {
   Router, RedirectCommand, NavigationStart, NavigationEnd, NavigationCancel, NavigationError,
+  NavigationSkipped, NavigationCancellationCode,
   type ActivatedRouteSnapshot, type RouterStateSnapshot,
 } from '@angular/router';
 import {
@@ -521,6 +522,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     let deny!: (value: boolean) => void;
     let replacement: Promise<boolean> | undefined;
     let reenter = false;
+    let skipFromStart = false;
+    let startSkip: Promise<boolean> | undefined;
 
     blocked.canActivate = [() => new Promise<boolean>((resolve) => {
       deny = resolve;
@@ -536,6 +539,11 @@ export const proofProvider = provideEnvironmentInitializer(() => {
         reenter = false;
         replacement = router.navigateByUrl('/blocked');
       }
+
+      if (event instanceof NavigationStart && skipFromStart) {
+        skipFromStart = false;
+        startSkip = router.navigateByUrl(router.url);
+      }
     });
 
     // This listener precedes handle construction. The nested Start reaches the handle
@@ -548,7 +556,9 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     await until(() => calls.includes('id:6'), 'initial never-settle parse');
     const scope = page.connect();
 
-    check(scope.handle.params.isLoading(), 'scoped loading');
+    const initialValue = scope.handle.params.value();
+
+    check(scope.handle.params.status() === 'loading' && initialValue === undefined, 'initial parsing loading');
     held.add('id:7');
     reenter = true;
     await router.navigateByUrl('/plain/7');
@@ -560,9 +570,10 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 
     release('id:7', 7);
     await wait(30);
-    const hidden = params.value();
+    const committed7 = params.value();
 
-    check(params.isLoading() && hidden === undefined, 'old End cannot settle newer Start');
+    // The committed survivor7 describes the current URL; the newer Start keeps it reloading.
+    check(params.status() === 'reloading' && committed7?.id === 7, 'old End cannot settle newer Start');
     deny(false);
     const cancelled = await replacement;
 
@@ -619,6 +630,29 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     cancelScope.destroy();
     cancelListener.unsubscribe();
 
+    // A pending navigation keeps settled values reloading; cancellation settles them unchanged.
+    const settled9 = params.value();
+    const settledSearch9 = page.handle.search.value();
+    const settledData9 = page.handle.data.value();
+    const pendingCancel = router.navigateByUrl('/blocked');
+
+    await until(() => router.currentNavigation()?.initialUrl.toString() === '/blocked', 'pending cancel started');
+    await wait();
+    const kept9 = params.value();
+    const keptSearch9 = page.handle.search.value();
+    const keptData9 = page.handle.data.value();
+
+    check(params.status() === 'reloading' && params.isLoading() && params.hasValue() && kept9 === settled9,
+      'pending keeps params reloading');
+    check(page.handle.search.status() === 'reloading' && keptSearch9 === settledSearch9, 'pending keeps search reloading');
+    check(page.handle.data.status() === 'reloading' && keptData9 === settledData9, 'pending keeps data reloading');
+    deny(false);
+    await pendingCancel;
+    const cancelled9 = params.value();
+
+    check(params.status() === 'resolved' && cancelled9 === settled9 && page.handle.data.status() === 'resolved',
+      'cancellation settles kept values');
+
     // Error releases old tracking; a new idle scope rejoins the exact unfinished operation.
     held.add('id:10');
     await router.navigateByUrl('/plain/10');
@@ -640,9 +674,10 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     }
 
     check(rejected === 'native failure', 'native rejection untouched');
-    const oldError = params.error();
+    const unfinished10 = params.value();
 
-    check(params.status() === 'error' && oldError.cause === 'native failure', 'old error view');
+    // The failure is the navigation's; the survivor's unfinished parse keeps loading.
+    check(params.status() === 'loading' && unfinished10 === undefined, 'error leaves survivor loading');
     let errorStable = false;
 
     void app.whenStable().then(() => { errorStable = true; });
@@ -651,11 +686,101 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     release('id:10', 10);
     await app.whenStable();
     const rejoined = errorScope.handle.params.value();
+    const survivor10 = params.value();
+    const survivorCalls10 = calls.filter((value) => value === 'id:10');
 
     check(rejoined?.id === 10, 'new error listener scope rejoined');
-    check(params.status() === 'error', 'old error view not overwritten');
+    check(params.status() === 'resolved' && survivor10 === rejoined && survivorCalls10.length === 1,
+      'error survivor settles once without reparse');
     errorScope.destroy();
     errorListener.unsubscribe();
+
+    let settledRejection: unknown;
+
+    try {
+      await router.navigateByUrl('/blocked');
+    } catch (error) {
+      settledRejection = error;
+    }
+
+    const afterError = params.value();
+
+    check(settledRejection === 'native failure' && params.status() === 'resolved' && afterError === survivor10,
+      'navigation error keeps settled values');
+
+    // A replacement skipped as same-URL emits no Start of its own, yet must settle the survivor.
+    const replacements: string[] = [];
+    const replacementListener = router.events.subscribe((event) => {
+      if (event instanceof NavigationStart || event instanceof NavigationSkipped) {
+        replacements.push(event.constructor.name + ':' + event.id);
+      } else if (event instanceof NavigationCancel) {
+        replacements.push('NavigationCancel:' + event.id + ':' + event.code);
+      }
+    });
+    const views = [params, page.handle.search, page.handle.data];
+    const settledViews = () => {
+      for (const view of views) {
+        if (view.status() !== 'resolved' || view.isLoading()) {
+          return false;
+        }
+      }
+
+      return params.value() === survivor10;
+    };
+
+    blocked.canActivate = [() => new RedirectCommand(router.parseUrl(router.url))];
+    const redirectedHome = await router.navigateByUrl('/blocked');
+    await app.whenStable();
+    const [redirectStart, redirectCancel, redirectSkip] = replacements.splice(0);
+
+    check(redirectStart.startsWith('NavigationStart:') &&
+      redirectCancel.endsWith(':' + NavigationCancellationCode.Redirect) &&
+      redirectSkip === 'NavigationSkipped:' + (Number(redirectStart.split(':')[1]) + 1),
+      'native redirect to current URL skips without Start');
+    check(redirectedHome === false && settledViews(), 'skipped redirect replacement settles kept values');
+
+    blocked.canActivate = [() => new Promise<boolean>((resolve) => {
+      deny = resolve;
+    })];
+    const supersededHome = router.navigateByUrl('/blocked');
+
+    await until(() => router.currentNavigation()?.initialUrl.toString() === '/blocked', 'superseded started');
+    await wait();
+    check(params.status() === 'reloading', 'superseded pending keeps values reloading');
+    const returnedHome = await router.navigateByUrl(router.url);
+    const superseded = await supersededHome;
+
+    deny(false);
+    await app.whenStable();
+    const [supersededStart, supersededCancel, supersededSkip] = replacements.splice(0);
+
+    check(supersededStart.startsWith('NavigationStart:') &&
+      supersededCancel.endsWith(':' + NavigationCancellationCode.SupersededByNewNavigation) &&
+      supersededSkip === 'NavigationSkipped:' + (Number(supersededStart.split(':')[1]) + 1),
+      'native current URL supersedes without Start');
+    check(returnedHome === false && superseded === false && settledViews(),
+      'skipped superseding replacement settles kept values');
+
+    // The earlier listener's same-URL replacement is skipped before the obsolete Start reaches the handle.
+    const keptSearch = page.handle.search.value();
+    const keptData = page.handle.data.value();
+
+    skipFromStart = true;
+    const interrupted = await router.navigateByUrl('/blocked');
+    const skippedHome = await startSkip;
+
+    await app.whenStable();
+    const [lateSkip, lateStart, lateCancel] = replacements.splice(0);
+
+    check(lateStart.startsWith('NavigationStart:') &&
+      lateSkip === 'NavigationSkipped:' + (Number(lateStart.split(':')[1]) + 1) &&
+      lateCancel.endsWith(':' + NavigationCancellationCode.SupersededByNewNavigation),
+      'native replacement skip precedes its obsolete Start');
+    check(interrupted === false && skippedHome === false && settledViews() &&
+      page.handle.search.value() === keptSearch && page.handle.data.value() === keptData,
+      'obsolete Start after skipped replacement keeps settled values');
+    replacementListener.unsubscribe();
+    blocked.canActivate = [() => { throw 'native failure'; }];
 
     // First paired failure releases despite an unfinished sibling; late rejection is observed.
     held.add('id:11');
@@ -719,6 +844,32 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     check(!Object.hasOwn(nativeData, '__proto__'), 'native prototype resolver result not retained');
     check(!Object.hasOwn(localData, '__proto__') && localData.__proto__ === undefined,
       'missing native result is not fabricated');
+
+    // While the typed guard parses the next item, both the settled params and data stay reloading.
+    const itemParams = item.handle.params;
+    const settledItem = itemParams.value();
+
+    held.add('id:9');
+    const itemNavigation = router.navigateByUrl('/teams/7/items/9?score=44');
+
+    await until(() => jobs.has('id:9'), 'item guard parse pending');
+    const pendingItem = itemParams.value();
+    const pendingData = item.handle.data.value();
+
+    check(itemParams.status() === 'reloading' && pendingItem === settledItem && pendingItem?.id === 8,
+      'pending keeps item params');
+    check(item.handle.data.status() === 'reloading' && pendingData === localData, 'pending keeps item data');
+    release('id:9', 9);
+    const itemCommitted = await itemNavigation;
+
+    await app.whenStable();
+    const committedItem = itemParams.value();
+    const committedData = item.handle.data.value();
+
+    check(itemCommitted && (window as any).item === item, 'item record reused');
+    check(itemParams.status() === 'resolved' && committedItem?.id === 9, 'commitment publishes new params');
+    check(item.handle.data.status() === 'resolved' && committedData.item === 9 && committedData[localSymbol] === 9,
+      'commitment publishes new data');
 
     // An actual complete future ancestry: earlier own-ID duplicate and supplied child's
     // own-ID spoof must not replace the nearest proper declaring parent7.
@@ -835,8 +986,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       nativeFailure = error;
     }
 
-    check(nativeFailure === 'native failure' && survivorHandle.params.status() === 'error',
-      'native error releases old tracking');
+    check(nativeFailure === 'native failure' && survivorHandle.params.status() === 'loading',
+      'native error keeps unfinished survivor loading');
     survivorScope.destroy();
     await app.whenStable();
     const skipScope = acquirePage.scope();
