@@ -35,12 +35,13 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "rm -rf node && tsc -p tsconfig.node.json && tsc -p src/generation/tsconfig.json && ng-packagr -p ng-package.json -c tsconfig.build.json",
+    "build": "node scripts/application-schema.mjs && rm -rf node && tsc -p tsconfig.node.json && tsc -p src/generation/tsconfig.json && ng-packagr -p ng-package.json -c tsconfig.build.json",
     "check": "vp check",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "test": "pnpm run test:root && pnpm run test:docs",
+    "test": "pnpm run test:root && pnpm run test:docs && pnpm run test:schema",
     "test:root": "node --test tests/root.test.mjs",
     "test:docs": "node --test tests/documentation.test.mjs",
+    "test:schema": "node --test tests/schema.test.mjs",
     "example:build": "pnpm --dir ../../examples/angular-router run build",
     "example:check": "pnpm --dir ../../examples/angular-router run check",
     "example:serve": "pnpm --dir ../../examples/angular-router run serve",
@@ -77,6 +78,7 @@
     "vite-plus": "0.2.5"
   },
   "peerDependencies": {
+    "@angular/build": "~22.1.0",
     "@angular/core": "^22.0.0",
     "@angular/router": "^22.0.0"
   },

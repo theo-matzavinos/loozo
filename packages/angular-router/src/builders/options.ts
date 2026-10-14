@@ -1,47 +1,29 @@
-import {
-  targetFromTargetString,
-  type BuilderContext,
-  type Target,
-} from "@angular-devkit/architect";
+import { targetFromTargetString, type BuilderContext } from "@angular-devkit/architect";
 import type { GenerationOptions } from "../generation/generate.js";
 
-export interface Options extends GenerationOptions {
-  delegateTarget: string;
-}
+export type JsonObject = NonNullable<Parameters<BuilderContext["scheduleBuilder"]>[1]>;
 
-export function validateOptions(value: Options, serve: boolean): void {
+export const applicationBuilder = "@loozo/angular-router:application";
+
+function validateRouterOptions(value: JsonObject): asserts value is JsonObject & GenerationOptions {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Companion options must be an object");
+    throw new Error("Router options must be an object");
   }
 
-  const allowed = new Set([
-    "tsconfig",
-    "scanDirectories",
-    "outDirectory",
-    "delegateTarget",
-    "autoDefineRoutes",
-  ]);
+  for (const key of ["tsconfig", "outDirectory"] as const) {
+    const option = value[key];
 
-  if (!serve) {
-    allowed.add("check");
-  }
-
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) {
-      throw new Error(`Unknown companion option: ${key}`);
+    if (typeof option !== "string" || option.trim() === "") {
+      throw new Error(`Router option ${key} must be a nonempty string`);
     }
   }
 
-  for (const key of ["tsconfig", "outDirectory", "delegateTarget"] as const) {
-    if (typeof value[key] !== "string" || value[key].trim() === "") {
-      throw new Error(`Companion option ${key} must be a nonempty string`);
-    }
-  }
+  const scanDirectories = value.scanDirectories;
 
   if (
-    !Array.isArray(value.scanDirectories) ||
-    value.scanDirectories.length !== 1 ||
-    value.scanDirectories.some((scan) => typeof scan !== "string" || scan.trim() === "")
+    !Array.isArray(scanDirectories) ||
+    scanDirectories.length !== 1 ||
+    scanDirectories.some((scan) => typeof scan !== "string" || scan.trim() === "")
   ) {
     throw new Error("scanDirectories must contain exactly one nonempty string");
   }
@@ -82,68 +64,53 @@ export function validateOptions(value: Options, serve: boolean): void {
   }
 }
 
-function explicitTarget(value: string): Target {
-  const parts = value.split(":");
+// Router options drive generation; everything else belongs to Angular's application builder.
+export function split(options: JsonObject): { router: GenerationOptions; official: JsonObject } {
+  validateRouterOptions(options);
 
-  if (parts.length < 2 || parts.length > 3 || parts.some((part) => part.trim() === "")) {
-    throw new Error(`delegateTarget must explicitly name project:target[:configuration]: ${value}`);
+  const { tsconfig, scanDirectories, outDirectory, autoDefineRoutes, check, ...official } = options;
+  const router: GenerationOptions = { tsconfig, scanDirectories, outDirectory };
+
+  if (autoDefineRoutes !== undefined) {
+    router.autoDefineRoutes = autoDefineRoutes;
   }
 
-  return targetFromTargetString(value);
+  if (check !== undefined) {
+    router.check = check;
+  }
+
+  return { router, official };
 }
 
-async function official(context: BuilderContext, target: Target, expected: string) {
-  const [builder, options] = await Promise.all([
+// Router options for serve come from its build target, resolved as Angular's dev server resolves it.
+export async function buildTargetOptions(
+  context: BuilderContext,
+  buildTarget: string,
+): Promise<GenerationOptions> {
+  const project = context.target?.project;
+
+  if (!project) {
+    throw new Error("The serve builder must run as a project target");
+  }
+
+  const target = targetFromTargetString(buildTarget, project, "build");
+  const [builder, raw] = await Promise.all([
     context.getBuilderNameForTarget(target),
     context.getTargetOptions(target),
   ]);
 
-  if (builder !== expected) {
+  if (builder !== applicationBuilder) {
     throw new Error(
-      `Delegate ${target.project}:${target.target} must use ${expected}, not ${builder}`,
+      `buildTarget ${target.project}:${target.target} must use ${applicationBuilder}, not ${builder}`,
     );
   }
 
-  return context.validateOptions(options, builder);
-}
+  const options = await context.validateOptions(raw, builder);
+  const { router } = split(options);
 
-export async function delegate(
-  context: BuilderContext,
-  options: Options,
-  serve: boolean,
-): Promise<Target> {
-  validateOptions(options, serve);
-
-  const target = explicitTarget(options.delegateTarget);
-
-  if (context.target?.project === target.project && context.target.target === target.target) {
-    throw new Error("Every configuration of the current companion target is forbidden as delegate");
+  if (router.check === true) {
+    throw new Error("Serve writes generated files; its buildTarget must not resolve check: true");
   }
 
-  if (!serve) {
-    const resolved = await official(context, target, "@angular/build:application");
-
-    if (resolved.watch === true) {
-      throw new Error("Application delegate must not have resolved watch:true");
-    }
-
-    return target;
-  }
-
-  const resolved = await official(context, target, "@angular/build:dev-server");
-  let buildTarget = resolved.buildTarget;
-
-  if (buildTarget === undefined) {
-    buildTarget = "::development";
-  }
-
-  if (typeof buildTarget !== "string" || buildTarget.split(":").length > 3) {
-    throw new Error("Official dev-server buildTarget is malformed");
-  }
-
-  const application = targetFromTargetString(buildTarget, target.project, "build");
-
-  await official(context, application, "@angular/build:application");
-
-  return target;
+  return router;
 }

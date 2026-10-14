@@ -20,4 +20,4 @@ node ../../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run pr
 node ../../../packages/angular-router/node_modules/@angular/cli/bin/ng.js run proof:serve
 ```
 
-`proof:build` delegates production to `@angular/build:application`; `proof:serve` delegates development to the official dev-server. The loopback built Node entry is intentionally only the SSR HTTP proof surface, not a production static-asset hosting solution. No frozen Ginitial/final qualification is implied.
+`proof:build` generates routes, then runs `@angular/build:application` with its inline options; `proof:serve` generates and watches routes, then runs the official dev-server against `proof:build`. The loopback built Node entry is intentionally only the SSR HTTP proof surface, not a production static-asset hosting solution. No frozen Ginitial/final qualification is implied.

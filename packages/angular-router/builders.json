@@ -4,12 +4,12 @@
     "application": {
       "implementation": "./node/src/builders/application.js",
       "schema": "./schemas/application.json",
-      "description": "Generate/check authored routes, then build with the official Angular application target."
+      "description": "Generate/check authored routes, then run @angular/build:application with the remaining options."
     },
     "serve": {
       "implementation": "./node/src/builders/serve.js",
       "schema": "./schemas/serve.json",
-      "description": "Watch authored routes and delegate to the official Angular dev-server target."
+      "description": "Watch authored routes, then run @angular/build:dev-server with the remaining options."
     }
   }
 }

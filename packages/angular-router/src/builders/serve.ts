@@ -3,13 +3,18 @@ import chokidar, { type FSWatcher } from "chokidar";
 import { Observable, type Subscription } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
 import { readFile, utimes } from "node:fs/promises";
-import { generate, type GenerationState } from "../generation/generate.js";
+import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
 import { auditPath, workspacePaths, markers } from "../generation/files.js";
 import { CompilerState } from "../generation/compiler.js";
 import { AnchorState } from "../generation/anchor.js";
-import { delegate, type Options } from "./options.js";
+import { buildTargetOptions, type JsonObject } from "./options.js";
 
-export default createBuilder<Options>(
+// Polling catches what Angular 22.1.5's native watcher misses: events for files whose parent
+// directory was renamed, which otherwise leave the dev server serving stale output.
+const defaultPoll = 500;
+const devServerBuilder = "@angular/build:dev-server";
+
+export default createBuilder<JsonObject & { buildTarget: string; poll?: number | false }>(
   (options, context) =>
     new Observable<BuilderOutput>((subscriber) => {
       let stopped = false;
@@ -24,6 +29,8 @@ export default createBuilder<Options>(
       let touching: Promise<void> | undefined;
       let touches = 0;
       const published = new Set<string>();
+      // Resolved from the build target before anything reads it.
+      let router: GenerationOptions;
       const state: GenerationState = {
         discovery: new CompilerState(),
         overlay: new CompilerState(),
@@ -39,7 +46,7 @@ export default createBuilder<Options>(
       // A failed or stopped pass may leave partial state; the next pass starts fresh.
       async function regenerate(): Promise<string[]> {
         try {
-          return await generate(context.workspaceRoot, options, () => stopped, state);
+          return await generate(context.workspaceRoot, router, () => stopped, state);
         } catch (error) {
           clear();
 
@@ -140,7 +147,17 @@ export default createBuilder<Options>(
       }
 
       async function start(): Promise<void> {
-        const target = await delegate(context, options, true);
+        const { poll = defaultPoll, ...devServer } = options;
+
+        if (poll !== false) {
+          devServer.poll = poll;
+        }
+
+        // Both validations precede the watcher and generation, so invalid options never write.
+        [, router] = await Promise.all([
+          context.validateOptions(devServer, devServerBuilder),
+          buildTargetOptions(context, options.buildTarget),
+        ]);
 
         if (stopped) {
           return;
@@ -152,8 +169,8 @@ export default createBuilder<Options>(
           return;
         }
 
-        const configFile = access.resolve(options.tsconfig);
-        const roots = [access.resolve(resolve(dirname(configFile), options.scanDirectories[0]))];
+        const configFile = access.resolve(router.tsconfig);
+        const roots = [access.resolve(resolve(dirname(configFile), router.scanDirectories[0]))];
 
         if (stopped) {
           return;
@@ -231,7 +248,9 @@ export default createBuilder<Options>(
           return;
         }
 
-        acquisition = context.scheduleTarget(target);
+        acquisition = context.scheduleBuilder(devServerBuilder, devServer, {
+          target: context.target,
+        });
 
         const run = await acquisition;
 

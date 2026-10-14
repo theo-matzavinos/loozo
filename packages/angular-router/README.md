@@ -60,11 +60,37 @@ pnpm run test:filesystem /absolute/task-owned/absent-evidence-directory
 node tests/packed.mjs /absolute/task-owned/fresh-evidence-directory
 ```
 
-Build cleans/emits only package `node/`, then ng-packagr cleans/emits `dist/` and uses package `node_modules/.cache/ng-packagr`; it cannot generate/repair application files. Private Node generation/builders use ordinary NodeNext tsc; manifests/schemas/Node JS are copied as APF assets. Source and packed builder manifests use the same relative paths. Source metadata points to built APF output; ng-packagr rewrites dist metadata to its own paths. Packed verification writes only the supplied fresh evidence directory, packs the actual dist manifest, checks the handwritten TypeScript consumer under NodeNext and ESNext/Bundler, nominal declaration brands, eight-value namespace, plain-Node loading and distinct physical instances. It reuses actual installed dependency bindings; there is no loader/compiler adapter or publication.
+Build regenerates `schemas/application.json` from the installed `@angular/build` (`scripts/application-schema.mjs`; `pnpm test` fails when the committed file is stale), cleans/emits only package `node/`, then ng-packagr cleans/emits `dist/` and uses package `node_modules/.cache/ng-packagr`; it cannot generate/repair application files. Private Node generation/builders use ordinary NodeNext tsc; manifests/schemas/Node JS are copied as APF assets. Source and packed builder manifests use the same relative paths. Source metadata points to built APF output; ng-packagr rewrites dist metadata to its own paths. Packed verification writes only the supplied fresh evidence directory, packs the actual dist manifest, checks the handwritten TypeScript consumer under NodeNext and ESNext/Bundler, nominal declaration brands, eight-value namespace, plain-Node loading and distinct physical instances. It reuses actual installed dependency bindings; there is no loader/compiler adapter or publication.
 
 ## Authored application → native Angular
 
-The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `examples/angular-router/angular.json` generate only exact-name marked artifacts and delegate directly to the official application/dev-server targets. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. Each companion requires exactly one `scanDirectories` entry, including in explicit-authoring mode. `_generated` is internal generator coupling, not a supported graph API.
+The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `examples/angular-router/angular.json` generate only exact-name marked artifacts, then run the official `@angular/build:application`/`@angular/build:dev-server` builders by name. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. The application target requires exactly one `scanDirectories` entry, including in explicit-authoring mode. `_generated` is internal generator coupling, not a supported graph API.
+
+Two targets replace Angular's `build` and `serve`. The application target takes the router options next to the ordinary `@angular/build:application` options, which it passes through. Its schema is Angular's application schema plus the router options, so Angular's defaults and checks apply to the build target under `ng build` and `ng serve` alike. That schema is generated from the `@angular/build` version the package is built against, so the package needs `@angular/build` `~22.1` (a peer dependency); an option added by a later Angular minor is rejected until the package is rebuilt against it. The serve target takes ordinary `@angular/build:dev-server` options, checked against Angular's dev-server schema before anything is generated, and reads the router options from its `buildTarget`:
+
+```json
+"build": {
+  "builder": "@loozo/angular-router:application",
+  "options": {
+    "tsconfig": "tsconfig.routes.json",
+    "scanDirectories": ["src/routes"],
+    "outDirectory": "generated",
+    "browser": "src/main.ts",
+    "index": "src/index.html",
+    "tsConfig": "tsconfig.app.json",
+    "outputPath": "dist/proof"
+  },
+  "configurations": { "ci": { "check": true } }
+},
+"serve": {
+  "builder": "@loozo/angular-router:serve",
+  "options": { "buildTarget": "proof:build", "host": "127.0.0.1", "port": 0 }
+}
+```
+
+`tsconfig` (route analysis) and `tsConfig` (Angular compilation) are different options. Serve rejects a build target that resolves `check: true`, because serve always writes generated files.
+
+The serve target polls for file changes every 500 ms unless you set `poll`. Angular 22.1.5's native watcher misses changes to files whose parent directory was renamed, so after a directory rename (and rename back) the dev server can keep serving stale output; polling sees them. On the example app (281 watched files) polling costs about 1.4% of one CPU core while idle, against about 0% without it; the cost grows with the number of watched files and shrinks with a longer interval. Set `"poll": false` in the serve target (or one of its configurations) so the router adds no default: Angular's own configuration then applies, which means native file events unless the build target sets `poll` itself. Or set another positive number of milliseconds, which overrides a build-target `poll`. On the command line `--poll` takes milliseconds only; the Angular CLI can't parse `false` for a number-or-false option. Polling doesn't remove the separate race where a build in flight reads a file just before generation rewrites it; serve handles that by re-touching what it wrote after a failed build.
 
 From the workspace root, after package build:
 
@@ -86,14 +112,13 @@ The evidence-directory argument is required and must not exist. This creates an 
 
 ## Opt-in filesystem definitions
 
-Both companion targets accept `autoDefineRoutes: { filename?: string }`. Omit it for explicit authoring; `{}` enables editable `route.ts` seeds. A custom simple implementation `.ts` basename affects only new seeds: existing declarations are discovered by content/provenance, never renamed by this option. Declaration/generated filenames cannot collide.
+The application target accepts `autoDefineRoutes: { filename?: string }`; serve uses its build target's setting. Omit it for explicit authoring; `{}` enables editable `route.ts` seeds. A custom simple implementation `.ts` basename affects only new seeds: existing declarations are discovered by content/provenance, never renamed by this option. Declaration/generated filenames cannot collide.
 
 ```json
 {
   "tsconfig": "tsconfig.routes.json",
   "scanDirectories": ["src/routes"],
   "outDirectory": "generated",
-  "delegateTarget": "proof:official",
   "autoDefineRoutes": {}
 }
 ```
@@ -102,7 +127,7 @@ The scan root has path `""`. Plain directories contribute their basename, `+layo
 
 Seeds use ordinary `defineRoute`, default-imported parents and local `stringParam` codecs (per element for `$parts[]`). Moves/renames synchronize only the path literal, parent field/import and unambiguous local-param keys. An inline one-param rename preserves its exact codec expression. Opaque/ambiguous codec changes and stale parent imports with unrelated uses fail rather than guessing; callback/navigation input accesses are not renamed. All other authored expressions and bytes, including UTF-8 BOM and CRLF, are preserved; new static imports are appended at the complete module EOF boundary, retaining all existing statement/comment attachments, shebangs and triple-slash references. Native ESM import bindings are hoisted; new seed files still place their imports at the top. Removing an authored local codec requires explicit author repair. Parent imports/properties with directives in leading trivia, inside the removed syntax or in adjacent retained trivia up to the next actual token/EOF are not deleted: repair them explicitly before synchronization. This includes compiler-control pragmas (`@ts-check`/`@ts-nocheck`, triple-slash reference/AMD and JSX pragmas), which must not be activated by retaining a dormant comment at module start. Ordinary comments are retained when obsolete syntax is removed; adjacent trivia is validated only, never copied into the replacement or deleted.
 
-The compiler overlays all planned seeds/patches and generated artifacts before publication. Native tsconfig membership/exclusions (including explicit files and wildcard includes through permitted external workspace-access aliases), source syntax/provenance, admitted declaration-file semantic diagnostics, tree/matching rules, application module references and filesystem/ownership checks must all pass before any source or generated write. Whole-program semantic, compiler option/global and Angular/template checks remain native build responsibilities: unrelated type errors may fail the delegate after valid source/generated changes have been published. `check: true` validates the same result, reports editable/generated drift and writes nothing. Byte-identical files retain nanosecond mtimes. Publication remains individual file writes, not a crash/concurrent-writer transaction. Alias substitution ends at the canonical workspace boundary: links inside it remain unsafe source/root suffixes even when they point back to the workspace itself.
+The compiler overlays all planned seeds/patches and generated artifacts before publication. Native tsconfig membership/exclusions (including explicit files and wildcard includes through permitted external workspace-access aliases), source syntax/provenance, admitted declaration-file semantic diagnostics, tree/matching rules, application module references and filesystem/ownership checks must all pass before any source or generated write. Whole-program semantic, compiler option/global and Angular/template checks remain native build responsibilities: unrelated type errors may fail the official build after valid source/generated changes have been published. `check: true` validates the same result, reports editable/generated drift and writes nothing. Byte-identical files retain nanosecond mtimes. Publication remains individual file writes, not a crash/concurrent-writer transaction. Alias substitution ends at the canonical workspace boundary: links inside it remain unsafe source/root suffixes even when they point back to the workspace itself.
 
 `test:filesystem` uses fresh owned evidence, public Architect and native Angular builds/Chromium/dev-server to prove seeding, filename-independent discovery, structural moves, codec typing, conservative preflight nonwrites and watch/add/change/remove/repair/stop.
 

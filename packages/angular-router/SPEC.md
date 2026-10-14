@@ -39,7 +39,7 @@ Generated code necessarily executes at runtime. Small shared helpers may perform
 
 Node-side source analysis/generation is private implementation used by the application/serve builders. It needs separation from browser code, not a public secondary entry point. Its internal graph/model, functions, return shapes, immutability, and module layout are not product contracts.
 
-The package remains private, version `0.0.0`; publication is excluded. Angular core/router peer declarations retain `^22.0.0`. The experiment verifies Angular **22.1.5**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
+The package remains private, version `0.0.0`; publication is excluded. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.1.0`: the application builder schema embeds that minor's application schema. The experiment verifies Angular **22.1.5**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
 
 The root, generated application modules, and any helpers they import must remain browser-safe. Node, filesystem, compiler, watcher, and Architect dependencies must not enter their browser dependency closures. The builders own Node-side generation. No `loozo-routegen` bin, separate CLI flags/exit protocol, or public generator API is supported. Generate through Angular build/serve; check committed output through an application-builder CI configuration.
 
@@ -592,12 +592,11 @@ Maintain and commit generated outputs with authored definitions; check them in C
 
 Builder name: `@loozo/angular-router:application`.
 
-Options are an object with no additional properties:
+Options are the router options below plus `@angular/build:application` options, which pass through unchanged. Configure ordinary Angular options inline on this target; there is no separate official target. The builder schema is generated at package build from the installed `@angular/build` application schema plus the router options (`scripts/application-schema.mjs`), keeping Angular's defaults, required options and `additionalProperties: false`; a test fails when the committed schema is stale.
 
 - Required nonempty `tsconfig: string`.
 - Required `scanDirectories: string[]` containing exactly one nonempty string, even when filesystem mode is disabled.
 - Required nonempty `outDirectory: string`.
-- Required nonempty `delegateTarget: string`.
 - Optional `check: boolean`, default false.
 - Optional `autoDefineRoutes: { filename?: string }`; omitted disables editable filesystem definitions, `{}` enables them with `route.ts`. No additional nested keys. Filename must be a simple implementation `.ts` basename, not `.d.ts`, traversal or any generated artifact filename. It affects only new seeds, not discovery or renaming.
 
@@ -609,30 +608,29 @@ Admission remains content/provenance-based direct default `defineRoute` calls an
 
 Seed ordinary editable declarations with local filesystem path, default-imported nearest parent and local `stringParam` codecs, per element for splats. Existing opt-in paths/parent fields/imports track moves and renames. Use surgical AST-position text edits; preserve other authored bytes/expressions, including UTF-8 BOM, CRLF and statement-bound directives. Append new static imports at the completed module EOF boundary, preserving every existing statement/comment attachment, shebang and triple-slash reference. Native ESM bindings are hoisted regardless of textual import position; seed files still start with ordinary imports. A one-local-param rename on a direct inline params property preserves its codec expression. Reject opaque/ambiguous codec changes (including removing an authored local codec) rather than guessing or replacing custom behavior. Do not rename application callback accesses/navigation inputs. Do not change parent-import bindings used elsewhere; count actual binding references, including shorthand values, not property/member names. Retain valid imports or reject unresolvable stale imports with unrelated uses. Inspect leading trivia, the entire removed parent import/property syntax and adjacent retained trivia through the next actual token/EOF for scoped directives, including compiler-control pragmas (`@ts-check`/`@ts-nocheck`, triple-slash reference/AMD and JSX pragmas); reject deletion rather than transferring suppression, activating a dormant pragma at module start or deleting authored rationale. Retain ordinary comments while removing obsolete syntax. Collect replacement text only from within the removed span; adjacent retained trivia is validated, never copied or deleted. Never delete editable definitions automatically.
 
-Plan all source edits/seeds in memory, then discover/resolve/compile the combined authored/generated overlay. Preflight source syntax/provenance, admitted declaration-file semantic diagnostics, tree/catchall/componentless-leaf/matching/redirect rules, application module references, safe paths and generated ownership before any source or generated write. Do not take over whole-program semantic, compiler option/global or Angular/template validation; unrelated type errors may fail the delegated native build after structurally valid source/generated files have been published. Check mode validates the identical desired result and reports source/generated drift without writes. Write only changed bytes, preserve byte-identical ns mtimes, check stopped before the synchronous publication section, and retain serialized/coalesced native watch/repair/stop. No ownership manifests, sidecars, CLI, public graph API or runtime additions.
+Plan all source edits/seeds in memory, then discover/resolve/compile the combined authored/generated overlay. Preflight source syntax/provenance, admitted declaration-file semantic diagnostics, tree/catchall/componentless-leaf/matching/redirect rules, application module references, safe paths and generated ownership before any source or generated write. Do not take over whole-program semantic, compiler option/global or Angular/template validation; unrelated type errors may fail the official native build after structurally valid source/generated files have been published. Check mode validates the identical desired result and reports source/generated drift without writes. Write only changed bytes, preserve byte-identical ns mtimes, check stopped before the synchronous publication section, and retain serialized/coalesced native watch/repair/stop. No ownership manifests, sidecars, CLI, public graph API or runtime additions.
 
-Resolve config/out relative to the Angular workspace root or as absolute paths. Resolve scans against the route config directory. Validate delegate before touching outputs.
+Resolve config/out relative to the Angular workspace root or as absolute paths. Resolve scans against the route config directory. Architect validates router and Angular options against the combined schema before the builder runs, so invalid options fail before outputs are touched. Reject resolved `watch: true`.
 
-Delegate must be explicit `project:target` or `project:target:configuration`, a **different target** backed by `@angular/build:application`. Reject every configuration of the current target, companion chains, malformed/wrong targets, and resolved delegate watch:true. Configure ordinary Angular options on that delegate, not the companion.
-
-Run generation/check before scheduling the official application build. Generation/check/target failure prevents delegation. Forward the first native BuilderOutput unchanged, including failure fields; propagate delegate exceptions. Stop the delegate after the first output, including a delegate that otherwise remains alive. This is one-shot, not watch mode. Consumer supplies Angular's normal application build dependencies.
+Run generation/check before scheduling `@angular/build:application` by name (Architect `scheduleBuilder`) with the passthrough options and the current target. Generation/check/validation failure prevents the official build. Forward the first native BuilderOutput unchanged, including failure fields; propagate official exceptions. Stop the official run after the first output, including one that otherwise remains alive. This is one-shot, not watch mode. Consumer supplies Angular's normal application build dependencies. No experimental `@angular/build` API or `@angular/build/private` is used.
 
 ## 13. Companion serve builder [S]
 
 Builder name: `@loozo/angular-router:serve`.
 
-Required options and optional `autoDefineRoutes` are the same as §12, with no additional properties. `check` is not an option.
+Options are `@angular/build:dev-server` options, which pass through unchanged, plus:
 
-Delegate must be an explicit different official `@angular/build:dev-server` target. Its resolved buildTarget must point **directly** to `@angular/build:application`, not to the companion application builder. Reject invalid/self/chained targets rather than introducing nested companion execution. Configure the official dev-server/application targets normally.
+- Required `buildTarget`: a target using `@loozo/angular-router:application`, resolved as Angular's dev server resolves it. Router options come from that target and are not repeated. Angular's dev server reads the target's options itself and validates them against the companion schema, which carries Angular's application defaults and checks. Reject a resolved `check: true`: serve always writes. Serve never executes the companion application builder.
+- Optional `poll: number | false`. Omitted, serve passes `poll: 500` to the dev server; `false` passes none, so the router adds no default and Angular's own configuration applies (native file events unless the build target sets `poll`). Other values must be positive milliseconds. The CLI flag accepts milliseconds only; `false` is workspace configuration. `0` is rejected rather than relying on Angular 22.1.5 passing it to watchpack, where it happens to mean native events.
 
-1. Validate configuration/target chain.
+1. Validate the build target and the dev-server options (against `@angular/build:dev-server`, with `poll` translated) before watching or generating.
 2. Start watching configured route roots **before initial generation** so initial edits are not missed.
-3. Initial generation must succeed before scheduling official dev-server.
-4. Forward continuous native delegate success/failure outputs unchanged.
+3. Initial generation must succeed before scheduling `@angular/build:dev-server` by name with the passthrough options and the current target.
+4. Forward continuous native success/failure outputs unchanged.
 5. Add/change/remove implementation files in route roots trigger serialized, coalesced regeneration; output safety/ownership rules remain.
 6. Later generation errors are logged but leave the server running for the next repair. Angular may serve the prior successful build or display a build error after removed inputs.
 7. Changed consumed generated files permit Angular rebuilding without server restart. Byte-identical outputs are not touched and do not guarantee an Angular rebuild.
-8. Stop closes both watcher and delegate. Edits after stop cause no generation writes.
+8. Stop closes both watcher and the official run. Edits after stop cause no generation writes.
 
 An authored file may temporarily trigger Angular's rebuild before generation publishes updated output. No whole-build transaction, automatic restart, watch guarantee for arbitrary imported helper/config changes, or custom application build pipeline is added.
 
