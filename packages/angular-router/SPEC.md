@@ -39,7 +39,7 @@ Generated code necessarily executes at runtime. Small shared helpers may perform
 
 Node-side source analysis/generation is private implementation used by the application/serve builders. It needs separation from browser code, not a public secondary entry point. Its internal graph/model, functions, return shapes, immutability, and module layout are not product contracts.
 
-The package remains private, version `0.0.0`; publication is excluded. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. The experiment verifies Angular **22.2.2**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
+The package is published to npm under the MIT license; its version is the one in `package.json`. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. The experiment verifies Angular **22.2.2**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
 
 The root, generated application modules, and any helpers they import must remain browser-safe. Node, filesystem, compiler, watcher, and Architect dependencies must not enter their browser dependency closures. The builders own Node-side generation. No `loozo-routegen` bin, separate CLI flags/exit protocol, or public generator API is supported. Generate through Angular build/serve; check committed output through an application-builder CI configuration.
 

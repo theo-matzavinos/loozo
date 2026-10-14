@@ -63,7 +63,7 @@ for (const [directory, declaration] of [
   [second, secondMetadata],
 ]) {
   assert.equal(declaration.private, undefined);
-  assert.equal(declaration.version, "0.0.2");
+  assert.equal(declaration.version, "0.0.3");
   assert.equal(declaration.license, "MIT");
 
   const packedLicense = await readFile(join(directory, "LICENSE"), "utf8");
