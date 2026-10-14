@@ -8,7 +8,7 @@ A bounded todo consumer and native Angular/TypeScript feasibility proof for [the
 - `src/`: real native Angular SSR/hydration app. The server-only HttpBackend performs local dispatch; the browser uses ordinary HTTP. Generated-shape facades and the dispatcher are handwritten fixtures, not evidence of discovery or code generation.
 - `verify.mjs`: real HTTP and Chromium assertions, retaining raw SSR HTML, transfer-state observations, failure payloads, cancellation evidence and a screenshot in an explicitly supplied absent directory.
 
-Dependencies resolve normally from the enclosing handwritten router SSR proof. This adds no dependency, workspace entry, lockfile change, loader/compiler adapter or symlink. Use the repository's existing genuine installation and Node 24.21.0 / pnpm 12.9.1. The verified dependency version is Angular 22.1.5 / TypeScript 6.0.3.
+Dependencies resolve normally from the enclosing handwritten router SSR proof. This adds no dependency, workspace entry, lockfile change, loader/compiler adapter or symlink. Use the repository's existing genuine installation and Node 24.21.0 / pnpm 12.9.1. The verified dependency version is Angular 22.2.2 / TypeScript 6.0.3.
 
 ## Commands
 
@@ -58,7 +58,7 @@ Strict JSON encoding is a feasibility subset, not the finalized undefined/option
 
 ## Verification results
 
-Verified on Angular 22.1.5 / TypeScript 6.0.3 / Node 24.21.0:
+Verified on Angular 22.2.2 / TypeScript 6.0.3 / Node 24.21.0 (first verified on 22.1.5; the type checks, builds, `verify.mjs`, prerender and static checks were rerun after the 22.2 upgrade, which only changed the verifier's metafile path to `browser-stats.json`):
 
 - Strict type-only API consumer and native application typecheck: pass.
 - Official Angular production SSR build: pass.

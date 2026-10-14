@@ -37,9 +37,9 @@
     "typescript": "6.0.3"
   },
   "devDependencies": {
-    "@angular/common": "22.1.5",
-    "@angular/compiler": "22.1.5",
-    "@angular/core": "22.1.5",
+    "@angular/common": "22.2.2",
+    "@angular/compiler": "22.2.2",
+    "@angular/core": "22.2.2",
     "@types/node": "24.13.3",
     "playwright": "1.63.0"
   },

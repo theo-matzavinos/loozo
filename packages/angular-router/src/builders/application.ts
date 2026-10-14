@@ -7,7 +7,7 @@ const officialApplicationBuilder = "@angular/build:application";
 export default createBuilder<JsonObject>(async (options, context): Promise<BuilderOutput> => {
   let stopped = false;
   let acquisition: Promise<BuilderRun> | undefined;
-  let generation: Promise<string[]> | undefined;
+  let generation: Promise<void> | undefined;
   let cleanup: Promise<void> | undefined;
 
   function stop(): Promise<void> {

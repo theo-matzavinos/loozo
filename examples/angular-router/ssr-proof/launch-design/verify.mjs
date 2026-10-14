@@ -308,7 +308,7 @@ try {
   assert.ok(!browserOutput.includes("proof-user="));
 
   const metafile = JSON.parse(
-    await readFile(new URL("./dist/launch-proof/stats.json", import.meta.url), "utf8"),
+    await readFile(new URL("./dist/launch-proof/browser-stats.json", import.meta.url), "utf8"),
   );
   const browserFiles = new Set(
     await readdir(new URL("./dist/launch-proof/browser/", import.meta.url)),

@@ -56,10 +56,10 @@ await writeFile(
       dependencies: {
         "@loozo/angular-router": `file:${join(evidence, "angular-router.tgz")}`,
         "@loozo/angular-launch": `file:${join(evidence, "angular-launch.tgz")}`,
-        "@angular/core": "22.1.5",
-        "@angular/common": "22.1.5",
-        "@angular/compiler": "22.1.5",
-        "@angular/router": "22.1.5",
+        "@angular/core": "22.2.2",
+        "@angular/common": "22.2.2",
+        "@angular/compiler": "22.2.2",
+        "@angular/router": "22.2.2",
         rxjs: "7.8.2",
         typescript: "6.0.3",
         "@types/node": "24.13.3",
@@ -355,7 +355,7 @@ await run("pnpm", ["exec", "tsc", "-p", "tsconfig.nodenext.json"], consumer, "ty
 
 const lock = await readFile(join(consumer, "pnpm-lock.yaml"), "utf8");
 
-assert.ok(lock.includes("22.1.5") && lock.includes("6.0.3") && lock.includes("7.8.2"));
+assert.ok(lock.includes("22.2.2") && lock.includes("6.0.3") && lock.includes("7.8.2"));
 await writeFile(
   join(evidence, "report.json"),
   JSON.stringify(

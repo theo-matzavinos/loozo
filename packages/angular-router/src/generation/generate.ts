@@ -23,13 +23,12 @@ export interface GenerationState {
   anchor: AnchorState;
 }
 
-// Returns the paths this pass wrote; check mode and stopped passes write nothing.
 export async function generate(
   workspace: string,
   options: GenerationOptions,
   stopped: () => boolean,
   state?: GenerationState,
-): Promise<string[]> {
+): Promise<void> {
   const sources = await discover(
     workspace,
     options.tsconfig,
@@ -71,5 +70,5 @@ export async function generate(
 
   await validateRoutes(sources, desired, validation, state?.anchor);
 
-  return publish(plan, options.check === true, stopped, sources.authored, seeds);
+  publish(plan, options.check === true, stopped, sources.authored, seeds);
 }

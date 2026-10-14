@@ -168,7 +168,7 @@ for (const [name, binary] of [
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
-const statsText = await readFile(join(fixture, "dist/proof/stats.json"), "utf8");
+const statsText = await readFile(join(fixture, "dist/proof/browser-stats.json"), "utf8");
 const stats = JSON.parse(statsText);
 let mainPath;
 let lazyItem = false;
@@ -313,7 +313,7 @@ await save("browser-closure.json", {
   lazyItem,
   dynamicallyReachableItem,
 });
-await cp(join(fixture, "dist/proof/stats.json"), join(evidence, "production-stats.json"));
+await cp(join(fixture, "dist/proof/browser-stats.json"), join(evidence, "production-stats.json"));
 
 function requestSsr(url, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {

@@ -2,16 +2,16 @@ import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-dev
 import chokidar, { type FSWatcher } from "chokidar";
 import { Observable, type Subscription } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
-import { readFile, utimes } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
-import { auditPath, workspacePaths, markers } from "../generation/files.js";
+import { workspacePaths, markers } from "../generation/files.js";
 import { CompilerState } from "../generation/compiler.js";
 import { AnchorState } from "../generation/anchor.js";
 import { buildTargetOptions, type JsonObject } from "./options.js";
 
-// Polling catches what Angular 22.1.5's native watcher misses: events for files whose parent
-// directory was renamed, which otherwise leave the dev server serving stale output.
-const defaultPoll = 500;
+// Polling catches what Angular 22.2's native watcher (@parcel/watcher) misses: edits to files
+// inside a renamed directory, which otherwise leave the dev server serving stale output.
+const defaultPoll = 1000;
 const devServerBuilder = "@angular/build:dev-server";
 
 export default createBuilder<JsonObject & { buildTarget: string; poll?: number | false }>(
@@ -26,9 +26,6 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       let active: Promise<unknown> | undefined;
       let cleanup: Promise<void> | undefined;
       let cancelReady: (() => void) | undefined;
-      let touching: Promise<void> | undefined;
-      let touches = 0;
-      const published = new Set<string>();
       // Resolved from the build target before anything reads it.
       let router: GenerationOptions;
       const state: GenerationState = {
@@ -44,9 +41,9 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       }
 
       // A failed or stopped pass may leave partial state; the next pass starts fresh.
-      async function regenerate(): Promise<string[]> {
+      async function regenerate(): Promise<void> {
         try {
-          return await generate(context.workspaceRoot, router, () => stopped, state);
+          await generate(context.workspaceRoot, router, () => stopped, state);
         } catch (error) {
           clear();
 
@@ -72,37 +69,13 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           );
           const drain = active?.catch(() => undefined);
 
-          cleanup = Promise.all([close, delegateStop, drain, touching]).then(() => clear());
+          cleanup = Promise.all([close, delegateStop, drain]).then(() => clear());
         }
 
         return cleanup;
       }
 
       context.addTeardown(stop);
-
-      // Angular's dev server can miss a warm rewrite: a build in flight reads the old bytes of a
-      // file it watches only afterwards, and watchpack's initial scan absorbs our newer mtime
-      // without reporting it. Touching the published paths after a failed build makes it report
-      // them. The first touch can be absorbed the same way, hence two. Remove this once Angular
-      // passes a start time when it watches newly discovered files.
-      function touch(paths: string[]): void {
-        const now = new Date();
-        const batch = Promise.all(
-          paths.map(async (path) => {
-            try {
-              // A published path may have been replaced since; never follow a symlink out.
-              await auditPath(path);
-              await utimes(path, now, now);
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-                context.logger.error(String(error));
-              }
-            }
-          }),
-        );
-
-        touching = Promise.all([touching, batch]).then(() => undefined);
-      }
 
       function pump(): void {
         if (stopped || initial || active || !dirty) {
@@ -114,15 +87,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
             dirty = false;
 
             try {
-              const written = await regenerate();
-
-              if (written.length > 0) {
-                for (const path of written) {
-                  published.add(path);
-                }
-
-                touches = 2;
-              }
+              await regenerate();
             } catch (error) {
               let message = String(error);
 
@@ -261,34 +226,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         }
 
         forwarding = run.output.subscribe({
-          next: (output) => {
-            subscriber.next(output);
-
-            if (stopped) {
-              return;
-            }
-
-            if (output.success) {
-              published.clear();
-              touches = 0;
-
-              return;
-            }
-
-            if (published.size === 0 || touches === 0) {
-              return;
-            }
-
-            const paths = [...published];
-
-            touches -= 1;
-
-            if (touches === 0) {
-              published.clear();
-            }
-
-            touch(paths);
-          },
+          next: (output) => subscriber.next(output),
           error: (error) => {
             void stop().then(
               () => subscriber.error(error),
