@@ -4,21 +4,22 @@ export type {
   Context,
   ContextOf,
   ContextDefinition,
-  Group,
-  Guard,
-  Procedure,
-  ProcedureGuard,
-  Schema,
-  InputOf,
-  OutputOf,
-  QueryDefinition,
-  ProcedureDefinition,
-  ProcedureKind,
   ErrorDefinition,
   ErrorDefinitions,
   ErrorFactories,
   ErrorStatus,
+  Group,
+  Guard,
+  InputOf,
+  OutputOf,
+  Procedure,
+  ProcedureDefinition,
+  ProcedureGuard,
+  ProcedureKind,
+  ProcedureOptions,
+  Schema,
 } from "./definitions.js";
-export { createRequestScope, isRequestScope, dispatch, handleRpc } from "./dispatch.js";
-export type { ApplicationBinding, Registry, RequestScope, Reply } from "./dispatch.js";
-export { provideLaunchServer, finishLaunchRendering } from "./backend.js";
+export type { DeclaredFailure } from "./errors.js";
+export type { JsonShape } from "../json.js";
+export type { RequestScope } from "./dispatch.js";
+export { finishLaunchRendering } from "./backend.js";

@@ -19,16 +19,9 @@ import {
   withInterceptors,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import {
-  defineContext,
-  defineRpc,
-  mutation,
-  query,
-  createRequestScope,
-  dispatch,
-  handleRpc,
-  provideLaunchServer,
-} from "../dist/server/index.js";
+import { defineContext, defineRpc, mutation, query } from "../dist/server/index.js";
+import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
+import { dispatch } from "../dist/server/dispatch.js";
 import { injectClient } from "../dist/generated.js";
 import { RpcError, frameworkFailures } from "../dist/client.js";
 

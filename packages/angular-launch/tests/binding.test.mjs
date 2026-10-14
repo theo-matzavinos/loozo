@@ -13,16 +13,9 @@ import {
   HttpResponse,
 } from "@angular/common/http";
 import { firstValueFrom, of } from "rxjs";
-import {
-  defineContext,
-  defineRpc,
-  query,
-  createRequestScope,
-  dispatch,
-  handleRpc,
-  provideLaunchServer,
-  finishLaunchRendering,
-} from "../dist/server/index.js";
+import { defineContext, defineRpc, query, finishLaunchRendering } from "../dist/server/index.js";
+import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
+import { dispatch } from "../dist/server/dispatch.js";
 import { RPC_CALL } from "../dist/generated.js";
 
 const require = createRequire(

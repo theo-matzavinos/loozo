@@ -489,7 +489,7 @@ Before writing, generation type-checks the generated files, your route and RPC d
 
 Generated browser code contains only names, kinds and error metadata, never your schemas, handlers or context. Keep server-only modules out of anything a page imports at runtime; the example names them `*.server.ts`.
 
-`server.generated.ts` binds the lower-level `createRequestScope`, `handleRpc` and `provideLaunchServer` from `@loozo/angular-launch/server` to your app; use the generated functions rather than calling those directly. The app identity comes from the `package.json` name, the generation tsconfig's path within the app, and the context file's path and contents, so moving the whole app directory doesn't change it.
+`server.generated.ts` binds Launch's internal `createRequestScope`, `handleRpc` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name, the generation tsconfig's path within the app, and the context file's path and contents, so moving the whole app directory doesn't change it.
 
 Wire IDs come from each group's file path relative to the generation tsconfig's directory. Moving or renaming an `rpc.ts` changes its URL, and moving the generation tsconfig to another directory changes every group's URL. Renaming a namespace or procedure doesn't change the group ID. The example doesn't commit generated files: it regenerates before every build, and `node generate.mjs --check` verifies them without writing.
 

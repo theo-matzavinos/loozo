@@ -224,7 +224,7 @@ test("launch's ./server entry point extracts", () => {
     names.add(apiSymbol.name);
   }
 
-  for (const name of ["defineRpc", "defineContext", "query", "mutation", "handleRpc"]) {
+  for (const name of ["defineRpc", "defineContext", "query", "mutation", "finishLaunchRendering"]) {
     assert.equal(names.has(name), true, `${name} is extracted`);
   }
 
