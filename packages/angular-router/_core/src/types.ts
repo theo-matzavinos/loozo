@@ -40,7 +40,13 @@ export interface Route<
   Fragments extends string = string,
   Catchall extends boolean = CatchallName<Path> extends never ? false : true,
 > {
-  readonly [routeBrand]: { readonly fragments: Fragments; readonly catchall: Catchall };
+  /** Type-only nominal brand carrying fragment and catchall metadata; not populated at runtime. */
+  readonly [routeBrand]: {
+    /** Type-only: this declaration's own allowed fragment-name union. */
+    readonly fragments: Fragments;
+    /** Type-only: whether this declaration is a terminal catchall leaf. */
+    readonly catchall: Catchall;
+  };
   /** The exact local authored path supplied to `defineRoute`. */
   readonly path: Path;
   /** Type-only witness for effective path values; not populated at runtime. */

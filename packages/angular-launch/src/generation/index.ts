@@ -24,14 +24,47 @@ import {
 } from "@loozo/angular-router/_generation";
 import type { Declaration, Sources, LaunchDeclaration } from "@loozo/angular-router/_generation";
 
+/** Options for {@link generate} and {@link createGenerationSession}. */
 export interface GenerationOptions {
+  /** The application's tsconfig, relative to the workspace. It must enable strict checking. */
   tsconfig: string;
+  /** Exactly one route directory, relative to the tsconfig's directory. */
   scanDirectories: string[];
+  /** Where the application-wide generated files go, relative to the workspace. */
   outDirectory: string;
+  /**
+   * Verifies the generated files without writing them, failing when any is changed,
+   * missing or stale. Defaults to `false`.
+   */
   check?: boolean;
 }
+/**
+ * A generation session created by {@link createGenerationSession}, reusing compiler
+ * work between calls.
+ */
 export interface GenerationSession {
+  /**
+   * Generates or checks the application's files, like {@link generate} with the
+   * session's options.
+   *
+   * @remarks
+   * Calls must be sequential. A failed call doesn't break the session; the next call
+   * starts clean.
+   *
+   * @param options - `check`: verify without writing. Defaults to `false`.
+   * @param stopped - Called once just before writing; returning `true` skips writing and
+   * resolves. Defaults to never stopping.
+   * @returns A promise that resolves when generation finishes.
+   * @throws Rejects when the session is disposed, when another call hasn't settled yet,
+   * and for the same failures as {@link generate}.
+   */
   generate(options?: Pick<GenerationOptions, "check">, stopped?: () => boolean): Promise<void>;
+  /**
+   * Disposes the session: stops an active call before it writes, waits for it to settle
+   * and makes later calls reject.
+   *
+   * @returns A promise that resolves once any active call has settled.
+   */
   dispose(): Promise<void>;
 }
 
@@ -836,6 +869,45 @@ async function runGeneration(
   publish(plan, options.check === true, stopped, new Map(), new Set());
 }
 
+/**
+ * Generates the router's and Launch's files for an application, or checks them.
+ *
+ * @remarks
+ * Node-only. Generation reads your sources without running them. Besides the router's
+ * files, it writes an `rpc.generated.ts` beside each route that gets a
+ * `route.generated.ts`, and `context.generated.d.ts` and `server.generated.ts` in the
+ * output directory. Run it before the Angular build.
+ *
+ * Everything is validated, including a type check of the generated files with
+ * `skipLibCheck: false`, before anything is written, so a failed run changes nothing.
+ * Files are then written one at a time without rollback; a write error partway through
+ * can leave some files updated, which the next successful run repairs. Generation only
+ * replaces or removes files carrying its ownership marker, and removes stale ones.
+ *
+ * @example
+ * ```js
+ * import { generate } from "@loozo/angular-launch/generation";
+ *
+ * await generate(import.meta.dirname, {
+ *   tsconfig: "tsconfig.app.json",
+ *   scanDirectories: ["src/routes"],
+ *   outDirectory: "generated",
+ *   check: process.argv.includes("--check"),
+ * });
+ * ```
+ *
+ * @param workspace - The absolute path of the application directory, which contains
+ * its `package.json`. The tsconfig, scanned directory, sources and output directory
+ * must all be inside it.
+ * @param options - The generation options.
+ * @param stopped - Called once just before writing; returning `true` skips writing and
+ * resolves. Defaults to never stopping.
+ * @returns A promise that resolves when generation finishes.
+ * @throws Rejects when a path escapes the workspace, the tsconfig disables strict
+ * checking or enables `noCheck`, the application's `package.json` has no `name`, the
+ * sources or generated files fail validation, a file to replace lacks the ownership
+ * marker, or, with `check`, a generated file is out of date.
+ */
 export function generate(
   workspace: string,
   options: GenerationOptions,
@@ -844,7 +916,38 @@ export function generate(
   return runGeneration(workspace, options, stopped);
 }
 
-/** Owns compiler reuse for one explicitly sequenced application-generation lifetime. */
+/**
+ * Creates a generation session that reuses compiler work between sequential calls.
+ *
+ * @remarks
+ * Node-only. For long-running tools that regenerate repeatedly, such as after file
+ * changes. A session doesn't watch files; you decide when to call `generate`. Edits
+ * inside the application are picked up by the next call. Create a new session after
+ * moving the application directory or changing dependencies. Don't run two sessions or
+ * generators against the same output at once.
+ *
+ * @example
+ * ```js
+ * const session = createGenerationSession(workspace, {
+ *   tsconfig: "tsconfig.app.json",
+ *   scanDirectories: ["src/routes"],
+ *   outDirectory: "generated",
+ * });
+ *
+ * try {
+ *   await session.generate();
+ *   await session.generate({ check: true });
+ * } finally {
+ *   await session.dispose();
+ * }
+ * ```
+ *
+ * @param workspace - The absolute path of the application directory, as for
+ * {@link generate}.
+ * @param options - The generation options, fixed for the session's lifetime; `check` is
+ * passed per call instead.
+ * @returns The session. Dispose it when done.
+ */
 export function createGenerationSession(
   workspace: string,
   { tsconfig, scanDirectories, outDirectory }: Omit<GenerationOptions, "check">,
