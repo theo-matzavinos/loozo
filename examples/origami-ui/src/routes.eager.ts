@@ -1,0 +1,33 @@
+import type { Routes } from "@angular/router";
+
+export const routes: Routes = [
+  {
+    path: "core",
+    loadComponent: () => import("./fixtures/core.js").then((module) => module.CoreFixture),
+  },
+  {
+    path: "composition",
+    loadComponent: () =>
+      import("./fixtures/composition.js").then((module) => module.CompositionFixture),
+  },
+  {
+    path: "popover",
+    loadComponent: () => import("./fixtures/popover.js").then((module) => module.PopoverFixture),
+  },
+  {
+    path: "hydration",
+    loadComponent: () =>
+      import("./fixtures/seeds/eager-hydration-consumer.js").then(
+        (module) => module.EagerHydrationConsumer,
+      ),
+  },
+  {
+    path: "nested",
+    loadComponent: () => import("./fixtures/nested.js").then((module) => module.NestedHydration),
+  },
+  {
+    path: "errors",
+    loadComponent: () => import("./fixtures/errors.js").then((module) => module.ErrorFixture),
+  },
+  { path: "", pathMatch: "full", redirectTo: "core" },
+];

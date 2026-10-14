@@ -17,6 +17,10 @@ export default defineConfig({
       "examples/angular-router/ssr-proof/src/routes/item/route.generated.ts",
       "examples/angular-router/ssr-proof/src/routes/team/route.generated.ts",
       "packages/angular-router/snippets/**/*.generated.ts",
+      "packages/origami-ui/SPEC.md",
+      "packages/origami-ui/SPEC-POPOVER.md",
+      "packages/origami-ui/acceptance/CASES.md",
+      "packages/origami-ui/acceptance/types.ts",
     ],
   },
   lint: {
