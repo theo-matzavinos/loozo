@@ -1,72 +1,34 @@
 # @loozo/angular-router
 
-Typed route declarations, codecs, URLs and navigation on top of Angular’s native router. Static generation supplies route configuration, typed destinations and route handles without introducing a second router. Angular owns matching, activation, guards, resolvers, redirects, history and stability.
+Typed routes for Angular's own router. You declare each route once with `defineRoute`: its path, its parent, and codecs for its path params, search params and fragments. A build step turns those declarations into an ordinary Angular `Routes` array plus a small typed module next to each route. Pages read parsed inputs as Angular Resources and build links and navigations that TypeScript checks against the target route.
 
-This is an experimental implementation. The reviewed rebuild passed all 126 cases in the approved acceptance copy, plus source review and native consumer/build/browser checks. It is not yet broadly battle-tested. Version `0.0.2` is experimental and MIT-licensed.
+Angular still does all the routing: matching, activation, guards, resolvers, redirects, history and lazy loading. This package doesn't add a second router; it generates the configuration Angular consumes.
 
-```ts
-import {
-  defineRoute,
-  createUrl,
-  numberParam,
-  enumParam,
-  optionalSearchParam,
-} from "@loozo/angular-router";
+Use it when you want route params, query params and links to be type-checked end to end in an Angular 22 application, and you're happy to run generation through the provided Angular builders.
 
-const product = defineRoute("products/$productId", {
-  params: { productId: numberParam },
-  search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
-  fragments: ["summary", "reviews"],
-});
+**Status:** experimental and not yet broadly battle-tested. Version `0.0.2`, MIT license. This README describes the source in this repository, which is ahead of the `0.0.2` release on npm (for example, the new `@angular/build` peer dependency).
 
-createUrl(product, {
-  params: { productId: 42 },
-  search: { tab: "reviews" },
-  fragment: "summary",
-}); // /products/42?tab=reviews#summary
-```
-
-The Node-only `./_generation` subpath is closed integration coupling for `@loozo/angular-launch`, not a public plugin platform. It prepares the same authoritative route tree/artifact map and shares final overlay validation and publication. Standalone router generation does not admit Launch declarations or clean Launch-owned files. Packed Node assets include both JavaScript and declaration files. Launch's explicit producer session may pass separate compiler-state slots through this seam for discovery and the final overlay, plus anchor states that keep the canonical factory declarations for the session until the effective options, the package type entry or any file the anchor read changes. The seam's content-aware SourceFile reuse retains native binding data (including locals/symbols), not checker-owned resolution state or authentication verdicts. Hosts, Programs and module/package/directory resolution caches are fresh; the Launch overlay uses `skipLibCheck:false` but checks only generation's own domain (generated outputs, discovered declarations and application TypeScript files that directly import a generated output), without cross-pass diagnostic caching. Standalone router generation and the application companion remain stateless. The serve companion keeps discovery/overlay SourceFiles and anchor descriptors for its lifetime, cleared after a failed or stopped pass and on teardown. No native watch integration is added.
-
-Root runtime exports are exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `optionalSearchParam`, `nullableSearchParam`. Public types are `Route` and `ParamCodec`. `_core` is internal package coupling, not an application metadata/graph API.
-
-Paths are decoded authored text. `$id` consumes one logical value (repeated local occurrences reuse that value); terminal `$parts[]` consumes a required readonly array, including `[]`. Parent declarations inherit input ownership through pathless nodes. Catchalls cannot have children. Search keys are globally sorted; fragment names are local, never inherited. Codecs stringify synchronously; no parsing or native callbacks run during declaration/URL creation.
-
-Route membership is per physical package instance. Routes and owned containers are shallow-frozen; application codecs, callbacks/providers and opaque values retain identity and are not recursively frozen. `Route<Path, Params, Search, Resolvers = {}>` has readonly optional input/data witnesses. Callback inputs infer effective params/search, except matching guards see only local positional params. Local data unwraps Promise/Observable outputs and excludes RedirectCommand.
-
-- [Public contract](SPEC.md)
-- [Consumer example](../../examples/angular-router/)
-- [Handwritten SSR/hydration proof](../../examples/angular-router/ssr-proof/README.md)
-
-## Commands
-
-Prerequisites: Node 24.21.0, pnpm 12.9.1, ordinary workspace installation. Run installation from the workspace with `pnpm_config_pm_on_fail=error pnpm_config_verify_deps_before_run=error pnpm install --frozen-lockfile`.
-
-From this package directory:
+## Install
 
 ```sh
-pnpm run build                 # NodeNext tsc + native ng-packagr primary/_core/_generated APF
-pnpm run check                 # no-fix source formatting/lint checks
-pnpm run typecheck             # strict source check, no output
-pnpm run typecheck:consumers   # strict NodeNext and ESNext/Bundler against actual APF
-pnpm run test                  # public-root runtime + published/generated documentation regressions
-pnpm run test:root             # public-root runtime regressions; plain Node
-pnpm run test:docs             # TSDoc coverage in published declarations and generated examples
-pnpm run test:application /absolute/task-owned/absent-evidence-directory
-pnpm run test:navigation /absolute/task-owned/absent-evidence-directory
-pnpm run test:lifecycle /absolute/task-owned/absent-evidence-directory
-pnpm run test:ssr /absolute/task-owned/absent-evidence-directory
-pnpm run test:filesystem /absolute/task-owned/absent-evidence-directory
-node tests/packed.mjs /absolute/task-owned/fresh-evidence-directory
+pnpm add @loozo/angular-router
 ```
 
-Build regenerates `schemas/application.json` from the installed `@angular/build` (`scripts/application-schema.mjs`; `pnpm test` fails when the committed file is stale), cleans/emits only package `node/`, then ng-packagr cleans/emits `dist/` and uses package `node_modules/.cache/ng-packagr`; it cannot generate/repair application files. Private Node generation/builders use ordinary NodeNext tsc; manifests/schemas/Node JS are copied as APF assets. Source and packed builder manifests use the same relative paths. Source metadata points to built APF output; ng-packagr rewrites dist metadata to its own paths. Packed verification writes only the supplied fresh evidence directory, packs the actual dist manifest, checks the handwritten TypeScript consumer under NodeNext and ESNext/Bundler, nominal declaration brands, eight-value namespace, plain-Node loading and distinct physical instances. It reuses actual installed dependency bindings; there is no loader/compiler adapter or publication.
+Peer dependencies:
 
-## Authored application → native Angular
+| Package           | Range     |
+| ----------------- | --------- |
+| `@angular/core`   | `^22.0.0` |
+| `@angular/router` | `^22.0.0` |
+| `@angular/build`  | `~22.2.0` |
 
-The application installs `routes` from `generated/routes.generated.js` with native `provideRouter`. The companion targets in `examples/angular-router/angular.json` generate only exact-name marked artifacts, then run the official `@angular/build:application`/`@angular/build:dev-server` builders by name. Source candidates are native tsconfig roots intersected with configured scans; analysis never imports/evaluates app modules. Definitions/pages remain application-owned. The application target requires exactly one `scanDirectories` entry, including in explicit-authoring mode. `_generated` is internal generator coupling, not a supported graph API.
+The package is tested against Angular 22.2.2. The `@angular/build` range is narrow on purpose: the application builder's options schema is Angular's own application schema at the version the package was built against. An option added in a later Angular minor is rejected until the package is rebuilt against that minor.
 
-Two targets replace Angular's `build` and `serve`. The application target takes the router options next to the ordinary `@angular/build:application` options, which it passes through. Its schema is Angular's application schema plus the router options, so Angular's defaults and checks apply to the build target under `ng build` and `ng serve` alike. That schema is generated from the `@angular/build` version the package is built against, so the package needs `@angular/build` `~22.2` (a peer dependency); an option added by a later Angular minor is rejected until the package is rebuilt against it. The serve target takes ordinary `@angular/build:dev-server` options, checked against Angular's dev-server schema before anything is generated, and reads the router options from its `buildTarget`:
+## Setup
+
+Generation runs inside two Angular builders that replace your project's `build` and `serve` builders. Both run the official Angular builders (`@angular/build:application` and `@angular/build:dev-server`) after generating, so everything else about your build stays the same.
+
+In `angular.json`:
 
 ```json
 "build": {
@@ -78,44 +40,338 @@ Two targets replace Angular's `build` and `serve`. The application target takes 
     "browser": "src/main.ts",
     "index": "src/index.html",
     "tsConfig": "tsconfig.app.json",
-    "outputPath": "dist/proof"
+    "outputPath": "dist/app"
   },
   "configurations": { "ci": { "check": true } }
 },
 "serve": {
   "builder": "@loozo/angular-router:serve",
-  "options": { "buildTarget": "proof:build", "host": "127.0.0.1", "port": 0 }
+  "options": { "buildTarget": "app:build" }
 }
 ```
 
-`tsconfig` (route analysis) and `tsConfig` (Angular compilation) are different options. Serve rejects a build target that resolves `check: true`, because serve always writes generated files.
+The application builder takes the router options (`tsconfig`, `scanDirectories`, `outDirectory`, and optionally `check` and `autoDefineRoutes`) next to your normal Angular application options, which it passes through unchanged. The serve builder takes normal dev-server options and reads the router options from its `buildTarget`. See [Builder options](#builder-options).
 
-The serve target polls for file changes every 1000 ms unless you set `poll`. Angular 22.2.2's native watcher misses edits to files inside a renamed directory, so after a directory rename (and rename back) the dev server can keep serving stale output; polling sees them. Polling switches Angular to its chokidar watcher, which scans the workspace and the dependency packages the build uses. On the example app it costs about 2.9% of one CPU core while idle (500 ms: 5.5%, 2000 ms: 1.6%), against under 0.1% without polling, and a saved edit reached the browser bundle in about 0.75 s (500 ms: 0.45 s, 2000 ms: 2.1 s, native events: 0.2 s); the cost grows with the size of the workspace and its dependencies and shrinks with a longer interval. Set `"poll": false` in the serve target (or one of its configurations) so the router adds no default: Angular's own configuration then applies, which means native file events unless the build target sets `poll` itself. Or set another positive number of milliseconds, which overrides a build-target `poll`. On the command line `--poll` takes milliseconds only; the Angular CLI can't parse `false` for a number-or-false option.
-
-From the workspace root, after package build:
-
-```sh
-pnpm --filter @loozo/angular-router run example:build  # generation + official Angular build
-pnpm --filter @loozo/angular-router run example:check  # read-only generation check + build
-pnpm --filter @loozo/angular-router run example:serve  # generation + official dev-server
-```
-
-The colocated facade exports parameterless `injectRoute()` and an inert `destination`. Definition getters/reference construction avoid eager ESM binding reads. Normal lazy page imports are extensionless direct import promises; emitted `.js` is used only when native Bundler resolution needs it to preserve the discovered identity.
-
-Durable public Architect/filesystem/real-browser development regression (requires `/usr/bin/chromium`):
-
-```sh
-pnpm --filter @loozo/angular-router run test:application /absolute/task-owned/absent-evidence-directory
-```
-
-The evidence-directory argument is required and must not exist. This creates an owned consumer copy, checks concrete facade-factory provenance, literal module-reference preflight, native exact/wildcard ambient helpers, drift priority/nonwrites/byte-identical modes/nanosecond mtimes, and native watch/repair/stop. Its page.js.ts + named-only page.ts collision is built by real Angular and rendered in Chromium.
-
-## Opt-in filesystem definitions
-
-The application target accepts `autoDefineRoutes: { filename?: string }`; serve uses its build target's setting. Omit it for explicit authoring; `{}` enables editable `route.ts` seeds. A custom simple implementation `.ts` basename affects only new seeds: existing declarations are discovered by content/provenance, never renamed by this option. Declaration/generated filenames cannot collide.
+Note that `tsconfig` and `tsConfig` are different options. `tsconfig` is the TypeScript config used to find route declarations; `tsConfig` is Angular's own compilation config. The example app uses a small `tsconfig.routes.json` that extends the app config:
 
 ```json
 {
+  "extends": "./tsconfig.app.json",
+  "files": [],
+  "include": ["src/**/*.ts"]
+}
+```
+
+Your app's `tsconfig.app.json` must include the generated files, for example `"include": ["src/**/*.ts", "generated/**/*.ts"]`.
+
+Then install the generated routes with Angular's `provideRouter`:
+
+```ts
+import { bootstrapApplication } from "@angular/platform-browser";
+import { provideRouter } from "@angular/router";
+import Shell from "./shell.js";
+import { routes } from "../generated/routes.generated.js";
+
+void bootstrapApplication(Shell, { providers: [provideRouter(routes)] });
+```
+
+Use the Angular CLI as usual:
+
+```sh
+ng build                      # generate, then the official application build
+ng serve                      # generate and watch, then the official dev server
+ng build --configuration ci   # check generated files without writing them, then build
+```
+
+Commit the generated files along with your route declarations, and run the `ci` configuration in CI so drift fails the build.
+
+## Quick start
+
+A route is a directory under the scan directory with a declaration file and, optionally, a page. In explicit mode (the default) the file names are up to you: the builder finds declarations by their `export default defineRoute(...)` and pages by their default-exported standalone component, not by name.
+
+```ts
+// src/routes/product/definition.ts
+import { defineRoute, enumParam, numberParam, optionalSearchParam } from "@loozo/angular-router";
+
+export default defineRoute("products/$productId", {
+  params: { productId: numberParam },
+  search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+  fragments: ["summary", "reviews"],
+});
+```
+
+```ts
+// src/routes/product/page.ts
+import { Component } from "@angular/core";
+import { RouterLink } from "@angular/router";
+import { injectRoute } from "./route.generated.js";
+
+@Component({
+  imports: [RouterLink],
+  template: `
+    @if (route.params.hasValue() && route.search.hasValue()) {
+      <h1>Product {{ route.params.value().productId }}</h1>
+      <p>Tab: {{ route.search.value().tab ?? "details" }}</p>
+    } @else if (route.params.error()) {
+      <p>This product link isn't valid.</p>
+    } @else {
+      <p>Loading…</p>
+    }
+    <a [routerLink]="reviews">Reviews</a>
+  `,
+})
+export default class Product {
+  readonly route = injectRoute();
+  readonly reviews = this.route.link({
+    params: { productId: 42 },
+    search: { tab: "reviews" },
+    fragment: "reviews",
+  });
+}
+```
+
+Running `ng build` or `ng serve` writes `generated/routes.generated.ts`, `generated/destinations.generated.ts` and `src/routes/product/route.generated.ts`. The page is lazy-loaded with `loadComponent`.
+
+The template checks `hasValue()` before reading values. A URL such as `/products/abc` still activates this route, because it has no guards or resolvers to reject it first, and then the params fail to parse. Reading `value()` in that error state throws.
+
+## Declaring routes
+
+```ts
+defineRoute(path, config);
+```
+
+`path` must be a string literal; TypeScript infers everything else without generic arguments.
+
+### Paths
+
+Paths are decoded segment text, not URLs:
+
+| Path                    | Meaning                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `""`                    | Root, or a pathless route when it has a parent                           |
+| `"products"`            | A static segment                                                         |
+| `"products/$productId"` | `$name` as a whole segment declares a path param                         |
+| `"docs/$segments[]"`    | A terminal catchall: zero or more remaining segments, parsed as an array |
+| `"$id/compare/$id"`     | A repeated param uses the same value in every position                   |
+
+No leading, trailing or repeated slashes. A catchall must be the last segment, a route can have at most one, and a catchall route can't have children. A root `$segments[]` route works as a not-found fallback; ordinary routes still match before it.
+
+### Config
+
+| Key                                                                    | Purpose                                                                                 |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `parent`                                                               | The parent route, imported as the parent declaration's default export                   |
+| `params`                                                               | One codec per path param, keyed by bare name. Required exactly when the path has params |
+| `search`                                                               | Codecs for query params                                                                 |
+| `fragments`                                                            | The fragment names this route accepts                                                   |
+| `resolve`                                                              | Resolvers that receive parsed inputs                                                    |
+| `canActivate`, `canActivateChild`, `canMatch`                          | Guards that receive parsed inputs                                                       |
+| `canDeactivate`, `providers`, `title`, `data`, `runGuardsAndResolvers` | Passed to Angular unchanged                                                             |
+| `redirect`                                                             | A typed redirect to another route                                                       |
+
+Structural keys such as `path`, `children`, `component`, `loadComponent`, `redirectTo`, `pathMatch`, `matcher` and `outlet` are rejected: generation owns them.
+
+### Parents
+
+```ts
+// src/routes/team/definition.ts
+export default defineRoute("teams/$teamId", {
+  params: { teamId: numberParam },
+  search: { score: optionalSearchParam(numberParam) },
+});
+
+// src/routes/item/definition.ts
+import team from "../team/definition.js";
+
+export default defineRoute("items/$id", {
+  parent: team,
+  params: { id: numberParam },
+});
+```
+
+A child declares only its own params; it inherits its ancestors' params and search params, so the item route above has `params: { teamId, id }` and `search: { score }`. A child can't redeclare a param or search key its ancestors own. Pathless routes (`""` with a parent) add no URL segment but still contribute their inputs to descendants. A route with neither a page nor children is an error, unless it's a redirect.
+
+### Codecs
+
+| Codec                        | Value                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `stringParam`                | Any string, including `""`                                                   |
+| `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail) |
+| `booleanParam`               | Exactly `true` or `false`                                                    |
+| `enumParam(values)`          | One of the listed strings, typed as their union                              |
+| `optionalSearchParam(codec)` | Search only: the key may be absent                                           |
+| `nullableSearchParam(codec)` | Search only: the literal value `null` maps to `null`                         |
+
+Search params are required unless wrapped in `optionalSearchParam`. `optionalSearchParam(nullableSearchParam(codec))` distinguishes absent, `null` and a value. For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
+
+A custom codec implements `ParamCodec<Value>`. `parse` receives the already-decoded text and may be async; `stringify` must be synchronous:
+
+```ts
+import type { ParamCodec } from "@loozo/angular-router";
+
+export const slug: ParamCodec<string> = {
+  parse(raw) {
+    if (!/^[a-z0-9-]+$/.test(raw)) {
+      throw new Error("invalid slug");
+    }
+
+    return raw;
+  },
+  stringify(value) {
+    return value;
+  },
+};
+```
+
+`defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
+
+The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `optionalSearchParam` and `nullableSearchParam`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs.
+
+### Fragments
+
+`fragments: ["summary", "reviews"]` lists the fragment names you can pass when creating a URL to this route. Without the list (or with an empty list), the `fragment` option is not allowed. The names belong to this route only; children don't inherit them. Incoming hashes aren't validated, and the package doesn't scroll: provide matching element IDs and configure Angular's scrolling yourself.
+
+## Building URLs
+
+`createUrl` builds a root-relative URL from a declaration, synchronously and without running any parsers:
+
+```ts
+import { createUrl } from "@loozo/angular-router";
+import product from "./routes/product/definition.js";
+
+createUrl(product, {
+  params: { productId: 42 },
+  search: { tab: "reviews" },
+  fragment: "summary",
+}); // "/products/42?tab=reviews#summary"
+```
+
+All path params are required, including inherited ones. Search params follow their codecs (required, optional or nullable). Query keys are sorted, values are percent-encoded, and a `/` inside a param value becomes `%2F`. Catchall values are arrays:
+
+```ts
+const docs = defineRoute("docs/$segments[]", { params: { segments: stringParam } });
+
+createUrl(docs, { params: { segments: ["guides", "setup"] } }); // "/docs/guides/setup"
+createUrl(docs, { params: { segments: [] } }); // "/docs"
+```
+
+Pass `{}` for a route without params or search. Wrong values fail to type-check. Unknown keys fail to type-check in an object literal; an object passed through a variable can carry extra keys past TypeScript, but `createUrl` still throws a `TypeError` for them at runtime.
+
+## Reading inputs and navigating
+
+Each route that has a page or descendants with pages gets a colocated `route.generated.ts`; redirect routes, and parents left with only redirects below them, get none. It exports two things:
+
+- `injectRoute()`: call it in an injection context (a field initializer or constructor) to get the handle for this route.
+- `destination`: an inert reference to this route that other routes can link to.
+
+```ts
+import { injectRoute } from "./route.generated.js";
+
+const route = injectRoute();
+
+route.params; // Resource<{ teamId: number; id: number } | undefined>
+route.search; // Resource<{ score?: number } | undefined>
+route.data; // Resource<{ item: Item } | undefined>, local resolver results only
+```
+
+`params`, `search` and `data` are read-only Angular Resources, so `status()`, `isLoading()`, `hasValue()`, `value()` and `error()` all work. Check `hasValue()` before reading `value()`: reading the value of a Resource in the error state throws. While a navigation is in progress they're loading with `undefined` values rather than showing stale ones.
+
+`params` and `search` are parsed together and settle together. If a codec fails after the route has activated, both are in the error state, and the error has `source` (`"path"` or `"search"`), `key` and `reason` (`"missing"`, `"repeated"` or `"invalid"`). `data` settles on its own and isn't affected by that failure, so check `params` or `search` for parsing errors, not `data`. A failed navigation is different: when a guard or resolver throws, for example, the routes still on screen report that error in all three Resources instead of stale values.
+
+`data` holds this route's own resolver results only, not static `data`, parent data or the title.
+
+Parsing keeps Angular's stability pending until the values are published, so server rendering waits for async codecs.
+
+### Links and navigation
+
+`link` returns an Angular `UrlTree` for `RouterLink`; `navigate` calls `Router.navigateByUrl` and returns Angular's own promise. Both take the same arguments:
+
+```ts
+import { destination as report } from "../report/route.generated.js";
+
+route.link({ params: { teamId: 7, id: 8 } }); // this route
+route.link(".", { params: { teamId: 7, id: 8 } }); // same as above
+route.link("/teams/$teamId/items/$id", { params: { teamId: 7, id: 9 } }); // absolute
+route.link("../..", { params: { teamId: 7 } }); // relative
+route.navigate(report, { params: { reportId: 42 } }); // another route's destination
+```
+
+The first argument, when given, is a string literal selecting a route by its full authored path, never a concrete URL. Absolute selectors start with `/`. Relative selectors start with `.`, `./` or `..`; each `..` removes one segment of the path template, not one directory or parent. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
+
+Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. There is no extras argument; use `RouterLink` inputs such as `replaceUrl` or `state` for those.
+
+A `destination` must come from the same generated route set as the handle. Destinations are for `link` and `navigate` only; `createUrl` takes declarations.
+
+## Guards, resolvers and redirects
+
+`canActivate`, `canActivateChild` and `canMatch` take arrays of functions whose first argument is the parsed inputs. Angular's native arguments follow:
+
+```ts
+export default defineRoute("teams/$teamId", {
+  params: { teamId: numberParam },
+  canActivate: [({ params }) => params.teamId > 0],
+});
+```
+
+| Guard              | Inputs                                                                       |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `canActivate`      | This route's params and search, including inherited ones                     |
+| `canActivateChild` | The declaring (parent) route's params and search                             |
+| `canMatch`         | This route's own path params plus all search params; no ancestor path params |
+| `canDeactivate`    | Angular's native form, unchanged; no parsing                                 |
+
+Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). If a codec fails, the navigation fails with that error before the guard runs.
+
+Resolvers get the parsed inputs too, and `inject()` works at the start of the callback:
+
+```ts
+import { inject } from "@angular/core";
+import { defineRoute, numberParam } from "@loozo/angular-router";
+import team from "../team/definition.js";
+import { ItemCatalog } from "../../catalog.js";
+
+export default defineRoute("items/$id", {
+  parent: team,
+  params: { id: numberParam },
+  runGuardsAndResolvers: "paramsOrQueryParamsChange",
+  resolve: {
+    item: ({ params, search }) => {
+      const catalog = inject(ItemCatalog);
+
+      return catalog({ teamId: params.teamId, id: params.id, score: search.score });
+    },
+  },
+});
+```
+
+Angular's default rerun policy, `paramsChange`, reruns resolvers when the path or its path/matrix params change, but not when only search params change. Set `runGuardsAndResolvers` when a resolver reads search params, as above.
+
+A redirect targets another declaration and must say what happens to search and fragment:
+
+```ts
+import { defineRoute, numberParam } from "@loozo/angular-router";
+import team from "../team/definition.js";
+import item from "../item/definition.js";
+
+export default defineRoute("old-items/$id", {
+  parent: team,
+  params: { id: numberParam },
+  redirect: {
+    to: item,
+    search: { mode: "drop" }, // or "preserve", or { mode: "replace", values }
+    fragment: { mode: "drop" }, // or "preserve", or { mode: "replace", value }
+  },
+});
+```
+
+Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. A redirect route can't have a page, children, `canActivate` or `canMatch`.
+
+## Filesystem route definitions
+
+By default you write every declaration, including its path and parent. If you'd rather derive them from directories, set `autoDefineRoutes` on the application target:
+
+```json
+"options": {
   "tsconfig": "tsconfig.routes.json",
   "scanDirectories": ["src/routes"],
   "outDirectory": "generated",
@@ -123,49 +379,129 @@ The application target accepts `autoDefineRoutes: { filename?: string }`; serve 
 }
 ```
 
-The scan root has path `""`. Plain directories contribute their basename, `+layout` contributes `""`, and `-helpers` is transparent (no record; descendants attach to the nearest included ancestor). Admitted pages/declarations and necessary included ancestors participate; unused helper/empty directories do not. Transparent directories cannot own pages or declarations with behavior. Editable files are never automatically deleted.
+The builder then creates an editable `route.ts` in each directory that has a page but no declaration yet, and in the directories above it that need one. Directory names map to paths like this:
 
-Seeds use ordinary `defineRoute`, default-imported parents and local `stringParam` codecs (per element for `$parts[]`). Moves/renames synchronize only the path literal, parent field/import and unambiguous local-param keys. An inline one-param rename preserves its exact codec expression. Opaque/ambiguous codec changes and stale parent imports with unrelated uses fail rather than guessing; callback/navigation input accesses are not renamed. All other authored expressions and bytes, including UTF-8 BOM and CRLF, are preserved; new static imports are appended at the complete module EOF boundary, retaining all existing statement/comment attachments, shebangs and triple-slash references. Native ESM import bindings are hoisted; new seed files still place their imports at the top. Removing an authored local codec requires explicit author repair. Parent imports/properties with directives in leading trivia, inside the removed syntax or in adjacent retained trivia up to the next actual token/EOF are not deleted: repair them explicitly before synchronization. This includes compiler-control pragmas (`@ts-check`/`@ts-nocheck`, triple-slash reference/AMD and JSX pragmas), which must not be activated by retaining a dormant comment at module start. Ordinary comments are retained when obsolete syntax is removed; adjacent trivia is validated only, never copied into the replacement or deleted.
+| Directory          | Path contribution                                                       |
+| ------------------ | ----------------------------------------------------------------------- |
+| The scan directory | `""`                                                                    |
+| `products`, `$id`  | Its name                                                                |
+| `+layout`          | `""`: a pathless route                                                  |
+| `-helpers`         | Nothing: no route; directories inside attach to the nearest route above |
 
-The compiler overlays all planned seeds/patches and generated artifacts before publication. Native tsconfig membership/exclusions (including explicit files and wildcard includes through permitted external workspace-access aliases), source syntax/provenance, admitted declaration-file semantic diagnostics, tree/matching rules, application module references and filesystem/ownership checks must all pass before any source or generated write. Whole-program semantic, compiler option/global and Angular/template checks remain native build responsibilities: unrelated type errors may fail the official build after valid source/generated changes have been published. `check: true` validates the same result, reports editable/generated drift and writes nothing. Byte-identical files retain nanosecond mtimes. Publication remains individual file writes, not a crash/concurrent-writer transaction. Alias substitution ends at the canonical workspace boundary: links inside it remain unsafe source/root suffixes even when they point back to the workspace itself.
-
-`test:filesystem` uses fresh owned evidence, public Architect and native Angular builds/Chromium/dev-server to prove seeding, filename-independent discovery, structural moves, codec typing, conservative preflight nonwrites and watch/add/change/remove/repair/stop.
-
-## Generated selection → native navigation
+For `src/routes/products/$productId/page.ts`, the generated declaration looks like this:
 
 ```ts
-import { injectRoute } from "./route.generated.js";
-import { destination as report } from "../report/route.generated.js";
+import { defineRoute, stringParam } from "@loozo/angular-router";
+import parent from "../route.js";
 
-const route = injectRoute(); // parameterless, noncallable; readonly native Resources
-route.link(".", { params: { scopeId: "x" } }); // exact declaration schema
-route.link("./", { params: { scopeId: "x" }, search: { leaf: "required" } }); // canonical winner at this path
-route.link("/reports/$reportId", { params: { reportId: 42 } }); // literal template, not concrete URL
-route.navigate(report, { params: { reportId: 42 } }); // exact exported object declaration
+export default defineRoute("$productId", { parent, params: { productId: stringParam } });
 ```
 
-Every origin's absolute and URL-segment-relative selections are computed statically into one shared artifact; colocated facades do not duplicate graph tables. Relative climbs count authored template segments, not directories or parent edges. Unknown/intermediate/nonwinning paths, over-climbs, mixed traversal and query/hash relative suffixes are absent. Catchall origins expose exact-current and absolute/reference targets, never depth-dependent relative navigation. Absolute redirect-source selections serialize their source inputs.
+These files are yours. Change the codecs, add search params, guards and resolvers; the builder leaves them alone. When you move or rename a directory, it updates only the path literal, the `parent` import, and a param key it can rename unambiguously. When it can't make an edit safely (for example, a removed param whose codec you customized), generation fails and asks you to fix the file. It never deletes declarations.
 
-Selectors must be single known literals (not widened strings/unions). Values retain the selected target's codecs, required/optional search modifiers and own fragments, with no current-input reuse or third/extras argument. References have a module-local type set identity and authenticate at runtime through weak ownership plus the exact stable generated set object; byte-identical foreign sets and clones are not equivalent. No route expression is parsed against a graph at runtime. Validation/serialization is synchronous before Angular: link calls native parseUrl; navigate calls native navigateByUrl and returns that identical Promise.
+Directories without pages or declarations, like helper or empty directories, get no route. A `-` directory can't contain a page or a declaration with behavior.
 
-`test:navigation` uses handwritten strict generated consumers and genuine Architect/Angular/Chromium to check type negatives (including optional prototype-named keys), canonical/exact/reference targets, foreign sets, invalid-call non-entry, native Promise/RouterLink behavior and unrelated facade stability. Like `test:application`, it requires a fresh absent evidence directory.
+Use `{ "filename": "definition.ts" }` to seed a different file name. It must be a plain `.ts` file name that isn't a generated file name. That only affects new files; existing declarations are found by content, whatever their name.
 
-## Native inputs and lifecycle
+## Server rendering and hydration
 
-Exact declarations/complete snapshots share one frozen parsed-input operation; matching candidates share a separate local-position/effective-query operation. All raw cardinalities/types are checked before independent codecs launch. Guards/resolvers enter in the captured native Injector only while subscribed; Angular owns ordering, first values, empty/redirect/error semantics and teardown. Local data projects only own native results among declared string and symbol resolver keys, preserving own `undefined` and opaque values; inherited or missing results are not fabricated. Native rerun policy remains authoritative.
+The generated routes work with Angular SSR and `provideClientHydration` without extra setup; there's no transfer cache or custom renderer. Parsing and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values. A codec whose promise never settles keeps rendering pending; the package adds no timeout.
 
-Angular 22.2.2 compatibility footnote: Angular’s resolved-data accumulator loses a resolver result named `__proto__`. The handle follows native behavior: it omits the missing value rather than fabricating inherited data. This is an upstream Angular issue, not an added package restriction or an alpha-release blocker. No transport workaround or result cache is added.
+[`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with async codecs, a resolver, a redirect and hydration.
 
-Each handle owns paired params/search visibility and independent local data, projected into real readonly native Resources. Navigation hides old values; cancel/skip restores the true survivor without reparsing. Commitment bookkeeping is separate from visibility, including reentrant Start8→End7→Cancel8. Relevant handle work holds native PendingTasks, publishes before release, and releases on error/obsolete commitment/destruction. Constructor-time task handoff covers handles created inside native terminal listeners. Promises are not abortable; late failures are observed and cannot publish obsolete output. No URL/data cache, timeout, or second router exists.
+## What gets generated
 
-`test:lifecycle` uses actual Architect/Angular/Chromium and public Router/ApplicationRef/PendingTasks with asynchronous gates, a never-settling obsolete survivor, terminal-listener construction, own string/symbol data, nearest declaring-parent ancestry, injector destruction during task acquisition, same-URL skip reentry, iframe/host Promise guards/resolvers, and synchronous preserved-search failure with a later source rejection. Like the other public tests it requires a fresh absent evidence-directory argument.
+| File                                       | Contents                                                      |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `<outDirectory>/routes.generated.ts`       | `routes: Routes` for `provideRouter`                          |
+| `<outDirectory>/destinations.generated.ts` | Shared typing and navigation data (when any route has a page) |
+| `route.generated.ts` beside each route     | `injectRoute()` and `destination`; none for redirect routes   |
 
-The independent rebuild acceptance suite and its preserved results live outside this product repository. Full acceptance passed against the reviewed rebuild using the explicitly approved v2 copy. That copy corrects two fixture assumptions: an already-current native redirect resolves `false`, and the SSR route TypeScript program needs Node ambient types. Original inputs and earlier failed results remain preserved separately; this is not a claim that the unchanged original suite passed. The supplied handwritten home consumer remains unchanged.
+Each generated file starts with an ownership marker comment such as `// @loozo/angular-router routegen: owned route.generated.ts`. The builder only replaces or deletes marked files with those exact names. It never overwrites an unmarked file in their place, and it removes stale marked files when their routes disappear. Hand edits to generated files are overwritten.
 
-## Native SSR and hydration proof
+Generation reads your source without importing or running it. It validates everything (declarations, overlapping routes, redirects, file ownership) before writing anything, so a run that fails validation leaves your files as they were. Files are then written one at a time, with no rollback: if writing fails partway, for example on a file that isn't writable, or the run is interrupted, some files may already be updated. The next successful run repairs them. Unchanged files aren't rewritten, so their modification times stay the same.
 
-`examples/angular-router/ssr-proof/` is a separate handwritten Angular application. Componentless team inputs, delayed item/score codecs (75 ms), local deterministic catalog resolution, a query/hash-dropping alias, and a resolver-free delayed handle page use genuine generated facades. Shared configuration uses native hydration with no HTTP transfer cache and no blocking initial navigation.
+With `check: true`, the builder computes the same result but writes nothing. It fails if any generated file is changed, missing or stale, and the Angular build doesn't run.
 
-`test:ssr` copies that actual application into the required fresh absent evidence directory, runs ordinary Architect production builds and read-only generation checks, and checks strict native TypeScript/Angular templates. Built `AngularNodeAppEngine` + Node HTTP demonstrate native302, matched-position matrix isolation, concurrent request isolation and handle-only stability. Official dev-server + Chromium preserve exact original SSR document/element/text Nodes during hydration, then reuse the same component/DOM for typed alias and query-only SPA navigation. Native production metafile evidence checks browser closure and genuinely lazy page chunks. Servers/browser/Architect runs are stopped in `finally`; raw HTTP HTML/headers, logs, stats and observations remain inspectable.
+Generation checks route structure, not your whole program. Type errors elsewhere still show up in the Angular build itself.
 
-This is a bounded SSR/hydration proof, not cross-browser certification or exhaustive request/fault coverage. The Node entry is a loopback SSR HTTP proof server, not a production static-asset deployment server; use official companion serve for browser demonstration. See the [SSR proof README](../../examples/angular-router/ssr-proof/README.md).
+## Builder options
+
+### `@loozo/angular-router:application`
+
+All `@angular/build:application` options, plus:
+
+| Option             | Type                    | Default  | Description                                                                                                                         |
+| ------------------ | ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig`         | `string`                | required | TypeScript config used to find route declarations. Relative to the workspace root.                                                  |
+| `scanDirectories`  | `string[]`              | required | Exactly one directory containing your routes. Relative to the `tsconfig` file's directory.                                          |
+| `outDirectory`     | `string`                | required | Where `routes.generated.ts` and `destinations.generated.ts` go. Relative to the workspace root; must be outside the scan directory. |
+| `check`            | `boolean`               | `false`  | Verify generated files without writing them. Fails on any drift.                                                                    |
+| `autoDefineRoutes` | `{ filename?: string }` | omitted  | Enable [filesystem route definitions](#filesystem-route-definitions). `filename` defaults to `route.ts`.                            |
+
+The builder runs generation once, then the official application build. Invalid options stop the build before generation starts, and generation errors stop it before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
+
+### `@loozo/angular-router:serve`
+
+All `@angular/build:dev-server` options, plus:
+
+| Option        | Type              | Default  | Description                                                                          |
+| ------------- | ----------------- | -------- | ------------------------------------------------------------------------------------ |
+| `buildTarget` | `string`          | required | A target that uses `@loozo/angular-router:application`. Router options come from it. |
+| `poll`        | `number \| false` | `1000`   | File-watch polling interval in milliseconds, or `false` for no default.              |
+
+The serve builder validates its dev-server options and the build target before generating anything. It watches the scan directory and regenerates when files are added, changed or removed. The initial generation must succeed before the dev server starts; later errors are logged, and the server keeps running until you fix them. The build target must not resolve `check: true`, because serving always writes generated files.
+
+Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. Polling costs some idle CPU (about 3% of one core on the example app at 1000 ms, against under 0.1% without), and more on larger workspaces.
+
+To go back to native file events, set `"poll": false` in the serve target or one of its configurations. The router then adds no default, and Angular's own configuration applies, including a `poll` set on the build target. A positive number overrides the build target's `poll`. `0` is rejected. On the command line, `--poll` accepts milliseconds only; set `false` in `angular.json`.
+
+## Limitations
+
+- No standalone generation CLI or public route-graph API. Generate through the two builders.
+- Route and page files must be `.ts`; `.mts`, `.cts` and `.tsx` are ignored.
+- Primary outlet only: no named outlets, custom matchers or `loadChildren`.
+- One scan directory per application.
+- No data, URL or transfer caches. Resolver data lives in Angular.
+- Relative navigation from a catchall route isn't supported; use `"."` or an absolute selector.
+- Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
+- Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
+
+## Further reading
+
+- [`SPEC.md`](SPEC.md): the full contract, including every edge case
+- [`examples/angular-router`](../../examples/angular-router/): a minimal app using the builders
+- [`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md): SSR and hydration
+
+## Developing this package
+
+Requires Node 24.21.0 and pnpm 12.9.1. Install from the workspace root with `pnpm_config_pm_on_fail=error pnpm_config_verify_deps_before_run=error pnpm install --frozen-lockfile`. From this directory:
+
+```sh
+pnpm run build                 # Node builders/generation (tsc), then the Angular package (ng-packagr)
+pnpm run check                 # formatting and lint
+pnpm run typecheck             # strict source typecheck
+pnpm run typecheck:consumers   # consumer typecheck against the built package (NodeNext and Bundler)
+pnpm run test                  # root runtime, published-docs and schema tests
+```
+
+`build` regenerates `schemas/application.json` from the installed `@angular/build`; `pnpm test` fails when the committed schema is stale.
+
+The browser tests use real Angular builds and Chromium (`/usr/bin/chromium`). Each takes a fresh absolute directory, which must not exist yet, for its evidence:
+
+```sh
+pnpm run test:application /absolute/new-directory
+pnpm run test:navigation /absolute/new-directory
+pnpm run test:lifecycle /absolute/new-directory
+pnpm run test:ssr /absolute/new-directory
+pnpm run test:filesystem /absolute/new-directory
+node tests/packed.mjs /absolute/new-directory   # packed-package consumer check
+```
+
+To run the example app from the workspace root after building the package:
+
+```sh
+pnpm --filter @loozo/angular-router run example:build   # generate + build
+pnpm --filter @loozo/angular-router run example:check   # check generated files + build
+pnpm --filter @loozo/angular-router run example:serve   # generate + dev server
+```
