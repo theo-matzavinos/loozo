@@ -27,4 +27,14 @@ pnpm test
 
 Root commands run the corresponding script across `packages/*`, not the example applications. Run package-specific commands with `pnpm --filter <package-name> run <script>`; see each package’s README for its examples and extended proofs.
 
+Each package’s `build` ends with `scripts/finish-package.mjs`, which makes `packages/<package>/dist/` the complete npm package: its own `package.json`, `README.md`, `LICENSE` and compiled files.
+
+Pack and publish only from `dist/`; publishing from a package root fails on purpose:
+
+```sh
+pnpm build
+node packages/<package>/tests/packed.mjs <absent absolute directory>
+pnpm --dir packages/<package>/dist publish
+```
+
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).
