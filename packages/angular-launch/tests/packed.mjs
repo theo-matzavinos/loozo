@@ -69,9 +69,9 @@ await writeFile(
     2,
   ),
 );
-// The unreleased closed seam still has router's existing 0.0.2 version.
+// The workspace router may be unreleased or newer than the registry's artifact.
 // Select its genuine new tarball for both direct and transitive dependencies,
-// rather than accidentally testing the registry's older 0.0.2 artifact.
+// rather than accidentally testing a registry artifact.
 await writeFile(
   join(consumer, "pnpm-workspace.yaml"),
   `overrides:\n  "@loozo/angular-router": ${JSON.stringify(`file:${join(evidence, "angular-router.tgz")}`)}\n`,
