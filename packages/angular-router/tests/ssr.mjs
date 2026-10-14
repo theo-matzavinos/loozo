@@ -519,17 +519,19 @@ try {
   let timer;
 
   try {
-    if (node.pid && node.exitCode === null && node.signalCode === null) {
+    const pid = node.pid;
+
+    if (pid && node.exitCode === null && node.signalCode === null) {
       timer = setTimeout(() => {
         if (node.exitCode === null && node.signalCode === null) {
           try {
-            process.kill(-node.pid, "SIGKILL");
+            process.kill(-pid, "SIGKILL");
           } catch (error) {
             nodeFailures.push(error);
           }
         }
       }, 3000);
-      process.kill(-node.pid, "SIGTERM");
+      process.kill(-pid, "SIGTERM");
     }
   } catch (error) {
     nodeFailures.push(error);
