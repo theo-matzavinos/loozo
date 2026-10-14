@@ -6,6 +6,42 @@ import { attribute, findSnippetEmbed, readSnippet, SourceError } from "./snippet
 
 export const markdown = new MarkdownIt({ html: true });
 
+// A wide table scrolls inside its own box instead of widening the page. The box is a focusable
+// region so keyboard users can scroll it in every browser, named after its nearest heading and its
+// column headers so several tables on one page stay distinguishable.
+markdown.renderer.rules.table_open = (tokens, index, options, env, renderer) => {
+  let heading = "";
+
+  for (let position = index - 1; position >= 0; position--) {
+    if (tokens[position].type === "heading_open") {
+      heading = `${plainText(tokens[position + 1])}: `;
+      break;
+    }
+  }
+
+  const headers: string[] = [];
+
+  for (let position = index + 1; position < tokens.length; position++) {
+    if (tokens[position].type === "thead_close") {
+      break;
+    }
+
+    if (tokens[position].type === "inline" && tokens[position - 1].type === "th_open") {
+      headers.push(plainText(tokens[position]));
+    }
+  }
+
+  const label = escapeHtml(`${heading}${headers.join(", ")} table`);
+
+  return (
+    `<div class="table-scroll" role="region" aria-label="${label}" tabindex="0">` +
+    renderer.renderToken(tokens, index, options)
+  );
+};
+markdown.renderer.rules.table_close = (tokens, index, options, env, renderer) => {
+  return `${renderer.renderToken(tokens, index, options)}</div>\n`;
+};
+
 const themes = { light: "github-light", dark: "github-dark" };
 const languages = [
   "typescript",
@@ -393,6 +429,19 @@ export function repositoryUrl(context: PackageContext, file: string, kind: strin
 
 function docsLink(href: string, html: string): string {
   return `<a href="${escapeHtml(href)}" data-docs-link="">${html}</a>`;
+}
+
+/** The visible text of an inline token, without markup. */
+function plainText(inline: Token): string {
+  let text = "";
+
+  for (const child of inline.children ?? []) {
+    if (child.type === "text" || child.type === "code_inline") {
+      text += child.content;
+    }
+  }
+
+  return text.trim();
 }
 
 export function escapeHtml(text: string): string {

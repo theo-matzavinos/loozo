@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>loozo docs</title>
+    <script>
+      // Apply a stored theme choice before the first paint. Without one, CSS follows prefers-color-scheme.
+      try {
+        const theme = localStorage.getItem("loozo-docs-theme");
+
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.dataset.theme = theme;
+        }
+      } catch {
+        // Storage can be unavailable (for example, blocked cookies); the system theme still applies.
+      }
+    </script>
+  </head>
+  <body>
+    <docs-shell></docs-shell>
+  </body>
+</html>

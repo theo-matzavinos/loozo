@@ -32,6 +32,7 @@ interface ParsedTsconfig {
   readonly rootDir: string | undefined;
 }
 
+/** Reads the published packages; `"private": true` packages have no public docs. */
 export function readWorkspacePackages(root: string): WorkspacePackage[] {
   const packagesDir = join(root, "packages");
   const result: WorkspacePackage[] = [];
@@ -39,17 +40,28 @@ export function readWorkspacePackages(root: string): WorkspacePackage[] {
   for (const name of readdirSync(packagesDir).sort()) {
     const dir = join(packagesDir, name);
 
-    if (existsSync(join(dir, "package.json"))) {
-      result.push(readWorkspacePackage(dir));
+    if (!existsSync(join(dir, "package.json"))) {
+      continue;
+    }
+
+    const workspacePackage = readWorkspacePackage(dir);
+
+    if (workspacePackage !== undefined) {
+      result.push(workspacePackage);
     }
   }
 
   return result;
 }
 
-function readWorkspacePackage(dir: string): WorkspacePackage {
+function readWorkspacePackage(dir: string): WorkspacePackage | undefined {
   const manifestPath = join(dir, "package.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+
+  if (manifest.private === true) {
+    return undefined;
+  }
+
   const name: string = manifest.name;
   const tsconfigs = readTsconfigs(dir);
   const entryPoints: PackageEntryPoint[] = [];

@@ -9,3 +9,5 @@ examples/angular-router/ssr-proof/src/routes/handle-only/route.generated.ts
 examples/angular-router/ssr-proof/src/routes/home/route.generated.ts
 examples/angular-router/ssr-proof/src/routes/item/route.generated.ts
 examples/angular-router/ssr-proof/src/routes/team/route.generated.ts
+docs/generated/**/*.generated.ts
+docs/src/routes/**/route.generated.ts

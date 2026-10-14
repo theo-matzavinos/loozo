@@ -12,6 +12,7 @@ A monorepo for Angular-related packages. Each package owns its API, contract, do
 
 - `packages/*` — publishable packages and their contracts, tests and documentation.
 - `examples/*` — private, package-specific consumer applications and proofs.
+- `docs/` — the private documentation site, published to GitHub Pages.
 
 ## Development
 
