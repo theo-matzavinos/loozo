@@ -1,39 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema",
+  "$comment": "Every option except poll is an @angular/build:dev-server option, passed through and validated by that builder. Router options come from buildTarget.",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["tsconfig", "scanDirectories", "outDirectory", "delegateTarget"],
+  "additionalProperties": true,
+  "required": ["buildTarget"],
   "properties": {
-    "tsconfig": { "type": "string", "minLength": 1 },
-    "scanDirectories": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 1,
-      "items": { "type": "string", "minLength": 1 }
+    "buildTarget": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A target using @loozo/angular-router:application, as project:target[:configuration]."
     },
-    "autoDefineRoutes": {
-      "$comment": "Conditional validation prevents Angular addUndefinedDefaults from creating an omitted opt-in object.",
-      "if": true,
-      "then": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "filename": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_$][A-Za-z0-9_$.-]*\\.ts$",
-            "not": {
-              "anyOf": [
-                { "pattern": "\\.d\\.ts$" },
-                {
-                  "enum": ["route.generated.ts", "routes.generated.ts", "destinations.generated.ts"]
-                }
-              ]
-            }
-          }
-        }
-      }
-    },
-    "outDirectory": { "type": "string", "minLength": 1 },
-    "delegateTarget": { "type": "string", "minLength": 1 }
+    "poll": {
+      "description": "Watch by polling every this many milliseconds. Defaults to 500 when omitted. false adds no default, so Angular's own configuration applies, including a poll on the build target.",
+      "oneOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "const": false }]
+    }
   }
 }

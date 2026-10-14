@@ -13,13 +13,6 @@
             "tsconfig": "tsconfig.routes.json",
             "scanDirectories": ["src/routes"],
             "outDirectory": "generated",
-            "delegateTarget": "proof:official:production"
-          },
-          "configurations": { "ci": { "check": true } }
-        },
-        "official": {
-          "builder": "@angular/build:application",
-          "options": {
             "browser": "src/main.ts",
             "server": "src/main.server.ts",
             "ssr": { "entry": "src/server.ts" },
@@ -38,23 +31,15 @@
             "development": {
               "optimization": { "scripts": false, "styles": false, "fonts": false },
               "sourceMap": true
-            }
+            },
+            "ci": { "check": true }
           },
           "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@loozo/angular-router:serve",
           "options": {
-            "tsconfig": "tsconfig.routes.json",
-            "scanDirectories": ["src/routes"],
-            "outDirectory": "generated",
-            "delegateTarget": "proof:official-serve"
-          }
-        },
-        "official-serve": {
-          "builder": "@angular/build:dev-server",
-          "options": {
-            "buildTarget": "proof:official:development",
+            "buildTarget": "proof:build:development",
             "host": "127.0.0.1",
             "port": 0
           }

@@ -57,7 +57,6 @@ const { chromium } = require("playwright");
 const workspace = JSON.parse(await readFile(join(fixture, "angular.json"), "utf8"));
 
 workspace.projects.proof.architect.build.options.autoDefineRoutes = {};
-workspace.projects.proof.architect.serve.options.autoDefineRoutes = {};
 await writeFile(join(fixture, "angular.json"), JSON.stringify(workspace));
 
 const reports = [];
@@ -100,6 +99,20 @@ async function build(overrides = {}, target = "build") {
 
 async function expectBuild(overrides = {}) {
   assert.equal(await build(overrides), true, JSON.stringify(reports.at(-1)));
+}
+
+// Serve reads its router options from the build target, so invalid ones go there.
+async function rejectsServe(base, buildOptions, message) {
+  const configuration = structuredClone(base);
+
+  Object.assign(configuration.projects.proof.architect.build.options, buildOptions);
+  await writeFile(join(fixture, "angular.json"), JSON.stringify(configuration));
+
+  const before = await snapshot();
+
+  assert.equal(await build({}, "serve"), false);
+  assert.match(reports.at(-1).error, message);
+  assert.deepEqual(await snapshot(), before);
 }
 
 async function write(path, bytes) {
@@ -726,7 +739,6 @@ await write("src/routes/custom/definition.ts", explicit.replace('"custom"', '"ex
 const disabledWorkspace = structuredClone(workspace);
 
 delete disabledWorkspace.projects.proof.architect.build.options.autoDefineRoutes;
-delete disabledWorkspace.projects.proof.architect.serve.options.autoDefineRoutes;
 await writeFile(join(fixture, "angular.json"), JSON.stringify(disabledWorkspace));
 await expectBuild();
 assert.match(await read("generated/routes.generated.ts"), /path: "explicit"/);
@@ -753,10 +765,9 @@ for (const autoDefineRoutes of [
 ]) {
   const before = await snapshot();
 
-  for (const target of ["build", "serve"]) {
-    assert.equal(await build({ autoDefineRoutes }, target), false);
-    assert.deepEqual(await snapshot(), before);
-  }
+  assert.equal(await build({ autoDefineRoutes }), false);
+  assert.deepEqual(await snapshot(), before);
+  await rejectsServe(workspace, { autoDefineRoutes }, /autoDefineRoutes/);
 }
 
 for (const enabled of [true, false]) {
@@ -768,18 +779,40 @@ for (const enabled of [true, false]) {
 
   await writeFile(join(fixture, "angular.json"), JSON.stringify(configuration));
 
-  for (const target of ["build", "serve"]) {
-    const before = await snapshot();
+  const before = await snapshot();
+  const scanDirectories = ["src/routes", "src/other"];
 
-    assert.equal(await build({ scanDirectories: ["src/routes", "src/other"] }, target), false);
-    assert.deepEqual(await snapshot(), before);
-  }
+  assert.equal(await build({ scanDirectories }), false);
+  assert.deepEqual(await snapshot(), before);
+  await rejectsServe(configuration, { scanDirectories }, /scanDirectories/);
 }
 
+// Angular's options are validated before generation, by serve as well as build; serve always writes.
+await rejectsServe(workspace, { browsr: "src/main.ts" }, /browsr/);
+await rejectsServe(workspace, { check: true }, /check: true/);
 await writeFile(join(fixture, "angular.json"), JSON.stringify(workspace));
+
+{
+  const before = await snapshot();
+
+  assert.equal(await build({ browsr: "src/main.ts" }), false);
+  assert.match(reports.at(-1).error, /browsr/);
+  assert.equal(await build({ poll: 0 }, "serve"), false);
+  assert.match(reports.at(-1).error, /poll/);
+  assert.deepEqual(await snapshot(), before);
+}
 
 // Plans may contain valid pending seeds, but every failure precedes ALL writes.
 await write("src/routes/pending/page.ts", page("pending"));
+
+{
+  const before = await snapshot();
+
+  assert.equal(await build({ port: "bad" }, "serve"), false);
+  assert.match(reports.at(-1).error, /port/);
+  assert.deepEqual(await snapshot(), before, "Invalid dev-server options must fail before writes");
+}
+
 await write(
   "src/routes/type-invalid/definition.ts",
   'import { defineRoute } from "@loozo/angular-router";\nexport default defineRoute("type-invalid", { search: { q: 7 } });\n',
@@ -1091,6 +1124,11 @@ try {
   );
 
   const output = outputs.find((value) => value.success && value.baseUrl);
+  // The build target omits aot; Angular's schema default (true) must reach the dev server, which
+  // then compiles component HMR into the served bundle.
+  const main = await fetch(new URL("main.js", output.baseUrl));
+
+  assert.match(await main.text(), /angular:component-update/);
 
   browser = await chromium.launch({
     executablePath: "/usr/bin/chromium",

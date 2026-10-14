@@ -1,8 +1,10 @@
 import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-devkit/architect";
 import { generate } from "../generation/generate.js";
-import { delegate, type Options } from "./options.js";
+import { split, type JsonObject } from "./options.js";
 
-export default createBuilder<Options>(async (options, context): Promise<BuilderOutput> => {
+const officialApplicationBuilder = "@angular/build:application";
+
+export default createBuilder<JsonObject>(async (options, context): Promise<BuilderOutput> => {
   let stopped = false;
   let acquisition: Promise<BuilderRun> | undefined;
   let generation: Promise<string[]> | undefined;
@@ -23,20 +25,22 @@ export default createBuilder<Options>(async (options, context): Promise<BuilderO
   context.addTeardown(stop);
 
   try {
-    const target = await delegate(context, options, false);
+    const { router, official } = split(options);
 
-    if (stopped) {
-      return { success: false };
+    if (official.watch === true) {
+      throw new Error("The application builder runs once; it does not support watch: true");
     }
 
-    generation = generate(context.workspaceRoot, options, () => stopped);
+    generation = generate(context.workspaceRoot, router, () => stopped);
     await generation;
 
     if (stopped) {
       return { success: false };
     }
 
-    acquisition = context.scheduleTarget(target);
+    acquisition = context.scheduleBuilder(officialApplicationBuilder, official, {
+      target: context.target,
+    });
 
     const run = await acquisition;
 
