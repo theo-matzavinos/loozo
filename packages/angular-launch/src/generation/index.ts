@@ -731,7 +731,8 @@ async function runGeneration(
   stopped: () => boolean,
   compiler?: GenerationCompilerState,
 ): Promise<void> {
-  const root = fileURLToPath(new URL("../../", import.meta.url));
+  // The built package root (dist/ in the workspace, the tarball root when installed).
+  const root = fileURLToPath(new URL("../", import.meta.url));
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   const typeEntry = await realpath(resolve(root, manifest.exports["./server"].types));
   const application = await realpath(workspace);

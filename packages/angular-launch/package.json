@@ -39,7 +39,8 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json && node ../../scripts/finish-package.mjs .",
+    "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test tests/*.test.mjs"
   },

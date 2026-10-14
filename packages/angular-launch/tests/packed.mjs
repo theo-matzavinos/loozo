@@ -29,16 +29,10 @@ async function run(command, args, cwd, label) {
 }
 
 for (const name of ["angular-router", "angular-launch"]) {
-  let packageDirectory = join(repo, "packages", name);
-
-  if (name === "angular-router") {
-    packageDirectory = join(packageDirectory, "dist");
-  }
-
   await run(
     "pnpm",
     ["pack", "--out", join(evidence, `${name}.tgz`)],
-    packageDirectory,
+    join(repo, "packages", name, "dist"),
     `pack-${name}`,
   );
 }
