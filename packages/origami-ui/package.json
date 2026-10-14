@@ -1,0 +1,113 @@
+{
+  "name": "@loozo/origami-ui",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion and popover.",
+  "bugs": "https://github.com/theo-matzavinos/loozo/issues",
+  "license": "MIT",
+  "author": "Theophilos Matzavinos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theo-matzavinos/loozo.git",
+    "directory": "packages/origami-ui"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/types/loozo-origami-ui.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui.mjs"
+    },
+    "./utils": {
+      "types": "./dist/types/loozo-origami-ui-utils.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-utils.mjs"
+    },
+    "./collection": {
+      "types": "./dist/types/loozo-origami-ui-collection.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-collection.mjs"
+    },
+    "./presence": {
+      "types": "./dist/types/loozo-origami-ui-presence.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-presence.mjs"
+    },
+    "./collapsible": {
+      "types": "./dist/types/loozo-origami-ui-collapsible.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-collapsible.mjs"
+    },
+    "./accordion": {
+      "types": "./dist/types/loozo-origami-ui-accordion.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-accordion.mjs"
+    },
+    "./popover": {
+      "types": "./dist/types/loozo-origami-ui-popover.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-popover.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "rm -rf dist && ng-packagr -p ng-package.json -c tsconfig.lib.json && node ../../scripts/finish-package.mjs .",
+    "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
+    "check": "vp check",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tests/acceptance/tsconfig.json --noEmit",
+    "test": "pnpm run acceptance:sync && pnpm run typecheck && pnpm run acceptance:typecheck && pnpm run acceptance:types && pnpm run acceptance:node",
+    "test:fast": "pnpm run test && pnpm run acceptance:browser-readiness:fast && pnpm run acceptance:observer-calibration:fast && pnpm run acceptance:test:fast",
+    "test:focus": "pnpm run acceptance:sync && pnpm run acceptance:test:fast",
+    "test:full": "node tests/acceptance/matrix-summary.mjs --reset && pnpm run acceptance:prepare && pnpm run typecheck && pnpm run acceptance:typecheck && pnpm run acceptance:check && pnpm run acceptance:aot && pnpm run acceptance:bundles && pnpm run acceptance:browser-readiness && pnpm run acceptance:observer-calibration && ORIGAMI_PREBUILT=1 pnpm run acceptance:matrix",
+    "example:build": "pnpm --dir ../../examples/origami-ui run build",
+    "example:serve": "pnpm --dir ../../examples/origami-ui run serve",
+    "acceptance:sync": "pnpm run build && node tests/acceptance/prepare-consumer.mjs",
+    "acceptance:prepare": "pnpm run build && node tests/acceptance/prepare-consumer.mjs --clean",
+    "acceptance:typecheck": "tsc -p .scratch/consumer/tsconfig.app.json --noEmit",
+    "acceptance:package": "node tests/acceptance/package-checks.mjs",
+    "acceptance:types": "node tests/acceptance/type-checks.mjs",
+    "acceptance:docs": "node tests/acceptance/docs-checks.mjs",
+    "acceptance:docs:audit": "node tests/acceptance/docs-checks.mjs --audit",
+    "acceptance:node": "node tests/acceptance/utility-checks.mjs && node tests/acceptance/ssr-checks.mjs",
+    "acceptance:check": "pnpm run acceptance:package && pnpm run acceptance:types && pnpm run acceptance:docs && pnpm run acceptance:node",
+    "acceptance:aot": "(cd .scratch/consumer && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration development-eager && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration development-incremental && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration production-eager && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration production-incremental)",
+    "acceptance:bundles": "node tests/acceptance/bundle-checks.mjs",
+    "acceptance:bundles:audit": "node tests/acceptance/bundle-checks.mjs --audit",
+    "acceptance:bundles:calibration": "node tests/acceptance/bundle-context-calibration.mjs",
+    "acceptance:browser-readiness": "node tests/acceptance/browser-readiness.mjs",
+    "acceptance:browser-readiness:fast": "node tests/acceptance/browser-readiness.mjs chromium",
+    "acceptance:observer-calibration": "ORIGAMI_SUITE=calibration playwright test --config tests/acceptance/playwright.config.ts",
+    "acceptance:observer-calibration:fast": "ORIGAMI_SUITE=calibration ORIGAMI_BROWSER=chromium playwright test --config tests/acceptance/playwright.config.ts",
+    "acceptance:test": "playwright test --config tests/acceptance/playwright.config.ts",
+    "acceptance:test:fast": "ORIGAMI_MATRIX_TARGET=development-eager ORIGAMI_BROWSER=chromium playwright test --config tests/acceptance/playwright.config.ts --project=chromium-development-eager-no-preference",
+    "acceptance:matrix": "node tests/acceptance/matrix-summary.mjs --reset && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=development-eager pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=development-incremental pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=production-eager pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=production-incremental pnpm run acceptance:test && node tests/acceptance/matrix-summary.mjs",
+    "acceptance:webkit-setup": "python3 tests/acceptance/setup-webkit.py",
+    "acceptance:forensic": "ORIGAMI_FORENSIC=1 pnpm run test:full"
+  },
+  "dependencies": {
+    "@floating-ui/dom": "1.8.0",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.2",
+    "@angular/cli": "22.2.2",
+    "@angular/common": "22.2.2",
+    "@angular/compiler": "22.2.2",
+    "@angular/compiler-cli": "22.2.2",
+    "@angular/core": "22.2.2",
+    "@angular/platform-browser": "22.2.2",
+    "@angular/platform-server": "22.2.2",
+    "@angular/router": "22.2.2",
+    "@angular/ssr": "22.2.2",
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.3",
+    "ng-packagr": "22.2.4",
+    "playwright": "1.63.0",
+    "rxjs": "7.8.2",
+    "typescript": "6.0.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.5",
+    "vite-plus": "0.2.5"
+  },
+  "peerDependencies": {
+    "@angular/common": "22.2.2",
+    "@angular/core": "22.2.2"
+  }
+}

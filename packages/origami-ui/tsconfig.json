@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": [],
+    "noEmit": true,
+    "paths": {
+      "@loozo/origami-ui/utils": ["./utils/src/public-api.ts"],
+      "@loozo/origami-ui/collection": ["./collection/src/public-api.ts"],
+      "@loozo/origami-ui/presence": ["./presence/src/public-api.ts"],
+      "@loozo/origami-ui/collapsible": ["./collapsible/src/public-api.ts"],
+      "@loozo/origami-ui/accordion": ["./accordion/src/public-api.ts"],
+      "@loozo/origami-ui/popover": ["./popover/src/public-api.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "utils/src/**/*.ts",
+    "collection/src/**/*.ts",
+    "presence/src/**/*.ts",
+    "collapsible/src/**/*.ts",
+    "accordion/src/**/*.ts",
+    "popover/src/**/*.ts"
+  ]
+}

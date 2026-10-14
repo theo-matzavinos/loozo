@@ -1,0 +1,75 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "cli": { "analytics": false },
+  "projects": {
+    "consumer": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": "dist/consumer",
+            "browser": "src/main.ts",
+            "server": "src/main.server.ts",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "outputMode": "server",
+            "statsJson": true,
+            "security": { "allowedHosts": ["localhost", "127.0.0.1"] },
+            "ssr": { "entry": "src/server.ts" }
+          },
+          "configurations": {
+            "production": { "outputHashing": "all" },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            },
+            "production-eager": {
+              "outputPath": "dist/consumer-eager",
+              "outputHashing": "all",
+              "fileReplacements": [
+                { "replace": "src/app-config.ts", "with": "src/app-config.eager.ts" }
+              ]
+            },
+            "production-incremental": {
+              "outputPath": "dist/consumer-incremental",
+              "outputHashing": "all"
+            },
+            "development-eager": {
+              "outputPath": "dist/consumer-eager-development",
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true,
+              "fileReplacements": [
+                { "replace": "src/app-config.ts", "with": "src/app-config.eager.ts" }
+              ]
+            },
+            "development-incremental": {
+              "outputPath": "dist/consumer-incremental-development",
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": { "hmr": false },
+          "configurations": {
+            "development": { "buildTarget": "consumer:build:development" },
+            "production": { "buildTarget": "consumer:build:production" },
+            "development-eager": { "buildTarget": "consumer:build:development-eager" },
+            "development-incremental": { "buildTarget": "consumer:build:development-incremental" }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}
