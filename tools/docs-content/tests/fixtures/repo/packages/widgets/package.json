@@ -1,0 +1,23 @@
+{
+  "name": "@fixture/widgets",
+  "version": "1.2.3",
+  "private": true,
+  "description": "Fixture widgets.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theo-matzavinos/loozo.git",
+    "directory": "packages/widgets"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./_internal": {
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
+    },
+    "./package.json": "./package.json"
+  }
+}

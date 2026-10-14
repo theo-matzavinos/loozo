@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - examples/*
+  - tools/*
 
 # Keep evaluator/native Vite on the selected Vite+ implementation.
 overrides:
