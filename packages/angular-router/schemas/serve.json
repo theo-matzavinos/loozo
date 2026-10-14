@@ -11,7 +11,7 @@
       "description": "A target using @loozo/angular-router:application, as project:target[:configuration]."
     },
     "poll": {
-      "description": "Watch by polling every this many milliseconds. Defaults to 500 when omitted. false adds no default, so Angular's own configuration applies, including a poll on the build target.",
+      "description": "Watch by polling every this many milliseconds. Defaults to 1000 when omitted. false adds no default, so Angular's own configuration applies, including a poll on the build target.",
       "oneOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "const": false }]
     }
   }

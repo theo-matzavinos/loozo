@@ -39,7 +39,7 @@ Generated code necessarily executes at runtime. Small shared helpers may perform
 
 Node-side source analysis/generation is private implementation used by the application/serve builders. It needs separation from browser code, not a public secondary entry point. Its internal graph/model, functions, return shapes, immutability, and module layout are not product contracts.
 
-The package remains private, version `0.0.0`; publication is excluded. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.1.0`: the application builder schema embeds that minor's application schema. The experiment verifies Angular **22.1.5**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
+The package remains private, version `0.0.0`; publication is excluded. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. The experiment verifies Angular **22.2.2**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
 
 The root, generated application modules, and any helpers they import must remain browser-safe. Node, filesystem, compiler, watcher, and Architect dependencies must not enter their browser dependency closures. The builders own Node-side generation. No `loozo-routegen` bin, separate CLI flags/exit protocol, or public generator API is supported. Generate through Angular build/serve; check committed output through an application-builder CI configuration.
 
@@ -75,7 +75,7 @@ product.path; // literal type and value: "products/$productId"
 
 `defineRoute(path, config)` requires an authored literal path and config. Callers do not supply generic arguments to obtain inference. Widened `string` paths fail at compile time.
 
-Accepted config keys are `parent`, `params`, `search`, `resolve`, `runGuardsAndResolvers`, `redirect`, `fragments`, `canActivate`, `canActivateChild`, `canMatch`, `canDeactivate`, `providers`, `title`, and `data`. Guard signatures are specified in §8; `canDeactivate`, providers, title, data, and rerun policies otherwise use Angular 22.1.5's native types/behavior.
+Accepted config keys are `parent`, `params`, `search`, `resolve`, `runGuardsAndResolvers`, `redirect`, `fragments`, `canActivate`, `canActivateChild`, `canMatch`, `canDeactivate`, `providers`, `title`, and `data`. Guard signatures are specified in §8; `canDeactivate`, providers, title, data, and rerun policies otherwise use Angular 22.2.2's native types/behavior.
 
 Generation owns paths, matching strategy, ancestry/children, component discovery/loading, primary-outlet placement, and typed redirects. Reject config overrides `path`, `pathMatch`, `matcher`, `children`, `component`, `loadComponent`, `loadChildren`, `outlet`, and `redirectTo`; do not blindly spread an Angular Route. Deprecated `canLoad` is outside this target; use `canMatch`.
 
@@ -621,7 +621,7 @@ Builder name: `@loozo/angular-router:serve`.
 Options are `@angular/build:dev-server` options, which pass through unchanged, plus:
 
 - Required `buildTarget`: a target using `@loozo/angular-router:application`, resolved as Angular's dev server resolves it. Router options come from that target and are not repeated. Angular's dev server reads the target's options itself and validates them against the companion schema, which carries Angular's application defaults and checks. Reject a resolved `check: true`: serve always writes. Serve never executes the companion application builder.
-- Optional `poll: number | false`. Omitted, serve passes `poll: 500` to the dev server; `false` passes none, so the router adds no default and Angular's own configuration applies (native file events unless the build target sets `poll`). Other values must be positive milliseconds. The CLI flag accepts milliseconds only; `false` is workspace configuration. `0` is rejected rather than relying on Angular 22.1.5 passing it to watchpack, where it happens to mean native events.
+- Optional `poll: number | false`. Omitted, serve passes `poll: 1000` to the dev server; `false` passes none, so the router adds no default and Angular's own configuration applies (native file events unless the build target sets `poll`). Other values must be positive milliseconds. The CLI flag accepts milliseconds only; `false` is workspace configuration. `0` is rejected: Angular 22.2.2 turns any numeric `poll`, zero included, into chokidar polling with that interval, so it can't mean native events.
 
 1. Validate the build target and the dev-server options (against `@angular/build:dev-server`, with `poll` translated) before watching or generating.
 2. Start watching configured route roots **before initial generation** so initial edits are not missed.
@@ -636,7 +636,7 @@ An authored file may temporarily trigger Angular's rebuild before generation pub
 
 ## 14. Required real application proof [V]
 
-Use one self-contained Angular 22.1.5 application with generated configuration, standalone primary-outlet pages, official application build/dev-server, provideRouter, provideClientHydration, and official Angular SSR server rendering. Do not introduce a custom renderer or add blocking initial navigation to the shared hydration configuration.
+Use one self-contained Angular 22.2.2 application with generated configuration, standalone primary-outlet pages, official application build/dev-server, provideRouter, provideClientHydration, and official Angular SSR server rendering. Do not introduce a custom renderer or add blocking initial navigation to the shared hydration configuration.
 
 The application has:
 

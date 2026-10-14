@@ -230,9 +230,9 @@ export function publish(
   stopped: () => boolean,
   authored: ReadonlyMap<string, string>,
   seeds: ReadonlySet<string>,
-): string[] {
+): void {
   if (stopped()) {
-    return [];
+    return;
   }
 
   if (check) {
@@ -252,7 +252,7 @@ export function publish(
       }
     }
 
-    return [];
+    return;
   }
 
   // No awaits from the final stop check through this short publication section.
@@ -272,6 +272,4 @@ export function publish(
   for (const path of plan.stale) {
     unlinkSync(path);
   }
-
-  return [...authored.keys(), ...plan.changed, ...plan.missing];
 }

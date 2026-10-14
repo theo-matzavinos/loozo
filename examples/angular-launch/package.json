@@ -9,21 +9,21 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit"
   },
   "dependencies": {
-    "@angular/common": "22.1.5",
-    "@angular/core": "22.1.5",
-    "@angular/platform-browser": "22.1.5",
-    "@angular/platform-server": "22.1.5",
-    "@angular/router": "22.1.5",
-    "@angular/ssr": "22.1.5",
+    "@angular/common": "22.2.2",
+    "@angular/core": "22.2.2",
+    "@angular/platform-browser": "22.2.2",
+    "@angular/platform-server": "22.2.2",
+    "@angular/router": "22.2.2",
+    "@angular/ssr": "22.2.2",
     "@loozo/angular-launch": "workspace:*",
     "@loozo/angular-router": "workspace:*",
     "rxjs": "7.8.2"
   },
   "devDependencies": {
-    "@angular/build": "22.1.5",
-    "@angular/cli": "22.1.5",
-    "@angular/compiler": "22.1.5",
-    "@angular/compiler-cli": "22.1.5",
+    "@angular/build": "22.2.2",
+    "@angular/cli": "22.2.2",
+    "@angular/compiler": "22.2.2",
+    "@angular/compiler-cli": "22.2.2",
     "@types/node": "24.13.3",
     "typescript": "6.0.3"
   }

@@ -390,7 +390,7 @@ try {
   const directory = new URL("./dist/todos/browser/", import.meta.url);
   const browserFiles = new Set(await readdir(directory));
   const metafile = JSON.parse(
-    await readFile(new URL("./dist/todos/stats.json", import.meta.url), "utf8"),
+    await readFile(new URL("./dist/todos/browser-stats.json", import.meta.url), "utf8"),
   );
   let inspected = 0;
   const forbidden = [];

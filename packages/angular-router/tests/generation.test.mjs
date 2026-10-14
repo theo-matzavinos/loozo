@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, writeFile, readFile, rm, realpath, symlink } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rm, realpath, stat, symlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import ts from "typescript";
 import { AnchorState, CompilerState } from "../node/src/generation/index.js";
@@ -298,7 +298,7 @@ test("session-backed generation follows edits across passes and recovers after a
   // The serve builder's contract: any failed pass clears every slot.
   async function pass() {
     try {
-      return await generate(root, options, () => false, state);
+      await generate(root, options, () => false, state);
     } catch (error) {
       state.discovery.clear();
       state.overlay.clear();
@@ -346,14 +346,16 @@ test("session-backed generation follows edits across passes and recovers after a
   await mkdir(resolve(root, "src/routes/docs/guide"));
   await writeFile(resolve(root, "src/routes/docs/guide/page.ts"), page("guide"));
 
-  // Each pass reports the paths it wrote; an unchanged pass writes nothing.
-  const written = await pass();
-
+  await pass();
   assert.match(await readFile(routes, "utf8"), /path: "guide"/);
-  assert.ok(written.includes(routes));
-  assert.ok(written.includes(resolve(root, "src/routes/docs/guide/route.ts")));
-  assert.ok(written.includes(resolve(root, "src/routes/docs/guide/route.generated.ts")));
-  assert.deepEqual(await pass(), []);
+  assert.match(await readFile(resolve(root, "src/routes/docs/guide/route.ts"), "utf8"), /guide/);
+  await readFile(resolve(root, "src/routes/docs/guide/route.generated.ts"), "utf8");
+
+  // An unchanged warm pass writes nothing.
+  const { mtimeNs } = await stat(routes, { bigint: true });
+
+  await pass();
+  assert.equal((await stat(routes, { bigint: true })).mtimeNs, mtimeNs);
 
   const seeded = await readFile(definition, "utf8");
 
@@ -366,5 +368,5 @@ test("session-backed generation follows edits across passes and recovers after a
   assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition1\)/);
 
   // Session passes leave exactly what stateless generation would publish.
-  assert.deepEqual(await generate(root, { ...options, check: true }, () => false), []);
+  await generate(root, { ...options, check: true }, () => false);
 });
