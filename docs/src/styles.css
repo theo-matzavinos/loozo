@@ -253,6 +253,8 @@ h4 {
 }
 
 .sidebar {
+  /* Overrides the collapsed contents disclosure's hidden attribute; only small screens hide it. */
+  display: block;
   position: sticky;
   top: var(--header-height);
   align-self: start;
@@ -537,7 +539,6 @@ h4 {
   }
 
   .sidebar {
-    display: none;
     position: static;
     max-height: none;
     margin: 0.5rem 1.5rem 0;
@@ -546,8 +547,8 @@ h4 {
     border-bottom: 1px solid var(--border);
   }
 
-  .sidebar.open {
-    display: block;
+  .sidebar[hidden] {
+    display: none;
   }
 
   .content {
