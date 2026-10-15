@@ -64,6 +64,14 @@ function validateRouterOptions(value: JsonObject): asserts value is JsonObject &
   }
 }
 
+export function message(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
 // Router options drive generation; everything else belongs to Angular's application builder.
 export function split(options: JsonObject): { router: GenerationOptions; official: JsonObject } {
   validateRouterOptions(options);

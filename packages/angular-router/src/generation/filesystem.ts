@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { basename, dirname, resolve } from "node:path";
-import { parsePath } from "../../_core/src/path.js";
+import { parsePath, type Segment } from "../../_core/src/path.js";
 import { auditPath, metadata } from "./files.js";
 import { fail, properties, resolveModule, type Declaration } from "./sources.js";
 import { specifier } from "./emit.js";
@@ -19,36 +19,145 @@ export function transparent(root: string, directory: string): boolean {
   return directory !== root && basename(directory).startsWith("-");
 }
 
-function localPath(root: string, directory: string): string {
-  if (directory === root || basename(directory).startsWith("+")) {
+// Directive comments bind to a following line or the module start, so edits must not move them.
+const directive =
+  /@ts-(?:expect-error|ignore|check|nocheck)\b|@jsx(?:frag|importsource|runtime)?\b|\/\/\/\s*<(?:reference|amd-dependency|amd-module)\b|(?:eslint|oxlint)-disable-next-line\b/i;
+
+function contribution(root: string, directory: string): string {
+  if (directory === root || transparent(root, directory) || basename(directory).startsWith("+")) {
     return "";
   }
 
   return basename(directory);
 }
 
-function unusedBinding(source: ts.SourceFile, preferred: string): string {
-  const identifiers = new Set<string>();
+// Names that bindings, declarations and references use; property names are not bindings.
+function identifiers(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
 
   function visit(node: ts.Node): void {
-    if (ts.isIdentifier(node)) {
-      identifiers.add(node.text);
+    const propertyName =
+      (ts.isPropertyAssignment(node.parent) || ts.isPropertyAccessExpression(node.parent)) &&
+      node.parent.name === node;
+
+    if (ts.isIdentifier(node) && !propertyName) {
+      names.add(node.text);
     }
 
     ts.forEachChild(node, visit);
   }
 
-  visit(source);
+  ts.forEachChild(source, visit);
 
+  return names;
+}
+
+function unusedBinding(source: ts.SourceFile, preferred: string): string {
+  const used = identifiers(source);
   let name = preferred;
   let index = 0;
 
-  while (identifiers.has(name)) {
+  while (used.has(name)) {
     index += 1;
     name = `${preferred}${index}`;
   }
 
   return name;
+}
+
+function parentBinding(source: ts.SourceFile): string {
+  if (identifiers(source).has("parent")) {
+    return unusedBinding(source, "filesystemParent");
+  }
+
+  return "parent";
+}
+
+// Reuse a stringParam import from the router, else import it as `stringParam` when that
+// identifier is free.
+function stringParamBinding(source: ts.SourceFile, imports: string[]): string {
+  for (const statement of source.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      statement.importClause?.isTypeOnly ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "@loozo/angular-router"
+    ) {
+      continue;
+    }
+
+    const bindings = statement.importClause?.namedBindings;
+
+    if (!bindings || !ts.isNamedImports(bindings)) {
+      continue;
+    }
+
+    for (const binding of bindings.elements) {
+      if (!binding.isTypeOnly && (binding.propertyName ?? binding.name).text === "stringParam") {
+        return binding.name.text;
+      }
+    }
+  }
+
+  if (identifiers(source).has("stringParam")) {
+    const name = unusedBinding(source, "filesystemStringParam");
+
+    imports.push(`import { stringParam as ${name} } from "@loozo/angular-router";`);
+
+    return name;
+  }
+
+  imports.push('import { stringParam } from "@loozo/angular-router";');
+
+  return "stringParam";
+}
+
+// After the last import, keeping ordinary same-line comments with the import they annotate. A
+// directive or multiline comment there can bind to the next line, so insert before it instead.
+function importPosition(source: ts.SourceFile): number {
+  let last: ts.ImportDeclaration | undefined;
+
+  for (const statement of source.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      last = statement;
+    }
+  }
+
+  // Every admitted declaration imports defineRoute.
+  let position = last!.end;
+
+  for (const range of ts.getTrailingCommentRanges(source.text, last!.end) ?? []) {
+    const comment = source.text.slice(range.pos, range.end);
+
+    if (directive.test(comment) || /[\r\n]/.test(comment)) {
+      return last!.end;
+    }
+
+    position = range.end;
+  }
+
+  return position;
+}
+
+// Point the parent property at a binding, as shorthand when it is named `parent` and nothing
+// but whitespace separates the key from its value.
+function parentValue(
+  property: ts.ObjectLiteralElementLike,
+  value: ts.Expression,
+  name: string,
+  source: ts.SourceFile,
+): Patch {
+  if (ts.isShorthandPropertyAssignment(property)) {
+    return { start: value.getStart(source), end: value.end, text: `parent: ${name}` };
+  }
+
+  const separator = source.text.slice(property.name!.end, value.getStart(source));
+
+  if (name === "parent" && /^\s*:\s*$/.test(separator)) {
+    return { start: property.getStart(source), end: property.end, text: name };
+  }
+
+  return { start: value.getStart(source), end: value.end, text: name };
 }
 
 function removeSyntax(node: ts.Node, source: ts.SourceFile): Patch {
@@ -80,12 +189,7 @@ function removeSyntax(node: ts.Node, source: ts.SourceFile): Patch {
 
     // Include adjacent retained trivia: it too can become module-leading after
     // deletion. Stop at the next actual token, without copying trailing bytes.
-    if (
-      comment &&
-      /@ts-(?:expect-error|ignore|check|nocheck)\b|@jsx(?:frag|importsource|runtime)?\b|\/\/\/\s*<(?:reference|amd-dependency|amd-module)\b|(?:eslint|oxlint)-disable-next-line\b/i.test(
-        scanner.getTokenText(),
-      )
-    ) {
+    if (comment && directive.test(scanner.getTokenText())) {
       fail(node, "Cannot remove directive-bound filesystem parent syntax; repair it explicitly");
     }
 
@@ -230,23 +334,34 @@ function patchDeclaration(
       }
     }
 
-    const sameNames =
-      names.size === desiredNames.size && [...names].every((name) => desiredNames.has(name));
+    const removed: string[] = [];
+    const added: string[] = [];
 
-    if (!sameNames) {
+    for (const name of names) {
+      if (!desiredNames.has(name)) {
+        removed.push(name);
+      }
+    }
+
+    for (const name of desiredNames) {
+      if (!names.has(name)) {
+        added.push(name);
+      }
+    }
+
+    if (removed.length > 0 || added.length > 0) {
       const params = declaration.config.get("params");
 
-      if (names.size === 1 && desiredNames.size === 1 && params) {
+      if (removed.length === 1 && added.length === 1 && params) {
         const entries = properties(params, "Filesystem local params");
-        const oldName = [...names][0];
-        const newName = [...desiredNames][0];
+        const [oldName] = removed;
+        const [newName] = added;
 
-        if (entries.size !== 1 || !entries.has(oldName)) {
+        if (entries.size !== names.size || !entries.has(oldName)) {
           fail(params, "Ambiguous filesystem codec change; update local params explicitly");
         }
 
-        const inline = params as ts.ObjectLiteralExpression;
-        const property = inline.properties[0];
+        const property = entries.get(oldName)!.parent;
 
         if (!ts.isPropertyAssignment(property)) {
           fail(
@@ -260,11 +375,37 @@ function patchDeclaration(
           end: property.name.end,
           text: JSON.stringify(newName),
         });
-      } else if (names.size === 0 && desiredNames.size === 1 && !params) {
-        const name = unusedBinding(source, "filesystemStringParam");
+      } else if (removed.length === 0 && params) {
+        // Pure additions keep every authored codec and give each new param the seed's codec.
+        const entries = properties(params, "Filesystem local params");
 
-        imports.push(`import { stringParam as ${name} } from "@loozo/angular-router";${newline}`);
-        additions.push(`params: { ${JSON.stringify([...desiredNames][0])}: ${name} }`);
+        for (const name of names) {
+          if (!entries.has(name)) {
+            fail(params, "Ambiguous filesystem codec change; update local params explicitly");
+          }
+        }
+
+        if (entries.size !== names.size) {
+          fail(params, "Ambiguous filesystem codec change; update local params explicitly");
+        }
+
+        const name = stringParamBinding(source, imports);
+        const appended: string[] = [];
+
+        for (const param of added) {
+          appended.push(`${JSON.stringify(param)}: ${name}`);
+        }
+
+        patches.push(addProperty(params as ts.ObjectLiteralExpression, appended.join(", ")));
+      } else if (names.size === 0 && !params) {
+        const name = stringParamBinding(source, imports);
+        const entries: string[] = [];
+
+        for (const param of added) {
+          entries.push(`${JSON.stringify(param)}: ${name}`);
+        }
+
+        additions.push(`params: { ${entries.join(", ")} }`);
       } else {
         fail(
           literal,
@@ -292,6 +433,17 @@ function patchDeclaration(
           end: module.end,
           text: JSON.stringify(specifier(declaration.file, parentFile)),
         });
+
+        // A specifier that still resolves names a different parent, and so does its binding. An
+        // unresolvable one went stale because a file moved or was deleted; its name may still fit.
+        const binding = imported.importClause!.name!;
+
+        if (resolved && binding.text !== "parent" && !identifiers(source).has("parent")) {
+          patches.push({ start: binding.getStart(source), end: binding.end, text: "parent" });
+          patches.push(
+            parentValue(parent.parent as ts.PropertyAssignment, parent, "parent", source),
+          );
+        }
       } else {
         if (!resolved && (usedElsewhere || imported.importClause?.namedBindings)) {
           fail(
@@ -314,27 +466,25 @@ function patchDeclaration(
         if (!parentFile) {
           patches.push(...removeProperty(property, source));
         } else {
-          parentName = unusedBinding(source, "filesystemParent");
-
-          let text = parentName;
-
-          if (ts.isShorthandPropertyAssignment(property)) {
-            text = `parent: ${parentName}`;
-          }
-
-          patches.push({ start: parent.getStart(source), end: parent.end, text });
+          parentName = parentBinding(source);
+          patches.push(parentValue(property, parent, parentName, source));
         }
       }
     }
   } else if (parentFile) {
-    parentName = unusedBinding(source, "filesystemParent");
-    additions.push(`parent: ${parentName}`);
+    parentName = parentBinding(source);
+
+    if (parentName === "parent") {
+      additions.push("parent");
+    } else {
+      additions.push(`parent: ${parentName}`);
+    }
   }
 
   if (parentFile && parentName) {
     // A new binding leaves a still-valid old import and its unrelated uses alone.
     imports.push(
-      `import ${parentName} from ${JSON.stringify(specifier(declaration.file, parentFile))};${newline}`,
+      `import ${parentName} from ${JSON.stringify(specifier(declaration.file, parentFile))};`,
     );
   }
 
@@ -343,13 +493,14 @@ function patchDeclaration(
   }
 
   if (imports.length > 0) {
-    // Static imports are hoisted. Appending at the complete module boundary
-    // preserves every existing statement/comment attachment without parsing it.
-    patches.push({
-      start: source.text.length,
-      end: source.text.length,
-      text: newline + imports.join(""),
-    });
+    const position = importPosition(source);
+    let text = "";
+
+    for (const statement of imports) {
+      text += newline + statement;
+    }
+
+    patches.push({ start: position, end: position, text });
   }
 
   patches.sort((a, b) => b.start - a.start);
@@ -378,6 +529,8 @@ export async function synchronize(
   checker: ts.TypeChecker,
 ): Promise<Map<string, string>> {
   const byDirectory = new Map<string, Declaration>();
+  // Only directories with a page or a declaration become records. Others contribute their
+  // path segment to the records below them.
   const participating = new Set<string>();
 
   for (const declaration of declarations) {
@@ -413,18 +566,6 @@ export async function synchronize(
     participating.add(directory);
   }
 
-  for (const directory of participating) {
-    let ancestor = directory;
-
-    while (ancestor !== root) {
-      ancestor = dirname(ancestor);
-
-      if (!transparent(root, ancestor)) {
-        participating.add(ancestor);
-      }
-    }
-  }
-
   const files = new Map<string, string>();
 
   for (const directory of [...participating].sort()) {
@@ -450,20 +591,36 @@ export async function synchronize(
   const authored = new Map<string, string>();
 
   for (const [directory, file] of files) {
+    const contributions = [contribution(root, directory)];
+    let ancestor = directory;
     let parentFile: string | undefined;
 
-    if (directory !== root) {
-      let parent = dirname(directory);
+    while (ancestor !== root && !parentFile) {
+      ancestor = dirname(ancestor);
+      parentFile = files.get(ancestor);
 
-      while (transparent(root, parent)) {
-        parent = dirname(parent);
+      if (!parentFile) {
+        contributions.unshift(contribution(root, ancestor));
       }
-
-      parentFile = files.get(parent)!;
     }
 
-    const path = localPath(root, directory);
-    const segments = parsePath(path);
+    const parts: string[] = [];
+
+    for (const part of contributions) {
+      if (part !== "") {
+        parts.push(part);
+      }
+    }
+
+    const path = parts.join("/");
+    let segments: readonly Segment[];
+
+    try {
+      segments = parsePath(path);
+    } catch (error) {
+      throw new Error(`Invalid filesystem path "${path}" for ${file}: ${(error as Error).message}`);
+    }
+
     const declaration = byDirectory.get(directory);
 
     if (declaration) {
@@ -485,17 +642,35 @@ export async function synchronize(
       config.push("parent");
     }
 
+    const params = new Set<string>();
+
     for (const segment of segments) {
       if (segment.kind !== "static") {
-        imported.push("stringParam");
-        config.push(`params: { ${JSON.stringify(segment.name)}: stringParam }`);
+        params.add(segment.name);
       }
+    }
+
+    if (params.size > 0) {
+      const entries: string[] = [];
+
+      for (const name of params) {
+        entries.push(`${JSON.stringify(name)}: stringParam`);
+      }
+
+      imported.push("stringParam");
+      config.push(`params: { ${entries.join(", ")} }`);
+    }
+
+    let object = "{}";
+
+    if (config.length > 0) {
+      object = `{ ${config.join(", ")} }`;
     }
 
     imports.unshift(`import { ${imported.join(", ")} } from "@loozo/angular-router";`);
     authored.set(
       file,
-      `${imports.join("\n")}\n\nexport default defineRoute(${JSON.stringify(path)}, { ${config.join(", ")} });\n`,
+      `${imports.join("\n")}\n\nexport default defineRoute(${JSON.stringify(path)}, ${object});\n`,
     );
   }
 

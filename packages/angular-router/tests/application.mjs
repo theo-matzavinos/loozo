@@ -177,6 +177,23 @@ async function expectBuild(success, options = {}) {
   assert.equal(result, success);
 }
 
+// Generation failures are failed builds whose diagnostics go to the builder logger, not thrown.
+function generationError() {
+  const report = reports.at(-1);
+  const messages = [];
+
+  assert.equal(report.error, undefined, "Generation failures are reported, not thrown");
+  assert.equal(report.output.success, false);
+
+  for (const entry of report.logs) {
+    if (entry.level === "error") {
+      messages.push(entry.message);
+    }
+  }
+
+  return messages.join("\n");
+}
+
 async function expectUnchanged(expected, message) {
   const actual = await snapshot();
 
@@ -245,16 +262,16 @@ const drift = await snapshot();
 
 await expectBuild(false, { check: true });
 await expectUnchanged(drift);
-assert.match(reports.at(-1).error, /artifacts changed/);
+assert.match(generationError(), /artifacts changed/);
 await write("generated/routes.generated.ts", initial["generated/routes.generated.ts"].bytes);
 await expectBuild(false, { check: true });
-assert.match(reports.at(-1).error, /artifacts missing/);
+assert.match(generationError(), /artifacts missing/);
 await write(
   "generated/destinations.generated.ts",
   initial["generated/destinations.generated.ts"].bytes,
 );
 await expectBuild(false, { check: true });
-assert.match(reports.at(-1).error, /artifacts stale/);
+assert.match(generationError(), /artifacts stale/);
 await expectBuild(true);
 
 const repaired = await snapshot();
@@ -286,13 +303,13 @@ async function expectPreflight(name, diagnostic) {
   const before = await snapshot(false, true);
 
   await expectBuild(false, { check: true });
-  assert.match(reports.at(-1).error, diagnostic);
+  assert.match(generationError(), diagnostic);
 
   const afterCheck = await snapshot(false, true);
 
   assert.deepEqual(afterCheck, before, `${name}: check must preserve bytes/modes/ns-mtimes`);
   await expectBuild(false);
-  assert.match(reports.at(-1).error, diagnostic);
+  assert.match(generationError(), diagnostic);
 
   const afterWrite = await snapshot(false, true);
 
@@ -627,14 +644,14 @@ await write(
 );
 await expectBuild(false);
 await expectUnchanged(validRedirect);
-assert.match(reports.at(-1).error, /replacement fragment is not declared/);
+assert.match(generationError(), /replacement fragment is not declared/);
 await write(
   "src/routes/alias/definition.ts",
   alias.replace("mode: 'drop'", "mode: 'drop', values: {}"),
 );
 await expectBuild(false);
 await expectUnchanged(validRedirect);
-assert.match(reports.at(-1).error, /Unknown redirect search policy key/);
+assert.match(generationError(), /Unknown redirect search policy key/);
 await rm(join(fixture, "src/routes/alias"), { recursive: true });
 await write("src/routes/home/definition.ts", definition);
 await expectBuild(true);

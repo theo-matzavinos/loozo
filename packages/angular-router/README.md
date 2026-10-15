@@ -252,27 +252,44 @@ By default you write every declaration, including its path and parent. If you'd 
 }
 ```
 
-The builder then creates an editable `route.ts` in each directory that has a page but no declaration yet, and in the directories above it that need one. Directory names map to paths like this:
+A directory becomes a route when it has a page or a declaration. The builder creates an editable `route.ts` in each directory that has a page but no declaration yet. Every other directory, the scan directory included, isn't a route: it adds its name to the paths of the routes below it. Each route's parent is the nearest route above it.
 
-| Directory          | Path contribution                                                       |
-| ------------------ | ----------------------------------------------------------------------- |
-| The scan directory | `""`                                                                    |
-| `products`, `$id`  | Its name                                                                |
-| `+layout`          | `""`: a pathless route                                                  |
-| `-helpers`         | Nothing: no route; directories inside attach to the nearest route above |
+| Directory          | Path contribution                                                           |
+| ------------------ | --------------------------------------------------------------------------- |
+| `products`, `$id`  | Its name                                                                    |
+| `+layout`          | `""`: a pathless route when it has a page or declaration, otherwise nothing |
+| The scan directory | `""`: the root route when it has a page or declaration, otherwise nothing   |
+| `-helpers`         | Nothing, and never a route; routes inside attach to the nearest route above |
 
-For `src/routes/products/$productId/page.ts`, the generated declaration looks like this:
+For example, with pages in `src/routes/$package/` and `src/routes/$package/guide/$guide/` but none in `guide/`:
+
+```text
+src/routes/
+  $package/
+    page.ts
+    route.ts          defineRoute("$package", …): no parent
+    guide/            no page: adds "guide" to the path below
+      $guide/
+        page.ts
+        route.ts      defineRoute("guide/$guide", …): parent is $package
+```
+
+The generated declaration for `$package/guide/$guide/page.ts` looks like this:
 
 ```ts
 import { defineRoute, stringParam } from "@loozo/angular-router";
-import parent from "../route.js";
+import parent from "../../route.js";
 
-export default defineRoute("$productId", { parent, params: { productId: stringParam } });
+export default defineRoute("guide/$guide", { parent, params: { guide: stringParam } });
 ```
 
-These files are yours. Change the codecs, add search params, guards and resolvers; the builder leaves them alone. When you move or rename a directory, it updates only the path literal, the `parent` import, and a param key it can rename unambiguously. When it can't make an edit safely (for example, a removed param whose codec you customized), generation fails and asks you to fix the file. It never deletes declarations.
+Angular gets `{ path: ":package", children: [{ path: "guide/:guide" }] }`, the same routes as writing those two declarations by hand, so `/angular-router/guide` on its own matches neither of them. If a directory without a page needs behavior of its own, such as a guard or resolver shared by the routes below it, add a declaration to it. It then becomes a componentless route and the parent of the routes below it. Angular also matches its bare URL (`/angular-router/guide`) when no child does, and SSR prerendering lists it as a route.
 
-Directories without pages or declarations, like helper or empty directories, get no route. A `-` directory can't contain a page or a declaration with behavior.
+These files are yours. Change the codecs, add search params, guards and resolvers; the builder leaves them alone. When you move or rename a directory, or a route above it appears or disappears, the builder updates only the path literal, the `parent` property and its import, and the local params where the change is unambiguous: it renames a single changed param key and keeps its codec, and when params are only added (for example, a declaration moved under a page-less `$team` directory) it keeps every existing codec and adds a `stringParam` codec per new param, also to a declaration that had no params. It reuses your `stringParam` import when the file has one, and otherwise imports it as `stringParam`, or `filesystemStringParam` when the file already uses that name. When it can't make an edit safely (for example, a removed param whose codec you customized, or params spread from another object), generation fails and asks you to fix the file. It never deletes declarations.
+
+A new import goes on its own line after the file's last import and any comment on that import's line. When that comment spans lines or carries a directive for the next line (such as `// @ts-expect-error`), the new import goes before the comment instead, so the directive keeps its target. A new parent import is named `parent`, or `filesystemParent` when the file already uses that name. When an existing parent import still points at a route that's no longer the parent, for example because you added a declaration between them, it's repointed and renamed to `parent`. When it no longer resolves, because its file moved or its target was deleted, it's repointed and keeps its name. An import that's used for more than the `parent` property is left alone, and a new parent import is added beside it.
+
+A `-` directory can't contain a page or a declaration with behavior.
 
 Use `{ "filename": "definition.ts" }` to seed a different file name. It must be a plain `.ts` file name that isn't a generated file name. That only affects new files; existing declarations are found by content, whatever their name.
 
@@ -312,7 +329,7 @@ All `@angular/build:application` options, plus:
 | `check`            | `boolean`               | `false`  | Verify generated files without writing them. Fails on any drift.                                                                    |
 | `autoDefineRoutes` | `{ filename?: string }` | omitted  | Enable [filesystem route definitions](#filesystem-route-definitions). `filename` defaults to `route.ts`.                            |
 
-The builder runs generation once, then the official application build. Invalid options stop the build before generation starts, and generation errors stop it before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
+The builder runs generation once, then the official application build. Invalid options stop the build before generation starts. Generation errors, including drift in check mode, are logged and fail the build before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
 
 ### `@loozo/angular-router:serve`
 
@@ -323,7 +340,7 @@ All `@angular/build:dev-server` options, plus:
 | `buildTarget` | `string`          | required | A target that uses `@loozo/angular-router:application`. Router options come from it. |
 | `poll`        | `number \| false` | `1000`   | File-watch polling interval in milliseconds, or `false` for no default.              |
 
-The serve builder validates its dev-server options and the build target before generating anything. It watches the scan directory and regenerates when files are added, changed or removed. The initial generation must succeed before the dev server starts; later errors are logged, and the server keeps running until you fix them. The build target must not resolve `check: true`, because serving always writes generated files.
+The serve builder validates its dev-server options and the build target before generating anything. It watches the scan directory and regenerates when files are added, changed or removed. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build. Later errors are logged, and the server keeps running until you fix them. The build target must not resolve `check: true`, because serving always writes generated files.
 
 Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. Polling costs some idle CPU (about 3% of one core on the example app at 1000 ms, against under 0.1% without), and more on larger workspaces.
 

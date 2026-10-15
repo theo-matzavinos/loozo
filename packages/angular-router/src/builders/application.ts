@@ -1,6 +1,6 @@
 import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-devkit/architect";
 import { generate } from "../generation/generate.js";
-import { split, type JsonObject } from "./options.js";
+import { message, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
 
@@ -16,7 +16,10 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
     if (!cleanup) {
       const delegateStop = acquisition?.then((run) => run.stop());
 
-      cleanup = Promise.all([delegateStop, generation]).then(() => undefined);
+      // The builder reports a failed generation itself; stopping only waits for it to settle.
+      const drain = generation?.catch(() => undefined);
+
+      cleanup = Promise.all([delegateStop, drain]).then(() => undefined);
     }
 
     return cleanup;
@@ -32,7 +35,15 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
     }
 
     generation = generate(context.workspaceRoot, router, () => stopped);
-    await generation;
+
+    try {
+      await generation;
+    } catch (error) {
+      // Diagnostics, synchronization conflicts and check-mode drift are build failures, not crashes.
+      context.logger.error(message(error));
+
+      return { success: false };
+    }
 
     if (stopped) {
       return { success: false };
