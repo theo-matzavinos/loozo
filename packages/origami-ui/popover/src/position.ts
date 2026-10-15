@@ -16,16 +16,22 @@ const opposites: Record<Side, Side> = {
   right: "left",
 };
 
+/** Scalar Anchor axes read in the same READ phase that positions; never a live style declaration. */
+export interface PositionAxes {
+  readonly writingMode: string;
+  readonly direction: string;
+}
+
 export function positionContent(
   anchor: HTMLElement,
   content: HTMLElement,
   configuration: PositionConfiguration,
+  axes: PositionAxes,
 ) {
-  const style = anchor.ownerDocument.defaultView!.getComputedStyle(anchor);
   let blockStart: Side;
   let inlineStart: Side;
 
-  switch (style.writingMode) {
+  switch (axes.writingMode) {
     case "horizontal-tb":
       blockStart = "top";
       inlineStart = "left";
@@ -42,10 +48,10 @@ export function positionContent(
 
       break;
     default:
-      throw new Error(`Unsupported Popover Anchor writing mode: ${style.writingMode}.`);
+      throw new Error(`Unsupported Popover Anchor writing mode: ${axes.writingMode}.`);
   }
 
-  if (style.direction === "rtl") {
+  if (axes.direction === "rtl") {
     inlineStart = opposites[inlineStart];
   }
 

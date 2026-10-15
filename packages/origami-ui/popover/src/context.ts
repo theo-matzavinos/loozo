@@ -1,7 +1,6 @@
 import {
   ChangeDetectorRef,
   DestroyRef,
-  DOCUMENT,
   ElementRef,
   ErrorHandler,
   PLATFORM_ID,
@@ -25,10 +24,13 @@ import {
   OrigamiPopoverContentOptions,
 } from "./options";
 import { positionContent } from "./position";
-import type { PositionConfiguration } from "./position";
+import type { PositionAxes, PositionConfiguration } from "./position";
+import { PopoverParticipants } from "./participants";
+import type { Branch, BranchMember } from "./participants";
+import { PopoverPreparation } from "./preparation";
 
-type Intent = { readonly open: boolean };
-type Policy = { readonly disabled: boolean; readonly dismissible: boolean };
+export type Intent = { readonly open: boolean };
+export type Policy = { readonly disabled: boolean; readonly dismissible: boolean };
 type IdentityPart = {
   readonly element: HTMLElement;
   readonly options: () => { readonly id: Signal<string> };
@@ -39,7 +41,7 @@ type ContentPart = {
   readonly presence: OrigamiPresenceState;
   readonly presentation: ɵOrigamiPresencePresentation;
 };
-type Parts = {
+export type Parts = {
   readonly trigger: IdentityPart | null;
   readonly anchor: IdentityPart | null;
   readonly content: ContentPart | null;
@@ -55,7 +57,7 @@ type Attempt = {
   readonly configuration: PositionConfiguration;
   readonly parentRevision: number;
 };
-type Activation = { readonly parts: CompleteParts; order: number; revealed: boolean };
+export type Activation = { readonly parts: CompleteParts; order: number; revealed: boolean };
 type PositionSnapshot = {
   readonly activation: Activation;
   readonly intent: Intent;
@@ -64,272 +66,6 @@ type PositionSnapshot = {
   readonly transition: number;
 };
 type PositionResult = PositionSnapshot & { readonly x: number; readonly y: number };
-type BranchMember = {
-  readonly context: PopoverContext;
-  intent: Intent;
-  readonly parts: Parts;
-  readonly policy: Policy;
-  readonly structure: number;
-  readonly activation: Activation | null;
-  presentationEpoch: number;
-  readonly ready: boolean;
-};
-type Branch = { readonly owner: PopoverContext; readonly members: BranchMember[] };
-type Gesture = { readonly event: PointerEvent; readonly branches: Branch[]; cancelled: boolean };
-type StyleOverride = {
-  readonly property: string;
-  temporary: string;
-  value: string;
-  priority: string;
-};
-
-// Application-local event ownership, not a public overlay stack or global document singleton.
-@Service()
-class PopoverParticipants {
-  readonly document = inject(DOCUMENT);
-  readonly #server = isPlatformServer(inject(PLATFORM_ID));
-  readonly #owners = new Set<PopoverContext>();
-  readonly #pendingTasks = new Set<ReturnType<typeof setTimeout>>();
-  #nextOrder = 0;
-  #gesture: Gesture | null = null;
-
-  constructor() {
-    if (this.#server) {
-      return;
-    }
-
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) {
-        return;
-      }
-
-      let topmost: PopoverContext | null = null;
-      let order = -1;
-
-      for (const owner of this.#owners) {
-        if (owner.isParticipating() && owner.order() > order) {
-          topmost = owner;
-          order = owner.order();
-        }
-      }
-
-      if (topmost !== null) {
-        // A veto consumes the request as well; there is no ancestor fallthrough.
-        event.preventDefault();
-        this.dismiss(topmost.captureBranch(), "escape", false);
-      }
-    };
-    const down = (event: PointerEvent) => {
-      this.#gesture = null;
-
-      if (!event.isTrusted || !event.isPrimary || event.button !== 0 || event.defaultPrevented) {
-        return;
-      }
-
-      const path = event.composedPath();
-      const candidates = new Set<PopoverContext>();
-
-      for (const owner of this.#owners) {
-        if (owner.isParticipating() && !owner.containsPath(path)) {
-          candidates.add(owner);
-        }
-      }
-
-      const branches: Branch[] = [];
-
-      for (const owner of candidates) {
-        let ancestor = owner.parent;
-        let covered = false;
-
-        while (ancestor !== null) {
-          if (candidates.has(ancestor)) {
-            covered = true;
-
-            break;
-          }
-
-          ancestor = ancestor.parent;
-        }
-
-        if (!covered) {
-          branches.push(owner.captureBranch());
-        }
-      }
-
-      branches.sort((left, right) => right.owner.branchOrder() - left.owner.branchOrder());
-      this.#gesture = { event, branches, cancelled: false };
-    };
-    const up = (event: PointerEvent) => {
-      const gesture = this.#gesture;
-
-      // UP ends acquisition. Normal capture release follows UP and must not veto it.
-      // The task below still observes prevention by later listeners in this UP dispatch.
-      this.#gesture = null;
-
-      if (gesture === null) {
-        return;
-      }
-
-      const path = event.composedPath();
-
-      // Native callback cleanup can run microtasks between listeners. A task sees
-      // final prevention after the current dispatch, including later window consumers.
-      this.#afterNativeDispatch(() => {
-        if (
-          gesture.cancelled ||
-          !event.isTrusted ||
-          !event.isPrimary ||
-          event.button !== 0 ||
-          event.defaultPrevented ||
-          gesture.event.defaultPrevented ||
-          event.pointerId !== gesture.event.pointerId ||
-          event.button !== gesture.event.button
-        ) {
-          return;
-        }
-
-        for (const branch of gesture.branches) {
-          if (
-            this.fresh(branch) &&
-            branch.owner.isParticipating() &&
-            !branch.owner.containsPath(path)
-          ) {
-            this.dismiss(branch, "outside", false);
-          }
-        }
-      });
-    };
-    const drag = (event: DragEvent) => {
-      const gesture = this.#gesture;
-
-      if (gesture === null || !event.isTrusted) {
-        return;
-      }
-
-      this.#afterNativeDispatch(() => {
-        if (event.defaultPrevented) {
-          return;
-        }
-
-        // Completed native drag may omit pointercancel/up. Retire only its acquisition,
-        // even if a newer DOWN or the old UP was captured before this task ran.
-        gesture.cancelled = true;
-
-        if (this.#gesture === gesture) {
-          this.#gesture = null;
-        }
-      });
-    };
-    const cancel = () => {
-      this.#gesture = null;
-    };
-
-    this.document.addEventListener("keydown", escape);
-    this.document.addEventListener("pointerdown", down);
-    this.document.addEventListener("pointerup", up);
-    this.document.addEventListener("dragstart", drag);
-    this.document.addEventListener("pointercancel", cancel);
-    this.document.addEventListener("lostpointercapture", cancel);
-    inject(DestroyRef).onDestroy(() => {
-      this.document.removeEventListener("keydown", escape);
-      this.document.removeEventListener("pointerdown", down);
-      this.document.removeEventListener("pointerup", up);
-      this.document.removeEventListener("dragstart", drag);
-      this.document.removeEventListener("pointercancel", cancel);
-      this.document.removeEventListener("lostpointercapture", cancel);
-      this.#gesture = null;
-
-      for (const task of this.#pendingTasks) {
-        clearTimeout(task);
-      }
-
-      this.#pendingTasks.clear();
-    });
-  }
-
-  #afterNativeDispatch(callback: () => void): void {
-    const task = setTimeout(() => {
-      this.#pendingTasks.delete(task);
-      callback();
-    }, 0);
-
-    this.#pendingTasks.add(task);
-  }
-
-  register(owner: PopoverContext): void {
-    this.#owners.add(owner);
-  }
-
-  unregister(owner: PopoverContext): void {
-    this.#owners.delete(owner);
-  }
-
-  nextOrder(): number {
-    this.#nextOrder += 1;
-
-    return this.#nextOrder;
-  }
-
-  fresh(branch: Branch): boolean {
-    for (const member of branch.members) {
-      if (!member.context.matches(member)) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  dismiss(branch: Branch, reason: "escape" | "outside" | "trigger", bypassOwner: boolean): void {
-    if (!this.fresh(branch)) {
-      return;
-    }
-
-    // Preflight every requested-open member before any model/output write.
-    for (const member of branch.members) {
-      if (
-        member.intent.open &&
-        !member.policy.dismissible &&
-        !(bypassOwner && member.context === branch.owner)
-      ) {
-        return;
-      }
-    }
-
-    const focus = this.document.activeElement;
-
-    // The snapshot is already postorder: descendants before ancestor.
-    for (const member of branch.members) {
-      if (!this.fresh(branch)) {
-        return;
-      }
-
-      if (!member.intent.open) {
-        continue;
-      }
-
-      member.context.closeFromInteraction();
-
-      if (member.context.intent().open) {
-        return;
-      }
-
-      member.intent = member.context.intent();
-
-      if (!member.context.acceptCloseEpoch(member)) {
-        return;
-      }
-
-      if (!this.fresh(branch)) {
-        return;
-      }
-    }
-
-    if (reason !== "outside" && this.document.activeElement === focus && this.fresh(branch)) {
-      branch.owner.restoreFocus(focus);
-    }
-  }
-}
 
 /** @internal Nearest logical Popover owner. Not exported as an application authoring API. */
 @Service({ autoProvided: false })
@@ -340,7 +76,7 @@ export class PopoverContext {
   readonly #errorHandler = inject(ErrorHandler);
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #options = injectDeferred(OrigamiPopoverOptions);
-  readonly #preparationId = injectUniqueId("popover-preparation");
+  readonly #preparation = new PopoverPreparation(injectUniqueId("popover-preparation"));
   readonly #trigger = signal<IdentityPart | null>(null);
   readonly #anchor = signal<IdentityPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
@@ -363,7 +99,6 @@ export class PopoverContext {
   #positionDirty = false;
   #positionResult: PositionResult | null = null;
   #stopTracking: (() => void) | null = null;
-  #overrides: StyleOverride[] = [];
 
   // Object identity detects invalidated/recomputed effective signal decisions, including
   // net-equal close/reopen before a pointer snapshot's next observation.
@@ -425,7 +160,9 @@ export class PopoverContext {
     });
 
     afterEveryRender({
-      earlyRead: () => this.#observeAxes(),
+      earlyRead: () => {
+        this.#observeAxes();
+      },
       write: () => this.#write(),
       read: () => this.#read(),
     });
@@ -891,7 +628,7 @@ export class PopoverContext {
           revealed: false,
         };
         this.#activation = activation;
-        this.#prepare(content.element);
+        this.#preparation.prepare(content.element);
         content.element.inert = false;
         this.#showing = attempt;
 
@@ -955,7 +692,7 @@ export class PopoverContext {
       }
 
       if (!activation.revealed) {
-        this.#prepare(content.element);
+        this.#preparation.prepare(content.element);
       }
 
       content.element.inert = false;
@@ -965,7 +702,7 @@ export class PopoverContext {
       if (result !== null && this.#resultCurrent(result)) {
         content.element.style.setProperty("left", `${result.x}px`);
         content.element.style.setProperty("top", `${result.y}px`);
-        this.#releaseOverrides(content.element);
+        this.#preparation.release(content.element);
         content.presentation.commitReveal(result.transition);
         activation.revealed = true;
         this.#setReady(true);
@@ -1018,21 +755,26 @@ export class PopoverContext {
     this.#hide(activation);
   }
 
-  #observeAxes(): void {
+  /** Observes a connected Anchor's axes and returns the scalars read; a change invalidates the position. */
+  #observeAxes(): PositionAxes | null {
     const activation = this.#activation;
 
     if (this.#destroyed || activation === null || !activation.parts.anchor.element.isConnected) {
-      return;
+      return null;
     }
 
     const anchor = activation.parts.anchor.element;
     const style = anchor.ownerDocument.defaultView!.getComputedStyle(anchor);
-    const axes = `${style.writingMode}/${style.direction}`;
+    const writingMode = style.writingMode;
+    const direction = style.direction;
+    const axes = `${writingMode}/${direction}`;
 
     if (axes !== this.#axes) {
       this.#axes = axes;
       this.#invalidatePosition();
     }
+
+    return { writingMode, direction };
   }
 
   #read(): void {
@@ -1046,7 +788,8 @@ export class PopoverContext {
       return;
     }
 
-    this.#observeAxes();
+    // Native WRITE callbacks may have changed the axes since earlyRead; position with this READ's.
+    let axes = this.#observeAxes();
 
     if (this.#stopTracking === null) {
       // autoUpdate attaches ancestor listeners before constructing these observers, and
@@ -1088,10 +831,19 @@ export class PopoverContext {
     let computation: ReturnType<typeof positionContent>;
 
     try {
+      if (axes === null) {
+        // A disconnected Anchor is not observed, yet its computed axes still decide this position.
+        const anchor = activation.parts.anchor.element;
+        const style = anchor.ownerDocument.defaultView!.getComputedStyle(anchor);
+
+        axes = { writingMode: style.writingMode, direction: style.direction };
+      }
+
       computation = positionContent(
         activation.parts.anchor.element,
         content.element,
         configuration,
+        axes,
       );
     } catch (error) {
       this.#failPosition(activation, error);
@@ -1210,80 +962,6 @@ export class PopoverContext {
     );
   }
 
-  #prepare(element: HTMLElement): void {
-    if (this.#overrides.length === 0) {
-      const opacityVariable = `--${this.#preparationId}-opacity`;
-      const pointerVariable = `--${this.#preparationId}-pointer`;
-
-      // Owner-private declarations block inherited values. Track them through the
-      // same restoration protocol; their names are not application styling hooks.
-      // Distinct specified tokens still compute to 0/none, so ordinary authored
-      // 0!important / none!important cannot be mistaken for our own override.
-      this.#overrides = [
-        {
-          property: opacityVariable,
-          temporary: "0",
-          value: element.style.getPropertyValue(opacityVariable),
-          priority: element.style.getPropertyPriority(opacityVariable),
-        },
-        {
-          property: pointerVariable,
-          temporary: "none",
-          value: element.style.getPropertyValue(pointerVariable),
-          priority: element.style.getPropertyPriority(pointerVariable),
-        },
-        {
-          property: "opacity",
-          temporary: `var(${opacityVariable}, 0)`,
-          value: element.style.getPropertyValue("opacity"),
-          priority: element.style.getPropertyPriority("opacity"),
-        },
-        {
-          property: "pointer-events",
-          temporary: `var(${pointerVariable}, none)`,
-          value: element.style.getPropertyValue("pointer-events"),
-          priority: element.style.getPropertyPriority("pointer-events"),
-        },
-      ];
-    }
-
-    for (const override of this.#overrides) {
-      const value = element.style.getPropertyValue(override.property);
-      const priority = element.style.getPropertyPriority(override.property);
-
-      if (value !== override.temporary || priority !== "important") {
-        override.value = value;
-        override.priority = priority;
-      }
-
-      element.style.setProperty(override.property, override.temporary, "important");
-      // Ownership compares the browser's specified serialization, never computed values.
-      override.temporary = element.style.getPropertyValue(override.property);
-    }
-  }
-
-  #releaseOverrides(element: HTMLElement): void {
-    // Restore visual declarations before releasing their private variable dependencies.
-    for (let index = this.#overrides.length - 1; index >= 0; index--) {
-      const override = this.#overrides[index];
-
-      // A consumer binding written after our override is authoritative. Otherwise
-      // restore the latest binding captured in preparation, including its priority.
-      if (
-        element.style.getPropertyValue(override.property) === override.temporary &&
-        element.style.getPropertyPriority(override.property) === "important"
-      ) {
-        if (override.value === "") {
-          element.style.removeProperty(override.property);
-        } else {
-          element.style.setProperty(override.property, override.value, override.priority);
-        }
-      }
-    }
-
-    this.#overrides = [];
-  }
-
   #hide(activation: Activation): void {
     if (this.#activation !== activation || this.#hiding) {
       return;
@@ -1331,7 +1009,7 @@ export class PopoverContext {
     this.#invalidatePosition();
     this.#stopTracking?.();
     this.#stopTracking = null;
-    this.#releaseOverrides(activation.parts.content.element);
+    this.#preparation.release(activation.parts.content.element);
     activation.parts.content.presentation.reset();
     activation.parts.content.element.inert = true;
   }

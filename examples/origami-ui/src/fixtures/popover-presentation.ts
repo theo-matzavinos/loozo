@@ -1,4 +1,15 @@
-import { Component, Directive, Service, inject, input, signal } from "@angular/core";
+import {
+  Component,
+  DestroyRef,
+  Directive,
+  ElementRef,
+  EnvironmentInjector,
+  Service,
+  afterEveryRender,
+  inject,
+  input,
+  signal,
+} from "@angular/core";
 import type { WritableSignal } from "@angular/core";
 import {
   OrigamiPopover,
@@ -33,6 +44,9 @@ export class PresentationSettings {
   readonly opacityOnFocus = signal<string | null>(null);
   readonly sameSuppressionOnShow = signal(false);
   readonly sameSuppressionOnFocus = signal(false);
+  readonly domOnlyOnShow = signal(false);
+  readonly domOnlyOnFocus = signal(false);
+  readonly cleanupCapture = signal("");
   readonly showCapture = signal("");
   readonly focusCapture = signal("");
   readonly shows = signal(0);
@@ -53,6 +67,16 @@ function captureCallbackStyles(content: HTMLElement, event: Event, settings: Pre
     trusted: event.isTrusted,
     native: content.matches(":popover-open"),
   });
+}
+
+function inlineStyles(content: HTMLElement) {
+  return {
+    opacity: content.style.getPropertyValue("opacity"),
+    opacityPriority: content.style.getPropertyPriority("opacity"),
+    pointer: content.style.getPropertyValue("pointer-events"),
+    pointerPriority: content.style.getPropertyPriority("pointer-events"),
+    native: content.matches(":popover-open"),
+  };
 }
 
 @Directive({
@@ -85,6 +109,7 @@ export class PresentationRoot {
     this.settings.shows.update((value) => value + 1);
     this.settings.showCapture.set(captureCallbackStyles(content, event, this.settings));
     this.#author(content, this.settings.opacityOnShow, this.settings.sameSuppressionOnShow);
+    this.#authorDomOnly(content, this.settings.domOnlyOnShow);
 
     if (this.settings.scriptEntrance()) {
       this.settings.scriptEntrance.set(false);
@@ -116,6 +141,7 @@ export class PresentationRoot {
     this.settings.focuses.update((value) => value + 1);
     this.settings.focusCapture.set(captureCallbackStyles(content, event, this.settings));
     this.#author(content, this.settings.opacityOnFocus, this.settings.sameSuppressionOnFocus);
+    this.#authorDomOnly(content, this.settings.domOnlyOnFocus);
 
     if (this.settings.closeOnFocus()) {
       this.settings.closeOnFocus.set(false);
@@ -146,6 +172,23 @@ export class PresentationRoot {
       this.settings.opacity.set("0 !important");
       this.settings.pointerEvents.set("none !important");
     }
+  }
+
+  /**
+   * Consumer writes inside a native callback with no binding or signal update, so no later
+   * Angular binding write can repair them. The microtask runs after the native call returned.
+   */
+  #authorDomOnly(content: HTMLElement, armed: WritableSignal<boolean>): void {
+    if (!armed()) {
+      return;
+    }
+
+    armed.set(false);
+    content.style.setProperty("opacity", "0.3");
+    content.style.setProperty("pointer-events", "auto");
+    queueMicrotask(() => {
+      this.settings.cleanupCapture.set(JSON.stringify(inlineStyles(content)));
+    });
   }
 }
 
@@ -184,6 +227,9 @@ export class PresentationContent implements OrigamiPopoverContentOptions {
         <output data-testid="presentation-bound-opacity">{{ root.settings.opacity() }}</output>
         <output data-testid="presentation-bound-pointer">{{
           root.settings.pointerEvents()
+        }}</output>
+        <output data-testid="presentation-cleanup-capture">{{
+          root.settings.cleanupCapture()
         }}</output>
       </div>
       <div class="controls">
@@ -280,6 +326,23 @@ export class PresentationContent implements OrigamiPopoverContentOptions {
           (click)="root.settings.sameSuppressionOnFocus.set(true)"
         >
           Exact suppression values in autofocus
+        </button>
+        <button
+          type="button"
+          data-testid="presentation-arm-show-dom-only"
+          (click)="root.settings.domOnlyOnShow.set(true)"
+        >
+          DOM-only styles in beforetoggle
+        </button>
+        <button
+          type="button"
+          data-testid="presentation-arm-focus-dom-only"
+          (click)="root.settings.domOnlyOnFocus.set(true)"
+        >
+          DOM-only styles in autofocus
+        </button>
+        <button type="button" data-testid="presentation-arm-axes" (click)="armAxesChanges()">
+          Change Anchor axes before reveal
         </button>
         <button
           type="button"
@@ -440,4 +503,107 @@ export class PresentationContent implements OrigamiPopoverContentOptions {
 export class PopoverPresentation {
   readonly unused = signal(0);
   readonly increment = (value: number): number => value + 1;
+  readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  #axesChanges = 0;
+  #recordingFirstVisible = false;
+  #axesJournal: object[] = [];
+
+  constructor() {
+    // An environment-scoped hook joins the render sequence at registration, ahead of the
+    // Popover owners in this view, whose hooks join when the view first refreshes.
+    // Each phase therefore runs this consumer first.
+    const hooks = afterEveryRender(
+      {
+        earlyRead: () => this.#changeAxesBeforeReveal(),
+        read: () => this.#recordFirstVisible(),
+      },
+      { injector: inject(EnvironmentInjector) },
+    );
+
+    inject(DestroyRef).onDestroy(() => hooks.destroy());
+  }
+
+  /** Arms three Anchor direction changes and a record of the first visible presentation. */
+  armAxesChanges(): void {
+    this.#axesChanges = 3;
+    this.#recordingFirstVisible = true;
+    this.#axesJournal = [];
+    this.#host.removeAttribute("data-axes-changes");
+    this.#host.removeAttribute("data-first-visible");
+  }
+
+  #part(testId: string): HTMLElement | null {
+    const part = this.#host.querySelector(`[data-testid="${testId}"]`);
+
+    if (part instanceof HTMLElement) {
+      return part;
+    }
+
+    return null;
+  }
+
+  /**
+   * Before any owner's earlyRead in a render whose Content shows the entering marker (its
+   * coordinate result arrived) while still transparent (not yet revealed), flip the Anchor's
+   * direction directly: no signal, Options or box change. Repeating it in consecutive such
+   * renders lands at least one change on a render whose result is still ready, however
+   * autoUpdate's initial observer callbacks interleave.
+   */
+  #changeAxesBeforeReveal(): void {
+    const content = this.#part("presentation-content");
+    const anchor = this.#part("presentation-trigger");
+
+    if (this.#axesChanges === 0 || content === null || anchor === null) {
+      return;
+    }
+
+    if (!content.hasAttribute("data-entering") || getComputedStyle(content).opacity !== "0") {
+      return;
+    }
+
+    let direction = "rtl";
+
+    if (getComputedStyle(anchor).direction === "rtl") {
+      direction = "ltr";
+    }
+
+    this.#axesChanges -= 1;
+    anchor.style.direction = direction;
+    this.#axesJournal.push({ direction, native: content.matches(":popover-open") });
+    this.#host.setAttribute("data-axes-changes", JSON.stringify(this.#axesJournal));
+  }
+
+  /** After every WRITE, before any owner's READ: the presentation at the moment opacity suppression is released. */
+  #recordFirstVisible(): void {
+    const content = this.#part("presentation-content");
+    const anchor = this.#part("presentation-trigger");
+
+    if (!this.#recordingFirstVisible || content === null || anchor === null) {
+      return;
+    }
+
+    const computed = getComputedStyle(content);
+
+    if (!content.matches(":popover-open") || Number(computed.opacity) === 0) {
+      return;
+    }
+
+    const rect = content.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+
+    this.#recordingFirstVisible = false;
+    this.#host.setAttribute(
+      "data-first-visible",
+      JSON.stringify({
+        opacity: computed.opacity,
+        anchorDirection: getComputedStyle(anchor).direction,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        anchorLeft: anchorRect.left,
+        anchorRight: anchorRect.right,
+        anchorBottom: anchorRect.bottom,
+      }),
+    );
+  }
 }

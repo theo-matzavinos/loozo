@@ -47,6 +47,8 @@ export class NativeSettings {
   readonly journal = inject(BranchJournal);
   readonly route = inject(ActivatedRoute);
   readonly paint = inject(ConsumerPaint);
+  /** The enclosing native owner's settings, for a descendant's setter to change its ancestor. */
+  readonly ancestor = inject(NativeSettings, { optional: true, skipSelf: true });
   readonly initiallyOpen = this.route.snapshot.queryParamMap.get("initial") === "true";
   readonly disabled = signal(false);
   readonly dismissible = signal(true);
@@ -63,6 +65,7 @@ export class NativeSettings {
   readonly anchorMounted = signal(true);
   readonly contentMounted = signal(true);
   readonly reenterSetter = signal(false);
+  readonly protectAncestorOnClose = signal(false);
   readonly setterObservations = signal<readonly string[]>([]);
   name: () => string = () => "unlabelled";
   state?: OrigamiPopoverState;
@@ -75,6 +78,12 @@ export class NativeSettings {
       if (!value && this.reenterSetter()) {
         this.reenterSetter.set(false);
         rawSet(true);
+      }
+
+      // A closing descendant's setter protects its still-open ancestor mid-dismissal.
+      if (!value && this.protectAncestorOnClose()) {
+        this.protectAncestorOnClose.set(false);
+        this.ancestor?.dismissible.set(false);
       }
 
       const state = this.state;
@@ -249,6 +258,8 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         </select></label>
         <label>Anchor direction <select data-testid="anchor-direction" (change)="select($event, direction)"><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
         <label>Content direction <select data-testid="content-direction" (change)="select($event, contentDirection)"><option value="rtl">RTL</option><option value="ltr">LTR</option></select></label>
+        <button type="button" data-testid="native-anchor-rtl" (click)="anchorDirection.set('rtl')">Bind RTL on the separate anchor only</button>
+        <button type="button" data-testid="native-other-flip-anchor" (click)="flipAnchorOnOtherOpening.set(true)">Unrelated opening makes the separate anchor RTL</button>
         <label>Logical side <select data-testid="native-side" (change)="setSide($event, root.settings)">
           <option value="block-end">Block end</option><option value="block-start">Block start</option><option value="inline-end">Inline end</option><option value="inline-start">Inline start</option>
         </select></label>
@@ -290,7 +301,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
                 }
               }
               @if (!coLocated() && root.settings.anchorMounted()) {
-                <span ogPopoverAnchor id="native-anchor-id" data-testid="native-anchor">Separate anchor</span>
+                <span ogPopoverAnchor id="native-anchor-id" data-testid="native-anchor" [style.direction]="anchorDirection()">Separate anchor</span>
               }
               @if (root.settings.contentMounted()) {
                 <section nativeContent #content="nativeContent" id="native-content-id" class="surface motion"
@@ -323,6 +334,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
                           <button type="button" data-testid="native-child-protect" (click)="child.settings.dismissible.set(!child.settings.dismissible())">Toggle child protection</button>
                           <button type="button" data-testid="native-child-suppress-parent" (click)="root.settings.open.set(false)">Suppress parent without clearing child intent</button>
                           <button type="button" data-testid="native-child-reenter" (click)="child.settings.reenterSetter.set(true)">Child setter reentry</button>
+                          <button type="button" data-testid="native-child-protect-parent-on-close" (click)="child.settings.protectAncestorOnClose.set(true)">Child close setter protects parent</button>
                         }
                       </section>
                       <output data-testid="native-child-intent">{{ child.state.open() }}</output>
@@ -343,7 +355,8 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     </section>
     <section nativePopover #other="nativePopover" name="other">
       <button ogPopoverTrigger ogPopoverAnchor id="native-other-trigger" data-testid="native-other-trigger">Unrelated root</button>
-      <section nativeContent #otherContent="nativeContent" id="native-other-content" class="child-surface" data-testid="native-other-content">
+      <section nativeContent #otherContent="nativeContent" id="native-other-content" class="child-surface" data-testid="native-other-content"
+        (beforetoggle)="otherBeforeToggle($event)">
         @if (otherContent.state.open()) { <button type="button" data-testid="native-other-action">Unrelated action</button> }
       </section>
       <button type="button" data-testid="native-other-open" (click)="other.settings.open.set(true)">Authoritative unrelated open</button>
@@ -498,6 +511,8 @@ export class PopoverFixture {
   readonly writingMode = signal("horizontal-tb");
   readonly direction = signal("ltr");
   readonly contentDirection = signal("rtl");
+  readonly anchorDirection = signal<string | null>(null);
+  readonly flipAnchorOnOtherOpening = signal(false);
   readonly autofocus = signal(true);
   readonly coLocated = signal(false);
   readonly triggerInert = signal(false);
@@ -523,6 +538,26 @@ export class PopoverFixture {
     }
 
     target.set(event.target.value);
+  }
+
+  /** A native callback in another owner's WRITE changes this Anchor's axes directly: no signal, Options or layout change. */
+  otherBeforeToggle(event: Event): void {
+    if (!(event instanceof ToggleEvent)) {
+      throw new Error("Expected a native ToggleEvent");
+    }
+
+    if (event.newState !== "open" || !this.flipAnchorOnOtherOpening()) {
+      return;
+    }
+
+    const anchor = this.element.querySelector('[data-testid="native-anchor"]');
+
+    if (!(anchor instanceof HTMLElement)) {
+      throw new Error("Expected the separate native anchor");
+    }
+
+    this.flipAnchorOnOtherOpening.set(false);
+    anchor.style.direction = "rtl";
   }
 
   setAction(event: Event, settings: NativeSettings): void {
