@@ -1,12 +1,10 @@
 # Origami UI — independent acceptance preparation
 
-**Status: handwritten public consumer seeds and explicit case definitions against the contract frozen on 2026-10-11; no product-library or browser qualification yet.**
+**Status: handwritten public consumer seeds and explicit case definitions for the current product contract, executed by [`tests/acceptance`](../tests/acceptance/README.md) on Angular 22.2.2; `@loozo/origami-ui` 0.0.1 passed the full gate. The 22.1.5 statements below are the dated research from when this pack was prepared on 2026-10-11; see [PROVENANCE.md](../PROVENANCE.md).**
 
-**Version status (2026-10-14):** the library and its acceptance suite are implemented; these seeds are executed by [`tests/acceptance`](../tests/acceptance/README.md), which now runs on Angular 22.2.2. The 22.1.5 statements below are the dated seed-time research.
+The Popover design/API/lifecycle was approved on 2026-10-11. This pack defines acceptance from [the product contract](../SPEC.md) and [the approved Popover design](../SPEC-POPOVER.md), independently of archived implementation code or historical tests. It contains no replacement library, Angular shim, dependency installation or build setup.
 
-The Popover design/API/lifecycle was approved on 2026-10-11. This pack prepares acceptance from [the product contract](../SPEC.md) and [the approved Popover design](../SPEC-POPOVER.md), independently of archived implementation code or historical tests. It contains no replacement library, Angular shim, dependency installation, build setup or delivery authorization.
-
-loozo explicitly skipped the formal Baseline audit and chose “Freeze and prepare the seed” on 2026-10-11. No Baseline qualification claim is made; the required runtime matrix is unchanged. Genuine dependency setup and one implementation-free seed commit are authorized only in `/home/loozo/Projects/origami-ui-rebuild`, branch `rebuild`; product implementation remains unauthorized.
+loozo explicitly skipped the formal Baseline audit on 2026-10-11. No Baseline qualification claim is made; the required runtime matrix is unchanged.
 
 ## Contents
 
@@ -21,18 +19,18 @@ loozo explicitly skipped the formal Baseline audit and chose “Freeze and prepa
 | `types.ts`                    | Compile-only positive provider/signature checks and negative readonly/mode/Content-migration checks                                                                                    |
 | `CASES.md`                    | Explicit inputs, actions and observable expected outcomes for the complete contract                                                                                                    |
 
-These seeds are deliberately small, not a finished evaluator. The case definitions identify additional variants still needed: all Options tokens with both provider kinds, animation modes, cardinality/remount, writing modes/fallback geometry, trusted gesture variants, nested root/part boundaries and synchronous factory-Options reentry. Seed presence is not executed case coverage. Do not report those variants as implemented simply because they are specified.
+These seeds are deliberately small. The case definitions call for further variants: all Options tokens with both provider kinds, animation modes, cardinality/remount, writing modes/fallback geometry, trusted gesture variants, nested root/part boundaries and synchronous factory-Options reentry. [`tests/acceptance`](../tests/acceptance/README.md) adds them. A seed alone is not executed case coverage, and a specified variant counts as covered only once the gate executes it.
 
 No source-path imports of the library, private Context calls, guessed IDs, fake native events presented as trusted input, or fake platform/dependency behavior belong in acceptance.
 
-## Future use
+## Using the pack
 
-1. Preserve the frozen agreed contract and these public sources, not the archived repository/history. Formal Baseline auditing is skipped, not reported passed.
-2. Under the isolated seed-setup authority, create the smallest ordinary official Angular application and install genuine dependencies. No product behavior is authorized. After the later authorized rebuild produces the library, install/consume that genuine built package. Use package imports; do not alias missing imports to declarations or archived source to make compilation pass.
+1. Work from the product contract and these public sources, not the archived repository/history. Formal Baseline auditing is skipped, not reported passed.
+2. Consume the genuine built package from the smallest ordinary official Angular application with genuine dependencies ([`tests/acceptance`](../tests/acceptance/README.md) stages it into `.scratch/consumer`). Use package imports; do not alias missing imports to declarations or archived source to make compilation pass.
 3. Strictly typecheck `types.ts` against built declarations, including unused `@ts-expect-error` diagnostics. Build the consumer templates with genuine Angular AOT/strict templates. Do not import the compile-only negative checks into a runtime app.
 4. Mount `CoreConsumer`, `CompositionConsumer` and `PopoverConsumer` as separate ordinary fixture routes/pages. No new router framework is required.
 5. Bootstrap `EagerHydrationConsumer` with `eagerHydrationConfig`, or `IncrementalHydrationConsumer` with `incrementalHydrationConfig`. Use the selected hydration configuration in both client and server bootstraps and the normal official SSR setup. The eager component is separate so its references cannot defeat the incremental file's lazy dependency analysis. Run the development deferred proof with HMR disabled (`--no-hmr`): Angular otherwise eagerly fetches deferred chunks. Keep eager route imports from pulling the held dependency into initial code; verify real chunk loading and each block's attachment separately.
-6. Add only the case-specific consumer variants and a thin black-box runner needed by `CASES.md`. Keep assertion ownership independent of product internals; tests can evolve with review, not quietly redefine the frozen product.
+6. Case-specific consumer variants and the black-box runner live in [`tests/acceptance`](../tests/acceptance/README.md); add only what `CASES.md` needs. Keep assertion ownership independent of product internals; tests can evolve with review, not quietly redefine the product contract.
 
 Current sources target the researched official Angular **22.1.5**, whose source tag resolves to `468b65b74566537456c192ac4281795c5a1e1a5e`. Its hydration and directive-composition guides/declarations establish:
 
@@ -42,7 +40,7 @@ Current sources target the researched official Angular **22.1.5**, whose source 
 - A standalone deferred dependency must not be referenced outside its deferred template in the same source file; keep the eager fixture separate and verify actual chunk/dehydration behavior.
 - Upper host-directive providers take precedence, and host directives construct before their consumers. The library must defer Options resolution rather than rely on construction ordering accidentally succeeding.
 
-This is researched fixture compatibility, not product qualification. The isolated seed setup must pin and verify its genuine dependency closure.
+This is researched fixture compatibility, not product qualification. The gate qualifies the installed dependency closure.
 
 ## Observation rules
 
@@ -57,10 +55,10 @@ This is researched fixture compatibility, not product qualification. The isolate
 - Native event listeners may observe/cancel opening or change desired intent. They must not independently call show/hide or modify the host's Popover mode. Fixtures never use the later `.popover` property or `{ source }`.
 - To qualify synchronous `beforetoggle`/focus reentry, use a factory-backed root variant that writes the actual effective writable `open` and observe public State before the callback returns. The seed's parent-bound signal alone does not prove during-call propagation. Correlate focus events with fresh native activation versus retained-exit reuse; a focus counter alone is not an autofocus-activation count.
 
-## Required qualification, not executed evidence
+## Required qualification
 
 Record exact Angular/dependency closure and browser-engine versions. Mandatory runtime qualification covers **Chromium, Firefox and WebKit × development and production × eager and incremental hydration**, with normal/reduced-motion cases where relevant. Pure compile/declaration checks run separately; progressive `until-found` behavior is capability-dependent, while ordinary hidden behavior is mandatory everywhere.
 
 Use real production responses and runtime, not a development server with optimization flags. Archive failing and passing observations against exact source/test identities. Playwright WebKit is not universal Safari/iOS or physical-device certification.
 
-The current preparation may receive formatter/linter, TypeScript syntax and genuine Angular template-parser checks. Those do **not** typecheck package imports, run Angular AOT, validate SSR, execute browser cases or prove the rewrite. Ordinary build/SSR seed setup is now separately authorized. Product implementation, missing executable variants/runner, the fresh-session rebuild authority and runtime evidence remain later work.
+Formatter/linter, TypeScript syntax and Angular template-parser checks on this pack do **not** typecheck package imports, run Angular AOT, validate SSR or execute browser cases. The gate in [`tests/acceptance`](../tests/acceptance/README.md) does those.
