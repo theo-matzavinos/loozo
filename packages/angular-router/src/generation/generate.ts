@@ -12,7 +12,8 @@ export interface GenerationOptions {
   scanDirectories: string[];
   outDirectory: string;
   check?: boolean;
-  autoDefineRoutes?: AutoDefineRoutes;
+  // Omitted enables filesystem route definitions with route.ts; false selects explicit authoring.
+  autoDefineRoutes?: AutoDefineRoutes | false;
 }
 
 // Compiler state reused across one owner's sequential passes. The owner clears
@@ -29,12 +30,19 @@ export async function generate(
   stopped: () => boolean,
   state?: GenerationState,
 ): Promise<void> {
+  const { autoDefineRoutes = {} } = options;
+  let auto: AutoDefineRoutes | undefined;
+
+  if (autoDefineRoutes !== false) {
+    auto = autoDefineRoutes;
+  }
+
   const sources = await discover(
     workspace,
     options.tsconfig,
     options.scanDirectories,
     options.outDirectory,
-    options.autoDefineRoutes,
+    auto,
     undefined,
     undefined,
     undefined,

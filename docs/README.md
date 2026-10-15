@@ -12,6 +12,6 @@ pnpm --filter @loozo/docs run serve                   # dev server; regenerates 
 pnpm --filter @loozo/docs run generate                # regenerate route files with a development build
 ```
 
-Routes use the router's filesystem mode (`autoDefineRoutes`): directories under `src/routes/` give the paths (`$package` is a param, `+overview` adds no segment), a `page.ts` is the route's page and `route.ts` its editable declaration. A directory without either, like `guide/`, isn't a route; it only adds its name to the path below it (`guide/$guide`). `generate` and `serve` create missing `route.ts` files and keep their paths and parents in step with the directories.
+Routes use the router's filesystem mode, its default: directories under `src/routes/` give the paths (`$package` is a param, `+overview` adds no segment), a `page.ts` is the route's page and `route.ts` its editable declaration. A directory without either, like `guide/`, isn't a route; it only adds its name to the path below it (`guide/$guide`). `generate` and `serve` create missing `route.ts` files and keep their paths and parents in step with the directories.
 
 `build` checks the committed route files without writing them and fails on drift; run `generate` or `serve` after adding, moving or renaming a route directory or changing a declaration. It writes `dist/docs/browser/` with base href `/loozo/`, one `index.html` per page and a `404.html` for GitHub Pages.

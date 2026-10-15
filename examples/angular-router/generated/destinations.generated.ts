@@ -1,17 +1,17 @@
 // @loozo/angular-router routegen: owned destinations.generated.ts
 import type { RouteSet, Handle as GeneratedHandle, Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
-import definition0 from "../src/routes/home/definition.js";
+import definition0 from "../src/routes/+home/route.js";
 
 export type Definitions = {
-"src/routes/home/definition.ts": typeof definition0;
+"src/routes/+home/route.ts": typeof definition0;
 };
 declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {
-"/": "src/routes/home/definition.ts";
+"/": "src/routes/+home/route.ts";
 };
 export type RelativeTargets = {
-"src/routes/home/definition.ts": {
-"./": "src/routes/home/definition.ts";
+"src/routes/+home/route.ts": {
+"./": "src/routes/+home/route.ts";
 };
 };
 export type Selected<Id extends keyof RelativeTargets> = {
@@ -24,8 +24,8 @@ export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitio
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
 export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
-"src/routes/home/definition.ts": { definition: () => definition0, owners: ["src/routes/home/definition.ts"] },
+"src/routes/+home/route.ts": { definition: () => definition0, owners: ["src/routes/+home/route.ts"] },
 }, destinations: {
-"src/routes/home/definition.ts": () => definition0,
-}, absolute: {"/":"src/routes/home/definition.ts"}, relative: {"src/routes/home/definition.ts":{"./":"src/routes/home/definition.ts"}} };
+"src/routes/+home/route.ts": () => definition0,
+}, absolute: {"/":"src/routes/+home/route.ts"}, relative: {"src/routes/+home/route.ts":{"./":"src/routes/+home/route.ts"}} };
 export function getRouteSet(): RouteSet { return routeSet; }

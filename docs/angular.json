@@ -13,7 +13,6 @@
             "tsconfig": "tsconfig.routes.json",
             "scanDirectories": ["src/routes"],
             "outDirectory": "generated",
-            "autoDefineRoutes": {},
             "browser": "src/main.ts",
             "server": "src/main.server.ts",
             "outputMode": "static",

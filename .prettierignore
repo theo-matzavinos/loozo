@@ -1,13 +1,5 @@
 # Preserve the immutable public contract and generation-owned outputs byte-for-byte.
 packages/angular-router/SPEC.md
-examples/angular-router/generated/destinations.generated.ts
-examples/angular-router/generated/routes.generated.ts
-examples/angular-router/src/routes/home/route.generated.ts
-examples/angular-router/ssr-proof/generated/destinations.generated.ts
-examples/angular-router/ssr-proof/generated/routes.generated.ts
-examples/angular-router/ssr-proof/src/routes/handle-only/route.generated.ts
-examples/angular-router/ssr-proof/src/routes/home/route.generated.ts
-examples/angular-router/ssr-proof/src/routes/item/route.generated.ts
-examples/angular-router/ssr-proof/src/routes/team/route.generated.ts
+examples/angular-router/**/*.generated.ts
 docs/generated/**/*.generated.ts
 docs/src/routes/**/route.generated.ts

@@ -54,10 +54,13 @@ const nativeRequire = createRequire(require.resolve("@angular-devkit/architect")
 const core = nativeRequire("@angular-devkit/core");
 const { NodeJsSyncHost } = nativeRequire("@angular-devkit/core/node");
 const { chromium } = require("playwright");
+// The example's build target omits autoDefineRoutes, so filesystem mode is on by default.
 const workspace = JSON.parse(await readFile(join(fixture, "angular.json"), "utf8"));
 
-workspace.projects.proof.architect.build.options.autoDefineRoutes = {};
-await writeFile(join(fixture, "angular.json"), JSON.stringify(workspace));
+assert.equal(
+  Object.hasOwn(workspace.projects.proof.architect.build.options, "autoDefineRoutes"),
+  false,
+);
 
 const reports = [];
 const observations = [];
@@ -745,7 +748,7 @@ export function consumer() {
 await expectBuild();
 await rm(join(fixture, "src/custom-types.ts"));
 
-// Opt-out keeps explicit authoring and does not synchronize structural fields.
+// `false` opts out into explicit authoring and does not synchronize structural fields.
 const explicit = await read("src/routes/custom/definition.ts");
 const transparentDefinition = await read("src/routes/-tools/ignored.ts");
 
@@ -754,7 +757,7 @@ await write("src/routes/custom/definition.ts", explicit.replace('"custom"', '"ex
 
 const disabledWorkspace = structuredClone(workspace);
 
-delete disabledWorkspace.projects.proof.architect.build.options.autoDefineRoutes;
+disabledWorkspace.projects.proof.architect.build.options.autoDefineRoutes = false;
 await writeFile(join(fixture, "angular.json"), JSON.stringify(disabledWorkspace));
 await expectBuild();
 assert.match(await read("generated/routes.generated.ts"), /path: "explicit"/);
@@ -768,7 +771,7 @@ await write("src/routes/-tools/ignored.ts", transparentDefinition);
 await expectBuild();
 
 for (const autoDefineRoutes of [
-  false,
+  true,
   null,
   [],
   { extra: true },
@@ -856,7 +859,10 @@ const params = { old: numberParam };
 export default defineRoute("$old", { params });\n`,
 );
 await write("src/routes/$new/page.ts", page("opaque"));
-await preflight("opaque codec rename", /Filesystem local params must be an inline object/);
+await preflight(
+  "opaque codec rename",
+  /\$new\/definition\.ts:3:\d+: Ambiguous filesystem params: the directories give path \\"\$new\\" \(removed params: old; added params: new\)\. This file's params are not an inline object; write each one as a plain `name: codec` property to match, or move or rename the directory/,
+);
 await rm(join(fixture, "src/routes/$new"), { recursive: true });
 
 await write(
@@ -865,7 +871,10 @@ await write(
 export default defineRoute("$old", { params: { old: numberParam } });\n`,
 );
 await write("src/routes/static/page.ts", page("static"));
-await preflight("never discard authored codecs", /Ambiguous filesystem codec change/);
+await preflight(
+  "never discard authored codecs",
+  /static\/definition\.ts:2:\d+: Ambiguous filesystem params: the directories give path \\"static\\" \(removed params: old\)\. Remove this file's params, or move or rename the directory/,
+);
 await rm(join(fixture, "src/routes/static"), { recursive: true });
 
 await write(

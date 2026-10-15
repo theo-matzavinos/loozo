@@ -15,28 +15,37 @@
       }
     },
     "autoDefineRoutes": {
-      "$comment": "Conditional validation prevents Angular addUndefinedDefaults from creating an omitted opt-in object.",
-      "if": true,
-      "then": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "filename": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_$][A-Za-z0-9_$.-]*\\.ts$",
-            "not": {
-              "anyOf": [
-                {
-                  "pattern": "\\.d\\.ts$"
-                },
-                {
-                  "enum": ["route.generated.ts", "routes.generated.ts", "destinations.generated.ts"]
-                }
-              ]
+      "$comment": "Omitted enables filesystem route definitions with route.ts; false selects explicit authoring.",
+      "anyOf": [
+        {
+          "type": "boolean",
+          "const": false
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filename": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_$][A-Za-z0-9_$.-]*\\.ts$",
+              "not": {
+                "anyOf": [
+                  {
+                    "pattern": "\\.d\\.ts$"
+                  },
+                  {
+                    "enum": [
+                      "route.generated.ts",
+                      "routes.generated.ts",
+                      "destinations.generated.ts"
+                    ]
+                  }
+                ]
+              }
             }
           }
         }
-      }
+      ]
     },
     "outDirectory": {
       "type": "string",

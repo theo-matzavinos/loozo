@@ -149,7 +149,7 @@ await test("checked-in generated application exports carry documentation", async
     "../../../examples/angular-router/ssr-proof/",
   ]) {
     const routes = await source(`${example}generated/routes.generated.ts`);
-    const facade = await source(`${example}src/routes/home/route.generated.ts`);
+    const facade = await source(`${example}src/routes/+home/route.generated.ts`);
 
     // Variable documentation belongs to the statement, not its declaration node.
     for (const { file, name } of [

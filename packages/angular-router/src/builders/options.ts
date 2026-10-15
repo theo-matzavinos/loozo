@@ -28,11 +28,11 @@ function validateRouterOptions(value: JsonObject): asserts value is JsonObject &
     throw new Error("scanDirectories must contain exactly one nonempty string");
   }
 
-  if (value.autoDefineRoutes !== undefined) {
-    const auto = value.autoDefineRoutes;
+  const auto = value.autoDefineRoutes;
 
+  if (auto !== undefined && auto !== false) {
     if (!auto || typeof auto !== "object" || Array.isArray(auto)) {
-      throw new Error("autoDefineRoutes must be an object");
+      throw new Error("autoDefineRoutes must be false or an object");
     }
 
     for (const key of Object.keys(auto)) {

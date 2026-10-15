@@ -1,6 +1,6 @@
 # @loozo/angular-router
 
-Typed routes for Angular's own router. You declare each route once with `defineRoute`: its path, its parent, and codecs for its path params, search params and fragments. A build step turns those declarations into an ordinary Angular `Routes` array plus a small typed module next to each route. Pages read parsed inputs as Angular signals and build links and navigations that TypeScript checks against the target route.
+Typed routes for Angular's own router. Each route is a directory holding a `defineRoute` declaration and, usually, a page. The declaration holds the route's path, its parent, and codecs for its path params, search params and fragments; the directories give the path and parent, and a build step keeps them in step. The build step then turns the declarations into an ordinary Angular `Routes` array plus a small typed module next to each route. Pages read parsed inputs as Angular signals and build links and navigations that TypeScript checks against the target route.
 
 Angular still does all the routing: matching, activation, guards, resolvers, redirects, history and lazy loading. This package doesn't add a second router; it generates the configuration Angular consumes.
 
@@ -58,13 +58,13 @@ Commit the generated files along with your route declarations, and run the `ci` 
 
 ## Quick start
 
-A route is a directory under the scan directory with a declaration file and, optionally, a page. In explicit mode (the default) the file names are up to you: the builder finds declarations by their `export default defineRoute(...)` and pages by their default-exported standalone component, not by name.
+A route is a directory under the scan directory with a page, a `route.ts` declaration, or both. The directories give the path: a page in `src/routes/products/$productId/` is the route `products/$productId`, where `$productId` is a path param. Add the page, and the first `ng build` or `ng serve` creates its declaration with a `stringParam` codec for `productId`. The declaration is yours to edit; here the codec is now `numberParam`, with a search param and fragments added:
 
-[src/routes/product/definition.ts](snippets/src/routes/product/definition.ts)
+[src/routes/products/$productId/route.ts](snippets/src/routes/products/$productId/route.ts)
 
-[src/routes/product/page.ts](snippets/src/routes/product/page.ts)
+[src/routes/products/$productId/page.ts](snippets/src/routes/products/$productId/page.ts)
 
-Running `ng build` or `ng serve` writes `generated/routes.generated.ts`, `generated/destinations.generated.ts` and `src/routes/product/route.generated.ts`. The page is lazy-loaded with `loadComponent`.
+Running `ng build` or `ng serve` also writes `generated/routes.generated.ts`, `generated/destinations.generated.ts` and `src/routes/products/$productId/route.generated.ts`. The page is lazy-loaded with `loadComponent`. See [Filesystem route definitions](#filesystem-route-definitions) for how directories map to paths and parents, and [Explicit authoring](#explicit-authoring) to write every path and parent yourself instead.
 
 The template reads the signals directly: they hold the activated route's values from the moment the page is created. A URL such as `/products/abc` doesn't match this route at all: a path param that fails to parse makes Angular try its next route, such as a `$segments[]` not-found route. A missing, repeated or unknown `tab` reads as its fallback, `"details"`.
 
@@ -74,7 +74,7 @@ The template reads the signals directly: they hold the activated route's values 
 defineRoute(path, config);
 ```
 
-`path` must be a string literal; TypeScript infers everything else without generic arguments.
+`path` must be a string literal; TypeScript infers everything else without generic arguments. By default the builder writes `path` and `parent` from the directories, and you write the rest.
 
 ### Paths
 
@@ -109,11 +109,11 @@ Structural keys such as `path`, `children`, `component`, `loadComponent`, `redir
 
 ### Parents
 
-[src/routes/team/definition.ts](snippets/src/routes/team/definition.ts)
+[src/routes/teams/$teamId/route.ts](snippets/src/routes/teams/$teamId/route.ts)
 
-[src/routes/member/definition.ts](snippets/src/routes/member/definition.ts)
+[src/routes/teams/$teamId/members/$memberId/route.ts](snippets/src/routes/teams/$teamId/members/$memberId/route.ts)
 
-A child declares only its own params; it inherits its ancestors' params and search params, so the member route above has `params: { teamId, memberId }` and `search: { score }`. A child can't redeclare a param or search key its ancestors own. Pathless routes (`""` with a parent) add no URL segment but still contribute their inputs to descendants. A route with neither a page nor children is an error, unless it's a redirect.
+The member directory is inside the team directory, so the team route is its parent. The team directory has no page, so the team route is componentless: it groups its children and their shared inputs. A child declares only its own params; it inherits its ancestors' params and search params, so the member route above has `params: { teamId, memberId }` and `search: { score }`. A child can't redeclare a param or search key its ancestors own. Pathless routes (`""` with a parent) add no URL segment but still contribute their inputs to descendants. A route with neither a page nor children is an error, unless it's a redirect.
 
 ### Codecs
 
@@ -176,7 +176,7 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 - `injectRoute()`: call it in an injection context (a field initializer or constructor) to get the handle for this route.
 - `destination`: an inert reference to this route that other routes can link to.
 
-[src/routes/item/inputs.ts](snippets/src/routes/item/inputs.ts#inputs)
+[src/routes/teams/$teamId/items/$id/inputs.ts](snippets/src/routes/teams/$teamId/items/$id/inputs.ts#inputs)
 
 `params`, `search` and `data` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), all three change together. When a navigation is cancelled or fails, they keep their values; handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
 
@@ -188,7 +188,7 @@ Reading `params` or `search` throws only if a path codec rejects a value it acce
 
 `link` returns an Angular `UrlTree` for `RouterLink`; `navigate` calls `Router.navigateByUrl` and returns Angular's own promise. Both take the same arguments:
 
-[src/routes/item/links.ts](snippets/src/routes/item/links.ts)
+[src/routes/teams/$teamId/items/$id/links.ts](snippets/src/routes/teams/$teamId/items/$id/links.ts)
 
 The first argument, when given, is a string literal selecting a route by its full authored path, never a concrete URL. Absolute selectors start with `/`. Relative selectors start with `.`, `./` or `..`; each `..` removes one segment of the path template, not one directory or parent. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
 
@@ -200,7 +200,7 @@ A `destination` must come from the same generated route set as the handle. Desti
 
 `canActivate`, `canActivateChild` and `canMatch` take arrays of functions whose first argument is the parsed inputs. Angular's native arguments follow:
 
-[src/routes/report/definition.ts](snippets/src/routes/report/definition.ts)
+[src/routes/reports/$reportId/route.ts](snippets/src/routes/reports/$reportId/route.ts)
 
 | Guard              | Inputs                                                                       |
 | ------------------ | ---------------------------------------------------------------------------- |
@@ -227,7 +227,7 @@ A value that parses but doesn't exist, such as an unknown slug, is still yours t
 
 Resolvers get the parsed inputs too:
 
-[src/routes/item/definition.ts](snippets/src/routes/item/definition.ts)
+[src/routes/teams/$teamId/items/$id/route.ts](snippets/src/routes/teams/$teamId/items/$id/route.ts)
 
 `title` is a string or a callback like a resolver's that returns the title (or a Promise or Observable of it). Angular runs a title callback alongside the route's resolvers, so it can't read their results.
 
@@ -235,24 +235,13 @@ Angular's default rerun policy, `paramsChange`, reruns resolvers and the title c
 
 A redirect targets another declaration and must say what happens to search and fragment:
 
-[src/routes/old-item/definition.ts](snippets/src/routes/old-item/definition.ts)
+[src/routes/teams/$teamId/old-items/$id/route.ts](snippets/src/routes/teams/$teamId/old-items/$id/route.ts)
 
 Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. A redirect route can't have a page, children, `canActivate`, `canMatch` or `onInvalidParams`; an invalid param in a redirect's source URL fails the navigation.
 
 ## Filesystem route definitions
 
-By default you write every declaration, including its path and parent. If you'd rather derive them from directories, set `autoDefineRoutes` on the application target:
-
-```json
-"options": {
-  "tsconfig": "tsconfig.routes.json",
-  "scanDirectories": ["src/routes"],
-  "outDirectory": "generated",
-  "autoDefineRoutes": {}
-}
-```
-
-A directory becomes a route when it has a page or a declaration. The builder creates an editable `route.ts` in each directory that has a page but no declaration yet. Every other directory, the scan directory included, isn't a route: it adds its name to the paths of the routes below it. Each route's parent is the nearest route above it.
+By default, directories give each route its path and parent. A directory becomes a route when it has a page or a declaration. The builder creates an editable `route.ts` in each directory that has a page but no declaration yet. Every other directory, the scan directory included, isn't a route: it adds its name to the paths of the routes below it. Each route's parent is the nearest route above it.
 
 | Directory          | Path contribution                                                           |
 | ------------------ | --------------------------------------------------------------------------- |
@@ -285,13 +274,28 @@ export default defineRoute("guide/$guide", { parent, params: { guide: stringPara
 
 Angular gets `{ path: ":package", children: [{ path: "guide/:guide" }] }`, the same routes as writing those two declarations by hand, so `/angular-router/guide` on its own matches neither of them. If a directory without a page needs behavior of its own, such as a guard or resolver shared by the routes below it, add a declaration to it. It then becomes a componentless route and the parent of the routes below it. Angular also matches its bare URL (`/angular-router/guide`) when no child does, and SSR prerendering lists it as a route.
 
-These files are yours. Change the codecs, add search params, guards and resolvers; the builder leaves them alone. When you move or rename a directory, or a route above it appears or disappears, the builder updates only the path literal, the `parent` property and its import, and the local params where the change is unambiguous: it renames a single changed param key and keeps its codec, and when params are only added (for example, a declaration moved under a page-less `$team` directory) it keeps every existing codec and adds a `stringParam` codec per new param, also to a declaration that had no params. It reuses your `stringParam` import when the file has one, and otherwise imports it as `stringParam`, or `filesystemStringParam` when the file already uses that name. When it can't make an edit safely (for example, a removed param whose codec you customized, or params spread from another object), generation fails and asks you to fix the file. It never deletes declarations.
+These files are yours. Change the codecs, add search params, guards and resolvers; the builder leaves them alone. When you move or rename a directory, or a route above it appears or disappears, the builder updates only the path literal, the `parent` property and its import, and the local params where the change is unambiguous: it renames a single changed param key and keeps its codec, and when params are only added (for example, a declaration moved under a page-less `$team` directory) it keeps every existing codec and adds a `stringParam` codec per new param, also to a declaration that had no params. It reuses your `stringParam` import when the file has one, and otherwise imports it as `stringParam`, or `filesystemStringParam` when the file already uses that name. When it can't make an edit safely (for example, a removed param whose codec you customized, or params spread from another object), generation fails before writing anything. The error names the file, the path the directories give and the params it can't reconcile. Make that file's `params` match the directories, with one key per param in that path (or no `params` at all when the path has none), and the next run updates only the path; or move or rename the directory. Params spread from another object, kept in a shared variable or written as shorthand (`{ id }`) must first be written as plain `name: codec` properties. The builder never removes a param's codec itself, and the path always follows the directories. It never deletes declarations.
 
 A new import goes on its own line after the file's last import and any comment on that import's line. When that comment spans lines or carries a directive for the next line (such as `// @ts-expect-error`), the new import goes before the comment instead, so the directive keeps its target. A new parent import is named `parent`, or `filesystemParent` when the file already uses that name. When an existing parent import still points at a route that's no longer the parent, for example because you added a declaration between them, it's repointed and renamed to `parent`. When it no longer resolves, because its file moved or its target was deleted, it's repointed and keeps its name. An import that's used for more than the `parent` property is left alone, and a new parent import is added beside it.
 
 A `-` directory can't contain a page or a declaration with behavior.
 
-Use `{ "filename": "definition.ts" }` to seed a different file name. It must be a plain `.ts` file name that isn't a generated file name. That only affects new files; existing declarations are found by content, whatever their name.
+Set `"autoDefineRoutes": { "filename": "definition.ts" }` on the application target to seed a different file name. It must be a plain `.ts` file name that isn't a generated file name. That only affects new files; existing declarations are found by content, whatever their name.
+
+### Explicit authoring
+
+To write every path and parent yourself, turn filesystem definitions off:
+
+```json
+"options": {
+  "tsconfig": "tsconfig.routes.json",
+  "scanDirectories": ["src/routes"],
+  "outDirectory": "generated",
+  "autoDefineRoutes": false
+}
+```
+
+Declarations look the same, but the builder never creates or edits them, and directory names don't affect paths or parents. File names are up to you: the builder finds declarations by their `export default defineRoute(...)` and pages by their default-exported standalone component, not by name. A page still needs a declaration in its own directory; a page without one fails generation.
 
 ## Server rendering and hydration
 
@@ -321,13 +325,13 @@ Generation checks route structure, not your whole program. Type errors elsewhere
 
 All `@angular/build:application` options, plus:
 
-| Option             | Type                    | Default  | Description                                                                                                                         |
-| ------------------ | ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig`         | `string`                | required | TypeScript config used to find route declarations. Relative to the workspace root.                                                  |
-| `scanDirectories`  | `string[]`              | required | Exactly one directory containing your routes. Relative to the `tsconfig` file's directory.                                          |
-| `outDirectory`     | `string`                | required | Where `routes.generated.ts` and `destinations.generated.ts` go. Relative to the workspace root; must be outside the scan directory. |
-| `check`            | `boolean`               | `false`  | Verify generated files without writing them. Fails on any drift.                                                                    |
-| `autoDefineRoutes` | `{ filename?: string }` | omitted  | Enable [filesystem route definitions](#filesystem-route-definitions). `filename` defaults to `route.ts`.                            |
+| Option             | Type                             | Default  | Description                                                                                                                                                        |
+| ------------------ | -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tsconfig`         | `string`                         | required | TypeScript config used to find route declarations. Relative to the workspace root.                                                                                 |
+| `scanDirectories`  | `string[]`                       | required | Exactly one directory containing your routes. Relative to the `tsconfig` file's directory.                                                                         |
+| `outDirectory`     | `string`                         | required | Where `routes.generated.ts` and `destinations.generated.ts` go. Relative to the workspace root; must be outside the scan directory.                                |
+| `check`            | `boolean`                        | `false`  | Verify generated files without writing them. Fails on any drift.                                                                                                   |
+| `autoDefineRoutes` | `false \| { filename?: string }` | `{}`     | [Filesystem route definitions](#filesystem-route-definitions), seeding `filename` (default `route.ts`). `false` selects [explicit authoring](#explicit-authoring). |
 
 The builder runs generation once, then the official application build. Invalid options stop the build before generation starts. Generation errors, including drift in check mode, are logged and fail the build before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
 

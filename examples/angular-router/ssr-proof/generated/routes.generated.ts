@@ -2,8 +2,8 @@
 import type { Routes } from '@angular/router';
 import { getRouteSet } from './destinations.generated.js';
 import { nativeOptions, callbacks, redirect } from '@loozo/angular-router/_generated';
-import definition0 from "../src/routes/alias/definition.js";
-import definition3 from "../src/routes/item/definition.js";
+import definition2 from "../src/routes/teams/$teamId/items/$id/route.js";
+import definition3 from "../src/routes/teams/$teamId/old-items/$id/route.js";
 
 /**
  * Generated native Angular route configuration; install with provideRouter(routes).
@@ -11,21 +11,21 @@ import definition3 from "../src/routes/item/definition.js";
  */
 export const routes: Routes = [{ path: "teams/:teamId/old-items/:id",
 pathMatch: 'full',
-data: { __loozoAngularRouterRouteId: "src/routes/alias/definition.ts" },
-redirectTo: redirect(() => definition0) },
+data: { __loozoAngularRouterRouteId: "src/routes/teams/$teamId/old-items/$id/route.ts" },
+redirectTo: redirect(() => definition3) },
 { path: "",
 pathMatch: 'full',
-data: { __loozoAngularRouterRouteId: "src/routes/home/definition.ts" },
-loadComponent: () => import("../src/routes/home/page") },
+data: { __loozoAngularRouterRouteId: "src/routes/+home/route.ts" },
+loadComponent: () => import("../src/routes/+home/page") },
 { path: "handle-only/:id",
-data: { __loozoAngularRouterRouteId: "src/routes/handle-only/definition.ts" },
-...callbacks(getRouteSet(), "src/routes/handle-only/definition.ts"),
-loadComponent: () => import("../src/routes/handle-only/page") },
+data: { __loozoAngularRouterRouteId: "src/routes/handle-only/$id/route.ts" },
+...callbacks(getRouteSet(), "src/routes/handle-only/$id/route.ts"),
+loadComponent: () => import("../src/routes/handle-only/$id/page") },
 { path: "teams/:teamId",
-data: { __loozoAngularRouterRouteId: "src/routes/team/definition.ts" },
-...callbacks(getRouteSet(), "src/routes/team/definition.ts"),
-children: [{ ...nativeOptions(definition3),
+data: { __loozoAngularRouterRouteId: "src/routes/teams/$teamId/route.ts" },
+...callbacks(getRouteSet(), "src/routes/teams/$teamId/route.ts"),
+children: [{ ...nativeOptions(definition2),
 path: "items/:id",
-data: { __loozoAngularRouterRouteId: "src/routes/item/definition.ts" },
-...callbacks(getRouteSet(), "src/routes/item/definition.ts"),
-loadComponent: () => import("../src/routes/item/page") }] }];
+data: { __loozoAngularRouterRouteId: "src/routes/teams/$teamId/items/$id/route.ts" },
+...callbacks(getRouteSet(), "src/routes/teams/$teamId/items/$id/route.ts"),
+loadComponent: () => import("../src/routes/teams/$teamId/items/$id/page") }] }];

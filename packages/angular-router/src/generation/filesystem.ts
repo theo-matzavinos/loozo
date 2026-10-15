@@ -296,6 +296,69 @@ function otherUses(
   return used;
 }
 
+// The builder owns the path, so the fix is in the params or the directories, never the path.
+// `opaque` says why the builder can't read the params' keys.
+function ambiguousParams(
+  node: ts.Node,
+  path: string,
+  removed: readonly string[],
+  added: readonly string[],
+  opaque?: string,
+): never {
+  const changes: string[] = [];
+
+  if (removed.length > 0) {
+    changes.push(`removed params: ${removed.join(", ")}`);
+  }
+
+  if (added.length > 0) {
+    changes.push(`added params: ${added.join(", ")}`);
+  }
+
+  let repair = "Edit this file's params to match";
+
+  if (!parsePath(path).some((segment) => segment.kind !== "static")) {
+    repair = "Remove this file's params";
+  } else if (opaque) {
+    repair = `This file's params ${opaque}; write each one as a plain \`name: codec\` property to match`;
+  }
+
+  fail(
+    node,
+    `Ambiguous filesystem params: the directories give path "${path}" (${changes.join("; ")}). ` +
+      `${repair}, or move or rename the directory`,
+  );
+}
+
+// The keys of a direct inline params object, or why the builder can't read them.
+function paramKeys(params: ts.Expression): Set<string> | string {
+  if (!ts.isObjectLiteralExpression(params)) {
+    return "are not an inline object";
+  }
+
+  const keys = new Set<string>();
+
+  for (const property of params.properties) {
+    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
+      return "use a spread or accessor";
+    }
+
+    const name = property.name;
+
+    if (!ts.isIdentifier(name) && !ts.isStringLiteral(name)) {
+      return "use a computed or numeric key";
+    }
+
+    if (keys.has(name.text)) {
+      return `repeat the key ${name.text}`;
+    }
+
+    keys.add(name.text);
+  }
+
+  return keys;
+}
+
 function patchDeclaration(
   declaration: Declaration,
   path: string,
@@ -351,66 +414,85 @@ function patchDeclaration(
 
     if (removed.length > 0 || added.length > 0) {
       const params = declaration.config.get("params");
+      let keys = new Set<string>();
 
-      if (removed.length === 1 && added.length === 1 && params) {
-        const entries = properties(params, "Filesystem local params");
-        const [oldName] = removed;
-        const [newName] = added;
+      if (params) {
+        const readable = paramKeys(params);
 
-        if (entries.size !== names.size || !entries.has(oldName)) {
-          fail(params, "Ambiguous filesystem codec change; update local params explicitly");
+        if (typeof readable === "string") {
+          ambiguousParams(params, path, removed, added, readable);
         }
 
-        const property = entries.get(oldName)!.parent;
+        keys = readable;
+      }
 
-        if (!ts.isPropertyAssignment(property)) {
-          fail(
-            property,
-            "Filesystem param rename requires a direct property with its codec expression",
-          );
+      // Params the author already made match the directories need only the path rewritten. A
+      // path without params matches only a declaration without `params`, as at runtime.
+      let reconciled = keys.size === desiredNames.size;
+
+      if (desiredNames.size === 0 && params) {
+        reconciled = false;
+      }
+
+      for (const name of desiredNames) {
+        if (!keys.has(name)) {
+          reconciled = false;
         }
+      }
 
-        patches.push({
-          start: property.name.getStart(source),
-          end: property.name.end,
-          text: JSON.stringify(newName),
-        });
-      } else if (removed.length === 0 && params) {
-        // Pure additions keep every authored codec and give each new param the seed's codec.
-        const entries = properties(params, "Filesystem local params");
+      if (!reconciled) {
+        if (removed.length === 1 && added.length === 1 && params) {
+          const entries = properties(params, "Filesystem local params");
+          const [oldName] = removed;
+          const [newName] = added;
 
-        for (const name of names) {
-          if (!entries.has(name)) {
-            fail(params, "Ambiguous filesystem codec change; update local params explicitly");
+          if (entries.size !== names.size || !entries.has(oldName)) {
+            ambiguousParams(params, path, removed, added);
           }
+
+          const property = entries.get(oldName)!.parent;
+
+          if (!ts.isPropertyAssignment(property)) {
+            ambiguousParams(property, path, removed, added, "use a shorthand property");
+          }
+
+          patches.push({
+            start: property.name.getStart(source),
+            end: property.name.end,
+            text: JSON.stringify(newName),
+          });
+        } else if (removed.length === 0 && params) {
+          // Pure additions keep every authored codec and give each new param the seed's codec.
+          for (const name of names) {
+            if (!keys.has(name)) {
+              ambiguousParams(params, path, removed, added);
+            }
+          }
+
+          if (keys.size !== names.size) {
+            ambiguousParams(params, path, removed, added);
+          }
+
+          const name = stringParamBinding(source, imports);
+          const appended: string[] = [];
+
+          for (const param of added) {
+            appended.push(`${JSON.stringify(param)}: ${name}`);
+          }
+
+          patches.push(addProperty(params as ts.ObjectLiteralExpression, appended.join(", ")));
+        } else if (names.size === 0 && !params) {
+          const name = stringParamBinding(source, imports);
+          const entries: string[] = [];
+
+          for (const param of added) {
+            entries.push(`${JSON.stringify(param)}: ${name}`);
+          }
+
+          additions.push(`params: { ${entries.join(", ")} }`);
+        } else {
+          ambiguousParams(literal, path, removed, added);
         }
-
-        if (entries.size !== names.size) {
-          fail(params, "Ambiguous filesystem codec change; update local params explicitly");
-        }
-
-        const name = stringParamBinding(source, imports);
-        const appended: string[] = [];
-
-        for (const param of added) {
-          appended.push(`${JSON.stringify(param)}: ${name}`);
-        }
-
-        patches.push(addProperty(params as ts.ObjectLiteralExpression, appended.join(", ")));
-      } else if (names.size === 0 && !params) {
-        const name = stringParamBinding(source, imports);
-        const entries: string[] = [];
-
-        for (const param of added) {
-          entries.push(`${JSON.stringify(param)}: ${name}`);
-        }
-
-        additions.push(`params: { ${entries.join(", ")} }`);
-      } else {
-        fail(
-          literal,
-          "Ambiguous filesystem codec change; update path and local params explicitly before synchronization",
-        );
       }
     }
 
