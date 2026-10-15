@@ -28,6 +28,7 @@ export class PresentationSettings {
   readonly pointerEvents = signal<string | null>(null);
   readonly closeOnFocus = signal(false);
   readonly cancelOpening = signal(false);
+  readonly scriptEntrance = signal(false);
   readonly opacityOnShow = signal<string | null>(null);
   readonly opacityOnFocus = signal<string | null>(null);
   readonly sameSuppressionOnShow = signal(false);
@@ -84,6 +85,16 @@ export class PresentationRoot {
     this.settings.shows.update((value) => value + 1);
     this.settings.showCapture.set(captureCallbackStyles(content, event, this.settings));
     this.#author(content, this.settings.opacityOnShow, this.settings.sameSuppressionOnShow);
+
+    if (this.settings.scriptEntrance()) {
+      this.settings.scriptEntrance.set(false);
+      // Consumer script motion is not tied to the entering marker or the host's display,
+      // so it outlives both when the activation is suppressed.
+      content.animate([{ outlineColor: "#3a3a3a" }, { outlineColor: "#aaaaaa" }], {
+        id: "script-entrance",
+        duration: 800,
+      });
+    }
 
     if (this.settings.cancelOpening()) {
       event.preventDefault();
@@ -210,6 +221,13 @@ export class PresentationContent implements OrigamiPopoverContentOptions {
           (click)="root.settings.cancelOpening.set(true)"
         >
           Cancel next show
+        </button>
+        <button
+          type="button"
+          data-testid="presentation-arm-script-entrance"
+          (click)="root.settings.scriptEntrance.set(true)"
+        >
+          Script entrance on next show
         </button>
         <button
           type="button"

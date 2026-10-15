@@ -245,6 +245,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         </select></label>
         <label>Anchor writing mode <select data-testid="writing-mode" (change)="select($event, writingMode)">
           <option value="horizontal-tb">Horizontal</option><option value="vertical-rl">Vertical right to left</option><option value="vertical-lr">Vertical left to right</option>
+          <option value="sideways-lr">Sideways (unsupported by Popover)</option>
         </select></label>
         <label>Anchor direction <select data-testid="anchor-direction" (change)="select($event, direction)"><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
         <label>Content direction <select data-testid="content-direction" (change)="select($event, contentDirection)"><option value="rtl">RTL</option><option value="ltr">LTR</option></select></label>

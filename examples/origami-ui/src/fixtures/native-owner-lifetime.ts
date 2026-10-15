@@ -2,6 +2,7 @@ import {
   Component,
   DestroyRef,
   Directive,
+  ElementRef,
   EnvironmentInjector,
   Injector,
   Service,
@@ -81,7 +82,12 @@ export class OwnerLifetimeContent {
     OrigamiPopoverOptions.provideFactory(() => inject(OwnerLifetimeOptions)),
   ],
   template: `
-    <button ogPopoverTrigger ogPopoverAnchor data-testid="owner-lifetime-trigger">
+    <button
+      ogPopoverTrigger
+      ogPopoverAnchor
+      data-testid="owner-lifetime-trigger"
+      (focus)="triggerFocused()"
+    >
       Live owner Trigger
     </button>
     <section
@@ -99,6 +105,9 @@ export class OwnerLifetimeContent {
         <input autofocus data-testid="owner-lifetime-autofocus" aria-label="Owner autofocus" />
         <button type="button" data-testid="owner-lifetime-live" (click)="live.update(increment)">
           Live {{ live() }}
+        </button>
+        <button type="button" data-testid="owner-lifetime-close" (click)="options.open.set(false)">
+          Close from Options
         </button>
       }
     </section>
@@ -130,6 +139,7 @@ export class NativeLifetimeOwner {
   readonly live = signal(0);
   readonly increment = (value: number): number => value + 1;
   onOpening: ((element: HTMLElement) => void) | null = null;
+  onTriggerFocus: (() => void) | null = null;
   destroyed = false;
 
   constructor() {
@@ -164,6 +174,13 @@ export class NativeLifetimeOwner {
       action?.(element);
     }
   }
+
+  triggerFocused(): void {
+    const action = this.onTriggerFocus;
+
+    this.onTriggerFocus = null;
+    action?.();
+  }
 }
 
 /** Client-mounted on demand; the owner itself is created only by an explicit action. */
@@ -194,6 +211,9 @@ export class NativeLifetimeOwner {
     <button type="button" data-testid="owner-lifetime-arm-remove-mode" (click)="arm('remove-mode')">
       Unsupported native mode removal
     </button>
+    <button type="button" data-testid="owner-lifetime-arm-restore-destroy" (click)="armRestore()">
+      Destroy in restored Trigger focus
+    </button>
     <output data-testid="owner-lifetime-settled">{{ settled() }}</output>
     <output data-testid="owner-lifetime-journal">{{ journal.json() }}</output>
     <ng-template #slot />
@@ -215,6 +235,7 @@ export class NativeOwnerLifetime {
   readonly slot = viewChild.required("slot", { read: ViewContainerRef });
   readonly #environment = inject(EnvironmentInjector);
   readonly #injector = inject(Injector);
+  readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   #current: ComponentRef<NativeLifetimeOwner> | null = null;
   #generation = 0;
 
@@ -236,6 +257,42 @@ export class NativeOwnerLifetime {
 
     this.#current = reference;
     this.journal.record({ stage: "mounted", generation: this.#generation });
+  }
+
+  /** Script close restores focus to the Trigger, whose listener synchronously destroys the owner. */
+  armRestore(): void {
+    const reference = this.#current;
+
+    if (reference === null) {
+      throw new Error("Mount the public ComponentRef consumer first");
+    }
+
+    const owner = reference.instance;
+    const rootState = owner.state;
+    const contentState = owner.content().state;
+    const generation = owner.generation();
+
+    owner.onTriggerFocus = () => {
+      reference.destroy();
+      this.#current = null;
+      // A DOM marker orders every teardown mutation before it and any stale work after it.
+      this.#host.setAttribute("data-owner-destroyed", String(generation));
+      this.journal.record({
+        stage: "after-restore-destroy",
+        generation,
+        destroyed: owner.destroyed,
+        viewDestroyed: reference.hostView.destroyed,
+        intent: rootState.open(),
+        retained: contentState.open(),
+      });
+      afterNextRender(
+        () => {
+          this.journal.record({ stage: "after-render", generation });
+          this.settled.update((value) => value + 1);
+        },
+        { injector: this.#injector },
+      );
+    };
   }
 
   arm(action: NativeOwnerAction): void {
