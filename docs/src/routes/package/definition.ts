@@ -1,9 +1,8 @@
-import { defineRoute, stringParam } from "@loozo/angular-router";
-import { resolvePackage } from "../../package-content.js";
+import { defineRoute, enumParam } from "@loozo/angular-router";
+import { loadPackage, packageSlugs } from "../../../generated/content/index.generated.js";
 
-// A string, not enumParam(packageSlugs): with a resolver, a value enumParam rejects fails the whole
-// navigation, so an unknown package couldn't render the not-found page.
+// An unknown package doesn't match, so it reaches the root not-found route.
 export default defineRoute("$package", {
-  params: { package: stringParam },
-  resolve: { content: ({ params }) => resolvePackage(params.package) },
+  params: { package: enumParam(packageSlugs) },
+  resolve: { content: ({ params }) => loadPackage(params.package) },
 });

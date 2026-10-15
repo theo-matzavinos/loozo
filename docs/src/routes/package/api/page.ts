@@ -1,16 +1,13 @@
 import { Component, computed, inject } from "@angular/core";
-import { NotFound } from "../../../not-found.js";
 import { CurrentPackage } from "../../../package-content.js";
 import { pageTitle } from "../../../page-title.js";
 import { SymbolDetails } from "../../../symbol-details.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [NotFound, SymbolDetails],
+  imports: [SymbolDetails],
   template: `
-    @if (page() === null) {
-      <docs-not-found />
-    } @else if (page(); as page) {
+    @if (page(); as page) {
       <article class="prose">
         <p class="meta">{{ page.packageName }}</p>
         <h1>
@@ -25,7 +22,7 @@ export default class ApiSymbolPage {
   readonly route = injectRoute();
   readonly content = inject(CurrentPackage);
 
-  /** undefined while loading, null when no public entry point exports such a symbol. */
+  /** undefined while loading; the route's guard has checked that the symbol exists. */
   readonly page = computed(() => {
     const params = this.route.params.value();
     const content = this.content();
@@ -42,7 +39,7 @@ export default class ApiSymbolPage {
       }
     }
 
-    return null;
+    return undefined;
   });
 
   constructor() {
@@ -51,10 +48,6 @@ export default class ApiSymbolPage {
 
       if (page === undefined) {
         return undefined;
-      }
-
-      if (page === null) {
-        return "Page not found";
       }
 
       return `${page.symbol.name} · ${page.packageName}`;
