@@ -17,6 +17,7 @@ import {
   OrigamiAccordionTrigger,
   OrigamiAccordionPanel,
 } from "@loozo/origami-ui/accordion";
+import { OrigamiToggle } from "@loozo/origami-ui/toggle";
 
 /** Observes public Collection State without accessing registration internals. */
 @Directive({
@@ -52,6 +53,7 @@ export class CollectionObservation {
     OrigamiAccordionItem,
     OrigamiAccordionTrigger,
     OrigamiAccordionPanel,
+    OrigamiToggle,
   ],
   template: `
     <h1>Origami public contracts</h1>
@@ -171,6 +173,35 @@ export class CollectionObservation {
       <output data-testid="multiple-original">{{ originalMultiple }}</output>
       <output data-testid="multiple-outputs">{{ multipleOutputs() }}</output>
     </section>
+
+    <section>
+      <h2>Toggle</h2>
+      <button
+        type="button"
+        data-testid="disable-toggle"
+        (click)="toggleDisabled.set(!toggleDisabled())"
+      >
+        Toggle disabled
+      </button>
+      <button type="button" data-testid="script-pressed" (click)="pressed.set(!pressed())">
+        Write pressed from consumer
+      </button>
+      <form (submit)="$event.preventDefault(); toggleSubmits.update(increment)">
+        <button
+          ogToggle
+          #toggle="ogToggle"
+          [(pressed)]="pressed"
+          [disabled]="toggleDisabled()"
+          (pressedChange)="pressedOutputs.update(increment)"
+          data-testid="toggle"
+        >
+          Bold
+        </button>
+      </form>
+      <output data-testid="toggle-state">{{ toggle.state.pressed() }}</output>
+      <output data-testid="pressed-outputs">{{ pressedOutputs() }}</output>
+      <output data-testid="toggle-submits">{{ toggleSubmits() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -235,6 +266,10 @@ export class CoreConsumer {
   readonly originalMultiple: readonly string[] = Object.freeze(["unmounted"]);
   readonly multiple = signal<readonly string[]>(this.originalMultiple);
   readonly multipleOutputs = signal(0);
+  readonly pressed = signal(false);
+  readonly toggleDisabled = signal(false);
+  readonly pressedOutputs = signal(0);
+  readonly toggleSubmits = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   reverseItems(): void {

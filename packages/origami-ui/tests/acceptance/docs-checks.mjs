@@ -45,6 +45,7 @@ for (const directory of [
   "collapsible/src",
   "accordion/src",
   "popover/src",
+  "toggle/src",
 ]) {
   await collect(directory);
 }
@@ -102,6 +103,8 @@ const directiveDefaults = {
   "OrigamiPopoverContent.side": ["block-end", /block.?end/i],
   "OrigamiPopoverContent.align": ["start", /\bstart\b/i],
   "OrigamiPopoverContent.gap": ["0 CSS px", /\b0\b|\bzero\b/i],
+  "OrigamiToggle.pressed": ["false", /\bfalse\b/i],
+  "OrigamiToggle.disabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

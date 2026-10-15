@@ -1,10 +1,10 @@
 # @loozo/origami-ui
 
-Headless, accessible Angular primitives: Collection, Presence, Collapsible, single and multiple Accordion, and Popover. They own behavior, state, generated IDs, ARIA associations and Popover's native top-layer presentation, and they're safe to render on the server and hydrate. You own the markup, roles and accessible names, styling, dimensions and animation.
+Headless, accessible Angular primitives: Collection, Presence, Collapsible, single and multiple Accordion, Popover and Toggle. They own behavior, state, generated IDs, ARIA associations and Popover's native top-layer presentation, and they're safe to render on the server and hydrate. You own the markup, roles and accessible names, styling, dimensions and animation.
 
-Every primitive is a directive you put on your own elements, or compose into your own directives through `hostDirectives`. Each configurable part reads typed **Options** that you can replace. The roots, Presence and Popover Content also expose a readonly **State** that you can inject.
+Every primitive is a directive you put on your own elements, or compose into your own directives through `hostDirectives`. Each configurable part reads typed **Options** that you can replace. The roots, Presence, Popover Content and Toggle also expose a readonly **State** that you can inject.
 
-Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation and anchored popovers, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
+Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation, anchored popovers and toggle buttons, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
 
 **Status:** experimental and published on npm. Version `0.0.1`, MIT license.
 
@@ -33,6 +33,7 @@ The root entry point `@loozo/origami-ui` is intentionally empty. Import from the
 | `@loozo/origami-ui/collapsible` | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
 | `@loozo/origami-ui/accordion`   | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
 | `@loozo/origami-ui/popover`     | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
+| `@loozo/origami-ui/toggle`      | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
 
 The Accordion entry point also exports `ɵOrigamiAccordionRoot`, which compiled composition needs. It isn't an application API. Every export carries TSDoc with its defaults, ownership, errors and hydration behavior; your editor shows it from the published declarations.
 
@@ -58,7 +59,9 @@ Options token ──► private Context ──► readonly State
   A replacement replaces the configuration as a whole: it must supply every property, and the directive's own inputs and defaults are ignored. Writable properties can be ordinary `signal()`s; writing them doesn't emit the unused directive's model output.
 
 - **Context** is private and owns the behavior. Parts register with the nearest owner in Angular's DI, so nested roots are independent and descendants share their own root's State.
-- **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root and Popover Content. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
+- **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root, Popover Content and Toggle. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
+
+Angular 22.2.2's template type-checker crashes ("Could not resolve [object Object]") on a template reference to a primitive's `exportAs` name, such as `#t="ogToggle"`, when that element matches the primitive both directly and through your directive's `hostDirectives`. Reference your own directive instead, and expose the primitive's State from it.
 
 Upper primitives are built from lower ones: Accordion composes Collection and Collapsible, and Collapsible's Panel and Popover's Content compose Presence. Replacing an upper part's Options also drives the lower part, so you don't need to replace lower Options yourself.
 
@@ -264,6 +267,35 @@ The Popover is non-modal: there's no focus trap, no scroll lock, no automatic fo
 
 If positioning fails, for example because the Anchor uses an unsupported writing mode, Origami hides the Content immediately, without an exit animation, and reports the error once through Angular's `ErrorHandler`. That applies whether it fails while opening, on a later update, or during a visible exit. Nothing is revealed, no failed coordinates are applied, and the Trigger's `aria-expanded` is false. `open` keeps its value and Presence keeps its phase. The same attempt isn't retried; changing `open`, a part, the Content Options or the parent Popover's presentation tries again. A failure from a calculation that a newer one has already replaced is still reported once, but doesn't hide the newer presentation. Positioning needs `ResizeObserver` and `IntersectionObserver`.
 
+## Toggle
+
+Toggle is a two-state button, such as a mute, bold or dark-theme button: a native button that flips a `pressed` model.
+
+[src/toggle/mute.ts](snippets/src/toggle/mute.ts)
+
+It has a `pressed` model (default `false`) and a `disabled` input (default `false`). Each Toggle is its own owner; there's no group.
+
+### Replacing Options
+
+Drive the pressed state from application state instead of the directive's own model:
+
+[src/toggle/bold-format.ts](snippets/src/toggle/bold-format.ts)
+
+### State and attributes
+
+`OrigamiToggleState` has `pressed()` and `disabled()`, the effective values from the Options. The directive exposes it as `state`, and descendants of the button can inject it.
+
+| Element | Attributes                                                                                                                                                          |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Toggle  | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `data-pressed` while pressed; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
+
+### Accessibility
+
+- The Toggle is a native button. Enter and Space work natively; there's no custom keyboard handling.
+- An enabled click flips `pressed`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply.
+- `aria-pressed` is always `"true"` or `"false"`; there's no mixed state. You supply the accessible name. Keep it the same in both states, because `aria-pressed` already announces the state.
+- Toggle isn't a form control: it has no form value or Signal Forms integration. For several related toggles, use separate Toggles; there's no group or arrow-key navigation.
+
 ## Utilities
 
 `@loozo/origami-ui/utils` exports the two helpers the primitives use:
@@ -283,6 +315,7 @@ Every primitive renders on the server and hydrates with Angular's `provideClient
 - Initially-absent Presence-gated content isn't in the server HTML and doesn't appear when its owner hydrates.
 - Generated IDs and item values match between server and client, including when `@defer` blocks hydrate in a different order from the server.
 - An Angular event replayed after incremental hydration reaches the model once.
+- A Toggle's `aria-pressed`, `data-pressed` and disabled attributes are in the server HTML. If the server can't know the pressed state, for example a theme stored in the browser, render the Toggle disabled until the browser has it.
 - Popover Content is in the server HTML with `popover="manual"`, but the browser shows a closed Popover until the Content has hydrated and opened. An initially-open Popover's children are in the server HTML; it appears as a floating surface only once it hydrates.
 
 **The element-host identity rule:** `injectUniqueId` matches server and client only when it's called with an element host, that is in a directive or component on an element, as every primitive does. A call from an application service or another injection context without an element host still returns an application-unique ID, but don't bind it into server-rendered DOM, because the client will generate a different one. Uniqueness across several Angular applications in one document isn't guaranteed; coordinate explicit IDs there.

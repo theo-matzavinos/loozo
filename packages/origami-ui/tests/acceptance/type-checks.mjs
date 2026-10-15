@@ -108,6 +108,7 @@ import { OrigamiCollectionItemOptions } from '@loozo/origami-ui/collection';
 import { OrigamiCollapsibleOptions, OrigamiCollapsibleTriggerOptions, OrigamiCollapsiblePanelOptions, type OrigamiCollapsibleHiding } from '@loozo/origami-ui/collapsible';
 import { OrigamiAccordionOptions, OrigamiAccordionSingleOptions, OrigamiAccordionMultipleOptions, OrigamiAccordionTriggerOptions, OrigamiAccordionPanelOptions } from '@loozo/origami-ui/accordion';
 import { OrigamiPopoverOptions, OrigamiPopoverTriggerOptions, OrigamiPopoverAnchorOptions, OrigamiPopoverContentOptions, type OrigamiPopoverContentState } from '@loozo/origami-ui/popover';
+import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -158,9 +159,16 @@ OrigamiCollapsiblePanelOptions.provideFactory(() => ({}));
 OrigamiAccordionSingleOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false)}));
 // @ts-expect-error Popover open must be a boolean signal
 OrigamiPopoverOptions.provideFactory(() => ({open: signal('wrong'), disabled: signal(false), dismissible: signal(true)}));
+// @ts-expect-error Toggle pressed must be writable
+OrigamiToggleOptions.provideFactory(() => ({pressed: computed(() => false), disabled: signal(false)}));
+// @ts-expect-error Toggle pressed must be a boolean signal
+OrigamiToggleOptions.provideFactory(() => ({pressed: signal('pressed'), disabled: signal(false)}));
+// @ts-expect-error a Toggle factory must supply disabled
+OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false)}));
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
+class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -169,6 +177,8 @@ OrigamiCollapsibleOptions.provideExisting(() => WrongRoot);
 OrigamiCollapsibleTriggerOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Collapsible Panel class
 OrigamiCollapsiblePanelOptions.provideExisting(() => WrongIdentity);
+// @ts-expect-error incompatible existing Toggle class
+OrigamiToggleOptions.provideExisting(() => WrongToggle);
 // Positive: complete factories and abstract existing classes return ordinary Provider arrays.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -198,6 +208,10 @@ abstract class AbstractPopover {
   abstract readonly disabled: Signal<boolean>;
   abstract readonly dismissible: Signal<boolean>;
 }
+abstract class AbstractToggle {
+  abstract readonly pressed: WritableSignal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+}
 export const providers: Provider[][] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -219,6 +233,8 @@ export const providers: Provider[][] = [
   OrigamiPopoverOptions.provideFactory(() => ({open: signal(false), disabled: signal(false), dismissible: signal(true)})),
   OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
   OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal('anchor')})),
+  OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: computed(() => false)})),
+  OrigamiToggleOptions.provideExisting(() => AbstractToggle),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -246,6 +262,15 @@ import { OrigamiCollapsible, OrigamiCollapsibleTrigger } from "@loozo/origami-ui
   readonly present = signal(true);
   readonly wrongPresent = signal("wrong");
   expandedOutput(value: boolean): void { void value; }
+  wrongOutput(value: string): void { void value; }`,
+  },
+  toggle: {
+    imports: `import { OrigamiToggle } from "@loozo/origami-ui/toggle";`,
+    directives: "OrigamiToggle",
+    members: `
+  readonly pressed = signal(false);
+  readonly wrongPressed = signal("pressed");
+  pressedOutput(value: boolean): void { void value; }
   wrongOutput(value: string): void { void value; }`,
   },
 };
@@ -328,6 +353,31 @@ const templates = [
       code: 2322,
       span: "id",
       message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "toggle-positive",
+    family: "toggle",
+    template: `<button ogToggle [(pressed)]="pressed" disabled (pressedChange)="pressedOutput($event)">Valid</button>`,
+  },
+  {
+    name: "toggle-model",
+    family: "toggle",
+    template: `<button ogToggle [(pressed)]="wrongPressed">Wrong model</button>`,
+    expected: {
+      code: 2322,
+      span: "pressed",
+      message: /Type 'string' is not assignable to type 'boolean'/,
+    },
+  },
+  {
+    name: "toggle-output",
+    family: "toggle",
+    template: `<button ogToggle (pressedChange)="wrongOutput($event)">Wrong output</button>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /Argument of type 'boolean' is not assignable to parameter of type 'string'/,
     },
   },
 ];

@@ -8,16 +8,16 @@ loozo explicitly skipped the formal Baseline audit on 2026-10-11. No Baseline qu
 
 ## Contents
 
-| File                          | Purpose                                                                                                                                                                                |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core-consumer.ts`            | Direct Collection, Presence, Collapsible and both Accordion modes; public observation, keyed moves, retained children, frozen caller array and output counters                         |
-| `composition-consumer.ts`     | Consumer `hostDirectives`, factory-backed writable Options, upper-only Accordion Trigger substitution, public Presence State, captured nearest injection and opaque identity           |
-| `popover-consumer.ts`         | Content Options factory with all four fields; authored transformed/clipped ancestors; native callbacks, autofocus reentry, live bindings, placement changes and nested branch behavior |
-| `hydration-unit.ts`           | Repeated identity key, generated Accordion values, initially-present/absent retained nodes, Collapsible replay and initially-open/closed Popover                                       |
-| `hydration-consumer.ts`       | Genuine interaction-triggered `@defer` boundaries; reverse sibling hydration; supported incremental/eager provider configurations                                                      |
-| `eager-hydration-consumer.ts` | The same units without deferred boundaries, in a separate file                                                                                                                         |
-| `types.ts`                    | Compile-only positive provider/signature checks and negative readonly/mode/Content-migration checks                                                                                    |
-| `CASES.md`                    | Explicit inputs, actions and observable expected outcomes for the complete contract                                                                                                    |
+| File                          | Purpose                                                                                                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `core-consumer.ts`            | Direct Collection, Presence, Collapsible, both Accordion modes and Toggle; public observation, keyed moves, retained children, frozen caller array and output counters                                                   |
+| `composition-consumer.ts`     | Consumer `hostDirectives`, factory-backed writable Options, upper-only Accordion Trigger substitution, existing/factory Toggle Options, public Presence and Toggle State, captured nearest injection and opaque identity |
+| `popover-consumer.ts`         | Content Options factory with all four fields; authored transformed/clipped ancestors; native callbacks, autofocus reentry, live bindings, placement changes and nested branch behavior                                   |
+| `hydration-unit.ts`           | Repeated identity key, generated Accordion values, initially-present/absent retained nodes, Collapsible and Toggle replay, initially-pressed/unpressed Toggle and initially-open/closed Popover                          |
+| `hydration-consumer.ts`       | Genuine interaction-triggered `@defer` boundaries; reverse sibling hydration; supported incremental/eager provider configurations                                                                                        |
+| `eager-hydration-consumer.ts` | The same units without deferred boundaries, in a separate file                                                                                                                                                           |
+| `types.ts`                    | Compile-only positive provider/signature checks and negative readonly/mode/Content-migration checks                                                                                                                      |
+| `CASES.md`                    | Explicit inputs, actions and observable expected outcomes for the complete contract                                                                                                                                      |
 
 These seeds are deliberately small. The case definitions call for further variants: all Options tokens with both provider kinds, animation modes, cardinality/remount, writing modes/fallback geometry, trusted gesture variants, nested root/part boundaries and synchronous factory-Options reentry. [`tests/acceptance`](../tests/acceptance/README.md) adds them. A seed alone is not executed case coverage, and a specified variant counts as covered only once the gate executes it.
 

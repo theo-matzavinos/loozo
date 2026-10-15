@@ -401,6 +401,79 @@ test("H3: actual early capture readiness and exactly-once initiating eager actio
   }
 });
 
+test("G3 H1 H2 H3: Toggle server pressed state and retained nodes; the first activation after attachment or replay flips once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    for (const label of ["A", "B"]) {
+      const toggle = page.locator(`[data-unit="${label}"]`).getByTestId("hydration-toggle");
+
+      await expect(toggle).toHaveAttribute("type", "button");
+      await expect(toggle).toHaveAttribute("aria-pressed", "true");
+      await expect(toggle).toHaveAttribute("data-pressed", "");
+    }
+
+    const unpressed = page.locator('[data-unit="C"]').getByTestId("hydration-toggle");
+
+    await expect(unpressed).toHaveAttribute("aria-pressed", "false");
+    await expect(unpressed).not.toHaveAttribute("data-pressed", /.*/);
+
+    const b = page.locator('[data-unit="B"]');
+    const toggle = b.getByTestId("hydration-toggle");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await toggle.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("pressed-output-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      await toggle.click();
+    }
+
+    await expect(b.getByTestId("pressed-output-count")).toHaveText("1");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(toggle).not.toHaveAttribute("data-pressed", /.*/);
+    await assertReferences(page, info);
+    await toggle.click();
+    await expect(b.getByTestId("pressed-output-count")).toHaveText("2");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {

@@ -51,6 +51,7 @@ export const inventory = {
     "OrigamiPopoverSide",
     "OrigamiPopoverAlign",
   ],
+  toggle: ["OrigamiToggle", "OrigamiToggleOptions", "OrigamiToggleState"],
 };
 
 export const typeOnly = new Set([

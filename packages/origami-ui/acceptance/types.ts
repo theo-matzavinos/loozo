@@ -19,6 +19,7 @@ import {
   type OrigamiPopoverSide,
   type OrigamiPopoverAlign,
 } from "@loozo/origami-ui/popover";
+import { OrigamiToggleOptions, type OrigamiToggleState } from "@loozo/origami-ui/toggle";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -31,6 +32,7 @@ export function checkReadonlyState(
   accordion: OrigamiAccordionState,
   popover: OrigamiPopoverState,
   content: OrigamiPopoverContentState,
+  toggle: OrigamiToggleState,
 ): void {
   // @ts-expect-error Collection observation is not writable.
   collection.items.set([]);
@@ -64,6 +66,10 @@ export function checkReadonlyState(
   popover.dismissible.set(false);
   // @ts-expect-error Content retention is not writable.
   content.open.set(false);
+  // @ts-expect-error Toggle pressed observation is not writable.
+  toggle.pressed.set(true);
+  // @ts-expect-error Toggle disabled observation is not writable.
+  toggle.disabled.update((value) => !value);
 }
 
 export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
@@ -121,6 +127,10 @@ export function checkProviderShapes(): void {
     side: signal<OrigamiPopoverSide>("block-end"),
     align: signal<OrigamiPopoverAlign>("start"),
     gap: signal(8),
+  }));
+  OrigamiToggleOptions.provideFactory(() => ({
+    pressed: signal(false),
+    disabled: signal(false),
   }));
 }
 

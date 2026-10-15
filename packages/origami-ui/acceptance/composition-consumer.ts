@@ -3,8 +3,10 @@ import {
   Directive,
   InjectionToken,
   Service,
+  booleanAttribute,
   inject,
   input,
+  model,
   signal,
 } from "@angular/core";
 import {
@@ -24,6 +26,7 @@ import {
   OrigamiAccordionPanel,
 } from "@loozo/origami-ui/accordion";
 import { OrigamiPresenceState } from "@loozo/origami-ui/presence";
+import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/origami-ui/toggle";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Service({ autoProvided: false })
@@ -74,6 +77,50 @@ export class ConsumerAccordionTrigger implements OrigamiAccordionTriggerOptions 
   readonly id = input("consumer-accordion-trigger");
 }
 
+@Service({ autoProvided: false })
+export class ToggleSettings {
+  readonly pressed = signal(false);
+  readonly disabled = signal(false);
+}
+
+/** Writable factory Options win over the unused lower model, whose output stays silent. */
+@Directive({
+  selector: "button[factoryToggle]",
+  exportAs: "factoryToggle",
+  hostDirectives: [
+    {
+      directive: OrigamiToggle,
+      inputs: ["pressed: lowerPressed"],
+      outputs: ["pressedChange: lowerPressedChange"],
+    },
+  ],
+  providers: [OrigamiToggleOptions.provideFactory(() => inject(ToggleSettings))],
+})
+export class FactoryToggle {
+  readonly state = inject(OrigamiToggleState);
+}
+
+/** Existing Options: the consumer directive's own model and input drive the composed Toggle. */
+@Directive({
+  selector: "button[consumerToggle]",
+  exportAs: "consumerToggle",
+  hostDirectives: [OrigamiToggle],
+  providers: [OrigamiToggleOptions.provideExisting(() => ConsumerToggle)],
+})
+export class ConsumerToggle implements OrigamiToggleOptions {
+  readonly pressed = model(true);
+  readonly disabled = input(false, { transform: booleanAttribute });
+}
+
+/** A descendant observes its nearest Toggle's State. */
+@Directive({
+  selector: "[toggleObservation]",
+  host: { "[attr.data-observed-pressed]": "state.pressed()" },
+})
+export class ToggleObservation {
+  readonly state = inject(OrigamiToggleState);
+}
+
 const DeferredValue = new InjectionToken<string>("acceptance deferred value");
 
 @Directive({
@@ -105,9 +152,13 @@ export class UtilityObservation {
     OrigamiAccordionPanel,
     UtilityObservation,
     NestedDeferredScope,
+    FactoryToggle,
+    ConsumerToggle,
+    ToggleObservation,
   ],
   providers: [
     FactorySettings,
+    ToggleSettings,
     {
       provide: DeferredValue,
       useFactory: () => {
@@ -201,6 +252,49 @@ export class UtilityObservation {
       </div>
     </div>
     <output data-testid="deferred-lookups">{{ settings.deferredLookups() }}</output>
+
+    <section>
+      <h2>Toggle composition</h2>
+      <button type="button" data-testid="factory-press" (click)="toggleSettings.pressed.set(true)">
+        Write factory pressed
+      </button>
+      <button
+        type="button"
+        data-testid="factory-toggle-disable"
+        (click)="toggleSettings.disabled.set(!toggleSettings.disabled())"
+      >
+        Toggle factory Toggle disabled
+      </button>
+      <button
+        factoryToggle
+        #factoryToggle="factoryToggle"
+        [lowerPressed]="true"
+        (lowerPressedChange)="unusedToggleOutputs.update(increment)"
+        data-testid="factory-toggle"
+      >
+        <span toggleObservation data-testid="factory-toggle-observer">Factory-backed</span>
+      </button>
+      <output data-testid="factory-toggle-state">{{ factoryToggle.state.pressed() }}</output>
+      <output data-testid="unused-toggle-outputs">{{ unusedToggleOutputs() }}</output>
+      <button
+        consumerToggle
+        [(pressed)]="consumerPressed"
+        [disabled]="consumerDisabled()"
+        (pressedChange)="consumerToggleOutputs.update(increment)"
+        data-testid="consumer-toggle"
+      >
+        <span toggleObservation data-testid="consumer-toggle-observer">Existing Options</span>
+      </button>
+      <button
+        type="button"
+        data-testid="consumer-toggle-disable"
+        (click)="consumerDisabled.set(!consumerDisabled())"
+      >
+        Toggle existing Toggle disabled
+      </button>
+      <output data-testid="consumer-pressed">{{ consumerPressed() }}</output>
+      <output data-testid="consumer-toggle-outputs">{{ consumerToggleOutputs() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -255,5 +349,10 @@ export class CompositionConsumer {
   readonly accordionTriggerId = signal("initial-upper-accordion-trigger");
   readonly selected = signal<string | null>(null);
   readonly unusedOutputs = signal(0);
+  readonly toggleSettings = inject(ToggleSettings);
+  readonly unusedToggleOutputs = signal(0);
+  readonly consumerPressed = signal(false);
+  readonly consumerDisabled = signal(false);
+  readonly consumerToggleOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
 }

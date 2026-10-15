@@ -26,6 +26,7 @@ import {
   OrigamiPopoverAnchor,
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
+import { OrigamiToggle } from "@loozo/origami-ui/toggle";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Directive({
@@ -53,6 +54,7 @@ export class AccordionObservation {
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
+    OrigamiToggle,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -79,6 +81,16 @@ export class AccordionObservation {
       <div ogCollapsiblePanel data-testid="hydration-collapsible-panel">{{ label() }} details</div>
     </div>
     <output data-testid="expanded-output-count">{{ expandedOutputs() }}</output>
+
+    <button
+      ogToggle
+      [(pressed)]="pressed"
+      (pressedChange)="pressedOutputs.update(increment)"
+      data-testid="hydration-toggle"
+    >
+      Toggle server pressed
+    </button>
+    <output data-testid="pressed-output-count">{{ pressedOutputs() }}</output>
 
     <div
       ogAccordionSingle
@@ -204,6 +216,8 @@ export class HydrationUnit {
   readonly liveText = signal("initial");
   readonly interactionCount = signal(0);
   readonly expandedOutputs = signal(0);
+  readonly pressed = linkedSignal(() => this.initiallyPresent());
+  readonly pressedOutputs = signal(0);
   readonly popoverOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
 
