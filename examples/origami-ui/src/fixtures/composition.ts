@@ -69,6 +69,7 @@ import { createApplication } from "@angular/platform-browser";
 import type { ApplicationRef } from "@angular/core";
 import { ReadonlyStates } from "./readonly-states.js";
 import { Precedence } from "./precedence.js";
+import { TogglePrecedence } from "./toggle-precedence.js";
 
 @Component({
   selector: "acceptance-identity-owner",
@@ -527,6 +528,7 @@ export class StateObservation {
     SharedSingle,
     SharedFactorySingle,
     Precedence,
+    TogglePrecedence,
   ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach composition behavior</button>
@@ -648,6 +650,7 @@ export class StateObservation {
       <output data-testid="unhosted-identities">{{ unhostedIdentities }}</output>
     }
     <acceptance-precedence />
+    <acceptance-toggle-precedence />
   `,
   styles: `
     :host {

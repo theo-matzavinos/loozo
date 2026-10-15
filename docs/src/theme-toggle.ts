@@ -1,4 +1,5 @@
 import { Component, DestroyRef, afterNextRender, inject, signal } from "@angular/core";
+import { OrigamiToggle } from "@loozo/origami-ui/toggle";
 
 const storageKey = "loozo-docs-theme";
 
@@ -8,15 +9,23 @@ const storageKey = "loozo-docs-theme";
  */
 @Component({
   selector: "docs-theme-toggle",
+  imports: [OrigamiToggle],
   template: `
-    <button type="button" class="theme-toggle" [attr.aria-pressed]="dark()" (click)="toggle()">
+    <button
+      ogToggle
+      class="theme-toggle"
+      [pressed]="dark()"
+      [disabled]="!known()"
+      (pressedChange)="choose($event)"
+    >
       Dark theme
     </button>
   `,
 })
 export class ThemeToggle {
-  /** Unknown until the browser renders, because the prerendered HTML can't know the theme. */
-  readonly dark = signal<boolean | undefined>(undefined);
+  readonly dark = signal(false);
+  /** The prerendered HTML can't know the theme, so the button stays disabled until the browser renders. */
+  readonly known = signal(false);
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -28,6 +37,7 @@ export class ThemeToggle {
       };
 
       update();
+      this.known.set(true);
       query.addEventListener("change", update);
       destroyRef.onDestroy(() => {
         query.removeEventListener("change", update);
@@ -45,15 +55,16 @@ export class ThemeToggle {
     return theme === "dark";
   }
 
-  toggle() {
-    let theme = "dark";
+  /** Only user activation emits; a system theme change updates `dark` without persisting it. */
+  choose(dark: boolean) {
+    let theme = "light";
 
-    if (this.dark()) {
-      theme = "light";
+    if (dark) {
+      theme = "dark";
     }
 
     document.documentElement.dataset.theme = theme;
-    this.dark.set(theme === "dark");
+    this.dark.set(dark);
 
     try {
       localStorage.setItem(storageKey, theme);

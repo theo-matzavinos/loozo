@@ -257,6 +257,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/collapsible",
     "@loozo/origami-ui/accordion",
     "@loozo/origami-ui/popover",
+    "@loozo/origami-ui/toggle",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], ["injectDeferred", "injectUniqueId"]);
   // Compiler-required ɵ exports are not application API.

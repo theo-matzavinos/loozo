@@ -1,16 +1,16 @@
 # @loozo/origami-ui — product contract
 
-**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Formal Baseline audit skipped; no Baseline certification claim.**
+**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Toggle (section 12) was added after 0.0.1 and is unreleased. Formal Baseline audit skipped; no Baseline certification claim.**
 
 This is the normative contract for the public API, behavior, composition architecture and acceptance requirements of `@loozo/origami-ui`; Popover's presentation design is specified in [SPEC-POPOVER.md](SPEC-POPOVER.md). A change to any of them updates this contract in the same change. How the package was rebuilt and moved into loozo is recorded in [PROVENANCE.md](PROVENANCE.md). No formal Baseline qualification claim is made; full browser/runtime proof is mandatory.
 
 ## 1. Product scope
 
-An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion and Popover, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
+An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion, Popover and Toggle, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
 
 Decisions:
 
-- The catalogue grows one consumer-backed primitive at a time, as section 14 describes.
+- The catalogue grows one consumer-backed primitive at a time, as section 15 describes.
 - TSDoc across the whole public API surface is a hard, release-blocking requirement, including public members and provider helpers.
 - Public API names, selectors, entrypoints, inputs, outputs and composition contracts are the ones this contract specifies; changing one updates this contract.
 - Chromium, Firefox and WebKit runtime qualification is mandatory. The formal Baseline audit was explicitly skipped on 2026-10-11 and is not a release gate; no Baseline widely-available certification claim is made.
@@ -126,6 +126,7 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 | `/collapsible` | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
 | `/accordion`   | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
 | `/popover`     | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
+| `/toggle`      | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
 
 The inventories include the approved Popover placement exports and four-property Content Options. ID-only Content factories must migrate; Trigger/Anchor Options remain ID-only.
 
@@ -158,6 +159,7 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Popover root                                                                | `open: WritableSignal<boolean>`, `disabled: Signal<boolean>`, `dismissible: Signal<boolean>`                          |
 | Each Collapsible/Accordion Trigger or Panel; each Popover Trigger or Anchor | its own Options token with `id: Signal<string>`                                                                       |
 | Popover Content                                                             | `id: Signal<string>`, `side: Signal<OrigamiPopoverSide>`, `align: Signal<OrigamiPopoverAlign>`, `gap: Signal<number>` |
+| Toggle                                                                      | `pressed: WritableSignal<boolean>`, `disabled: Signal<boolean>`                                                       |
 
 | State           | Readonly signals                                                                       |
 | --------------- | -------------------------------------------------------------------------------------- |
@@ -167,6 +169,7 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Accordion       | `itemValues: Signal<readonly string[]>`, `disabled: Signal<boolean>`                   |
 | Popover root    | `open: Signal<boolean>`, `disabled: Signal<boolean>`, `dismissible: Signal<boolean>`   |
 | Popover Content | `open: Signal<boolean>`; no public Presence phase alias                                |
+| Toggle          | `pressed: Signal<boolean>`, `disabled: Signal<boolean>`                                |
 
 Popover Content inputs default to `side: 'block-end'`, `align: 'start'`, `gap: 0` CSS px. Side is `'block-start' | 'block-end' | 'inline-start' | 'inline-end'`; align is `'start' | 'center' | 'end'`. Gap must be finite and nonnegative. All four Content Options properties are required; defaults on an unused directive do not repair an incomplete replacement.
 
@@ -374,9 +377,33 @@ The approved details include:
 
 **Recorded support evidence, not a release gate:** inspected basic Popover attribute/show/hide/open-selector/event metadata has low date 2024-04-16, reaching the 30-month boundary on **2026-10-16**. On **2026-10-11**, that evidence did not establish widely-available eligibility, and loozo explicitly decided to skip the Baseline audit. No formal Baseline certification is claimed. The later-dated reflected `HTMLElement.popover` property remains excluded; use ordinary attribute APIs. The decision adds no presentation fallback or waiver of required runtime behavior.
 
-No source inspection, skipped audit or design approval substitutes for the required browser proof in section 12.
+No source inspection, skipped audit or design approval substitutes for the required browser proof in section 13.
 
-## 12. Browser, SSR and hydration qualification [H]
+## 12. Toggle [G]
+
+Selector/export name:
+
+- `button[ogToggle]`, `exportAs: 'ogToggle'`.
+
+Configuration: `pressed` boolean model false, `disabled` boolean input false. The directive exposes readonly State. Toggle is a two-state button; it has no mixed or unknown value.
+
+Host semantics:
+
+- Native button semantics, `type="button"`, no custom keyboard reimplementation of Enter/Space.
+- `aria-pressed` is always present, `"true"` or `"false"`, reflecting effective pressed state.
+- `data-pressed` is empty while pressed and absent otherwise.
+- Disabled state sets native `disabled`, `aria-disabled="true"` and empty `data-disabled`; they are absent while enabled.
+- An enabled activation writes the negation of the effective pressed state to the effective Options exactly once; a disabled user action cannot write it. External Options/model writes remain authoritative while disabled.
+
+Each Toggle element owns its own Context and State; descendants of the button observe that State. There is no parent owner, part registration or cardinality.
+
+Server HTML carries the effective `aria-pressed`, `data-pressed` and disabled attributes. Eager and incremental hydration reuse the server button; an initiating activation replayed after hydration reaches the effective pressed state exactly once.
+
+The consumer supplies the accessible name, which should stay the same when the pressed state changes, and owns styling, label or icon changes and side effects such as persistence.
+
+Exclusions: Toggle is a button, not a form control. It has no Signal Forms integration or form value, and no group, roving focus or mixed state.
+
+## 13. Browser, SSR and hydration qualification [H]
 
 ### Browser support policy
 
@@ -415,7 +442,7 @@ Use real authored `@defer` hydration boundaries, not merely enable hydration pro
 
 Use supported Angular APIs. No contract requiring application code to consume private Angular hydration metadata is introduced. The selected Angular version's actual replay/lifecycle behavior must be inspected before specifying exact event coverage.
 
-## 13. Acceptance structure [T]
+## 14. Acceptance structure [T]
 
 This is the public-contract coverage map. Case definitions and handwritten consumers live in [acceptance](acceptance/README.md); [tests/acceptance](tests/acceptance/README.md) executes them against the packed package. 0.0.1 passed the full gate at `6f898e7` (2,928/2,928 across Chromium/Firefox/WebKit × development/production × eager/incremental hydration).
 
@@ -430,6 +457,7 @@ This is the public-contract coverage map. Case definitions and handwritten consu
 | T-Collapsible | Enabled/disabled activation; Presence-retained hiding; native/progressive until-found behavior; role cardinality and remount                                                |
 | T-Accordion   | Single/multiple contracts; unknown values; immutable array toggles; combined disabled; non-collapsible focusability; factory writable signals; exactly-once outputs/reentry |
 | T-Popover     | Required parts; co-location; nesting/veto; trusted pointer lifetime; topmost Escape; reentry; focus eligibility; exit interaction; layout ownership and tracking            |
+| T-Toggle      | Native activation exactly once; form type; always-present `aria-pressed`; disabled blocks only user activation; replacement precedence in both import orders and diamonds  |
 | T-Hydration   | Development/production serving; eager/deferred node retention; no transient duplication; generated identity; event replay; post-hydration interaction                       |
 | T-Support     | Skipped formal Baseline audit recorded without certification; optional enhancement degradation; explicit Chromium/Firefox/WebKit runtime evidence and stated limits         |
 
@@ -437,9 +465,9 @@ Acceptance tests use public imports and genuine dependency behavior, not private
 
 A change to a requirement updates its cases and assertions in the same change. Test cases may not invent semantics this contract leaves unresolved. No full router-style evaluator framework is assumed necessary.
 
-## 14. Scope, growth and exclusions [X]
+## 15. Scope, growth and exclusions [X]
 
-The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 16).
+The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 17).
 
 - Shared interaction infrastructure stays package-private: ordered focus/roving navigation, typeahead, active-descendant, layer/dismiss participation, hover/focus intent and modal containment.
 - Form-control primitives integrate with Angular Signal Forms. There is no `ControlValueAccessor` layer.
@@ -462,7 +490,7 @@ Intentional agreed changes from the archive, recorded from the rebuild:
 
 Changing shipped behavior or public API is a deliberate change to this contract. Compatibility is the default, not permission to preserve a demonstrated bug or to weaken a guarantee silently.
 
-## 15. Extraction source and dependency research
+## 16. Extraction source and dependency research
 
 Extraction source: `loozo` branch `archive/pre-router-rebuild`, exact commit `363af0c3f1c3edefbf4e9f72269e0a0b4a8ad9f7`.
 
@@ -479,15 +507,15 @@ Authoritative dependency/support research:
 - Floating UI source at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM positioning, flip/update behavior and native top-layer offset-parent/clipping handling. The approved hybrid depends on genuine `@floating-ui/dom@1.8.0`; its installed DOM/core/utils closure is 1.8.0/1.8.0/0.2.12. Installation does not qualify Origami behavior.
 - WHATWG HTML source at `ba3400bb4f3d86477a5c8cfc07ff91fc0caaf21c`: manual mode, native focusing/show/hide checks, coalesced toggle tasks and closed-Popover default rendering. The basic attribute/API capability subset is distinct from the later reflected property and source option.
 
-A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 12.
+A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 13.
 
-## 16. Adding a primitive
+## 17. Adding a primitive
 
 A new primitive ships with:
 
 - Its own section in this contract, with its own section ID: selectors, export names, Options/State shapes, behavior, SSR/hydration semantics and exclusions, plus its rows in section 4's entrypoint and shape tables.
 - Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition.
 - Complete public TSDoc per section 4.
-- SSR plus eager and incremental hydration per section 12.
+- SSR plus eager and incremental hydration per section 13.
 - Chromium, Firefox and WebKit qualification in development and production.
-- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 13's coverage map and assertions in the acceptance gate.
+- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 14's coverage map and assertions in the acceptance gate.
