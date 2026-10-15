@@ -5,3 +5,4 @@ export {
   OrigamiCollectionItemOptions,
 } from "./collection";
 export type { OrigamiCollectionRecord } from "./collection";
+export { ɵOrigamiRovingFocus } from "./roving-focus";

@@ -52,6 +52,18 @@ export const inventory = {
     "OrigamiPopoverAlign",
   ],
   toggle: ["OrigamiToggle", "OrigamiToggleOptions", "OrigamiToggleState"],
+  tabs: [
+    "OrigamiTabs",
+    "OrigamiTabsOptions",
+    "OrigamiTabsState",
+    "OrigamiTabsList",
+    "OrigamiTabsTrigger",
+    "OrigamiTabsTriggerOptions",
+    "OrigamiTabsPanel",
+    "OrigamiTabsPanelOptions",
+    "OrigamiTabsOrientation",
+    "OrigamiTabsActivation",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -60,4 +72,6 @@ export const typeOnly = new Set([
   "OrigamiCollapsibleHiding",
   "OrigamiPopoverSide",
   "OrigamiPopoverAlign",
+  "OrigamiTabsOrientation",
+  "OrigamiTabsActivation",
 ]);

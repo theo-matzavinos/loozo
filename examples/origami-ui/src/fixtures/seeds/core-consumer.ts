@@ -18,6 +18,12 @@ import {
   OrigamiAccordionPanel,
 } from "@loozo/origami-ui/accordion";
 import { OrigamiToggle } from "@loozo/origami-ui/toggle";
+import {
+  OrigamiTabs,
+  OrigamiTabsList,
+  OrigamiTabsTrigger,
+  OrigamiTabsPanel,
+} from "@loozo/origami-ui/tabs";
 
 /** Observes public Collection State without accessing registration internals. */
 @Directive({
@@ -54,6 +60,10 @@ export class CollectionObservation {
     OrigamiAccordionTrigger,
     OrigamiAccordionPanel,
     OrigamiToggle,
+    OrigamiTabs,
+    OrigamiTabsList,
+    OrigamiTabsTrigger,
+    OrigamiTabsPanel,
   ],
   template: `
     <h1>Origami public contracts</h1>
@@ -202,6 +212,78 @@ export class CollectionObservation {
       <output data-testid="pressed-outputs">{{ pressedOutputs() }}</output>
       <output data-testid="toggle-submits">{{ toggleSubmits() }}</output>
     </section>
+
+    <section>
+      <h2>Tabs</h2>
+      <button type="button" data-testid="disable-tabs" (click)="tabsDisabled.set(!tabsDisabled())">
+        Toggle Tabs disabled
+      </button>
+      <button
+        type="button"
+        data-testid="disable-billing-tab"
+        (click)="toggleTabDisabled('billing')"
+      >
+        Toggle billing tab disabled
+      </button>
+      <button type="button" data-testid="script-tab" (click)="tab.set('security')">
+        Select security from consumer
+      </button>
+      <button type="button" data-testid="script-tab-null" (click)="tab.set(null)">
+        Select nothing
+      </button>
+      <button type="button" data-testid="script-tab-unknown" (click)="tab.set('unmounted')">
+        Select an unknown value
+      </button>
+      <button type="button" data-testid="remove-security-tab" (click)="removeTab('security')">
+        Remove security tab
+      </button>
+      <button type="button" data-testid="reverse-tabs" (click)="reverseTabs()">Reverse tabs</button>
+      <button type="button" data-testid="restore-tabs" (click)="restoreTabs()">Restore tabs</button>
+      <button
+        type="button"
+        data-testid="billing-panel-mount"
+        (click)="billingPanelMounted.set(!billingPanelMounted())"
+      >
+        Mount billing panel
+      </button>
+      <form (submit)="$event.preventDefault(); tabSubmits.update(increment)">
+        <div
+          ogTabs
+          #tabs="ogTabs"
+          [(value)]="tab"
+          [disabled]="tabsDisabled()"
+          (valueChange)="tabOutputs.update(increment)"
+          data-testid="tabs"
+        >
+          <div ogTabsList aria-label="Account" data-testid="tabs-list">
+            @for (key of tabKeys(); track key) {
+              <!-- Consumer-owned keys: Delete removes and D disables the focused tab. -->
+              <button
+                ogTabsTrigger
+                [value]="key"
+                [disabled]="disabledTabs().includes(key)"
+                [attr.data-testid]="'tab-' + key"
+                (keydown.delete)="removeTab(key)"
+                (keydown.d)="toggleTabDisabled(key)"
+              >
+                {{ key }}
+              </button>
+            }
+          </div>
+          <div ogTabsPanel value="profile" data-testid="panel-profile">Profile panel</div>
+          @if (billingPanelMounted()) {
+            <div ogTabsPanel value="billing" data-testid="panel-billing">Billing panel</div>
+          }
+          <div ogTabsPanel value="security" tabindex="-1" data-testid="panel-security">
+            <button type="button">Security settings</button>
+          </div>
+        </div>
+      </form>
+      <button type="button" data-testid="tabs-outside">Outside the tabs</button>
+      <output data-testid="tabs-state">{{ tabs.state.value() }}</output>
+      <output data-testid="tab-outputs">{{ tabOutputs() }}</output>
+      <output data-testid="tab-submits">{{ tabSubmits() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -270,6 +352,13 @@ export class CoreConsumer {
   readonly toggleDisabled = signal(false);
   readonly pressedOutputs = signal(0);
   readonly toggleSubmits = signal(0);
+  readonly tab = signal<string | null>("profile");
+  readonly tabKeys = signal<readonly string[]>(["profile", "billing", "security"]);
+  readonly disabledTabs = signal<readonly string[]>([]);
+  readonly tabsDisabled = signal(false);
+  readonly billingPanelMounted = signal(true);
+  readonly tabOutputs = signal(0);
+  readonly tabSubmits = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   reverseItems(): void {
@@ -277,5 +366,48 @@ export class CoreConsumer {
 
     keys.reverse();
     this.itemKeys.set(keys);
+  }
+
+  toggleTabDisabled(key: string): void {
+    const disabled = this.disabledTabs();
+
+    if (disabled.includes(key)) {
+      const remaining: string[] = [];
+
+      for (const entry of disabled) {
+        if (entry !== key) {
+          remaining.push(entry);
+        }
+      }
+
+      this.disabledTabs.set(remaining);
+
+      return;
+    }
+
+    this.disabledTabs.set([...disabled, key]);
+  }
+
+  removeTab(key: string): void {
+    const remaining: string[] = [];
+
+    for (const entry of this.tabKeys()) {
+      if (entry !== key) {
+        remaining.push(entry);
+      }
+    }
+
+    this.tabKeys.set(remaining);
+  }
+
+  reverseTabs(): void {
+    const keys = [...this.tabKeys()];
+
+    keys.reverse();
+    this.tabKeys.set(keys);
+  }
+
+  restoreTabs(): void {
+    this.tabKeys.set(["profile", "billing", "security"]);
   }
 }

@@ -4,6 +4,7 @@ import {
   InjectionToken,
   Service,
   booleanAttribute,
+  computed,
   inject,
   input,
   model,
@@ -27,6 +28,19 @@ import {
 } from "@loozo/origami-ui/accordion";
 import { OrigamiPresenceState } from "@loozo/origami-ui/presence";
 import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/origami-ui/toggle";
+import {
+  OrigamiTabs,
+  OrigamiTabsOptions,
+  OrigamiTabsState,
+  OrigamiTabsList,
+  OrigamiTabsTrigger,
+  OrigamiTabsTriggerOptions,
+  OrigamiTabsPanel,
+  OrigamiTabsPanelOptions,
+  type OrigamiTabsOrientation,
+  type OrigamiTabsActivation,
+} from "@loozo/origami-ui/tabs";
+import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Service({ autoProvided: false })
@@ -121,6 +135,79 @@ export class ToggleObservation {
   readonly state = inject(OrigamiToggleState);
 }
 
+@Service({ autoProvided: false })
+export class TabsSettings {
+  readonly value = signal<string | null>("profile");
+  readonly disabled = signal(false);
+  readonly orientation = signal<OrigamiTabsOrientation>("vertical");
+  readonly activation = signal<OrigamiTabsActivation>("manual");
+}
+
+/** Writable factory Options win over the unused root model, whose output stays silent. */
+@Directive({
+  selector: "[factoryTabs]",
+  exportAs: "factoryTabs",
+  hostDirectives: [
+    {
+      directive: OrigamiTabs,
+      inputs: ["value: lowerValue"],
+      outputs: ["valueChange: lowerValueChange"],
+    },
+  ],
+  providers: [OrigamiTabsOptions.provideFactory(() => inject(TabsSettings))],
+})
+export class FactoryTabs {
+  readonly state = inject(OrigamiTabsState);
+  readonly #items = inject(OrigamiCollectionState);
+  /** The composed Collection's values, which only the upper Trigger Options supply. */
+  readonly itemValues = computed(() => {
+    const values: string[] = [];
+
+    for (const item of this.#items.items()) {
+      values.push(item.value());
+    }
+
+    return values.join(",");
+  });
+}
+
+/** Existing Trigger Options: the consumer's own value input and a value-derived ID. */
+@Directive({
+  selector: "button[consumerTab]",
+  hostDirectives: [OrigamiTabsTrigger],
+  providers: [OrigamiTabsTriggerOptions.provideExisting(() => ConsumerTab)],
+})
+export class ConsumerTab implements OrigamiTabsTriggerOptions {
+  readonly value = input.required<string>({ alias: "consumerTab" });
+  readonly disabled = input(false, { transform: booleanAttribute });
+  readonly id = computed(() => `consumer-tab-${this.value()}`);
+}
+
+/** Factory Panel Options derived from the consumer's own value input. */
+@Directive({
+  selector: "[consumerTabPanel]",
+  hostDirectives: [OrigamiTabsPanel],
+  providers: [
+    OrigamiTabsPanelOptions.provideFactory(() => {
+      const panel = inject(ConsumerTabPanel);
+
+      return { value: panel.value, id: computed(() => `consumer-panel-${panel.value()}`) };
+    }),
+  ],
+})
+export class ConsumerTabPanel {
+  readonly value = input.required<string>({ alias: "consumerTabPanel" });
+}
+
+/** A descendant observes its nearest Tabs State. */
+@Directive({
+  selector: "[tabsObservation]",
+  host: { "[attr.data-observed-value]": "state.value()" },
+})
+export class TabsObservation {
+  readonly state = inject(OrigamiTabsState);
+}
+
 const DeferredValue = new InjectionToken<string>("acceptance deferred value");
 
 @Directive({
@@ -155,10 +242,16 @@ export class UtilityObservation {
     FactoryToggle,
     ConsumerToggle,
     ToggleObservation,
+    FactoryTabs,
+    OrigamiTabsList,
+    ConsumerTab,
+    ConsumerTabPanel,
+    TabsObservation,
   ],
   providers: [
     FactorySettings,
     ToggleSettings,
+    TabsSettings,
     {
       provide: DeferredValue,
       useFactory: () => {
@@ -295,6 +388,53 @@ export class UtilityObservation {
       <output data-testid="consumer-pressed">{{ consumerPressed() }}</output>
       <output data-testid="consumer-toggle-outputs">{{ consumerToggleOutputs() }}</output>
     </section>
+
+    <section>
+      <h2>Tabs composition</h2>
+      <button
+        type="button"
+        data-testid="factory-tabs-select"
+        (click)="tabsSettings.value.set('security')"
+      >
+        Write factory selection
+      </button>
+      <button
+        type="button"
+        data-testid="factory-tabs-disable"
+        (click)="tabsSettings.disabled.set(!tabsSettings.disabled())"
+      >
+        Toggle factory Tabs disabled
+      </button>
+      <button
+        type="button"
+        data-testid="factory-tabs-horizontal"
+        (click)="tabsSettings.orientation.set('horizontal')"
+      >
+        Make factory Tabs horizontal
+      </button>
+      <div
+        factoryTabs
+        #factoryTabs="factoryTabs"
+        lowerValue="billing"
+        (lowerValueChange)="unusedTabOutputs.update(increment)"
+        data-testid="factory-tabs"
+      >
+        <div ogTabsList aria-label="Composed sections" data-testid="factory-tabs-list">
+          <button consumerTab="profile" data-testid="consumer-tab-profile">Profile</button>
+          <button consumerTab="billing" disabled data-testid="consumer-tab-billing">Billing</button>
+          <button consumerTab="security" data-testid="consumer-tab-security">Security</button>
+        </div>
+        <div consumerTabPanel="profile" data-testid="consumer-panel-profile">
+          <span tabsObservation data-testid="tabs-observer">Profile content</span>
+        </div>
+        <div consumerTabPanel="security" data-testid="consumer-panel-security">
+          Security content
+        </div>
+      </div>
+      <output data-testid="factory-tabs-state">{{ factoryTabs.state.value() }}</output>
+      <output data-testid="factory-tabs-items">{{ factoryTabs.itemValues() }}</output>
+      <output data-testid="unused-tab-outputs">{{ unusedTabOutputs() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -354,5 +494,7 @@ export class CompositionConsumer {
   readonly consumerPressed = signal(false);
   readonly consumerDisabled = signal(false);
   readonly consumerToggleOutputs = signal(0);
+  readonly tabsSettings = inject(TabsSettings);
+  readonly unusedTabOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
 }

@@ -20,6 +20,14 @@ import {
   type OrigamiPopoverAlign,
 } from "@loozo/origami-ui/popover";
 import { OrigamiToggleOptions, type OrigamiToggleState } from "@loozo/origami-ui/toggle";
+import {
+  OrigamiTabsOptions,
+  OrigamiTabsTriggerOptions,
+  OrigamiTabsPanelOptions,
+  type OrigamiTabsState,
+  type OrigamiTabsOrientation,
+  type OrigamiTabsActivation,
+} from "@loozo/origami-ui/tabs";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -33,6 +41,7 @@ export function checkReadonlyState(
   popover: OrigamiPopoverState,
   content: OrigamiPopoverContentState,
   toggle: OrigamiToggleState,
+  tabs: OrigamiTabsState,
 ): void {
   // @ts-expect-error Collection observation is not writable.
   collection.items.set([]);
@@ -70,6 +79,10 @@ export function checkReadonlyState(
   toggle.pressed.set(true);
   // @ts-expect-error Toggle disabled observation is not writable.
   toggle.disabled.update((value) => !value);
+  // @ts-expect-error Tabs selection observation is not writable.
+  tabs.value.set("billing");
+  // @ts-expect-error Tabs orientation observation is not writable.
+  tabs.orientation.set("vertical");
 }
 
 export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
@@ -131,6 +144,21 @@ export function checkProviderShapes(): void {
   OrigamiToggleOptions.provideFactory(() => ({
     pressed: signal(false),
     disabled: signal(false),
+  }));
+  OrigamiTabsOptions.provideFactory(() => ({
+    value: signal<string | null>(null),
+    disabled: signal(false),
+    orientation: signal<OrigamiTabsOrientation>("vertical"),
+    activation: signal<OrigamiTabsActivation>("manual"),
+  }));
+  OrigamiTabsTriggerOptions.provideFactory(() => ({
+    value: signal("billing"),
+    id: signal("billing-tab"),
+    disabled: signal(false),
+  }));
+  OrigamiTabsPanelOptions.provideFactory(() => ({
+    value: signal("billing"),
+    id: signal("billing-panel"),
   }));
 }
 

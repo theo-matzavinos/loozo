@@ -27,6 +27,12 @@ import {
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
 import { OrigamiToggle } from "@loozo/origami-ui/toggle";
+import {
+  OrigamiTabs,
+  OrigamiTabsList,
+  OrigamiTabsTrigger,
+  OrigamiTabsPanel,
+} from "@loozo/origami-ui/tabs";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Directive({
@@ -55,6 +61,10 @@ export class AccordionObservation {
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
     OrigamiToggle,
+    OrigamiTabs,
+    OrigamiTabsList,
+    OrigamiTabsTrigger,
+    OrigamiTabsPanel,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -91,6 +101,43 @@ export class AccordionObservation {
       Toggle server pressed
     </button>
     <output data-testid="pressed-output-count">{{ pressedOutputs() }}</output>
+
+    <div
+      ogTabs
+      [(value)]="tab"
+      (valueChange)="tabOutputs.update(increment)"
+      data-testid="hydration-tabs"
+    >
+      <div ogTabsList aria-label="Server tabs">
+        <button
+          ogTabsTrigger
+          value="first"
+          [disabled]="!initiallyPresent()"
+          data-testid="hydration-tab-first"
+        >
+          First
+        </button>
+        <button ogTabsTrigger value="second" data-testid="hydration-tab-second">Second</button>
+      </div>
+      <div ogTabsPanel value="first" data-testid="hydration-panel-first">
+        {{ label() }} first panel
+      </div>
+      <div ogTabsPanel value="second" data-testid="hydration-panel-second">
+        {{ label() }} second panel
+      </div>
+    </div>
+    <output data-testid="tab-output-count">{{ tabOutputs() }}</output>
+
+    <!-- Registration order differs from DOM order: the conditional Trigger is constructed last. -->
+    <div ogTabs data-testid="hydration-order-tabs">
+      <div ogTabsList aria-label="Server order">
+        @if (earlyTrigger()) {
+          <button ogTabsTrigger value="early" data-testid="hydration-order-early">Early</button>
+        }
+        <button ogTabsTrigger value="one" data-testid="hydration-order-one">One</button>
+        <button ogTabsTrigger value="two" data-testid="hydration-order-two">Two</button>
+      </div>
+    </div>
 
     <div
       ogAccordionSingle
@@ -174,6 +221,15 @@ export class HydrationUnit {
   readonly expandedOutputs = signal(0);
   readonly pressed = linkedSignal(() => this.initiallyPresent());
   readonly pressedOutputs = signal(0);
+  readonly tab = linkedSignal<string | null>(() => {
+    if (this.initiallyPresent()) {
+      return "first";
+    }
+
+    return null;
+  });
+  readonly tabOutputs = signal(0);
+  readonly earlyTrigger = signal(true);
   readonly increment = (value: number): number => value + 1;
 
   constructor() {

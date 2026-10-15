@@ -46,6 +46,7 @@ for (const directory of [
   "accordion/src",
   "popover/src",
   "toggle/src",
+  "tabs/src",
 ]) {
   await collect(directory);
 }
@@ -105,6 +106,11 @@ const directiveDefaults = {
   "OrigamiPopoverContent.gap": ["0 CSS px", /\b0\b|\bzero\b/i],
   "OrigamiToggle.pressed": ["false", /\bfalse\b/i],
   "OrigamiToggle.disabled": ["false", /\bfalse\b/i],
+  "OrigamiTabs.value": ["null", /\bnull\b/i],
+  "OrigamiTabs.disabled": ["false", /\bfalse\b/i],
+  "OrigamiTabs.orientation": ["horizontal", /\bhorizontal\b/i],
+  "OrigamiTabs.activation": ["automatic", /\bautomatic\b/i],
+  "OrigamiTabsTrigger.disabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];
