@@ -42,6 +42,27 @@ test("C1 C2 C3: keyed collection insert/remove/move and reactive values exclude 
   ).toBe(true);
 });
 
+test("C1 C3: a first order read after unread keyed moves and insertion reports rendered order", async ({
+  page,
+}, info) => {
+  await core(page, info);
+  await expect(page.getByTestId("late-values")).toHaveText("");
+  await page.getByTestId("late-reverse").click();
+  await expect(page.locator("[data-late-key]")).toHaveText(["two", "one"]);
+  await page.getByTestId("late-insert").click();
+  await expect(page.locator("[data-late-key]")).toHaveText(["three", "two", "one"]);
+  await page.getByTestId("late-read").click();
+  await expect(page.getByTestId("late-values")).toHaveText("three,two,one");
+
+  // A later settled render proves the first read's unchanged order was not republished.
+  await page.getByTestId("late-unrelated").click();
+  await expect(page.getByTestId("late-unrelated-count")).toHaveText("1");
+  await expect(page.getByTestId("late-publications")).toHaveText("1");
+  await page.getByTestId("late-move").click();
+  await expect(page.getByTestId("late-values")).toHaveText("one,three,two");
+  await expect(page.getByTestId("late-publications")).toHaveText("2");
+});
+
 test("C3 R4: raw SSR observation and settled present/absent children before bootstrap", async ({
   page,
 }, info) => {

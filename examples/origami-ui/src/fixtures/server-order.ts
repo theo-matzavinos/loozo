@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  Directive,
   ElementRef,
   PendingTasks,
   Service,
@@ -280,5 +281,98 @@ export class ServerOnPushOrderConsumer {
       evidence.initialRecords.length === records.length &&
       evidence.initialRecords.every((record) => records.includes(record));
     evidence.observations += 1;
+  }
+}
+
+/** Evidence for a Collection and an Accordion whose order is first read after unread renders. */
+@Service({ autoProvided: false })
+export class ServerLateOrderEvidence {
+  firstCollection: readonly string[] = [];
+  firstAccordion: readonly string[] = [];
+  finalCollection: readonly string[] = [];
+  finalAccordion: readonly string[] = [];
+  finalNodes: readonly Element[] = [];
+  observeFinal = (): void => {};
+}
+
+/** Reports each check of its declaring view; targeted refreshes skip the root component's own hooks. */
+@Directive({ selector: "[lateOrderChecked]" })
+export class LateOrderChecked {
+  readonly #consumer = inject(ServerLateOrderConsumer);
+
+  ngAfterViewChecked(): void {
+    this.#consumer.checked();
+  }
+}
+
+/**
+ * Pending-task keyed moves and an insertion render while no State is read; the first reads follow
+ * those renders, then a further move must still refresh order before serialization.
+ */
+@Component({
+  selector: "late-order-app",
+  imports: [
+    LateOrderChecked,
+    OrigamiCollection,
+    OrigamiCollectionItem,
+    OrigamiAccordionMultiple,
+    OrigamiAccordionItem,
+  ],
+  template: `
+    <section ogCollection lateOrderChecked>
+      @for (key of keys(); track key) {
+        <span ogCollectionItem [value]="key" [attr.data-server-item]="key">{{ key }}</span>
+      }
+    </section>
+    <section ogAccordionMultiple>
+      @for (key of keys(); track key) {
+        <article ogAccordionItem [value]="key" [attr.data-server-accordion-item]="key">{{ key }}</article>
+      }
+    </section>
+  `,
+})
+export class ServerLateOrderConsumer {
+  readonly keys = signal(["one", "two"]);
+  protected readonly collectionView = viewChild.required(OrigamiCollection);
+  protected readonly accordionView = viewChild.required(OrigamiAccordionMultiple);
+  readonly #host = inject<ElementRef<Element>>(ElementRef).nativeElement;
+  readonly #evidence = inject(ServerLateOrderEvidence);
+  checked: () => void = () => {};
+
+  constructor() {
+    this.#evidence.observeFinal = () => {
+      this.#evidence.finalCollection = this.#collectionValues();
+      this.#evidence.finalAccordion = this.accordionView().state.itemValues();
+      this.#evidence.finalNodes = Array.from(
+        this.#host.querySelectorAll("[data-server-item], [data-server-accordion-item]"),
+      );
+    };
+
+    inject(PendingTasks).run(async () => {
+      await this.#nextCheck();
+      this.keys.set(["two", "one"]);
+      await this.#nextCheck();
+      this.keys.set(["three", "two", "one"]);
+      await this.#nextCheck();
+      this.#evidence.firstCollection = this.#collectionValues();
+      this.#evidence.firstAccordion = this.accordionView().state.itemValues();
+      this.keys.set(["one", "three", "two"]);
+    });
+  }
+
+  #nextCheck(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.checked = resolve;
+    });
+  }
+
+  #collectionValues(): string[] {
+    const values: string[] = [];
+
+    for (const record of this.collectionView().state.items()) {
+      values.push(record.value());
+    }
+
+    return values;
   }
 }

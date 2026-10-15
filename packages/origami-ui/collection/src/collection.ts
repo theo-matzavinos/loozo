@@ -121,9 +121,17 @@ class CollectionContext {
   readonly #orderRevision = signal(0);
   #lastRenderedOrder: readonly Registration[] = [];
   #snapshot: Snapshot | null = null;
+  /** Set by the first `items` evaluation and never reset; until then checkpoints only record membership. */
+  #observed = false;
+  /** Membership at the latest checkpoint skipped before the first read. */
+  #skippedRegistrations: readonly Registration[] | null = null;
 
   readonly items: Signal<readonly OrigamiCollectionRecord[]> = computed(() => {
     this.#orderRevision();
+
+    if (!this.#observed) {
+      this.#observe();
+    }
 
     const records: OrigamiCollectionRecord[] = [];
 
@@ -139,6 +147,13 @@ class CollectionContext {
   }
 
   refreshOrder(): void {
+    // Unread order needs no validation: the first read computes current DOM order itself.
+    if (!this.#observed) {
+      this.#skippedRegistrations = this.#registrations();
+
+      return;
+    }
+
     const order = this.#ordered();
     let changed = order.length !== this.#lastRenderedOrder.length;
 
@@ -173,6 +188,23 @@ class CollectionContext {
 
       this.#registrations.set(remaining);
     });
+  }
+
+  /**
+   * Replays the latest skipped checkpoint, sorting its membership in current DOM, so the next
+   * checkpoint publishes a revision only when order differs from that checkpoint's order.
+   */
+  #observe(): void {
+    this.#observed = true;
+
+    const skipped = this.#skippedRegistrations;
+
+    if (skipped === null) {
+      return;
+    }
+
+    this.#skippedRegistrations = null;
+    this.#lastRenderedOrder = this.#sort(skipped);
   }
 
   /** Reuses the latest sorted snapshot while its membership and connected DOM order still hold. */
