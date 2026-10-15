@@ -7,6 +7,7 @@ export default defineRoute("items/$id", {
   parent: team,
   params: { id: numberParam },
   runGuardsAndResolvers: "paramsOrQueryParamsChange",
+  title: ({ params }) => `Item ${params.id}`,
   resolve: {
     item: ({ params, search }) => {
       const catalog = inject(ItemCatalog);

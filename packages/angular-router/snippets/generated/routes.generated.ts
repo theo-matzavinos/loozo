@@ -4,7 +4,6 @@ import { getRouteSet } from './destinations.generated.js';
 import { nativeOptions, callbacks, redirect } from '@loozo/angular-router/_generated';
 import definition0 from "../src/routes/item/definition.js";
 import definition2 from "../src/routes/old-item/definition.js";
-import definition4 from "../src/routes/report/definition.js";
 
 /**
  * Generated native Angular route configuration; install with provideRouter(routes).
