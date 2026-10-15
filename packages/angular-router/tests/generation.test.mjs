@@ -362,10 +362,22 @@ test("session-backed generation follows edits across passes and recovers after a
   await writeFile(definition, `${seeded}const broken: number = "text";\n`);
   await assert.rejects(pass(), /TS2322/);
 
-  // The repair also edits a native option, which the next pass must emit.
+  // The repair also adds a title, which the next pass must adapt through the route set. Callback
+  // options reach the definition through the route set, so routes.generated.ts doesn't import it.
   await writeFile(definition, seeded.replace("{ parent }", '{ parent, title: "Manual" }'));
   await pass();
+  assert.match(
+    await readFile(routes, "utf8"),
+    /\.\.\.callbacks\(getRouteSet\(\), "src\/routes\/docs\/route\.ts"\)/,
+  );
+  assert.doesNotMatch(await readFile(routes, "utf8"), /import definition/);
+
+  // A native option is read from the definition itself, which is then imported.
+  await writeFile(definition, seeded.replace("{ parent }", "{ parent, providers: [] }"));
+  await pass();
   assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition1\)/);
+  assert.match(await readFile(routes, "utf8"), /import definition1 from/);
+  assert.doesNotMatch(await readFile(routes, "utf8"), /callbacks/);
 
   // Session passes leave exactly what stateless generation would publish.
   await generate(root, { ...options, check: true }, () => false);

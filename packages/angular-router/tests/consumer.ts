@@ -109,7 +109,15 @@ const child = defineRoute("items/$id", {
   parent: layout,
   params: { id: objectCodec },
   fragments: ["child"],
-  title: nativeTitle,
+  title: (inputs, snapshot, state) => {
+    exact<Equal<typeof inputs.params.teamId, number>>();
+    exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
+    exact<Equal<typeof inputs.search.teamId, string>>();
+    exact<Equal<typeof snapshot, ActivatedRouteSnapshot>>();
+    exact<Equal<typeof state, RouterStateSnapshot>>();
+
+    return of(inputs.params.id.label);
+  },
   canDeactivate: [nativeDeactivate],
   runGuardsAndResolvers: (from, to) => {
     exact<Equal<typeof from, ActivatedRouteSnapshot>>();
@@ -194,6 +202,12 @@ exact<Equal<Data["promisedRedirect"], never>>();
 exact<Equal<Data["observedRedirect"], never>>();
 // @ts-expect-error Data is local only.
 type _Ancestor = Data["ancestor"];
+defineRoute("static-title", { title: "Static" });
+defineRoute("promised-title", { parent, title: async ({ params }) => `Team ${params.teamId}` });
+// @ts-expect-error A title callback takes parsed inputs, not a snapshot-first native ResolveFn.
+defineRoute("native-title", { title: nativeTitle });
+// @ts-expect-error A title resolves to a string.
+defineRoute("numeric-title", { title: () => 42 });
 // @ts-expect-error Search namespace does not permit inherited redeclaration.
 defineRoute("again", { parent: layout, search: { teamId: numberParam } });
 // @ts-expect-error Path namespace does not permit inherited redeclaration.

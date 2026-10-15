@@ -92,16 +92,17 @@ No leading, trailing or repeated slashes. A catchall must be the last segment, a
 
 ### Config
 
-| Key                                                                    | Purpose                                                                                 |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `parent`                                                               | The parent route, imported as the parent declaration's default export                   |
-| `params`                                                               | One codec per path param, keyed by bare name. Required exactly when the path has params |
-| `search`                                                               | Codecs for query params                                                                 |
-| `fragments`                                                            | The fragment names this route accepts                                                   |
-| `resolve`                                                              | Resolvers that receive parsed inputs                                                    |
-| `canActivate`, `canActivateChild`, `canMatch`                          | Guards that receive parsed inputs                                                       |
-| `canDeactivate`, `providers`, `title`, `data`, `runGuardsAndResolvers` | Passed to Angular unchanged                                                             |
-| `redirect`                                                             | A typed redirect to another route                                                       |
+| Key                                                           | Purpose                                                                                 |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `parent`                                                      | The parent route, imported as the parent declaration's default export                   |
+| `params`                                                      | One codec per path param, keyed by bare name. Required exactly when the path has params |
+| `search`                                                      | Codecs for query params                                                                 |
+| `fragments`                                                   | The fragment names this route accepts                                                   |
+| `resolve`                                                     | Resolvers that receive parsed inputs                                                    |
+| `canActivate`, `canActivateChild`, `canMatch`                 | Guards that receive parsed inputs                                                       |
+| `title`                                                       | A string, or a callback that receives parsed inputs                                     |
+| `canDeactivate`, `providers`, `data`, `runGuardsAndResolvers` | Passed to Angular unchanged                                                             |
+| `redirect`                                                    | A typed redirect to another route                                                       |
 
 Structural keys such as `path`, `children`, `component`, `loadComponent`, `redirectTo`, `pathMatch`, `matcher` and `outlet` are rejected: generation owns them.
 
@@ -198,7 +199,9 @@ Resolvers get the parsed inputs too, and `inject()` works at the start of the ca
 
 [src/routes/item/definition.ts](snippets/src/routes/item/definition.ts)
 
-Angular's default rerun policy, `paramsChange`, reruns resolvers when the path or its path/matrix params change, but not when only search params change. Set `runGuardsAndResolvers` when a resolver reads search params, as above.
+`title` is a string or a callback like a resolver's that returns the title (or a Promise or Observable of it). Angular runs a title callback alongside the route's resolvers, so it can't read their results.
+
+Angular's default rerun policy, `paramsChange`, reruns resolvers and the title callback when the path or its path/matrix params change, but not when only search params change. Set `runGuardsAndResolvers` when a resolver reads search params, as above.
 
 A redirect targets another declaration and must say what happens to search and fragment:
 

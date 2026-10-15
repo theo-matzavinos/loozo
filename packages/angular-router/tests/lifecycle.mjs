@@ -272,6 +272,7 @@ export default defineRoute('items/$id', {
     record(value);
     return true;
   }],
+  title: (value) => Promise.resolve('Item ' + record(value)),
   resolve: {
     item: record,
     [localSymbol]: record,
@@ -830,7 +831,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     const nativeData = item.native.snapshot.data;
     const shared = inputs[0];
 
-    check(inputs.length === 4, 'guard plus ordinary/prototype/symbol resolvers');
+    check(inputs.length === 5, 'guard plus title and ordinary/prototype/symbol resolvers');
+    check(document.title === 'Item 8', 'title callback resolves from parsed inputs');
     for (const value of inputs) {
       check(value === shared, 'public inputs shared');
     }
@@ -868,6 +870,7 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 
     check(itemCommitted && (window as any).item === item, 'item record reused');
     check(itemParams.status() === 'resolved' && committedItem?.id === 9, 'commitment publishes new params');
+    check(document.title === 'Item 9', 'title callback reruns with the resolvers');
     check(item.handle.data.status() === 'resolved' && committedData.item === 9 && committedData[localSymbol] === 9,
       'commitment publishes new data');
 

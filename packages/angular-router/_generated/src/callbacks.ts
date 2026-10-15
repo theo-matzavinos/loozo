@@ -68,9 +68,10 @@ function bridge<T>(
 export function callbacks(
   set: RouteSet,
   id: string,
-): Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve"> {
+): Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> {
   const config = routeMetadata(set.records[id].definition()).config;
-  const result: Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve"> = {};
+  const result: Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> =
+    {};
   const activate = config.canActivate as readonly ((...args: any[]) => any)[] | undefined;
 
   if (activate) {
@@ -158,6 +159,25 @@ export function callbacks(
     }
 
     result.resolve = resolve;
+  }
+
+  const title = config.title as
+    | string
+    | ((inputs: unknown, snapshot: ActivatedRouteSnapshot, state: RouterStateSnapshot) => any)
+    | undefined;
+
+  // Angular runs a title callback as a resolver, so it's adapted like one.
+  if (typeof title === "function") {
+    result.title = (snapshot, state) => {
+      assertIdentity(snapshot, id);
+
+      return bridge<string>(
+        () => parseInputs(set, id, snapshot),
+        (inputs) => title(inputs, snapshot, state),
+      );
+    };
+  } else if (title !== undefined) {
+    result.title = title;
   }
 
   return result;

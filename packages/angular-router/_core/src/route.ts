@@ -366,7 +366,7 @@ export function defineRoute(path: unknown, config: unknown): AnyRoute {
     typeof supplied.title !== "string" &&
     typeof supplied.title !== "function"
   ) {
-    throw new TypeError("Invalid native title");
+    throw new TypeError("Title must be a string or a callback");
   }
 
   if (has(supplied, "data")) {

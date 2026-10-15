@@ -121,6 +121,20 @@ export type Resolver<Params, Search> = (
   state: RouterStateSnapshot,
 ) => unknown;
 /**
+ * A title callback, run by Angular as a resolver: entered in Angular's injection context
+ * after successful effective input parsing, alongside the route's local resolvers.
+ *
+ * @param inputs - Effective inherited and local parsed values.
+ * @param snapshot - The declaring route's native snapshot.
+ * @param state - The native router state being resolved.
+ * @returns The page title, synchronously or via Promise/Observable.
+ */
+export type TitleResolver<Params, Search> = (
+  inputs: Inputs<Params, Search>,
+  snapshot: ActivatedRouteSnapshot,
+  state: RouterStateSnapshot,
+) => MaybeAsync<string>;
+/**
  * An activation callback entered in Angular's injection context after parsing.
  * Parse failures prevent entry and propagate as navigation errors, not false.
  *
@@ -331,8 +345,10 @@ export type RouteConfig<
   canDeactivate?: NativeRoute["canDeactivate"];
   /** Native route-scoped providers; provider factories are not run at declaration. */
   providers?: NativeRoute["providers"];
-  /** Native static title or title resolver, not a parsed-input callback. */
-  title?: NativeRoute["title"];
+  /** A static title, or a parsed-input callback; not a snapshot-first native ResolveFn. */
+  title?:
+    | string
+    | TitleResolver<EffectiveParams<Path, Params, Parent>, EffectiveSearch<Search, Parent>>;
   /** Native static data; cannot set the reserved __loozoAngularRouterRouteId key. */
   data?: NativeRoute["data"] & { __loozoAngularRouterRouteId?: never };
 } & (PathNames<Path> extends never

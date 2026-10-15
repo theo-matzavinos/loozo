@@ -70,20 +70,29 @@ export function emit(
   let needsCallbacks = false;
   let needsRedirect = false;
 
-  for (const declaration of declarations) {
-    if (
-      ["providers", "title", "data", "canDeactivate", "runGuardsAndResolvers"].some((key) =>
+  // Options Angular takes as they are, read from the definition itself.
+  function usesNative(declaration: Declaration): boolean {
+    return ["providers", "data", "canDeactivate", "runGuardsAndResolvers"].some((key) =>
+      declaration.config.has(key),
+    );
+  }
+
+  // Parsed-input callbacks, adapted through the route set; a redirect record never activates.
+  function usesCallbacks(declaration: Declaration): boolean {
+    return (
+      !declaration.target &&
+      ["canActivate", "canActivateChild", "canMatch", "resolve", "title"].some((key) =>
         declaration.config.has(key),
       )
-    ) {
+    );
+  }
+
+  for (const declaration of declarations) {
+    if (usesNative(declaration)) {
       needsNative = true;
     }
 
-    if (
-      ["canActivate", "canActivateChild", "canMatch", "resolve"].some((key) =>
-        declaration.config.has(key),
-      )
-    ) {
+    if (usesCallbacks(declaration)) {
       needsCallbacks = true;
     }
 
@@ -112,12 +121,7 @@ export function emit(
   }
 
   for (const declaration of declarations) {
-    if (
-      declaration.config.size > 0 &&
-      [...declaration.config.keys()].some(
-        (key) => !["parent", "params", "search", "fragments"].includes(key),
-      )
-    ) {
+    if (usesNative(declaration) || declaration.target) {
       routes.push(
         `import ${names.get(declaration)} from ${JSON.stringify(specifier(routesFile, declaration.file))};`,
       );
@@ -148,11 +152,8 @@ export function emit(
   function record(declaration: Declaration): string {
     const parts: string[] = [];
     const name = names.get(declaration)!;
-    const native = ["providers", "title", "data", "canDeactivate", "runGuardsAndResolvers"].some(
-      (key) => declaration.config.has(key),
-    );
 
-    if (native) {
+    if (usesNative(declaration)) {
       parts.push(`...nativeOptions(${name})`);
     }
 
@@ -173,11 +174,7 @@ export function emit(
     if (declaration.target) {
       parts.push(`redirectTo: redirect(() => ${name})`);
     } else {
-      if (
-        ["canActivate", "canActivateChild", "canMatch", "resolve"].some((key) =>
-          declaration.config.has(key),
-        )
-      ) {
+      if (usesCallbacks(declaration)) {
         parts.push(`...callbacks(getRouteSet(), ${JSON.stringify(declaration.id)})`);
       }
 

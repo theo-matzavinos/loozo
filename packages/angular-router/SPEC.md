@@ -75,7 +75,7 @@ product.path; // literal type and value: "products/$productId"
 
 `defineRoute(path, config)` requires an authored literal path and config. Callers do not supply generic arguments to obtain inference. Widened `string` paths fail at compile time.
 
-Accepted config keys are `parent`, `params`, `search`, `resolve`, `runGuardsAndResolvers`, `redirect`, `fragments`, `canActivate`, `canActivateChild`, `canMatch`, `canDeactivate`, `providers`, `title`, and `data`. Guard signatures are specified in §8; `canDeactivate`, providers, title, data, and rerun policies otherwise use Angular 22.2.2's native types/behavior.
+Accepted config keys are `parent`, `params`, `search`, `resolve`, `runGuardsAndResolvers`, `redirect`, `fragments`, `canActivate`, `canActivateChild`, `canMatch`, `canDeactivate`, `providers`, `title`, and `data`. Guard, resolver and title signatures are specified in §8; `canDeactivate`, providers, data, and rerun policies otherwise use Angular 22.2.2's native types/behavior.
 
 Generation owns paths, matching strategy, ancestry/children, component discovery/loading, primary-outlet placement, and typed redirects. Reject config overrides `path`, `pathMatch`, `matcher`, `children`, `component`, `loadComponent`, `loadChildren`, `outlet`, and `redirectTo`; do not blindly spread an Angular Route. Deprecated `canLoad` is outside this target; use `canMatch`.
 
@@ -442,6 +442,10 @@ A resolver-run parse error rejects navigation before callbacks/activation; first
 
 An explicit native runGuardsAndResolvers policy/predicate is passed through unchanged. Omission preserves Angular's default paramsChange behavior: query-only navigation can produce new parsed search alongside old resolver data. Consumers choose paramsOrQueryParamsChange or a predicate when required; unrelated query/matrix changes may also trigger that native policy. No automatic dependency tracking, forced rerun, extra resolver pending-work lifecycle, loader, timeout, data cache, or transfer cache exists.
 
+### Titles
+
+`title` is a string or a parsed-input callback `(inputs, ActivatedRouteSnapshot, RouterStateSnapshot)` returning a string, Promise or Observable of one. Inputs are the declaring route's effective inherited/local params/search, the same shared container its resolvers receive. Angular runs a title as a resolver, so the callback is adapted like one: same record check, parse rejoin, injection context, rerun policy and navigation-error behavior, and it cannot read the route's resolved data. Angular's native snapshot-first `ResolveFn` and class/token title forms are not accepted, for the same reason as resolvers. A redirect record never activates, so it has no title.
+
 ## 9. Typed redirects [X]
 
 ```ts
@@ -549,7 +553,7 @@ One builder generation pass produces:
 
 Only primary-outlet generation is included. Preserve explicit authored nesting/local decoded paths, translate whole scalar `$name` segments to Angular `:name`, and terminal `$name[]` to native `**`. Put each record's stable authored source ID in its own `Route.data.__loozoAngularRouterRouteId`.
 
-Colocated default standalone components use lazy loadComponent. Componentless ancestors with children are valid. Ordinary componentless leaves fail generation before writing. Apply §9 redirect pruning/ordering and §6 shared-path matching. Behavior-bearing declarations are imported as necessary for guard/resolver adaptation and native options, and components remain lazy. Forward providers/title/static data/native canDeactivate/rerun policy to Angular; preserve the generated identity key. Static data remains observable through native Angular snapshots/data; the package handle's data Resource retains **local resolved keys only**, not newly merged static or inherited data. Do not assign authored parsed-input resolve maps directly to native Angular Route.resolve.
+Colocated default standalone components use lazy loadComponent. Componentless ancestors with children are valid. Ordinary componentless leaves fail generation before writing. Apply §9 redirect pruning/ordering and §6 shared-path matching. Declarations are imported only where generated configuration reads them directly (native options and redirects); guard/resolver/title adapters reach them through the route set. Components remain lazy. Forward providers/static data/native canDeactivate/rerun policy to Angular, and a static title; adapt a title callback like a resolver (§8); preserve the generated identity key. Static data remains observable through native Angular snapshots/data; the package handle's data Resource retains **local resolved keys only**, not newly merged static or inherited data. Do not assign authored parsed-input resolve maps directly to native Angular Route.resolve.
 
 Generated TypeScript and emitted relative JavaScript specifiers must typecheck/build under the Angular application consumer environment. Authored `.ts` imports use emitted `.js` specifiers. Root-package NodeNext consumer checks and Angular application/Bundler checks are distinct; admitting a source extension does not imply every module-mode or CommonJS interoperability combination. Generator bootstrapping tolerates missing/removable stale facades at the known generated locations for retained declarations, including another declaration's `destination` imported by a consumer. Own-facade typing imports are also tolerated when needed. This is not permission for arbitrary unresolved imports or references to undeclared/unadmitted generated targets. This is private analysis behavior needed to generate an application's first outputs, not a public graph option.
 
