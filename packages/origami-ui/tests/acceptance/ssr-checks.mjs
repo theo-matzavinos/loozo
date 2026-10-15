@@ -157,8 +157,13 @@ console.log("C2 A3 L2: five SSR construction failures rejected clearly.");
 
 // C3 A5: an async PendingTasks key move after the first public State read retains all nodes,
 // parents and Collection records, and serializes the final public order.
-const { ServerOrderConsumer, ServerOrderEvidence, ServerOnPushOrderConsumer } =
-  await fixture("server-order");
+const {
+  ServerOrderConsumer,
+  ServerOrderEvidence,
+  ServerOnPushOrderConsumer,
+  ServerLateOrderConsumer,
+  ServerLateOrderEvidence,
+} = await fixture("server-order");
 const evidence = new ServerOrderEvidence();
 const ordered = await render(ServerOrderConsumer, "order-app", [
   { provide: BEFORE_APP_SERIALIZED, multi: true, useValue: () => evidence.observeFinal() },
@@ -206,6 +211,24 @@ assert.match(onPushRender.html, /id="onpush-collection-order"[^>]*>two,one<\/out
 assert.match(onPushRender.html, /id="onpush-accordion-order"[^>]*>two,one<\/output>/);
 console.log(
   "C3 A5: OnPush owner checked once; descendant-only reorder, three current public reads, serialized two,one.",
+);
+
+// C3 A5: order first read after unread pending-task moves and an insertion is current DOM order,
+// and a later move still refreshes it before serialization.
+const late = new ServerLateOrderEvidence();
+const lateRender = await render(ServerLateOrderConsumer, "late-order-app", [
+  { provide: BEFORE_APP_SERIALIZED, multi: true, useValue: () => late.observeFinal() },
+  { provide: ServerLateOrderEvidence, useValue: late },
+]);
+
+assert.deepEqual(lateRender.errors, []);
+assert.deepEqual(late.firstCollection, ["three", "two", "one"]);
+assert.deepEqual(late.firstAccordion, ["three", "two", "one"]);
+assert.deepEqual(serverItemValues(late.finalNodes), ["one", "three", "two", "one", "three", "two"]);
+assert.deepEqual(late.finalCollection, ["one", "three", "two"]);
+assert.deepEqual(late.finalAccordion, ["one", "three", "two"]);
+console.log(
+  "C3 A5: first reads after unread moves and insertion returned three,two,one; a later move serialized one,three,two.",
 );
 
 // I3: unhosted allocations are valid and application-unique; hosted allocations correspond

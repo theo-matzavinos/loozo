@@ -4,6 +4,7 @@ import {
   DestroyRef,
   Service,
   computed,
+  effect,
   inject,
   linkedSignal,
   signal,
@@ -52,6 +53,32 @@ export class CollectionValues {
 
     return values.join(",");
   });
+}
+
+/** Reads Collection order only once requested, counting each published order it observes. */
+@Directive({ selector: "[lateOrderObservation]", exportAs: "lateOrderObservation" })
+export class LateOrderObservation {
+  readonly read = signal(false);
+  readonly values = signal("");
+  readonly publications = signal(0);
+  readonly #state = inject(OrigamiCollectionState);
+
+  constructor() {
+    effect(() => {
+      if (!this.read()) {
+        return;
+      }
+
+      const values: string[] = [];
+
+      for (const item of this.#state.items()) {
+        values.push(item.value());
+      }
+
+      this.values.set(values.join(","));
+      this.publications.update((count) => count + 1);
+    });
+  }
 }
 
 @Service({ autoProvided: false })
@@ -200,6 +227,7 @@ export class ReplacedAccordionItem {}
     OrigamiCollection,
     OrigamiCollectionItem,
     CollectionValues,
+    LateOrderObservation,
     OrigamiPresence,
     PresenceObservation,
     OrigamiCollapsible,
@@ -234,6 +262,21 @@ export class ReplacedAccordionItem {}
     <button type="button" data-testid="collection-add" (click)="keys.set(['three', 'one', 'two'])">Insert item</button>
     <button type="button" data-testid="collection-remove" (click)="keys.set(['three', 'two'])">Remove item</button>
     <button type="button" data-testid="collection-move" (click)="keys.set(['two', 'three'])">Move keyed items</button>
+
+    <h2>Late first order read</h2>
+    <section ogCollection lateOrderObservation #late="lateOrderObservation">
+      @for (key of lateKeys(); track key) {
+        <span ogCollectionItem [value]="key" [attr.data-late-key]="key">{{ key }}</span>
+      }
+    </section>
+    <button type="button" data-testid="late-reverse" (click)="lateKeys.set(['two', 'one'])">Move unread items</button>
+    <button type="button" data-testid="late-insert" (click)="lateKeys.set(['three', 'two', 'one'])">Insert unread item</button>
+    <button type="button" data-testid="late-read" (click)="late.read.set(true)">Read order</button>
+    <button type="button" data-testid="late-unrelated" (click)="lateUnrelated.update(increment)">Unrelated update</button>
+    <button type="button" data-testid="late-move" (click)="lateKeys.set(['one', 'three', 'two'])">Move read items</button>
+    <output data-testid="late-values">{{ late.values() }}</output>
+    <output data-testid="late-publications">{{ late.publications() }}</output>
+    <output data-testid="late-unrelated-count">{{ lateUnrelated() }}</output>
 
     <h2>Presence transitions</h2>
     <label>Motion
@@ -458,6 +501,8 @@ export class ReplacedAccordionItem {}
 export class CoreFixture {
   readonly attached = signal(false);
   readonly keys = signal(["one", "two"]);
+  readonly lateKeys = signal(["one", "two"]);
+  readonly lateUnrelated = signal(0);
   readonly present = signal(true);
   readonly secondPresent = signal(true);
   readonly presenceMounted = signal(true);
