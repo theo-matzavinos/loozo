@@ -308,9 +308,9 @@ export class OrigamiCollapsibleState {
   readonly #context = inject(CollapsibleContext);
 
   /** Effective desired expansion, not Presence's exit retention. No writable mutation alias is exposed. */
-  readonly expanded: Signal<boolean> = computed(() => this.#context.expanded());
+  readonly expanded: Signal<boolean> = this.#context.expanded;
   /** Effective disabled policy. External Options/model writes remain authoritative while disabled. */
-  readonly disabled: Signal<boolean> = computed(() => this.#context.disabled());
+  readonly disabled: Signal<boolean> = this.#context.disabled;
 }
 
 /**
