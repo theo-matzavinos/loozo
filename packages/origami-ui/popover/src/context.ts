@@ -3,6 +3,7 @@ import {
   DestroyRef,
   DOCUMENT,
   ElementRef,
+  ErrorHandler,
   PLATFORM_ID,
   Service,
   afterEveryRender,
@@ -55,15 +56,14 @@ type Attempt = {
   readonly parentRevision: number;
 };
 type Activation = { readonly parts: CompleteParts; order: number; revealed: boolean };
-type PositionResult = {
+type PositionSnapshot = {
   readonly activation: Activation;
   readonly intent: Intent;
   readonly configuration: PositionConfiguration;
   readonly request: number;
   readonly transition: number;
-  readonly x: number;
-  readonly y: number;
 };
+type PositionResult = PositionSnapshot & { readonly x: number; readonly y: number };
 type BranchMember = {
   readonly context: PopoverContext;
   intent: Intent;
@@ -162,6 +162,8 @@ class PopoverParticipants {
     const up = (event: PointerEvent) => {
       const gesture = this.#gesture;
 
+      // UP ends acquisition. Normal capture release follows UP and must not veto it.
+      // The task below still observes prevention by later listeners in this UP dispatch.
       this.#gesture = null;
 
       if (gesture === null) {
@@ -335,6 +337,7 @@ export class PopoverContext {
   readonly parent = inject(PopoverContext, { optional: true, skipSelf: true });
   readonly #scene = inject(PopoverParticipants);
   readonly #changeDetector = inject(ChangeDetectorRef);
+  readonly #errorHandler = inject(ErrorHandler);
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #options = injectDeferred(OrigamiPopoverOptions);
   readonly #preparationId = injectUniqueId("popover-preparation");
@@ -1046,6 +1049,17 @@ export class PopoverContext {
     this.#observeAxes();
 
     if (this.#stopTracking === null) {
+      // autoUpdate attaches ancestor listeners before constructing these observers, and
+      // returns no cleanup if construction throws. Check first so acquisition is all-or-nothing.
+      if (typeof ResizeObserver !== "function" || typeof IntersectionObserver !== "function") {
+        this.#failPosition(
+          activation,
+          new Error("Popover position tracking requires ResizeObserver and IntersectionObserver."),
+        );
+
+        return;
+      }
+
       this.#stopTracking = autoUpdate(
         activation.parts.anchor.element,
         activation.parts.content.element,
@@ -1071,8 +1085,21 @@ export class PopoverContext {
     const request = this.#positionRequest;
     const content = activation.parts.content;
     const transition = content.presentation.captureTransition();
+    let computation: ReturnType<typeof positionContent>;
 
-    void positionContent(activation.parts.anchor.element, content.element, configuration).then(
+    try {
+      computation = positionContent(
+        activation.parts.anchor.element,
+        content.element,
+        configuration,
+      );
+    } catch (error) {
+      this.#failPosition(activation, error);
+
+      return;
+    }
+
+    void computation.then(
       (coordinates) => {
         const result: PositionResult = {
           activation,
@@ -1096,7 +1123,44 @@ export class PopoverContext {
 
         this.#schedule();
       },
+      (error: unknown) => {
+        const snapshot: PositionSnapshot = {
+          activation,
+          intent,
+          configuration,
+          request,
+          transition,
+        };
+
+        // An obsolete rejection is still reported, but never ends a newer presentation.
+        if (!this.#resultCurrent(snapshot)) {
+          this.#errorHandler.handleError(error);
+
+          return;
+        }
+
+        this.#failPosition(activation, error);
+      },
     );
+  }
+
+  /** A positioning failure ends its native activation without exit retention; the error is reported, not swallowed. */
+  #failPosition(activation: Activation, error: unknown): void {
+    if (this.#activation === activation) {
+      // Record the failed attempt itself, captured before hide callbacks can change it.
+      // Unlike other native hides, only a later intent, part, configuration or parent change retries.
+      const attempt: Attempt = {
+        intent: this.intent(),
+        parts: this.parts(),
+        configuration: this.#configuration()!,
+        parentRevision: this.#parentRevision(),
+      };
+
+      this.#hide(activation);
+      this.#lastAttempt = attempt;
+    }
+
+    this.#errorHandler.handleError(error);
   }
 
   #ownsActivation(activation: Activation): boolean {
@@ -1136,13 +1200,13 @@ export class PopoverContext {
     );
   }
 
-  #resultCurrent(result: PositionResult): boolean {
+  #resultCurrent(snapshot: PositionSnapshot): boolean {
     return (
-      this.#trackingAllowed(result.activation) &&
-      this.intent() === result.intent &&
-      this.#configuration() === result.configuration &&
-      this.#positionRequest === result.request &&
-      result.activation.parts.content.presentation.captureTransition() === result.transition
+      this.#trackingAllowed(snapshot.activation) &&
+      this.intent() === snapshot.intent &&
+      this.#configuration() === snapshot.configuration &&
+      this.#positionRequest === snapshot.request &&
+      snapshot.activation.parts.content.presentation.captureTransition() === snapshot.transition
     );
   }
 

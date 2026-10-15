@@ -1,4 +1,4 @@
-import { test, expect } from "./contract-test.js";
+import { test, expect, type ErrorRecord } from "./contract-test.js";
 import type { Page, TestInfo } from "playwright/test";
 import {
   fixture,
@@ -1312,6 +1312,226 @@ test("V6: actual pointer-capture loss invalidates a trusted gesture; mismatched/
   });
 });
 
+/** Two task turns and a frame: later than the package's post-dispatch outside task. */
+async function afterPointerTasks(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          setTimeout(() => {
+            requestAnimationFrame(() => {
+              resolve();
+            });
+          }, 0);
+        }, 0);
+      }),
+  );
+}
+
+/** Genuine mouse gesture on the outside target, which acquires capture through the consumer policy. */
+async function capturedOutsideGesture(
+  page: Page,
+  { beforeUp = async () => {} }: { beforeUp?: (pointerId: number) => Promise<void> } = {},
+) {
+  const outside = await page.getByTestId("pointer-outside").boundingBox();
+
+  if (!outside) {
+    throw new Error("Outside capture target is missing");
+  }
+
+  const journal = await nativeGestureJournal(page);
+
+  try {
+    await page.mouse.move(outside.x + 4, outside.y + 4);
+    await page.mouse.down();
+    // A move processes the pending capture before the matching up.
+    await page.mouse.move(outside.x + 6, outside.y + 6);
+
+    const pointerId = await journal.evaluate((observation) => {
+      for (const event of observation.events) {
+        if (event.type === "pointerdown") {
+          return event.pointerId;
+        }
+      }
+
+      return undefined;
+    });
+
+    if (pointerId === undefined) {
+      throw new Error("No trusted pointerdown was observed");
+    }
+
+    await beforeUp(pointerId);
+    await page.mouse.move(outside.x + 8, outside.y + 8);
+    await page.mouse.up();
+    await afterPointerTasks(page);
+
+    const events = await journal.evaluate((observation) => observation.events);
+    const sequence = [];
+
+    for (const event of events) {
+      if (
+        [
+          "pointerdown",
+          "pointerup",
+          "pointercancel",
+          "gotpointercapture",
+          "lostpointercapture",
+        ].includes(event.type)
+      ) {
+        expect(event, `${event.type} is a trusted event of the same pointer`).toMatchObject({
+          trusted: true,
+          pointerId,
+        });
+        expect(event.path).not.toContain("native-content");
+        sequence.push(event.type);
+      }
+    }
+
+    return { events, sequence };
+  } finally {
+    await journal.evaluate((observation) => observation.stop());
+    await journal.dispose();
+  }
+}
+
+test("V6: outside completion at the matching pointerup; capture loss before it invalidates, capture loss after it does not veto, late up prevention does", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await nativeOpen(page);
+  await page.getByTestId("pointer-policy").selectOption("capture");
+
+  const journalBefore = await page.getByTestId("native-journal").textContent();
+  const evidence: Record<string, unknown> = {};
+
+  // Consumer releases the capture it acquired while the button is still down.
+  const lostBeforeUp = await capturedOutsideGesture(page, {
+    beforeUp: async (pointerId) => {
+      await page.getByTestId("pointer-outside").evaluate((node, id) => {
+        if (!(node instanceof HTMLElement) || !node.hasPointerCapture(id)) {
+          throw new Error("The consumer target must hold the actual pointer capture");
+        }
+
+        node.releasePointerCapture(id);
+      }, pointerId);
+    },
+  });
+
+  evidence.lostBeforeUp = lostBeforeUp;
+  expect(lostBeforeUp.sequence).toEqual([
+    "pointerdown",
+    "gotpointercapture",
+    "lostpointercapture",
+    "pointerup",
+  ]);
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-journal")).toHaveText(journalBefore ?? "");
+
+  // A real later window listener prevents the up; the normal capture release still follows it.
+  const preventer = await page.evaluateHandle(() => {
+    const listener = (event: PointerEvent) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener("pointerup", listener, { passive: false });
+
+    return { stop: () => window.removeEventListener("pointerup", listener) };
+  });
+  let preventedUp: Awaited<ReturnType<typeof capturedOutsideGesture>>;
+
+  try {
+    preventedUp = await capturedOutsideGesture(page);
+  } finally {
+    await preventer.evaluate((consumer) => consumer.stop());
+    await preventer.dispose();
+  }
+
+  evidence.preventedUp = preventedUp;
+  expect(preventedUp.sequence).toEqual([
+    "pointerdown",
+    "gotpointercapture",
+    "pointerup",
+    "lostpointercapture",
+  ]);
+  expect(preventedUp.events.find((event) => event.type === "pointerup")).toMatchObject({
+    preventedAtCapture: false,
+    preventedAtWindowBubble: true,
+  });
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-journal")).toHaveText(journalBefore ?? "");
+
+  // A later window listener explicitly releases the capture during the up dispatch.
+  const releaser = await page.evaluateHandle(() => {
+    const order: string[] = [];
+    const listener = (event: PointerEvent) => {
+      const target = document.querySelector('[data-testid="pointer-outside"]');
+
+      if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId);
+        order.push("released-in-up");
+      }
+    };
+    const lost = () => {
+      order.push("lostpointercapture");
+    };
+
+    window.addEventListener("pointerup", listener);
+    window.addEventListener("lostpointercapture", lost);
+
+    return {
+      order,
+      stop: () => {
+        window.removeEventListener("pointerup", listener);
+        window.removeEventListener("lostpointercapture", lost);
+      },
+    };
+  });
+  let releasedInUp: Awaited<ReturnType<typeof capturedOutsideGesture>>;
+  let releaseOrder: string[];
+
+  try {
+    releasedInUp = await capturedOutsideGesture(page);
+    releaseOrder = await releaser.evaluate((consumer) => consumer.order);
+  } finally {
+    await releaser.evaluate((consumer) => consumer.stop());
+    await releaser.dispose();
+  }
+
+  evidence.releasedInUp = { ...releasedInUp, releaseOrder };
+  expect(releasedInUp.sequence).toEqual([
+    "pointerdown",
+    "gotpointercapture",
+    "pointerup",
+    "lostpointercapture",
+  ]);
+  expect(releaseOrder).toEqual(["released-in-up", "lostpointercapture"]);
+  await expect(page.getByTestId("native-intent")).toHaveText("false");
+  await expect(page.getByTestId("native-journal")).toHaveText(`${journalBefore}|parent:false`);
+  await closed(page);
+
+  // Ordinary captured gesture: the browser's implicit release follows the completed up.
+  await nativeOpen(page);
+
+  const journalReopened = await page.getByTestId("native-journal").textContent();
+  const implicitRelease = await capturedOutsideGesture(page);
+
+  evidence.implicitRelease = implicitRelease;
+  await info.attach("V6-pointerup-completion-native-capture", {
+    body: JSON.stringify(evidence, null, 2),
+    contentType: "application/json",
+  });
+  expect(implicitRelease.sequence).toEqual([
+    "pointerdown",
+    "gotpointercapture",
+    "pointerup",
+    "lostpointercapture",
+  ]);
+  await expect(page.getByTestId("native-intent")).toHaveText("false");
+  await expect(page.getByTestId("native-journal")).toHaveText(`${journalReopened}|parent:false`);
+  await closed(page);
+});
+
 test("V8: synchronous effective Options setter reopening survives remaining branch dismissal", async ({
   page,
 }, info) => {
@@ -1530,6 +1750,376 @@ test("V11: canceled show keeps preparatory retention, grants no participation, n
   await expect(page.getByTestId("native-unused-outputs")).toHaveText("0");
 });
 
+function isUnsupportedWritingMode(record: ErrorRecord): boolean {
+  if (record.source !== "console") {
+    return false;
+  }
+
+  for (const argument of record.arguments ?? []) {
+    if (
+      typeof argument === "object" &&
+      argument !== null &&
+      "message" in argument &&
+      argument.message === "Unsupported Popover Anchor writing mode: sideways-lr."
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function preparationState(page: Page) {
+  return page.getByTestId("native-content").evaluate((node) => {
+    if (!(node instanceof HTMLElement)) {
+      throw new Error("Expected the authored Content host");
+    }
+
+    const privateDeclarations: string[] = [];
+
+    for (const property of node.style) {
+      if (property.startsWith("--")) {
+        privateDeclarations.push(property);
+      }
+    }
+
+    return {
+      native: node.matches(":popover-open"),
+      inert: node.inert,
+      opacity: `${node.style.getPropertyValue("opacity")} ${node.style.getPropertyPriority("opacity")}`,
+      pointer: `${node.style.getPropertyValue("pointer-events")} ${node.style.getPropertyPriority("pointer-events")}`,
+      privateDeclarations,
+    };
+  });
+}
+
+test("V3 V11: an unsupported Anchor writing mode fails the show once; no reveal, participation or tracking; intent kept; configuration change retries", async ({
+  page,
+  runtimeErrors,
+  drainIssues,
+}, info) => {
+  runtimeErrors.expectExactly([
+    {
+      description: "one unsupported writing-mode Error reported through ErrorHandler",
+      matches: isUnsupportedWritingMode,
+    },
+  ]);
+  await fixture(page, "popover", info);
+  // Authored consumer CSS outside the three supported writing modes.
+  await page.getByTestId("writing-mode").selectOption("sideways-lr");
+  await scriptControl(page, "native-open");
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect
+    .poll(async () => {
+      await drainIssues();
+
+      return runtimeErrors.records.length;
+    })
+    .toBe(1);
+  await expect(page.getByTestId("native-openings")).toHaveText("1");
+  await expect
+    .poll(() => preparationState(page))
+    .toEqual({
+      native: false,
+      inert: true,
+      opacity: "1 ",
+      pointer: "auto ",
+      privateDeclarations: [],
+    });
+  await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "opening");
+  await expect(page.getByTestId("native-content")).not.toHaveAttribute("data-entering", /.*/);
+  // Tracking was released with the failed activation.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.acceptanceObservation.observers.filter(
+            (record) =>
+              (record.stack ?? "").includes(window.location.origin) &&
+              record.targets.some((target) =>
+                ["native-anchor", "native-content"].includes(
+                  target.getAttribute("data-testid") ?? "",
+                ),
+              ),
+          ).length,
+      ),
+    )
+    .toBe(0);
+
+  // Real resize/scroll and a supported writing mode alone neither retry nor report again.
+  const frames = await page.evaluate(() => window.acceptanceObservation.frames);
+
+  await page.getByTestId("native-scroll-two").evaluate((node) => {
+    node.scrollTop += 30;
+  });
+  await page.setViewportSize({ width: 1210, height: 1010 });
+  await page.getByTestId("writing-mode").selectOption("horizontal-tb");
+  await expect
+    .poll(() => page.evaluate(() => window.acceptanceObservation.frames))
+    .toBeGreaterThan(frames + 5);
+  await expect(page.getByTestId("native-openings")).toHaveText("1");
+  await drainIssues();
+  expect(runtimeErrors.records.length).toBe(1);
+  expect((await preparationState(page)).native).toBe(false);
+
+  // A configuration change requests a fresh activation, which now succeeds.
+  await page.getByTestId("native-side").selectOption("block-start");
+  await expect(page.getByTestId("native-openings")).toHaveText("2");
+  await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
+  await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() => preparationState(page))
+    .toEqual({
+      native: true,
+      inert: false,
+      opacity: "1 ",
+      pointer: "auto ",
+      privateDeclarations: [],
+    });
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-unused-outputs")).toHaveText("0");
+});
+
+test("V3 V11: a positioning failure after reveal and a configuration update hides once; intent and open phase kept; no unchanged retry", async ({
+  page,
+  runtimeErrors,
+  drainIssues,
+}, info) => {
+  runtimeErrors.expectExactly([
+    {
+      description: "one unsupported writing-mode Error reported through ErrorHandler",
+      matches: isUnsupportedWritingMode,
+    },
+  ]);
+  await fixture(page, "popover", info);
+  await nativeOpen(page);
+
+  const content = page.getByTestId("native-content");
+  const top = await content.evaluate((node) => node.style.getPropertyValue("top"));
+
+  // A configuration update repositions the same visible activation.
+  await page.getByTestId("native-side").selectOption("block-start");
+  await expect
+    .poll(() => content.evaluate((node) => node.style.getPropertyValue("top")))
+    .not.toBe(top);
+  await expect(content).toHaveAttribute("data-phase", "open");
+  await expect(page.getByTestId("native-openings")).toHaveText("1");
+
+  // Authored consumer CSS outside the three supported writing modes fails the next update.
+  await page.getByTestId("writing-mode").selectOption("sideways-lr");
+  await expect
+    .poll(async () => {
+      await drainIssues();
+
+      return runtimeErrors.records.length;
+    })
+    .toBe(1);
+  await expect
+    .poll(() => preparationState(page))
+    .toEqual({
+      native: false,
+      inert: true,
+      opacity: "1 ",
+      pointer: "auto ",
+      privateDeclarations: [],
+    });
+  await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  // The native activation ended; Presence keeps its settled phase.
+  await expect(content).toHaveAttribute("data-phase", "open");
+
+  // Real scroll/resize and a supported writing mode alone neither show again nor report again.
+  const frames = await page.evaluate(() => window.acceptanceObservation.frames);
+
+  await page.getByTestId("native-scroll-two").evaluate((node) => {
+    node.scrollTop += 30;
+  });
+  await page.setViewportSize({ width: 1210, height: 1010 });
+  await page.getByTestId("writing-mode").selectOption("horizontal-tb");
+  await expect
+    .poll(() => page.evaluate(() => window.acceptanceObservation.frames))
+    .toBeGreaterThan(frames + 5);
+  await expect(page.getByTestId("native-openings")).toHaveText("1");
+  await drainIssues();
+  expect(runtimeErrors.records.length).toBe(1);
+  expect((await preparationState(page)).native).toBe(false);
+
+  // A later configuration change retries with a fresh activation, which now succeeds.
+  await page.getByTestId("native-side").selectOption("block-end");
+  await expect(page.getByTestId("native-openings")).toHaveText("2");
+  await expect(content).toHaveAttribute("data-phase", "open");
+  await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() => preparationState(page))
+    .toEqual({
+      native: true,
+      inert: false,
+      opacity: "1 ",
+      pointer: "auto ",
+      privateDeclarations: [],
+    });
+  await expect(page.getByTestId("native-unused-outputs")).toHaveText("0");
+});
+
+test("V11 V13: a missing required observer fails the show before tracking acquisition; no listener or observer is left attached", async ({
+  page,
+  runtimeErrors,
+  drainIssues,
+}, info) => {
+  runtimeErrors.expectExactly([
+    {
+      description: "one missing-observer Error reported through ErrorHandler",
+      matches: (record) => {
+        if (record.source !== "console") {
+          return false;
+        }
+
+        for (const argument of record.arguments ?? []) {
+          if (
+            typeof argument === "object" &&
+            argument !== null &&
+            "message" in argument &&
+            argument.message ===
+              "Popover position tracking requires ResizeObserver and IntersectionObserver."
+          ) {
+            return true;
+          }
+        }
+
+        return false;
+      },
+    },
+  ]);
+  await fixture(page, "popover", info);
+
+  const tracking = await page.evaluateHandle(() => {
+    const live = new Map<EventTarget, Set<unknown>>();
+    const add = EventTarget.prototype.addEventListener;
+    const remove = EventTarget.prototype.removeEventListener;
+
+    // Passive registration ledger for the update events Floating UI subscribes to.
+    EventTarget.prototype.addEventListener = function (...args: Parameters<typeof add>): void {
+      if (args[0] === "scroll" || args[0] === "resize") {
+        const listeners = live.get(this) ?? new Set();
+
+        listeners.add(args[1]);
+        live.set(this, listeners);
+      }
+
+      Reflect.apply(add, this, args);
+    };
+    EventTarget.prototype.removeEventListener = function (
+      ...args: Parameters<typeof remove>
+    ): void {
+      if (args[0] === "scroll" || args[0] === "resize") {
+        live.get(this)?.delete(args[1]);
+      }
+
+      Reflect.apply(remove, this, args);
+    };
+
+    return {
+      count() {
+        let total = 0;
+
+        for (const listeners of live.values()) {
+          total += listeners.size;
+        }
+
+        return total;
+      },
+      restore() {
+        EventTarget.prototype.addEventListener = add;
+        EventTarget.prototype.removeEventListener = remove;
+      },
+    };
+  });
+
+  try {
+    const baseline = await tracking.evaluate((ledger) => ledger.count());
+    const resizeObserver = await page.evaluateHandle(() => {
+      const constructor = window.ResizeObserver;
+
+      // An environment without a required capability; nothing is substituted.
+      Reflect.deleteProperty(window, "ResizeObserver");
+
+      return { restore: () => Reflect.set(window, "ResizeObserver", constructor) };
+    });
+
+    await scriptControl(page, "native-open");
+    await expect(page.getByTestId("native-intent")).toHaveText("true");
+    await expect
+      .poll(async () => {
+        await drainIssues();
+
+        return runtimeErrors.records.length;
+      })
+      .toBe(1);
+    await expect
+      .poll(() => preparationState(page))
+      .toEqual({
+        native: false,
+        inert: true,
+        opacity: "1 ",
+        pointer: "auto ",
+        privateDeclarations: [],
+      });
+    await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "false");
+
+    const frames = await page.evaluate(() => window.acceptanceObservation.frames);
+
+    await page.getByTestId("native-scroll-two").evaluate((node) => {
+      node.scrollTop += 30;
+    });
+    await page.setViewportSize({ width: 1210, height: 1010 });
+    await expect
+      .poll(() => page.evaluate(() => window.acceptanceObservation.frames))
+      .toBeGreaterThan(frames + 5);
+
+    const leaked = {
+      listeners: (await tracking.evaluate((ledger) => ledger.count())) - baseline,
+      observers: await page.evaluate(
+        () =>
+          window.acceptanceObservation.observers.filter((record) =>
+            record.targets.some((target) =>
+              ["native-anchor", "native-content"].includes(
+                target.getAttribute("data-testid") ?? "",
+              ),
+            ),
+          ).length,
+      ),
+    };
+
+    await info.attach("V13-missing-observer-acquisition", {
+      body: JSON.stringify({ baseline, leaked, records: runtimeErrors.records.length }, null, 2),
+      contentType: "application/json",
+    });
+    expect(leaked).toEqual({ listeners: 0, observers: 0 });
+    await drainIssues();
+    expect(runtimeErrors.records.length).toBe(1);
+
+    // With the capability back, a configuration change requests a fresh activation.
+    await resizeObserver.evaluate((environment) => environment.restore());
+    await resizeObserver.dispose();
+    await page.getByTestId("native-side").selectOption("block-start");
+    await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
+    await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "true");
+    await expect
+      .poll(() => preparationState(page))
+      .toEqual({
+        native: true,
+        inert: false,
+        opacity: "1 ",
+        pointer: "auto ",
+        privateDeclarations: [],
+      });
+  } finally {
+    await tracking.evaluate((ledger) => ledger.restore());
+    await tracking.dispose();
+  }
+});
+
 for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
   test(`V12: ${motion} native exit retention, immediate inert/nonparticipation, scroll cannot strand completion`, async ({
     page,
@@ -1624,12 +2214,40 @@ test("V13: burst real scroll/layout/config/resize then remount, current geometry
 
   const old = await page.getByTestId("native-content").elementHandle();
 
+  if (!old) {
+    throw new Error("Missing the first Content host");
+  }
+
   await scriptControl(page, "native-content-mount");
+  // The unmount must render before the remount request; otherwise the toggles coalesce.
+  await expect.poll(() => old.evaluate((node) => node.isConnected)).toBe(false);
+  await expect(page.getByTestId("native-content")).toHaveCount(0);
   await expect(page.getByTestId("native-intent")).toHaveText("true");
   await scriptControl(page, "native-content-mount");
   await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
   await expectPreferred(page, "inline-end", "end", 12);
-  expect(await old?.evaluate((node) => node.isConnected)).toBe(false);
+
+  // The replacement is a new host; the dead host stays detached and closed across frames.
+  const dead = await old.evaluate(async (node) => {
+    const samples: { connected: boolean; native: boolean }[] = [];
+
+    for (let index = 0; index < 10; index += 1) {
+      samples.push({ connected: node.isConnected, native: node.matches(":popover-open") });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+
+    return {
+      replaced: node !== document.querySelector('[data-testid="native-content"]'),
+      samples,
+    };
+  });
+
+  expect(dead.replaced).toBe(true);
+
+  for (const sample of dead.samples) {
+    expect(sample).toEqual({ connected: false, native: false });
+  }
+
   info.annotations.push({
     type: "coverage-limit",
     description:
@@ -1965,12 +2583,40 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
   // same intent/retention/fresh-activation outcomes with direct settlement.
   const finite = info.project.metadata.motion === "no-preference";
 
+  if (finite) {
+    // A consumer script entrance survives suppression, unlike the marker-bound CSS one.
+    await scriptControl(page, "presentation-arm-script-entrance");
+  }
+
   await scriptControl(page, "presentation-open");
   await expect.poll(() => presentationNative(page)).toBe(true);
 
   if (finite) {
     await pausePresentation(page, "data-entering", "released");
+    await content.evaluate((host) => {
+      for (const animation of host.getAnimations()) {
+        if (animation.id === "script-entrance") {
+          animation.pause();
+          window.presentationProof.animations["script"] = animation;
+        }
+      }
+
+      if (!window.presentationProof.animations["script"]) {
+        throw new Error("Expected the consumer's live script entrance");
+      }
+    });
     await expect(content).toHaveAttribute("data-phase", "opening");
+    // Presence discovered this entrance, so its wait includes the script animation.
+    expect(
+      await page.evaluate(() =>
+        window.acceptanceObservation.discoveries.some(
+          (discovery) =>
+            discovery.testid === "presentation-content" &&
+            discovery.entering &&
+            (discovery.stack ?? "").includes(window.location.origin),
+        ),
+      ),
+    ).toBe(true);
   } else {
     await expect(content).toHaveAttribute("data-phase", "open");
   }
@@ -1990,30 +2636,28 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
 
   if (finite) {
     const obsolete = await page.evaluate(async () => {
-      const old = window.presentationProof.animations["released"];
+      const marker = window.presentationProof.animations["released"];
+      const script = window.presentationProof.animations["script"];
 
-      if (!old) {
-        throw new Error("Missing the released entrance");
+      if (!marker || !script) {
+        throw new Error("Missing the released entrances");
       }
 
-      // Suppression may already have style-canceled it; an idle animation's fresh promise
-      // never settles, so only a still-live obsolete activation is canceled here.
-      const playState = old.playState;
+      // Suppression style-cancels the marker-bound entrance; the script one is still live.
+      const playStates = { marker: marker.playState, script: script.playState };
+      const completion = script.finished;
 
-      if (playState !== "idle") {
-        const completion = old.finished;
+      script.cancel();
+      await completion.catch(() => undefined);
 
-        old.cancel();
-        await completion.catch(() => undefined);
-      }
-
-      return playState;
+      return playStates;
     });
 
     await info.attach("obsolete-entrance-play-state-before-cancel", {
-      body: obsolete,
-      contentType: "text/plain",
+      body: JSON.stringify(obsolete),
+      contentType: "application/json",
     });
+    expect(obsolete).toEqual({ marker: "idle", script: "paused" });
     // The suppressed transition must not settle from the obsolete activation's completion.
     await expect(content).toHaveAttribute("data-phase", "opening");
     await expect(content).not.toHaveAttribute("data-entering", /.*/);

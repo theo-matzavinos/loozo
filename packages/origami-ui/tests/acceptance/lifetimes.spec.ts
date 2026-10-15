@@ -264,6 +264,101 @@ const authoredBaseline = {
   pointerPriority: "important",
 };
 
+test("V8 V9: a restored Trigger's focus listener destroying the owner during a script close stops the stale synchronization", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await page.getByTestId("owner-lifetime-enable").click();
+  await page.getByTestId("owner-lifetime-mount").click();
+  await page.getByTestId("owner-lifetime-trigger").click();
+
+  const content = page.getByTestId("owner-lifetime-content");
+
+  await expect(content).toHaveAttribute("data-present", "");
+  await expect
+    .poll(() =>
+      content.evaluate(
+        (node) => node.matches(":popover-open") && getComputedStyle(node).opacity !== "0",
+      ),
+    )
+    .toBe(true);
+  await page.getByTestId("owner-lifetime-arm-restore-destroy").click();
+
+  const mutations = await page.evaluateHandle(() => {
+    const host = document.querySelector("acceptance-native-owner-lifetime");
+    const owner = document.querySelector("acceptance-native-lifetime-owner");
+
+    if (!host || !owner) {
+      throw new Error("Missing the owner lifetime case");
+    }
+
+    const records: { target: string; type: string; attribute: string | null; owned: boolean }[] =
+      [];
+    const observer = new MutationObserver((list) => {
+      for (const record of list) {
+        let target = record.target.nodeName;
+
+        if (record.target instanceof Element) {
+          target = record.target.getAttribute("data-testid") ?? record.target.localName;
+        }
+
+        records.push({
+          target,
+          type: record.type,
+          attribute: record.attributeName,
+          // Structural containment still holds for the detached dead subtree.
+          owned: record.target === owner || owner.contains(record.target),
+        });
+      }
+    });
+
+    observer.observe(host, { attributes: true, childList: true, subtree: true });
+
+    return { records, stop: () => observer.disconnect() };
+  });
+
+  // Focus stays inside Content; Enter activates the authored script-close control.
+  await page.getByTestId("owner-lifetime-close").press("Enter");
+  await expect(page.getByTestId("owner-lifetime-settled")).toHaveText("1");
+  await expect(page.locator("acceptance-native-lifetime-owner")).toHaveCount(0);
+
+  const records = await mutations.evaluate((observation) => {
+    observation.stop();
+
+    return observation.records;
+  });
+
+  await mutations.dispose();
+
+  const entries = await journal(page, "owner-lifetime-journal");
+
+  await info.attach("V9-restored-focus-destroys-owner", {
+    body: JSON.stringify({ entries, records }, null, 2),
+    contentType: "application/json",
+  });
+  expect(only(entries, { stage: "after-restore-destroy" })).toMatchObject({
+    destroyed: true,
+    viewDestroyed: true,
+    intent: false,
+  });
+
+  const marker = records.findIndex(
+    (record) =>
+      record.target === "acceptance-native-owner-lifetime" &&
+      record.attribute === "data-owner-destroyed",
+  );
+
+  expect(marker, "The consumer's post-destroy marker was observed").toBeGreaterThan(0);
+  expect(
+    records.slice(0, marker).some((record) => record.owned),
+    "Teardown mutations of the dead owner are observable before the marker",
+  ).toBe(true);
+  expect(
+    records.slice(marker + 1).filter((record) => record.owned),
+    "No stale synchronization writes into the destroyed owner",
+  ).toEqual([]);
+});
+
 for (const action of ["destroy", "replace"]) {
   test(`V8 V10: ${action} of the owner in a trusted opening beforetoggle invalidates the old activation; the detached host keeps its authored baseline`, async ({
     page,

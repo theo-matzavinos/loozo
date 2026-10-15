@@ -334,7 +334,7 @@ Content retains children through Presence's finite exit. Content State `open()` 
 ### Dismissal and nesting
 
 - Escape targets the topmost participating Origami Popover. Already-consumed and composing key events are ignored. A veto consumes that request; it must not fall through to another root or ancestor.
-- An outside-pointer dismissal requires a trusted primary-button gesture whose down and matching up are outside the affected branch. A drag starting inside and ending outside does not dismiss. Prevented events, mismatched pointer/button, cancellation and lost capture invalidate the gesture.
+- An outside-pointer dismissal requires a trusted primary-button gesture whose down and matching up are outside the affected branch. A drag starting inside and ending outside does not dismiss. Prevented down or up events and mismatched pointer/button invalidate the gesture. Cancellation or lost capture before the matching pointerup invalidates acquisition; cancellation or capture loss after that pointerup does not veto the completed gesture. Dismissal is deferred until the pointerup dispatch has finished so later listeners can prevent that up event, and the affected branch must still be current when dismissal runs.
 - A nested descendant counts as inside its ancestor for outside detection.
 - A user dismissal request closes an affected branch only if every requested-open member permits it. The root's own trigger may bypass its own dismissible flag, but cannot bypass a protected descendant.
 - Veto performs no partial branch model writes or outputs.
