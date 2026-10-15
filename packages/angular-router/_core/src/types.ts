@@ -7,10 +7,11 @@ import type {
   MaybeAsync,
   PartialMatchRouteSnapshot,
   UrlSegment,
+  UrlTree,
   RedirectCommand,
 } from "@angular/router";
 import type { Observable } from "rxjs";
-import type { ParamCodec, PathCodec, CodecValue, IsOptional } from "./codecs.js";
+import type { ParamCodec, PathCodec, CodecValue, IsOmissible, IsOptional } from "./codecs.js";
 import type { CatchallName, PathNames } from "./path.js";
 
 declare const routeBrand: unique symbol;
@@ -20,8 +21,8 @@ declare const routeBrand: unique symbol;
  *
  * @remarks
  * Prefer inference from `defineRoute` over explicit generic arguments. The
- * optional `__params`, `__search` and `__data` members are type witnesses only;
- * they are not populated runtime properties. Parent/codec/effective-path metadata
+ * optional `__params`, `__search`, `__searchInput` and `__data` members are type
+ * witnesses only; they are not populated runtime properties. Parent/codec/effective-path metadata
  * is private. Spreading a declaration does not produce another valid route.
  *
  * @typeParam Path - The local authored path literal, not the effective URL path.
@@ -31,6 +32,8 @@ declare const routeBrand: unique symbol;
  * results and excludes Angular RedirectCommand values.
  * @typeParam Fragments - This declaration's own allowed fragment-name union.
  * @typeParam Catchall - Whether the declaration is a terminal catchall leaf.
+ * @typeParam SearchInput - Effective search values accepted by URL creation;
+ * keys with a fallback are optional here while they always read a value.
  */
 export interface Route<
   Path extends string,
@@ -39,6 +42,7 @@ export interface Route<
   Resolvers = {},
   Fragments extends string = string,
   Catchall extends boolean = CatchallName<Path> extends never ? false : true,
+  SearchInput = Search,
 > {
   /** Type-only nominal brand carrying fragment and catchall metadata; not populated at runtime. */
   readonly [routeBrand]: {
@@ -53,6 +57,8 @@ export interface Route<
   readonly __params?: Params;
   /** Type-only witness for effective search values; not populated at runtime. */
   readonly __search?: Search;
+  /** Type-only witness for search values accepted by URL creation; not populated at runtime. */
+  readonly __searchInput?: SearchInput;
   /** Type-only witness for unwrapped local resolver data, excluding redirects. */
   readonly __data?: { readonly [Key in keyof Resolvers]: Resolved<Resolvers[Key]> };
   /** The snapshotted local resolver map, retaining original callback identities. */
@@ -67,16 +73,19 @@ type Unwrap<Value> = Value extends Promise<infer Inner> | Observable<infer Inner
 type Resolved<Callback> = Callback extends (...args: any[]) => infer Value
   ? Exclude<Unwrap<Value>, RedirectCommand>
   : never;
-export type AnyRoute = Route<string, any, any, any, any, boolean>;
+export type AnyRoute = Route<string, any, any, any, any, boolean, any>;
 /** Extracts a declaration's effective inherited and local path-value types. */
 export type ParamsOf<Target> =
-  Target extends Route<string, infer Params, any, any, any, boolean> ? Params : {};
-/** Extracts effective search-value types, retaining optional/nullable modifiers. */
+  Target extends Route<string, infer Params, any, any, any, boolean, any> ? Params : {};
+/** Extracts effective parsed search-value types, retaining optional/nullable modifiers. */
 export type SearchOf<Target> =
-  Target extends Route<string, any, infer Search, any, any, boolean> ? Search : {};
+  Target extends Route<string, any, infer Search, any, any, boolean, any> ? Search : {};
+/** Extracts effective search-value types accepted by URL creation; fallback keys are optional. */
+export type SearchInputOf<Target> =
+  Target extends Route<string, any, any, any, any, boolean, infer SearchInput> ? SearchInput : {};
 /** Extracts only the selected declaration's own allowed fragment-name union. */
 export type FragmentsOf<Target> =
-  Target extends Route<string, any, any, any, infer Fragments, boolean> ? Fragments : never;
+  Target extends Route<string, any, any, any, infer Fragments, boolean, any> ? Fragments : never;
 export type CodecMap = Record<string, ParamCodec<any>>;
 export type LocalParams<Path extends string, Codecs> = {
   readonly [Key in keyof Codecs]: Key extends CatchallName<Path>
@@ -92,9 +101,21 @@ export type SearchValues<Codecs> = {
     Codecs[Key]
   >;
 };
+// Optional and fallback keys may be omitted when creating a URL.
+export type SearchInputValues<Codecs> = {
+  readonly [Key in keyof Codecs as IsOmissible<Codecs[Key]> extends true ? never : Key]: CodecValue<
+    Codecs[Key]
+  >;
+} & {
+  readonly [Key in keyof Codecs as IsOmissible<Codecs[Key]> extends true ? Key : never]?:
+    | CodecValue<Codecs[Key]>
+    | undefined;
+};
 export type EffectiveParams<Path extends string, Codecs, Parent> = ParamsOf<Parent> &
   LocalParams<Path, Codecs>;
 export type EffectiveSearch<Codecs, Parent> = SearchOf<Parent> & SearchValues<Codecs>;
+export type EffectiveSearchInput<Codecs, Parent> = SearchInputOf<Parent> &
+  SearchInputValues<Codecs>;
 /**
  * Shared parsed inputs supplied to typed guards and resolvers.
  * The container and maps are shallow-frozen; nested codec values remain opaque.
@@ -151,7 +172,9 @@ export type ActivationGuard<Params, Search> = (
 ) => MaybeAsync<GuardResult>;
 /**
  * A candidate matching callback entered in Angular's injection context after parsing.
- * Unlike activation callbacks, it has no ancestor positional path values.
+ * Unlike activation callbacks, it has no ancestor positional path values. It isn't
+ * entered when the candidate's own path params fail to parse; the route then
+ * doesn't match, or its onInvalidParams handler decides.
  *
  * @param inputs - Local positional params plus effective inherited/local search.
  * @param routeConfig - Angular's native candidate configuration.
@@ -165,6 +188,37 @@ export type MatchingGuard<Params, Search> = (
   segments: UrlSegment[],
   partialSnapshot: PartialMatchRouteSnapshot,
 ) => MaybeAsync<GuardResult>;
+
+/**
+ * The error passed to onInvalidParams: the first of the candidate's own path
+ * params that failed to parse. The error class is not exported.
+ */
+export type PathInputError = Error & {
+  /** Always `"path"`: search never takes part in matching. */
+  readonly source: "path";
+  /** The failed param's name. */
+  readonly key: string;
+  /** Why the raw value was rejected; the codec failure is the error's `cause`. */
+  readonly reason: "missing" | "repeated" | "invalid";
+};
+/**
+ * Decides what a candidate whose own path params fail to parse does instead of
+ * not matching. Entered in Angular's injection context; throwing or rejecting
+ * fails the navigation.
+ *
+ * @param error - The path input error, with the codec failure as its cause.
+ * @param routeConfig - Angular's native candidate configuration.
+ * @param segments - Angular's candidate URL segments.
+ * @param partialSnapshot - Angular's native partial matching snapshot.
+ * @returns `false` to try Angular's next candidate, or a UrlTree/RedirectCommand
+ * to redirect; `true` is rejected because the params are invalid.
+ */
+export type InvalidParamsHandler = (
+  error: PathInputError,
+  routeConfig: NativeRoute,
+  segments: UrlSegment[],
+  partialSnapshot: PartialMatchRouteSnapshot,
+) => MaybeAsync<false | UrlTree | RedirectCommand>;
 
 type RequiredKeys<Value> = {
   [Key in keyof Value]-?: Pick<Value, Key> extends Required<Pick<Value, Key>> ? Key : never;
@@ -196,19 +250,19 @@ export type UrlValues<
       /** All effective path values; catchalls are readonly element-value arrays. */
       params: ParamsOf<Target>;
     }) &
-  (keyof SearchOf<Target> extends never
+  (keyof SearchInputOf<Target> extends never
     ? {
         /** Forbidden when the destination has no search declarations. */
         search?: never;
       }
-    : RequiredKeys<SearchOf<Target>> extends never
+    : RequiredKeys<SearchInputOf<Target>> extends never
       ? {
           /** Optional-only search; absent or undefined optional values are omitted. */
-          search?: SearchInput<SearchOf<Target>, SearchKeys>;
+          search?: SearchInput<SearchInputOf<Target>, SearchKeys & keyof SearchInputOf<Target>>;
         }
       : {
           /** All required search values plus any supplied optional values. */
-          search: SearchInput<SearchOf<Target>, SearchKeys>;
+          search: SearchInput<SearchInputOf<Target>, SearchKeys & keyof SearchInputOf<Target>>;
         }) &
   (FragmentsOf<Target> extends never
     ? {
@@ -250,10 +304,11 @@ type Preservable<Source, Destination> = {
  * @remarks
  * Params map destination keys to compatible effective source path keys. Omission
  * forwards by name only when all target keys are compatible. Search and fragment
- * policies are mandatory. Search preserve validates destination-declared values
- * but retains original query text and unknown keys; drop requires no required
+ * policies are mandatory. Search preserve validates destination-declared required
+ * values but retains original query text and unknown keys; drop requires no required
  * target search keys; replace uses explicit target-typed values (`{}` is allowed
- * for searchless targets). Fragment preserve retains the incoming raw name,
+ * for searchless targets). Optional keys, with or without a fallback, are never
+ * required. Fragment preserve retains the incoming raw name,
  * whereas replace requires a target-declared name. Angular executes the redirect.
  */
 export type Redirect<
@@ -270,15 +325,18 @@ export type Redirect<
         /** Discard incoming queries and serialize explicit target-typed values. */
         mode: "replace";
         /** Required target search keys plus selected optional keys; unknown keys fail. */
-        values: SearchInput<SearchOf<NoInfer<Target>>, SearchKeys>;
+        values: SearchInput<
+          SearchInputOf<NoInfer<Target>>,
+          SearchKeys & keyof SearchInputOf<NoInfer<Target>>
+        >;
       }
-    | (RequiredKeys<SearchOf<Target>> extends never
+    | (RequiredKeys<SearchInputOf<Target>> extends never
         ? {
             /** Remove all incoming query values; target required keys are forbidden. */
             mode: "drop";
           }
         : never)
-    | (Preservable<SourceSearch, SearchOf<Target>> extends true
+    | (Preservable<SourceSearch, SearchInputOf<Target>> extends true
         ? {
             /** Keep original query text, validating destination-declared cardinality/values. */
             mode: "preserve";
@@ -323,7 +381,7 @@ export type RouteConfig<
   ReplacementKeys extends keyof SearchOf<Target>,
 > = {
   /** Genuine authored parent; pathless nodes retain inherited input ownership. */
-  parent?: Parent & (Parent extends Route<string, any, any, any, any, true> ? never : unknown);
+  parent?: Parent & (Parent extends Route<string, any, any, any, any, true, any> ? never : unknown);
   /** Local search codecs; keys are required unless wrapped with optionalSearchParam. */
   search?: Search & Record<Extract<keyof Search, keyof SearchOf<Parent>>, never>;
   /** Local parsed-input resolvers; not snapshot-first native ResolveFn callbacks. */
@@ -367,18 +425,25 @@ export type RouteConfig<
     }) &
   (Target extends AnyRoute
     ? {
-        /** Typed native redirect, incompatible with own canActivate/canMatch fields. */
+        /** Typed native redirect, incompatible with own canActivate/canMatch/onInvalidParams fields. */
         redirect: Redirect<
           EffectiveParams<Path, Params, Parent>,
-          EffectiveSearch<Search, Parent>,
+          EffectiveSearchInput<Search, Parent>,
           Target,
           ReplacementKeys
         >;
         canActivate?: never;
         canMatch?: never;
+        onInvalidParams?: never;
       }
     : {
         redirect?: never;
+        /**
+         * Decides what happens when this route's own path params fail to parse;
+         * without it the route doesn't match and Angular tries its next candidate.
+         * Only routes with local path params accept it.
+         */
+        onInvalidParams?: PathNames<Path> extends never ? never : InvalidParamsHandler;
         /** Activation guards with effective inherited and local parsed inputs. */
         canActivate?: readonly ActivationGuard<
           EffectiveParams<Path, Params, Parent>,

@@ -291,6 +291,7 @@ const keys = new Set([
   "canActivate",
   "canActivateChild",
   "canMatch",
+  "onInvalidParams",
   "canDeactivate",
   "providers",
   "title",
@@ -556,6 +557,10 @@ export async function discover(
       fail(configNode, "Local params must be present exactly when the path declares placeholders");
     }
 
+    if (!auto && !ignored && !needsParams && config.has("onInvalidParams")) {
+      fail(configNode, "onInvalidParams requires local path placeholders");
+    }
+
     const data = config.get("data");
 
     if (data && ts.isObjectLiteralExpression(data)) {
@@ -732,9 +737,13 @@ export async function discover(
         declaration.page ||
         declaration.children.length ||
         declaration.config.has("canActivate") ||
-        declaration.config.has("canMatch")
+        declaration.config.has("canMatch") ||
+        declaration.config.has("onInvalidParams")
       ) {
-        fail(redirect, "Redirect cannot have a component, children, canActivate or canMatch");
+        fail(
+          redirect,
+          "Redirect cannot have a component, children, canActivate, canMatch or onInvalidParams",
+        );
       }
 
       declaration.retained = false;

@@ -66,6 +66,8 @@ export const inputs: any[] = [];
 export const prototypeResults: number[] = [];
 export const leaves: any[][] = [];
 export const held = new Set<string>();
+// Path codecs parse once while matching; a held label can let that parse through.
+export const matchingPasses = new Map<string, number>();
 export const jobs = new Map<string, {
   resolve(value: number): void;
   reject(error: unknown): void;
@@ -81,6 +83,23 @@ export function canLeave(...args: any[]) {
   return leave;
 }
 
+// Holds the activation and handle parses of a path value, after its matching parse.
+export function holdAfterMatching(label: string) {
+  held.add(label);
+  matchingPasses.set(label, 1);
+}
+
+function passesMatching(label: string): boolean {
+  const remaining = matchingPasses.get(label) ?? 0;
+
+  if (remaining === 0) {
+    return false;
+  }
+
+  matchingPasses.set(label, remaining - 1);
+  return true;
+}
+
 export function codec(key: string) {
   return {
     parse: (raw: string): Promise<number> => {
@@ -88,7 +107,7 @@ export function codec(key: string) {
 
       calls.push(label);
 
-      if (held.has(label)) {
+      if (held.has(label) && !passesMatching(label)) {
         return new Promise((resolve, reject) => {
           const list = jobs.get(label) ?? [];
 
@@ -120,6 +139,7 @@ export function release(label: string, value: number) {
 
   jobs.delete(label);
   held.delete(label);
+  matchingPasses.delete(label);
 }
 
 export function fail(label: string, error: unknown) {
@@ -129,6 +149,7 @@ export function fail(label: string, error: unknown) {
 
   jobs.delete(label);
   held.delete(label);
+  matchingPasses.delete(label);
 }
 
 export function record(value: any): number {
@@ -186,6 +207,22 @@ export function promiseGuard(): Promise<boolean> {
     finishGuard = resolve;
   });
   return guardPromise;
+}
+
+export const resolverCalls: string[] = [];
+export const matchEntries: any[] = [];
+export const invalidErrors: any[] = [];
+export const decisionEntries: string[] = [];
+let decision: () => unknown = () => false;
+
+export function decideWith(next: () => unknown) {
+  decision = next;
+}
+
+export function decide(error: any): any {
+  decisionEntries.push(inject(token));
+  invalidErrors.push(error);
+  return decision();
 }
 
 export function promiseResolver(): Promise<number> {
@@ -395,13 +432,11 @@ export default defineRoute('teams/$teamId', {
 );
 await write(
   "src/routes/guarded/definition.ts",
-  `import { defineRoute, numberParam } from '@loozo/angular-router';
+  `import { defineRoute } from '@loozo/angular-router';
 import declaring from '../declaring/definition.js';
 
-export default defineRoute('items/$childId', {
-  parent: declaring,
-  params: { childId: numberParam },
-});
+// Static, so only the declaring parent has a generated matching guard to check identity.
+export default defineRoute('items/9', { parent: declaring });
 `,
 );
 await write("src/routes/guarded/page.ts", simplePage);
@@ -446,9 +481,137 @@ export default class Answer {
 `,
 );
 
+// Matching: invalid local path params fall through to the closest catchall.
+const marked = (id) => `import { Component } from '@angular/core';
+
+@Component({ template: '<p id="${id}">${id}</p>' })
+export default class Marked {}
+`;
+
+await write(
+  "src/routes/missing/definition.ts",
+  `import { defineRoute, stringParam } from '@loozo/angular-router';
+
+export default defineRoute('$segments[]', { params: { segments: stringParam } });
+`,
+);
+await write("src/routes/missing/page.ts", marked("missing"));
+await write(
+  "src/routes/shop/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+
+export default defineRoute('shop', {});
+`,
+);
+await write(
+  "src/routes/shop/page.ts",
+  `import { Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+
+@Component({ imports: [RouterOutlet], template: '<router-outlet />' })
+export default class Shop {}
+`,
+);
+await write(
+  "src/routes/shop-item/definition.ts",
+  `import { defineRoute, numberParam } from '@loozo/angular-router';
+import shop from '../shop/definition.js';
+
+export default defineRoute('$id', { parent: shop, params: { id: numberParam } });
+`,
+);
+await write("src/routes/shop-item/page.ts", marked("shop-item"));
+await write(
+  "src/routes/shop-missing/definition.ts",
+  `import { defineRoute, stringParam } from '@loozo/angular-router';
+import shop from '../shop/definition.js';
+
+export default defineRoute('$rest[]', { parent: shop, params: { rest: stringParam } });
+`,
+);
+await write("src/routes/shop-missing/page.ts", marked("shop-missing"));
+await write(
+  "src/routes/kind/definition.ts",
+  `import { defineRoute, enumParam } from '@loozo/angular-router';
+import { resolverCalls } from '../../probes.js';
+
+export default defineRoute('kinds/$kind', {
+  params: { kind: enumParam(['a', 'b']) },
+  resolve: {
+    seen: ({ params }) => {
+      resolverCalls.push(params.kind);
+      return params.kind;
+    },
+  },
+});
+`,
+);
+await write("src/routes/kind/page.ts", marked("kind"));
+await write(
+  "src/routes/decided/definition.ts",
+  `import { defineRoute, numberParam } from '@loozo/angular-router';
+import { decide, token } from '../../probes.js';
+
+export default defineRoute('decided/$id', {
+  params: { id: numberParam },
+  providers: [{ provide: token, useValue: 'decided entry' }],
+  onInvalidParams: decide,
+});
+`,
+);
+await write("src/routes/decided/page.ts", marked("decided"));
+await write(
+  "src/routes/matched/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+import { codec, matchEntries } from '../../probes.js';
+
+export default defineRoute('matched/$id', {
+  params: { id: codec('matched') },
+  search: { q: codec('query') },
+  canMatch: [(inputs) => {
+    matchEntries.push(inputs);
+    return true;
+  }],
+});
+`,
+);
+await write("src/routes/matched/page.ts", marked("matched"));
+await write(
+  "src/routes/searching/definition.ts",
+  `import { defineRoute, enumParam, numberParam, optionalSearchParam } from '@loozo/angular-router';
+
+export default defineRoute('searching', {
+  search: {
+    sort: optionalSearchParam(enumParam(['asc', 'desc'])),
+    page: optionalSearchParam(numberParam, { fallback: 1 }),
+  },
+  runGuardsAndResolvers: 'paramsOrQueryParamsChange',
+  resolve: { search: ({ search }) => search },
+});
+`,
+);
+await write(
+  "src/routes/searching/page.ts",
+  `import { Component, inject } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="searching">searching</p>' })
+export default class Searching {
+  readonly native = inject(ActivatedRoute);
+  readonly handle = injectRoute();
+
+  constructor() {
+    (window as any).searching = this;
+  }
+}
+`,
+);
+
 await write(
   "src/type-proof.ts",
   `import { injectRoute } from './routes/item/route.generated.js';
+import { injectRoute as searchingRoute } from './routes/searching/route.generated.js';
 import { localSymbol } from './probes.js';
 
 const handle = injectRoute();
@@ -475,6 +638,22 @@ if (data.hasValue()) {
 
 // @ts-expect-error native readonly resource
 handle.search.set({ score: 1 });
+
+const searching = searchingRoute();
+const searched = searching.search;
+
+if (searched.hasValue()) {
+  const value = searched.value();
+  const page: number = value.page;
+  // @ts-expect-error A key without a fallback may be absent.
+  const sort: 'asc' | 'desc' = value.sort;
+}
+
+// Every searching key may be omitted when writing a URL.
+searching.link({});
+searching.link({ search: { page: 2 } });
+// @ts-expect-error A supplied fallback key keeps its codec type.
+searching.link({ search: { page: '2' } });
 `,
 );
 await write(
@@ -486,10 +665,12 @@ import {
   type ActivatedRouteSnapshot, type RouterStateSnapshot,
 } from '@angular/router';
 import {
-  calls, inputs, held, jobs, release, fail, localSymbol, leaves, allowLeave,
+  calls, inputs, held, jobs, release, fail, localSymbol, leaves, allowLeave, holdAfterMatching,
   prototypeResults, opaque, ancestry, usePromises, promiseConstructor,
   guardPromise, resolverPromise, finishGuard, finishResolver, promiseEntries,
+  resolverCalls, matchEntries, invalidErrors, decisionEntries, decideWith,
 } from './probes.js';
+import { of } from 'rxjs';
 
 const wait = (ms = 20) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -497,6 +678,11 @@ function check(value: unknown, label: string): void {
   if (!value) {
     throw new Error(label);
   }
+}
+
+// Path values parse once while matching before any activation or handle parse.
+function parses(label: string): number {
+  return calls.filter((value) => value === label).length;
 }
 
 async function until(test: () => boolean, label: string) {
@@ -549,21 +735,21 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 
     // This listener precedes handle construction. The nested Start reaches the handle
     // before the outer End; the outer journal itself records Start -> End -> Start.
-    held.add('id:6');
+    holdAfterMatching('id:6');
     await router.navigateByUrl('/plain/6');
     const page = (window as any).plain;
     const params = page.handle.params;
 
-    await until(() => calls.includes('id:6'), 'initial never-settle parse');
+    await until(() => parses('id:6') === 2, 'initial never-settle parse');
     const scope = page.connect();
 
     const initialValue = scope.handle.params.value();
 
     check(scope.handle.params.status() === 'loading' && initialValue === undefined, 'initial parsing loading');
-    held.add('id:7');
+    holdAfterMatching('id:7');
     reenter = true;
     await router.navigateByUrl('/plain/7');
-    await until(() => typeof deny === 'function' && calls.includes('id:7'), 'replacement started');
+    await until(() => typeof deny === 'function' && parses('id:7') === 2, 'replacement started');
 
     const tail = events.slice(-3);
     check(tail[0].startsWith('NavigationStart:') && tail[1].startsWith('NavigationEnd:') &&
@@ -582,7 +768,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     await until(() => params.value()?.id === 7, 'true survivor7 restored');
     const survivorCalls = calls.filter((value) => value === 'id:7');
 
-    check(survivorCalls.length === 1, 'survivor7 not reparsed');
+    // One matching parse, then one handle parse.
+    check(survivorCalls.length === 2, 'survivor7 not reparsed');
     await app.whenStable();
     check(jobs.has('id:6'), 'obsolete6 genuinely never settled');
     scope.destroy();
@@ -599,9 +786,9 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       }
     });
 
-    held.add('id:9');
+    holdAfterMatching('id:9');
     await router.navigateByUrl('/plain/9');
-    await until(() => calls.includes('id:9'), 'end parse');
+    await until(() => parses('id:9') === 2, 'end parse');
     await wait();
     check(stableValue === undefined, 'end handoff keeps stability pending');
     release('id:9', 9);
@@ -655,9 +842,9 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       'cancellation settles kept values');
 
     // Error releases old tracking; a new idle scope rejoins the exact unfinished operation.
-    held.add('id:10');
+    holdAfterMatching('id:10');
     await router.navigateByUrl('/plain/10');
-    await until(() => calls.includes('id:10'), 'error survivor pending');
+    await until(() => parses('id:10') === 2, 'error survivor pending');
     let errorScope: any;
     const errorListener = router.events.subscribe((event) => {
       if (event instanceof NavigationError) {
@@ -691,7 +878,7 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     const survivorCalls10 = calls.filter((value) => value === 'id:10');
 
     check(rejoined?.id === 10, 'new error listener scope rejoined');
-    check(params.status() === 'resolved' && survivor10 === rejoined && survivorCalls10.length === 1,
+    check(params.status() === 'resolved' && survivor10 === rejoined && survivorCalls10.length === 2,
       'error survivor settles once without reparse');
     errorScope.destroy();
     errorListener.unsubscribe();
@@ -784,25 +971,26 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     blocked.canActivate = [() => { throw 'native failure'; }];
 
     // First paired failure releases despite an unfinished sibling; late rejection is observed.
-    held.add('id:11');
+    // The path codec fails only on its second (handle) parse: optional search can't fail.
+    holdAfterMatching('id:11');
     held.add('score:42');
     await router.navigateByUrl('/plain/11?score=42');
-    await until(() => calls.includes('score:42'), 'pair concurrent');
-    fail('score:42', new Error('first pair failure'));
+    await until(() => parses('id:11') === 2 && calls.includes('score:42'), 'pair concurrent');
+    fail('id:11', new Error('first pair failure'));
     await app.whenStable();
     const pairError = params.error();
 
-    check(pairError.source === 'search', 'paired first error');
-    check(jobs.has('id:11'), 'sibling still unfinished');
-    fail('id:11', new Error('late sibling failure'));
+    check(pairError.source === 'path', 'paired first error');
+    check(jobs.has('score:42'), 'sibling still unfinished');
+    fail('score:42', new Error('late sibling failure'));
     await wait();
     check(unhandled.length === 0, 'late sibling observed');
 
     // Native component-first deactivation adds no parser demand.
     await router.navigateByUrl('/');
-    held.add('id:12');
+    holdAfterMatching('id:12');
     await router.navigateByUrl('/plain/12');
-    await until(() => calls.includes('id:12'), 'scoped parse');
+    await until(() => parses('id:12') === 2, 'scoped parse');
     const livePage = (window as any).plain;
     const independent = livePage.connect();
 
@@ -851,7 +1039,7 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     const itemParams = item.handle.params;
     const settledItem = itemParams.value();
 
-    held.add('id:9');
+    holdAfterMatching('id:9');
     const itemNavigation = router.navigateByUrl('/teams/7/items/9?score=44');
 
     await until(() => jobs.has('id:9'), 'item guard parse pending');
@@ -951,7 +1139,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     const destroyedViews = [destroyedHandle.params, destroyedHandle.search, destroyedHandle.data];
 
     check(destructions === 1 && !app.destroyed, 'own scope destroyed inside actual acquisition; app alive');
-    check(!calls.includes('acquire:21'), 'no parser after acquisition destruction');
+    check(calls.filter((value) => value === 'acquire:21').length === 1,
+      'no parser after acquisition destruction, only the matching parse');
     for (const view of destroyedViews) {
       const value = view.value();
 
@@ -963,7 +1152,7 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     const normalScope = acquirePage.scope();
     const normalHandle = normalScope.connect();
 
-    await until(() => calls.includes('acquire:21'), 'ordinary scoped parse');
+    await until(() => parses('acquire:21') === 2, 'ordinary scoped parse');
     normalScope.destroy();
     await app.whenStable();
     check(router.url === '/acquire/21' && !app.destroyed, 'normal destroy keeps app/current route live');
@@ -975,12 +1164,12 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 
     // Joining an unfinished survivor after native error: synchronous real same-URL skip
     // during add must not acquire twice/overwrite cleanup, restart parse, or leak stability.
-    held.add('acquire:22');
+    holdAfterMatching('acquire:22');
     await router.navigateByUrl('/acquire/22');
     const survivorScope = acquirePage.scope();
     const survivorHandle = survivorScope.connect();
 
-    await until(() => calls.includes('acquire:22'), 'unfinished survivor parse');
+    await until(() => parses('acquire:22') === 2, 'unfinished survivor parse');
     let nativeFailure: unknown;
 
     try {
@@ -1017,7 +1206,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     await app.whenStable();
     const joinedCalls = calls.filter((value) => value === 'acquire:22');
 
-    check(joinedCalls.length === 1, 'sameURL reentry joins one parse');
+    // One matching parse, then one shared handle parse.
+    check(joinedCalls.length === 2, 'sameURL reentry joins one parse');
     check(pairedAtStability[0]?.id === 22 && pairedAtStability[1] !== undefined,
       'pair published before stable without overwritten cleanup');
     skipScope.destroy();
@@ -1122,6 +1312,131 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       pairedAtStability, promiseResults,
     };
   };
+
+  (window as any).matchingProof = async () => {
+    const shown = (id: string) => document.getElementById(id) !== null;
+
+    async function failure(url: string): Promise<unknown> {
+      const before = router.url;
+
+      try {
+        await router.navigateByUrl(url);
+      } catch (error) {
+        check(router.url === before, 'failed navigation keeps the URL: ' + url);
+        return error;
+      }
+
+      throw new Error('Navigation should fail: ' + url);
+    }
+
+    async function visit(url: string): Promise<void> {
+      const navigated = await router.navigateByUrl(url);
+
+      check(navigated === true, 'navigated ' + url);
+      await app.whenStable();
+    }
+
+    // An invalid local param doesn't match: Angular backtracks to the root catchall.
+    await visit('/kinds/c');
+    check(shown('missing') && !shown('kind'), 'invalid enum reaches the root catchall');
+    check(resolverCalls.length === 0, 'resolver never sees an invalid enum');
+    await visit('/kinds/a');
+    check(shown('kind') && resolverCalls.join() === 'a', 'valid enum activates with its resolver');
+
+    // The closest catchall wins.
+    await visit('/shop/abc');
+    check(shown('shop-missing') && !shown('missing'), 'nested catchall preferred');
+    await visit('/shop/4');
+    check(shown('shop-item'), 'valid nested param');
+
+    // onInvalidParams: false falls through; the handler gets the path error in DI context.
+    decideWith(() => false);
+    await visit('/decided/x');
+    const invalid = invalidErrors[0];
+
+    check(shown('missing'), 'handler false falls through');
+    check(invalid instanceof Error, 'handler receives an Error');
+    check(invalid.source === 'path' && invalid.key === 'id' &&
+      invalid.reason === 'invalid' && invalid.cause.message === 'Expected a finite number',
+      'handler receives the path input error');
+    check(decisionEntries.join() === 'decided entry', 'handler runs in the route injection context');
+
+    decideWith(() => new RedirectCommand(router.parseUrl('/kinds/b')));
+    await visit('/decided/y');
+    check(router.url === '/kinds/b' && shown('kind'), 'handler RedirectCommand redirects');
+    decideWith(() => of(router.parseUrl('/kinds/a')));
+    await visit('/decided/z');
+    check(router.url === '/kinds/a', 'handler Observable UrlTree redirects');
+
+    // Invalid params can't match: true, however delivered, fails the navigation.
+    const truthy = [() => true, () => Promise.resolve(true), () => of(true), () => undefined];
+
+    for (const decision of truthy) {
+      decideWith(decision);
+      const error = await failure('/decided/x');
+
+      check(error instanceof TypeError, 'handler true or unknown result is a navigation error');
+    }
+
+    const thrown = new Error('handler failure');
+
+    for (const decision of [() => { throw thrown; }, () => Promise.reject(thrown)]) {
+      decideWith(decision);
+      const error = await failure('/decided/x');
+
+      check(error === thrown, 'handler throw/rejection is the navigation error');
+    }
+
+    const decisions = invalidErrors.length;
+
+    await visit('/decided/5');
+    check(shown('decided') && invalidErrors.length === decisions, 'valid params skip the handler');
+
+    // User canMatch callbacks aren't entered for invalid path params, and don't error.
+    await visit('/matched/x?q=1');
+    check(shown('missing') && matchEntries.length === 0, 'user canMatch not entered for invalid path');
+    check(!calls.includes('query:1'), 'a candidate ruled out by its path runs no search codecs');
+
+    // Required search still errors once the path matches.
+    const missingSearch: any = await failure('/matched/3');
+
+    check(missingSearch.source === 'search' && missingSearch.key === 'q' &&
+      missingSearch.reason === 'missing' && matchEntries.length === 0, 'required search still errors');
+    await visit('/matched/3?q=1');
+    const [entry] = matchEntries;
+
+    check(shown('matched') && matchEntries.length === 1 && entry.params.id === 3 && entry.search.q === 1,
+      'user canMatch receives path and search');
+    check(calls.filter((value) => value === 'matched:3').length === 2,
+      'generated and user guards share one path parse per navigation');
+
+    // Optional search never fails: absent without a fallback, the fallback otherwise.
+    const searches: Record<string, unknown>[] = [];
+
+    for (const url of [
+      '/searching?sort=bad&page=x',
+      '/searching?sort=asc&sort=desc&page=1&page=2',
+      '/searching',
+      '/searching?sort=desc&page=3',
+    ]) {
+      await visit(url);
+      const page = (window as any).searching;
+      const resolved = page.native.snapshot.data.search;
+      const handled = page.handle.search.value();
+
+      check(page.handle.search.status() === 'resolved', 'handle search resolved ' + url);
+      check(JSON.stringify(resolved) === JSON.stringify(handled), 'resolver and handle agree ' + url);
+      searches.push(handled);
+    }
+
+    check(JSON.stringify(searches) === JSON.stringify([
+      { page: 1 }, { page: 1 }, { page: 1 }, { sort: 'desc', page: 3 },
+    ]), 'optional search recovery ' + JSON.stringify(searches));
+    check(!Object.hasOwn(searches[0], 'sort'), 'recovered optional key is absent');
+    check(unhandled.length === 0, 'no unhandled rejections');
+
+    return { searches, decisions, matchEntries: matchEntries.length };
+  };
 });
 `,
 );
@@ -1209,11 +1524,12 @@ try {
   await tab.waitForFunction(() => typeof window.lifecycleProof === "function");
 
   const result = await tab.evaluate(() => window.lifecycleProof());
+  const matching = await tab.evaluate(() => window.matchingProof());
 
   assert.deepEqual(errors, []);
   await writeFile(
     join(evidence, "browser-observations.json"),
-    JSON.stringify({ result, errors }, null, 2),
+    JSON.stringify({ result, matching, errors }, null, 2),
   );
 
   const html = await tab.content();
@@ -1227,5 +1543,5 @@ try {
 }
 
 console.log(
-  "Native lifecycle/ancestry/own-data/acquisition/iframe-Promise/concurrent-redirect proof passed",
+  "Native lifecycle/ancestry/own-data/acquisition/iframe-Promise/concurrent-redirect/matching proof passed",
 );

@@ -6,6 +6,7 @@ import type {
   CodecMap,
   EffectiveParams,
   EffectiveSearch,
+  EffectiveSearchInput,
   Route,
   RouteConfig,
   SearchOf,
@@ -35,6 +36,7 @@ const configKeys = new Set([
   "canActivate",
   "canActivateChild",
   "canMatch",
+  "onInvalidParams",
   "canDeactivate",
   "providers",
   "title",
@@ -233,7 +235,8 @@ export function defineRoute<
   EffectiveSearch<Search, Parent>,
   Resolvers,
   Fragments[number],
-  CatchallName<Path> extends never ? false : true
+  CatchallName<Path> extends never ? false : true,
+  EffectiveSearchInput<Search, Parent>
 >;
 
 export function defineRoute(path: unknown, config: unknown): AnyRoute {
@@ -361,6 +364,16 @@ export function defineRoute(path: unknown, config: unknown): AnyRoute {
     retained[key] = Object.freeze([...list]);
   }
 
+  if (has(supplied, "onInvalidParams")) {
+    if (typeof supplied.onInvalidParams !== "function") {
+      throw new TypeError("onInvalidParams must be a callback");
+    }
+
+    if (localNames.size === 0) {
+      throw new TypeError("onInvalidParams requires local path params");
+    }
+  }
+
   if (
     has(supplied, "title") &&
     typeof supplied.title !== "string" &&
@@ -412,8 +425,12 @@ export function defineRoute(path: unknown, config: unknown): AnyRoute {
   };
 
   if (has(supplied, "redirect")) {
-    if (has(supplied, "canActivate") || has(supplied, "canMatch")) {
-      throw new TypeError("Redirect cannot declare own canActivate or canMatch");
+    if (
+      has(supplied, "canActivate") ||
+      has(supplied, "canMatch") ||
+      has(supplied, "onInvalidParams")
+    ) {
+      throw new TypeError("Redirect cannot declare own canActivate, canMatch or onInvalidParams");
     }
 
     retained.redirect = snapshotRedirect(supplied.redirect, metadata);

@@ -7,9 +7,7 @@ import { injectRoute } from "./route.generated.js";
   template: `
     @if (route.params.hasValue() && route.search.hasValue()) {
       <h1>Product {{ route.params.value().productId }}</h1>
-      <p>Tab: {{ route.search.value().tab ?? "details" }}</p>
-    } @else if (route.params.error()) {
-      <p>This product link isn't valid.</p>
+      <p>Tab: {{ route.search.value().tab }}</p>
     } @else {
       <p>Loading…</p>
     }

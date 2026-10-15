@@ -78,12 +78,14 @@ export function emit(
   }
 
   // Parsed-input callbacks, adapted through the route set; a redirect record never activates.
+  // Local path params always get the generated canMatch that parses them.
   function usesCallbacks(declaration: Declaration): boolean {
     return (
       !declaration.target &&
-      ["canActivate", "canActivateChild", "canMatch", "resolve", "title"].some((key) =>
-        declaration.config.has(key),
-      )
+      (declaration.segments.some((segment) => segment.kind !== "static") ||
+        ["canActivate", "canActivateChild", "canMatch", "resolve", "title"].some((key) =>
+          declaration.config.has(key),
+        ))
     );
   }
 

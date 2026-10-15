@@ -6,6 +6,7 @@ export {
   optionalSearchParam,
   nullableSearchParam,
   codecPresence,
+  codecFallback,
 } from "./codecs.js";
 export type { ParamCodec } from "./codecs.js";
 export { defineRoute, routeMetadata } from "./route.js";

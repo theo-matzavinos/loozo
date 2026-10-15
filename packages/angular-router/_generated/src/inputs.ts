@@ -1,5 +1,10 @@
 import type { ActivatedRouteSnapshot, PartialMatchRouteSnapshot } from "@angular/router";
-import { codecPresence, routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
+import {
+  codecFallback,
+  codecPresence,
+  routeMetadata,
+  type AnyRoute,
+} from "@loozo/angular-router/_core";
 
 export interface RecordBinding {
   readonly definition: () => AnyRoute;
@@ -22,9 +27,9 @@ export interface Job {
   readonly array: boolean;
   readonly codec: { parse(raw: string): unknown };
 }
-export interface Operation {
-  readonly promise: Promise<Parsed>;
-  outcome: { value: Parsed } | { error: Error } | undefined;
+export interface Operation<Value = Parsed> {
+  readonly promise: Promise<Value>;
+  outcome: { value: Value } | { error: Error } | undefined;
 }
 
 export function hasIdentity(
@@ -126,11 +131,11 @@ export function searchJobs(
     const codec = metadata.search[key];
     const raws = snapshot.queryParamMap.getAll(key);
 
-    if (raws.length === 0 && codecPresence(codec) === "optional") {
-      continue;
+    // Optional keys never fail: runJobs recovers their missing, repeated or invalid values.
+    if (codecPresence(codec) !== "optional") {
+      validateRaw("search", key, raws, false);
     }
 
-    validateRaw("search", key, raws, false);
     jobs.push({ source: "search", key, raws, array: false, codec });
   }
 
@@ -142,7 +147,24 @@ export async function runJobs(jobs: readonly Job[]): Promise<Parsed> {
   const search: Record<string, unknown> = Object.create(null);
   const pending: Promise<void>[] = [];
 
+  // A missing, repeated or invalid optional search value reads as its fallback, or is absent.
+  function recover(job: Job): void {
+    const fallback = codecFallback(job.codec);
+
+    if (fallback) {
+      search[job.key] = fallback.value;
+    }
+  }
+
   for (const job of jobs) {
+    const optional = job.source === "search" && codecPresence(job.codec) === "optional";
+
+    if (optional && (job.raws.length !== 1 || typeof job.raws[0] !== "string")) {
+      recover(job);
+
+      continue;
+    }
+
     // Async boundaries convert every synchronous throw into an observed rejection.
     pending.push(
       (async () => {
@@ -166,6 +188,12 @@ export async function runJobs(jobs: readonly Job[]): Promise<Parsed> {
             search[job.key] = value;
           }
         } catch (cause) {
+          if (optional) {
+            recover(job);
+
+            return;
+          }
+
           throw inputError(job.source, job.key, "invalid", cause);
         }
       })(),
@@ -177,15 +205,18 @@ export async function runJobs(jobs: readonly Job[]): Promise<Parsed> {
   return Object.freeze({ params: Object.freeze(params), search: Object.freeze(search) });
 }
 
-const full = new WeakMap<object, WeakMap<object, Operation>>();
-const matching = new WeakMap<object, WeakMap<object, Operation>>();
+type Cache<Value> = WeakMap<object, WeakMap<object, Operation<Value>>>;
 
-function operation(
-  cache: typeof full,
+const full: Cache<Parsed> = new WeakMap();
+const paths: Cache<Parsed> = new WeakMap();
+const matching: Cache<Parsed | undefined> = new WeakMap();
+
+function operation<Value>(
+  cache: Cache<Value>,
   definition: AnyRoute,
   snapshot: object,
-  collect: () => Job[],
-): Operation {
+  run: () => Promise<Value>,
+): Operation<Value> {
   let snapshots = cache.get(definition);
 
   if (!snapshots) {
@@ -200,8 +231,8 @@ function operation(
   }
 
   // Insert before application code can run; even synchronous reentry joins the same operation.
-  const result: Operation = {
-    promise: Promise.resolve().then(() => runJobs(collect())),
+  const result: Operation<Value> = {
+    promise: Promise.resolve().then(run),
     outcome: undefined,
   };
 
@@ -259,7 +290,7 @@ export function fullOperation(
 
     jobs.push(...searchJobs(binding.definition(), snapshot));
 
-    return jobs;
+    return runJobs(jobs);
   });
 }
 
@@ -271,17 +302,48 @@ export function parseInputs(
   return fullOperation(set, id, snapshot).promise;
 }
 
-export function matchingInputs(
+/**
+ * Parses a matching candidate's own path params only. Angular passes one partial
+ * snapshot to all of a candidate's canMatch guards, so they share this operation.
+ */
+export function pathOperation(
   set: RouteSet,
   id: string,
   snapshot: PartialMatchRouteSnapshot,
-): Promise<Parsed> {
+): Operation {
   assertIdentity(snapshot, id);
 
   const definition = set.records[id].definition();
 
-  return operation(matching, definition, snapshot, () => [
-    ...pathJobs(definition, snapshot.url),
-    ...searchJobs(definition, snapshot),
-  ]).promise;
+  return operation(paths, definition, snapshot, () => runJobs(pathJobs(definition, snapshot.url)));
+}
+
+/**
+ * Local path params plus effective search for a candidate's canMatch callbacks, or
+ * undefined when the path params fail: the generated path guard owns that outcome.
+ */
+export function matchingInputs(
+  set: RouteSet,
+  id: string,
+  snapshot: PartialMatchRouteSnapshot,
+): Promise<Parsed | undefined> {
+  assertIdentity(snapshot, id);
+
+  const definition = set.records[id].definition();
+
+  return operation(matching, definition, snapshot, async () => {
+    let path: Parsed;
+
+    // Search parses only once the path matches: a candidate the path rules out runs no
+    // search codecs, and its search failures can't fail the navigation.
+    try {
+      path = await pathOperation(set, id, snapshot).promise;
+    } catch {
+      return undefined;
+    }
+
+    const search = await runJobs(searchJobs(definition, snapshot));
+
+    return Object.freeze({ params: path.params, search: search.search });
+  }).promise;
 }

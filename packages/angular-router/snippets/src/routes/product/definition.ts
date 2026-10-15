@@ -2,6 +2,6 @@ import { defineRoute, enumParam, numberParam, optionalSearchParam } from "@loozo
 
 export default defineRoute("products/$productId", {
   params: { productId: numberParam },
-  search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+  search: { tab: optionalSearchParam(enumParam(["details", "reviews"]), { fallback: "details" }) },
   fragments: ["summary", "reviews"],
 });
