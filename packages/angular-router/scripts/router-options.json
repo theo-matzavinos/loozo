@@ -1,5 +1,5 @@
 {
-  "$comment": "Router options merged into schemas/application.json by application-schema.mjs.",
+  "$comment": "Router options merged into schemas/application.json by builder-schemas.mjs.",
   "properties": {
     "tsconfig": {
       "type": "string",

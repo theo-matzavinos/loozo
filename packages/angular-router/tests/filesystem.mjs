@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
 import {
   cp,
   lstat,
@@ -11,8 +12,10 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(packageDirectory, "../..");
@@ -1279,6 +1282,66 @@ assert.deepEqual(
 );
 assert.equal(await exists("src/routes/after-stop/route.ts"), false);
 await writeFile(join(evidence, "final-artifacts.json"), JSON.stringify(stopped, null, 2));
+
+// The Angular CLI turns the serve schema's options into flags and rejects unknown ones.
+const ng = join(fixture, "node_modules/@angular/cli/bin/ng.js");
+const cliOptions = { cwd: fixture, env: { ...process.env, NG_CLI_ANALYTICS: "false" } };
+const help = await promisify(execFile)(process.execPath, [ng, "serve", "--help"], cliOptions);
+
+await writeFile(join(evidence, "cli-help.txt"), help.stdout);
+
+for (const flag of ["--port", "--host", "--proxy-config", "--ssl", "--poll"]) {
+  assert.match(help.stdout, new RegExp(`${flag}\\b`), flag);
+}
+
+await assert.rejects(
+  promisify(execFile)(process.execPath, [ng, "serve", "--prot", "4300"], cliOptions),
+  (error) => /Unknown argument: prot/.test(error.stderr),
+);
+
+// A command-line --port overrides the target's port: 0, and serve still generates first.
+const probe = createServer();
+
+await new Promise((done) => probe.listen(0, "127.0.0.1", done));
+
+const { port } = probe.address();
+
+await new Promise((done) => probe.close(done));
+
+const cli = spawn(process.execPath, [ng, "serve", "--port", String(port), "--poll", "500"], {
+  ...cliOptions,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+const closed = new Promise((done) => cli.once("close", done));
+let cliOutput = "";
+
+cli.stdout.on("data", (chunk) => (cliOutput += chunk));
+cli.stderr.on("data", (chunk) => (cliOutput += chunk));
+
+try {
+  await waitFor(async () => {
+    if (cli.exitCode !== null) {
+      throw new Error(`ng serve exited with ${cli.exitCode}:\n${cliOutput}`);
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, `ng serve --port ${port} did not serve on that port`);
+
+  const main = await fetch(`http://127.0.0.1:${port}/main.js`);
+
+  assert.match(await main.text(), /path: "after-stop"/);
+} finally {
+  cli.kill("SIGTERM");
+  await closed;
+  await writeFile(join(evidence, "cli-serve.log"), cliOutput);
+}
+
 console.log(
-  "Public Architect filesystem seeding/synchronization, conservative preflight nonwrites, strict native consumers and real dev-server watch/add/change/remove/repair/stop passed",
+  "Public Architect filesystem seeding/synchronization, conservative preflight nonwrites, strict native consumers, real dev-server watch/add/change/remove/repair/stop and ng serve command-line options passed",
 );

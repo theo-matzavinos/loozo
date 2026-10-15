@@ -337,14 +337,14 @@ The builder runs generation once, then the official application build. Invalid o
 
 ### `@loozo/angular-router:serve`
 
-All `@angular/build:dev-server` options, plus:
+All `@angular/build:dev-server` options, set in `angular.json` or on the command line (`ng serve --port 4300`), plus:
 
 | Option        | Type              | Default  | Description                                                                          |
 | ------------- | ----------------- | -------- | ------------------------------------------------------------------------------------ |
 | `buildTarget` | `string`          | required | A target that uses `@loozo/angular-router:application`. Router options come from it. |
 | `poll`        | `number \| false` | `1000`   | File-watch polling interval in milliseconds, or `false` for no default.              |
 
-The serve builder validates its dev-server options and the build target before generating anything. It watches the scan directory and regenerates when files are added, changed or removed. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build. Later errors are logged, and the server keeps running until you fix them. The build target must not resolve `check: true`, because serving always writes generated files.
+Invalid options stop the serve builder before it generates anything, and so does an invalid build target. It watches the scan directory and regenerates when files are added, changed or removed. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build. Later errors are logged, and the server keeps running until you fix them. The build target must not resolve `check: true`, because serving always writes generated files.
 
 Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. Polling costs some idle CPU (about 3% of one core on the example app at 1000 ms, against under 0.1% without), and more on larger workspaces.
 

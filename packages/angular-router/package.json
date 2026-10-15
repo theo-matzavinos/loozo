@@ -35,7 +35,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "node scripts/application-schema.mjs && rm -rf node && tsc -p tsconfig.node.json && tsc -p src/generation/tsconfig.json && ng-packagr -p ng-package.json -c tsconfig.build.json && node ../../scripts/finish-package.mjs .",
+    "build": "node scripts/builder-schemas.mjs && rm -rf node && tsc -p tsconfig.node.json && tsc -p src/generation/tsconfig.json && ng-packagr -p ng-package.json -c tsconfig.build.json && node ../../scripts/finish-package.mjs .",
     "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "check": "vp check",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
