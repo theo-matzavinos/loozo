@@ -15,6 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildContent } from "../src/content.ts";
 import { writeContent } from "../src/emit.ts";
+import { createHighlight } from "../src/markdown.ts";
 import { renderPublishedReadme } from "../src/readme.ts";
 
 const tool = fileURLToPath(new URL("..", import.meta.url));
@@ -767,4 +768,20 @@ test("writes byte-identical modules for the same inputs", async () => {
     await readFile(join(first, "model.generated.ts"), "utf8"),
     await readFile(join(tool, "src/model.ts"), "utf8"),
   );
+});
+
+test("hidden text shapes highlighting without appearing in the output", async () => {
+  const highlight = await createHighlight();
+  // A method whose type parameters span lines, which the grammar only recognizes as a function.
+  const method = "link<\n  Keys extends string,\n>(\n  values: Keys,\n): UrlTree";
+  const html = highlight(method, "typescript", { column: 0, text: "function " });
+  const asFunction = highlight(`function ${method}`, "typescript");
+  const spans = (code) =>
+    [...code.matchAll(/<span style="([^"]*)">([^<]*)<\/span>/g)].map((m) => [m[2], m[1]]);
+
+  const [keyword, name, ...rest] = spans(asFunction);
+
+  assert.equal(text(html), method);
+  assert.deepEqual([keyword[0], name[0]], ["function", " link"]);
+  assert.deepEqual(spans(html), [["link", name[1]], ...rest]);
 });
