@@ -44,7 +44,7 @@ export interface PackageContent extends PackageSummary {
   readonly overviewHtml: string;
   /** One page per README H2, in README order. */
   readonly guides: readonly GuidePage[];
-  /** Public entry points, in package.json "exports" order. */
+  /** Public entry points with at least one symbol, in package.json "exports" order. */
   readonly entryPoints: readonly EntryPoint[];
   /**
    * Documented symbols from internal ("_"-prefixed) entry points that no public entry point exports.
