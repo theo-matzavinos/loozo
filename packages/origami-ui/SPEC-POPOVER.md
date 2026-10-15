@@ -1,6 +1,6 @@
 # Origami Popover — native manual + Floating UI design
 
-**Status: design/API/lifecycle and complete contract approved/frozen on 2026-10-11; Baseline audit explicitly skipped; no product implementation authority.**
+**Status: design/API/lifecycle approved on 2026-10-11; shipped in `@loozo/origami-ui` 0.0.1, published 2026-10-15. Formal Baseline audit skipped; no Baseline certification claim.**
 
 ## Approved design
 
@@ -14,7 +14,7 @@ Origami               → Options/State, dismissal, focus restoration and Presen
 
 Preserve Options → private Context → readonly State, upper/lower Options substitution, Presence retention and logical DI nesting. Manual native Popover does not supply light dismissal, Escape handling or mutual exclusion, so Origami remains their owner.
 
-**The remaining boundaries:** native source-associated Tab ordering is not retained; normal authored order applies. Content placement configuration and initial-presentation/Presence coordination are approved but still require browser proof. Inspected metadata does not establish formal widely-available status on 2026-10-11: the basic native subset's inspected 30-month cutoff is **2026-10-16**. loozo explicitly skipped the Baseline audit as a freeze/completion gate; no formal qualification claim is made.
+**The remaining boundaries:** native source-associated Tab ordering is not retained; normal authored order applies. Content placement configuration and initial-presentation/Presence coordination are approved; their browser proof is part of the acceptance gate. Inspected metadata does not establish formal widely-available status on 2026-10-11: the basic native subset's inspected 30-month cutoff is **2026-10-16**. loozo explicitly skipped the Baseline audit, which is not a release gate; no formal qualification claim is made.
 
 ## Concrete consumer
 
@@ -128,7 +128,7 @@ Root/parts and resolved Options
 Angular continues owning Content and its child views throughout.
 ```
 
-Use only the DOM package, not Floating UI's React interaction/portal components. Official npm registry metadata confirms `@floating-ui/dom@1.8.0` is published, depending on `@floating-ui/core: ^1.8.0` and `@floating-ui/utils: ^0.2.12`; those base versions also match the inspected source package metadata. Pin and verify the genuine installed dependency closure in the implementation-free seed lockfile. No formal Baseline compliance claim is made. This design was source-researched, not runtime-qualified; installation is now separately authorized for the isolated seed, not product implementation.
+Use only the DOM package, not Floating UI's React interaction/portal components. Official npm registry metadata confirms `@floating-ui/dom@1.8.0` is published, depending on `@floating-ui/core: ^1.8.0` and `@floating-ui/utils: ^0.2.12`; those base versions also match the inspected source package metadata. Pin and verify the genuine installed dependency closure in the lockfile. No formal Baseline compliance claim is made. Source research does not qualify runtime behavior; the browser acceptance suite does.
 
 ### Coordinates and fallback policy
 
@@ -198,7 +198,7 @@ Inspected per-capability metadata at `web-features` commit `98723fd5c2e449453b54
 | `HTMLElement.popover` reflected property                                    | 2025-01-27        | 2027-07-27      | Excluded; use attribute APIs |
 | `showPopover({ source })` / source option                                   | 2025-10-14        | 2028-04-14      | Excluded                     |
 
-On **2026-10-11**, the inspected required basic subset is five days short of its widely-available boundary; the wider feature group's later date must not be substituted for this exact subset. loozo explicitly instructed us to ignore the Baseline audit and approved the complete contract freeze. The audit is no longer a freeze/completion gate, and no formal Baseline certification is claimed. This decision adds no fallback entitlement and does not authorize product implementation, release or publication.
+On **2026-10-11**, the inspected required basic subset is five days short of its widely-available boundary; the wider feature group's later date must not be substituted for this exact subset. loozo explicitly decided to skip the Baseline audit. The audit is not a release gate, and no formal Baseline certification is claimed. This decision adds no fallback entitlement.
 
 Inspected `web-features` metadata at `98723fd5c2e449453b549867f045f2b63ec5f50f` classifies ResizeObserver, IntersectionObserver, requestAnimationFrame, VisualViewport, inert, logical properties, writing-mode and Web Animations as Baseline high. These broad group classifications do not certify the shipped dependency closure or runtime behavior; no formal compliance claim is made.
 
@@ -236,12 +236,12 @@ Native top-layer order replaces the inline proposal's consumer clipping/stacking
 
 **Native CSS anchors/Popover source behavior:** basic manual presentation does not require either newer capability. Their separate Baseline gaps do not justify discarding the older top-layer API; both remain excluded.
 
-Floating UI source inspected at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM entrypoint, autoUpdate, top-layer offset-parent/clipping utilities, and computePosition/flip documentation. WHATWG HTML source inspected at `ba3400bb4f3d86477a5c8cfc07ff91fc0caaf21c`: manual mode, native show/hide validity and reentry checks, autofocus steps, coalesced toggle tasks and default Popover rendering. Public source checkouts were read, not executed. The separately authorized seed now has genuine installed dependencies; source reasoning and setup smoke tests do not prove the proposed Origami Angular/native/geometry schedule.
+Floating UI source inspected at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM entrypoint, autoUpdate, top-layer offset-parent/clipping utilities, and computePosition/flip documentation. WHATWG HTML source inspected at `ba3400bb4f3d86477a5c8cfc07ff91fc0caaf21c`: manual mode, native show/hide validity and reentry checks, autofocus steps, coalesced toggle tasks and default Popover rendering. Public source checkouts were read, not executed. Source reasoning does not prove the Origami Angular/native/geometry schedule; the browser acceptance suite does.
 
-## Agreement and remaining gates
+## Agreement
 
 On 2026-10-11, loozo explicitly chose **“Approve the design; continue acceptance preparation.”** That approves authored-in-place Content + native manual top layer + private Floating UI positioning, including Content Options migration, authored Tab order without source association, native autofocus before paint readiness, private Presence coordination/refined entering-attribute timing, retained native exit/reopen ordering, the limited update boundary and initially unavailable pre-hydration presentation.
 
-The API and independent public acceptance preparation were reconciled and reviewed. loozo subsequently instructed us to ignore the Baseline audit and chose **“Freeze and prepare the seed”** on 2026-10-11. That freezes the complete API/behavior and acceptance requirements and authorizes isolated genuine dependency setup plus one implementation-free seed commit on branch `rebuild` in `/home/loozo/Projects/origami-ui-rebuild`. It makes no Baseline eligibility claim and grants no product implementation or publication authority.
+loozo also explicitly skipped the formal Baseline audit on 2026-10-11; no Baseline eligibility claim is made.
 
-Two filesystem-read-only inspections challenged the concrete focus/exit/ownership/hydration risks. Their hide-start and completion-gating findings were corrected, and fresh followup found no concrete contradiction. Browser/packaging qualification remains unexecuted. Contract freeze is complete; verified implementation-free seed/handoff setup still precedes any explicitly authorized fresh single-main-session delegated rebuild.
+The design shipped in `@loozo/origami-ui` 0.0.1 and is qualified by the browser acceptance suite in Chromium, Firefox and WebKit. How it was implemented is recorded in [PROVENANCE.md](PROVENANCE.md).

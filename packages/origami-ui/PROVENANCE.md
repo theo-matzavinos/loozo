@@ -22,6 +22,7 @@ The rebuild was pinned to Angular 22.1.5. The move requalified it on Angular 22.
 | `c75ef6600ee9a5182b86c52eb4256b8a22f8070d` | 2026-10-15 | README usage documentation and snippets; TSDoc corrections; provider helper types unified |
 | `29ee42a17666fa24803dc994176b3c3bc4349690` | 2026-10-15 | Collection skips order validation until first read                                        |
 | —                                          | 2026-10-15 | 0.0.1 release preparation: `~22.2.2` peers, no longer private, README for npm             |
+| —                                          | 2026-10-15 | Specs restated as the current product contract; scope-and-growth policy                   |
 
 ## Where things moved
 
@@ -44,4 +45,4 @@ Everything under `docs/rebuild/` is historical: seed-era instructions and author
 ## Input receipts
 
 - [`docs/rebuild/INPUTS.sha256`](docs/rebuild/INPUTS.sha256) is the seed's original receipt, from `5391a4c`, over the rebuild's `specs/` paths. It predates the approved element-host-only SSR identity amendment to the main contract, so its `specs/origami-ui.md` line no longer matches that file at `bc8c86d` (`8c91928d…`).
-- [`INPUTS.sha256`](INPUTS.sha256) is the current receipt for the moved contracts, generated on 2026-10-14 and regenerated on 2026-10-15 after the R3 contract amendments (outside-pointer completion, positioning failure, V6). Verify it from this directory with `sha256sum -c INPUTS.sha256`.
+- [`INPUTS.sha256`](INPUTS.sha256) is the current receipt for the moved contracts, generated on 2026-10-14 and regenerated on 2026-10-15 after the R3 contract amendments (outside-pointer completion, positioning failure, V6), and again on 2026-10-15 after the specs were restated as the current product contract. Verify it from this directory with `sha256sum -c INPUTS.sha256`.

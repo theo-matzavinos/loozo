@@ -1,28 +1,23 @@
-# @loozo/origami-ui — frozen rewrite contract
+# @loozo/origami-ui — product contract
 
-**Status: contract frozen on 2026-10-11; Baseline audit explicitly skipped; no product implementation authority.**
+**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Formal Baseline audit skipped; no Baseline certification claim.**
 
-**Version status (2026-10-14):** implemented in the `origami-ui-rebuild` repository and moved into loozo as `packages/origami-ui`, qualified on Angular 22.2.2. Authority and path statements below are as frozen; see [PROVENANCE.md](PROVENANCE.md).
+This is the normative contract for the public API, behavior, composition architecture and acceptance requirements of `@loozo/origami-ui`; Popover's presentation design is specified in [SPEC-POPOVER.md](SPEC-POPOVER.md). A change to any of them updates this contract in the same change. How the package was rebuilt and moved into loozo is recorded in [PROVENANCE.md](PROVENANCE.md). No formal Baseline qualification claim is made; full browser/runtime proof is mandatory.
 
-The purpose is to specify a fresh implementation of the demonstrated Origami UI product, preserving proven composition decisions rather than copying the previous source. loozo approved the complete current API/behavior and acceptance requirements on 2026-10-11 by choosing “Freeze and prepare the seed,” after instructing us to ignore the Baseline audit. Section 11 records that decision. No formal Baseline qualification claim is made; full browser/runtime proof remains mandatory.
+## 1. Product scope
 
-## 1. Agreed outcome and scope
+An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion and Popover, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
 
-Deliver an Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion and Popover, with public utilities for deferred injection and generated identity. Prove it through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
+Decisions:
 
-Agreed decisions:
-
-- Cover the complete existing primitive surface; do not expand the component catalogue.
+- The catalogue grows one consumer-backed primitive at a time, as section 14 describes.
 - TSDoc across the whole public API surface is a hard, release-blocking requirement, including public members and provider helpers.
-- Preserve public API names, selectors, entrypoints, inputs, outputs and composition contracts by default. Explicitly identified changes require agreement.
-- Extract and freeze the product contract before implementation. A later clean-room implementation receives the approved contract, public acceptance material and authoritative dependency documentation/source, not archived implementation source/history.
-- Chromium, Firefox and WebKit runtime qualification is mandatory. The formal Baseline audit is explicitly skipped as a freeze/completion gate; no Baseline widely-available certification claim is made.
+- Public API names, selectors, entrypoints, inputs, outputs and composition contracts are the ones this contract specifies; changing one updates this contract.
+- Chromium, Firefox and WebKit runtime qualification is mandatory. The formal Baseline audit was explicitly skipped on 2026-10-11 and is not a release gate; no Baseline widely-available certification claim is made.
 - `hiding="until-found"` is an explicitly approved progressive enhancement: native find-to-reveal where supported, ordinary hidden behavior elsewhere, without a polyfill.
 - Require real development and production serving, eager hydration and incremental/deferred hydration.
 - Preserve the `injectUniqueId(key)` signature, but generated identity is opaque. Exact spelling and construction-order counter sequencing are deliberately no longer public guarantees.
-- Include Popover in the first release and preserve the proven Options/Context/State and consumer-composition architecture. The approved design is authored-in-place Content + native manual top-layer presentation + private Floating UI positioning, excluding CSS anchors and `{ source }`. No alternate presentation fallback is authorized. Section 11 records the skipped formal Baseline audit without claiming qualification.
-
-This contract supplies no product implementation or delivery authority. loozo separately authorized genuine dependency installation, isolated implementation-free seed setup and one seed commit on branch `rebuild` in `/home/loozo/Projects/origami-ui-rebuild`. Product commits, original-repository integration and publication remain unauthorized.
+- Popover uses the proven Options/Context/State and consumer-composition architecture. The approved design is authored-in-place Content + native manual top-layer presentation + private Floating UI positioning, excluding CSS anchors and `{ source }`. There is no alternate presentation fallback. Section 11 records the skipped formal Baseline audit without claiming qualification.
 
 ## 2. Consumer and ownership model [P]
 
@@ -134,7 +129,7 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 
 The inventories include the approved Popover placement exports and four-property Content Options. ID-only Content factories must migrate; Trigger/Anchor Options remain ID-only.
 
-The archived Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled composition. Preserve whatever export visibility Angular packaging requires; it is not a supported application authoring API. Removing its existing importability is a compatibility change requiring explicit agreement, not something an implementer may silently decide.
+The Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled composition. Preserve whatever export visibility Angular packaging requires; it is not a supported application authoring API. Removing its importability is a deliberate API change made through this contract, not a side effect of a refactor.
 
 Built packaging must support genuine Angular AOT consumers, strict templates and TypeScript package resolution, with shared token identities across entrypoints. No fake Angular decorators or shimmed framework runtime.
 
@@ -363,7 +358,7 @@ LTR/RTL and clipping escape remain proof cases. The old CSS anchor/position-area
 
 ## 11. Approved hybrid design and skipped Baseline audit [B]
 
-**Design/API/lifecycle and complete contract approved/frozen on 2026-10-11. No product implementation authority.**
+**Design/API/lifecycle approved on 2026-10-11; shipped in 0.0.1.**
 
 The approved design is [authored-in-place Content + native manual top layer + private Floating UI positioning](SPEC-POPOVER.md). The persistent Content element survives, stays under its authored parent and escapes clipping through native presentation without a portal. Native basic presentation is separate from newer CSS anchors and `{ source }`, both excluded. The earlier inline-only consumer clipping/stacking compromise is withdrawn, not retained as a fallback.
 
@@ -377,19 +372,17 @@ The approved details include:
 - Stale/coalesced native events and synchronous focus/`beforetoggle` reentry cannot write desired state or overwrite a new owner.
 - Real eager/deferred SSR-node retention, live Angular bindings and replay proof; native promotion itself does not move DOM nodes or prove hydration safety.
 
-**Recorded support evidence, not a freeze gate:** inspected basic Popover attribute/show/hide/open-selector/event metadata has low date 2024-04-16, reaching the 30-month boundary on **2026-10-16**. On **2026-10-11**, that evidence does not establish widely-available eligibility. loozo explicitly instructed us to ignore the Baseline audit and then approved contract freeze/seed setup. No formal Baseline certification is claimed. The later-dated reflected `HTMLElement.popover` property remains excluded; use ordinary attribute APIs. The decision adds no presentation fallback or waiver of required runtime behavior.
+**Recorded support evidence, not a release gate:** inspected basic Popover attribute/show/hide/open-selector/event metadata has low date 2024-04-16, reaching the 30-month boundary on **2026-10-16**. On **2026-10-11**, that evidence did not establish widely-available eligibility, and loozo explicitly decided to skip the Baseline audit. No formal Baseline certification is claimed. The later-dated reflected `HTMLElement.popover` property remains excluded; use ordinary attribute APIs. The decision adds no presentation fallback or waiver of required runtime behavior.
 
-The earlier choice “Approve the design; continue acceptance preparation” authorized API reconciliation and public acceptance preparation only. The later freeze/seed approval adds isolated setup authority, not product implementation or a Baseline qualification claim. Two filesystem-read-only inspections challenged native focus/exit reentry, bound-content ownership and deferred hydration. The hide-start point-of-no-return and entrance/exit/nonvisual completion distinctions were corrected; the fresh followup found no remaining concrete contradiction. These are source-level findings, not runtime qualification.
-
-The complete contract is now frozen. No source inspection, skipped audit or contract approval substitutes for the required implementation-time browser proof.
+No source inspection, skipped audit or design approval substitutes for the required browser proof in section 12.
 
 ## 12. Browser, SSR and hydration qualification [H]
 
 ### Browser support policy
 
-The formal Baseline inventory/audit is skipped by explicit 2026-10-11 agreement and is not a freeze or completion gate. No formal widely-available certification or exact minimum-browser-version promise is made. Historical metadata remains evidence, not an executed support claim; feature detection alone is not a Baseline classification.
+The formal Baseline inventory/audit was skipped by explicit 2026-10-11 decision and is not a release gate. No formal widely-available certification or exact minimum-browser-version promise is made. Historical metadata remains evidence, not an executed support claim; feature detection alone is not a Baseline classification.
 
-The approved `until-found` enhancement is optional and cannot be required for ordinary collapsed behavior. It retains ordinary-hidden degradation where unsupported. Skipping the audit does not authorize a general native-feature fallback or weaken the three-engine/runtime requirements.
+The approved `until-found` enhancement is optional and cannot be required for ordinary collapsed behavior. It retains ordinary-hidden degradation where unsupported. Skipping the audit is not a reason to add a general native-feature fallback or to weaken the three-engine/runtime requirements.
 
 Pin and report actual qualification engine versions. Run required behavior in Chromium, Firefox and WebKit; do not equate Playwright WebKit with certification of every Safari/iOS release or simulated input with physical device testing. Exact minimum-version and physical-device promises require separate evidence.
 
@@ -424,7 +417,7 @@ Use supported Angular APIs. No contract requiring application code to consume pr
 
 ## 13. Acceptance structure [T]
 
-This is the public-contract coverage map, not an executed test suite or a coverage claim. Independent acceptance preparation lives in [acceptance](acceptance/README.md); its handwritten consumers and explicit case definitions do not prove the unimplemented library.
+This is the public-contract coverage map. Case definitions and handwritten consumers live in [acceptance](acceptance/README.md); [tests/acceptance](tests/acceptance/README.md) executes them against the packed package. 0.0.1 passed the full gate at `6f898e7` (2,928/2,928 across Chromium/Firefox/WebKit × development/production × eager/incremental hydration).
 
 | Group         | Observable proof                                                                                                                                                            |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -442,34 +435,40 @@ This is the public-contract coverage map, not an executed test suite or a covera
 
 Acceptance tests use public imports and genuine dependency behavior, not private Context methods or fake Angular APIs. Real animation/native platform claims need real browser observations; jsdom units alone cannot prove geometry, trusted input, focus or hydration.
 
-The public cases/handwritten consumers are prepared against this frozen contract, but remain unexecuted until genuine package/runtime qualification. Add and independently review the required bounded variants/assertions during the later authorized rebuild. Test cases may not invent unresolved semantics. No full router-style evaluator framework is assumed necessary.
+A change to a requirement updates its cases and assertions in the same change. Test cases may not invent semantics this contract leaves unresolved. No full router-style evaluator framework is assumed necessary.
 
-## 14. Exclusions and compatibility changes [X]
+## 14. Scope, growth and exclusions [X]
+
+The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 16).
+
+- Shared interaction infrastructure stays package-private: ordered focus/roving navigation, typeahead, active-descendant, layer/dismiss participation, hover/focus intent and modal containment.
+- Form-control primitives integrate with Angular Signal Forms. There is no `ControlValueAccessor` layer.
+- A modal Dialog builds on native `<dialog>` and `showModal()`. Origami owns light dismiss itself where `dialog[closedby]` is unavailable.
 
 Non-goals:
 
-- New widgets, styled components, themes or a design-token system.
-- A generic overlay platform, focus-management framework or public strategy extension system.
-- Menu/listbox/select semantics, focus traps or speculative interaction variants.
+- Styled components, themes or a design-token system.
+- A public generic overlay platform, focus-management framework or strategy extension system.
+- Speculative interaction variants.
 - Universal oversized-content containment, arbitrary native top-layer interoperability or exact Safari/iOS certification without evidence.
 - Preserving accidental private source layout, historical evaluator machinery or existing test counts as a product contract.
 
-Intentional agreed changes from the archive:
+Intentional agreed changes from the archive, recorded from the rebuild:
 
 1. Generated IDs/item defaults become opaque and hydration-stable rather than exact per-key counters.
 2. `until-found` becomes explicitly capability-dependent, with ordinary-hidden degradation elsewhere.
 3. Popover replaces CSS-anchor/source-associated positioning with approved native-manual + Floating UI presentation, authored Tab order, typed side/align/gap Content configuration and coordinated native/Presence timing. ID-only Content Options factories migrate to four required properties. The formal Baseline audit is explicitly skipped without a certification claim.
 4. Qualification expands from demonstrated Chromium/development eager hydration to three engines and development/production eager/deferred runtime proof.
 
-Other compatibility departures require agreement. API preservation is a default, not permission to preserve a demonstrated bug or weaken new guarantees silently.
+Changing shipped behavior or public API is a deliberate change to this contract. Compatibility is the default, not permission to preserve a demonstrated bug or to weaken a guarantee silently.
 
-## 15. Provenance and evidence boundaries
+## 15. Extraction source and dependency research
 
 Extraction source: `loozo` branch `archive/pre-router-rebuild`, exact commit `363af0c3f1c3edefbf4e9f72269e0a0b4a8ad9f7`.
 
 The archive's package AGENTS and public consumers establish the Options/Context/State, host-directive composition and deferred-registration decisions. Its source/tests establish the extracted behavior above; untested corners are not converted into compatibility claims.
 
-The archived Presence consumer documentation says Gate A was accepted/integrated. Gate B says its retained Popover checks passed but independent/main review and user acceptance were pending. These are historical records, not this rewrite's verification. The old geometry limits were not fixed merely by narrowing its consumer sizing contract.
+The archived Presence consumer documentation says Gate A was accepted/integrated. Gate B says its retained Popover checks passed but independent/main review and user acceptance were pending. These are historical records, not this package's verification. The old geometry limits were not fixed merely by narrowing its consumer sizing contract.
 
 Authoritative dependency/support research:
 
@@ -477,13 +476,18 @@ Authoritative dependency/support research:
 - MDN browser-compat-data commit `483bb6cb636577da00fc0e3ed46372c88778d0cf` (2026-09-14): source-option support and anchor-positioning subfeatures. Metadata is not cross-engine runtime qualification.
 - web-platform-dx/web-features commit `98723fd5c2e449453b549867f045f2b63ec5f50f` (2026-10-09): formal Baseline definition, required anchor subfeatures not widely available, and Safari's hidden-until-found gap. Whole-group status alone is not used to classify Origami's exact subset.
 - Angular components source commit `7e73582615a66007462bd91496720d822b720b56` (2026-09-12): CDK Portal/Overlay documentation, including DomPortal binding warning, structural styles and configurable native promotion. An attempted `22.1.5` tag lookup did not resolve; no matching CDK release compatibility has been established.
-- Floating UI source at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM positioning, flip/update behavior and native top-layer offset-parent/clipping handling. The approved hybrid now uses genuine `@floating-ui/dom@1.8.0` in the separately authorized seed; its installed DOM/core/utils closure is 1.8.0/1.8.0/0.2.12. Installation does not qualify Origami behavior.
+- Floating UI source at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM positioning, flip/update behavior and native top-layer offset-parent/clipping handling. The approved hybrid depends on genuine `@floating-ui/dom@1.8.0`; its installed DOM/core/utils closure is 1.8.0/1.8.0/0.2.12. Installation does not qualify Origami behavior.
 - WHATWG HTML source at `ba3400bb4f3d86477a5c8cfc07ff91fc0caaf21c`: manual mode, native focusing/show/hide checks, coalesced toggle tasks and closed-Popover default rendering. The basic attribute/API capability subset is distinct from the later reflected property and source option.
 
-A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle and the complete contract are approved/frozen; the formal Baseline audit is explicitly skipped and runtime qualification remains open.
+A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 12.
 
-## 16. Next gate
+## 16. Adding a primitive
 
-Prepare and verify the authorized implementation-free seed/handoff in `/home/loozo/Projects/origami-ui-rebuild`, with genuine dependencies and one seed commit on branch `rebuild`. Its [handoff](docs/rebuild/HANDOFF.md) preserves the one-fresh-main-session delegated workflow.
+A new primitive ships with:
 
-Do not begin product implementation before explicit authority for the complete rebuild and its endpoint. No product implementation work records, product commits, original-repository integration or publication are authorized.
+- Its own section in this contract, with its own section ID: selectors, export names, Options/State shapes, behavior, SSR/hydration semantics and exclusions, plus its rows in section 4's entrypoint and shape tables.
+- Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition.
+- Complete public TSDoc per section 4.
+- SSR plus eager and incremental hydration per section 12.
+- Chromium, Firefox and WebKit qualification in development and production.
+- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 13's coverage map and assertions in the acceptance gate.

@@ -1,6 +1,6 @@
 # Origami UI acceptance suite
 
-Authority: the frozen product specifications ([SPEC.md](../../SPEC.md), [SPEC-POPOVER.md](../../SPEC-POPOVER.md)) and [`acceptance/CASES.md`](../../acceptance/CASES.md). This directory holds independent public-package checks and browser assertions; it never imports library source. The only product under test is the real built APF package, packed with `npm pack` and installed into the one consumer application.
+Authority: the product specifications ([SPEC.md](../../SPEC.md), [SPEC-POPOVER.md](../../SPEC-POPOVER.md)) and [`acceptance/CASES.md`](../../acceptance/CASES.md). This directory holds independent public-package checks and browser assertions; it never imports library source. The only product under test is the real built APF package, packed with `npm pack` and installed into the one consumer application.
 
 The consumer's authored sources are the workspace example [`examples/origami-ui`](../../../../examples/origami-ui). Acceptance never installs into the example: every sync stages its authored files into the ignored scratch consumer `packages/origami-ui/.scratch/consumer`, which has its own strict npm installation of the packed tarball. The scratch manifest is the example's with only the library reference replaced by the tarball and the workspace-only `devDependencies` and `scripts` removed.
 
