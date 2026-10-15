@@ -681,6 +681,77 @@ for (const writingMode of ["horizontal-tb", "vertical-rl", "vertical-lr"]) {
   }
 }
 
+/** The separate Anchor's own direction and box; an unchanged box rules out observer-driven repositioning. */
+async function anchorAxesBox(page: Page) {
+  return page.getByTestId("native-anchor").evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+
+    return {
+      direction: getComputedStyle(node).direction,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+}
+
+async function contentLeft(page: Page): Promise<number> {
+  return page.getByTestId("native-content").evaluate((node) => node.getBoundingClientRect().left);
+}
+
+test("V3: an open Popover follows a live Anchor direction change with no Options change and an unmoved Anchor box", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await page.getByTestId("native-motion").selectOption("none");
+  await nativeOpen(page);
+  await expectPreferred(page, "block-end", "start", 8);
+
+  const before = await anchorAxesBox(page);
+  const left = await contentLeft(page);
+
+  expect(before.direction).toBe("ltr");
+  await scriptControl(page, "native-anchor-rtl");
+  await expect.poll(() => anchorAxesBox(page)).toEqual({ ...before, direction: "rtl" });
+  await expectPreferred(page, "block-end", "start", 8);
+  expect(Math.abs((await contentLeft(page)) - left)).toBeGreaterThan(2);
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
+});
+
+test("V3 V10: Anchor axes changed by another owner's native show callback during WRITE position with the current axes", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await page.getByTestId("native-motion").selectOption("none");
+  await nativeOpen(page);
+  await expectPreferred(page, "block-end", "start", 8);
+
+  const before = await anchorAxesBox(page);
+  const left = await contentLeft(page);
+
+  expect(before.direction).toBe("ltr");
+  await scriptControl(page, "native-other-flip-anchor");
+  await scriptControl(page, "native-other-open");
+  await expect(page.getByTestId("native-other-intent")).toHaveText("true");
+  await expect
+    .poll(() =>
+      page.getByTestId("native-other-content").evaluate((node) => node.matches(":popover-open")),
+    )
+    .toBe(true);
+  // The callback wrote the Anchor directly: no signal, Options or layout change follows it.
+  await expect.poll(() => anchorAxesBox(page)).toEqual({ ...before, direction: "rtl" });
+  await expectPreferred(page, "block-end", "start", 8);
+  expect(Math.abs((await contentLeft(page)) - left)).toBeGreaterThan(2);
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect
+    .poll(() =>
+      page.getByTestId("native-content").evaluate((node) => node.matches(":popover-open")),
+    )
+    .toBe(true);
+});
+
 for (const layout of ["bottom", "right", "corner", "oversized"]) {
   test(`V4: independent explicit flip candidates for ${layout}, no universal full-fit assertion`, async ({
     page,
@@ -1551,6 +1622,37 @@ test("V8: synchronous effective Options setter reopening survives remaining bran
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("native-intent")).toHaveText("true");
   await expect(page.getByTestId("native-setter-observations")).toContainText("parent:true");
+});
+
+test("V7 V8: a closing descendant's effective Options setter that protects its ancestor ends the remaining outside dismissal", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await nativeOpen(page);
+  await page.getByTestId("native-child-trigger").click();
+  await expect(page.getByTestId("native-child-intent")).toHaveText("true");
+  await expect
+    .poll(() =>
+      page.getByTestId("native-child-content").evaluate((node) => node.matches(":popover-open")),
+    )
+    .toBe(true);
+  await scriptControl(page, "native-child-protect-parent-on-close");
+
+  const journal = await page.getByTestId("native-journal").textContent();
+
+  // One trusted outside gesture dismisses the whole parent branch, descendant first. Closing
+  // the child synchronously protects the parent: the old snapshot must not close it anyway.
+  await page.getByTestId("pointer-outside").click();
+  await expect(page.getByTestId("native-child-intent")).toHaveText("false");
+  await expect(page.getByTestId("native-journal")).toHaveText(`${journal}|child:false`);
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-unused-outputs")).toHaveText("0");
+  await expect
+    .poll(() =>
+      page.getByTestId("native-content").evaluate((node) => node.matches(":popover-open")),
+    )
+    .toBe(true);
+  await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
 });
 
 test("V9: Escape restores once; outside-pointer/script-outside preserve focus; nested script suppression retains intent", async ({
@@ -3000,6 +3102,130 @@ test("V10 V11: preparatory frames stay transparent; the first visible frame is p
       native: false,
     });
 });
+
+/** A JSON record the presentation fixture's render hooks keep on its host. */
+async function presentationRecord(page: Page, attribute: string): Promise<unknown> {
+  const text = await page.locator("acceptance-popover-presentation").getAttribute(attribute);
+
+  return JSON.parse(text ?? "null");
+}
+
+test("V3 V10: Anchor axes changed before the earlyRead of a ready, unrevealed result reveal first with the current axes", async ({
+  page,
+}, info) => {
+  await mountPresentation(page, info);
+  // A consumer render hook, running before the owner's hooks in each phase, flips the Anchor's
+  // direction in earlyRead while the entering Content is still transparent, and records the
+  // presentation in READ at the moment opacity suppression is released.
+  await scriptControl(page, "presentation-arm-axes");
+  await openPresentation(page);
+  await expect.poll(() => presentationRecord(page, "data-first-visible")).not.toBeNull();
+
+  const first = await presentationRecord(page, "data-first-visible");
+
+  if (typeof first !== "object" || first === null) {
+    throw new Error("Missing the first visible presentation");
+  }
+
+  const frame = new Map(Object.entries(first));
+  const left = Number(frame.get("left"));
+  const right = Number(frame.get("right"));
+  const anchorLeft = Number(frame.get("anchorLeft"));
+  const anchorRight = Number(frame.get("anchorRight"));
+
+  // Unequal widths make start alignment differ between LTR and RTL.
+  expect(Math.abs(right - left - (anchorRight - anchorLeft))).toBeGreaterThan(8);
+
+  // block-end/start with gap 8: the first visible Content aligns with the inline start the
+  // Anchor had at that moment, its left edge in LTR and its right edge in RTL.
+  let startError = Math.abs(left - anchorLeft);
+
+  if (frame.get("anchorDirection") === "rtl") {
+    startError = Math.abs(right - anchorRight);
+  }
+
+  expect(startError).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(Number(frame.get("top")) - Number(frame.get("anchorBottom")) - 8),
+  ).toBeLessThanOrEqual(2);
+  // Every change landed on an entering, transparent, natively open Content before that reveal.
+  expect(await presentationRecord(page, "data-axes-changes")).toEqual([
+    { direction: "rtl", native: true },
+    { direction: "ltr", native: true },
+    { direction: "rtl", native: true },
+  ]);
+  expect(frame.get("anchorDirection")).toBe("rtl");
+  await expect(page.getByTestId("presentation-intent")).toHaveText("true");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const content = document.querySelector('[data-testid="presentation-content"]');
+        const anchor = document.querySelector('[data-testid="presentation-trigger"]');
+
+        if (content === null || anchor === null) {
+          throw new Error("Missing presentation geometry hosts");
+        }
+
+        return Math.abs(
+          content.getBoundingClientRect().right - anchor.getBoundingClientRect().right,
+        );
+      }),
+    )
+    .toBeLessThanOrEqual(2);
+});
+
+for (const [callback, arm, intent, calls] of [
+  ["show", "presentation-cancel-show", "true", "presentation-shows"],
+  ["focus", "presentation-arm-focus-close", "false", "presentation-focuses"],
+] as const) {
+  test(`V10 V11: a DOM-only consumer opacity/pointer-events write in the ${callback} callback survives override release with no binding update`, async ({
+    page,
+  }, info) => {
+    await mountPresentation(page, info);
+    // Canceled show, or autofocus closing synchronously: preparation is released without
+    // another preparation recapturing the consumer's write.
+    await scriptControl(page, arm);
+    await scriptControl(page, `presentation-arm-${callback}-dom-only`);
+    await scriptControl(page, "presentation-open");
+    await expect(page.getByTestId("presentation-intent")).toHaveText(intent);
+
+    const consumer = {
+      opacity: "0.3",
+      opacityPriority: "",
+      pointer: "auto",
+      pointerPriority: "",
+      native: false,
+    };
+
+    // Captured by a microtask the callback queued: after the native call and its cleanup returned.
+    await expect(page.getByTestId("presentation-cleanup-capture")).not.toHaveText("");
+    expect(await callbackCapture(page, "presentation-cleanup-capture")).toEqual(consumer);
+    // No binding or signal changed, so no later Angular binding write could repair an overwrite.
+    await expect(page.getByTestId("presentation-bound-opacity")).toHaveText("0.8");
+    await expect(page.getByTestId("presentation-bound-pointer")).toHaveText("");
+    await expect(page.getByTestId(calls)).toHaveText("1");
+    await scriptControl(page, "presentation-close");
+    await expect(page.getByTestId("presentation-intent")).toHaveText("false");
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              resolve();
+            });
+          });
+        }),
+    );
+    expect(await presentationStyles(page)).toMatchObject({
+      opacity: "0.3",
+      opacityPriority: "",
+      pointer: "auto",
+      pointerPriority: "",
+      consumerVisual: "preserved",
+      native: false,
+    });
+  });
+}
 
 async function latePointerJournal(page: Page): Promise<Record<string, unknown>[]> {
   const text = await page.getByTestId("late-pointer-journal").textContent();

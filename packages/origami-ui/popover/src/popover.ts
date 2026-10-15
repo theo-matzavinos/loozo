@@ -31,11 +31,11 @@ import { PopoverContext } from "./context";
 export class OrigamiPopoverState {
   readonly #context = inject(PopoverContext);
   /** Effective requested intent, not native participation, paint readiness or retained exit. Never writable. */
-  readonly open: Signal<boolean> = computed(() => this.#context.desired());
+  readonly open: Signal<boolean> = this.#context.desired;
   /** Effective Trigger-disabled policy; external writes and Escape/outside dismissal are unaffected. */
-  readonly disabled: Signal<boolean> = computed(() => this.#context.disabled());
+  readonly disabled: Signal<boolean> = this.#context.disabled;
   /** Effective user-dismissal permission. A protected requested-open descendant vetoes the whole branch. */
-  readonly dismissible: Signal<boolean> = computed(() => this.#context.dismissible());
+  readonly dismissible: Signal<boolean> = this.#context.dismissible;
 }
 
 /** Local readonly observation of Content's composed Presence, not a separate writable alias. */
