@@ -1,7 +1,7 @@
-import { defineRoute, enumParam, numberParam, optionalSearchParam } from "@loozo/angular-router";
+import { defineRoute, enumParam, numberParam, withFallback } from "@loozo/angular-router";
 
 export default defineRoute("products/$productId", {
   params: { productId: numberParam },
-  search: { tab: optionalSearchParam(enumParam(["details", "reviews"]), { fallback: "details" }) },
+  search: { tab: withFallback(enumParam(["details", "reviews"]), "details") },
   fragments: ["summary", "reviews"],
 });

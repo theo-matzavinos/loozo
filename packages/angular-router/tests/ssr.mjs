@@ -416,6 +416,7 @@ function inspectHtml(body) {
     "resolved",
     "handle-id",
     "handle-score",
+    "handle-page",
     "missing",
   ]) {
     result[id] = document.querySelector("#" + id)?.textContent ?? null;
@@ -497,6 +498,7 @@ try {
     resolved: "team=7;item=7;score=42",
     "handle-id": null,
     "handle-score": null,
+    "handle-page": null,
     missing: null,
   });
   assert.deepEqual(values[1], {
@@ -506,33 +508,39 @@ try {
     resolved: "team=8;item=8;score=43",
     "handle-id": null,
     "handle-score": null,
+    "handle-page": null,
     missing: null,
   });
   assert.doesNotMatch(responses[0].body, /team=999;|item=888;/);
   assert.notEqual(values[0].resolved, values[1].resolved);
 
-  const started = performance.now();
-  const handleOnly = await requestSsr(origin + "/handle-only/31?score=47");
-  const elapsedMs = performance.now() - started;
-  const handleValues = inspectHtml(handleOnly.body);
+  // Handle signals render server-side without any resolver, including a search fallback.
+  const handleOnlyCases = {
+    "/handle-only/31?score=47": { id: "31", score: "47", page: "1" },
+    "/handle-only/32?score=x&page=3": { id: "32", score: "", page: "3" },
+    "/handle-only/33?page=x": { id: "33", score: "", page: "1" },
+    "/handle-only/34?page=2&page=5": { id: "34", score: "", page: "1" },
+  };
+  const handleValues = {};
 
-  await save("http-handle-only.json", {
-    url: handleOnly.url,
-    status: handleOnly.status,
-    headers: handleOnly.headers,
-    elapsedMs,
-    values: handleValues,
-  });
-  await writeFile(join(evidence, "http-handle-only.html"), handleOnly.body);
-  assert.equal(handleOnly.status, 200);
-  assert.ok(elapsedMs >= 50, "handle-only SSR must await actual delayed codecs");
-  assert.equal(handleValues["handle-id"], "31");
-  assert.equal(handleValues["handle-score"], "47");
-  assert.equal(handleValues.resolved, null);
-  assert.equal(handleValues.missing, null);
+  for (const [url, expected] of Object.entries(handleOnlyCases)) {
+    const handleOnly = await requestSsr(origin + url);
+    const rendered = inspectHtml(handleOnly.body);
+
+    handleValues[url] = rendered;
+    await writeFile(join(evidence, `http-handle-only-${expected.id}.html`), handleOnly.body);
+    assert.equal(handleOnly.status, 200, url);
+    assert.equal(rendered["handle-id"], expected.id, url);
+    assert.equal(rendered["handle-score"], expected.score, url);
+    assert.equal(rendered["handle-page"], expected.page, url);
+    assert.equal(rendered.resolved, null, url);
+    assert.equal(rendered.missing, null, url);
+  }
+
+  await save("http-handle-only.json", handleValues);
 
   // Invalid path params don't match, so the server renders the catchall instead of failing:
-  // the synchronous team param, and the delayed item and handle-only params.
+  // the team param, the item param and the handle-only param.
   const invalidValues = {};
 
   for (const url of ["/teams/x/items/7", "/teams/7/items/x?score=42", "/handle-only/x"]) {
@@ -548,7 +556,7 @@ try {
   await save("http-observations.json", {
     alias: { status: alias.status, location: location.href },
     concurrentValues: values,
-    handleOnly: { elapsedMs, values: handleValues },
+    handleOnly: handleValues,
     invalidValues,
   });
 } catch (error) {
@@ -913,5 +921,5 @@ if (browserFailures.length > 0) {
 }
 
 console.log(
-  "Native SSR HTTP302/delay/matrix/concurrency + exact-Node hydration/SPA/query/lazy browser closure proof passed",
+  "Native SSR HTTP302/handle-signals/search-fallback/matrix/concurrency + exact-Node hydration/SPA/query/lazy browser closure proof passed",
 );

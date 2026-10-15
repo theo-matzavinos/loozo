@@ -49,15 +49,10 @@ export default class Guide {
   readonly route = injectRoute();
   readonly content = inject(CurrentPackage);
 
-  /** undefined while loading; the route's guard has checked that the guide exists. */
+  /** The route's guard has checked that the guide exists. */
   readonly page = computed(() => {
-    const params = this.route.params.value();
+    const params = this.route.params();
     const content = this.content();
-
-    if (params === undefined || !content) {
-      return undefined;
-    }
-
     const index = content.guides.findIndex((candidate) => candidate.slug === params.guide);
 
     if (index === -1) {

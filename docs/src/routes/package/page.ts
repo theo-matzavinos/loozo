@@ -41,7 +41,7 @@ import { destination as generatedApi } from "./generated-api/route.generated.js"
               >
                 {{ item.name }}
               </a>
-              @if (item.slug === route.params.value()?.package) {
+              @if (item.slug === route.params().package) {
                 @if (sections(); as sections) {
                   @if (sections.guides.length > 0) {
                     <h2 class="sidebar-heading">Guides</h2>
@@ -104,25 +104,14 @@ export default class Package {
   readonly route = injectRoute();
 
   /** Resolved before this layout's pages activate; see CurrentPackage. */
-  readonly content = computed(() => {
-    if (!this.route.data.hasValue()) {
-      return undefined;
-    }
-
-    return this.route.data.value().content;
-  });
+  readonly content = computed(() => this.route.data().content);
 
   readonly menuOpen = signal(false);
   readonly packages = this.packageLinks();
 
   readonly sections = computed(() => {
-    const params = this.route.params.value();
+    const params = this.route.params();
     const content = this.content();
-
-    if (params === undefined || !content) {
-      return undefined;
-    }
-
     const guides = [];
 
     for (const page of content.guides) {

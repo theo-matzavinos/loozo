@@ -78,14 +78,24 @@ export function emit(
   }
 
   // Parsed-input callbacks, adapted through the route set; a redirect record never activates.
-  // Local path params always get the generated canMatch that parses them.
+  // Local path params and effective search always get the generated canMatch that parses them.
   function usesCallbacks(declaration: Declaration): boolean {
-    return (
-      !declaration.target &&
-      (declaration.segments.some((segment) => segment.kind !== "static") ||
-        ["canActivate", "canActivateChild", "canMatch", "resolve", "title"].some((key) =>
-          declaration.config.has(key),
-        ))
+    if (declaration.target) {
+      return false;
+    }
+
+    if (declaration.segments.some((segment) => segment.kind !== "static")) {
+      return true;
+    }
+
+    for (let owner: Declaration | undefined = declaration; owner; owner = owner.parent) {
+      if (owner.config.has("search")) {
+        return true;
+      }
+    }
+
+    return ["canActivate", "canActivateChild", "canMatch", "resolve", "title"].some((key) =>
+      declaration.config.has(key),
     );
   }
 
@@ -355,7 +365,7 @@ const routeSet: RouteSet = { records: {`,
  *
  * @remarks
  * Call in an Angular injection context. The handle exposes readonly native
- * params/search/data Resources and destination-typed link/navigate methods.
+ * params/search/data Signals and destination-typed link/navigate methods.
  * Data includes local resolver results only, not static or inherited data.
  * All navigation values are explicit; current inputs are never reused implicitly.
  *

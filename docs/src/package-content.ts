@@ -6,12 +6,9 @@ import notFound from "./routes/not-found/definition.js";
 
 /**
  * The content of the package the package layout shows, for the pages inside it. The package route
- * resolves it before those pages activate, so it's there when they first render. It's undefined
- * while a navigation is in progress.
+ * resolves it before those pages activate, so it's there when they first render.
  */
-export const CurrentPackage = new InjectionToken<Signal<PackageContent | undefined>>(
-  "CurrentPackage",
-);
+export const CurrentPackage = new InjectionToken<Signal<PackageContent>>("CurrentPackage");
 
 /**
  * Shows the not-found page while the address bar keeps `browserUrl`, for a guard whose package has

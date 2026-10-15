@@ -1,6 +1,6 @@
-import { defineRoute, numberParam, optionalSearchParam } from "@loozo/angular-router";
+import { defineRoute, numberParam } from "@loozo/angular-router";
 
 export default defineRoute("teams/$teamId", {
   params: { teamId: numberParam },
-  search: { score: optionalSearchParam(numberParam) },
+  search: { score: numberParam },
 });

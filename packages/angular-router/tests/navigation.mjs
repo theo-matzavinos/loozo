@@ -129,7 +129,7 @@ const definitions = {
     "defineRoute('projects/$projectId/detail', { parent: middle, params: { projectId: stringParam } })",
   enum: "defineRoute('enum/$kind', { params: { kind: enumParam(['a', 'b']) } })",
   optional:
-    "defineRoute('optional/$id', { params: { id: numberParam }, search: { toString: optionalSearchParam(numberParam), constructor: optionalSearchParam(numberParam), valueOf: optionalSearchParam(stringParam), nullable: nullableSearchParam(stringParam) }, fragments: ['summary'] })",
+    "defineRoute('optional/$id', { params: { id: numberParam }, search: { toString: numberParam, constructor: numberParam, valueOf: stringParam, label: stringParam }, fragments: ['summary'] })",
   docs: "defineRoute('docs/$parts[]', { params: { parts: stringParam } })",
   weird: "defineRoute('literal?/#', {})",
   unresolved: "defineRoute('unresolved', {})",
@@ -138,7 +138,7 @@ const definitions = {
   deep: "defineRoute('deep', { parent: twin })",
   old: "defineRoute('old', {})",
   alias:
-    "defineRoute('alias/$id', { parent: old, params: { id: numberParam }, redirect: { to: optional, search: { mode: 'replace', values: { nullable: null } }, fragment: { mode: 'drop' } } })",
+    "defineRoute('alias/$id', { parent: old, params: { id: numberParam }, redirect: { to: optional, search: { mode: 'replace', values: { label: 'aliased' } }, fragment: { mode: 'drop' } } })",
 };
 const parents = {
   middle: "scope",
@@ -152,7 +152,7 @@ const parents = {
 
 for (const [name, expression] of Object.entries(definitions)) {
   let imports =
-    "import { defineRoute, stringParam, numberParam, enumParam, optionalSearchParam, nullableSearchParam } from '@loozo/angular-router';\n";
+    "import { defineRoute, stringParam, numberParam, enumParam } from '@loozo/angular-router';\n";
 
   if (parents[name]) {
     imports += `import ${parents[name]} from '../${parents[name]}/definition.js';\n`;
@@ -191,7 +191,7 @@ assert.deepEqual(
   await readFile(join(fixture, "foreign/generated/destinations.generated.ts")),
 );
 
-const types = `import { type Resource } from '@angular/core';
+const types = `import { type Signal } from '@angular/core';
 import { type UrlTree } from '@angular/router';
 import { injectRoute as multiRoute } from './routes/multi/route.generated.js';
 import { injectRoute as scopeRoute, destination as scope } from './routes/scope/route.generated.js';
@@ -278,29 +278,34 @@ own.link({ params: { scopeId: 'x' }, fragment: 'own' });
 own.link('.', { params: { scopeId: 'x' } });
 own.link('./', { params: { scopeId: 'x' }, search: { leaf: 'a' } });
 const opt = optionalRoute();
-opt.link({ params: { id: 1 }, search: { nullable: null } });
-opt.link('.', { params: { id: 1 }, search: { nullable: '', constructor: 2, toString: 3, valueOf: '' }, fragment: 'summary' });
-h.link(optional, { params: { id: 1 }, search: { nullable: null, constructor: 2 } });
-h.link('/optional/$id', { params: { id: 1 }, search: { nullable: null } });
-const data: Resource<Readonly<{}> | undefined> = h.data;
+opt.link({ params: { id: 1 }, search: { label: 'x' } });
+opt.link('.', { params: { id: 1 }, search: { label: '', constructor: 2, toString: 3, valueOf: '' }, fragment: 'summary' });
+h.link(optional, { params: { id: 1 }, search: { label: 'x', constructor: 2 } });
+h.link('/optional/$id', { params: { id: 1 }, search: { label: undefined } });
+// Every search key may be omitted.
+h.link(optional, { params: { id: 1 } });
+const optionalSearch: { readonly label?: string; readonly toString?: number } = opt.search();
+const data: Signal<Readonly<{}>> = h.data;
 // @ts-expect-error no caller generics
 multiRoute<number>();
 // @ts-expect-error parameterless
 multiRoute({});
 // @ts-expect-error noncallable
 h();
-// @ts-expect-error readonly resource property
+// @ts-expect-error readonly signal property
 h.data = data;
-// @ts-expect-error readonly native resource
+// @ts-expect-error readonly signal
 h.params.set({ scopeId: 'x', projectId: 'p' });
+// @ts-expect-error a signal, not a Resource
+h.params.hasValue();
 // @ts-expect-error supplied prototype key retains numeric type
-opt.link({ params: { id: 1 }, search: { nullable: null, constructor: 'bad' } });
+opt.link({ params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
 // @ts-expect-error supplied prototype key retains numeric type through selected string
-h.link('/optional/$id', { params: { id: 1 }, search: { nullable: null, toString: 'bad' } });
+h.link('/optional/$id', { params: { id: 1 }, search: { label: 'x', toString: 'bad' } });
 // @ts-expect-error supplied prototype key retains numeric type through ref
-h.link(optional, { params: { id: 1 }, search: { nullable: null, constructor: 'bad' } });
-// @ts-expect-error required nullable search never optional
-h.link(optional, { params: { id: 1 } });
+h.link(optional, { params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
+// @ts-expect-error a supplied search value keeps its codec type
+h.link(optional, { params: { id: 1 }, search: { label: null } });
 // @ts-expect-error required target path values explicit
 h.link('/enum/$kind', {});
 // @ts-expect-error values cannot widen selected enum
@@ -311,8 +316,8 @@ h.link('/enum/$kind', { params: { kind: 'a', extra: 1 } });
 h.link('/enum/$kind', { params: { kind: 'a' }, extra: 1 });
 // @ts-expect-error wrong fragment target
 h.link(terminal, { params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'own' });
-// @ts-expect-error canonical terminal, not exact scope
-own.link('./', { params: { scopeId: 'x' } });
+// @ts-expect-error canonical terminal, not exact scope: only scope declares 'own'
+own.link('./', { params: { scopeId: 'x' }, fragment: 'own' });
 // @ts-expect-error unknown intermediate prefix
 h.link('..', { params: { scopeId: 'x', projectId: 'p' } });
 // @ts-expect-error segment traversal not authored-parent traversal
@@ -401,7 +406,7 @@ export default class Multi {
         return { same: result === calls.promise, result };
       },
       references: { scope, terminal, foreign, definition, handle: h },
-      ready: () => h.params.hasValue(),
+      ready: () => h.params().projectId === 'p',
     };
   }
 }\n`;
@@ -479,7 +484,7 @@ try {
     results.push(
       link("/optional/$id", {
         params: { id: 1 },
-        search: { nullable: null, toString: 2, constructor: 3, valueOf: "" },
+        search: { label: "null", toString: 2, constructor: 3, valueOf: "" },
         fragment: "summary",
       }),
     );
@@ -504,8 +509,9 @@ try {
       [p.references.handle, {}],
       ["/enum/$kind", { params: { kind: "c" } }],
       ["/enum/$kind", {}],
-      ["/optional/$id", { params: { id: 1 }, search: { nullable: null }, fragment: "unknown" }],
-      ["/optional/$id", { params: { id: 1 }, search: { nullable: null, constructor: "bad" } }],
+      ["/optional/$id", { params: { id: 1 }, search: { label: "x" }, fragment: "unknown" }],
+      ["/optional/$id", { params: { id: 1 }, search: { label: "x", constructor: "bad" } }],
+      ["/optional/$id", { params: { id: 1 }, search: { other: "x" } }],
       ["/", {}, { replaceUrl: true }],
       ["/", undefined],
       [],
@@ -551,7 +557,7 @@ try {
     "/scope/a%2Fb?leaf=winner",
     "/scope/exact",
     "/scope/leaf?leaf=required",
-    "/optional/1?constructor=3&nullable=null&toString=2&valueOf=#summary",
+    "/optional/1?constructor=3&label=null&toString=2&valueOf=#summary",
     "/docs/a%2Fb/%28c%29",
     "/old/alias/7",
     "/literal%3F/%23",

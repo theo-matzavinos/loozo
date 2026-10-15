@@ -1,15 +1,14 @@
-import { checkKeys, has, ownRecord } from "./records.js";
-
 /**
  * Converts one decoded path or search value to and from an application value.
  *
  * @remarks
- * Parsing may be asynchronous; stringification must be synchronous. Neither
- * method performs URL encoding. Codecs have no Angular injection-context
- * guarantee, and their returned objects are not recursively frozen.
+ * Both methods are synchronous, and parsing should be pure and deterministic:
+ * like Angular's matching callbacks, it runs once while matching and again for
+ * the activated route. Neither method performs URL encoding. Codecs have no
+ * Angular injection context, and their returned objects are not recursively frozen.
  * For a terminal `$name[]` path, this codec applies to each element separately.
  *
- * @typeParam Value - The logical value, not a promise of that value.
+ * @typeParam Value - The logical value, never a promise of that value.
  *
  * @example
  * ```ts
@@ -24,11 +23,12 @@ export interface ParamCodec<Value> {
    * Parses one already percent-decoded value; do not decode it again.
    *
    * @param raw - A single logical string from Angular's URL inputs.
-   * @returns The logical value or a promise for it.
-   * @throws An application error for invalid input; generated input parsing
-   * reports throws and rejections as invalid path/search values with a cause.
+   * @returns The logical value, synchronously. Returning a promise or other
+   * thenable is a programming error that fails the navigation with a TypeError.
+   * @throws An application error for invalid input: an invalid path value makes
+   * the route not match, and an invalid search value reads as absent or as its fallback.
    */
-  parse(raw: string): Value | Promise<Value>;
+  parse(raw: string): Value;
   /**
    * Serializes one logical value without percent-encoding it.
    *
@@ -39,41 +39,32 @@ export interface ParamCodec<Value> {
   stringify(value: Value): string;
 }
 
-declare const searchPresence: unique symbol;
+declare const searchFallback: unique symbol;
 
-/** A search-only codec whose key may be omitted or supplied as `undefined`. */
-export type OptionalCodec<Value> = ParamCodec<Value | undefined> & {
-  readonly [searchPresence]: "optional";
-};
 /**
  * A search-only codec whose key reads a fallback value when it is missing,
  * repeated or invalid, while URL creation may still omit it.
  */
 export type FallbackCodec<Value> = ParamCodec<Value> & {
-  readonly [searchPresence]: "fallback";
+  readonly [searchFallback]: true;
 };
-/** A search-only codec that represents explicit `null` as the text `"null"`. */
-export type NullableCodec<Value> = ParamCodec<Value | null> & {
-  readonly [searchPresence]: "nullable";
-};
-export type PathCodec = ParamCodec<any> & { readonly [searchPresence]?: never };
+export type PathCodec = ParamCodec<any> & { readonly [searchFallback]?: never };
 export type CodecValue<Codec> = Codec extends ParamCodec<infer Value> ? Value : never;
-export type IsOptional<Codec> = Codec extends { readonly [searchPresence]: "optional" }
-  ? true
-  : false;
-export type IsOmissible<Codec> = Codec extends {
-  readonly [searchPresence]: "optional" | "fallback";
-}
-  ? true
-  : false;
+export type HasFallback<Codec> = Codec extends { readonly [searchFallback]: true } ? true : false;
 
-// A fallback wrapper is optional at runtime; only reading substitutes its value.
-const presence = new WeakMap<object, "optional" | "nullable">();
+/** Type-only marker: a codec whose parse returns a promise fails where it is declared. */
+export interface SynchronousParse {
+  /** Never present: `parse` must return its value synchronously, not a Promise. */
+  readonly "ParamCodec.parse must return its value synchronously, not a Promise": never;
+}
+type ParseResult<Codec> = Codec extends { parse(raw: string): infer Result } ? Result : never;
+export type SyncValue<Value> =
+  Extract<Value, PromiseLike<unknown>> extends never ? unknown : SynchronousParse;
+export type SyncCodecs<Codecs> = {
+  [Key in keyof Codecs]: SyncValue<ParseResult<Codecs[Key]>>;
+};
+
 const fallbacks = new WeakMap<object, { readonly value: unknown }>();
-
-export function codecPresence(codec: object): "optional" | "nullable" | undefined {
-  return presence.get(codec);
-}
 
 export function codecFallback(codec: object): { readonly value: unknown } | undefined {
   return fallbacks.get(codec);
@@ -216,145 +207,49 @@ export function enumParam<const Values extends readonly string[]>(
 }
 
 /**
- * Makes a search key optional without changing the handling of present values.
+ * Gives a search key a value read in place of a missing, repeated or invalid one.
  *
  * @remarks
- * Optional keys never block matching or fail input parsing: a missing, repeated
- * or invalid value (a parser throw or rejection) leaves the key absent from
- * parsed search. URL creation omits absent or `undefined` values. The wrapper's
- * parser delegates present strings unchanged, preserving promises. Its
- * stringifier cannot serialize `undefined` directly. This wrapper is not a path
- * codec. For optional nullable values, wrap {@link nullableSearchParam} with
- * this function, not the other way around.
- *
- * @typeParam Value - The wrapped codec's logical value.
- * @param codec - The codec used for present search values.
- * @returns A search-only codec allowing omission.
- * @throws TypeError if the codec lacks callable parse/stringify methods.
- */
-export function optionalSearchParam<Value>(
-  codec: ParamCodec<Value>,
-  options?: undefined,
-): OptionalCodec<Value>;
-/**
- * Makes a search key optional with a value read in place of a missing, repeated
- * or invalid one.
- *
- * @remarks
- * Parsed search always contains the key, typed as the codec's value, while URL
- * creation, links, navigation and redirect replacements may still omit it. The
- * fallback is returned as is: it is neither parsed nor copied.
+ * Every search key is optional: a plain codec's key reads as absent when its
+ * value is missing, repeated or invalid. With a fallback, the key always reads a
+ * value of the codec's type, while URL creation, links, navigation and redirect
+ * replacements may still omit it. The fallback is returned as is: it is neither
+ * parsed nor copied. Present values delegate to the wrapped codec unchanged.
+ * Fallback codecs are search-only: a path param can't use one.
  *
  * @example
  * ```ts
- * const page = optionalSearchParam(numberParam, { fallback: 1 });
+ * search: { page: withFallback(numberParam, 1) }
  * // ?page=abc, ?page=1&page=2 and no page all read as 1.
  * ```
  *
  * @typeParam Value - The wrapped codec's logical value.
  * @param codec - The codec used for present search values.
- * @param options - The fallback read in place of a missing, repeated or invalid value.
- * @returns A search-only codec allowing omission and reading the fallback.
- * @throws TypeError if the codec is malformed or the options record lacks an own
- * `fallback` or has other keys.
+ * @param fallback - The value read when the key is missing, repeated or invalid.
+ * @returns A search-only codec that reads the fallback in place of an absent value.
+ * @throws TypeError if the codec lacks callable parse/stringify methods or already
+ * has a fallback.
  */
-export function optionalSearchParam<Value>(
-  codec: ParamCodec<Value>,
-  options: {
-    /** The value read when the key is missing, repeated or invalid. */
-    readonly fallback: NoInfer<Value>;
-  },
-): FallbackCodec<Value>;
-
-export function optionalSearchParam(codec: ParamCodec<unknown>, options?: unknown): unknown {
+export function withFallback<Value>(
+  codec: ParamCodec<Value> & SyncValue<NoInfer<Value>>,
+  fallback: NoInfer<Value>,
+): FallbackCodec<Value> {
   validateCodec(codec);
 
-  let fallback: { readonly value: unknown } | undefined;
-
-  if (options !== undefined) {
-    const record = ownRecord(options, "Optional search options");
-
-    checkKeys(record, new Set(["fallback"]), "optional search options");
-
-    if (!has(record, "fallback")) {
-      throw new TypeError("Optional search options require a fallback");
-    }
-
-    fallback = Object.freeze({ value: record.fallback });
+  if (codecFallback(codec)) {
+    throw new TypeError("withFallback cannot wrap a codec that already has a fallback");
   }
 
-  const wrapper: ParamCodec<unknown> = {
+  const wrapper: ParamCodec<Value> = {
     parse(raw) {
       return codec.parse(raw);
     },
     stringify(value) {
-      if (value === undefined) {
-        throw new TypeError("Omitted search has no scalar representation");
-      }
-
       return codec.stringify(value);
     },
   };
 
-  presence.set(wrapper, "optional");
+  fallbacks.set(wrapper, Object.freeze({ value: fallback }));
 
-  if (fallback) {
-    fallbacks.set(wrapper, fallback);
-  }
-
-  return wrapper;
-}
-
-/**
- * Adds explicit null to a search codec, represented by the decoded text `"null"`.
- *
- * @remarks
- * The key remains required unless wrapped with {@link optionalSearchParam}.
- * Non-null values delegate unchanged, including promise/failure identity. The
- * text `"null"` is reserved by this wrapper even if the inner codec accepts it.
- * This wrapper is not a path codec and cannot wrap an optional search codec.
- *
- * @typeParam Value - The wrapped codec's non-null logical value.
- * @param codec - The codec used for values other than null.
- * @returns A search-only codec accepting and serializing null.
- * @throws TypeError if the codec is malformed or is an optional search wrapper.
- *
- * @example
- * ```ts
- * const score = optionalSearchParam(nullableSearchParam(numberParam));
- * // Omission, null, and a present number remain distinct.
- * ```
- */
-export function nullableSearchParam<Value>(
-  codec: ParamCodec<Value> & {
-    /** Type-only: rejects an optional search wrapper at compile time; never read. */
-    readonly [searchPresence]?: "nullable";
-  },
-): NullableCodec<Value> {
-  validateCodec(codec);
-
-  if (codecPresence(codec) === "optional") {
-    throw new TypeError("Nullable cannot wrap optional");
-  }
-
-  const wrapper: ParamCodec<Value | null> = {
-    parse(raw) {
-      if (raw === "null") {
-        return null;
-      }
-
-      return codec.parse(raw);
-    },
-    stringify(value) {
-      if (value === null) {
-        return "null";
-      }
-
-      return codec.stringify(value);
-    },
-  };
-
-  presence.set(wrapper, "nullable");
-
-  return wrapper as NullableCodec<Value>;
+  return wrapper as FallbackCodec<Value>;
 }

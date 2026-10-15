@@ -1,4 +1,4 @@
-import { codecPresence, validateCodec, type ParamCodec, type PathCodec } from "./codecs.js";
+import { codecFallback, validateCodec, type ParamCodec, type PathCodec } from "./codecs.js";
 import { parsePath, type Segment, type ValidPath, type CatchallName } from "./path.js";
 import { checkKeys, has, ownRecord } from "./records.js";
 import type {
@@ -6,7 +6,6 @@ import type {
   CodecMap,
   EffectiveParams,
   EffectiveSearch,
-  EffectiveSearchInput,
   Route,
   RouteConfig,
   SearchOf,
@@ -68,8 +67,8 @@ function copyCodecs(value: unknown, path: boolean): Readonly<Record<string, Para
 
     validateCodec(codec);
 
-    if (path && codecPresence(codec) !== undefined) {
-      throw new TypeError("Search wrappers cannot be path codecs");
+    if (path && codecFallback(codec)) {
+      throw new TypeError("withFallback codecs are search-only");
     }
 
     result[key] = codec;
@@ -121,25 +120,10 @@ function snapshotRedirect(
 
     const values = ownRecord(search.values, "Redirect replacement");
 
-    validateSearchValues(target.search, values);
+    checkKeys(values, new Set(Object.keys(target.search)), "search values");
     searchSnapshot = { mode: "replace", values: Object.freeze({ ...values }) };
   } else if (search.mode === "preserve" || search.mode === "drop") {
     checkKeys(search, new Set(["mode"]), "redirect search");
-
-    for (const key of Object.keys(target.search)) {
-      if (codecPresence(target.search[key]) === "optional") {
-        continue;
-      }
-
-      if (
-        search.mode === "drop" ||
-        !has(source.search, key) ||
-        codecPresence(source.search[key]) === "optional"
-      ) {
-        throw new TypeError(`Redirect cannot guarantee required search: ${key}`);
-      }
-    }
-
     searchSnapshot = { mode: search.mode };
   } else {
     throw new TypeError("Invalid redirect search policy");
@@ -165,19 +149,6 @@ function snapshotRedirect(
     search: Object.freeze(searchSnapshot),
     fragment: Object.freeze({ ...fragment }),
   });
-}
-
-export function validateSearchValues(
-  codecs: Readonly<Record<string, ParamCodec<any>>>,
-  values: Record<string, unknown>,
-): void {
-  checkKeys(values, new Set(Object.keys(codecs)), "search values");
-
-  for (const key of Object.keys(codecs)) {
-    if (codecPresence(codecs[key]) !== "optional" && !has(values, key)) {
-      throw new TypeError(`Missing required search: ${key}`);
-    }
-  }
 }
 
 /**
@@ -206,13 +177,14 @@ export function validateSearchValues(
  * generator-owned and cannot be overridden.
  * @returns A frozen route preserving inferred effective input and local data types.
  * @throws TypeError for invalid paths/configuration, missing or extra local
- * codecs, inherited key conflicts, or nongenuine parent/redirect routes.
+ * codecs, fallback codecs in path params, inherited key conflicts, or
+ * nongenuine parent/redirect routes.
  *
  * @example
  * ```ts
  * const product = defineRoute("products/$productId", {
  *   params: { productId: numberParam },
- *   search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+ *   search: { tab: withFallback(enumParam(["details", "reviews"]), "details") },
  *   fragments: ["summary", "reviews"],
  * });
  * ```
@@ -235,8 +207,7 @@ export function defineRoute<
   EffectiveSearch<Search, Parent>,
   Resolvers,
   Fragments[number],
-  CatchallName<Path> extends never ? false : true,
-  EffectiveSearchInput<Search, Parent>
+  CatchallName<Path> extends never ? false : true
 >;
 
 export function defineRoute(path: unknown, config: unknown): AnyRoute {

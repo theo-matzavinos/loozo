@@ -1,7 +1,6 @@
-import { defineRoute, numberParam, optionalSearchParam } from "@loozo/angular-router";
-import { delayedNumber } from "../../codecs.js";
+import { defineRoute, numberParam } from "@loozo/angular-router";
 
 export default defineRoute("teams/$teamId", {
   params: { teamId: numberParam },
-  search: { score: optionalSearchParam(delayedNumber) },
+  search: { score: numberParam },
 });

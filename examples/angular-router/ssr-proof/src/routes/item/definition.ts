@@ -1,12 +1,11 @@
 import { inject } from "@angular/core";
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute, numberParam } from "@loozo/angular-router";
 import team from "../team/definition.js";
-import { delayedNumber } from "../../codecs.js";
 import { ItemCatalog } from "../../catalog.js";
 
 export default defineRoute("items/$id", {
   parent: team,
-  params: { id: delayedNumber },
+  params: { id: numberParam },
   runGuardsAndResolvers: "paramsOrQueryParamsChange",
   resolve: {
     item: ({ params, search }) => {
