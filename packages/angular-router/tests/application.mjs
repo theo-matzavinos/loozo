@@ -32,6 +32,12 @@ await cp(join(repository, "examples/angular-router"), fixture, {
     !path.endsWith("route.generated.ts"),
 });
 
+// These fixtures author paths and parents by hand, so they opt out of filesystem mode.
+const configuration = JSON.parse(await readFile(join(fixture, "angular.json"), "utf8"));
+
+configuration.projects.proof.architect.build.options.autoDefineRoutes = false;
+await writeFile(join(fixture, "angular.json"), JSON.stringify(configuration));
+
 const metadata = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
 
 for (const name of new Set([
@@ -228,7 +234,7 @@ const initial = await snapshot();
 assert.equal(Object.keys(initial).length, 3);
 assert.match(
   initial["generated/routes.generated.ts"].bytes,
-  /import\("\.\.\/src\/routes\/home\/page"\)/,
+  /import\("\.\.\/src\/routes\/\+home\/page"\)/,
 );
 assert.doesNotMatch(initial["generated/routes.generated.ts"].bytes, /\.then\(/);
 assert.match(
@@ -236,11 +242,11 @@ assert.match(
   /\/\*\*[\s\S]*?provideRouter\(routes\)[\s\S]*?\*\/\nexport const routes/,
 );
 assert.match(
-  initial["src/routes/home/route.generated.ts"].bytes,
+  initial["src/routes/+home/route.generated.ts"].bytes,
   /\/\*\*[\s\S]*?Inert reference[\s\S]*?\*\/\nexport const destination/,
 );
 assert.match(
-  initial["src/routes/home/route.generated.ts"].bytes,
+  initial["src/routes/+home/route.generated.ts"].bytes,
   /\/\*\*[\s\S]*?@returns A noncallable handle[\s\S]*?\*\/\nexport function injectRoute/,
 );
 await expectBuild(true);
@@ -278,15 +284,15 @@ const repaired = await snapshot();
 
 assert.equal(Object.keys(repaired).length, 3);
 
-const definition = await readFile(join(fixture, "src/routes/home/definition.ts"), "utf8");
+const definition = await readFile(join(fixture, "src/routes/+home/route.ts"), "utf8");
 
-await write("src/routes/home/definition.ts", `${definition}\nexport default 1;\n`);
+await write("src/routes/+home/route.ts", `${definition}\nexport default 1;\n`);
 
 const beforeInvalid = await snapshot();
 
 await expectBuild(false);
 await expectUnchanged(beforeInvalid);
-await write("src/routes/home/definition.ts", definition);
+await write("src/routes/+home/route.ts", definition);
 await write("generated/routes.generated.ts", "// unmarked collision\n");
 
 const collision = await snapshot();
@@ -322,17 +328,17 @@ async function expectPreflight(name, diagnostic) {
 }
 
 const tsconfig = await readFile(join(fixture, "tsconfig.routes.json"), "utf8");
-const pageSource = await readFile(join(fixture, "src/routes/home/page.ts"), "utf8");
+const pageSource = await readFile(join(fixture, "src/routes/+home/page.ts"), "utf8");
 
 // Genuine cold own-facade aliases and default-imported parents remain admitted.
-await rm(join(fixture, "src/routes/home/route.generated.ts"));
+await rm(join(fixture, "src/routes/+home/route.generated.ts"));
 await write(
   "src/routes/parent/definition.ts",
   `import { defineRoute as parentRoute } from './route.generated.js';
 export default parentRoute('', {});\n`,
 );
 await write(
-  "src/routes/home/definition.ts",
+  "src/routes/+home/route.ts",
   `import { defineRoute as homeRoute } from './route.generated.js';
 import parent from '../parent/definition.js';
 export default homeRoute('', { parent });\n`,
@@ -352,7 +358,7 @@ for (const [name, target, diagnostic] of [
   ["fake public facade reexport", "./src/fake-router.ts", /Factory facade.*concrete public entry/],
   [
     "circular facade reexport",
-    "./src/routes/home/route.generated.ts",
+    "./src/routes/+home/route.generated.ts",
     /Factory facade.*concrete public entry/,
   ],
   [
@@ -376,24 +382,24 @@ for (const [name, target, diagnostic] of [
 await write("tsconfig.routes.json", tsconfig);
 await rm(join(fixture, "src/fake-router.ts"));
 await rm(join(fixture, "src/routes/parent"), { recursive: true });
-await write("src/routes/home/definition.ts", definition);
+await write("src/routes/+home/route.ts", definition);
 await expectBuild(true);
 
 // Literal dynamic dependencies and type-import/equals module references are
 // resolved natively. A retained generated target can be reached via a helper.
 await write(
   "src/helper.ts",
-  "export const retained = () => import('./routes/home/route.generated.js');\n",
+  "export const retained = () => import('./routes/+home/route.generated.js');\n",
 );
 await write(
-  "src/routes/home/page.ts",
+  "src/routes/+home/page.ts",
   "export const lazyHelper = () => import(`../../helper.js`);\n" +
     "export type Helper = typeof import('../../helper.js');\n" +
     pageSource,
 );
 await write(
   "src/helper-types.d.ts",
-  "export type Retained = typeof import('./routes/home/route.generated.js');\n",
+  "export type Retained = typeof import('./routes/+home/route.generated.js');\n",
 );
 await expectBuild(true);
 
@@ -416,11 +422,11 @@ for (const [name, reference] of [
   ["missing type import", "export type Missing = typeof import('../../missing-helper.js');"],
   ["missing external import equals", "import type Missing = require('../../missing-helper.js');"],
 ]) {
-  await write("src/routes/home/page.ts", reference + "\n" + pageSource);
+  await write("src/routes/+home/page.ts", reference + "\n" + pageSource);
   await expectPreflight(name, /page\.ts:\d+:\d+: Unresolved import: .*missing-helper/);
 }
 
-await write("src/routes/home/page.ts", pageSource);
+await write("src/routes/+home/page.ts", pageSource);
 await write(
   "src/helper-types.d.ts",
   "export type Missing = typeof import('./missing-helper.js');\n",
@@ -449,7 +455,7 @@ await rm(join(fixture, "src/routes/obsolete"), { recursive: true });
 // Known redirects/pruned owners and unadmitted locations never acquire facades
 // through ambient declarations, even when the target and its directory are absent.
 const facadeless = `import { defineRoute } from '@loozo/angular-router';
-import target from '../home/definition.js';
+import target from '../+home/route.js';
 export default defineRoute('facadeless', { redirect: { to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } } });\n`;
 
 await write("src/routes/facadeless/definition.ts", facadeless);
@@ -484,7 +490,7 @@ await write(
   "src/routes/pruned/alias/definition.ts",
   `import { defineRoute } from '@loozo/angular-router';
 import parent from '../definition.js';
-import target from '../../home/definition.js';
+import target from '../../+home/route.js';
 export default defineRoute('alias', { parent, redirect: { to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } } });\n`,
 );
 await write(
@@ -526,9 +532,9 @@ await rm(join(fixture, "src/routes/pruned"), { recursive: true });
 await write("src/ambient.d.ts", "declare module '*route.generated.js';\n");
 await write(
   "src/helper.ts",
-  "export const retained = () => import('./routes/home/route.generated.js');\n",
+  "export const retained = () => import('./routes/+home/route.generated.js');\n",
 );
-await rm(join(fixture, "src/routes/home/route.generated.ts"));
+await rm(join(fixture, "src/routes/+home/route.generated.ts"));
 await expectBuild(true);
 
 const coldRetained = await snapshot(false);
@@ -548,7 +554,7 @@ await rm(join(fixture, "src/ambient.d.ts"));
 
 // Native exact/pattern ambient module bindings are legitimate ordinary helpers.
 await write(
-  "src/routes/home/page.ts",
+  "src/routes/+home/page.ts",
   "import type { Opaque } from 'virtual/helper';\ntype Keep = Opaque;\n" + pageSource,
 );
 
@@ -571,7 +577,7 @@ for (const declaration of ["virtual/helper", "virtual/*"]) {
 
 // The same basename outside generation locations remains an ordinary helper.
 await write(
-  "src/routes/home/page.ts",
+  "src/routes/+home/page.ts",
   "import type { Opaque } from 'virtual/route.generated.js';\ntype Keep = Opaque;\n" + pageSource,
 );
 await expectBuild(true);
@@ -589,48 +595,48 @@ preflightReports.push({
   after: checkedAmbient,
 });
 await write(
-  "src/routes/home/page.ts",
+  "src/routes/+home/page.ts",
   "import type { Opaque } from 'missing/helper';\ntype Keep = Opaque;\n" + pageSource,
 );
 await expectPreflight(
   "unknown ambient helper",
   /page\.ts:\d+:\d+: Unresolved import: missing\/helper/,
 );
-await write("src/routes/home/page.ts", pageSource);
+await write("src/routes/+home/page.ts", pageSource);
 await write(
   "src/ambient.d.ts",
   "declare module 'virtual/*' { export function defineRoute(path: string, config: unknown): unknown; }\n",
 );
 await write(
-  "src/routes/home/definition.ts",
+  "src/routes/+home/route.ts",
   "import { defineRoute } from 'virtual/factory';\nexport default defineRoute('', {});\n",
 );
 await expectPreflight(
   "ambient cannot supply factory provenance",
   /defineRoute import.*concrete public entry/,
 );
-await write("src/routes/home/definition.ts", definition);
+await write("src/routes/+home/route.ts", definition);
 await write(
   "src/ambient.d.ts",
   "declare module 'virtual/*' { export function Component(value: unknown): ClassDecorator; }\n",
 );
-await write("src/routes/home/page.ts", pageSource.replace("@angular/core", "virtual/angular"));
+await write("src/routes/+home/page.ts", pageSource.replace("@angular/core", "virtual/angular"));
 await expectPreflight(
   "ambient cannot supply Angular provenance",
   /Component decorator is not from consumer-installed/,
 );
-await write("src/routes/home/page.ts", pageSource);
+await write("src/routes/+home/page.ts", pageSource);
 await rm(join(fixture, "src/ambient.d.ts"));
 await expectBuild(true);
 
 // Redirect policy/type preflight must be atomic, before Angular's own checking.
 await write(
-  "src/routes/home/definition.ts",
+  "src/routes/+home/route.ts",
   definition.replace('defineRoute("", {})', 'defineRoute("", { fragments: ["summary"] })'),
 );
 
 const alias = `import { defineRoute } from '@loozo/angular-router';
-import target from '../home/definition.js';
+import target from '../+home/route.js';
 export default defineRoute('alias', { redirect: { to: target, search: { mode: 'drop' }, fragment: { mode: 'replace', value: 'summary' } } });\n`;
 
 await write("src/routes/alias/definition.ts", alias);
@@ -653,20 +659,23 @@ await expectBuild(false);
 await expectUnchanged(validRedirect);
 assert.match(generationError(), /Unknown redirect search policy key/);
 await rm(join(fixture, "src/routes/alias"), { recursive: true });
-await write("src/routes/home/definition.ts", definition);
+await write("src/routes/+home/route.ts", definition);
 await expectBuild(true);
 
 // A real Angular regression, not just a resolver analogue: extensionless page.js
 // selects named-only page.ts. Emitted page.js.js must load the discovered page.js.ts.
-await rename(join(fixture, "src/routes/home/page.ts"), join(fixture, "src/routes/home/page.js.ts"));
-await write("src/routes/home/page.ts", "export const helper = 1;\n");
+await rename(
+  join(fixture, "src/routes/+home/page.ts"),
+  join(fixture, "src/routes/+home/page.js.ts"),
+);
+await write("src/routes/+home/page.ts", "export const helper = 1;\n");
 await expectBuild(true);
 
 const lazyCollision = await snapshot();
 
 assert.match(
   lazyCollision["generated/routes.generated.ts"].bytes,
-  /import\("\.\.\/src\/routes\/home\/page\.js\.js"\)/,
+  /import\("\.\.\/src\/routes\/\+home\/page\.js\.js"\)/,
 );
 
 const serverArchitect = await architect();
@@ -718,7 +727,7 @@ try {
   await writeFile(join(evidence, "browser-home.html"), await page.content());
   await page.close();
   await write(
-    "src/routes/home/definition.ts",
+    "src/routes/+home/route.ts",
     definition.replace('defineRoute("",', 'defineRoute("changed",'),
   );
   await waitFor(async () => {
@@ -738,13 +747,13 @@ try {
 
   const beforeFailure = await snapshot();
 
-  await write("src/routes/home/definition.ts", `${definition}\nexport default 1;\n`);
+  await write("src/routes/+home/route.ts", `${definition}\nexport default 1;\n`);
   await waitFor(
     () => logs.some((entry) => entry.message.includes("Multiple competing default exports")),
     "Later generation failure was not logged",
   );
   await expectUnchanged(beforeFailure);
-  await write("src/routes/home/definition.ts", definition);
+  await write("src/routes/+home/route.ts", definition);
   await waitFor(async () => {
     const routes = await readFile(join(fixture, "generated/routes.generated.ts"), "utf8");
 
@@ -764,7 +773,7 @@ try {
 const stopped = await snapshot();
 
 await write(
-  "src/routes/home/definition.ts",
+  "src/routes/+home/route.ts",
   definition.replace('defineRoute("",', 'defineRoute("after-stop",'),
 );
 await new Promise((done) => setTimeout(done, 600));

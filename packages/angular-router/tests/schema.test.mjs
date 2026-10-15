@@ -44,13 +44,39 @@ await test("Angular's defaults apply to the application options, including neste
   assert.equal(result.success, true, JSON.stringify(result.errors));
   assert.equal(result.data.aot, true);
   assert.equal(result.data.check, false);
-  assert.equal(result.data.autoDefineRoutes, undefined);
   assert.equal(result.data.sourceMap.vendor, true);
   assert.equal(result.data.sourceMap.scripts, true);
   assert.equal(result.data.sourceMap.styles, true);
   assert.equal(result.data.optimization.styles, false);
   assert.equal(result.data.optimization.scripts, true);
   assert.equal(result.data.optimization.fonts, true);
+});
+
+await test("autoDefineRoutes is false or an object, and stays omitted for the generator's default", async () => {
+  const omitted = await validate(router);
+
+  assert.equal(omitted.success, true, JSON.stringify(omitted.errors));
+  assert.equal(omitted.data.autoDefineRoutes, undefined);
+
+  for (const autoDefineRoutes of [false, {}, { filename: "definition.ts" }]) {
+    const result = await validate({ ...router, autoDefineRoutes });
+
+    assert.equal(result.success, true, JSON.stringify(result.errors));
+    // Angular's transform adds undefined nested defaults, which JSON drops again.
+    assert.deepEqual(JSON.parse(JSON.stringify(result.data.autoDefineRoutes)), autoDefineRoutes);
+  }
+
+  for (const autoDefineRoutes of [
+    true,
+    null,
+    [],
+    { extra: true },
+    { filename: "route.generated.ts" },
+  ]) {
+    const result = await validate({ ...router, autoDefineRoutes });
+
+    assert.equal(result.success, false, JSON.stringify(autoDefineRoutes));
+  }
 });
 
 await test("Angular's checks apply to the application options", async () => {

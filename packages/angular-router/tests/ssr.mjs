@@ -27,16 +27,16 @@ await cp(join(repository, "examples/angular-router/ssr-proof"), fixture, {
 });
 
 // A root not-found catchall, so invalid path params have somewhere to fall through to.
-await mkdir(join(fixture, "src/routes/missing"));
+await mkdir(join(fixture, "src/routes/$segments[]"));
 await writeFile(
-  join(fixture, "src/routes/missing/definition.ts"),
+  join(fixture, "src/routes/$segments[]/route.ts"),
   `import { defineRoute, stringParam } from "@loozo/angular-router";
 
 export default defineRoute("$segments[]", { params: { segments: stringParam } });
 `,
 );
 await writeFile(
-  join(fixture, "src/routes/missing/page.ts"),
+  join(fixture, "src/routes/$segments[]/page.ts"),
   `import { Component } from "@angular/core";
 
 @Component({ template: '<p id="missing">Not found</p>' })
@@ -215,7 +215,10 @@ for (const [file, output] of Object.entries(stats.outputs)) {
 
     assert.doesNotMatch(input, /packages\/angular-router\/node\/|\/src\/(?:generation|builders)\//);
 
-    if (input.endsWith("src/routes/item/page.ts") && output.entryPoint !== "src/main.ts") {
+    if (
+      input.endsWith("src/routes/teams/$teamId/items/$id/page.ts") &&
+      output.entryPoint !== "src/main.ts"
+    ) {
       lazyItem = true;
     }
   }
@@ -245,7 +248,7 @@ for (let index = 0; index < eagerPaths.length; index += 1) {
 
   for (const input of Object.keys(output.inputs)) {
     assert.equal(
-      input.endsWith("src/routes/item/page.ts"),
+      input.endsWith("src/routes/teams/$teamId/items/$id/page.ts"),
       false,
       "page must remain genuinely lazy",
     );
@@ -290,7 +293,7 @@ for (let index = 0; index < reachablePaths.length; index += 1) {
   const output = stats.outputs[file];
 
   for (const input of Object.keys(output.inputs)) {
-    if (dynamic && input.endsWith("src/routes/item/page.ts")) {
+    if (dynamic && input.endsWith("src/routes/teams/$teamId/items/$id/page.ts")) {
       dynamicallyReachableItem = true;
     }
   }

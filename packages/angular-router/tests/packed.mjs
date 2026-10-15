@@ -128,7 +128,7 @@ for (const [, path] of embeds) {
   assert.ok(snippetFiles.includes(path), `README embeds a file outside snippets/: ${path}`);
 }
 
-const productDefinition = "snippets/src/routes/product/definition.ts";
+const productDefinition = "snippets/src/routes/products/$productId/route.ts";
 const productSource = await readFile(join(first, productDefinition), "utf8");
 
 assert.ok(

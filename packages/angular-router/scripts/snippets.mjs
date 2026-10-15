@@ -11,6 +11,11 @@ import { generate } from "../node/src/generation/generate.js";
 const write = process.argv.includes("--write");
 const snippets = fileURLToPath(new URL("../snippets/", import.meta.url));
 const workspace = JSON.parse(await readFile(join(snippets, "angular.json"), "utf8"));
-const { tsconfig, scanDirectories, outDirectory } = workspace.projects.app.architect.build.options;
+const { tsconfig, scanDirectories, outDirectory, autoDefineRoutes } =
+  workspace.projects.app.architect.build.options;
 
-await generate(snippets, { tsconfig, scanDirectories, outDirectory, check: !write }, () => false);
+await generate(
+  snippets,
+  { tsconfig, scanDirectories, outDirectory, autoDefineRoutes, check: !write },
+  () => false,
+);

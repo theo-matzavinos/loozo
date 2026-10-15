@@ -7,5 +7,5 @@ import type { Routes } from '@angular/router';
  */
 export const routes: Routes = [{ path: "",
 pathMatch: 'full',
-data: { __loozoAngularRouterRouteId: "src/routes/home/definition.ts" },
-loadComponent: () => import("../src/routes/home/page") }];
+data: { __loozoAngularRouterRouteId: "src/routes/+home/route.ts" },
+loadComponent: () => import("../src/routes/+home/page") }];

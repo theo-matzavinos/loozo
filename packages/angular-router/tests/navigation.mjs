@@ -20,6 +20,12 @@ await cp(join(repository, "examples/angular-router"), fixture, {
     !path.endsWith("route.generated.ts"),
 });
 
+// These fixtures author paths and parents by hand, so they opt out of filesystem mode.
+const configuration = JSON.parse(await readFile(join(fixture, "angular.json"), "utf8"));
+
+configuration.projects.proof.architect.build.options.autoDefineRoutes = false;
+await writeFile(join(fixture, "angular.json"), JSON.stringify(configuration));
+
 const metadata = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
 
 for (const name of new Set([

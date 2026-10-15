@@ -283,7 +283,6 @@ test("session-backed generation follows edits across passes and recovers after a
     tsconfig: "tsconfig.json",
     scanDirectories: ["src/routes"],
     outDirectory: "generated",
-    autoDefineRoutes: {},
   };
   const state = {
     discovery: new CompilerState(),
@@ -383,15 +382,16 @@ test("session-backed generation follows edits across passes and recovers after a
   await generate(root, { ...options, check: true }, () => false);
 });
 
-// A filesystem-mode project with helpers for authoring pages and declarations.
-async function filesystemProject() {
+// A project with helpers for authoring pages and declarations, in filesystem mode unless the
+// overrides say otherwise.
+async function filesystemProject(overrides = {}) {
   const root = await fixture();
   const packageDirectory = resolve(import.meta.dirname, "..");
   const options = {
     tsconfig: "tsconfig.json",
     scanDirectories: ["src/routes"],
     outDirectory: "generated",
-    autoDefineRoutes: {},
+    ...overrides,
   };
 
   async function write(path, bytes) {
@@ -458,6 +458,133 @@ async function filesystemProject() {
     generate: () => generate(root, options, () => false),
   };
 }
+
+test("omitted autoDefineRoutes enables filesystem mode; false keeps explicit authoring", async () => {
+  const project = await filesystemProject();
+
+  await project.page("products/$productId");
+  await project.generate();
+  assert.equal(
+    await project.read("src/routes/products/$productId/route.ts"),
+    'import { defineRoute, stringParam } from "@loozo/angular-router";\n\nexport default defineRoute("products/$productId", { params: { "productId": stringParam } });\n',
+  );
+  assert.match(await project.routes(), /path: "products\/:productId"/);
+
+  const explicit = await filesystemProject({ autoDefineRoutes: false });
+  const declaration = `import { defineRoute, stringParam } from "@loozo/angular-router";\n\nexport default defineRoute("catalog/$productId", { params: { productId: stringParam } });\n`;
+
+  // Paths come from the declaration, not the directories, and nothing is synchronized.
+  await explicit.page("product");
+  await explicit.write("src/routes/product/definition.ts", declaration);
+  await explicit.generate();
+  assert.equal(await explicit.read("src/routes/product/definition.ts"), declaration);
+  assert.equal(await explicit.exists("src/routes/product/route.ts"), false);
+  assert.match(await explicit.routes(), /path: "catalog\/:productId"/);
+
+  // A page without a declaration is an error, not a seed.
+  const routes = await explicit.routes();
+
+  await explicit.page("orphan");
+  await assert.rejects(explicit.generate(), /Component without a colocated admitted declaration/);
+  assert.equal(await explicit.exists("src/routes/orphan/route.ts"), false);
+  assert.equal(await explicit.routes(), routes);
+});
+
+test("filesystem mode: params the directories can't reconcile name the file, path, params and fix", async () => {
+  const project = await filesystemProject();
+  const file = "src/routes/alias/route.ts";
+  const declaration = `import { defineRoute, numberParam } from "@loozo/angular-router";\n\nexport default defineRoute("old-items/$id", { params: { id: numberParam } });\n`;
+
+  // A second pass after a repair has nothing left to write.
+  async function unchangedOnRegeneration(path) {
+    const before = await stat(resolve(project.root, path), { bigint: true });
+
+    await project.generate();
+
+    const after = await stat(resolve(project.root, path), { bigint: true });
+
+    assert.equal(after.mtimeNs, before.mtimeNs, path);
+  }
+
+  await project.page("items");
+  await project.write(file, declaration);
+  await project.page("alias");
+
+  const error = await project.generate().then(
+    () => assert.fail("generation succeeded"),
+    (reason) => reason,
+  );
+
+  assert.equal(
+    error.message,
+    `${resolve(project.root, file)}:3:28: Ambiguous filesystem params: the directories give path "alias" (removed params: id). Remove this file's params, or move or rename the directory`,
+  );
+  assert.doesNotMatch(error.message, /update path/i);
+  assert.equal(await project.read(file), declaration);
+
+  // A path without params can't keep even empty params.
+  const emptied = declaration.replace("{ id: numberParam }", "{}");
+
+  await project.write(file, emptied);
+  await assert.rejects(project.generate(), /Remove this file's params/);
+  assert.equal(await project.read(file), emptied);
+
+  // Following the advice: once the params are gone, the builder rewrites only the path.
+  const removed = declaration.replace("{ params: { id: numberParam } }", "{}");
+
+  await project.write(file, removed);
+  await project.generate();
+  assert.equal(await project.read(file), removed.replace('"old-items/$id"', '"alias"'));
+  assert.match(await project.routes(), /path: "alias"/);
+  await unchangedOnRegeneration(file);
+
+  // Both directions are named when a param is swapped for two others.
+  await project.write(file, declaration);
+  await project.move("src/routes/alias", "src/routes/$team/$slug/alias");
+
+  const moved = "src/routes/$team/$slug/alias/route.ts";
+
+  await assert.rejects(
+    project.generate(),
+    /the directories give path "\$team\/\$slug\/alias" \(removed params: id; added params: team, slug\)\. Edit this file's params to match, or move or rename the directory$/,
+  );
+  assert.equal(await project.read(moved), declaration);
+
+  // Params whose keys match the directories' are kept byte for byte; only the path follows.
+  const matched = declaration.replace(
+    "{ id: numberParam }",
+    "{ team: numberParam /* kept */, slug: numberParam }",
+  );
+
+  await project.write(moved, matched);
+  await project.generate();
+  assert.equal(
+    await project.read(moved),
+    matched.replace('"old-items/$id"', '"$team/$slug/alias"'),
+  );
+  assert.match(await project.routes(), /path: ":team\/:slug\/alias"/);
+  await unchangedOnRegeneration(moved);
+
+  // An added param with a key the old path didn't have can't be appended; matching keys can.
+  const item = "src/routes/$group/items/$id/route.ts";
+  const stray = `import { defineRoute, numberParam, stringParam } from "@loozo/angular-router";\n\nexport default defineRoute("items/$id", { params: { id: numberParam, extra: stringParam } });\n`;
+
+  await rm(resolve(project.root, "src/routes/$team"), { recursive: true });
+  await project.page("$group/items/$id");
+  await project.write(item, stray);
+  await assert.rejects(
+    project.generate(),
+    /the directories give path "\$group\/items\/\$id" \(added params: group\)\. Edit this file's params to match, or move or rename the directory$/,
+  );
+  assert.equal(await project.read(item), stray);
+
+  const added = stray.replace("extra: stringParam", "group: stringParam");
+
+  await project.write(item, added);
+  await project.generate();
+  assert.equal(await project.read(item), added.replace('"items/$id"', '"$group/items/$id"'));
+  await unchangedOnRegeneration(item);
+});
 
 test("filesystem mode: only directories with a page or declaration become records; others prefix the records below", async () => {
   const project = await filesystemProject();
@@ -670,25 +797,58 @@ test("filesystem mode: a page-less param prefix adds a string codec and keeps au
   const synchronized = await read(file);
 
   await project.move("src/routes/shell/$team/$id", "src/routes/shell/$id");
-  await assert.rejects(project.generate(), /Ambiguous filesystem codec change/);
+  await assert.rejects(
+    project.generate(),
+    /Ambiguous filesystem params: the directories give path "\$id" \(removed params: team\)/,
+  );
   assert.equal(await read("src/routes/shell/$id/route.ts"), synchronized);
   await project.move("src/routes/shell/$id", "src/routes/shell/$team/$id");
 
   // Additions apply only onto params whose keys are exactly the old placeholders.
-  for (const [name, params] of [
-    ["spread", "{ ...shared, slug: numberParam }"],
-    ["extra", "{ slug: numberParam, other: numberParam }"],
+  for (const [name, params, repair] of [
+    [
+      "opaque",
+      "shared",
+      "This file's params are not an inline object; write each one as a plain `name: codec` property to match",
+    ],
+    [
+      "spread",
+      "{ ...shared, slug: numberParam }",
+      "This file's params use a spread or accessor; write each one as a plain `name: codec` property to match",
+    ],
+    ["extra", "{ slug: numberParam, other: numberParam }", "Edit this file's params to match"],
   ]) {
     const bytes = `${imports}${parentImport}\nconst shared = {};\nexport default defineRoute("$slug", { parent, params: ${params} });\n`;
+    const message = `Ambiguous filesystem params: the directories give path "$team/${name}/$slug" (added params: team). ${repair}, or move or rename the directory`;
 
     await project.page(`shell/$team/${name}/$slug`);
     await project.write(`src/routes/shell/$team/${name}/$slug/route.ts`, bytes);
-    await assert.rejects(project.generate(), /Ambiguous filesystem codec change|no spreads/, name);
+    await assert.rejects(project.generate(), (error) => error.message.endsWith(message), name);
     assert.equal(await read(`src/routes/shell/$team/${name}/$slug/route.ts`), bytes, name);
     await rm(resolve(project.root, `src/routes/shell/$team/${name}`), {
       recursive: true,
     });
   }
+
+  // A shorthand codec can't be renamed in place; writing it as `name: codec` reconciles it.
+  const shorthand = `${imports}import parent from "../../../route.js";\n\nconst slug = numberParam;\nexport default defineRoute("keys/x/$slug", { parent, params: { slug } });\n`;
+  const renamed = shorthand.replace("{ slug }", "{ key: slug }");
+
+  await project.page("shell/keys/x/$slug");
+  await project.write("src/routes/shell/keys/x/$slug/route.ts", shorthand);
+  await project.generate();
+  await project.move("src/routes/shell/keys/x/$slug", "src/routes/shell/keys/x/$key");
+  await assert.rejects(project.generate(), (error) =>
+    error.message.endsWith(
+      `Ambiguous filesystem params: the directories give path "keys/x/$key" (removed params: slug; added params: key). This file's params use a shorthand property; write each one as a plain \`name: codec\` property to match, or move or rename the directory`,
+    ),
+  );
+  await project.write("src/routes/shell/keys/x/$key/route.ts", renamed);
+  await project.generate();
+  assert.equal(
+    await read("src/routes/shell/keys/x/$key/route.ts"),
+    renamed.replace('"keys/x/$slug"', '"keys/x/$key"'),
+  );
 });
 
 test("local path params get the generated matching guard; misplaced onInvalidParams fails preflight", async () => {
@@ -699,6 +859,7 @@ test("local path params get the generated matching guard; misplaced onInvalidPar
     tsconfig: "tsconfig.json",
     scanDirectories: ["src/routes"],
     outDirectory: "generated",
+    autoDefineRoutes: false,
   };
   const imports = 'import { defineRoute, numberParam } from "@loozo/angular-router";\n';
 
@@ -779,6 +940,7 @@ test("effective search gets the generated matching guard; redirect replacements 
     tsconfig: "tsconfig.json",
     scanDirectories: ["src/routes"],
     outDirectory: "generated",
+    autoDefineRoutes: false,
   };
   const imports =
     'import { defineRoute, numberParam, withFallback } from "@loozo/angular-router";\n';
