@@ -16,6 +16,7 @@ const tsc = join(
 let out;
 let router;
 let launch;
+let origami;
 
 before(async () => {
   out = await mkdtemp(join(tmpdir(), "docs-content-repository-"));
@@ -30,8 +31,13 @@ before(async () => {
     pathToFileURL(join(out, "content/angular-launch.generated.ts")).href
   );
 
+  const origamiModule = await import(
+    pathToFileURL(join(out, "content/origami-ui.generated.ts")).href
+  );
+
   router = routerModule.content;
   launch = launchModule.content;
+  origami = origamiModule.content;
 });
 
 after(async () => {
@@ -232,6 +238,33 @@ test("launch's ./server entry point extracts", () => {
     launch.entryPoints.map((candidate) => candidate.importPath),
     ["@loozo/angular-launch", "@loozo/angular-launch/server", "@loozo/angular-launch/generation"],
   );
+});
+
+test("origami's empty root is left out and its secondary entry points list the public API", () => {
+  const names = {};
+
+  for (const candidate of origami.entryPoints) {
+    names[candidate.importPath] = [];
+
+    for (const apiSymbol of candidate.symbols) {
+      names[candidate.importPath].push(apiSymbol.name);
+    }
+  }
+
+  assert.deepEqual(Object.keys(names), [
+    "@loozo/origami-ui/utils",
+    "@loozo/origami-ui/collection",
+    "@loozo/origami-ui/presence",
+    "@loozo/origami-ui/collapsible",
+    "@loozo/origami-ui/accordion",
+    "@loozo/origami-ui/popover",
+  ]);
+  assert.deepEqual(names["@loozo/origami-ui/utils"], ["injectDeferred", "injectUniqueId"]);
+  // Compiler-required ɵ exports are not application API.
+  assert.equal(names["@loozo/origami-ui/accordion"].includes("ɵOrigamiAccordionRoot"), false);
+  assert.equal(names["@loozo/origami-ui/accordion"].length, 11);
+  assert.equal(names["@loozo/origami-ui/popover"].length, 12);
+  assert.deepEqual(origami.generatedApi, []);
 });
 
 test("generated modules typecheck against model.generated.ts under strict settings", async () => {

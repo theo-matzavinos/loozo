@@ -6,24 +6,22 @@ Every primitive is a directive you put on your own elements, or compose into you
 
 Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation and anchored popovers, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
 
-**Status:** experimental. Version `0.0.1`, MIT license. The package is private and not published until its first release is explicitly prepared.
+**Status:** experimental and published on npm. Version `0.0.1`, MIT license.
 
 ## Install
 
-Once it's published:
-
 ```sh
-pnpm add @loozo/origami-ui
+npm install @loozo/origami-ui
 ```
 
 Peer dependencies:
 
-| Package           | Version  |
-| ----------------- | -------- |
-| `@angular/core`   | `22.2.2` |
-| `@angular/common` | `22.2.2` |
+| Package           | Range     |
+| ----------------- | --------- |
+| `@angular/core`   | `~22.2.2` |
+| `@angular/common` | `~22.2.2` |
 
-The package is tested against Angular 22.2.2, and the peers are exact for now; a broader supported range comes with the first release. Popover positioning uses `@floating-ui/dom` `1.8.0`, a regular dependency. Its types and middleware aren't part of the API.
+The package is tested against Angular 22.2.2. It supports Angular 22.2.x from 22.2.2, not earlier patches: it's built with the 22.2.2 compiler, and an application's Angular compiler must be at least as new as the one a library was built with. Popover positioning uses `@floating-ui/dom` `1.8.0`, a regular dependency. Its types and middleware aren't part of the API.
 
 The root entry point `@loozo/origami-ui` is intentionally empty. Import from the secondary entry points:
 
@@ -294,19 +292,19 @@ Explicit and static `id` bindings always take precedence over generated ones.
 ## Limitations
 
 - No styled components, themes or design tokens. No menu, listbox or select semantics, focus traps, roving tabindex or arrow-key navigation.
-- Peers are exact: Angular 22.2.2 only, until the first release.
+- Angular 22.2.x from 22.2.2 only; tested against 22.2.2.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
 - `until-found` is a progressive enhancement and falls back to `hidden` without find-in-page.
 - Popover supports the `horizontal-tb`, `vertical-rl` and `vertical-lr` writing modes; others fail positioning. It doesn't keep oversized content inside the viewport, doesn't track transform-animated anchors or unobserved ancestor resizes, and doesn't create a source association for Tab order.
-- Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](tests/acceptance/README.md#known-evidence-limits).
+- Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/tests/acceptance/README.md#known-evidence-limits).
 
 ## Further reading
 
-- [SPEC.md](SPEC.md): the product contract.
-- [SPEC-POPOVER.md](SPEC-POPOVER.md): the Popover design.
-- [acceptance/](acceptance/README.md): case definitions (`CASES.md`), public type checks and handwritten consumers.
-- [`examples/origami-ui`](../../examples/origami-ui/README.md): the consumer application the acceptance suite runs.
-- [PROVENANCE.md](PROVENANCE.md): where this package came from.
+- [SPEC.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/SPEC.md): the product contract.
+- [SPEC-POPOVER.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/SPEC-POPOVER.md): the Popover design.
+- [acceptance/](https://github.com/theo-matzavinos/loozo/tree/main/packages/origami-ui/acceptance): case definitions (`CASES.md`), public type checks and handwritten consumers.
+- [`examples/origami-ui`](https://github.com/theo-matzavinos/loozo/tree/main/examples/origami-ui): the consumer application the acceptance suite runs.
+- [PROVENANCE.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/PROVENANCE.md): where this package came from.
 
 ## Developing this package
 
@@ -324,4 +322,4 @@ pnpm run test:full   # the release gate: 24 projects across three engines (about
 
 Acceptance tests the packed build installed into a scratch copy of the example application. On a fresh checkout, the first `test` (or `test:fast`, `test:focus`) runs the clean strict installation itself; after changing the example's `package.json` or the library's dependencies, run `pnpm run acceptance:prepare`. Set `NG_BUILD_MAX_WORKERS=2` on small hosts. WebKit may need private libraries.
 
-The README's code examples live in [`snippets/`](snippets/) and are typechecked by `pnpm run snippets:check`, which `test` and `test:full` run. See [tests/acceptance/README.md](tests/acceptance/README.md) for the suite, its prerequisites and every script.
+The README's code examples live in [`snippets/`](https://github.com/theo-matzavinos/loozo/tree/main/packages/origami-ui/snippets) and are typechecked by `pnpm run snippets:check`, which `test` and `test:full` run. See [tests/acceptance/README.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/tests/acceptance/README.md) for the suite, its prerequisites and every script.

@@ -1,7 +1,6 @@
 {
   "name": "@loozo/origami-ui",
   "version": "0.0.1",
-  "private": true,
   "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion and popover.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
@@ -108,7 +107,7 @@
     "vite-plus": "0.2.5"
   },
   "peerDependencies": {
-    "@angular/common": "22.2.2",
-    "@angular/core": "22.2.2"
+    "@angular/common": "~22.2.2",
+    "@angular/core": "~22.2.2"
   }
 }

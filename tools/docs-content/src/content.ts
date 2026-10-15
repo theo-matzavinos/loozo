@@ -98,8 +98,15 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
         apiSymbols.push(toApiSymbol(context, located.entry, located.importPath, located.source));
       }
 
-      entryPoints.push({ importPath: entryPoint.importPath, symbols: apiSymbols });
       position++;
+
+      // An intentionally empty entry point, such as a root that only secondary entry points
+      // populate, has nothing to list.
+      if (apiSymbols.length === 0) {
+        continue;
+      }
+
+      entryPoints.push({ importPath: entryPoint.importPath, symbols: apiSymbols });
     }
 
     const generatedApi: ApiSymbol[] = [];
