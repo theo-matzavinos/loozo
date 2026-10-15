@@ -2,16 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as root from "@loozo/angular-router";
 
-const {
-  defineRoute,
-  createUrl,
-  stringParam,
-  numberParam,
-  booleanParam,
-  enumParam,
-  optionalSearchParam,
-  nullableSearchParam,
-} = root;
+const { defineRoute, createUrl, stringParam, numberParam, booleanParam, enumParam, withFallback } =
+  root;
 
 test("plain Node public namespace and concrete product consumer", () => {
   assert.deepEqual(Object.keys(root).sort(), [
@@ -19,15 +11,17 @@ test("plain Node public namespace and concrete product consumer", () => {
     "createUrl",
     "defineRoute",
     "enumParam",
-    "nullableSearchParam",
     "numberParam",
-    "optionalSearchParam",
     "stringParam",
+    "withFallback",
   ]);
+  // The optional and nullable search wrappers are gone: every search key is optional.
+  assert.equal("optionalSearchParam" in root, false);
+  assert.equal("nullableSearchParam" in root, false);
 
   const product = defineRoute("products/$productId", {
     params: { productId: numberParam },
-    search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+    search: { tab: enumParam(["details", "reviews"]) },
     fragments: ["summary", "reviews"],
   });
 
@@ -47,24 +41,24 @@ test("plain Node public namespace and concrete product consumer", () => {
 test("transitive pathless ownership, namespaces and global lexical query order", () => {
   const team = defineRoute("teams/$teamId", {
     params: { teamId: numberParam },
-    search: { teamId: stringParam, z: optionalSearchParam(stringParam) },
+    search: { teamId: stringParam, z: stringParam },
     fragments: ["parent"],
   });
   const layout = defineRoute("", { parent: team });
   const child = defineRoute("$id/middle/$id", {
     parent: layout,
     params: { id: stringParam },
-    search: { a: nullableSearchParam(booleanParam) },
+    search: { a: withFallback(booleanParam, false) },
     fragments: ["child"],
   });
 
   assert.equal(
     createUrl(child, {
       params: { teamId: 7, id: "λ/(1)" },
-      search: { teamId: "query", z: "", a: null },
+      search: { teamId: "query", z: "", a: true },
       fragment: "child",
     }),
-    "/teams/7/%CE%BB%2F%281%29/middle/%CE%BB%2F%281%29?a=null&teamId=query&z=#child",
+    "/teams/7/%CE%BB%2F%281%29/middle/%CE%BB%2F%281%29?a=true&teamId=query&z=#child",
   );
   assert.throws(
     () => defineRoute("$teamId", { parent: layout, params: { teamId: numberParam } }),
@@ -217,61 +211,49 @@ test("native symbol resolver/data keys retain callback and opaque identities", (
   assert.equal(createUrl(route, {}), "/symbol");
 });
 
-test("wrapper delegation retains exact promise, throw and rejection identities", async () => {
+test("withFallback delegates present values and validates its arguments", () => {
   const value = { label: "opaque" };
-  const promise = Promise.resolve(value);
-  const codec = { parse: () => promise, stringify: (input) => input.label };
-  const wrappers = [
-    optionalSearchParam(codec),
-    nullableSearchParam(codec),
-    optionalSearchParam(nullableSearchParam(codec)),
-  ];
-
-  for (const wrapper of wrappers) {
-    assert.equal(wrapper.parse("ordinary"), promise);
-    assert.equal(wrapper.stringify(value), "opaque");
-  }
-
-  assert.equal(nullableSearchParam(codec).parse("null"), null);
-  assert.equal(nullableSearchParam(codec).stringify(null), "null");
-
   const failure = new Error("identity");
-  const rejection = Promise.reject(failure);
-
-  void rejection.catch(() => {});
-
-  const rejecting = optionalSearchParam(
-    nullableSearchParam({
-      parse: () => rejection,
-      stringify: () => {
+  const codec = {
+    parse: (raw) => {
+      if (raw === "throw") {
         throw failure;
-      },
-    }),
-  );
+      }
 
-  assert.equal(rejecting.parse("x"), rejection);
-  await assert.rejects(rejection, (error) => error === failure);
-  assert.throws(
-    () => rejecting.stringify("x"),
-    (error) => error === failure,
-  );
-
-  const throwing = nullableSearchParam({
-    parse: () => {
-      throw failure;
+      return value;
     },
-    stringify: String,
-  });
+    stringify: (input) => input.label,
+  };
+  const fallback = { label: "fallback" };
+  const wrapper = withFallback(codec, fallback);
 
+  assert.equal(wrapper.parse("ordinary"), value);
+  assert.equal(wrapper.stringify(value), "opaque");
   assert.throws(
-    () => throwing.parse("x"),
+    () => wrapper.parse("throw"),
     (error) => error === failure,
   );
-  assert.throws(() => nullableSearchParam(optionalSearchParam(numberParam)), TypeError);
+  assert.equal(Object.isFrozen(fallback), false);
 
-  for (const codec of wrappers) {
-    assert.throws(() => defineRoute("$id", { params: { id: codec } }), TypeError);
+  // A fallback may itself be undefined or null.
+  withFallback(numberParam, undefined);
+  withFallback(numberParam, null);
+
+  for (const malformed of [undefined, null, 1, {}, { parse: String }, { stringify: String }]) {
+    assert.throws(() => withFallback(malformed, 1), TypeError);
   }
+
+  assert.throws(() => withFallback(wrapper, fallback), /already has a fallback/);
+
+  // Search-only: a path or catchall param can't read a fallback.
+  assert.throws(
+    () => defineRoute("$id", { params: { id: wrapper } }),
+    /withFallback codecs are search-only/,
+  );
+  assert.throws(
+    () => defineRoute("docs/$parts[]", { params: { parts: withFallback(stringParam, "") } }),
+    /withFallback codecs are search-only/,
+  );
 });
 
 test("catchall arrays, repeated scalar callbacks and cardinality prevalidation", () => {
@@ -307,7 +289,7 @@ test("catchall arrays, repeated scalar callbacks and cardinality prevalidation",
 test("URL runtime boundary validates unknown keys, records, encoding and output types", () => {
   const route = defineRoute("a(b)/%2e/$id", {
     params: { id: stringParam },
-    search: { q: stringParam, opt: optionalSearchParam(stringParam) },
+    search: { q: stringParam, opt: stringParam },
     fragments: ["\uD800"],
   });
   const valid = { params: { id: "a/b" }, search: { q: "", opt: undefined } };
@@ -322,7 +304,7 @@ test("URL runtime boundary validates unknown keys, records, encoding and output 
     { ...valid, extra: true },
     { ...valid, params: { id: "x", extra: "y" } },
     { ...valid, search: { q: "x", extra: "y" } },
-    { ...valid, search: {} },
+    { ...valid, search: null },
     { ...valid, fragment: undefined },
   ]) {
     assert.throws(() => createUrl(route, options), TypeError);
@@ -400,7 +382,8 @@ test("redirect declaration validates shape and remains inert for source URL crea
   for (const malformed of [
     { ...redirect, params: {} },
     { ...redirect, to: { ...target } },
-    { ...redirect, search: { mode: "drop" } },
+    { ...redirect, search: { mode: "drop", values: {} } },
+    { ...redirect, search: { mode: "keep" } },
     { ...redirect, search: { mode: "replace", values: { q: "x", extra: "y" } } },
     { ...redirect, fragment: { mode: "replace", value: "unknown" } },
     { ...redirect, extra: true },
@@ -457,50 +440,26 @@ test("onInvalidParams is a callback on routes with local path params only", () =
   );
 });
 
-test("optional search fallback options are validated and URL creation may omit the key", () => {
-  const page = optionalSearchParam(numberParam, { fallback: 1 });
-  const list = defineRoute("items", {
-    search: { page, sort: optionalSearchParam(stringParam), q: stringParam },
-  });
+test("every search key may be omitted when writing a URL or redirect", () => {
+  const page = withFallback(numberParam, 1);
+  const list = defineRoute("items", { search: { page, sort: stringParam, q: stringParam } });
 
-  assert.equal(page.parse("2"), 2);
-  assert.equal(page.stringify(3), "3");
-  assert.throws(() => page.stringify(undefined), TypeError);
+  assert.equal(createUrl(list, {}), "/items");
+  assert.equal(createUrl(list, { search: {} }), "/items");
   assert.equal(createUrl(list, { search: { q: "x" } }), "/items?q=x");
   assert.equal(createUrl(list, { search: { q: "x", page: undefined } }), "/items?q=x");
   assert.equal(createUrl(list, { search: { q: "x", page: 2 } }), "/items?page=2&q=x");
-  assert.throws(() => createUrl(list, { search: {} }), /Missing required search: q/);
+  assert.throws(() => createUrl(list, { search: { other: 1 } }), /Unknown search values key/);
 
-  // Explicit undefined options mean no options; a fallback may itself be undefined or null.
-  optionalSearchParam(numberParam, undefined);
-  optionalSearchParam(numberParam, { fallback: undefined });
-  optionalSearchParam(nullableSearchParam(numberParam), { fallback: null });
-
-  for (const options of [
-    null,
-    1,
-    [],
-    {},
-    { fallback: 1, extra: true },
-    Object.create({ fallback: 1 }),
+  // No target key is required, so drop, preserve and an empty replacement are all valid.
+  for (const search of [
+    { mode: "drop" },
+    { mode: "preserve" },
+    { mode: "replace", values: {} },
+    { mode: "replace", values: { page: undefined, q: "x" } },
   ]) {
-    assert.throws(() => optionalSearchParam(numberParam, options), TypeError);
+    defineRoute("old", { redirect: { to: list, search, fragment: { mode: "drop" } } });
   }
-
-  assert.throws(() => nullableSearchParam(page), /Nullable cannot wrap optional/);
-  assert.throws(() => defineRoute("$id", { params: { id: page } }), TypeError);
-
-  // A fallback key is optional when writing: redirects may drop it or omit it on replace.
-  const redirect = { to: list, search: { mode: "replace", values: { q: "x" } } };
-
-  defineRoute("old", { redirect: { ...redirect, fragment: { mode: "drop" } } });
-  defineRoute("older", {
-    redirect: {
-      to: defineRoute("paged", { search: { page } }),
-      search: { mode: "drop" },
-      fragment: { mode: "drop" },
-    },
-  });
 });
 
 test("absent prototype-named optional search never reads inherited input", () => {
@@ -514,7 +473,7 @@ test("absent prototype-named optional search never reads inherited input", () =>
     "isPrototypeOf",
     "propertyIsEnumerable",
   ]) {
-    const route = defineRoute("optional", { search: { [key]: optionalSearchParam(stringParam) } });
+    const route = defineRoute("optional", { search: { [key]: stringParam } });
 
     assert.equal(createUrl(route, {}), "/optional");
     assert.equal(createUrl(route, { search: {} }), "/optional");
@@ -532,7 +491,7 @@ test("absent prototype-named optional search never reads inherited input", () =>
         return value.text;
       },
     };
-    const optionalObject = defineRoute("object", { search: { [key]: optionalSearchParam(codec) } });
+    const optionalObject = defineRoute("object", { search: { [key]: codec } });
 
     assert.equal(createUrl(optionalObject, {}), "/object");
     assert.equal(createUrl(optionalObject, { search: {} }), "/object");
@@ -551,7 +510,7 @@ test("absent prototype-named optional search never reads inherited input", () =>
     assert.equal(calls.length, 0);
 
     const mixed = defineRoute("mixed", {
-      search: { required: numberParam, [key]: optionalSearchParam(codec) },
+      search: { required: numberParam, [key]: codec },
     });
 
     assert.equal(createUrl(mixed, { search: { required: 7 } }), "/mixed?required=7");
@@ -579,12 +538,12 @@ test("absent prototype-named optional search never reads inherited input", () =>
     );
     assert.deepEqual(calls, [opaque]);
     assert.equal(Object.isFrozen(opaque.nested), false);
-    assert.throws(() => createUrl(mixed, { search: {} }), TypeError);
+    assert.equal(createUrl(mixed, { search: {} }), "/mixed");
     assert.equal(calls.length, 1);
   }
 });
 
-test("required own undefined is a codec value, including inert redirect replacements", () => {
+test("an undefined search value omits the key; codec values stay opaque", () => {
   let parses = 0;
   let stringifies = 0;
   const sentinel = {
@@ -615,7 +574,7 @@ test("required own undefined is a codec value, including inert redirect replacem
       return "boxed";
     },
   };
-  const target = defineRoute("required", { search: { q: sentinel, box } });
+  const target = defineRoute("target", { search: { q: sentinel, box } });
   const alias = defineRoute("alias", {
     redirect: {
       to: target,
@@ -629,35 +588,15 @@ test("required own undefined is a codec value, including inert redirect replacem
   assert.equal(stringifies, 0);
   assert.equal(Object.isFrozen(opaque), false);
   assert.equal(Object.isFrozen(opaque.nested), false);
-  assert.equal(
-    createUrl(target, { search: { q: undefined, box: opaque } }),
-    "/required?box=boxed&q=sentinel",
-  );
+  assert.equal(createUrl(target, { search: { q: undefined, box: opaque } }), "/target?box=boxed");
+  assert.equal(createUrl(target, { search: { box: opaque } }), "/target?box=boxed");
   assert.equal(stringifies, 2);
   assert.equal(parses, 0);
-  assert.throws(() => createUrl(target, { search: { box: opaque } }), TypeError);
-  assert.throws(
-    () =>
-      defineRoute("missing", {
-        redirect: {
-          to: target,
-          search: { mode: "replace", values: { box: opaque } },
-          fragment: { mode: "drop" },
-        },
-      }),
-    TypeError,
-  );
-  assert.equal(stringifies, 2);
-  assert.equal(parses, 0);
+  // A path value is never omitted, so an undefined-valued path codec still stringifies.
   assert.equal(
     createUrl(defineRoute("$id", { params: { id: sentinel } }), { params: { id: undefined } }),
     "/sentinel",
   );
-
-  const optional = defineRoute("optional", { search: { q: optionalSearchParam(sentinel) } });
-
-  assert.equal(createUrl(optional, {}), "/optional");
-  assert.equal(createUrl(optional, { search: { q: undefined } }), "/optional");
   assert.equal(stringifies, 3);
 });
 

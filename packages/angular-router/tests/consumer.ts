@@ -5,11 +5,12 @@ import {
   numberParam,
   stringParam,
   booleanParam,
-  optionalSearchParam,
-  nullableSearchParam,
+  withFallback,
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
+import type { Handle } from "@loozo/angular-router/_generated";
+import type { Signal } from "@angular/core";
 import type {
   ActivatedRouteSnapshot,
   RouterStateSnapshot,
@@ -31,7 +32,7 @@ function exact<_Type extends true>(): void {}
 
 export const product = defineRoute("products/$productId", {
   params: { productId: numberParam },
-  search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+  search: { tab: enumParam(["details", "reviews"]) },
   fragments: ["summary", "reviews"],
 });
 export const productUrl: string = createUrl(product, {
@@ -58,17 +59,21 @@ const extras = { id: numberParam, extra: stringParam };
 defineRoute("$id", { params: extras });
 // @ts-expect-error No helper root exports.
 import { routeMetadata as _routeMetadata } from "@loozo/angular-router";
+// @ts-expect-error Every search key is optional; the optional wrapper is gone.
+import { optionalSearchParam as _optional } from "@loozo/angular-router";
+// @ts-expect-error The nullable search wrapper is gone.
+import { nullableSearchParam as _nullable } from "@loozo/angular-router";
 
 const objectCodec: ParamCodec<{ label: string; count: number }> = {
-  parse: async (raw) => ({ label: raw, count: 1 }),
+  parse: (raw) => ({ label: raw, count: 1 }),
   stringify: (value) => value.label,
 };
 const parent = defineRoute("teams/$teamId", {
   params: { teamId: numberParam },
   search: {
     teamId: stringParam,
-    flag: nullableSearchParam(booleanParam),
-    box: optionalSearchParam(objectCodec),
+    flag: withFallback(booleanParam, false),
+    box: objectCodec,
   },
   fragments: ["parent"],
   resolve: { ancestor: () => 42 },
@@ -112,7 +117,7 @@ const child = defineRoute("items/$id", {
   title: (inputs, snapshot, state) => {
     exact<Equal<typeof inputs.params.teamId, number>>();
     exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
-    exact<Equal<typeof inputs.search.teamId, string>>();
+    exact<Equal<typeof inputs.search.teamId, string | undefined>>();
     exact<Equal<typeof snapshot, ActivatedRouteSnapshot>>();
     exact<Equal<typeof state, RouterStateSnapshot>>();
 
@@ -129,8 +134,8 @@ const child = defineRoute("items/$id", {
     (inputs, snapshot, state) => {
       exact<Equal<typeof inputs.params.teamId, number>>();
       exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
-      exact<Equal<typeof inputs.search.teamId, string>>();
-      exact<Equal<typeof inputs.search.flag, boolean | null>>();
+      exact<Equal<typeof inputs.search.teamId, string | undefined>>();
+      exact<Equal<typeof inputs.search.flag, boolean>>();
       exact<Equal<typeof inputs.search.box, { label: string; count: number } | undefined>>();
       exact<Equal<typeof snapshot, ActivatedRouteSnapshot>>();
       exact<Equal<typeof state, RouterStateSnapshot>>();
@@ -155,7 +160,7 @@ const child = defineRoute("items/$id", {
   canMatch: [
     (inputs, routeConfig, segments, partialSnapshot) => {
       exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
-      exact<Equal<typeof inputs.search.teamId, string>>();
+      exact<Equal<typeof inputs.search.teamId, string | undefined>>();
       exact<Equal<typeof routeConfig, NativeRoute>>();
       exact<Equal<typeof segments, UrlSegment[]>>();
       exact<Equal<typeof partialSnapshot, PartialMatchRouteSnapshot>>();
@@ -214,7 +219,7 @@ defineRoute("again", { parent: layout, search: { teamId: numberParam } });
 defineRoute("$teamId", { parent: layout, params: { teamId: numberParam } });
 createUrl(child, {
   params: { teamId: 7, id: { label: "x", count: 1 } },
-  search: { teamId: "q", flag: null },
+  search: { teamId: "q", flag: true },
   // @ts-expect-error Only child fragment names are accepted.
   fragment: "parent",
 });
@@ -244,17 +249,28 @@ createUrl(suffix, { params: { scalar: 1, pieces: { label: "x", count: 1 } } });
 // @ts-expect-error Even pathless children of a catchall are excluded.
 defineRoute("", { parent: suffix });
 
-const wrapped = optionalSearchParam(nullableSearchParam(numberParam));
-const explicitNone = defineRoute("explicit-none", {
-  search: { page: optionalSearchParam(numberParam, undefined) },
-});
+// Parsing is synchronous: a codec whose parse returns a promise fails where it is declared.
+const asyncCodec = {
+  parse: async (raw: string) => raw,
+  stringify: (value: string) => value,
+};
+const promisedCodec: ParamCodec<Promise<number>> = {
+  parse: (raw) => Promise.resolve(Number(raw)),
+  stringify: () => "promised",
+};
 
-exact<Equal<NonNullable<typeof explicitNone.__search>["page"], number | undefined>>();
-
-// @ts-expect-error Reversed nullable-optional order.
-nullableSearchParam(optionalSearchParam(numberParam));
-// @ts-expect-error Wrappers cannot be path codecs.
-defineRoute("$id", { params: { id: wrapped } });
+// @ts-expect-error An async path codec is rejected.
+defineRoute("async/$id", { params: { id: asyncCodec } });
+// @ts-expect-error A promise-valued path codec is rejected.
+defineRoute("promised/$id", { params: { id: promisedCodec } });
+// @ts-expect-error An async catchall element codec is rejected.
+defineRoute("async-docs/$parts[]", { params: { parts: asyncCodec } });
+// @ts-expect-error An async search codec is rejected.
+defineRoute("async-search", { search: { q: asyncCodec } });
+// @ts-expect-error A promise-valued search codec is rejected.
+defineRoute("promised-search", { search: { q: promisedCodec } });
+// @ts-expect-error withFallback rejects a promise-valued codec.
+withFallback(promisedCodec, Promise.resolve(1));
 
 const arrayCodec: ParamCodec<readonly string[]> = {
   parse: (raw) => raw.split(","),
@@ -321,9 +337,9 @@ void invalidNative;
 
 const prototypeOptional = defineRoute("prototype-optional", {
   search: {
-    constructor: optionalSearchParam(stringParam),
-    toString: optionalSearchParam(numberParam),
-    ["__proto__"]: optionalSearchParam(enumParam(["one", "two"])),
+    constructor: stringParam,
+    toString: numberParam,
+    ["__proto__"]: enumParam(["one", "two"]),
   },
   resolve: {
     label: ({ search }) => {
@@ -356,7 +372,7 @@ createUrl(prototypeOptional, { search: { toString: "wrong" } });
 // @ts-expect-error Computed prototype key retains its enum union.
 createUrl(prototypeOptional, { search: { ["__proto__"]: "other" } });
 
-const prototypeText = optionalSearchParam(stringParam);
+const prototypeText = stringParam;
 const prototypeAll = defineRoute("all-prototype", {
   search: {
     constructor: prototypeText,
@@ -380,10 +396,10 @@ createUrl(prototypeAll, { search: { extra: "wrong" } });
 createUrl(prototypeAll, { search: { constructor: () => undefined } });
 
 const onlyConstructor = defineRoute("only-constructor", {
-  search: { constructor: optionalSearchParam(stringParam) },
+  search: { constructor: stringParam },
 });
 const onlyToString = defineRoute("only-tostring", {
-  search: { toString: optionalSearchParam(stringParam) },
+  search: { toString: stringParam },
 });
 
 createUrl(onlyConstructor, {});
@@ -430,12 +446,12 @@ defineRoute("prototype-replace-wrong", {
 const mixedPrototype = defineRoute("prototype-mixed", {
   search: {
     q: numberParam,
-    constructor: optionalSearchParam(stringParam),
-    toString: optionalSearchParam(numberParam),
+    constructor: stringParam,
+    toString: numberParam,
   },
   canActivate: [
     ({ search }) => {
-      exact<Equal<typeof search.q, number>>();
+      exact<Equal<typeof search.q, number | undefined>>();
       exact<Equal<typeof search.constructor, string | undefined>>();
       exact<Equal<typeof search.toString, number | undefined>>();
 
@@ -461,7 +477,7 @@ const typedMixed: { q: number; toString: number } = mixedToString;
 const typedTarget: Route<
   "prototype-mixed",
   {},
-  { readonly q: number; readonly constructor?: string; readonly toString?: number }
+  { readonly q?: number; readonly constructor?: string; readonly toString?: number }
 > = mixedPrototype;
 
 createUrl(prototypeOptional, { search: emptySearch });
@@ -489,7 +505,7 @@ createUrl(mixedPrototype, { search: wrongToString });
 createUrl(mixedPrototype, { search: wrongSubset });
 // @ts-expect-error Multiple wrong supplied fields do not widen the selected target.
 createUrl(mixedPrototype, { search: wrongMultiple });
-// @ts-expect-error Required bindings still retain their codec type through a variable.
+// @ts-expect-error Supplied bindings retain their codec type through a variable.
 createUrl(mixedPrototype, { search: wrongRequired });
 
 const ordinary = defineRoute("ordinary", { search: { q: numberParam } });
@@ -503,10 +519,10 @@ createUrl(ordinary, { search: { q: 7, extra: "literal" } });
 createUrl(ordinary, { search: { q: 7, constructor: () => undefined } });
 // @ts-expect-error Native toString is also unknown when not declared by the target.
 createUrl(ordinary, { search: { q: 7, toString: () => "wrong" } });
-// @ts-expect-error Mixed required key still requires the search record.
+// Every search key may be omitted.
 createUrl(mixedPrototype, {});
-// @ts-expect-error Mixed required key still requires its own binding.
 createUrl(mixedPrototype, { search: {} });
+createUrl(mixedPrototype, { search: { q: undefined } });
 // @ts-expect-error Mixed map retains ordinary value type checks.
 createUrl(mixedPrototype, { search: { q: "wrong" } });
 // @ts-expect-error Mixed inputs do not admit native Function values.
@@ -608,37 +624,19 @@ defineRoute("variable-structural-replace", {
   },
 });
 
+// No destination search key is required, so every policy accepts any target.
 defineRoute("mixed-drop", {
-  // @ts-expect-error Required destination search cannot be dropped.
   redirect: { to: mixedPrototype, search: { mode: "drop" }, fragment: { mode: "drop" } },
 });
 defineRoute("mixed-missing", {
   redirect: {
     to: mixedPrototype,
-    // @ts-expect-error Required replacement keys cannot be omitted.
     search: { mode: "replace", values: {} },
     fragment: { mode: "drop" },
   },
 });
-defineRoute("mixed-optional", {
-  search: { q: optionalSearchParam(numberParam) },
-  // @ts-expect-error Optional source q cannot guarantee required destination q.
+defineRoute("mixed-preserve-searchless", {
   redirect: { to: mixedPrototype, search: { mode: "preserve" }, fragment: { mode: "drop" } },
-});
-
-const requiredConstructor = defineRoute("required-constructor", {
-  search: { constructor: stringParam, toString: optionalSearchParam(numberParam) },
-});
-
-createUrl(requiredConstructor, { search: { constructor: "logical" } });
-// @ts-expect-error Required prototype-named binding still requires a record.
-createUrl(requiredConstructor, {});
-// @ts-expect-error Required prototype-named binding cannot be omitted.
-createUrl(requiredConstructor, { search: {} });
-defineRoute("required-ctor-preserve", {
-  search: { constructor: optionalSearchParam(stringParam) },
-  // @ts-expect-error Optional prototype-named source cannot guarantee a required binding.
-  redirect: { to: requiredConstructor, search: { mode: "preserve" }, fragment: { mode: "drop" } },
 });
 
 const undefinedCodec: ParamCodec<undefined> = {
@@ -657,8 +655,11 @@ const ownUndefined = defineRoute("own-undefined", {
   resolve: {
     local: ({ search }) => {
       exact<Equal<typeof search.q, undefined>>();
-      exact<Equal<typeof search.box, BoxWithUndefined>>();
-      search.box.nested.mutable = false;
+      exact<Equal<typeof search.box, BoxWithUndefined | undefined>>();
+
+      if (search.box) {
+        search.box.nested.mutable = false;
+      }
 
       return search.q;
     },
@@ -678,16 +679,7 @@ defineRoute("undefined-replace", {
     fragment: { mode: "drop" },
   },
 });
-// @ts-expect-error Undefined logical value does not make q optional.
 createUrl(ownUndefined, { search: { box: boxWithUndefined } });
-defineRoute("undefined-missing", {
-  redirect: {
-    to: ownUndefined,
-    // @ts-expect-error Missing required replacement is still rejected.
-    search: { mode: "replace", values: { box: boxWithUndefined } },
-    fragment: { mode: "drop" },
-  },
-});
 // @ts-expect-error Concrete undefined logical value is not a string.
 createUrl(ownUndefined, { search: { q: "wrong", box: boxWithUndefined } });
 createUrl(ownUndefined, {
@@ -747,20 +739,21 @@ defineRoute("invalid-redirect/$id", {
   onInvalidParams: () => false,
 });
 
-// A fallback key always reads a value but may be omitted when writing a URL.
+// A plain search key reads as optional; a fallback key always reads a value.
+// Either may be omitted, or passed as undefined, when writing a URL.
 const paged = defineRoute("paged", {
   search: {
-    page: optionalSearchParam(numberParam, { fallback: 1 }),
-    sort: optionalSearchParam(enumParam(["asc", "desc"])),
-    score: optionalSearchParam(nullableSearchParam(numberParam), { fallback: null }),
+    page: withFallback(numberParam, 1),
+    sort: enumParam(["asc", "desc"]),
+    score: withFallback(numberParam, 0),
     q: stringParam,
   },
   resolve: {
     read: ({ search }) => {
       exact<Equal<typeof search.page, number>>();
       exact<Equal<typeof search.sort, "asc" | "desc" | undefined>>();
-      exact<Equal<typeof search.score, number | null>>();
-      exact<Equal<typeof search.q, string>>();
+      exact<Equal<typeof search.score, number>>();
+      exact<Equal<typeof search.q, string | undefined>>();
 
       return search.page;
     },
@@ -776,31 +769,35 @@ const paged = defineRoute("paged", {
 type PagedSearch = NonNullable<typeof paged.__search>;
 
 exact<Equal<PagedSearch["page"], number>>();
-exact<Equal<PagedSearch["score"], number | null>>();
+exact<Equal<PagedSearch["q"], string | undefined>>();
+createUrl(paged, {});
+createUrl(paged, { search: {} });
 createUrl(paged, { search: { q: "x" } });
-createUrl(paged, { search: { q: "x", page: 2, score: null, sort: "asc" } });
-createUrl(paged, { search: { q: "x", page: undefined } });
+createUrl(paged, { search: { q: "x", page: 2, score: 3, sort: "asc" } });
+createUrl(paged, { search: { q: undefined, page: undefined } });
 // @ts-expect-error Fallback keys keep their codec type when supplied.
 createUrl(paged, { search: { q: "x", page: "2" } });
-// @ts-expect-error Plain required keys stay required.
-createUrl(paged, { search: { page: 2 } });
+// @ts-expect-error Plain keys keep their codec type when supplied.
+createUrl(paged, { search: { q: 2 } });
+// @ts-expect-error Unknown search keys fail.
+createUrl(paged, { search: { other: 2 } });
 
 const fallbackOnly = defineRoute("fallback-only", {
-  search: { page: optionalSearchParam(numberParam, { fallback: 1 }) },
+  search: { page: withFallback(numberParam, 1) },
 });
 
 createUrl(fallbackOnly, {});
 createUrl(fallbackOnly, { search: {} });
 // @ts-expect-error The fallback has the codec's value type.
-optionalSearchParam(numberParam, { fallback: "1" });
-// @ts-expect-error An options record requires a fallback.
-optionalSearchParam(numberParam, {});
+withFallback(numberParam, "1");
+// @ts-expect-error A fallback is required.
+withFallback(numberParam);
 // @ts-expect-error Fallback codecs are search-only.
-defineRoute("$id", { params: { id: optionalSearchParam(numberParam, { fallback: 1 }) } });
-// @ts-expect-error Nullable cannot wrap an optional search codec, fallback or not.
-nullableSearchParam(optionalSearchParam(numberParam, { fallback: 1 }));
+defineRoute("$id", { params: { id: withFallback(numberParam, 1) } });
+// @ts-expect-error Fallback codecs are search-only, catchall elements included.
+defineRoute("fallback-docs/$parts[]", { params: { parts: withFallback(stringParam, "") } });
 
-// Redirects: fallback keys are never required, on either side.
+// Redirects: no search key is ever required, on either side.
 defineRoute("fallback-drop", {
   redirect: { to: fallbackOnly, search: { mode: "drop" }, fragment: { mode: "drop" } },
 });
@@ -817,20 +814,38 @@ defineRoute("fallback-replace", {
 defineRoute("fallback-replace-value", {
   redirect: {
     to: paged,
-    search: { mode: "replace", values: { q: "x", page: 3 } },
+    search: { mode: "replace", values: { q: "x", page: 3, score: undefined } },
     fragment: { mode: "drop" },
   },
 });
-
-const requiredPage = defineRoute("required-page", { search: { page: numberParam } });
-
-defineRoute("fallback-source", {
-  search: { page: optionalSearchParam(numberParam, { fallback: 1 }) },
-  // @ts-expect-error A fallback source key may be absent from the URL it preserves.
-  redirect: { to: requiredPage, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+defineRoute("fallback-replace-wrong", {
+  redirect: {
+    to: paged,
+    // @ts-expect-error Replacement values keep their codec type.
+    search: { mode: "replace", values: { page: "3" } },
+    fragment: { mode: "drop" },
+  },
 });
 // Children inherit the read and write shapes.
 const pagedChild = defineRoute("child", { parent: fallbackOnly });
 
 exact<Equal<NonNullable<typeof pagedChild.__search>["page"], number>>();
 createUrl(pagedChild, {});
+
+// The generated handle exposes readonly Signals of the committed snapshot, not Resources.
+declare const pagedHandle: Handle<typeof paged>;
+declare const childHandle: Handle<typeof child>;
+const pagedSearch: Signal<Readonly<PagedSearch>> = pagedHandle.search;
+
+exact<Equal<ReturnType<typeof pagedHandle.search>["page"], number>>();
+exact<Equal<ReturnType<typeof pagedHandle.search>["sort"], "asc" | "desc" | undefined>>();
+exact<Equal<ReturnType<typeof childHandle.params>["teamId"], number>>();
+exact<Equal<ReturnType<typeof childHandle.data>["local"], { label: string }>>();
+void pagedSearch;
+// @ts-expect-error A Signal has no Resource value().
+void pagedHandle.params.value();
+// @ts-expect-error The signals are not writable.
+pagedHandle.search.set({ page: 1, score: 0 });
+declare const otherData: typeof pagedHandle.data;
+// @ts-expect-error The handle's signal properties are readonly.
+pagedHandle.data = otherData;

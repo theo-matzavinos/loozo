@@ -22,14 +22,10 @@ export default class ApiSymbolPage {
   readonly route = injectRoute();
   readonly content = inject(CurrentPackage);
 
-  /** undefined while loading; the route's guard has checked that the symbol exists. */
+  /** The route's guard has checked that the symbol exists. */
   readonly page = computed(() => {
-    const params = this.route.params.value();
+    const params = this.route.params();
     const content = this.content();
-
-    if (params === undefined || !content) {
-      return undefined;
-    }
 
     for (const entryPoint of content.entryPoints) {
       for (const symbol of entryPoint.symbols) {

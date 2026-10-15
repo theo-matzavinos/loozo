@@ -1,6 +1,6 @@
 # @loozo/angular-router
 
-Typed routes for Angular's own router. You declare each route once with `defineRoute`: its path, its parent, and codecs for its path params, search params and fragments. A build step turns those declarations into an ordinary Angular `Routes` array plus a small typed module next to each route. Pages read parsed inputs as Angular Resources and build links and navigations that TypeScript checks against the target route.
+Typed routes for Angular's own router. You declare each route once with `defineRoute`: its path, its parent, and codecs for its path params, search params and fragments. A build step turns those declarations into an ordinary Angular `Routes` array plus a small typed module next to each route. Pages read parsed inputs as Angular signals and build links and navigations that TypeScript checks against the target route.
 
 Angular still does all the routing: matching, activation, guards, resolvers, redirects, history and lazy loading. This package doesn't add a second router; it generates the configuration Angular consumes.
 
@@ -66,7 +66,7 @@ A route is a directory under the scan directory with a declaration file and, opt
 
 Running `ng build` or `ng serve` writes `generated/routes.generated.ts`, `generated/destinations.generated.ts` and `src/routes/product/route.generated.ts`. The page is lazy-loaded with `loadComponent`.
 
-The template checks `hasValue()` before reading values, which load after the page is created. A URL such as `/products/abc` doesn't match this route at all: a path param that fails to parse makes Angular try its next route, such as a `$segments[]` not-found route. A missing, repeated or unknown `tab` reads as its fallback, `"details"`.
+The template reads the signals directly: they hold the activated route's values from the moment the page is created. A URL such as `/products/abc` doesn't match this route at all: a path param that fails to parse makes Angular try its next route, such as a `$segments[]` not-found route. A missing, repeated or unknown `tab` reads as its fallback, `"details"`.
 
 ## Declaring routes
 
@@ -123,36 +123,35 @@ A child declares only its own params; it inherits its ancestors' params and sear
 | `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail) |
 | `booleanParam`               | Exactly `true` or `false`                                                    |
 | `enumParam(values)`          | One of the listed strings, typed as their union                              |
-| `optionalSearchParam(codec)` | Search only: the key may be absent, or read a fallback                       |
-| `nullableSearchParam(codec)` | Search only: the literal value `null` maps to `null`                         |
+| `withFallback(codec, value)` | Search only: reads `value` when the key is missing, repeated or invalid      |
 
-Search params are required unless wrapped in `optionalSearchParam`. `optionalSearchParam(nullableSearchParam(codec))` distinguishes absent, `null` and a value. For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
+For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
 
-Search params never stop a route from matching, and optional ones never fail:
+Search params never stop a route from matching, and they never fail. Every search key is optional:
 
 ```ts
 search: {
-  page: optionalSearchParam(numberParam, { fallback: 1 }),
-  sort: optionalSearchParam(enumParam(["asc", "desc"])),
-  q: stringParam,
+  page: withFallback(numberParam, 1),
+  sort: enumParam(["asc", "desc"]),
 }
 ```
 
-| Search key             | Missing      | Repeated or invalid |
-| ---------------------- | ------------ | ------------------- |
-| Optional, no fallback  | Absent       | Absent              |
-| Optional with fallback | The fallback | The fallback        |
-| Required (plain codec) | Error        | Error               |
+| Search key           | Missing      | Repeated or invalid |
+| -------------------- | ------------ | ------------------- |
+| Plain codec (`sort`) | Absent       | Absent              |
+| `withFallback`       | The fallback | The fallback        |
 
-A key with a fallback always reads a value (`page` is a `number`, never `undefined`), but links, `createUrl`, navigation and redirects can still leave it out. For a nullable key, use `optionalSearchParam(nullableSearchParam(codec), { fallback: null })`.
+`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). Links, `createUrl`, navigation and redirects can leave out any search key.
 
-A custom codec implements `ParamCodec<Value>`. `parse` receives the already-decoded text and may be async; `stringify` must be synchronous:
+A custom codec implements `ParamCodec<Value>`. Both methods are synchronous: `parse` receives the already-decoded text and returns the value, and `stringify` returns the text:
 
 [src/slug.ts](snippets/src/slug.ts)
 
+Parsing should be pure and deterministic. A path codec runs twice per navigation: once while Angular matches routes and again for the activated route. A codec whose `parse` returns a Promise is a type error where you declare it; if one slips through (from JavaScript, say), the navigation fails with a `TypeError` rather than treating the value as invalid. Codecs don't run in an injection context and don't need one: load data in resolvers or guards instead.
+
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `optionalSearchParam` and `nullableSearchParam`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs.
+The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam` and `withFallback`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs.
 
 ### Fragments
 
@@ -164,7 +163,7 @@ The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `num
 
 [src/product-url.ts](snippets/src/product-url.ts)
 
-All path params are required, including inherited ones. Search params follow their codecs (required, optional or nullable). Query keys are sorted, values are percent-encoded, and a `/` inside a param value becomes `%2F`. Catchall values are arrays:
+All path params are required, including inherited ones. Search params are all optional: an omitted or `undefined` value leaves the key out. Query keys are sorted, values are percent-encoded, and a `/` inside a param value becomes `%2F`. Catchall values are arrays:
 
 [src/docs-url.ts](snippets/src/docs-url.ts#catchall)
 
@@ -179,13 +178,11 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 
 [src/routes/item/inputs.ts](snippets/src/routes/item/inputs.ts#inputs)
 
-`params`, `search` and `data` are read-only Angular Resources, so `status()`, `isLoading()`, `hasValue()`, `value()` and `error()` all work. Check `hasValue()` before reading `value()`: reading the value of a Resource in the error state throws. While a navigation is in progress they keep the values of the page that's still on screen and report `isLoading()` (status `"reloading"`), so the page doesn't empty while the next one loads. When the navigation completes, they change to the new route's values; when it's cancelled or fails, they keep the current values. During a navigation, a route that hasn't parsed its inputs yet, or whose parsing failed, is loading with `undefined` values.
-
-`params` and `search` are parsed together and settle together. If a codec fails after the route has activated, both are in the error state, and the error has `source` (`"path"` or `"search"`), `key` and `reason` (`"missing"`, `"repeated"` or `"invalid"`). Since a route whose path params fail to parse doesn't match, that takes a required search param, or a codec that rejects a value it accepted while matching (path codecs run once while matching and again for the activated route). `data` settles on its own and isn't affected by that failure, so check `params` or `search` for parsing errors, not `data`. A failed navigation is different: when a guard or resolver throws, for example, the URL and the routes on screen don't change, so their Resources keep their values. Handle that error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`.
+`params`, `search` and `data` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), all three change together. When a navigation is cancelled or fails, they keep their values; handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
 
 `data` holds this route's own resolver results only, not static `data`, parent data or the title.
 
-Parsing keeps Angular's stability pending until the values are published, so server rendering waits for async codecs.
+Reading `params` or `search` throws only if a path codec rejects a value it accepted while matching, which a pure codec never does.
 
 ### Links and navigation
 
@@ -212,9 +209,9 @@ A `destination` must come from the same generated route set as the handle. Desti
 | `canMatch`         | This route's own path params plus all search params; no ancestor path params |
 | `canDeactivate`    | Angular's native form, unchanged; no parsing                                 |
 
-Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). Optional search values recover before any guard runs (absent, or the fallback). A failing required search value, or a path param that fails only after matching, fails the navigation with that error before the guard runs. Path params that fail during matching are different: they decide whether a route matches.
+Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). Search values recover before any guard runs (absent, or the fallback). Path params that fail to parse decide whether a route matches, so a guard only sees valid ones. Every callback (guards, resolvers, `title` and `onInvalidParams`) is called synchronously in the injection context Angular provides, so `inject()` works at its start, before any `await`.
 
-Every route with path params of its own gets a generated `canMatch` that parses them. If one fails, the route doesn't match and Angular tries its next route, ending at the closest `$segments[]` catchall, so guards, resolvers and pages never see a value their codec rejects. Your own `canMatch` guards aren't called then. `onInvalidParams` replaces that outcome:
+Every route with path params of its own or with search params gets a generated `canMatch` that parses them, search after the path. Search never decides the match. If a path param fails, the route doesn't match and Angular tries its next route, ending at the closest `$segments[]` catchall, so guards, resolvers and pages never see a value their codec rejects. Your own `canMatch` guards aren't called then. `onInvalidParams` replaces that outcome:
 
 ```ts
 export default defineRoute("items/$id", {
@@ -228,7 +225,7 @@ It receives the parse error (`source: "path"`, `key`, `reason`, and the codec's 
 
 A value that parses but doesn't exist, such as an unknown slug, is still yours to handle, for example with a `canActivate` that returns `new RedirectCommand(notFoundUrl, { browserUrl: state.url })`: Angular renders your not-found route while the address bar keeps the requested URL. The not-found URL must not match the guarded route again, or the redirect loops.
 
-Resolvers get the parsed inputs too, and `inject()` works at the start of the callback:
+Resolvers get the parsed inputs too:
 
 [src/routes/item/definition.ts](snippets/src/routes/item/definition.ts)
 
@@ -281,9 +278,9 @@ Use `{ "filename": "definition.ts" }` to seed a different file name. It must be 
 
 ## Server rendering and hydration
 
-The generated routes work with Angular SSR and `provideClientHydration` without extra setup; there's no transfer cache or custom renderer. Parsing and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values. A codec whose promise never settles keeps rendering pending; the package adds no timeout.
+The generated routes work with Angular SSR and `provideClientHydration` without extra setup; there's no transfer cache or custom renderer. Parsing is synchronous and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values and resolved data.
 
-[`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with async codecs, a resolver, a redirect and hydration.
+[`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with a search fallback, a resolver, a redirect and hydration.
 
 ## What gets generated
 

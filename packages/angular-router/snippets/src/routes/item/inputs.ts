@@ -8,8 +8,8 @@ import { injectRoute } from "./route.generated.js";
 export function readInputs() {
   const route = injectRoute();
 
-  route.params; // Resource<{ teamId: number; id: number } | undefined>
-  route.search; // Resource<{ score?: number } | undefined>
-  route.data; // Resource<{ item: Item } | undefined>, local resolver results only
+  route.params(); // { teamId: number; id: number }
+  route.search(); // { score?: number }
+  route.data(); // { item: Item }, local resolver results only
 }
 // #endregion inputs

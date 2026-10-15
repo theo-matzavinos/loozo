@@ -538,9 +538,8 @@ export async function validateRoutes(
       }
     }
 
-    // URL-writing shapes: a key with a fallback is optional there, though it always reads a value.
-    const sourceSearch = typeWitness(declaration, "__searchInput");
-    const targetSearch = typeWitness(declaration.target, "__searchInput");
+    // Every search key is optional when writing a URL, so only replacement values need checking.
+    const targetSearch = typeWitness(declaration.target, "__search");
     const search = fields.get("search");
     const fragment = fields.get("fragment");
 
@@ -606,34 +605,6 @@ export async function validateRoutes(
       }
     }
 
-    const required = targetSearch
-      .getProperties()
-      .filter((property) => !(property.flags & ts.SymbolFlags.Optional));
-
-    if (mode.text === "drop" && required.length > 0) {
-      fail(
-        search,
-        `Cannot drop required destination search: ${required.map((property) => property.name).join(", ")}`,
-      );
-    }
-
-    if (mode.text === "preserve") {
-      for (const key of required) {
-        const sourceKey = sourceSearch.getProperty(key.name);
-
-        if (
-          !sourceKey ||
-          sourceKey.flags & ts.SymbolFlags.Optional ||
-          !checker.isTypeAssignableTo(
-            checker.getTypeOfSymbolAtLocation(sourceKey, search),
-            checker.getTypeOfSymbolAtLocation(key, search),
-          )
-        ) {
-          fail(search, `Source cannot guarantee required destination search: ${key.name}`);
-        }
-      }
-    }
-
     if (mode.text === "replace") {
       const values = policy.get("values");
 
@@ -646,22 +617,27 @@ export async function validateRoutes(
       for (const key of type.getProperties()) {
         const targetKey = targetSearch.getProperty(key.name);
 
-        if (
-          !targetKey ||
-          !checker.isTypeAssignableTo(
-            checker.getTypeOfSymbolAtLocation(key, values),
-            checker.getTypeOfSymbolAtLocation(targetKey, values),
-          )
-        ) {
+        if (!targetKey) {
           fail(values, `Unknown/incompatible redirect replacement key: ${key.name}`);
         }
-      }
 
-      for (const key of required) {
-        const supplied = type.getProperty(key.name);
+        // Replacements use the write type, `Value | undefined`: undefined omits the key, even
+        // one that reads a fallback, so only the other constituents must be codec values.
+        const supplied = checker.getTypeOfSymbolAtLocation(key, values);
+        const target = checker.getTypeOfSymbolAtLocation(targetKey, values);
+        let constituents = [supplied];
 
-        if (!supplied || supplied.flags & ts.SymbolFlags.Optional) {
-          fail(values, `Missing required redirect replacement: ${key.name}`);
+        if (supplied.isUnion()) {
+          constituents = supplied.types;
+        }
+
+        for (const constituent of constituents) {
+          if (
+            !(constituent.flags & ts.TypeFlags.Undefined) &&
+            !checker.isTypeAssignableTo(constituent, target)
+          ) {
+            fail(values, `Unknown/incompatible redirect replacement key: ${key.name}`);
+          }
         }
       }
     }

@@ -1,4 +1,4 @@
-import { Injector, inject, runInInjectionContext } from "@angular/core";
+import { inject } from "@angular/core";
 import {
   Router,
   RedirectCommand,
@@ -13,61 +13,21 @@ import {
   type ResolveFn,
   type RedirectFunction,
 } from "@angular/router";
-import { Observable, from, isObservable, map, type ObservableInput } from "rxjs";
-import { routeMetadata, codecPresence, type AnyRoute } from "@loozo/angular-router/_core";
+import { from, isObservable, map, type ObservableInput } from "rxjs";
+import { routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
 import {
-  assertIdentity,
   hasIdentity,
   parseInputs,
   matchingInputs,
-  pathOperation,
-  runJobs,
+  pathInputs,
+  runPathJobs,
   validateRaw,
   type Job,
   type RouteSet,
 } from "./inputs.js";
 
-function isPromiseResult<T>(value: unknown): value is Promise<T> {
-  return !!value && typeof (value as Promise<T>).then === "function";
-}
-
-function bridge<T>(
-  inputs: () => Promise<unknown>,
-  callback: (inputs: any) => T | ObservableInput<T>,
-): Observable<T> {
-  const injector = inject(Injector);
-
-  return new Observable((subscriber) => {
-    let subscription: { unsubscribe(): void } | undefined;
-
-    inputs().then(
-      (value) => {
-        if (subscriber.closed) {
-          return;
-        }
-
-        try {
-          const result = runInInjectionContext(injector, () => callback(value));
-
-          if (isObservable(result)) {
-            subscription = result.subscribe(subscriber);
-          } else if (isPromiseResult<T>(result)) {
-            subscription = from(Promise.resolve(result)).subscribe(subscriber);
-          } else {
-            subscriber.next(result as T);
-            subscriber.complete();
-          }
-        } catch (error) {
-          subscriber.error(error);
-        }
-      },
-      (error) => subscriber.error(error),
-    );
-
-    return () => subscription?.unsubscribe();
-  });
-}
-
+// Parsing is synchronous, so every adapter calls its callback in the same call Angular
+// made: Angular's injection context is still active and inject() works at entry.
 export function callbacks(
   set: RouteSet,
   id: string,
@@ -81,14 +41,8 @@ export function callbacks(
   if (activate) {
     result.canActivate = activate.map(
       (callback): CanActivateFn =>
-        (snapshot, state) => {
-          assertIdentity(snapshot, id);
-
-          return bridge<GuardResult>(
-            () => parseInputs(set, id, snapshot),
-            (inputs) => callback(inputs, snapshot, state),
-          );
-        },
+        (snapshot, state) =>
+          callback(parseInputs(set, id, snapshot), snapshot, state),
     );
   }
 
@@ -115,12 +69,7 @@ export function callbacks(
             throw new Error(`Generated guard ancestor missing: ${id}`);
           }
 
-          assertIdentity(parent, id);
-
-          return bridge<GuardResult>(
-            () => parseInputs(set, id, parent),
-            (inputs) => callback(inputs, child, state),
-          );
+          return callback(parseInputs(set, id, parent), child, state);
         },
     );
   }
@@ -130,59 +79,48 @@ export function callbacks(
 
   // Local path params decide whether this record matches. Angular runs every canMatch
   // guard concurrently and prefers the first non-true result in array order.
-  if (metadata.localSegments.some((segment) => segment.kind !== "static")) {
+  if (
+    metadata.localSegments.some((segment) => segment.kind !== "static") ||
+    Object.keys(metadata.search).length > 0
+  ) {
     const handler = config.onInvalidParams as ((...args: any[]) => unknown) | undefined;
 
     canMatch.push((route, segments, snapshot) => {
-      assertIdentity(snapshot, id);
+      const path = pathInputs(set, id, snapshot);
 
-      return bridge<GuardResult>(
-        async () => {
-          try {
-            await pathOperation(set, id, snapshot).promise;
-          } catch (error) {
-            return error;
-          }
+      if (!("error" in path)) {
+        // Search never decides the match, but Angular runs this guard on every navigation,
+        // query-only ones included, so a thenable search parse fails it here.
+        matchingInputs(set, id, snapshot);
 
-          return undefined;
-        },
-        (error) => {
-          if (error === undefined) {
-            return true;
-          }
+        return true;
+      }
 
-          if (!handler) {
-            return false;
-          }
+      if (!handler) {
+        return false;
+      }
 
-          const decision = handler(error, route, segments, snapshot);
+      const decision = handler(path.error, route, segments, snapshot);
 
-          if (isObservable(decision) || isPromiseResult(decision)) {
-            return from(decision as ObservableInput<unknown>).pipe(map(invalidParamsResult));
-          }
+      if (isObservable(decision) || isPromiseResult(decision)) {
+        return from(decision as ObservableInput<unknown>).pipe(map(invalidParamsResult));
+      }
 
-          return invalidParamsResult(decision);
-        },
-      );
+      return invalidParamsResult(decision);
     });
   }
 
   if (matching) {
     for (const callback of matching) {
       canMatch.push((route, segments, snapshot) => {
-        assertIdentity(snapshot, id);
+        const inputs = matchingInputs(set, id, snapshot);
 
-        return bridge<GuardResult>(
-          () => matchingInputs(set, id, snapshot),
-          (inputs) => {
-            // Invalid path params: the generated guard ahead of this one decides.
-            if (inputs === undefined) {
-              return false;
-            }
+        // Invalid path params: the generated guard ahead of this one decides.
+        if (inputs === undefined) {
+          return false;
+        }
 
-            return callback(inputs, route, segments, snapshot);
-          },
-        );
+        return callback(inputs, route, segments, snapshot);
       });
     }
   }
@@ -202,14 +140,8 @@ export function callbacks(
     const resolve: Record<PropertyKey, ResolveFn<unknown>> = Object.create(null);
 
     for (const key of Reflect.ownKeys(resolvers)) {
-      resolve[key] = (snapshot, state) => {
-        assertIdentity(snapshot, id);
-
-        return bridge(
-          () => parseInputs(set, id, snapshot),
-          (inputs) => resolvers[key](inputs, snapshot, state),
-        );
-      };
+      resolve[key] = (snapshot, state) =>
+        resolvers[key](parseInputs(set, id, snapshot), snapshot, state);
     }
 
     result.resolve = resolve;
@@ -222,19 +154,16 @@ export function callbacks(
 
   // Angular runs a title callback as a resolver, so it's adapted like one.
   if (typeof title === "function") {
-    result.title = (snapshot, state) => {
-      assertIdentity(snapshot, id);
-
-      return bridge<string>(
-        () => parseInputs(set, id, snapshot),
-        (inputs) => title(inputs, snapshot, state),
-      );
-    };
+    result.title = (snapshot, state) => title(parseInputs(set, id, snapshot), snapshot, state);
   } else if (title !== undefined) {
     result.title = title;
   }
 
   return result;
+}
+
+function isPromiseResult(value: unknown): value is PromiseLike<unknown> {
+  return !!value && typeof (value as PromiseLike<unknown>).then === "function";
 }
 
 // Invalid params can't match, so a handler may only refuse or redirect.
@@ -247,7 +176,7 @@ function invalidParamsResult(decision: unknown): GuardResult {
 }
 
 export function redirect(definition: () => AnyRoute): RedirectFunction {
-  return async (snapshot) => {
+  return (snapshot) => {
     const router = inject(Router);
     const source = routeMetadata(definition());
     const config = source.config.redirect as {
@@ -277,37 +206,22 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
 
     const jobs: Job[] = [];
 
+    // Only mapped source params are parsed, each cardinality checked before any parser runs.
     for (const key of new Set(Object.values(config.params))) {
       const input = raw.get(key);
       const raws = input?.values ?? [];
       const array = input?.array ?? false;
 
-      validateRaw("path", key, raws, array);
-      jobs.push({ source: "path", key, raws, array, codec: source.params[key] });
+      validateRaw(key, raws, array);
+      jobs.push({ key, raws, array, codec: source.params[key] });
     }
 
-    if (config.search.mode === "preserve") {
-      for (const key of Object.keys(target.search)) {
-        const codec = target.search[key];
-        const raws = snapshot.queryParamMap.getAll(key);
-
-        // An optional destination key recovers any incoming value, so it has nothing to check.
-        if (codecPresence(codec) === "optional") {
-          continue;
-        }
-
-        validateRaw("search", key, raws, false);
-        jobs.push({ source: "search", key, raws, array: false, codec });
-      }
-    }
-
-    // Every demand is prechecked. Async wrappers observe even synchronous preserved-search
-    // throws after earlier source jobs launch, without detaching those later rejections.
-    const logical = await runJobs(jobs);
+    // A failure fails the navigation: a redirect record has no matching guard to fall through.
+    const logical = runPathJobs(jobs);
     const params: Record<string, unknown> = Object.create(null);
 
     for (const [key, sourceKey] of Object.entries(config.params)) {
-      params[key] = logical.params[sourceKey];
+      params[key] = logical[sourceKey];
     }
 
     const path = createUrlForPath(config.to, params);
@@ -317,16 +231,11 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
       const values = config.search.values!;
 
       for (const key of Object.keys(target.search).sort()) {
-        const codec = target.search[key];
-
-        if (
-          codecPresence(codec) === "optional" &&
-          (!Object.hasOwn(values, key) || values[key] === undefined)
-        ) {
+        if (!Object.hasOwn(values, key) || values[key] === undefined) {
           continue;
         }
 
-        const raw = codec.stringify(values[key]);
+        const raw = target.search[key].stringify(values[key]);
 
         if (typeof raw !== "string") {
           throw new TypeError(`Redirect search codec must stringify to a string: ${key}`);
@@ -336,7 +245,7 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
       }
     }
 
-    // No native conversion before demanded codecs and destination stringification succeed.
+    // No native conversion before source codecs and destination stringification succeed.
     const tree = router.parseUrl(path);
 
     if (config.search.mode === "preserve") {

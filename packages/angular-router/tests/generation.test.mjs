@@ -462,3 +462,102 @@ test("local path params get the generated matching guard; misplaced onInvalidPar
     assert.equal(await readFile(routes, "utf8"), generated);
   }
 });
+
+test("effective search gets the generated matching guard; redirect replacements use the write type", async () => {
+  const root = await fixture();
+  const packageDirectory = resolve(import.meta.dirname, "..");
+  const routes = resolve(root, "generated/routes.generated.ts");
+  const options = {
+    tsconfig: "tsconfig.json",
+    scanDirectories: ["src/routes"],
+    outDirectory: "generated",
+  };
+  const imports =
+    'import { defineRoute, numberParam, withFallback } from "@loozo/angular-router";\n';
+  const page = (name) =>
+    `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport default class Page {}\n`;
+
+  await Promise.all(
+    ["list", "detail", "plain", "old"].map((name) =>
+      mkdir(resolve(root, `src/routes/${name}`), { recursive: true }),
+    ),
+  );
+  await mkdir(resolve(root, "node_modules/@loozo"), { recursive: true });
+  await Promise.all([
+    writeFile(
+      resolve(root, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          strict: true,
+          skipLibCheck: true,
+          experimentalDecorators: true,
+          lib: ["ES2022", "DOM"],
+          types: [],
+        },
+        include: ["src/**/*.ts"],
+      }),
+    ),
+    writeFile(
+      resolve(root, "src/routes/list/definition.ts"),
+      `${imports}export default defineRoute("list", { search: { page: withFallback(numberParam, 1) } });\n`,
+    ),
+    writeFile(resolve(root, "src/routes/list/page.ts"), page("list")),
+    writeFile(
+      resolve(root, "src/routes/detail/definition.ts"),
+      `${imports}import list from "../list/definition.js";\nexport default defineRoute("detail", { parent: list });\n`,
+    ),
+    writeFile(resolve(root, "src/routes/detail/page.ts"), page("detail")),
+    writeFile(
+      resolve(root, "src/routes/plain/definition.ts"),
+      `${imports}export default defineRoute("plain", {});\n`,
+    ),
+    writeFile(resolve(root, "src/routes/plain/page.ts"), page("plain")),
+    symlink(packageDirectory, resolve(root, "node_modules/@loozo/angular-router"), "dir"),
+    symlink(
+      resolve(packageDirectory, "node_modules/@angular"),
+      resolve(root, "node_modules/@angular"),
+      "dir",
+    ),
+  ]);
+
+  // A fallback key is written as `number | undefined`, whether the value or the property is optional.
+  for (const values of [
+    "declare const page: number | undefined;\nconst values = { page };",
+    "declare const values: { page?: number };",
+  ]) {
+    await writeFile(
+      resolve(root, "src/routes/old/definition.ts"),
+      `${imports}import list from "../list/definition.js";\n${values}\nexport default defineRoute("old", { redirect: { to: list, search: { mode: "replace", values }, fragment: { mode: "drop" } } });\n`,
+    );
+    await generate(root, options, () => false);
+  }
+
+  // Search alone gets the guard, inherited search too; a redirect and a searchless route don't.
+  const generated = await readFile(routes, "utf8");
+
+  for (const name of ["list", "detail"]) {
+    assert.match(
+      generated,
+      new RegExp(`\\.\\.\\.callbacks\\(getRouteSet\\(\\), "src/routes/${name}/definition\\.ts"\\)`),
+    );
+  }
+  for (const name of ["plain", "old"]) {
+    assert.doesNotMatch(
+      generated,
+      new RegExp(`callbacks\\(getRouteSet\\(\\), "src/routes/${name}/`),
+    );
+  }
+
+  await writeFile(
+    resolve(root, "src/routes/old/definition.ts"),
+    `${imports}import list from "../list/definition.js";\ndeclare const page: string | undefined;\nexport default defineRoute("old", { redirect: { to: list, search: { mode: "replace", values: { page } }, fragment: { mode: "drop" } } });\n`,
+  );
+  await assert.rejects(
+    generate(root, options, () => false),
+    /Unknown\/incompatible redirect replacement key: page/,
+  );
+  assert.equal(await readFile(routes, "utf8"), generated);
+});

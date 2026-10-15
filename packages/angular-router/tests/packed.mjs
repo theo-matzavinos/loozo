@@ -209,7 +209,7 @@ await run(
   import assert from 'node:assert/strict';
   const a = await import(${JSON.stringify(firstEntry)});
   const b = await import(${JSON.stringify(secondEntry)});
-  const publicValues = ['booleanParam','createUrl','defineRoute','enumParam','nullableSearchParam','numberParam','optionalSearchParam','stringParam'];
+  const publicValues = ['booleanParam','createUrl','defineRoute','enumParam','numberParam','stringParam','withFallback'];
   assert.deepEqual(Object.keys(a).sort(), publicValues);
   assert.deepEqual(Object.keys(b).sort(), publicValues);
   assert.notEqual(a.defineRoute, b.defineRoute);
@@ -227,9 +227,9 @@ await run(
   assert.equal(b.createUrl(foreignAlias, { params: { id: 8 } }), '/alias/8');
   assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam }, redirect: { to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } } }), { name: 'TypeError', message: /genuine route from this package instance/ });
   assert.throws(() => b.defineRoute('alias/$id', { params: { id: b.numberParam }, redirect: { to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } } }), { name: 'TypeError', message: /genuine route from this package instance/ });
-  const product = a.defineRoute('products/$productId', { params: { productId: a.numberParam }, search: { tab: a.optionalSearchParam(a.enumParam(['details','reviews'])) }, fragments: ['summary','reviews'] });
+  const product = a.defineRoute('products/$productId', { params: { productId: a.numberParam }, search: { tab: a.withFallback(a.enumParam(['details','reviews']), 'details') }, fragments: ['summary','reviews'] });
   assert.equal(a.createUrl(product, { params: { productId: 42 }, search: { tab: 'reviews' }, fragment: 'summary' }), '/products/42?tab=reviews#summary');
-  console.log('fresh plain Node: 8 values; product URL; own core membership; distinct physical instances');
+  console.log('fresh plain Node: 7 values; product URL; own core membership; distinct physical instances');
 `,
   ],
   evidence,

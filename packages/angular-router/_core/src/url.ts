@@ -1,6 +1,6 @@
-import { codecPresence, type ParamCodec } from "./codecs.js";
+import type { ParamCodec } from "./codecs.js";
 import { ownRecord, checkKeys, has } from "./records.js";
-import { routeMetadata, validateSearchValues } from "./route.js";
+import { routeMetadata } from "./route.js";
 import type { AnyRoute, SearchOf, UrlValues } from "./types.js";
 
 function encode(value: string): string {
@@ -26,15 +26,14 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
  *
  * @remarks
  * Includes inherited path/search declarations, but only this route's fragment
- * names. Every effective path value and required search key must be supplied.
- * Optional-only search may be omitted; searchless/paramless routes forbid those
- * records. Catchalls require readonly arrays, including a valid empty array.
+ * names. Every effective path value must be supplied; any search key may be
+ * omitted. Searchless/paramless routes forbid those records. Catchalls require readonly arrays, including a valid empty array.
  * Values are never taken from a current navigation.
  *
  * Stringifies without calling parsers, guards, resolvers or redirects. Static
  * segments and logical values are component-encoded (also escaping parentheses),
- * so a dynamic slash becomes `%2F`. Search keys are globally sorted; optional
- * `undefined` values are omitted. An empty effective path produces `/`.
+ * so a dynamic slash becomes `%2F`. Search keys are globally sorted; omitted
+ * and `undefined` values are left out. An empty effective path produces `/`.
  * Redirect declarations serialize their source URL, not their redirect target.
  *
  * @param route - A genuine declaration from this physical package instance,
@@ -98,7 +97,7 @@ export function createUrl(route: unknown, values: unknown): string {
       search = ownRecord(options.search, "Search values");
     }
 
-    validateSearchValues(metadata.search, search);
+    checkKeys(search, new Set(searchKeys), "search values");
   }
 
   if (has(options, "fragment")) {
@@ -132,20 +131,13 @@ export function createUrl(route: unknown, values: unknown): string {
   const query: string[] = [];
 
   for (const key of searchKeys) {
-    const codec = metadata.search[key];
-    const optional = codecPresence(codec) === "optional";
-
-    if (optional && !has(search, key)) {
-      continue;
-    }
-
     const value = search[key];
 
-    if (optional && value === undefined) {
+    if (!has(search, key) || value === undefined) {
       continue;
     }
 
-    query.push(`${encode(key)}=${stringify(codec, value, false)}`);
+    query.push(`${encode(key)}=${stringify(metadata.search[key], value, false)}`);
   }
 
   if (query.length > 0) {

@@ -6,10 +6,13 @@ import { injectRoute } from "./route.generated.js";
     <article id="handle-only">
       <h2>Handle-only parsing</h2>
       <p>
-        ID: <span id="handle-id">{{ route.params.value()?.id }}</span>
+        ID: <span id="handle-id">{{ route.params().id }}</span>
       </p>
       <p>
-        Score: <span id="handle-score">{{ route.search.value()?.score }}</span>
+        Score: <span id="handle-score">{{ route.search().score }}</span>
+      </p>
+      <p>
+        Page: <span id="handle-page">{{ route.search().page }}</span>
       </p>
     </article>
   `,

@@ -64,13 +64,8 @@ export default class PackageOverview {
   readonly kindLabels = kindLabels;
 
   readonly page = computed(() => {
-    const params = this.route.params.value();
+    const params = this.route.params();
     const content = this.content();
-
-    if (params === undefined || !content) {
-      return undefined;
-    }
-
     const guides = [];
 
     for (const page of content.guides) {
@@ -107,6 +102,6 @@ export default class PackageOverview {
   });
 
   constructor() {
-    pageTitle(() => this.page()?.content.name);
+    pageTitle(() => this.page().content.name);
   }
 }

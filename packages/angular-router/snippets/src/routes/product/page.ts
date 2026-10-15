@@ -5,12 +5,8 @@ import { injectRoute } from "./route.generated.js";
 @Component({
   imports: [RouterLink],
   template: `
-    @if (route.params.hasValue() && route.search.hasValue()) {
-      <h1>Product {{ route.params.value().productId }}</h1>
-      <p>Tab: {{ route.search.value().tab }}</p>
-    } @else {
-      <p>Loading…</p>
-    }
+    <h1>Product {{ route.params().productId }}</h1>
+    <p>Tab: {{ route.search().tab }}</p>
     <a [routerLink]="reviews">Reviews</a>
   `,
 })

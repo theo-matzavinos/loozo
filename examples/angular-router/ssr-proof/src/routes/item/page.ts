@@ -10,12 +10,12 @@ import { injectRoute } from "./route.generated.js";
       <h2>Item</h2>
       <h3>Parsed inputs</h3>
       <p id="parsed">
-        Team <span id="parsed-team">{{ route.params.value()?.teamId }}</span> Item
-        <span id="parsed-id">{{ route.params.value()?.id }}</span> Score
-        <span id="parsed-score">{{ route.search.value()?.score }}</span>
+        Team <span id="parsed-team">{{ route.params().teamId }}</span> Item
+        <span id="parsed-id">{{ route.params().id }}</span> Score
+        <span id="parsed-score">{{ route.search().score }}</span>
       </p>
       <h3>Local resolved data</h3>
-      <p id="resolved">{{ route.data.value()?.item?.text }}</p>
+      <p id="resolved">{{ route.data().item.text }}</p>
       <nav>
         <a id="direct" [routerLink]="direct">Direct item 8</a>
         <a id="alias" [routerLink]="alias">Alias item 8, drop query and fragment</a>

@@ -1,6 +1,6 @@
 # Native Angular SSR and hydration proof
 
-Independent handwritten dark-mode application; supplied `examples/angular-router/src/` and its configuration remain untouched. `teams/$teamId` owns numeric teamId and optional75ms numeric score; child `items/$id` owns75ms id and deterministic local catalog resolution. The alias drops query/fragment. Typed links demonstrate direct, alias and query-only native navigation. `handle-only/$id` has delayed input parsing and no resolver.
+Independent handwritten dark-mode application; supplied `examples/angular-router/src/` and its configuration remain untouched. `teams/$teamId` owns numeric teamId and optional numeric score; child `items/$id` owns numeric id and deterministic local catalog resolution. The alias drops query/fragment. Typed links demonstrate direct, alias and query-only native navigation. `handle-only/$id` reads its parsed params and search, including a `withFallback` page, through handle signals alone, with no resolver.
 
 Ordinary generated facades/routes/destinations live here only. Shared native hydration config has no blocking initial navigation or HTTP transfer cache. No custom renderer, router, product-state transfer, graph service or input cache.
 

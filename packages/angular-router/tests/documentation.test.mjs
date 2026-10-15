@@ -101,7 +101,7 @@ await test("published root declarations retain documentation for every supported
 
   const exports = checker.getExportsOfModule(root);
 
-  assert.equal(exports.length, 10);
+  assert.equal(exports.length, 9);
 
   const missing = [];
 
@@ -131,7 +131,7 @@ await test("published root declarations retain documentation for every supported
   assert.deepEqual(missing, [], "Published exports and members need documentation");
 });
 
-await test("published handle resources and every navigation overload retain documentation", async () => {
+await test("published handle signals and every navigation overload retain documentation", async () => {
   const file = await source("../dist/types/loozo-angular-router-_generated.d.ts");
   const handle = declaration(file, "Handle");
   const destination = declaration(file, "Destination");

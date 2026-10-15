@@ -13,7 +13,7 @@ export const destination: Destination<"src/routes/member/definition.ts"> = creat
  *
  * @remarks
  * Call in an Angular injection context. The handle exposes readonly native
- * params/search/data Resources and destination-typed link/navigate methods.
+ * params/search/data Signals and destination-typed link/navigate methods.
  * Data includes local resolver results only, not static or inherited data.
  * All navigation values are explicit; current inputs are never reused implicitly.
  *

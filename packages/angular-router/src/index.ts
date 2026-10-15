@@ -3,7 +3,7 @@
  *
  * @remarks
  * Install generated `routes` with Angular's provideRouter and import the colocated
- * `injectRoute`/`destination` facade for typed resources, links and navigation.
+ * `injectRoute`/`destination` facade for typed signals, links and navigation.
  * Generate through the application/serve Architect companions. The `_core` and
  * `_generated` subpaths are internal package/generator coupling, not supported
  * application metadata or graph APIs.
@@ -17,7 +17,6 @@ export {
   numberParam,
   booleanParam,
   enumParam,
-  optionalSearchParam,
-  nullableSearchParam,
+  withFallback,
 } from "@loozo/angular-router/_core";
 export type { Route, ParamCodec } from "@loozo/angular-router/_core";

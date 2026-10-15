@@ -1,10 +1,5 @@
 import type { ActivatedRouteSnapshot, PartialMatchRouteSnapshot } from "@angular/router";
-import {
-  codecFallback,
-  codecPresence,
-  routeMetadata,
-  type AnyRoute,
-} from "@loozo/angular-router/_core";
+import { codecFallback, routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
 
 export interface RecordBinding {
   readonly definition: () => AnyRoute;
@@ -21,15 +16,10 @@ export interface Parsed {
   readonly search: Readonly<Record<string, unknown>>;
 }
 export interface Job {
-  readonly source: "path" | "search";
   readonly key: string;
   readonly raws: readonly string[];
   readonly array: boolean;
   readonly codec: { parse(raw: string): unknown };
-}
-export interface Operation<Value = Parsed> {
-  readonly promise: Promise<Value>;
-  outcome: { value: Value } | { error: Error } | undefined;
 }
 
 export function hasIdentity(
@@ -54,36 +44,62 @@ export function assertIdentity(
   }
 }
 
-export function inputError(
-  source: "path" | "search",
-  key: string,
-  reason: "missing" | "repeated" | "invalid",
-  cause?: unknown,
-): Error {
-  return Object.assign(new Error(`Invalid ${source} input ${key}: ${reason}`, { cause }), {
-    source,
-    key,
-    reason,
-  });
+// Private: input errors are Errors with source/key/reason, not an exported class.
+class InputError extends Error {
+  readonly source = "path";
+
+  constructor(
+    readonly key: string,
+    readonly reason: "missing" | "repeated" | "invalid",
+    cause?: unknown,
+  ) {
+    super(`Invalid path input ${key}: ${reason}`, { cause });
+  }
 }
 
 export function validateRaw(
-  source: "path" | "search",
   key: string,
   raws: readonly unknown[],
   array: boolean,
 ): asserts raws is readonly string[] {
   if (!array && raws.length === 0) {
-    throw inputError(source, key, "missing");
+    throw new InputError(key, "missing");
   }
 
   if (!array && raws.length > 1) {
-    throw inputError(source, key, "repeated");
+    throw new InputError(key, "repeated");
   }
 
   if (raws.some((raw) => typeof raw !== "string")) {
-    throw inputError(source, key, "invalid", new TypeError("Raw input must be a decoded string"));
+    throw new InputError(key, "invalid", new TypeError("Raw input must be a decoded string"));
   }
+}
+
+/**
+ * Runs one parser. A throw is invalid input; a thenable is a programming error,
+ * thrown as a TypeError so it fails the navigation instead of reading as invalid.
+ */
+function parse(codec: Job["codec"], raw: string): { value: unknown } | { cause: unknown } {
+  let value: unknown;
+
+  try {
+    value = codec.parse(raw);
+  } catch (cause) {
+    return { cause };
+  }
+
+  if (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as PromiseLike<unknown>).then === "function"
+  ) {
+    // Observe the stray result so its rejection can't surface as unhandled.
+    Promise.resolve(value).catch(() => undefined);
+
+    throw new TypeError("ParamCodec.parse must return its value synchronously, not a Promise");
+  }
+
+  return { value };
 }
 
 export function pathJobs(definition: AnyRoute, url: readonly { path: string }[]): Job[] {
@@ -106,10 +122,9 @@ export function pathJobs(definition: AnyRoute, url: readonly { path: string }[])
       raws = [url[index].path];
     }
 
-    validateRaw("path", segment.name, raws, array);
+    validateRaw(segment.name, raws, array);
     // Repeated local scalars intentionally use Angular's last positional occurrence.
     local.set(segment.name, {
-      source: "path",
       key: segment.name,
       raws,
       array,
@@ -120,103 +135,82 @@ export function pathJobs(definition: AnyRoute, url: readonly { path: string }[])
   return [...local.values()];
 }
 
-export function searchJobs(
+/** Parses prechecked path jobs; the first codec failure is an input error. */
+export function runPathJobs(jobs: readonly Job[]): Readonly<Record<string, unknown>> {
+  const params: Record<string, unknown> = Object.create(null);
+
+  for (const job of jobs) {
+    const values: unknown[] = [];
+
+    for (const raw of job.raws) {
+      const result = parse(job.codec, raw);
+
+      if ("cause" in result) {
+        throw new InputError(job.key, "invalid", result.cause);
+      }
+
+      values.push(result.value);
+    }
+
+    if (job.array) {
+      params[job.key] = Object.freeze(values);
+    } else {
+      params[job.key] = values[0];
+    }
+  }
+
+  return Object.freeze(params);
+}
+
+/**
+ * Parses a declaration's effective search. It never fails on input: a missing,
+ * repeated or invalid value reads as the key's fallback, or leaves it absent.
+ */
+export function parseSearch(
   definition: AnyRoute,
   snapshot: Pick<ActivatedRouteSnapshot, "queryParamMap">,
-): Job[] {
+): Readonly<Record<string, unknown>> {
   const metadata = routeMetadata(definition);
-  const jobs: Job[] = [];
+  const search: Record<string, unknown> = Object.create(null);
 
   for (const key of Object.keys(metadata.search)) {
     const codec = metadata.search[key];
-    const raws = snapshot.queryParamMap.getAll(key);
+    const raws: unknown[] = snapshot.queryParamMap.getAll(key);
 
-    // Optional keys never fail: runJobs recovers their missing, repeated or invalid values.
-    if (codecPresence(codec) !== "optional") {
-      validateRaw("search", key, raws, false);
+    if (raws.length === 1 && typeof raws[0] === "string") {
+      const result = parse(codec, raws[0]);
+
+      if ("value" in result) {
+        search[key] = result.value;
+
+        continue;
+      }
     }
 
-    jobs.push({ source: "search", key, raws, array: false, codec });
-  }
-
-  return jobs;
-}
-
-export async function runJobs(jobs: readonly Job[]): Promise<Parsed> {
-  const params: Record<string, unknown> = Object.create(null);
-  const search: Record<string, unknown> = Object.create(null);
-  const pending: Promise<void>[] = [];
-
-  // A missing, repeated or invalid optional search value reads as its fallback, or is absent.
-  function recover(job: Job): void {
-    const fallback = codecFallback(job.codec);
+    const fallback = codecFallback(codec);
 
     if (fallback) {
-      search[job.key] = fallback.value;
+      search[key] = fallback.value;
     }
   }
 
-  for (const job of jobs) {
-    const optional = job.source === "search" && codecPresence(job.codec) === "optional";
-
-    if (optional && (job.raws.length !== 1 || typeof job.raws[0] !== "string")) {
-      recover(job);
-
-      continue;
-    }
-
-    // Async boundaries convert every synchronous throw into an observed rejection.
-    pending.push(
-      (async () => {
-        try {
-          const elements: Promise<unknown>[] = [];
-
-          for (const raw of job.raws) {
-            elements.push((async () => job.codec.parse(raw))());
-          }
-
-          const values = await Promise.all(elements);
-          let value = values[0];
-
-          if (job.array) {
-            value = Object.freeze(values);
-          }
-
-          if (job.source === "path") {
-            params[job.key] = value;
-          } else {
-            search[job.key] = value;
-          }
-        } catch (cause) {
-          if (optional) {
-            recover(job);
-
-            return;
-          }
-
-          throw inputError(job.source, job.key, "invalid", cause);
-        }
-      })(),
-    );
-  }
-
-  await Promise.all(pending);
-
-  return Object.freeze({ params: Object.freeze(params), search: Object.freeze(search) });
+  return Object.freeze(search);
 }
 
-type Cache<Value> = WeakMap<object, WeakMap<object, Operation<Value>>>;
+type Outcome<Value> = { readonly value: Value } | { readonly error: unknown };
+type Cache<Value> = WeakMap<object, WeakMap<object, Outcome<Value>>>;
 
 const full: Cache<Parsed> = new WeakMap();
-const paths: Cache<Parsed> = new WeakMap();
+const paths: Cache<Readonly<Record<string, unknown>>> = new WeakMap();
 const matching: Cache<Parsed | undefined> = new WeakMap();
 
-function operation<Value>(
+// One result or failure per exact declaration and snapshot, shared by every reader.
+function memo<Value>(
   cache: Cache<Value>,
   definition: AnyRoute,
   snapshot: object,
-  run: () => Promise<Value>,
-): Operation<Value> {
+  run: () => Value,
+): Value {
   let snapshots = cache.get(definition);
 
   if (!snapshots) {
@@ -224,47 +218,32 @@ function operation<Value>(
     cache.set(definition, snapshots);
   }
 
-  const existing = snapshots.get(snapshot);
+  let outcome = snapshots.get(snapshot);
 
-  if (existing) {
-    return existing;
+  if (!outcome) {
+    try {
+      outcome = { value: run() };
+    } catch (error) {
+      outcome = { error };
+    }
+
+    snapshots.set(snapshot, outcome);
   }
 
-  // Insert before application code can run; even synchronous reentry joins the same operation.
-  const result: Operation<Value> = {
-    promise: Promise.resolve().then(run),
-    outcome: undefined,
-  };
+  if ("error" in outcome) {
+    throw outcome.error;
+  }
 
-  snapshots.set(snapshot, result);
-  result.promise.then(
-    (value) => {
-      result.outcome = { value };
-    },
-    (cause) => {
-      let error = cause;
-
-      if (!(error instanceof Error)) {
-        error = new Error("Route input failure", { cause });
-      }
-
-      result.outcome = { error };
-    },
-  );
-
-  return result;
+  return outcome.value;
 }
 
-export function fullOperation(
-  set: RouteSet,
-  id: string,
-  snapshot: ActivatedRouteSnapshot,
-): Operation {
+/** The effective inputs of a complete snapshot, shared by guards, resolvers and handles. */
+export function parseInputs(set: RouteSet, id: string, snapshot: ActivatedRouteSnapshot): Parsed {
   assertIdentity(snapshot, id);
 
   const binding = set.records[id];
 
-  return operation(full, binding.definition(), snapshot, () => {
+  return memo(full, binding.definition(), snapshot, () => {
     const jobs: Job[] = [];
 
     for (const ownerId of binding.owners) {
@@ -288,62 +267,63 @@ export function fullOperation(
       jobs.push(...pathJobs(definition, owner.url));
     }
 
-    jobs.push(...searchJobs(binding.definition(), snapshot));
+    const params = runPathJobs(jobs);
 
-    return runJobs(jobs);
+    return Object.freeze({ params, search: parseSearch(binding.definition(), snapshot) });
   });
-}
-
-export function parseInputs(
-  set: RouteSet,
-  id: string,
-  snapshot: ActivatedRouteSnapshot,
-): Promise<Parsed> {
-  return fullOperation(set, id, snapshot).promise;
 }
 
 /**
  * Parses a matching candidate's own path params only. Angular passes one partial
- * snapshot to all of a candidate's canMatch guards, so they share this operation.
+ * snapshot to all of a candidate's canMatch guards, so they share this result.
+ *
+ * @returns An input error when a param is invalid; throws only programming errors.
  */
-export function pathOperation(
+export function pathInputs(
   set: RouteSet,
   id: string,
   snapshot: PartialMatchRouteSnapshot,
-): Operation {
+): { params: Readonly<Record<string, unknown>> } | { error: Error } {
   assertIdentity(snapshot, id);
 
   const definition = set.records[id].definition();
 
-  return operation(paths, definition, snapshot, () => runJobs(pathJobs(definition, snapshot.url)));
+  try {
+    return {
+      params: memo(paths, definition, snapshot, () =>
+        runPathJobs(pathJobs(definition, snapshot.url)),
+      ),
+    };
+  } catch (error) {
+    if (error instanceof InputError) {
+      return { error };
+    }
+
+    throw error;
+  }
 }
 
 /**
- * Local path params plus effective search for a candidate's canMatch callbacks, or
- * undefined when the path params fail: the generated path guard owns that outcome.
+ * Local path params plus effective search for a candidate's canMatch guards, the
+ * generated one included, or undefined when the path params fail: the generated
+ * guard owns that outcome.
  */
 export function matchingInputs(
   set: RouteSet,
   id: string,
   snapshot: PartialMatchRouteSnapshot,
-): Promise<Parsed | undefined> {
-  assertIdentity(snapshot, id);
-
+): Parsed | undefined {
   const definition = set.records[id].definition();
 
-  return operation(matching, definition, snapshot, async () => {
-    let path: Parsed;
+  return memo(matching, definition, snapshot, () => {
+    const path = pathInputs(set, id, snapshot);
 
     // Search parses only once the path matches: a candidate the path rules out runs no
-    // search codecs, and its search failures can't fail the navigation.
-    try {
-      path = await pathOperation(set, id, snapshot).promise;
-    } catch {
+    // search codecs.
+    if ("error" in path) {
       return undefined;
     }
 
-    const search = await runJobs(searchJobs(definition, snapshot));
-
-    return Object.freeze({ params: path.params, search: search.search });
-  }).promise;
+    return Object.freeze({ params: path.params, search: parseSearch(definition, snapshot) });
+  });
 }

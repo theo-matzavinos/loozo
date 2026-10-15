@@ -20,14 +20,14 @@ The concrete consumer is an Angular application that:
 
 ### Supported surfaces
 
-| Surface                              | Contract                                                                                                                                                                     |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@loozo/angular-router`              | `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `optionalSearchParam`, `nullableSearchParam`; exported types `Route` and `ParamCodec` |
-| `@loozo/angular-router/package.json` | Package metadata subpath                                                                                                                                                     |
-| `@loozo/angular-router:application`  | Angular Architect application companion                                                                                                                                      |
-| `@loozo/angular-router:serve`        | Angular Architect dev-server companion                                                                                                                                       |
-| Colocated `route.generated` module   | Parameterless `injectRoute()` and inert typed `destination` reference                                                                                                        |
-| Global `routes.generated` module     | `routes: Routes`                                                                                                                                                             |
+| Surface                              | Contract                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `@loozo/angular-router`              | `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`; exported types `Route` and `ParamCodec` |
+| `@loozo/angular-router/package.json` | Package metadata subpath                                                                                                              |
+| `@loozo/angular-router:application`  | Angular Architect application companion                                                                                               |
+| `@loozo/angular-router:serve`        | Angular Architect dev-server companion                                                                                                |
+| Colocated `route.generated` module   | Parameterless `injectRoute()` and inert typed `destination` reference                                                                 |
+| Global `routes.generated` module     | `routes: Routes`                                                                                                                      |
 
 The root has no `injectRoute(route)`, `parseSearch`, `defineRedirect`, resolver executor, or general parser export. Do not expose private helper APIs merely to accommodate tests written against them. There is no supported programmatic source-graph API: the old `/tooling`, `buildRouteSourceGraph()`, and exported graph/diagnostic types are deliberately outside compatibility.
 
@@ -56,17 +56,11 @@ No bundle-size reduction, execution-speed improvement, universal linear source g
 ### Consumer usage
 
 ```ts
-import {
-  defineRoute,
-  enumParam,
-  numberParam,
-  optionalSearchParam,
-  stringParam,
-} from "@loozo/angular-router";
+import { defineRoute, enumParam, numberParam, withFallback } from "@loozo/angular-router";
 
 const product = defineRoute("products/$productId", {
   params: { productId: numberParam },
-  search: { tab: optionalSearchParam(enumParam(["details", "reviews"])) },
+  search: { tab: withFallback(enumParam(["details", "reviews"]), "details") },
   fragments: ["summary", "reviews"],
 });
 
@@ -82,8 +76,9 @@ Generation owns paths, matching strategy, ancestry/children, component discovery
 - Local `params` must exactly cover distinct local `$name` and `$name[]` placeholders, using the bare name as key. Missing, renamed, or extra keys fail. Extra local codec keys introduced through a variable also fail typing.
 - A path without local placeholders forbids `params`, including `{ params: {} }`, and `onInvalidParams`.
 - Repeated local placeholders share one codec and one URL-creation value.
-- Search maps infer required, optional, nullable, enum, and custom values without manual generics.
-- Optional/nullable search wrappers cannot be path codecs.
+- Search maps infer optional, fallback, enum, and custom values without manual generics.
+- `withFallback` codecs cannot be path codecs, at type level or at runtime declaration.
+- A codec whose `parse` result type is a Promise/PromiseLike is a type error where it is declared in a params or search map (catchall element codecs included) and as a `withFallback` argument.
 - Malformed config/codec records, unknown top-level keys, and invalid paths fail at runtime independently of TypeScript. Codec entries must have callable parse/stringify methods.
 - Declaration does not execute parsers, stringifiers, guards, resolvers, title callbacks, provider factories, or resolver-policy predicates.
 - Native behavioral values are emitted/referenced without generation-time evaluation. Angular owns their DI, execution, ordering, and semantics. Static data cannot supply the reserved generated identity key `__loozoAngularRouterRouteId`; ordinary application data must not overwrite binding identity.
@@ -93,14 +88,14 @@ Generation owns paths, matching strategy, ancestry/children, component discovery
 
 `fragments: ["summary", "reviews"]` declares logical names without a delimiter; a literal list infers its string union without caller generics. Fragment values are optional, but when present in `createUrl`, `link`, or `navigate` they must belong to the selected destination's declared list. Omission of `fragments` and an explicit empty list both allow **no fragment option**. Lists contain strings; malformed lists and unknown explicit fragment values fail at runtime. Caller list edits cannot alter retained membership.
 
-Names belong to that declaration, not implicitly to descendants. Shared anchor names can be explicitly reused in authored lists. Raw incoming hashes remain Angular's concern: unknown incoming names do not cause package input-parse errors or block activation. This feature does not create DOM anchors, infer IDs from templates, add a fragment Resource, or enable scrolling. Consumers supply matching DOM anchors and Angular's native scrolling configuration.
+Names belong to that declaration, not implicitly to descendants. Shared anchor names can be explicitly reused in authored lists. Raw incoming hashes remain Angular's concern: unknown incoming names do not cause package input-parse errors or block activation. This feature does not create DOM anchors, infer IDs from templates, add a fragment signal, or enable scrolling. Consumers supply matching DOM anchors and Angular's native scrolling configuration.
 
 ### Parent composition
 
 ```ts
 const team = defineRoute("teams/$teamId", {
   params: { teamId: numberParam },
-  search: { query: optionalSearchParam(stringParam) },
+  search: { query: stringParam },
 });
 
 const report = defineRoute("reports/$reportId/detail", {
@@ -113,7 +108,7 @@ report.path; // "reports/$reportId/detail", not the effective URL
 
 Parent links compose transitively. Empty/pathless declarations contribute no segment but retain their declarations and inherited input ownership. Child params cover local placeholders, not ancestor placeholders. Children cannot redeclare an ancestor-owned param or search key, even using the same codec. Param and search namespaces are independent: one name may occur in both.
 
-All URL inputs and resolver/handle types retain effective inherited codec value types, including async parsers and search modifiers. Ancestors cannot see descendant inputs.
+All URL inputs and resolver/handle types retain effective inherited codec value types, including search fallbacks. Ancestors cannot see descendant inputs.
 
 A parent must be the actual route created by this package instance. Structural fakes, spreads/copies, inherited impostors, foreign-instance routes, null, and explicit `parent: undefined` fail at runtime. Parent construction must already have completed when a child is declared; arbitrary module initialization cycles are not repaired.
 
@@ -123,7 +118,7 @@ Route values are frozen and nominal, not structurally constructible. Codec recor
 
 The public value retains exact local `path`, optional local `resolve`, and optional native `runGuardsAndResolvers`. Parent links, effective paths, and codec maps are not public properties. A declaration using none of the additional behavioral/fragment options and neither resolve nor policy retains only `path` as its enumerable string-keyed property. Additional-option exposure/enumerability is not a new inspection API requirement.
 
-`Route<Path, Params, Search, Resolvers>` remains an exported nominal type: the first three parameters retain their meaning and are required; the fourth is a local resolver callback map and defaults to an empty map. Additional defaulted type parameters may support new inference, but callers need no generic arguments; one carries the search values URL creation accepts, which differ from the parsed `Search` only for keys with a fallback (§4) and default to it. Readonly optional `__params`, `__search`, `__searchInput`, and `__data` type witnesses preserve inferred inputs, URL-creation search values, and unwrapped local data. They do not promise populated runtime fields. `__data` excludes redirect commands and ancestor resolver data. The branding mechanism itself is private.
+`Route<Path, Params, Search, Resolvers>` remains an exported nominal type: the first three parameters retain their meaning and are required; the fourth is a local resolver callback map and defaults to an empty map. Additional defaulted type parameters may support new inference, but callers need no generic arguments. The search values URL creation accepts derive from `Search`: every key optional, `undefined` allowed. Readonly optional `__params`, `__search`, and `__data` type witnesses preserve inferred inputs and unwrapped local data. They do not promise populated runtime fields. `__data` excludes redirect commands and ancestor resolver data. The branding mechanism itself is private.
 
 Resolver maps are copied and shallow-frozen, retain original callback identities, and reject non-functions, non-records, inherited resolver entries, and the reserved key `__loozoAngularRouterRouteId`.
 
@@ -160,7 +155,7 @@ createUrl(docs, { params: { segments: ["guides", "setup"] } });
 
 A whole `$name[]` segment captures zero-or-more remaining URL segments. Its codec applies **per segment**; an element codec `ParamCodec<Value>` produces `readonly Value[]`. The bare name is the params key. `[]` is reserved as the terminal capture marker, not part of a scalar parameter name. Empty names, repeated array markers, mixing scalar/catchall occurrences of one name, multiple catchalls, or a nonterminal catchall fail typing/runtime/generation. The ordinary name restrictions still apply. A catchall declaration is a leaf: it cannot have authored children. Ordinary repeated scalar placeholders remain supported.
 
-Serialize each supplied element separately, preserving a slash inside an element as `%2F`; never join decoded elements and then encode. `[]` emits no suffix segments, so the example also addresses `/docs`. Parse each consumed remainder segment once, preserving `/docs/a%2Fb/c` as `["a/b", "c"]`. Async/custom codecs retain their scalar contracts; outer list types are readonly, with no recursive freezing of codec values.
+Serialize each supplied element separately, preserving a slash inside an element as `%2F`; never join decoded elements and then encode. `[]` emits no suffix segments, so the example also addresses `/docs`. Parse each consumed remainder segment once per parse operation, preserving `/docs/a%2Fb/c` as `["a/b", "c"]`. Custom codecs retain their scalar contracts; outer list types are readonly, with no recursive freezing of codec values.
 
 Generation emits native Angular terminal `**` matching (`docs/**` is supported by the pinned Angular version), not a custom matcher or runtime routing engine. Ordinary siblings precede fallback catchalls. Reject overlapping competing catchalls in the same generated sibling set; disjoint catchalls and nested fallback scopes are permitted. Intentional ordinary-route/catchall fallback overlap is not an ordinary collision error. A root `$segments[]` can provide a not-found fallback. The notation is legal in Linux/Windows directory names. Explicit-authoring mode does not infer routing from directories; opt-in §12 uses directory-local paths.
 
@@ -172,12 +167,14 @@ A path codec's **stringified output** must be nonempty and neither `.` nor `..`.
 
 ```ts
 export interface ParamCodec<Value> {
-  parse(raw: string): Value | Promise<Value>;
+  parse(raw: string): Value;
   stringify(value: Value): string;
 }
 ```
 
-Parsing receives one logical, already percent-decoded value. Stringification returns one logical, unencoded value. Custom parse may be sync/async; stringify is synchronous. Async parsing never makes URL creation async and never turns caller value types into promises. Custom object-valued codecs work; built-in rich-object/schema adapters are excluded, not custom object values.
+Parsing receives one logical, already percent-decoded value. Stringification returns one logical, unencoded value. Both are synchronous. Custom object-valued codecs work; built-in rich-object/schema adapters are excluded, not custom object values.
+
+Parsing must be synchronous, pure and deterministic, like Angular's own planning callbacks: path and search codecs run during matching and again for activation (§7), so a codec that disagrees with itself is a programming error. A codec whose value type is a Promise/PromiseLike is a type error where it is declared (§2). At runtime, a `parse` that returns a thenable is a programming error, not invalid input: generated parsing throws a TypeError and observes the stray thenable's rejection so it cannot become an unhandled rejection. Because the generated matching guard parses every record's path and effective search on every navigation, query-only ones included (§8), the TypeError fails the navigation; it never makes a route fall through, reaches `onInvalidParams`, or leaves a search key absent. Codecs get no Angular injection context and need none.
 
 | Codec                        | Required behavior                                                                                                                           |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -185,32 +182,29 @@ Parsing receives one logical, already percent-decoded value. Stringification ret
 | `numberParam`                | For nonblank input, JavaScript `Number` coercion followed by finite-result validation; stringify finite numbers as JavaScript string values |
 | `booleanParam`               | Accept/emit only lowercase `true` and `false` representations                                                                               |
 | `enumParam(values)`          | Exact case-sensitive membership for parsing/stringification; infer the literal union; empty string is valid only when listed                |
-| `optionalSearchParam(codec)` | Mark optional search presence; delegate present values to the original codec; recover missing/repeated/invalid values (below)              |
-| `nullableSearchParam(codec)` | Exact decoded `"null"` maps to null; stringify null as `"null"`; otherwise delegate                                                         |
+| `withFallback(codec, value)` | Search only: read `value` in place of a missing, repeated or invalid value; delegate present values to the original codec                  |
 
 Number examples: `" 42 " → 42`, `"1e3" → 1000`, `"0x10" → 16`. Blank/whitespace-only, NaN, Infinity, and nonnumeric inputs fail. Nonfinite stringify values fail. Invalid boolean/enum raw representations fail with an Error.
 
-Supported optional-nullable composition is `optionalSearchParam(nullableSearchParam(codec))`. It distinguishes omission, explicit null, and a present ordinary value. Nullable alone remains required. The reversed composition is a compile-time error. Both wrappers are rejected in path maps.
+### Search params
 
-Search never takes part in matching (§8), and an optional key never fails input parsing. `optionalSearchParam(codec, { fallback })` adds a value read in its place:
+Search never takes part in matching (§8), and every search key is optional: a search value never fails input parsing.
 
 ```ts
 search: {
-  page: optionalSearchParam(numberParam, { fallback: 1 }), // reads number; URLs may omit it
-  sort: optionalSearchParam(enumParam(["asc", "desc"])), // reads "asc" | "desc" | undefined
-  q: stringParam, // required
+  page: withFallback(numberParam, 1), // reads number; URLs may omit it
+  sort: enumParam(["asc", "desc"]), // reads "asc" | "desc" | undefined
 }
 ```
 
-| Search key             | Missing                     | Repeated, or invalid (parser throw/rejection, non-string raw) |
-| ---------------------- | --------------------------- | ------------------------------------------------------------- |
-| Optional, no fallback  | Absent                      | Absent                                                        |
-| Optional with fallback | Fallback                    | Fallback                                                      |
-| Required (plain codec) | `missing` error (§7)        | `repeated`/`invalid` error (§7)                               |
+| Search key     | Missing  | Repeated, or invalid (parser throw, non-string raw) |
+| -------------- | -------- | --------------------------------------------------- |
+| Plain codec    | Absent   | Absent                                              |
+| `withFallback` | Fallback | Fallback                                            |
 
-A fallback key reads as the codec's value type, never `undefined`, while URL creation, links, navigation and redirect replacements may still omit it (or pass `undefined`), and redirects never treat it as required. The fallback is returned as is, neither parsed nor copied. The options record must have an own `fallback` and no other keys (TypeError otherwise); explicit `undefined` options mean none. Fallback exists only on `optionalSearchParam`; `optionalSearchParam(nullableSearchParam(codec), { fallback: null })` is the supported nullable form, and nullable cannot wrap a fallback codec.
+A plain key reads as `Value | undefined` (an optional property). A fallback key reads as the codec's value type, never `undefined`. URL creation, links, navigation and redirect replacements may omit any search key or pass `undefined`, and redirects never treat a search key as required. The fallback is returned as is, neither parsed nor copied. `withFallback` validates its codec like a declaration does and rejects a codec that already has a fallback with a TypeError; a fallback may itself be `undefined` or `null`.
 
-Delegation preserves wrapped codec throws/rejections and returned promise identity for non-null/present parsing. The package does not freeze custom codec-produced values or grant codecs an Angular injection-context contract.
+Delegation preserves wrapped codec throws and returned value identity. The package does not freeze custom codec-produced values.
 
 ## 5. URL creation [U]
 
@@ -228,15 +222,13 @@ createUrl(product, {
 ### Input typing and runtime boundary
 
 - All effective inherited/local path values are required and codec-typed.
-- Required search declarations require the search record and every required key.
-- Nullable keys are required unless wrapped optional.
-- Optional-only search allows omitted search or `{ search: {} }`. Keys with a fallback are optional here.
+- Every search key is optional: the search record may be omitted, `{ search: {} }`, or any subset of declared keys, each codec-typed or `undefined`. Keys with a fallback are optional here too.
 - Searchless routes forbid the search option.
 - Routes with no effective path params forbid a params map.
 - Fragment is optional and restricted to the selected declaration's own declared names; without a list, the fragment option is forbidden.
 - Catchall values are required readonly arrays of element-codec values, including a valid empty array. Scalar and catchall cardinalities are distinct.
 - Literal unknown value/option keys and wrong values fail typing; exact local codec-key typing also covers variables as described in §2.
-- Runtime rejects non-nominal routes, malformed records, unknown options, missing/extra input keys, wrong fragment types, and non-string codec outputs with TypeError.
+- Runtime rejects non-nominal routes, malformed records, unknown options, missing path/extra input keys, wrong fragment types, and non-string codec outputs with TypeError.
 
 Do not promise universally exact TypeScript object types: normal structural assignability may admit extra properties through variables where no exactness requirement above exists. Runtime input validation still rejects unknown keys.
 
@@ -246,7 +238,7 @@ Do not promise universally exact TypeScript object types: normal structural assi
 2. Component-encode every static segment and stringified dynamic value, additionally escaping parentheses. A dynamic slash becomes `%2F`.
 3. Repeat a repeated scalar placeholder's supplied value at each occurrence; expand a catchall array element-by-element with the same segment encoding and output restrictions.
 4. Emit present search keys in globally lexical key order across ancestry. Encode keys and values at the URL boundary.
-5. Omit optional values equal to undefined. Present empty strings produce `key=`. Nullable null produces `null`.
+5. Omit search keys that are absent or equal to undefined. Present empty strings produce `key=`.
 6. Component-encode an optional fragment after the query string.
 
 ```ts
@@ -267,15 +259,15 @@ const route = injectRoute();
 
 The facade takes no arguments or caller generics and binds its declaration to its **own exact activated Angular route record**. It requires an Angular injection context. Missing/different `__loozoAngularRouterRouteId` in `ActivatedRoute.snapshot.routeConfig.data` is a synchronous wiring error. Inherited snapshot data is not identity evidence.
 
-The returned handle is not callable. Its readonly properties expose real readonly Angular Resources:
+The returned handle is not callable. Its readonly properties expose readonly Angular Signals:
 
 ```ts
-readonly params: Resource<EffectiveParams | undefined>;
-readonly search: Resource<EffectiveSearch | undefined>;
-readonly data: Resource<LocalResolvedData | undefined>;
+readonly params: Signal<EffectiveParams>;
+readonly search: Signal<EffectiveSearch>;
+readonly data: Signal<LocalResolvedData>;
 ```
 
-Resource methods include native `status()`, `isLoading()`, `snapshot()`, `error()`, `hasValue()`, and `value()`. `hasValue()` narrows before value access. Error-state value reads throw. There is no writable set/reload API, and callers cannot reassign the resource properties through the typed interface.
+Values are the committed snapshot's and are available on the first read, including synchronously in the page constructor: there is no loading, reloading or undefined state. There is no writable set API, and callers cannot reassign the signal properties through the typed interface. §7 specifies when the values change.
 
 ### Calls
 
@@ -293,7 +285,7 @@ route.link("../elsewhere/$siblingId", destinationValues);
 route.link(otherDestination, destinationValues);
 ```
 
-All value forms use the selected declaration's effective params/search types and URL-creation rules, including optional fragment. All required target inputs must be supplied; current inputs are never implicitly reused.
+All value forms use the selected declaration's effective params/search types and URL-creation rules, including optional fragment. All target path inputs must be supplied; current inputs are never implicitly reused.
 
 Two-argument selectors are admitted **literal authored expressions** or generated destination references, not concrete URLs. Unknown expressions, unresolved shared paths, widened strings, selector unions, raw definition/handle objects, and concrete substitutions fail typing. Unknown/invalid untyped expressions or references throw synchronously before Angular is called. No arbitrary URL overload, third argument, navigation extras, implicit query merge/preservation, or inferred current-value reuse exists.
 
@@ -339,7 +331,7 @@ Every retained ordinary facade exports an inert `destination` usable without an 
 
 A generated reference selects its own retained declaration, like its values-only call; it does not silently substitute a canonical pathless winner. References are not a public graph/model API. Object-target support does not add a new `createUrl(destination, ...)` overload requirement: the root function retains its authored-definition contract.
 
-## 7. Parsed values, navigation lifecycle, and stability [L]
+## 7. Parsed values and navigation lifecycle [L]
 
 ### Input ownership and errors
 
@@ -352,42 +344,25 @@ Angular owns matching and decoding. Obtain declared path values from each author
 
 This holds under Angular's `always` and `emptyOnly` parameter-inheritance strategies. Repeated local placeholders use the last positional occurrence for parsing, matching Angular. Pathless records contribute no positions. Decoded values are not decoded again. Search uses Angular's shared decoded query map.
 
-Each declared path scalar and required search key requires exactly one raw value. A catchall instead has zero-or-more positional raw values and invokes its element codec independently for each; it is not a repeated-scalar error. Optional search keys never fail: a missing, repeated or invalid value is absent, or reads as the key's fallback (§4). Ignore undeclared query keys. Within one parse operation, validate every relevant raw cardinality before starting any parser; missing/repeated values cannot trigger partial codec side effects first. Matching parses a candidate's local path params on their own (§8), so they may run before a required search key's cardinality is checked.
+Each declared path scalar requires exactly one raw value. A catchall instead has zero-or-more positional raw values and invokes its element codec independently for each; it is not a repeated-scalar error. Search keys never fail: a missing, repeated or invalid value is absent, or reads as the key's fallback (§4). Ignore undeclared query keys. Within one parse operation, validate every relevant path raw cardinality before starting any parser; missing/repeated values cannot trigger partial codec side effects first. Parsing is synchronous and stops at the first failing path codec, in declaration order; search is parsed only after the path values succeed.
 
-Observable parse errors are Errors with `source: "path" | "search"`, `key`, `reason: "missing" | "repeated" | "invalid"`, and retained cause for invalid inputs/codec failure. Malformed raw input and synchronous throws/asynchronous rejections classify as invalid. The error class is not a new root export. Concurrent independent codecs run without serial waiting; first rejection wins, with no declaration-order promise or aggregation. Later failures must not become detached unhandled rejections.
+Observable input errors are path-only: Errors with `source: "path"`, `key`, `reason: "missing" | "repeated" | "invalid"`, and retained cause for invalid inputs/codec throws. Malformed raw input and codec throws classify as invalid. The error class is not a new root export. A thenable parse result is not an input error but the TypeError of §4.
 
-Because invalid local path params make a route not match (§8), activation reparses only path values that already parsed once: a path error after matching needs a codec that disagrees with itself (nondeterministic or stateful). Path codecs therefore run during matching and again on activation; no cross-phase cache exists. Search errors come from required keys only.
+Because invalid local path params make a route not match (§8), activation reparses only path values that already parsed once: a path error after matching needs a codec that disagrees with itself (nondeterministic or stateful), a programming error. Path and search codecs therefore run during matching and again on activation; no cross-phase cache exists.
 
-### Sharing and state
+### Sharing
 
-One exact declaration object and exact complete Angular snapshot share one full effective parse operation and result/failure across typed activation guards, local resolvers, and handles. A canActivateChild adapter uses the declaring parent's snapshot for that input operation while preserving Angular's native child snapshot argument. Matching-phase local input parsing is separate: its partial snapshot does not supply ancestry, and no cross-phase parse reuse exists. Resolvers may start parsing before activation; handles rejoin that operation when the snapshot commits. New snapshots create new operations, even when URLs/values are equal. Different declarations never share merely because paths/codecs match. This is not a URL or resolved-data cache.
+One exact declaration object and exact complete Angular snapshot share one full effective parse result/failure across typed activation guards, local resolvers, title callbacks, and handles. A canActivateChild adapter uses the declaring parent's snapshot for that input operation while preserving Angular's native child snapshot argument. Matching-phase local input parsing is separate: its partial snapshot does not supply ancestry, and no cross-phase parse reuse exists. New snapshots create new parse results, even when URLs/values are equal. Different declarations never share merely because paths/codecs match. This is not a URL or resolved-data cache.
 
-Successful top-level params/search maps are shallow-frozen and reference-shared for that operation. Optional keys without a value or fallback are absent. Arbitrary nested codec values are opaque, not recursively frozen.
+Successful top-level params/search maps are shallow-frozen and reference-shared for that snapshot. Search keys without a value or fallback are absent. Arbitrary nested codec values are opaque, not recursively frozen.
 
-| Situation                                  | Required resource behavior                                                                                                       |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Initial parsing                            | Params/search loading, values undefined                                                                                          |
-| Navigation commitment                      | Publish the committed snapshot's values; while its parse is unfinished, loading with undefined                                   |
-| Parse success                              | Params/search settle together from one generation                                                                                |
-| Navigation pending                         | Keep the current snapshot's settled params/search/data as `reloading`; unsettled or failed current parsing is loading, undefined |
-| New handle while idle                      | Observe/rejoin the current committed snapshot without duplicate parse                                                            |
-| New handle during navigation               | Wait for commitment or surviving-snapshot restoration                                                                            |
-| Cancellation/same-URL skip                 | Settle on the surviving snapshot's values or rejoin its unfinished operation without re-parsing                                  |
-| Redirect/supersession                      | Stay pending through replacement; a replacement skipped as same-URL settles like a skip; obsolete completion cannot publish      |
-| NavigationError                            | Settle like cancellation; the failure stays Angular's (rejection, event, error handler), not the handle's                        |
-| Handle-only codec failure after commitment | Params/search error; successful navigation is not retroactively failed; committed data does not inherit this handle-only failure |
-| Later valid navigation                     | Recover from prior error using the new snapshot                                                                                  |
-| Injector destruction                       | Release subscriptions/tracking; no later publication                                                                             |
+### Handle values
 
-Pending values describe the routes still on screen: Angular doesn't change the active snapshots (or, with its default deferred URL updates, an imperative navigation's URL) until a navigation commits, so a cancelled or failed navigation leaves those values accurate, and the current page doesn't lose its values while the next one loads. Every NavigationStart marks handles reloading, because a handle can't know whether a navigation affects its record until it commits; a Start delivered after any event of a newer navigation (an earlier listener can start and finish one during that Start's delivery) is obsolete and changes nothing. Parsed values describe only the committed snapshot: a failed navigation's parse error belongs to that navigation, not to the handle, while a codec failure for the committed snapshot's own inputs is a handle error. Resource errors are Error instances. Do not alter Angular's native promise rejection value. Read paired params/search in one synchronous turn when their correspondence matters. Parsed inputs and local resolved data need not settle in the same synchronous turn.
+Handle signals read the route's committed snapshot. Angular replaces an ActivatedRoute's snapshot only when a navigation activates, so while a navigation is pending the signals keep the current values, and a cancelled, failed or same-URL-skipped navigation leaves them unchanged. When a navigation commits a new snapshot for a reused route record, params, search and data change together, from that one snapshot. The handle follows the ActivatedRoute's own observables as well as router events, so a subscriber to either sees the new values, with two exceptions. A subscriber to the same ActivatedRoute observable that subscribed before the handle was created runs first. A router-event listener registered before the handle, reading it during the route's own `ActivationEnd`, sees the previous values when only an ancestor's path params changed and none of the route's own observables emit (under `paramsInheritanceStrategy: 'emptyOnly'`, or when a matrix param shadows the ancestor's). Create the handle first; once that event has been delivered, the signals are current. Pending-navigation UI uses Angular's `Router.currentNavigation()` signal; the package adds nothing for it. A failed navigation's errors stay Angular's (rejection, event, error handler); do not alter Angular's native promise rejection value.
 
-### Angular stability / SSR
+Handle parsing shares the snapshot's parse result with guards and resolvers. A route with neither typed activation guards, resolvers nor a title callback is parsed when its handle is first read. If that parse fails, which takes a nondeterministic path codec, reading params or search throws that error; data is unaffected. Injector destruction releases the handle's subscriptions.
 
-Relevant handle parsing must keep Angular stability pending until the paired result/error is published. Publication precedes release of package-owned pending work. An unfinished surviving parse remains relevant during attempted navigation because cancellation can restore it. Replacement commitment, destruction, or paired first failure releases obsolete package tracking. After cancellation or navigation error, unfinished surviving work stays tracked, and a new handle rejoins it without restarting codecs.
-
-Codec promises are not cancellable and may continue side effects after abandonment; late output cannot publish. A current never-settling codec intentionally keeps SSR pending: no package timeout exists. After first paired failure, sibling unfinished codec work does not need to hold this package's task. Angular/Zone may separately track underlying work.
-
-These semantics may be implemented with any suitable public Angular APIs; no particular state machine, cache structure, observation helper, or Resource construction primitive is prescribed.
+Parsing involves no package-owned pending work: server rendering contains the handle values because they are synchronous, while Angular tracks resolvers and other asynchronous navigation work itself.
 
 ## 8. Angular-native guards and resolver data [D, Q]
 
@@ -405,11 +380,11 @@ Configured `canActivate`, `canActivateChild`, and `canMatch` values are arrays o
 
 Typed inputs are readonly, codec-inferred, and contain only params/search. Preserve each native argument's Angular type. Ordinary scalar/Promise/Observable `GuardResult` values (`boolean`, `UrlTree`, `RedirectCommand`) are supported. Angular owns invocation/order, matching fallback, cancellation, redirects, and results; do not add a guard scheduler.
 
-Generate phase-specific adapters that validate exact record identity and positional ownership, await valid inputs, and invoke callbacks in Angular's original injection context after asynchronous parsing. Preserve native Observable first-result/teardown behavior and prevent callback entry after abandonment. For activation callbacks, codec parse failure propagates as a navigation error **before the callback**, not an implicit `false`. A successfully parsed `canMatch` returning false uses Angular's native next-candidate behavior.
+Generate phase-specific adapters that validate exact record identity and positional ownership, parse inputs synchronously, and call the authored callback in the same synchronous call Angular made, inside the injection context Angular provides; no injection-context restoration exists. `inject()` works at callback entry, before the callback's own first await. Callback results (scalar, Promise or Observable) are returned to Angular unchanged, so Angular keeps its native Observable first-result/teardown behavior. For activation callbacks, a parse failure propagates as a navigation error **before the callback**, not an implicit `false`. A successfully parsed `canMatch` returning false uses Angular's native next-candidate behavior.
 
 ### Matching
 
-**A local path param that fails to parse means the route doesn't match.** Generation gives every non-redirect record whose own path has a param (`$name` or `$name[]`) a generated `canMatch`, ahead of any authored ones, that parses only that record's local path params. Success matches; failure returns `false`, so Angular tries its next candidate and backtracks, typically to the closest catchall (§3). A resolver, guard or handle therefore never sees a value its path codec rejects, such as an unknown `enumParam` member. Ancestor params are absent from Angular's partial match snapshot, so each ancestor's own generated guard checks its own params. Search never takes part: it is parsed only for authored `canMatch` callbacks and after matching. Existence checks (a value that parses but names nothing) remain application logic, for example a `canActivate` returning `new RedirectCommand(notFoundUrl, { browserUrl: state.url })` to a not-found URL that the route itself can't match.
+**A local path param that fails to parse means the route doesn't match.** Generation gives every non-redirect record whose own path has a param (`$name` or `$name[]`) or that has effective search a generated `canMatch`, ahead of any authored ones, that parses that record's local path params and, once they succeed, its effective search. Valid path params match; an input error returns `false`, so Angular tries its next candidate and backtracks, typically to the closest catchall (§3). A thenable parse result (§4), path or search, instead fails the navigation with its TypeError; Angular runs this guard on every navigation, query-only ones included, so no navigation commits one. A resolver, guard or handle therefore never sees a value its path codec rejects, such as an unknown `enumParam` member. Ancestor params are absent from Angular's partial match snapshot, so each ancestor's own generated guard checks its own params. Search never decides the match: it never produces an input error, and only the thenable TypeError, a programming error, escapes its parsing. Existence checks (a value that parses but names nothing) remain application logic, for example a `canActivate` returning `new RedirectCommand(notFoundUrl, { browserUrl: state.url })` to a not-found URL that the route itself can't match.
 
 `onInvalidParams` replaces the `false`:
 
@@ -423,38 +398,36 @@ export default defineRoute("items/$id", {
 });
 ```
 
-It is entered in the route's injection context, like other callbacks. It returns `false`, a `UrlTree` or a `RedirectCommand`, synchronously or as a Promise/Observable. `true` is a type error, and at runtime `true` or any other value, including one a Promise or an Observable's first emission delivers, fails the navigation with a TypeError; a throw or rejection fails it with that error. It is accepted only on routes with local path params and is rejected on redirect declarations (§9), at type level, at runtime declaration and in generation preflight.
+It is called synchronously in the route's injection context, like other callbacks. It returns `false`, a `UrlTree` or a `RedirectCommand`, synchronously or as a Promise/Observable. `true` is a type error, and at runtime `true` or any other value, including one a Promise or an Observable's first emission delivers, fails the navigation with a TypeError; a throw or rejection fails it with that error. It is accepted only on routes with local path params and is rejected on redirect declarations (§9), at type level, at runtime declaration and in generation preflight.
 
-Angular passes one partial snapshot to all of a candidate's `canMatch` guards and runs them concurrently, preferring the first non-`true` result in array order, while any guard's error fails the navigation. So all of them share one path parse per candidate, and an authored `canMatch` adapter never errors because of invalid path params: it waits for that parse and, if it fails, returns `false` without entering the callback, leaving the generated guard ahead of it to decide. After a successful path parse, its inputs are those path values plus effective search; a required-search failure fails the navigation, as before.
+Angular passes one partial snapshot to all of a candidate's `canMatch` guards and calls each of them, preferring the first non-`true` result in array order, while any guard's error fails the navigation. So all of them share one path parse and one search parse per candidate, and an authored `canMatch` adapter never errors because of invalid path params: if that parse fails, it returns `false` without calling the callback, leaving the generated guard ahead of it to decide. After a successful path parse, its inputs are those path values plus effective search.
 
 All authored callbacks for one matching candidate share that candidate's local input operation/container. The public matching inputs container is shallow-frozen; its params/search maps retain shared identity and shallow freezing, while nested codec values remain opaque. Full-snapshot activation guards share the full operation described in §7; callbacks do not promise fresh resolver data before Angular executes resolvers. Matching inputs must come from candidate consumed segments/global query data, not an invented parent snapshot or a runtime matching-context subsystem. Native canDeactivate may explicitly inspect its component's typed handle, but merely configuring it never forces parsing or prevents leaving because of invalid package inputs.
 
 ### Resolver data
 
-Here `delayedNumber` is an application-owned `ParamCodec<number>` with an async parser, and `ItemCatalog` is an application-owned injection token whose provider accepts these parsed values.
+Here `ItemCatalog` is an application-owned injection token whose provider accepts these parsed values.
 
 ```ts
 // team.route.ts
-import { defineRoute, numberParam, optionalSearchParam } from "@loozo/angular-router";
-import { delayedNumber } from "./delayed-number.js";
+import { defineRoute, numberParam } from "@loozo/angular-router";
 
 export default defineRoute("teams/$teamId", {
   params: { teamId: numberParam },
-  search: { score: optionalSearchParam(delayedNumber) },
+  search: { score: numberParam },
 });
 ```
 
 ```ts
 // item.route.ts
 import { inject } from "@angular/core";
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute, numberParam } from "@loozo/angular-router";
 import team from "./team.route.js";
-import { delayedNumber } from "./delayed-number.js";
 import { ItemCatalog } from "./catalog.js";
 
 export default defineRoute("items/$id", {
   parent: team,
-  params: { id: delayedNumber },
+  params: { id: numberParam },
   runGuardsAndResolvers: "paramsOrQueryParamsChange",
   resolve: {
     item: ({ params, search }) =>
@@ -463,7 +436,7 @@ export default defineRoute("items/$id", {
 });
 ```
 
-A callback receives `(inputs, ActivatedRouteSnapshot, RouterStateSnapshot)`. Local callbacks for one exact declaration/snapshot operation receive the same shallow-frozen public `inputs` container. Its `params/search` maps retain the shared identity and shallow freezing described in §7, and infer readonly effective codec-parsed values including async values and pathless ancestry. Only top-level bindings are readonly; nested codec-produced objects retain their types. This public callback-container contract does not prescribe any private intermediate result representation. Raw snapshots are an escape hatch, not the package's positional-ownership source.
+A callback receives `(inputs, ActivatedRouteSnapshot, RouterStateSnapshot)`. Local callbacks for one exact declaration/snapshot receive the same shallow-frozen public `inputs` container. Its `params/search` maps retain the shared identity and shallow freezing described in §7, and infer readonly effective codec-parsed values including pathless ancestry. Only top-level bindings are readonly; nested codec-produced objects retain their types. This public callback-container contract does not prescribe any private intermediate result representation. Raw snapshots are an escape hatch, not the package's positional-ownership source.
 
 No manual generic or ResolveFn annotation is needed. Raw native ResolveFn's snapshot-first signature is not interchangeable with this parsed-input callback signature. Resolver values must be functions.
 
@@ -472,20 +445,18 @@ Scalar/object, Promise, Observable, and RedirectCommand results are supported. L
 Generated adapters must:
 
 - Check the exact record before parsing/callback invocation.
-- Await successful effective input parsing before callbacks/activation.
-- Let resolvers and handles rejoin the same declaration/snapshot parse, including failure.
-- Restore the native route injection context at callback entry after asynchronous parsing. `inject()` works there, before the callback's own await; later awaits/emissions and codecs receive no DI-context guarantee.
-- Preserve native first-emission, empty-Observable cancellation, redirects, errors, execution ordering, activation, SSR, and returned Observable teardown.
-- Prevent callbacks when parsing has been abandoned before entry.
-- Prevent obsolete Promise/codec output from activating or publishing without pretending to abort its effects.
+- Parse effective inputs synchronously before calling the callback.
+- Let resolvers and handles share the same declaration/snapshot parse, including failure.
+- Call the callback synchronously inside Angular's injection context; `inject()` works there, before the callback's own await. Later awaits/emissions and codecs receive no DI-context guarantee.
+- Return the callback's result to Angular unchanged, preserving native first-emission, empty-Observable cancellation, redirects, errors, execution ordering, activation, SSR, and returned Observable teardown.
 
-A resolver-run parse error rejects navigation before callbacks/activation; first activation therefore creates no handle. With neither typed activation-guard nor resolver input demand, handle parsing happens after commitment and may expose a Resource error without failing navigation. Do not cache or share resolved data independently of Angular.
+A resolver-run parse error rejects navigation before callbacks/activation; first activation therefore creates no handle. With neither typed activation-guard, resolver nor title input demand, handle parsing happens after commitment, and a parse failure there throws on handle read without failing navigation (§7). Do not cache or share resolved data independently of Angular.
 
 An explicit native runGuardsAndResolvers policy/predicate is passed through unchanged. Omission preserves Angular's default paramsChange behavior: query-only navigation can produce new parsed search alongside old resolver data. Consumers choose paramsOrQueryParamsChange or a predicate when required; unrelated query/matrix changes may also trigger that native policy. No automatic dependency tracking, forced rerun, extra resolver pending-work lifecycle, loader, timeout, data cache, or transfer cache exists.
 
 ### Titles
 
-`title` is a string or a parsed-input callback `(inputs, ActivatedRouteSnapshot, RouterStateSnapshot)` returning a string, Promise or Observable of one. Inputs are the declaring route's effective inherited/local params/search, the same shared container its resolvers receive. Angular runs a title as a resolver, so the callback is adapted like one: same record check, parse rejoin, injection context, rerun policy and navigation-error behavior, and it cannot read the route's resolved data. Angular's native snapshot-first `ResolveFn` and class/token title forms are not accepted, for the same reason as resolvers. A redirect record never activates, so it has no title.
+`title` is a string or a parsed-input callback `(inputs, ActivatedRouteSnapshot, RouterStateSnapshot)` returning a string, Promise or Observable of one. Inputs are the declaring route's effective inherited/local params/search, the same shared container its resolvers receive. Angular runs a title as a resolver, so the callback is adapted like one: same record check, shared parse, injection context, rerun policy and navigation-error behavior, and it cannot read the route's resolved data. Angular's native snapshot-first `ResolveFn` and class/token title forms are not accepted, for the same reason as resolvers. A redirect record never activates, so it has no title.
 
 ## 9. Typed redirects [X]
 
@@ -508,24 +479,24 @@ An explicit params map covers every destination path key exactly and names compa
 
 Both search and fragment policies are mandatory:
 
-| Policy                        | Search behavior                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `{ mode: "preserve" }`        | Source declarations must guarantee compatible required destination search values; a source key with a fallback guarantees nothing. At runtime validate destination-declared required incoming scalar values (optional destination keys recover, so they aren't checked); preserve unknown keys, repeated undeclared values, and original decoded query text rather than re-stringifying it            |
-| `{ mode: "drop" }`            | Remove all incoming query values; destination must have no required search keys (keys with a fallback aren't required)                                                                                                                                                                                                                                                                                       |
-| `{ mode: "replace", values }` | Destination-typed values and required keys; literal unknown keys fail typing. Declared-search replacement variables may admit extra keys through structural assignability; searchless replacement typing rejects string keys even through variables. Runtime and static validation reject all unknown replacement keys. `{}` is valid for optional-only/searchless destinations and removes incoming queries |
+| Policy                        | Search behavior                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ mode: "preserve" }`        | Preserve unknown keys, repeated values, and original decoded query text rather than re-stringifying it; destination search recovers on its own (§4), so nothing is validated                                                                                                                                                                                         |
+| `{ mode: "drop" }`            | Remove all incoming query values                                                                                                                                                                                                                                                                                                                                     |
+| `{ mode: "replace", values }` | Destination-typed values for any subset of keys, omitting absent or `undefined` ones; literal unknown keys fail typing. Declared-search replacement variables may admit extra keys through structural assignability; searchless replacement typing rejects string keys even through variables. Runtime and static validation reject all unknown replacement keys. `{}` is always valid and removes incoming queries |
 
-Fragment accepts preserve, drop, or `{ mode: "replace", value }`. Explicit replacement values use the target's declared fragment-name union and runtime membership; without target names replacement is forbidden. Preserve carries raw incoming fragment text without imposing declaration membership, consistent with raw incoming hashes remaining Angular's concern; drop always removes it. The redirect adapter itself does not validate source-only query declarations or discarded query values; ordinary matching candidates can independently demand their own inputs before a fallback redirect is reached. Preserve may omit optional destination keys, with or without a fallback; required destination keys must be present and single.
+Fragment accepts preserve, drop, or `{ mode: "replace", value }`. Explicit replacement values use the target's declared fragment-name union and runtime membership; without target names replacement is forbidden. Preserve carries raw incoming fragment text without imposing declaration membership, consistent with raw incoming hashes remaining Angular's concern; drop always removes it. The redirect adapter itself does not parse or validate any search values; ordinary matching candidates can independently demand their own inputs before a fallback redirect is reached.
 
 Runtime declaration snapshots mapping/replacement/fragment records, validates structure/missing/unknown keys without running codecs, and rejects unknown redirect properties. `createUrl` remains distinct: it still forbids a search option for a searchless route even though redirect replace accepts `{}`.
 
 Redirect execution:
 
-1. Check mapped scalar source/preserved destination-search cardinalities before any parser starts; mapped catchalls allow zero-or-more elements.
-2. Parse mapped source paths with source codecs, including async parsers and catchall element parsing.
+1. Check mapped scalar source cardinalities before any parser starts; mapped catchalls allow zero-or-more elements.
+2. Parse mapped source paths synchronously with source codecs, including catchall element parsing.
 3. Stringify those logical values with destination codecs and target scalar/catchall shape; never copy raw path text. Mapping compatibility uses logical value types, including readonly catchall arrays.
 4. Apply search/fragment policies and return an Angular UrlTree for native redirect execution.
 
-Within the redirect adapter, only mapped source params are parsed; unmapped source params are ignored. Equal value types do not guarantee codec success. Sync throw/async reject fails through Angular navigation errors; first rejection wins and later rejections are observed. Under default handling, one NavigationError is emitted and navigateByUrl rejects while prior committed URL remains. No parallel router lifecycle or new timeout is added.
+Within the redirect adapter, only mapped source params are parsed; unmapped source params are ignored. Equal value types do not guarantee codec success. A codec throw, an input error or a thenable parse result fails through Angular navigation errors. Under default handling, one NavigationError is emitted and navigateByUrl rejects while prior committed URL remains. No parallel router lifecycle or new timeout is added.
 
 A redirect declaration cannot also declare its own `canActivate` or `canMatch` field, including empty arrays, or `onInvalidParams`: Angular rejects `canActivate`/`canMatch` with native redirect records (Angular 22.2.2 throws RuntimeError 4014 for `canMatch` with `redirectTo`), so a redirect record also gets no generated matching guard, and an invalid mapped source param fails through the redirect adapter as a navigation error. Literal typing, runtime declaration validation, and generation preflight must reject them; generation fails before changing outputs. Do not silently discard the guard or invent its execution. This restriction does not apply to retained source ancestors' matching guards.
 
@@ -594,7 +565,7 @@ One builder generation pass produces:
 
 Only primary-outlet generation is included. Preserve explicit authored nesting/local decoded paths, translate whole scalar `$name` segments to Angular `:name`, and terminal `$name[]` to native `**`. Put each record's stable authored source ID in its own `Route.data.__loozoAngularRouterRouteId`.
 
-Colocated default standalone components use lazy loadComponent. Componentless ancestors with children are valid. Ordinary componentless leaves fail generation before writing. Apply §9 redirect pruning/ordering and §6 shared-path matching. Declarations are imported only where generated configuration reads them directly (native options and redirects); guard/resolver/title adapters, and the generated matching guard every non-redirect record with local path params receives (§8), reach them through the route set. Components remain lazy. Forward providers/static data/native canDeactivate/rerun policy to Angular, and a static title; adapt a title callback like a resolver (§8); preserve the generated identity key. Static data remains observable through native Angular snapshots/data; the package handle's data Resource retains **local resolved keys only**, not newly merged static or inherited data. Do not assign authored parsed-input resolve maps directly to native Angular Route.resolve.
+Colocated default standalone components use lazy loadComponent. Componentless ancestors with children are valid. Ordinary componentless leaves fail generation before writing. Apply §9 redirect pruning/ordering and §6 shared-path matching. Declarations are imported only where generated configuration reads them directly (native options and redirects); guard/resolver/title adapters, and the generated matching guard (§8) every non-redirect record receives when it has local path params or it or an ancestor declares `search`, reach them through the route set. Components remain lazy. Forward providers/static data/native canDeactivate/rerun policy to Angular, and a static title; adapt a title callback like a resolver (§8); preserve the generated identity key. Static data remains observable through native Angular snapshots/data; the package handle's data signal retains **local resolved keys only**, not newly merged static or inherited data. Do not assign authored parsed-input resolve maps directly to native Angular Route.resolve.
 
 Generated TypeScript and emitted relative JavaScript specifiers must typecheck/build under the Angular application consumer environment. Authored `.ts` imports use emitted `.js` specifiers. Root-package NodeNext consumer checks and Angular application/Bundler checks are distinct; admitting a source extension does not imply every module-mode or CommonJS interoperability combination. Generator bootstrapping tolerates missing/removable stale facades at the known generated locations for retained declarations, including another declaration's `destination` imported by a consumer. Own-facade typing imports are also tolerated when needed. This is not permission for arbitrary unresolved imports or references to undeclared/unadmitted generated targets. This is private analysis behavior needed to generate an application's first outputs, not a public graph option.
 
@@ -686,12 +657,12 @@ Use one self-contained Angular 22.2.2 application with generated configuration, 
 
 The application has:
 
-- Componentless `teams/$teamId`, owning numeric teamId and optional delayed numeric score.
-- Child `items/$id`, delayed numeric id and local item resolver consuming inherited parsed values through a deterministic application provider.
+- Componentless `teams/$teamId`, owning numeric teamId and optional numeric score.
+- Child `items/$id`, numeric id and local item resolver consuming inherited parsed values through a deterministic application provider.
 - Child alias `old-items/$id` targeting item, dropping search/fragment.
 - Typed direct/alias links and a query-only score link.
 - Separate DOM evidence for parsed values and local resolved item data.
-- At least **50 ms** delayed codecs; immediate microtasks are insufficient proof.
+- A handle-only route without resolvers, whose search includes a `withFallback` key.
 - Explicit paramsOrQueryParamsChange on item for query-only resolver reruns.
 
 Required observations:
@@ -701,12 +672,13 @@ Required observations:
 | SSR `/teams/7/old-items/7?discard=1&score=42` | HTTP 302, Location `/teams/7/items/7`                                                                        |
 | SSR `/teams/7/items/7;teamId=999?score=42`    | Team 7, item 7, parsed score 42, matching local resolved data                                                |
 | Separate SSR `/teams/8/items/8?score=43`      | Independent team 8/item 8/score 43; no cross-request leakage                                                 |
+| SSR handle-only route                         | Parsed params, search and the search fallback rendered without any resolver                                 |
 | Hydrate initial page in Chromium              | No hydration/browser errors; original parsed/resolved DOM nodes retained                                     |
 | Click typed alias link to id 8                | Correct alias href; canonical target URL, parsed/resolved item 8, dropped query/fragment; no document reload |
 | Click typed query-only score 44               | Parsed and resolved score update; pathname, component, host, article, and document identity retained         |
 | Inspect browser bundle reachability           | No Node/tooling/compiler/build dependency leakage; component remains lazy                                    |
 
-Use server-safe resolver imports/providers and deterministic server/browser values. The local resolver may run independently on server/browser; there is no guarantee of one execution and no custom transfer cache. Keep handle-only delayed SSR/error/stability tests separate from resolver-gated rendering so one path cannot mask failure in the other.
+Use server-safe resolver imports/providers and deterministic server/browser values. The local resolver may run independently on server/browser; there is no guarantee of one execution and no custom transfer cache. Keep handle-only SSR rendering separate from resolver-gated rendering so one path cannot mask failure in the other.
 
 This is development-server Chromium proof, not production serving, cross-engine certification, nondeterministic hydration support, or a complete SSR framework.
 

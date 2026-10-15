@@ -2,7 +2,7 @@ export { callbacks, redirect } from "./callbacks.js";
 export { assertIdentity, parseInputs } from "./inputs.js";
 export type { RecordBinding, RouteSet } from "./inputs.js";
 
-import { inject, type Resource } from "@angular/core";
+import { inject, type Signal } from "@angular/core";
 import { Router, type UrlTree } from "@angular/router";
 import {
   createUrl,
@@ -75,16 +75,16 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  *
  * @remarks
  * Obtain it in an Angular injection context for the exact generated activated
- * record. Params/search parse together; data contains only local resolver results,
- * not static/ancestor data or title. Resources are native readonly Angular
- * Resources: use hasValue before value access; error-state value reads throw.
+ * record. Params, search and data are readonly Angular Signals of the route's
+ * committed snapshot, with values from the first read. Data contains only local
+ * resolver results, not static/ancestor data or title.
  *
- * While a navigation is pending, resources keep the current snapshot's values and
- * report reloading; a committed navigation publishes the new snapshot's values.
- * Cancellation, failure or same-URL skip keeps the survivor without reparsing;
- * obsolete work cannot publish. Relevant parsing participates in Angular
- * stability until publication, error, replacement or destruction.
- * Codecs are not abortable and there is no package timeout or resolved-data cache.
+ * While a navigation is pending, the signals keep the current snapshot's values;
+ * when a navigation commits a new snapshot for this route, all three change
+ * together. Cancellation, failure or a same-URL skip leaves them unchanged. For
+ * pending-navigation UI, read Angular's `Router.currentNavigation()`. There is no
+ * resolved-data cache. Reading params or search throws only when a path codec
+ * rejects a value it accepted while matching, a programming error.
  *
  * Selectors are single known authored literals, not concrete URLs or string
  * unions. `.` is exact-current; other absolute/relative selections use generated
@@ -114,12 +114,12 @@ export interface Handle<
   Set = unknown,
   References extends Record<string, AnyRoute> = {},
 > {
-  /** Effective positional params; kept and reloading during a pending navigation, undefined until first parsed. */
-  readonly params: Resource<Readonly<ParamsOf<Target>> | undefined>;
-  /** Effective declared search; paired with params from the same parse operation. */
-  readonly search: Resource<Readonly<SearchOf<Target>> | undefined>;
-  /** Own native resolver results only; settles independently of paired inputs. */
-  readonly data: Resource<DataOf<Target> | undefined>;
+  /** Effective positional params of the committed snapshot; kept while a navigation is pending. */
+  readonly params: Signal<Readonly<ParamsOf<Target>>>;
+  /** Effective declared search, from the same snapshot as params; absent keys have no value or fallback. */
+  readonly search: Signal<Readonly<SearchOf<Target>>>;
+  /** Own native resolver results only, from the same snapshot as params. */
+  readonly data: Signal<DataOf<Target>>;
   /**
    * Creates a native UrlTree for this exact declaration without navigating.
    *
@@ -294,9 +294,9 @@ export function injectGeneratedRoute<
   }
 
   return {
-    params: view.params,
-    search: view.search,
-    data: view.data as Resource<DataOf<Target> | undefined>,
+    params: view.params as Signal<Readonly<ParamsOf<Target>>>,
+    search: view.search as Signal<Readonly<SearchOf<Target>>>,
+    data: view.data as Signal<DataOf<Target>>,
     link: ((...args: unknown[]) => router.parseUrl(url(args))) as Handle<
       Target,
       Selected,
