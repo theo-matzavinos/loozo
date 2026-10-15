@@ -109,6 +109,7 @@ import { OrigamiCollapsibleOptions, OrigamiCollapsibleTriggerOptions, OrigamiCol
 import { OrigamiAccordionOptions, OrigamiAccordionSingleOptions, OrigamiAccordionMultipleOptions, OrigamiAccordionTriggerOptions, OrigamiAccordionPanelOptions } from '@loozo/origami-ui/accordion';
 import { OrigamiPopoverOptions, OrigamiPopoverTriggerOptions, OrigamiPopoverAnchorOptions, OrigamiPopoverContentOptions, type OrigamiPopoverContentState } from '@loozo/origami-ui/popover';
 import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
+import { OrigamiTabsOptions, OrigamiTabsTriggerOptions, OrigamiTabsPanelOptions, type OrigamiTabsOrientation, type OrigamiTabsActivation } from '@loozo/origami-ui/tabs';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -165,10 +166,21 @@ OrigamiToggleOptions.provideFactory(() => ({pressed: computed(() => false), disa
 OrigamiToggleOptions.provideFactory(() => ({pressed: signal('pressed'), disabled: signal(false)}));
 // @ts-expect-error a Toggle factory must supply disabled
 OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false)}));
+// @ts-expect-error Tabs value must be writable
+OrigamiTabsOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false), orientation: signal<OrigamiTabsOrientation>('horizontal'), activation: signal<OrigamiTabsActivation>('automatic')}));
+// @ts-expect-error Tabs orientation is horizontal or vertical
+OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), orientation: signal('diagonal'), activation: signal<OrigamiTabsActivation>('automatic')}));
+// @ts-expect-error a Tabs factory must supply activation
+OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), orientation: signal<OrigamiTabsOrientation>('horizontal')}));
+// @ts-expect-error a Tabs Trigger factory must supply disabled
+OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab')}));
+// @ts-expect-error a Tabs Panel factory must supply value
+OrigamiTabsPanelOptions.provideFactory(() => ({id: signal('billing-panel')}));
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
 class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); }
+class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -179,6 +191,8 @@ OrigamiCollapsibleTriggerOptions.provideExisting(() => WrongIdentity);
 OrigamiCollapsiblePanelOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Toggle class
 OrigamiToggleOptions.provideExisting(() => WrongToggle);
+// @ts-expect-error incompatible existing Tabs Trigger class
+OrigamiTabsTriggerOptions.provideExisting(() => WrongTabsTrigger);
 // Positive: complete factories and abstract existing classes return ordinary Provider arrays.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -212,6 +226,16 @@ abstract class AbstractToggle {
   abstract readonly pressed: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractTabs {
+  abstract readonly value: WritableSignal<string | null>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly orientation: Signal<OrigamiTabsOrientation>;
+  abstract readonly activation: Signal<OrigamiTabsActivation>;
+}
+abstract class AbstractTabsPart {
+  abstract readonly value: Signal<string>;
+  abstract readonly id: Signal<string>;
+}
 export const providers: Provider[][] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -235,6 +259,11 @@ export const providers: Provider[][] = [
   OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal('anchor')})),
   OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: computed(() => false)})),
   OrigamiToggleOptions.provideExisting(() => AbstractToggle),
+  OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>('billing'), disabled: computed(() => false), orientation: signal<OrigamiTabsOrientation>('vertical'), activation: signal<OrigamiTabsActivation>('manual')})),
+  OrigamiTabsOptions.provideExisting(() => AbstractTabs),
+  OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab'), disabled: computed(() => false)})),
+  OrigamiTabsPanelOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-panel')})),
+  OrigamiTabsPanelOptions.provideExisting(() => AbstractTabsPart),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -272,6 +301,15 @@ import { OrigamiCollapsible, OrigamiCollapsibleTrigger } from "@loozo/origami-ui
   readonly wrongPressed = signal("pressed");
   pressedOutput(value: boolean): void { void value; }
   wrongOutput(value: string): void { void value; }`,
+  },
+  tabs: {
+    imports: `import { OrigamiTabs, OrigamiTabsList, OrigamiTabsTrigger, OrigamiTabsPanel } from "@loozo/origami-ui/tabs";`,
+    directives: "OrigamiTabs, OrigamiTabsList, OrigamiTabsTrigger, OrigamiTabsPanel",
+    members: `
+  readonly selected = signal<string | null>(null);
+  readonly wrongSelected = signal(1);
+  valueOutput(value: string | null): void { void value; }
+  wrongOutput(value: number): void { void value; }`,
   },
 };
 const templates = [
@@ -378,6 +416,51 @@ const templates = [
       code: 2345,
       span: "$event",
       message: /Argument of type 'boolean' is not assignable to parameter of type 'string'/,
+    },
+  },
+  {
+    name: "tabs-positive",
+    family: "tabs",
+    template: `<section ogTabs [(value)]="selected" orientation="vertical" activation="manual" disabled (valueChange)="valueOutput($event)"><div ogTabsList aria-label="Sections"><button ogTabsTrigger value="one" disabled>One</button></div><div ogTabsPanel value="one">One</div></section>`,
+  },
+  {
+    name: "tabs-model",
+    family: "tabs",
+    template: `<section ogTabs [(value)]="wrongSelected"></section>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "tabs-output",
+    family: "tabs",
+    template: `<section ogTabs (valueChange)="wrongOutput($event)"></section>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /Argument of type 'string \| null' is not assignable to parameter of type 'number'/,
+    },
+  },
+  {
+    name: "tabs-orientation",
+    family: "tabs",
+    template: `<section ogTabs orientation="diagonal"></section>`,
+    expected: {
+      code: 2322,
+      span: "orientation",
+      message: /Type '"diagonal"' is not assignable to type 'OrigamiTabsOrientation'/,
+    },
+  },
+  {
+    name: "tabs-activation",
+    family: "tabs",
+    template: `<section ogTabs activation="auto"></section>`,
+    expected: {
+      code: 2322,
+      span: "activation",
+      message: /Type '"auto"' is not assignable to type 'OrigamiTabsActivation'/,
     },
   },
 ];

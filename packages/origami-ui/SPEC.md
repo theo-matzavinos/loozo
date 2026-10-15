@@ -1,16 +1,16 @@
 # @loozo/origami-ui — product contract
 
-**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Toggle (section 12) was added after 0.0.1 and is unreleased. Formal Baseline audit skipped; no Baseline certification claim.**
+**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Toggle (section 12) and Tabs (section 13) were added after 0.0.1 and are unreleased. Formal Baseline audit skipped; no Baseline certification claim.**
 
 This is the normative contract for the public API, behavior, composition architecture and acceptance requirements of `@loozo/origami-ui`; Popover's presentation design is specified in [SPEC-POPOVER.md](SPEC-POPOVER.md). A change to any of them updates this contract in the same change. How the package was rebuilt and moved into loozo is recorded in [PROVENANCE.md](PROVENANCE.md). No formal Baseline qualification claim is made; full browser/runtime proof is mandatory.
 
 ## 1. Product scope
 
-An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion, Popover and Toggle, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
+An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion, Popover, Toggle and Tabs, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
 
 Decisions:
 
-- The catalogue grows one consumer-backed primitive at a time, as section 15 describes.
+- The catalogue grows one consumer-backed primitive at a time, as section 16 describes.
 - TSDoc across the whole public API surface is a hard, release-blocking requirement, including public members and provider helpers.
 - Public API names, selectors, entrypoints, inputs, outputs and composition contracts are the ones this contract specifies; changing one updates this contract.
 - Chromium, Firefox and WebKit runtime qualification is mandatory. The formal Baseline audit was explicitly skipped on 2026-10-11 and is not a release gate; no Baseline widely-available certification claim is made.
@@ -108,6 +108,8 @@ Unregistering a part removes only its own registration. A stale animation, point
 Accordion root ──► Collection
 Accordion item ──► Collection Item + Collapsible
 Accordion trigger / panel ──► Collapsible trigger / panel
+Tabs root ──► Collection (+ package-private roving focus)
+Tabs trigger ──► Collection Item
 Collapsible panel ──► Presence
 Popover content ──► Presence
 ```
@@ -127,10 +129,13 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 | `/accordion`   | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
 | `/popover`     | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
 | `/toggle`      | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
+| `/tabs`        | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                    |
 
 The inventories include the approved Popover placement exports and four-property Content Options. ID-only Content factories must migrate; Trigger/Anchor Options remain ID-only.
 
 The Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled composition. Preserve whatever export visibility Angular packaging requires; it is not a supported application authoring API. Removing its importability is a deliberate API change made through this contract, not a side effect of a refactor.
+
+The Collection entrypoint also exposes `ɵOrigamiRovingFocus`, package-private ordered-focus infrastructure for Origami's composite widgets (section 16); it is not an application API.
 
 Built packaging must support genuine Angular AOT consumers, strict templates and TypeScript package resolution, with shared token identities across entrypoints. No fake Angular decorators or shimmed framework runtime.
 
@@ -160,6 +165,9 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Each Collapsible/Accordion Trigger or Panel; each Popover Trigger or Anchor | its own Options token with `id: Signal<string>`                                                                       |
 | Popover Content                                                             | `id: Signal<string>`, `side: Signal<OrigamiPopoverSide>`, `align: Signal<OrigamiPopoverAlign>`, `gap: Signal<number>` |
 | Toggle                                                                      | `pressed: WritableSignal<boolean>`, `disabled: Signal<boolean>`                                                       |
+| Tabs root                                                                   | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiTabsOrientation>`, `activation: Signal<OrigamiTabsActivation>` |
+| Tabs Trigger                                                                | `value: Signal<string>`, `id: Signal<string>`, `disabled: Signal<boolean>`                                            |
+| Tabs Panel                                                                  | `value: Signal<string>`, `id: Signal<string>`                                                                         |
 
 | State           | Readonly signals                                                                       |
 | --------------- | -------------------------------------------------------------------------------------- |
@@ -170,6 +178,7 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Popover root    | `open: Signal<boolean>`, `disabled: Signal<boolean>`, `dismissible: Signal<boolean>`   |
 | Popover Content | `open: Signal<boolean>`; no public Presence phase alias                                |
 | Toggle          | `pressed: Signal<boolean>`, `disabled: Signal<boolean>`                                |
+| Tabs            | `value: Signal<string \| null>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiTabsOrientation>`, `activation: Signal<OrigamiTabsActivation>` |
 
 Popover Content inputs default to `side: 'block-end'`, `align: 'start'`, `gap: 0` CSS px. Side is `'block-start' | 'block-end' | 'inline-start' | 'inline-end'`; align is `'start' | 'center' | 'end'`. Gap must be finite and nonnegative. All four Content Options properties are required; defaults on an unused directive do not repair an incomplete replacement.
 
@@ -207,7 +216,7 @@ Collection State reports mounted items in rendered DOM order, not registration/c
 
 Each item belongs to the nearest Collection DI context, including composition through host directives. Mounting an item without a Collection owner fails clearly. Nested collections do not contribute their items to their ancestor collection.
 
-Collection does not supply keyboard navigation, roving tabindex, selection, a role or item semantics. Item values are opaque; Collection does not normalize them against another registry.
+Collection does not supply keyboard navigation, roving tabindex, selection, a role or item semantics. Item values are opaque; Collection does not normalize them against another registry. The entrypoint's package-private roving focus (section 4) builds on Collection order for Origami's composite widgets; it is not part of Collection's contract.
 
 ## 7. Presence [R]
 
@@ -377,7 +386,7 @@ The approved details include:
 
 **Recorded support evidence, not a release gate:** inspected basic Popover attribute/show/hide/open-selector/event metadata has low date 2024-04-16, reaching the 30-month boundary on **2026-10-16**. On **2026-10-11**, that evidence did not establish widely-available eligibility, and loozo explicitly decided to skip the Baseline audit. No formal Baseline certification is claimed. The later-dated reflected `HTMLElement.popover` property remains excluded; use ordinary attribute APIs. The decision adds no presentation fallback or waiver of required runtime behavior.
 
-No source inspection, skipped audit or design approval substitutes for the required browser proof in section 13.
+No source inspection, skipped audit or design approval substitutes for the required browser proof in section 14.
 
 ## 12. Toggle [G]
 
@@ -403,7 +412,50 @@ The consumer supplies the accessible name, which should stay the same when the p
 
 Exclusions: Toggle is a button, not a form control. It has no Signal Forms integration or form value, and no group, roving focus or mixed state.
 
-## 13. Browser, SSR and hydration qualification [H]
+## 13. Tabs [S]
+
+Selectors/export names:
+
+- `[ogTabs]`, `exportAs: 'ogTabs'`; composes Collection.
+- `[ogTabsList]`.
+- `button[ogTabsTrigger]`; composes Collection Item.
+- `[ogTabsPanel]`.
+
+Root configuration: `value: string | null` model null, `disabled` boolean input false, `orientation: 'horizontal' | 'vertical'` input default `'horizontal'`, `activation: 'automatic' | 'manual'` input default `'automatic'`. The root exposes readonly State; descendants inject it. The List has no configuration. Trigger: `value` input defaulting to a generated string, `id` input defaulting to a generated ID, `disabled` boolean input false. Panel: `value` input defaulting to a generated string, `id` input defaulting to a generated ID. A Trigger and a Panel pair by equal value, so consumers give each pair the same explicit value; a generated value pairs with nothing. Values within one Tabs are expected to be distinct and are not validated; associations use the first mounted match.
+
+Trigger Options feed the composed Collection Item, so replacing only the upper Trigger Options drives Collection value and order. Lists, Triggers and Panels belong to the nearest Tabs root and fail through Angular DI without one. A Tabs root inside a Panel is fully independent.
+
+Host semantics:
+
+- Root: `data-orientation` reflects effective orientation; `data-disabled` is empty while root-disabled and absent otherwise.
+- List: static `role="tablist"`; `aria-orientation` always present, reflecting effective orientation. The consumer supplies its accessible name.
+- Trigger: native button semantics, `type="button"`, static `role="tab"`, effective ID, `aria-selected` always `"true"` or `"false"`, `aria-controls` naming only a mounted Panel of the same value, `tabindex` `"0"` on the single tab stop and `"-1"` on every other Trigger, and empty `data-selected` while selected. Root or own disabled state sets native `disabled`, `aria-disabled="true"` and empty `data-disabled`; they are absent while enabled.
+- Panel: static `role="tabpanel"`, static `tabindex="0"`, effective ID, `aria-labelledby` naming only a mounted Trigger of the same value, `hidden` unless its value is selected, and empty `data-selected` while selected. A consumer's static `tabindex` overrides the Panel default.
+
+Selection:
+
+- An enabled native activation (click, Enter or Space) focuses the Trigger and selects its value, provided it is still mounted and enabled after its focus handlers ran, so a click makes that Trigger the tab stop and the origin of the next keyboard move even in engines whose click doesn't focus a button. A write happens only when the value differs, so re-selecting the selected tab writes nothing and emits nothing. There is no deselection.
+- A Panel is shown exactly when its value equals the root value, whether or not a Trigger with that value is mounted. Null or a value no mounted Trigger has selects no Trigger: every Trigger is `aria-selected="false"`. Null hides every Panel; a value only a Panel has shows that Panel. Tabs never auto-selects or writes the model without user action.
+- Removing the selected Trigger keeps the value; its Panel stays shown while mounted. Removing a Panel only drops its association.
+- A disabled selected Trigger stays `aria-selected="true"` and its Panel stays shown.
+- Root and Trigger disabled state combine and block only user selection. External Options/model writes remain authoritative while disabled and emit no output from an unused model.
+
+Keyboard and focus:
+
+- Horizontal: ArrowRight moves to the next and ArrowLeft to the previous Trigger in DOM order; in right-to-left text, read from the Trigger's computed `direction` at key time, they are swapped. Vertical: ArrowDown moves next and ArrowUp previous, independent of direction; the other axis is not handled. Home and End move to the first and last enabled Trigger.
+- Moves skip disabled Triggers and wrap at both ends. Handled keys prevent their default action. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
+- Automatic activation selects the Trigger a keyboard move focuses, provided it is still mounted, enabled and focused after its focus handlers ran; manual activation moves focus only. Focus arriving by Tab, pointer, activation, script or focus repair never selects by itself.
+- Exactly one enabled Trigger is the tab stop: the focused Trigger while focus is on one, otherwise the first enabled Trigger in DOM order whose value is selected, otherwise the first enabled Trigger in DOM order. With no enabled Trigger there is no tab stop.
+- Focus repair: when the focused Trigger is removed or becomes disabled while focus has not moved elsewhere (it remains on that Trigger, the body or nowhere), focus moves to the new tab stop without selecting. Focus the application moved elsewhere is never taken.
+- External selection never moves focus.
+
+Server HTML carries roles, IDs, the mounted associations, `aria-selected`, the single `tabindex="0"`, `hidden` on unselected Panels and the disabled attributes. The tab stop follows DOM order on the server even when Triggers register in a different order. Eager and incremental hydration reuse the server Triggers and Panels without transient removal, and hydration does not change those attributes. An initiating click on a Trigger replayed after hydration selects exactly once. Keyboard interaction before hydration is not promised.
+
+The consumer supplies the List's accessible name, Trigger labels, Panel content and styling.
+
+Exclusions: no typeahead, `aria-activedescendant`, Page Up/Down or two-dimensional navigation; no enter/exit Presence or `until-found` on Panels (consumers gate heavy content with State); no public roving-focus or focus-management API; no form value or Signal Forms integration.
+
+## 14. Browser, SSR and hydration qualification [H]
 
 ### Browser support policy
 
@@ -442,7 +494,7 @@ Use real authored `@defer` hydration boundaries, not merely enable hydration pro
 
 Use supported Angular APIs. No contract requiring application code to consume private Angular hydration metadata is introduced. The selected Angular version's actual replay/lifecycle behavior must be inspected before specifying exact event coverage.
 
-## 14. Acceptance structure [T]
+## 15. Acceptance structure [T]
 
 This is the public-contract coverage map. Case definitions and handwritten consumers live in [acceptance](acceptance/README.md); [tests/acceptance](tests/acceptance/README.md) executes them against the packed package. 0.0.1 passed the full gate at `6f898e7` (2,928/2,928 across Chromium/Firefox/WebKit × development/production × eager/incremental hydration).
 
@@ -458,6 +510,7 @@ This is the public-contract coverage map. Case definitions and handwritten consu
 | T-Accordion   | Single/multiple contracts; unknown values; immutable array toggles; combined disabled; non-collapsible focusability; factory writable signals; exactly-once outputs/reentry |
 | T-Popover     | Required parts; co-location; nesting/veto; trusted pointer lifetime; topmost Escape; reentry; focus eligibility; exit interaction; layout ownership and tracking            |
 | T-Toggle      | Native activation exactly once; form type; always-present `aria-pressed`; disabled blocks only user activation; replacement precedence in both import orders and diamonds  |
+| T-Tabs        | Click/keyboard selection exactly once; automatic/manual; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; null/unknown/Panel-only/removed/disabled-selected policies; mounted-only associations; Panel tab stop override; SSR tab stop in DOM order |
 | T-Hydration   | Development/production serving; eager/deferred node retention; no transient duplication; generated identity; event replay; post-hydration interaction                       |
 | T-Support     | Skipped formal Baseline audit recorded without certification; optional enhancement degradation; explicit Chromium/Firefox/WebKit runtime evidence and stated limits         |
 
@@ -465,9 +518,9 @@ Acceptance tests use public imports and genuine dependency behavior, not private
 
 A change to a requirement updates its cases and assertions in the same change. Test cases may not invent semantics this contract leaves unresolved. No full router-style evaluator framework is assumed necessary.
 
-## 15. Scope, growth and exclusions [X]
+## 16. Scope, growth and exclusions [X]
 
-The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 17).
+The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 18).
 
 - Shared interaction infrastructure stays package-private: ordered focus/roving navigation, typeahead, active-descendant, layer/dismiss participation, hover/focus intent and modal containment.
 - Form-control primitives integrate with Angular Signal Forms. There is no `ControlValueAccessor` layer.
@@ -490,7 +543,7 @@ Intentional agreed changes from the archive, recorded from the rebuild:
 
 Changing shipped behavior or public API is a deliberate change to this contract. Compatibility is the default, not permission to preserve a demonstrated bug or to weaken a guarantee silently.
 
-## 16. Extraction source and dependency research
+## 17. Extraction source and dependency research
 
 Extraction source: `loozo` branch `archive/pre-router-rebuild`, exact commit `363af0c3f1c3edefbf4e9f72269e0a0b4a8ad9f7`.
 
@@ -507,15 +560,15 @@ Authoritative dependency/support research:
 - Floating UI source at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM positioning, flip/update behavior and native top-layer offset-parent/clipping handling. The approved hybrid depends on genuine `@floating-ui/dom@1.8.0`; its installed DOM/core/utils closure is 1.8.0/1.8.0/0.2.12. Installation does not qualify Origami behavior.
 - WHATWG HTML source at `ba3400bb4f3d86477a5c8cfc07ff91fc0caaf21c`: manual mode, native focusing/show/hide checks, coalesced toggle tasks and closed-Popover default rendering. The basic attribute/API capability subset is distinct from the later reflected property and source option.
 
-A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 13.
+A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 14.
 
-## 17. Adding a primitive
+## 18. Adding a primitive
 
 A new primitive ships with:
 
 - Its own section in this contract, with its own section ID: selectors, export names, Options/State shapes, behavior, SSR/hydration semantics and exclusions, plus its rows in section 4's entrypoint and shape tables.
 - Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition.
 - Complete public TSDoc per section 4.
-- SSR plus eager and incremental hydration per section 13.
+- SSR plus eager and incremental hydration per section 14.
 - Chromium, Firefox and WebKit qualification in development and production.
-- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 14's coverage map and assertions in the acceptance gate.
+- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 15's coverage map and assertions in the acceptance gate.

@@ -474,6 +474,121 @@ test("G3 H1 H2 H3: Toggle server pressed state and retained nodes; the first act
   }
 });
 
+/** Server-rendered Tabs semantics; C has no selection and a disabled first Trigger. */
+async function expectServerTabs(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const first = unit.getByTestId("hydration-tab-first");
+    const second = unit.getByTestId("hydration-tab-second");
+    const firstPanel = unit.getByTestId("hydration-panel-first");
+    const secondPanel = unit.getByTestId("hydration-panel-second");
+
+    await expect(first).toHaveAttribute("role", "tab");
+    await expect(first).toHaveAttribute("type", "button");
+    await expect(firstPanel).toHaveAttribute("role", "tabpanel");
+    await expect(first).toHaveAttribute(
+      "aria-controls",
+      (await firstPanel.getAttribute("id")) ?? "",
+    );
+    await expect(secondPanel).toHaveAttribute(
+      "aria-labelledby",
+      (await second.getAttribute("id")) ?? "",
+    );
+
+    if (label === "C") {
+      await expect(first).toBeDisabled();
+      await expect(first).toHaveAttribute("aria-selected", "false");
+      await expect(first).toHaveAttribute("tabindex", "-1");
+      await expect(second).toHaveAttribute("aria-selected", "false");
+      await expect(second).toHaveAttribute("tabindex", "0");
+      await expect(firstPanel).toHaveAttribute("hidden", "");
+      await expect(secondPanel).toHaveAttribute("hidden", "");
+    } else {
+      await expect(first).toHaveAttribute("aria-selected", "true");
+      await expect(first).toHaveAttribute("tabindex", "0");
+      await expect(second).toHaveAttribute("aria-selected", "false");
+      await expect(second).toHaveAttribute("tabindex", "-1");
+      await expect(firstPanel).not.toHaveAttribute("hidden", /.*/);
+      await expect(secondPanel).toHaveAttribute("hidden", "");
+    }
+
+    // The conditional Trigger registers after the static ones but is first in DOM order.
+    await expect(unit.getByTestId("hydration-order-early")).toHaveAttribute("tabindex", "0");
+    await expect(unit.getByTestId("hydration-order-one")).toHaveAttribute("tabindex", "-1");
+    await expect(unit.getByTestId("hydration-order-two")).toHaveAttribute("tabindex", "-1");
+  }
+}
+
+test("S7 H1 H2 H3: Tabs server selection, DOM-order tab stop and associations survive hydration; a click after attachment or replay selects once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerTabs(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const second = b.getByTestId("hydration-tab-second");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await second.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("tab-output-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerTabs(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerTabs(page, ["A", "B", "C"]);
+      await second.click();
+    }
+
+    await expect(b.getByTestId("tab-output-count")).toHaveText("1");
+    await expect(second).toHaveAttribute("aria-selected", "true");
+    await expect(second).toHaveAttribute("tabindex", "0");
+    await expect(b.getByTestId("hydration-tab-first")).toHaveAttribute("tabindex", "-1");
+    await expect(b.getByTestId("hydration-panel-second")).not.toHaveAttribute("hidden", /.*/);
+    await expect(b.getByTestId("hydration-panel-first")).toHaveAttribute("hidden", "");
+    await expect(b.getByTestId("hydration-order-early")).toHaveAttribute("tabindex", "0");
+    await assertReferences(page, info);
+    await b.getByTestId("hydration-tab-first").click();
+    await expect(b.getByTestId("tab-output-count")).toHaveText("2");
+    await expect(b.getByTestId("hydration-tab-first")).toHaveAttribute("aria-selected", "true");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {

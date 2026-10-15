@@ -20,7 +20,8 @@
       "@loozo/origami-ui/collapsible": ["./collapsible/src/public-api.ts"],
       "@loozo/origami-ui/accordion": ["./accordion/src/public-api.ts"],
       "@loozo/origami-ui/popover": ["./popover/src/public-api.ts"],
-      "@loozo/origami-ui/toggle": ["./toggle/src/public-api.ts"]
+      "@loozo/origami-ui/toggle": ["./toggle/src/public-api.ts"],
+      "@loozo/origami-ui/tabs": ["./tabs/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -36,6 +37,7 @@
     "collapsible/src/**/*.ts",
     "accordion/src/**/*.ts",
     "popover/src/**/*.ts",
-    "toggle/src/**/*.ts"
+    "toggle/src/**/*.ts",
+    "tabs/src/**/*.ts"
   ]
 }

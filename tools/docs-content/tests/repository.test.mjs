@@ -258,12 +258,15 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/accordion",
     "@loozo/origami-ui/popover",
     "@loozo/origami-ui/toggle",
+    "@loozo/origami-ui/tabs",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], ["injectDeferred", "injectUniqueId"]);
   // Compiler-required ɵ exports are not application API.
   assert.equal(names["@loozo/origami-ui/accordion"].includes("ɵOrigamiAccordionRoot"), false);
   assert.equal(names["@loozo/origami-ui/accordion"].length, 11);
   assert.equal(names["@loozo/origami-ui/popover"].length, 12);
+  assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocus"), false);
+  assert.equal(names["@loozo/origami-ui/tabs"].length, 10);
   assert.deepEqual(origami.generatedApi, []);
 });
 

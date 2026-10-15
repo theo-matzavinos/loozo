@@ -35,6 +35,7 @@ import {
   OrigamiAccordionState,
 } from "@loozo/origami-ui/accordion";
 import { CoreConsumer } from "./seeds/core-consumer.js";
+import { TabsCases } from "./tabs-cases.js";
 
 @Directive({ selector: "[presenceObservation]", exportAs: "presenceObservation" })
 export class PresenceObservation {
@@ -244,12 +245,14 @@ export class ReplacedAccordionItem {}
     MultipleBillingObservation,
     ItemOptions,
     ReplacedAccordionItem,
+    TabsCases,
   ],
   providers: [ReplacedItemValue],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach core behavior</button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
     <acceptance-core />
+    <acceptance-tabs-cases />
     <h2>Mounted collection order</h2>
     <section ogCollection collectionValues #items="collectionValues" data-testid="variant-collection">
       @for (key of keys(); track key) {

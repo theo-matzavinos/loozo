@@ -115,8 +115,9 @@ function inDocumentOrder(order: readonly Registration[]): boolean {
   return true;
 }
 
+/** Module export for this entry point's package-private roving focus; never exported from the package. */
 @Service({ autoProvided: false })
-class CollectionContext {
+export class CollectionContext {
   readonly #registrations = signal<readonly Registration[]>([]);
   readonly #orderRevision = signal(0);
   #lastRenderedOrder: readonly Registration[] = [];
@@ -127,19 +128,24 @@ class CollectionContext {
   #skippedRegistrations: readonly Registration[] | null = null;
 
   readonly items: Signal<readonly OrigamiCollectionRecord[]> = computed(() => {
-    this.#orderRevision();
-
-    if (!this.#observed) {
-      this.#observe();
-    }
-
     const records: OrigamiCollectionRecord[] = [];
 
-    for (const registration of this.#ordered()) {
+    for (const registration of this.#current()) {
       records.push(registration.record);
     }
 
     return records;
+  });
+
+  /** Mounted item hosts in the same rendered DOM order as `items`; read only by roving focus. */
+  readonly elements: Signal<readonly Element[]> = computed(() => {
+    const elements: Element[] = [];
+
+    for (const registration of this.#current()) {
+      elements.push(registration.element);
+    }
+
+    return elements;
   });
 
   constructor() {
@@ -188,6 +194,17 @@ class CollectionContext {
 
       this.#registrations.set(remaining);
     });
+  }
+
+  /** Reactive current order: tracks order revisions and membership, observing on first read. */
+  #current(): readonly Registration[] {
+    this.#orderRevision();
+
+    if (!this.#observed) {
+      this.#observe();
+    }
+
+    return this.#ordered();
   }
 
   /**
