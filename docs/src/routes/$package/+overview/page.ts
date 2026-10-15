@@ -5,8 +5,8 @@ import { CurrentPackage } from "../../../package-content.js";
 import { pageTitle } from "../../../page-title.js";
 import { kindLabels } from "../../../symbol-details.js";
 import { injectRoute } from "./route.generated.js";
-import { destination as guide } from "../guide/route.generated.js";
-import { destination as api } from "../api/route.generated.js";
+import { destination as guide } from "../guide/$guide/route.generated.js";
+import { destination as api } from "../api/$symbol/route.generated.js";
 import { destination as generatedApi } from "../generated-api/route.generated.js";
 
 @Component({

@@ -1,8 +1,8 @@
 import { Component, computed, inject } from "@angular/core";
 import { RouterLink } from "@angular/router";
-import { ContentHtml } from "../../../content-html.js";
-import { CurrentPackage } from "../../../package-content.js";
-import { pageTitle } from "../../../page-title.js";
+import { ContentHtml } from "../../../../content-html.js";
+import { CurrentPackage } from "../../../../package-content.js";
+import { pageTitle } from "../../../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({

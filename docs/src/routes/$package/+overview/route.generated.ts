@@ -7,7 +7,7 @@ export { defineRoute } from '@loozo/angular-router';
  * No injection context is required; copies and foreign-set references are invalid.
  * This is not an authored route and cannot be passed to the root createUrl function.
  */
-export const destination: Destination<"src/routes/package/generated-api/definition.ts"> = createDestination(() => getRouteSet(), "src/routes/package/generated-api/definition.ts");
+export const destination: Destination<"src/routes/$package/+overview/route.ts"> = createDestination(() => getRouteSet(), "src/routes/$package/+overview/route.ts");
 /**
  * Injects a typed handle bound to this exact generated activated route record.
  *
@@ -21,4 +21,4 @@ export const destination: Destination<"src/routes/package/generated-api/definiti
  * @throws A synchronous wiring error outside an injection context or when the
  * activated record does not carry this declaration's own generated identity.
  */
-export function injectRoute(): Handle<"src/routes/package/generated-api/definition.ts"> { return injectGeneratedRoute(getRouteSet(), "src/routes/package/generated-api/definition.ts"); }
+export function injectRoute(): Handle<"src/routes/$package/+overview/route.ts"> { return injectGeneratedRoute(getRouteSet(), "src/routes/$package/+overview/route.ts"); }

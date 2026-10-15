@@ -1,7 +1,7 @@
 import { Component } from "@angular/core";
 import { RouterLink, RouterOutlet } from "@angular/router";
 import { createUrl } from "@loozo/angular-router";
-import home from "./routes/home/definition.js";
+import home from "./routes/+home/route.js";
 import { ThemeToggle } from "./theme-toggle.js";
 
 @Component({
