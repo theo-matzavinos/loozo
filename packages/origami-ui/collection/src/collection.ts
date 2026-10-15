@@ -91,11 +91,34 @@ type Registration = {
   readonly record: OrigamiCollectionRecord;
 };
 
+/** A sorted copy of one registrations array; never mutated after creation. */
+type Snapshot = {
+  readonly registrations: readonly Registration[];
+  readonly order: readonly Registration[];
+};
+
+/**
+ * True when every adjacent pair is connected and in forward DOM order, so the existing sorter
+ * would return this same order. Disconnected or ambiguous pairs report false and fall back to it.
+ */
+function inDocumentOrder(order: readonly Registration[]): boolean {
+  for (let index = 1; index < order.length; index += 1) {
+    const position = order[index - 1].element.compareDocumentPosition(order[index].element);
+
+    if ((position & 1) !== 0 || (position & 4) === 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 @Service({ autoProvided: false })
 class CollectionContext {
   readonly #registrations = signal<readonly Registration[]>([]);
   readonly #orderRevision = signal(0);
   #lastRenderedOrder: readonly Registration[] = [];
+  #snapshot: Snapshot | null = null;
 
   readonly items: Signal<readonly OrigamiCollectionRecord[]> = computed(() => {
     this.#orderRevision();
@@ -150,8 +173,24 @@ class CollectionContext {
     });
   }
 
-  #ordered(): Registration[] {
-    const ordered = [...this.#registrations()];
+  /** Reuses the latest sorted snapshot while its membership and connected DOM order still hold. */
+  #ordered(): readonly Registration[] {
+    const registrations = this.#registrations();
+    const snapshot = this.#snapshot;
+
+    if (
+      snapshot !== null &&
+      snapshot.registrations === registrations &&
+      inDocumentOrder(snapshot.order)
+    ) {
+      return snapshot.order;
+    }
+
+    return this.#sort(registrations);
+  }
+
+  #sort(registrations: readonly Registration[]): readonly Registration[] {
+    const ordered = [...registrations];
 
     ordered.sort((left, right) => {
       const position = left.element.compareDocumentPosition(right.element);
@@ -171,6 +210,8 @@ class CollectionContext {
 
       return 0;
     });
+
+    this.#snapshot = { registrations, order: ordered };
 
     return ordered;
   }

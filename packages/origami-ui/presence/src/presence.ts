@@ -388,7 +388,7 @@ export class OrigamiPresenceState {
    * Popover's preparatory opening can precede its entering attribute until reveal readiness;
    * release of a native activation invalidates its pending completion independently of position updates.
    */
-  readonly phase: Signal<OrigamiPresencePhase> = computed(() => this.#context.phase());
+  readonly phase: Signal<OrigamiPresencePhase> = this.#context.phase.asReadonly();
 
   /** True during opening, open and closing; false only once closed. Never writable by consumers. */
   readonly open: Signal<boolean> = computed(() => this.phase() !== "closed");
