@@ -48,8 +48,23 @@ const panelReplacement = new InjectionToken<OrigamiAccordionPanelOptions>(
 
 /**
  * Shared effective root configuration; deliberately contains no mode-specific selection fields.
+ * By default this token resolves the owning root's effective Single or Multiple Options, so its
+ * disabled signal supplies the shared policy. Replacing this shared token changes that policy
+ * independently; selection and Single's clearing policy still come from the mode-specific
+ * Options token. Replacing mode Options alone also updates the default shared policy.
+ * Replacements are whole configurations, not merges with unused directive inputs.
  * Provider helpers return local replacement-plus-alias arrays, safe to nest in `providers`.
  * Primitive defaults never override those replacements when direct/host selectors co-match.
+ *
+ * @example
+ * ```ts
+ * // Replaces Single configuration; the default shared token observes this disabled signal.
+ * OrigamiAccordionSingleOptions.provideFactory(() => ({
+ *   value: signal<string | null>(null),
+ *   disabled: signal(false),
+ *   collapsible: signal(false),
+ * }));
+ * ```
  */
 export abstract class OrigamiAccordionOptions {
   /** Blocks item user requests in combination with item disabled input; default false. External selection writes remain authoritative. */
@@ -62,7 +77,7 @@ export abstract class OrigamiAccordionOptions {
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionOptions> | AbstractType<OrigamiAccordionOptions>,
-  ): Provider {
+  ): Provider[] {
     return [
       { provide: sharedReplacement, useExisting: forwardRef(type) },
       { provide: OrigamiAccordionOptions, useExisting: sharedReplacement },
@@ -74,7 +89,7 @@ export abstract class OrigamiAccordionOptions {
    * @param factory - Injection-context factory supplying the required disabled signal.
    * @returns A local replacement-and-alias provider array, without fallback to unused directive inputs.
    */
-  static provideFactory(factory: () => OrigamiAccordionOptions): Provider {
+  static provideFactory(factory: () => OrigamiAccordionOptions): Provider[] {
     return [
       { provide: sharedReplacement, useFactory: factory },
       { provide: OrigamiAccordionOptions, useExisting: sharedReplacement },
@@ -84,26 +99,28 @@ export abstract class OrigamiAccordionOptions {
   /**
    * @internal Creates a fallback-only default that cannot displace a helper-provided local replacement.
    * @param type - Default provider supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local Options factory, ignoring ancestor replacement tokens.
+   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiAccordionOptions> | AbstractType<OrigamiAccordionOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiAccordionOptions,
-      useFactory: () => {
-        const replacement = inject(sharedReplacement, {
-          self: true,
-          optional: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiAccordionOptions,
+        useFactory: () => {
+          const replacement = inject(sharedReplacement, {
+            self: true,
+            optional: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject<OrigamiAccordionOptions>(forwardRef(type));
+          return inject<OrigamiAccordionOptions>(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -126,7 +143,7 @@ export abstract class OrigamiAccordionSingleOptions {
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionSingleOptions> | AbstractType<OrigamiAccordionSingleOptions>,
-  ): Provider {
+  ): Provider[] {
     return [
       { provide: singleReplacement, useExisting: forwardRef(type) },
       { provide: OrigamiAccordionSingleOptions, useExisting: singleReplacement },
@@ -138,7 +155,7 @@ export abstract class OrigamiAccordionSingleOptions {
    * @param factory - Runs in injection context and must supply value, disabled and collapsible.
    * @returns A local replacement-and-alias provider array; writing replacement signals does not fabricate unused model outputs.
    */
-  static provideFactory(factory: () => OrigamiAccordionSingleOptions): Provider {
+  static provideFactory(factory: () => OrigamiAccordionSingleOptions): Provider[] {
     return [
       { provide: singleReplacement, useFactory: factory },
       { provide: OrigamiAccordionSingleOptions, useExisting: singleReplacement },
@@ -148,24 +165,26 @@ export abstract class OrigamiAccordionSingleOptions {
   /**
    * @internal Creates a fallback-only Single default, independent of co-matched directive import order.
    * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local Options factory, ignoring ancestor replacement tokens.
+   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
    */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionSingleOptions>): Provider {
-    return {
-      provide: OrigamiAccordionSingleOptions,
-      useFactory: () => {
-        const replacement = inject(singleReplacement, {
-          self: true,
-          optional: true,
-        });
+  static ɵprovideDefault(type: () => Type<OrigamiAccordionSingleOptions>): Provider[] {
+    return [
+      {
+        provide: OrigamiAccordionSingleOptions,
+        useFactory: () => {
+          const replacement = inject(singleReplacement, {
+            self: true,
+            optional: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject<OrigamiAccordionSingleOptions>(forwardRef(type));
+          return inject<OrigamiAccordionSingleOptions>(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -188,7 +207,7 @@ export abstract class OrigamiAccordionMultipleOptions {
     type: () =>
       | Type<OrigamiAccordionMultipleOptions>
       | AbstractType<OrigamiAccordionMultipleOptions>,
-  ): Provider {
+  ): Provider[] {
     return [
       { provide: multipleReplacement, useExisting: forwardRef(type) },
       { provide: OrigamiAccordionMultipleOptions, useExisting: multipleReplacement },
@@ -200,7 +219,7 @@ export abstract class OrigamiAccordionMultipleOptions {
    * @param factory - Injection-context factory supplying value and disabled signals.
    * @returns A local replacement-and-alias provider array. Ordinary writable signals do not emit an unused root model output.
    */
-  static provideFactory(factory: () => OrigamiAccordionMultipleOptions): Provider {
+  static provideFactory(factory: () => OrigamiAccordionMultipleOptions): Provider[] {
     return [
       { provide: multipleReplacement, useFactory: factory },
       { provide: OrigamiAccordionMultipleOptions, useExisting: multipleReplacement },
@@ -210,24 +229,26 @@ export abstract class OrigamiAccordionMultipleOptions {
   /**
    * @internal Creates a fallback-only Multiple default, independent of co-matched directive import order.
    * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local Options factory, ignoring ancestor replacement tokens.
+   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
    */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionMultipleOptions>): Provider {
-    return {
-      provide: OrigamiAccordionMultipleOptions,
-      useFactory: () => {
-        const replacement = inject(multipleReplacement, {
-          self: true,
-          optional: true,
-        });
+  static ɵprovideDefault(type: () => Type<OrigamiAccordionMultipleOptions>): Provider[] {
+    return [
+      {
+        provide: OrigamiAccordionMultipleOptions,
+        useFactory: () => {
+          const replacement = inject(multipleReplacement, {
+            self: true,
+            optional: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject<OrigamiAccordionMultipleOptions>(forwardRef(type));
+          return inject<OrigamiAccordionMultipleOptions>(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -246,7 +267,7 @@ export abstract class OrigamiAccordionTriggerOptions {
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionTriggerOptions> | AbstractType<OrigamiAccordionTriggerOptions>,
-  ): Provider {
+  ): Provider[] {
     return [
       { provide: triggerReplacement, useExisting: forwardRef(type) },
       { provide: OrigamiAccordionTriggerOptions, useExisting: triggerReplacement },
@@ -258,7 +279,7 @@ export abstract class OrigamiAccordionTriggerOptions {
    * @param factory - Injection-context factory supplying the required id signal.
    * @returns A local replacement-and-alias provider array; lower behavior reads this upper token, not the upper directive.
    */
-  static provideFactory(factory: () => OrigamiAccordionTriggerOptions): Provider {
+  static provideFactory(factory: () => OrigamiAccordionTriggerOptions): Provider[] {
     return [
       { provide: triggerReplacement, useFactory: factory },
       { provide: OrigamiAccordionTriggerOptions, useExisting: triggerReplacement },
@@ -268,24 +289,26 @@ export abstract class OrigamiAccordionTriggerOptions {
   /**
    * @internal Creates a fallback-only Trigger default, independent of co-matched directive import order.
    * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local Options factory, ignoring ancestor replacement tokens.
+   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
    */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionTriggerOptions>): Provider {
-    return {
-      provide: OrigamiAccordionTriggerOptions,
-      useFactory: () => {
-        const replacement = inject(triggerReplacement, {
-          self: true,
-          optional: true,
-        });
+  static ɵprovideDefault(type: () => Type<OrigamiAccordionTriggerOptions>): Provider[] {
+    return [
+      {
+        provide: OrigamiAccordionTriggerOptions,
+        useFactory: () => {
+          const replacement = inject(triggerReplacement, {
+            self: true,
+            optional: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject<OrigamiAccordionTriggerOptions>(forwardRef(type));
+          return inject<OrigamiAccordionTriggerOptions>(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -304,7 +327,7 @@ export abstract class OrigamiAccordionPanelOptions {
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionPanelOptions> | AbstractType<OrigamiAccordionPanelOptions>,
-  ): Provider {
+  ): Provider[] {
     return [
       { provide: panelReplacement, useExisting: forwardRef(type) },
       { provide: OrigamiAccordionPanelOptions, useExisting: panelReplacement },
@@ -316,7 +339,7 @@ export abstract class OrigamiAccordionPanelOptions {
    * @param factory - Injection-context factory supplying the required id signal.
    * @returns A local replacement-and-alias provider array; lower bindings use this token instead of unused directive defaults.
    */
-  static provideFactory(factory: () => OrigamiAccordionPanelOptions): Provider {
+  static provideFactory(factory: () => OrigamiAccordionPanelOptions): Provider[] {
     return [
       { provide: panelReplacement, useFactory: factory },
       { provide: OrigamiAccordionPanelOptions, useExisting: panelReplacement },
@@ -326,24 +349,26 @@ export abstract class OrigamiAccordionPanelOptions {
   /**
    * @internal Creates a fallback-only Panel default, independent of co-matched directive import order.
    * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local Options factory, ignoring ancestor replacement tokens.
+   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
    */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionPanelOptions>): Provider {
-    return {
-      provide: OrigamiAccordionPanelOptions,
-      useFactory: () => {
-        const replacement = inject(panelReplacement, {
-          self: true,
-          optional: true,
-        });
+  static ɵprovideDefault(type: () => Type<OrigamiAccordionPanelOptions>): Provider[] {
+    return [
+      {
+        provide: OrigamiAccordionPanelOptions,
+        useFactory: () => {
+          const replacement = inject(panelReplacement, {
+            self: true,
+            optional: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject<OrigamiAccordionPanelOptions>(forwardRef(type));
+          return inject<OrigamiAccordionPanelOptions>(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -546,7 +571,11 @@ export class OrigamiAccordionSingle implements OrigamiAccordionSingleOptions {
   readonly value = model<string | null>(null);
   /** Own root disabled input, default false with boolean-attribute coercion. Effective substituted Options govern behavior instead. */
   readonly disabled = input(false, { transform: booleanAttribute });
-  /** Own clearing policy, default false with boolean-attribute coercion; a selected non-collapsible Trigger remains natively focusable. */
+  /**
+   * Own clearing-policy input, default false with boolean-attribute coercion; replaced Options
+   * supply effective policy instead. A selected non-collapsible Trigger is aria-disabled but
+   * remains natively enabled/focusable unless root or item disabled state also applies.
+   */
   readonly collapsible = input(false, { transform: booleanAttribute });
   /** Shared readonly nearest-root item order and effective disabled observation. */
   readonly state = inject(OrigamiAccordionState);

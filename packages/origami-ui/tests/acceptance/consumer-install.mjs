@@ -31,8 +31,9 @@ const environment = {
 const strict = ["--strict-peer-deps", "--legacy-peer-deps=false", "--force=false"];
 const installed = path.join(directory, "node_modules/@loozo/origami-ui");
 const hiddenLockfile = path.join(directory, "node_modules/.package-lock.json");
-// Written after a verified clean install: the manifest those dependencies were installed for.
-// Kept outside node_modules: a new file there would make npm distrust its hidden lockfile.
+// The manifest a verified clean install was for, written only once the whole clean prepare
+// has succeeded. Kept outside node_modules: a new file there would make npm distrust its
+// hidden lockfile.
 const stamp = path.join(directory, ".runtime/consumer-install.json");
 
 function sha256(bytes) {
@@ -170,8 +171,6 @@ export async function installConsumer(tarball) {
 
   const identity = await verifyConsumerDependencies();
 
-  await mkdir(path.dirname(stamp), { recursive: true });
-  await writeFile(stamp, JSON.stringify({ manifestSha256: sha256(source) }, null, 2));
   await mkdir(".acceptance-evidence", { recursive: true });
   await writeFile(
     ".acceptance-evidence/consumer-installation.json",
@@ -194,6 +193,20 @@ export async function installConsumer(tarball) {
   );
 
   return identity;
+}
+
+/** Commit a clean installation: call last, once every check of the installed bytes passed. */
+export async function stampInstallation() {
+  await mkdir(path.dirname(stamp), { recursive: true });
+  await writeFile(
+    stamp,
+    JSON.stringify({ manifestSha256: sha256(await readFile(manifestPath)) }, null, 2),
+  );
+}
+
+/** Whether a clean strict installation completed and recorded the manifest it installed for. */
+export function hasInstallationStamp() {
+  return existsSync(stamp);
 }
 
 /**

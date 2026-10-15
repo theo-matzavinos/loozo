@@ -10,7 +10,7 @@ The consumer's authored sources are the workspace example [`examples/origami-ui`
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `examples/origami-ui/` → `.scratch/consumer/`                                          | The one Angular SSR consumer: lazy fixture routes (`src/fixtures/*`), eager/incremental hydration configurations and the SSR-only fixtures (`server-*.ts`) that only the Node checks compile |
 | `playwright.config.ts`                                                                 | The one browser configuration: the 24 product projects and, with `ORIGAMI_SUITE=calibration`, the observer calibration                                                                       |
-| `{core,composition,popover,hydration,errors,lifetimes}.spec.ts`                        | Product cases, 115 per project                                                                                                                                                               |
+| `{core,composition,popover,hydration,errors,lifetimes}.spec.ts`                        | Product cases, 121 per project                                                                                                                                                               |
 | `contract-test.ts`, `observation.ts`, `geometry.ts`                                    | Central runtime-error capture, SSR/hydration retention observer, independent geometry oracle                                                                                                 |
 | `observer-calibration.test.ts`                                                         | Native calibration of `observation.ts`; no product imports or servers                                                                                                                        |
 | `prepare-consumer.mjs`, `consumer-install.mjs`                                         | Pack the build; stage the example; warm-refresh the installed APF or install the consumer from clean                                                                                         |
@@ -43,11 +43,13 @@ pnpm run acceptance:webkit-setup --runtime-root "$ORIGAMI_WEBKIT_DEPS_ROOT" \
 
 pnpm 12 passes arguments after the script name straight through; do not insert `--`. See [Private WebKit libraries](#private-webkit-libraries).
 
-The first time, and whenever `examples/origami-ui/package.json` or the library's version or dependencies change, install the consumer from clean:
+Whenever `examples/origami-ui/package.json` or the library's version or dependencies change, install the consumer from clean:
 
 ```sh
 pnpm run acceptance:prepare
 ```
+
+On a fresh checkout there is no installation yet, so the first `acceptance:sync` (and with it `pnpm test`, `test:fast` and `test:focus`) runs this clean installation itself, says so in one line, and then continues.
 
 On small hosts, set `NG_BUILD_MAX_WORKERS=2` for builds; servers started for one matrix group always receive it.
 
@@ -55,11 +57,12 @@ On small hosts, set `NG_BUILD_MAX_WORKERS=2` for builds; servers started for one
 
 The package's `test`, which the repository root `pnpm test` also runs:
 
-1. `acceptance:sync`: build the library, stage the example into the scratch consumer and refresh only the installed APF from the new tarball.
+1. `acceptance:sync`: build the library, stage the example into the scratch consumer and refresh only the installed APF from the new tarball. Without a verified installation, it runs the clean strict installation instead.
 2. `typecheck`: the library sources and the runner sources.
-3. `acceptance:typecheck`: the staged consumer, against the installed package.
-4. `acceptance:types`: P2.
-5. `acceptance:node`: utility and SSR checks.
+3. `snippets:check`: the README's code examples in `snippets/`, against the built package.
+4. `acceptance:typecheck`: the staged consumer, against the installed package.
+5. `acceptance:types`: P2.
+6. `acceptance:node`: utility and SSR checks.
 
 ## Fast loop: `pnpm run test:fast`
 
@@ -69,7 +72,7 @@ The package's `test`, which the repository root `pnpm test` also runs:
 2. `acceptance:observer-calibration:fast`: observer calibration in Chromium.
 3. `acceptance:test:fast`: every product case in one project, `chromium-development-eager-no-preference`, against one development server.
 
-Both need the clean installation above; a missing or outdated installation fails with the command to run. Neither builds production outputs, reinstalls dependencies or runs the release checks. A green `test` or `test:fast` is developer feedback, not qualification.
+Both need the clean installation above. A missing one is created by the sync; an outdated one fails with the command to run. Neither builds production outputs, reinstalls dependencies or runs the release checks. A green `test` or `test:fast` is developer feedback, not qualification.
 
 Staging copies changed authored files from the example and removes staged files the example no longer has; the scratch consumer's `node_modules`, `dist`, `.angular` and `.runtime` are kept. The warm refresh then replaces only `.scratch/consumer/node_modules/@loozo/origami-ui` with the tarball's bytes and records the tarball integrity in npm's hidden lockfile. The dev server's dependency pre-bundling is keyed on that lockfile, so it rebuilds the library chunk instead of serving the previous build. A library change to `dependencies`/`peerDependencies` or the version fails the refresh and needs `acceptance:prepare`. After the refresh, every installed file must equal the current build.
 
@@ -93,7 +96,7 @@ It skips every static and calibration step, so it is iteration feedback only.
 ## Release gate: `pnpm run test:full`
 
 1. `acceptance:prepare`: build the library, stage the example and run a clean, strict npm installation (`--strict-peer-deps`, no legacy/force resolution, no lifecycle scripts) of the whole pinned closure, then verify it.
-2. `typecheck` and `acceptance:typecheck`.
+2. `typecheck`, `snippets:check` (the README's code examples, against the built package) and `acceptance:typecheck`.
 3. `acceptance:check`: P1 package inventory and bytes, P2 types, D1 docs, Node checks.
 4. `acceptance:aot`: the four genuine AOT/SSR builds (development/production × eager/incremental).
 5. `acceptance:bundles`: P1 bundle identity over those builds, from each build's separate browser and server metafiles (`browser-stats.json`, `server-stats.json`).

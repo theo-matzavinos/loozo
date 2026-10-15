@@ -1,6 +1,6 @@
 # Provenance
 
-This package was rebuilt clean-room in a separate repository, `origami-ui-rebuild` (branch `rebuild`), and moved into this monorepo on 2026-10-14 as one squashed change. The source history is not imported. Its commits:
+This package was rebuilt clean-room in a separate repository, `origami-ui-rebuild` (branch `rebuild`), and moved into this monorepo on 2026-10-15 as one squashed change, `6e2007f`. The source history is not imported. Its commits:
 
 | Commit                                     | Date       | Content                                                         |
 | ------------------------------------------ | ---------- | --------------------------------------------------------------- |
@@ -10,6 +10,15 @@ This package was rebuilt clean-room in a separate repository, `origami-ui-rebuil
 | `bc8c86d96d9296cf3a4ea140e60127edb6d670de` | 2026-10-14 | One acceptance runner; per-area harnesses retired (moved state) |
 
 The rebuild was pinned to Angular 22.1.5. The move requalified it on Angular 22.2.2 with the unchanged 24-project release gate.
+
+## Changes in loozo
+
+| Commit                                     | Date       | Content                                                                               |
+| ------------------------------------------ | ---------- | ------------------------------------------------------------------------------------- |
+| `6e2007fa8aefc1510de281e227952139057d1d9a` | 2026-10-15 | The move above; library sources byte-identical to `bc8c86d`                           |
+| `8c0190c9359a882a41d97e96dae7ca1578aaa322` | 2026-10-15 | Popover positioning failure and outside-pointer completion; SPEC and CASES V6 amended |
+| `884df3f21d1c9389d5014ecc1baee69687a752d1` | 2026-10-15 | Collection sorted-order reuse; redundant signal facades dropped                       |
+| `b2388f10a60fc97ecc3c1b03815d0bbc397aa18e` | 2026-10-15 | Popover participants and preparation split out of the context                         |
 
 ## Where things moved
 

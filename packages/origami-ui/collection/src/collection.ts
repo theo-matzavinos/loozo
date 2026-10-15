@@ -43,7 +43,7 @@ export abstract class OrigamiCollectionItemOptions {
    */
   static provideExisting(
     type: () => Type<OrigamiCollectionItemOptions> | AbstractType<OrigamiCollectionItemOptions>,
-  ): Provider {
+  ): Provider[] {
     return [
       { provide: itemReplacement, useExisting: forwardRef(type) },
       { provide: OrigamiCollectionItemOptions, useExisting: itemReplacement },
@@ -55,7 +55,7 @@ export abstract class OrigamiCollectionItemOptions {
    * @param factory - Injection-context factory supplying the required value signal.
    * @returns A local replacement-and-alias provider array.
    */
-  static provideFactory(factory: () => OrigamiCollectionItemOptions): Provider {
+  static provideFactory(factory: () => OrigamiCollectionItemOptions): Provider[] {
     return [
       { provide: itemReplacement, useFactory: factory },
       { provide: OrigamiCollectionItemOptions, useExisting: itemReplacement },
@@ -65,24 +65,26 @@ export abstract class OrigamiCollectionItemOptions {
   /**
    * @internal Creates a fallback-only primitive default, independent of co-matched directive import order.
    * @param type - Default directive supplier, resolved lazily after construction only when no local replacement exists.
-   * @returns A local Options factory; ancestor replacement tokens are deliberately ignored.
+   * @returns A local array holding one Options factory; ancestor replacement tokens are deliberately ignored.
    */
-  static ɵprovideDefault(type: () => Type<OrigamiCollectionItemOptions>): Provider {
-    return {
-      provide: OrigamiCollectionItemOptions,
-      useFactory: () => {
-        const replacement = inject(itemReplacement, {
-          self: true,
-          optional: true,
-        });
+  static ɵprovideDefault(type: () => Type<OrigamiCollectionItemOptions>): Provider[] {
+    return [
+      {
+        provide: OrigamiCollectionItemOptions,
+        useFactory: () => {
+          const replacement = inject(itemReplacement, {
+            self: true,
+            optional: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject<OrigamiCollectionItemOptions>(forwardRef(type));
+          return inject<OrigamiCollectionItemOptions>(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 

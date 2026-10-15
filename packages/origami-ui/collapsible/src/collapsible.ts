@@ -44,7 +44,8 @@ export abstract class OrigamiCollapsibleOptions {
 
   /**
    * Replaces root Options with an existing compatible concrete or abstract provider.
-   * @param type - Deferred provider class, allowing forward references and host-directive composition.
+   * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
+   *   references and host-directive composition.
    * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
    */
   static provideExisting(
@@ -71,26 +72,28 @@ export abstract class OrigamiCollapsibleOptions {
   /**
    * @internal Primitive-only fallback; never imports parent replacement Options.
    * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A local provider preferring explicit replacement over directive defaults.
+   * @returns A one-provider local array preferring explicit replacement over directive defaults.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiCollapsibleOptions> | AbstractType<OrigamiCollapsibleOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiCollapsibleOptions,
-      useFactory: () => {
-        const replacement = inject(collapsibleReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiCollapsibleOptions,
+        useFactory: () => {
+          const replacement = inject(collapsibleReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(forwardRef(type));
+          return inject(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -101,7 +104,8 @@ export abstract class OrigamiCollapsibleTriggerOptions {
 
   /**
    * Substitutes the Trigger's entire effective Options.
-   * @param type - Compatible concrete or abstract provider class, resolved through a forward reference.
+   * @param type - Supplier of a compatible concrete or abstract provider class, resolved through a
+   *   forward reference.
    * @returns Local replacement and public-alias providers; a directly matched Trigger default cannot override this replacement.
    */
   static provideExisting(
@@ -130,28 +134,30 @@ export abstract class OrigamiCollapsibleTriggerOptions {
   /**
    * @internal Primitive-only fallback; never imports parent replacement Options.
    * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A local provider preferring explicit replacement over directive defaults.
+   * @returns A one-provider local array preferring explicit replacement over directive defaults.
    */
   static ɵprovideDefault(
     type: () =>
       | Type<OrigamiCollapsibleTriggerOptions>
       | AbstractType<OrigamiCollapsibleTriggerOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiCollapsibleTriggerOptions,
-      useFactory: () => {
-        const replacement = inject(triggerReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiCollapsibleTriggerOptions,
+        useFactory: () => {
+          const replacement = inject(triggerReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(forwardRef(type));
+          return inject(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -162,7 +168,8 @@ export abstract class OrigamiCollapsiblePanelOptions {
 
   /**
    * Substitutes the Panel's entire effective Options.
-   * @param type - Compatible concrete or abstract provider class, allowing forward references.
+   * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
+   *   references.
    * @returns Local replacement and public-alias providers; a directly matched Panel default cannot override this replacement.
    */
   static provideExisting(
@@ -189,26 +196,28 @@ export abstract class OrigamiCollapsiblePanelOptions {
   /**
    * @internal Primitive-only fallback; never imports parent replacement Options.
    * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A local provider preferring explicit replacement over directive defaults.
+   * @returns A one-provider local array preferring explicit replacement over directive defaults.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiCollapsiblePanelOptions> | AbstractType<OrigamiCollapsiblePanelOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiCollapsiblePanelOptions,
-      useFactory: () => {
-        const replacement = inject(panelReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiCollapsiblePanelOptions,
+        useFactory: () => {
+          const replacement = inject(panelReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(forwardRef(type));
+          return inject(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 

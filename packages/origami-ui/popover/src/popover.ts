@@ -34,7 +34,11 @@ export class OrigamiPopoverState {
   readonly open: Signal<boolean> = this.#context.desired;
   /** Effective Trigger-disabled policy; external writes and Escape/outside dismissal are unaffected. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
-  /** Effective user-dismissal permission. A protected requested-open descendant vetoes the whole branch. */
+  /**
+   * Readonly effective user-dismissal permission. Own Trigger close bypasses only this owner's
+   * flag; a protected requested-open descendant still vetoes the whole branch. Script/model
+   * close ignores dismissal permission.
+   */
   readonly dismissible: Signal<boolean> = this.#context.dismissible;
 }
 
@@ -52,6 +56,31 @@ export class OrigamiPopoverContentState {
  * Descendants use the nearest logical Angular DI owner; unrelated roots can coexist.
  * Consumer roles, names, styling, dimensions, scrolling and animations remain consumer-owned.
  * No focus trap, scroll lock, menu semantics or focus-departure close is supplied.
+ *
+ * Escape targets the most recently successfully native-activated participating Origami
+ * Popover. Already-prevented or composing key events are ignored; a dismissal veto consumes
+ * the request without falling through to an ancestor or another root. Coordinate updates
+ * and reopening a retained exit before native hide do not change that promotion order.
+ *
+ * Outside dismissal requires trusted primary-button down and matching up outside the affected
+ * branch; nested descendants count as inside their ancestors. Inside-to-outside drags,
+ * prevented events, mismatched pointer/button, and cancellation or capture loss before matching
+ * pointerup invalidate the gesture. Matching pointerup ends acquisition: later cancellation or
+ * capture loss does not veto completion. Dismissal runs after pointerup dispatch finishes so
+ * later listeners can still prevent that up event, and only if the captured branch remains
+ * current.
+ *
+ * A user close requires every requested-open branch member's permission. The owner's own
+ * Trigger bypasses only its own flag. Veto performs no writes or outputs; accepted branch
+ * writes proceed descendant before ancestor. Synchronous listeners may change or replace the
+ * branch; remaining stale operations do not overwrite the new decision. Script/model close
+ * is authoritative and suppresses descendants without clearing their requested intent.
+ *
+ * Escape restores the relevant live eligible Trigger once. Outside dismissal preserves outside
+ * focus. Script close restores focus only when it remains inside the closing branch; suppressing
+ * nested focused content restores the closing owner's Trigger once. Never restore a
+ * disconnected, destroyed, disabled or inert Trigger, or steal focus moved elsewhere by a
+ * listener.
  *
  * @example
  * ```html
@@ -77,7 +106,11 @@ export class OrigamiPopover implements OrigamiPopoverOptions {
   readonly open = model(false);
   /** Own boolean-attribute-coerced disabled input, default false. Blocks user Trigger activation, not authoritative writes or dismissal. */
   readonly disabled = input(false, { transform: booleanAttribute });
-  /** Own boolean-attribute-coerced dismissal input, default true. Replaced Options drive effective policy; script close is authoritative. */
+  /**
+   * Own boolean-attribute-coerced user-dismissal input, default true. Replaced Options drive
+   * effective policy. Own Trigger close bypasses only this owner's flag; a protected
+   * requested-open descendant vetoes the whole branch. Script/model close is authoritative.
+   */
   readonly dismissible = input(true, { transform: booleanAttribute });
   /** Local readonly facade of effective root Options. */
   readonly state = inject(OrigamiPopoverState);
@@ -192,20 +225,43 @@ export class OrigamiPopoverAnchor implements OrigamiPopoverAnchorOptions {
  * Preparatory computed opacity/pointer-events are 0/none. Temporary specified-value placeholders
  * and owner-private custom-property names are implementation details, not supported styling hooks;
  * ordinary consumer-authored zero/none values and important priorities remain authoritative.
- * Native participation begins after successful activation, before paint readiness. Cancellation
- * preserves intent without retrying unchanged configuration. Finite exit remains in the top
- * layer but inert/nonparticipating until completion. Reopening before native hide preserves
- * promotion order and does not rerun autofocus; reopening inside closing `beforetoggle` needs
- * fresh activation after hide returns.
- * Native events never write the desired model. Consumer callbacks may write effective Options.
  *
- * Consumer CSS owns dimensions, overflow, transforms, z-index, motion and reduced motion.
- * Scope custom `display` to `:popover-open` to preserve native closed display; use `gap`, not host
- * margins. No universal fit guarantee or continuous transform-animation tracking is promised.
+ * Native participation begins after successful activation, before paint readiness. A canceled
+ * show preserves requested intent and retained phase: a new opening stays preparatory `opening`
+ * without `data-entering`, while resumed SSR or settled `open` remains open. An unchanged
+ * canceled attempt is not retried; later intent, relevant part/configuration or parent
+ * presentation changes can request fresh activation. A close before reveal settles without
+ * geometry or animation discovery.
+ *
+ * A current positioning failure, whether during preparation, an update or visible exit, ends
+ * native activation immediately without exit retention. It releases temporary paint/pointer
+ * suppression and tracking, commits no failed coordinates or reveal, and removes participation
+ * and the Trigger's expanded presentation state. The failure itself preserves requested intent
+ * and the current Presence phase and reports the error once through Angular's `ErrorHandler`.
+ * An unchanged failed attempt is not retried; the same lifecycle changes permit a fresh
+ * attempt. A superseded calculation's failure is also reported once but leaves newer
+ * presentation untouched.
+ *
+ * Accepted visible close retains the native top layer but makes Content inert/nonparticipating
+ * until finite exit completes. Reopening before native hide preserves promotion order and does
+ * not rerun autofocus; reopening inside closing `beforetoggle` needs fresh activation after hide
+ * returns. Native events never write the desired model. Consumer callbacks may write effective
+ * Options.
+ *
+ * Consumer CSS owns dimensions, overflow, transforms, z-index, motion and reduced motion;
+ * z-index does not reorder native top-layer hosts. Scope custom `display` to `:popover-open` to
+ * preserve native closed display; use `gap`, not host margins. No universal fit guarantee or
+ * continuous transform-animation tracking is promised.
  * Supported Anchor modes: horizontal-tb, vertical-rl, vertical-lr. Offset then explicit flip
- * candidates use opposite main side, cross alignment, then both; best-fit follows Floating UI.
+ * candidates use opposite main side, opposite cross alignment, then both, omitting duplicate
+ * center candidates. After trying candidates, prefer a main-axis-fitting candidate with less
+ * cross-axis overflow; otherwise use least-overflow best fit. This is not an all-four-edge fit
+ * guarantee or an always-return-to-requested policy.
  * Document/nested scroll, viewport resize, Anchor/Content resize and observed layout movement
- * are tracked; arbitrary unobserved ancestor resize is outside that guarantee.
+ * are tracked, including visible retained exit while its Anchor remains available. Tracking
+ * stops when fully closed, suppressed or destroyed. Obsolete geometry cannot update a destroyed,
+ * replacement or newer owner/configuration. Arbitrary unobserved ancestor resize is outside the
+ * guarantee. Nested presentation waits for its parent's coordinate/reveal commit.
  *
  * Consumers own role and accessible name. Authored Tab/Shift+Tab order applies: there is no
  * source association, Tab bridge, generic autofocus manager, focus trap or presentation fallback.
@@ -239,7 +295,12 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
   readonly side = input<OrigamiPopoverSide>("block-end");
   /** Own logical cross alignment input, default `start`; center has no edge-alignment suffix. */
   readonly align = input<OrigamiPopoverAlign>("start");
-  /** Own main separation input in CSS pixels, default 0. Effective values must be finite and nonnegative; invalid values throw rather than clamp. */
+  /**
+   * Own main separation input in CSS pixels, default 0; replaced Options supply the effective
+   * value instead. Effective values must be finite and nonnegative. Reading invalid effective
+   * configuration throws `RangeError` rather than clamping; this is separate from asynchronous
+   * positioning failure.
+   */
   readonly gap = input(0);
   /** Readonly Presence retention. Not native visibility, root requested state or a public phase alias. */
   readonly state = inject(OrigamiPopoverContentState);
