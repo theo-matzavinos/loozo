@@ -26,12 +26,17 @@ export abstract class OrigamiPopoverOptions {
   abstract readonly open: WritableSignal<boolean>;
   /** Prevents Trigger activation, default false. External writes and dismissal remain authoritative. */
   abstract readonly disabled: Signal<boolean>;
-  /** Permits user branch dismissal, default true. Script close ignores this permission. */
+  /**
+   * User branch-dismissal permission, direct default true. The owner's own Trigger may bypass
+   * only this owner's flag; any protected requested-open descendant still vetoes the whole
+   * branch without partial writes. Script/model close ignores this permission.
+   */
   abstract readonly dismissible: Signal<boolean>;
 
   /**
    * Replaces all root Options with an existing compatible provider.
-   * @param type - Deferred concrete or abstract provider class; supports forward references.
+   * @param type - Supplier of a compatible concrete or abstract provider class; supports forward
+   *   references.
    * @returns Local replacement and public alias providers. A co-matched primitive default cannot override them in either import order.
    */
   static provideExisting(
@@ -58,26 +63,28 @@ export abstract class OrigamiPopoverOptions {
   /**
    * @internal Primitive-only fallback provider, not a supported application API.
    * @param type - Deferred directive default, resolved only when Options are read after construction.
-   * @returns A public-token factory that honors a same-host replacement before resolving the directive default.
+   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiPopoverOptions> | AbstractType<OrigamiPopoverOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiPopoverOptions,
-      useFactory: () => {
-        const replacement = inject(popoverReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiPopoverOptions,
+        useFactory: () => {
+          const replacement = inject(popoverReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(type());
+          return inject(type());
+        },
       },
-    };
+    ];
   }
 }
 
@@ -88,7 +95,8 @@ export abstract class OrigamiPopoverTriggerOptions {
 
   /**
    * Substitutes the entire Trigger configuration.
-   * @param type - Deferred compatible concrete or abstract provider class.
+   * @param type - Supplier of a compatible concrete or abstract provider class; forward references
+   *   are supported.
    * @returns Local replacement and public alias providers, preserved when the primitive also matches directly in either import order.
    */
   static provideExisting(
@@ -115,26 +123,28 @@ export abstract class OrigamiPopoverTriggerOptions {
   /**
    * @internal Primitive-only fallback provider, not a supported application API.
    * @param type - Deferred Trigger default, resolved only when Options are read after construction.
-   * @returns A public-token factory that honors a same-host replacement before resolving the directive default.
+   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiPopoverTriggerOptions> | AbstractType<OrigamiPopoverTriggerOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiPopoverTriggerOptions,
-      useFactory: () => {
-        const replacement = inject(triggerReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiPopoverTriggerOptions,
+        useFactory: () => {
+          const replacement = inject(triggerReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(type());
+          return inject(type());
+        },
       },
-    };
+    ];
   }
 }
 
@@ -145,7 +155,8 @@ export abstract class OrigamiPopoverAnchorOptions {
 
   /**
    * Substitutes the entire Anchor configuration.
-   * @param type - Deferred compatible concrete or abstract provider class.
+   * @param type - Supplier of a compatible concrete or abstract provider class; forward references
+   *   are supported.
    * @returns Local replacement and public alias providers, preserved when the primitive also matches directly in either import order.
    */
   static provideExisting(
@@ -172,26 +183,28 @@ export abstract class OrigamiPopoverAnchorOptions {
   /**
    * @internal Primitive-only fallback provider, not a supported application API.
    * @param type - Deferred Anchor default, resolved only when Options are read after construction.
-   * @returns A public-token factory that honors a same-host replacement before resolving the directive default.
+   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiPopoverAnchorOptions> | AbstractType<OrigamiPopoverAnchorOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiPopoverAnchorOptions,
-      useFactory: () => {
-        const replacement = inject(anchorReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiPopoverAnchorOptions,
+        useFactory: () => {
+          const replacement = inject(anchorReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(type());
+          return inject(type());
+        },
       },
-    };
+    ];
   }
 }
 
@@ -215,12 +228,18 @@ export abstract class OrigamiPopoverContentOptions {
   abstract readonly side: Signal<OrigamiPopoverSide>;
   /** Logical cross alignment, direct default `start`; `center` has no alignment suffix. */
   abstract readonly align: Signal<OrigamiPopoverAlign>;
-  /** Main-side separation in CSS pixels, direct default 0. Must be finite and nonnegative; invalid values throw rather than clamp. Use this rather than host margins. */
+  /**
+   * Main-side separation in CSS pixels, direct default 0. Must be finite and nonnegative;
+   * reading invalid effective configuration throws `RangeError` rather than clamping. This is
+   * configuration validation, separate from asynchronous positioning failure. Use this rather
+   * than host margins.
+   */
   abstract readonly gap: Signal<number>;
 
   /**
    * Replaces every Content Option with an existing compatible provider.
-   * @param type - Deferred concrete or abstract class supplying all four properties.
+   * @param type - Supplier of a compatible concrete or abstract provider class whose instances
+   *   supply all four required signals; forward references are supported.
    * @returns Local replacement and public alias providers, preserved when the primitive also matches directly in either import order.
    */
   static provideExisting(
@@ -247,25 +266,27 @@ export abstract class OrigamiPopoverContentOptions {
   /**
    * @internal Primitive-only fallback provider, not a supported application API.
    * @param type - Deferred Content default, resolved only when Options are read after construction.
-   * @returns A public-token factory that honors a same-host replacement before resolving the directive default.
+   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiPopoverContentOptions> | AbstractType<OrigamiPopoverContentOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiPopoverContentOptions,
-      useFactory: () => {
-        const replacement = inject(contentReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiPopoverContentOptions,
+        useFactory: () => {
+          const replacement = inject(contentReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(type());
+          return inject(type());
+        },
       },
-    };
+    ];
   }
 }

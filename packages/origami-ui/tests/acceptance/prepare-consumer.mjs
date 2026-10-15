@@ -3,16 +3,30 @@ import { createRequire } from "node:module";
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { installConsumer, stageConsumer, syncConsumerPackage } from "./consumer-install.mjs";
+import {
+  hasInstallationStamp,
+  installConsumer,
+  stageConsumer,
+  stampInstallation,
+  syncConsumerPackage,
+} from "./consumer-install.mjs";
 
 // Default: warm refresh of the installed APF only. `--clean`: strict clean installation.
+// A fresh checkout has no installation to refresh, so the default starts with the clean one.
 const options = process.argv.slice(2);
 
 for (const option of options) {
   assert.equal(option, "--clean", `Unknown option: ${option}`);
 }
 
-const clean = options.includes("--clean");
+let clean = options.includes("--clean");
+
+if (!clean && !hasInstallationStamp()) {
+  console.log(
+    "The consumer has no verified dependency installation; running the clean strict installation first.",
+  );
+  clean = true;
+}
 
 await mkdir(".acceptance-evidence/packages", { recursive: true });
 
@@ -96,6 +110,8 @@ for (const conditions of Object.values(manifest.exports)) {
 let mode = "Refreshed the installed APF from";
 
 if (clean) {
+  // Only a fully verified clean prepare may certify the installation for later warm refreshes.
+  await stampInstallation();
   mode = "Clean strict installation from";
 }
 

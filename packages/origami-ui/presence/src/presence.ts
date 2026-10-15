@@ -29,7 +29,8 @@ export abstract class OrigamiPresenceOptions {
 
   /**
    * Replaces all effective Options with an existing compatible provider.
-   * @param type - Deferred concrete or abstract provider class; forward references are supported.
+   * @param type - Supplier of a compatible concrete or abstract provider class; forward references
+   *   are supported.
    * @returns Local replacement and public-alias providers; direct co-matches cannot override the replacement with defaults.
    */
   static provideExisting(
@@ -56,26 +57,28 @@ export abstract class OrigamiPresenceOptions {
   /**
    * @internal Primitive-only fallback; never imports parent replacement Options.
    * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A local provider preferring explicit replacement over directive defaults.
+   * @returns A one-provider local array preferring explicit replacement over directive defaults.
    */
   static ɵprovideDefault(
     type: () => Type<OrigamiPresenceOptions> | AbstractType<OrigamiPresenceOptions>,
-  ): Provider {
-    return {
-      provide: OrigamiPresenceOptions,
-      useFactory: () => {
-        const replacement = inject(presenceReplacement, {
-          optional: true,
-          self: true,
-        });
+  ): Provider[] {
+    return [
+      {
+        provide: OrigamiPresenceOptions,
+        useFactory: () => {
+          const replacement = inject(presenceReplacement, {
+            optional: true,
+            self: true,
+          });
 
-        if (replacement !== null) {
-          return replacement;
-        }
+          if (replacement !== null) {
+            return replacement;
+          }
 
-        return inject(forwardRef(type));
+          return inject(forwardRef(type));
+        },
       },
-    };
+    ];
   }
 }
 
@@ -399,9 +402,16 @@ export class OrigamiPresenceState {
  * Consumers may gate children with `state.open()` to retain them through finite exit.
  * Host markers are `data-entering`, `data-present`, `data-leaving`, empty only in their
  * respective phases. These markers are reserved, not consumer-authored initialization
- * controls. Finite host animations settle on completion or cancellation;
- * infinite animations are ignored. Consumer CSS owns motion and reduced-motion behavior.
- * SSR uses no animation APIs; render callbacks do not constitute a hydration barrier.
+ * controls.
+ *
+ * Host animations are discovered after the transition's host bindings, rendered children
+ * and presentation/visibility writes have taken effect. Finite host animations settle on
+ * completion or cancellation; infinite animations are ignored, including when finite peers
+ * exist. No animations or zero-duration animations settle without a guessed-duration timer.
+ * Reversal or destruction invalidates pending discovery and completion. Consumer CSS owns
+ * motion and reduced-motion behavior. SSR settles desired presence without animation APIs;
+ * initially-present gated children are retained through eager or deferred hydration without
+ * a hydration-only entrance. Render callbacks do not constitute a hydration barrier.
  *
  * @example
  * ```html

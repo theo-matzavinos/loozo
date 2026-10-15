@@ -175,6 +175,24 @@ abstract class AbstractCollapsible {
   abstract readonly disabled: Signal<boolean>;
   abstract readonly hiding: Signal<OrigamiCollapsibleHiding>;
 }
+abstract class AbstractCollectionItem {
+  abstract readonly value: Signal<string>;
+}
+abstract class AbstractAccordion {
+  abstract readonly disabled: Signal<boolean>;
+}
+abstract class AbstractAccordionSingle {
+  abstract readonly value: WritableSignal<string | null>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly collapsible: Signal<boolean>;
+}
+abstract class AbstractAccordionMultiple {
+  abstract readonly value: WritableSignal<readonly string[]>;
+  abstract readonly disabled: Signal<boolean>;
+}
+abstract class AbstractIdentity {
+  abstract readonly id: Signal<string>;
+}
 abstract class AbstractPopover {
   abstract readonly open: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
@@ -185,6 +203,18 @@ export const providers: Provider[][] = [
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
   OrigamiCollapsibleOptions.provideExisting(() => AbstractCollapsible),
   OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
+  OrigamiCollectionItemOptions.provideFactory(() => ({value: signal('item')})),
+  OrigamiCollectionItemOptions.provideExisting(() => AbstractCollectionItem),
+  OrigamiAccordionOptions.provideFactory(() => ({disabled: signal(false)})),
+  OrigamiAccordionOptions.provideExisting(() => AbstractAccordion),
+  OrigamiAccordionSingleOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), collapsible: signal(true)})),
+  OrigamiAccordionSingleOptions.provideExisting(() => AbstractAccordionSingle),
+  OrigamiAccordionMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), disabled: signal(false)})),
+  OrigamiAccordionMultipleOptions.provideExisting(() => AbstractAccordionMultiple),
+  OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
+  OrigamiAccordionTriggerOptions.provideExisting(() => AbstractIdentity),
+  OrigamiAccordionPanelOptions.provideFactory(() => ({id: signal('panel')})),
+  OrigamiAccordionPanelOptions.provideExisting(() => AbstractIdentity),
   OrigamiPopoverOptions.provideExisting(() => AbstractPopover),
   OrigamiPopoverOptions.provideFactory(() => ({open: signal(false), disabled: signal(false), dismissible: signal(true)})),
   OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
