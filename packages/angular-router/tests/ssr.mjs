@@ -26,6 +26,24 @@ await cp(join(repository, "examples/angular-router/ssr-proof"), fixture, {
   filter: (path) => !/(?:^|\/)(?:node_modules|dist|\.angular|out-tsc)(?:\/|$)/.test(path),
 });
 
+// A root not-found catchall, so invalid path params have somewhere to fall through to.
+await mkdir(join(fixture, "src/routes/missing"));
+await writeFile(
+  join(fixture, "src/routes/missing/definition.ts"),
+  `import { defineRoute, stringParam } from "@loozo/angular-router";
+
+export default defineRoute("$segments[]", { params: { segments: stringParam } });
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/missing/page.ts"),
+  `import { Component } from "@angular/core";
+
+@Component({ template: '<p id="missing">Not found</p>' })
+export default class Missing {}
+`,
+);
+
 const metadataText = await readFile(join(packageDirectory, "package.json"), "utf8");
 const metadata = JSON.parse(metadataText);
 
@@ -398,6 +416,7 @@ function inspectHtml(body) {
     "resolved",
     "handle-id",
     "handle-score",
+    "missing",
   ]) {
     result[id] = document.querySelector("#" + id)?.textContent ?? null;
   }
@@ -478,6 +497,7 @@ try {
     resolved: "team=7;item=7;score=42",
     "handle-id": null,
     "handle-score": null,
+    missing: null,
   });
   assert.deepEqual(values[1], {
     "parsed-team": "8",
@@ -486,6 +506,7 @@ try {
     resolved: "team=8;item=8;score=43",
     "handle-id": null,
     "handle-score": null,
+    missing: null,
   });
   assert.doesNotMatch(responses[0].body, /team=999;|item=888;/);
   assert.notEqual(values[0].resolved, values[1].resolved);
@@ -508,10 +529,27 @@ try {
   assert.equal(handleValues["handle-id"], "31");
   assert.equal(handleValues["handle-score"], "47");
   assert.equal(handleValues.resolved, null);
+  assert.equal(handleValues.missing, null);
+
+  // Invalid path params don't match, so the server renders the catchall instead of failing:
+  // the synchronous team param, and the delayed item and handle-only params.
+  const invalidValues = {};
+
+  for (const url of ["/teams/x/items/7", "/teams/7/items/x?score=42", "/handle-only/x"]) {
+    const response = await requestSsr(origin + url);
+    const values = inspectHtml(response.body);
+
+    assert.equal(response.status, 200, url);
+    assert.equal(values.missing, "Not found", url);
+    assert.equal(values.resolved, null, url);
+    assert.equal(values["handle-id"], null, url);
+    invalidValues[url] = { status: response.status, values };
+  }
   await save("http-observations.json", {
     alias: { status: alias.status, location: location.href },
     concurrentValues: values,
     handleOnly: { elapsedMs, values: handleValues },
+    invalidValues,
   });
 } catch (error) {
   nodeFailures.push(error);

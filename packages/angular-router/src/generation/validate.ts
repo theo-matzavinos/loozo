@@ -538,8 +538,9 @@ export async function validateRoutes(
       }
     }
 
-    const sourceSearch = typeWitness(declaration, "__search");
-    const targetSearch = typeWitness(declaration.target, "__search");
+    // URL-writing shapes: a key with a fallback is optional there, though it always reads a value.
+    const sourceSearch = typeWitness(declaration, "__searchInput");
+    const targetSearch = typeWitness(declaration.target, "__searchInput");
     const search = fields.get("search");
     const fragment = fields.get("fragment");
 

@@ -66,7 +66,7 @@ A route is a directory under the scan directory with a declaration file and, opt
 
 Running `ng build` or `ng serve` writes `generated/routes.generated.ts`, `generated/destinations.generated.ts` and `src/routes/product/route.generated.ts`. The page is lazy-loaded with `loadComponent`.
 
-The template checks `hasValue()` before reading values. A URL such as `/products/abc` still activates this route, because it has no guards or resolvers to reject it first, and then the params fail to parse. Reading `value()` in that error state throws.
+The template checks `hasValue()` before reading values, which load after the page is created. A URL such as `/products/abc` doesn't match this route at all: a path param that fails to parse makes Angular try its next route, such as a `$segments[]` not-found route. A missing, repeated or unknown `tab` reads as its fallback, `"details"`.
 
 ## Declaring routes
 
@@ -88,7 +88,7 @@ Paths are decoded segment text, not URLs:
 | `"docs/$segments[]"`    | A terminal catchall: zero or more remaining segments, parsed as an array |
 | `"$id/compare/$id"`     | A repeated param uses the same value in every position                   |
 
-No leading, trailing or repeated slashes. A catchall must be the last segment, a route can have at most one, and a catchall route can't have children. A root `$segments[]` route works as a not-found fallback; ordinary routes still match before it.
+No leading, trailing or repeated slashes. A catchall must be the last segment, a route can have at most one, and a catchall route can't have children. A root `$segments[]` route works as a not-found fallback; ordinary routes still match before it, unless their path params fail to parse.
 
 ### Config
 
@@ -100,6 +100,7 @@ No leading, trailing or repeated slashes. A catchall must be the last segment, a
 | `fragments`                                                   | The fragment names this route accepts                                                   |
 | `resolve`                                                     | Resolvers that receive parsed inputs                                                    |
 | `canActivate`, `canActivateChild`, `canMatch`                 | Guards that receive parsed inputs                                                       |
+| `onInvalidParams`                                             | What happens when this route's own path params fail to parse, instead of not matching   |
 | `title`                                                       | A string, or a callback that receives parsed inputs                                     |
 | `canDeactivate`, `providers`, `data`, `runGuardsAndResolvers` | Passed to Angular unchanged                                                             |
 | `redirect`                                                    | A typed redirect to another route                                                       |
@@ -122,10 +123,28 @@ A child declares only its own params; it inherits its ancestors' params and sear
 | `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail) |
 | `booleanParam`               | Exactly `true` or `false`                                                    |
 | `enumParam(values)`          | One of the listed strings, typed as their union                              |
-| `optionalSearchParam(codec)` | Search only: the key may be absent                                           |
+| `optionalSearchParam(codec)` | Search only: the key may be absent, or read a fallback                       |
 | `nullableSearchParam(codec)` | Search only: the literal value `null` maps to `null`                         |
 
 Search params are required unless wrapped in `optionalSearchParam`. `optionalSearchParam(nullableSearchParam(codec))` distinguishes absent, `null` and a value. For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
+
+Search params never stop a route from matching, and optional ones never fail:
+
+```ts
+search: {
+  page: optionalSearchParam(numberParam, { fallback: 1 }),
+  sort: optionalSearchParam(enumParam(["asc", "desc"])),
+  q: stringParam,
+}
+```
+
+| Search key             | Missing      | Repeated or invalid |
+| ---------------------- | ------------ | ------------------- |
+| Optional, no fallback  | Absent       | Absent              |
+| Optional with fallback | The fallback | The fallback        |
+| Required (plain codec) | Error        | Error               |
+
+A key with a fallback always reads a value (`page` is a `number`, never `undefined`), but links, `createUrl`, navigation and redirects can still leave it out. For a nullable key, use `optionalSearchParam(nullableSearchParam(codec), { fallback: null })`.
 
 A custom codec implements `ParamCodec<Value>`. `parse` receives the already-decoded text and may be async; `stringify` must be synchronous:
 
@@ -162,7 +181,7 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 
 `params`, `search` and `data` are read-only Angular Resources, so `status()`, `isLoading()`, `hasValue()`, `value()` and `error()` all work. Check `hasValue()` before reading `value()`: reading the value of a Resource in the error state throws. While a navigation is in progress they keep the values of the page that's still on screen and report `isLoading()` (status `"reloading"`), so the page doesn't empty while the next one loads. When the navigation completes, they change to the new route's values; when it's cancelled or fails, they keep the current values. During a navigation, a route that hasn't parsed its inputs yet, or whose parsing failed, is loading with `undefined` values.
 
-`params` and `search` are parsed together and settle together. If a codec fails after the route has activated, both are in the error state, and the error has `source` (`"path"` or `"search"`), `key` and `reason` (`"missing"`, `"repeated"` or `"invalid"`). `data` settles on its own and isn't affected by that failure, so check `params` or `search` for parsing errors, not `data`. A failed navigation is different: when a guard or resolver throws, for example, the URL and the routes on screen don't change, so their Resources keep their values. Handle that error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`.
+`params` and `search` are parsed together and settle together. If a codec fails after the route has activated, both are in the error state, and the error has `source` (`"path"` or `"search"`), `key` and `reason` (`"missing"`, `"repeated"` or `"invalid"`). Since a route whose path params fail to parse doesn't match, that takes a required search param, or a codec that rejects a value it accepted while matching (path codecs run once while matching and again for the activated route). `data` settles on its own and isn't affected by that failure, so check `params` or `search` for parsing errors, not `data`. A failed navigation is different: when a guard or resolver throws, for example, the URL and the routes on screen don't change, so their Resources keep their values. Handle that error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`.
 
 `data` holds this route's own resolver results only, not static `data`, parent data or the title.
 
@@ -193,7 +212,21 @@ A `destination` must come from the same generated route set as the handle. Desti
 | `canMatch`         | This route's own path params plus all search params; no ancestor path params |
 | `canDeactivate`    | Angular's native form, unchanged; no parsing                                 |
 
-Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). If a codec fails, the navigation fails with that error before the guard runs.
+Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). Optional search values recover before any guard runs (absent, or the fallback). A failing required search value, or a path param that fails only after matching, fails the navigation with that error before the guard runs. Path params that fail during matching are different: they decide whether a route matches.
+
+Every route with path params of its own gets a generated `canMatch` that parses them. If one fails, the route doesn't match and Angular tries its next route, ending at the closest `$segments[]` catchall, so guards, resolvers and pages never see a value their codec rejects. Your own `canMatch` guards aren't called then. `onInvalidParams` replaces that outcome:
+
+```ts
+export default defineRoute("items/$id", {
+  params: { id: numberParam },
+  onInvalidParams: (error, routeConfig, segments, partialSnapshot) =>
+    new RedirectCommand(inject(Router).parseUrl("/items")),
+});
+```
+
+It receives the parse error (`source: "path"`, `key`, `reason`, and the codec's error as `cause`) and Angular's `canMatch` arguments, runs in the route's injection context, and returns `false` (try the next route), a `UrlTree` or a `RedirectCommand`, or a Promise or Observable of one. It can't return `true`: that, or throwing, fails the navigation. Write `async () => false as const` rather than `async () => false`, which TypeScript widens to `boolean`.
+
+A value that parses but doesn't exist, such as an unknown slug, is still yours to handle, for example with a `canActivate` that returns `new RedirectCommand(notFoundUrl, { browserUrl: state.url })`: Angular renders your not-found route while the address bar keeps the requested URL. The not-found URL must not match the guarded route again, or the redirect loops.
 
 Resolvers get the parsed inputs too, and `inject()` works at the start of the callback:
 
@@ -207,7 +240,7 @@ A redirect targets another declaration and must say what happens to search and f
 
 [src/routes/old-item/definition.ts](snippets/src/routes/old-item/definition.ts)
 
-Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. A redirect route can't have a page, children, `canActivate` or `canMatch`.
+Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. A redirect route can't have a page, children, `canActivate`, `canMatch` or `onInvalidParams`; an invalid param in a redirect's source URL fails the navigation.
 
 ## Filesystem route definitions
 

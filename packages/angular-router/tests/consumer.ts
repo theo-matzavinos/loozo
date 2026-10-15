@@ -21,7 +21,7 @@ import type {
   CanDeactivateFn,
   ResolveFn,
 } from "@angular/router";
-import { RedirectCommand, DefaultUrlSerializer } from "@angular/router";
+import { RedirectCommand, DefaultUrlSerializer, UrlTree } from "@angular/router";
 import { of } from "rxjs";
 
 type Equal<Left, Right> =
@@ -245,6 +245,11 @@ createUrl(suffix, { params: { scalar: 1, pieces: { label: "x", count: 1 } } });
 defineRoute("", { parent: suffix });
 
 const wrapped = optionalSearchParam(nullableSearchParam(numberParam));
+const explicitNone = defineRoute("explicit-none", {
+  search: { page: optionalSearchParam(numberParam, undefined) },
+});
+
+exact<Equal<NonNullable<typeof explicitNone.__search>["page"], number | undefined>>();
 
 // @ts-expect-error Reversed nullable-optional order.
 nullableSearchParam(optionalSearchParam(numberParam));
@@ -689,3 +694,143 @@ createUrl(ownUndefined, {
   // @ts-expect-error Nested codec fields retain their concrete undefined type.
   search: { q: undefined, box: { nested: { value: "wrong", mutable: true } } },
 });
+
+// Invalid local path params: the route doesn't match unless its handler decides otherwise.
+const invalidItem = defineRoute("invalid-items/$id", {
+  params: { id: numberParam },
+  onInvalidParams: (error, routeConfig, segments, partialSnapshot) => {
+    exact<Equal<typeof error.source, "path">>();
+    exact<Equal<typeof error.key, string>>();
+    exact<Equal<typeof error.reason, "missing" | "repeated" | "invalid">>();
+    exact<Equal<typeof error.cause, unknown>>();
+    exact<Equal<typeof routeConfig, NativeRoute>>();
+    exact<Equal<typeof segments, UrlSegment[]>>();
+    exact<Equal<typeof partialSnapshot, PartialMatchRouteSnapshot>>();
+
+    if (segments.length > 1) {
+      return new RedirectCommand(new UrlTree());
+    }
+
+    if (segments.length > 0) {
+      return of(new UrlTree());
+    }
+
+    return Promise.resolve(false as const);
+  },
+});
+
+defineRoute("invalid-items/$id", { params: { id: numberParam }, onInvalidParams: () => false });
+defineRoute("invalid-docs/$parts[]", {
+  params: { parts: stringParam },
+  onInvalidParams: async () => false as const,
+});
+// @ts-expect-error Invalid params can't match, so a handler can't return true.
+defineRoute("invalid-true/$id", { params: { id: numberParam }, onInvalidParams: () => true });
+defineRoute("invalid-boolean/$id", {
+  params: { id: numberParam },
+  // @ts-expect-error A boolean might be true.
+  onInvalidParams: () => Math.random() > 0.5,
+});
+defineRoute("invalid-promise/$id", {
+  params: { id: numberParam },
+  // @ts-expect-error Asynchronous true is rejected too.
+  onInvalidParams: async () => true,
+});
+// @ts-expect-error A paramless route has nothing to reject.
+defineRoute("invalid-static", { onInvalidParams: () => false });
+// @ts-expect-error Inherited params belong to the parent's own matching guard.
+defineRoute("invalid-child", { parent: invalidItem, onInvalidParams: () => false });
+defineRoute("invalid-redirect/$id", {
+  params: { id: numberParam },
+  redirect: { to: invalidItem, search: { mode: "drop" }, fragment: { mode: "drop" } },
+  // @ts-expect-error Angular rejects canMatch on redirect records, so the handler has no guard.
+  onInvalidParams: () => false,
+});
+
+// A fallback key always reads a value but may be omitted when writing a URL.
+const paged = defineRoute("paged", {
+  search: {
+    page: optionalSearchParam(numberParam, { fallback: 1 }),
+    sort: optionalSearchParam(enumParam(["asc", "desc"])),
+    score: optionalSearchParam(nullableSearchParam(numberParam), { fallback: null }),
+    q: stringParam,
+  },
+  resolve: {
+    read: ({ search }) => {
+      exact<Equal<typeof search.page, number>>();
+      exact<Equal<typeof search.sort, "asc" | "desc" | undefined>>();
+      exact<Equal<typeof search.score, number | null>>();
+      exact<Equal<typeof search.q, string>>();
+
+      return search.page;
+    },
+  },
+  canMatch: [
+    ({ search }) => {
+      exact<Equal<typeof search.page, number>>();
+
+      return true;
+    },
+  ],
+});
+type PagedSearch = NonNullable<typeof paged.__search>;
+
+exact<Equal<PagedSearch["page"], number>>();
+exact<Equal<PagedSearch["score"], number | null>>();
+createUrl(paged, { search: { q: "x" } });
+createUrl(paged, { search: { q: "x", page: 2, score: null, sort: "asc" } });
+createUrl(paged, { search: { q: "x", page: undefined } });
+// @ts-expect-error Fallback keys keep their codec type when supplied.
+createUrl(paged, { search: { q: "x", page: "2" } });
+// @ts-expect-error Plain required keys stay required.
+createUrl(paged, { search: { page: 2 } });
+
+const fallbackOnly = defineRoute("fallback-only", {
+  search: { page: optionalSearchParam(numberParam, { fallback: 1 }) },
+});
+
+createUrl(fallbackOnly, {});
+createUrl(fallbackOnly, { search: {} });
+// @ts-expect-error The fallback has the codec's value type.
+optionalSearchParam(numberParam, { fallback: "1" });
+// @ts-expect-error An options record requires a fallback.
+optionalSearchParam(numberParam, {});
+// @ts-expect-error Fallback codecs are search-only.
+defineRoute("$id", { params: { id: optionalSearchParam(numberParam, { fallback: 1 }) } });
+// @ts-expect-error Nullable cannot wrap an optional search codec, fallback or not.
+nullableSearchParam(optionalSearchParam(numberParam, { fallback: 1 }));
+
+// Redirects: fallback keys are never required, on either side.
+defineRoute("fallback-drop", {
+  redirect: { to: fallbackOnly, search: { mode: "drop" }, fragment: { mode: "drop" } },
+});
+defineRoute("fallback-preserve", {
+  redirect: { to: fallbackOnly, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+});
+defineRoute("fallback-replace", {
+  redirect: {
+    to: paged,
+    search: { mode: "replace", values: { q: "x" } },
+    fragment: { mode: "drop" },
+  },
+});
+defineRoute("fallback-replace-value", {
+  redirect: {
+    to: paged,
+    search: { mode: "replace", values: { q: "x", page: 3 } },
+    fragment: { mode: "drop" },
+  },
+});
+
+const requiredPage = defineRoute("required-page", { search: { page: numberParam } });
+
+defineRoute("fallback-source", {
+  search: { page: optionalSearchParam(numberParam, { fallback: 1 }) },
+  // @ts-expect-error A fallback source key may be absent from the URL it preserves.
+  redirect: { to: requiredPage, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+});
+// Children inherit the read and write shapes.
+const pagedChild = defineRoute("child", { parent: fallbackOnly });
+
+exact<Equal<NonNullable<typeof pagedChild.__search>["page"], number>>();
+createUrl(pagedChild, {});

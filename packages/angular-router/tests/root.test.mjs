@@ -423,6 +423,86 @@ test("redirect declaration validates shape and remains inert for source URL crea
   }
 });
 
+test("onInvalidParams is a callback on routes with local path params only", () => {
+  const handler = () => false;
+  const parent = defineRoute("teams/$teamId", { params: { teamId: numberParam } });
+  const target = defineRoute("items", {});
+
+  defineRoute("items/$id", { params: { id: numberParam }, onInvalidParams: handler });
+  defineRoute("docs/$parts[]", { params: { parts: stringParam }, onInvalidParams: handler });
+
+  for (const value of [undefined, null, false, "redirect", {}]) {
+    assert.throws(
+      () => defineRoute("items/$id", { params: { id: numberParam }, onInvalidParams: value }),
+      TypeError,
+    );
+  }
+
+  // Inherited params belong to the parent's own matching guard.
+  for (const config of [{}, { parent }]) {
+    assert.throws(
+      () => defineRoute("items", { ...config, onInvalidParams: handler }),
+      /onInvalidParams requires local path params/,
+    );
+  }
+
+  assert.throws(
+    () =>
+      defineRoute("old/$id", {
+        params: { id: numberParam },
+        onInvalidParams: handler,
+        redirect: { to: target, search: { mode: "drop" }, fragment: { mode: "drop" } },
+      }),
+    /Redirect cannot declare own canActivate, canMatch or onInvalidParams/,
+  );
+});
+
+test("optional search fallback options are validated and URL creation may omit the key", () => {
+  const page = optionalSearchParam(numberParam, { fallback: 1 });
+  const list = defineRoute("items", {
+    search: { page, sort: optionalSearchParam(stringParam), q: stringParam },
+  });
+
+  assert.equal(page.parse("2"), 2);
+  assert.equal(page.stringify(3), "3");
+  assert.throws(() => page.stringify(undefined), TypeError);
+  assert.equal(createUrl(list, { search: { q: "x" } }), "/items?q=x");
+  assert.equal(createUrl(list, { search: { q: "x", page: undefined } }), "/items?q=x");
+  assert.equal(createUrl(list, { search: { q: "x", page: 2 } }), "/items?page=2&q=x");
+  assert.throws(() => createUrl(list, { search: {} }), /Missing required search: q/);
+
+  // Explicit undefined options mean no options; a fallback may itself be undefined or null.
+  optionalSearchParam(numberParam, undefined);
+  optionalSearchParam(numberParam, { fallback: undefined });
+  optionalSearchParam(nullableSearchParam(numberParam), { fallback: null });
+
+  for (const options of [
+    null,
+    1,
+    [],
+    {},
+    { fallback: 1, extra: true },
+    Object.create({ fallback: 1 }),
+  ]) {
+    assert.throws(() => optionalSearchParam(numberParam, options), TypeError);
+  }
+
+  assert.throws(() => nullableSearchParam(page), /Nullable cannot wrap optional/);
+  assert.throws(() => defineRoute("$id", { params: { id: page } }), TypeError);
+
+  // A fallback key is optional when writing: redirects may drop it or omit it on replace.
+  const redirect = { to: list, search: { mode: "replace", values: { q: "x" } } };
+
+  defineRoute("old", { redirect: { ...redirect, fragment: { mode: "drop" } } });
+  defineRoute("older", {
+    redirect: {
+      to: defineRoute("paged", { search: { page } }),
+      search: { mode: "drop" },
+      fragment: { mode: "drop" },
+    },
+  });
+});
+
 test("absent prototype-named optional search never reads inherited input", () => {
   for (const key of [
     "constructor",

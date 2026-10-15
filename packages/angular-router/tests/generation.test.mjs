@@ -382,3 +382,83 @@ test("session-backed generation follows edits across passes and recovers after a
   // Session passes leave exactly what stateless generation would publish.
   await generate(root, { ...options, check: true }, () => false);
 });
+
+test("local path params get the generated matching guard; misplaced onInvalidParams fails preflight", async () => {
+  const root = await fixture();
+  const packageDirectory = resolve(import.meta.dirname, "..");
+  const routes = resolve(root, "generated/routes.generated.ts");
+  const options = {
+    tsconfig: "tsconfig.json",
+    scanDirectories: ["src/routes"],
+    outDirectory: "generated",
+  };
+  const imports = 'import { defineRoute, numberParam } from "@loozo/angular-router";\n';
+
+  await Promise.all([
+    mkdir(resolve(root, "src/routes/items"), { recursive: true }),
+    mkdir(resolve(root, "src/routes/old"), { recursive: true }),
+    mkdir(resolve(root, "node_modules/@loozo"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(
+      resolve(root, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          strict: true,
+          skipLibCheck: true,
+          experimentalDecorators: true,
+          lib: ["ES2022", "DOM"],
+          types: [],
+        },
+        include: ["src/**/*.ts"],
+      }),
+    ),
+    writeFile(
+      resolve(root, "src/routes/items/definition.ts"),
+      `${imports}export default defineRoute("items/$id", { params: { id: numberParam } });\n`,
+    ),
+    writeFile(
+      resolve(root, "src/routes/items/page.ts"),
+      'import { Component } from "@angular/core";\n\n@Component({ template: "item" })\nexport default class Page {}\n',
+    ),
+    symlink(packageDirectory, resolve(root, "node_modules/@loozo/angular-router"), "dir"),
+    symlink(
+      resolve(packageDirectory, "node_modules/@angular"),
+      resolve(root, "node_modules/@angular"),
+      "dir",
+    ),
+  ]);
+
+  // A params-only route reaches its definition through the route set, not an import.
+  await generate(root, options, () => false);
+
+  const generated = await readFile(routes, "utf8");
+
+  assert.match(
+    generated,
+    /\.\.\.callbacks\(getRouteSet\(\), "src\/routes\/items\/definition\.ts"\)/,
+  );
+  assert.doesNotMatch(generated, /import definition/);
+
+  for (const [path, config, message] of [
+    ["old", "{ onInvalidParams: () => false }", /onInvalidParams requires local path placeholders/],
+    [
+      "old/$id",
+      '{ params: { id: numberParam }, onInvalidParams: () => false, redirect: { to: items, search: { mode: "drop" }, fragment: { mode: "drop" } } }',
+      /Redirect cannot have .*onInvalidParams/,
+    ],
+  ]) {
+    await writeFile(
+      resolve(root, "src/routes/old/definition.ts"),
+      `${imports}import items from "../items/definition.js";\nvoid items;\nexport default defineRoute(${JSON.stringify(path)}, ${config});\n`,
+    );
+    await assert.rejects(
+      generate(root, options, () => false),
+      message,
+    );
+    assert.equal(await readFile(routes, "utf8"), generated);
+  }
+});

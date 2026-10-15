@@ -1,6 +1,8 @@
 import { Injector, inject, runInInjectionContext } from "@angular/core";
 import {
   Router,
+  RedirectCommand,
+  UrlTree,
   type Route,
   type ActivatedRouteSnapshot,
   type RouterStateSnapshot,
@@ -11,13 +13,14 @@ import {
   type ResolveFn,
   type RedirectFunction,
 } from "@angular/router";
-import { Observable, from, isObservable, type ObservableInput } from "rxjs";
+import { Observable, from, isObservable, map, type ObservableInput } from "rxjs";
 import { routeMetadata, codecPresence, type AnyRoute } from "@loozo/angular-router/_core";
 import {
   assertIdentity,
   hasIdentity,
   parseInputs,
   matchingInputs,
+  pathOperation,
   runJobs,
   validateRaw,
   type Job,
@@ -69,7 +72,8 @@ export function callbacks(
   set: RouteSet,
   id: string,
 ): Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> {
-  const config = routeMetadata(set.records[id].definition()).config;
+  const metadata = routeMetadata(set.records[id].definition());
+  const config = metadata.config;
   const result: Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> =
     {};
   const activate = config.canActivate as readonly ((...args: any[]) => any)[] | undefined;
@@ -122,19 +126,69 @@ export function callbacks(
   }
 
   const matching = config.canMatch as readonly ((...args: any[]) => any)[] | undefined;
+  const canMatch: CanMatchFn[] = [];
+
+  // Local path params decide whether this record matches. Angular runs every canMatch
+  // guard concurrently and prefers the first non-true result in array order.
+  if (metadata.localSegments.some((segment) => segment.kind !== "static")) {
+    const handler = config.onInvalidParams as ((...args: any[]) => unknown) | undefined;
+
+    canMatch.push((route, segments, snapshot) => {
+      assertIdentity(snapshot, id);
+
+      return bridge<GuardResult>(
+        async () => {
+          try {
+            await pathOperation(set, id, snapshot).promise;
+          } catch (error) {
+            return error;
+          }
+
+          return undefined;
+        },
+        (error) => {
+          if (error === undefined) {
+            return true;
+          }
+
+          if (!handler) {
+            return false;
+          }
+
+          const decision = handler(error, route, segments, snapshot);
+
+          if (isObservable(decision) || isPromiseResult(decision)) {
+            return from(decision as ObservableInput<unknown>).pipe(map(invalidParamsResult));
+          }
+
+          return invalidParamsResult(decision);
+        },
+      );
+    });
+  }
 
   if (matching) {
-    result.canMatch = matching.map(
-      (callback): CanMatchFn =>
-        (route, segments, snapshot) => {
-          assertIdentity(snapshot, id);
+    for (const callback of matching) {
+      canMatch.push((route, segments, snapshot) => {
+        assertIdentity(snapshot, id);
 
-          return bridge<GuardResult>(
-            () => matchingInputs(set, id, snapshot),
-            (inputs) => callback(inputs, route, segments, snapshot),
-          );
-        },
-    );
+        return bridge<GuardResult>(
+          () => matchingInputs(set, id, snapshot),
+          (inputs) => {
+            // Invalid path params: the generated guard ahead of this one decides.
+            if (inputs === undefined) {
+              return false;
+            }
+
+            return callback(inputs, route, segments, snapshot);
+          },
+        );
+      });
+    }
+  }
+
+  if (canMatch.length > 0) {
+    result.canMatch = canMatch;
   }
 
   const resolvers = config.resolve as
@@ -183,6 +237,15 @@ export function callbacks(
   return result;
 }
 
+// Invalid params can't match, so a handler may only refuse or redirect.
+function invalidParamsResult(decision: unknown): GuardResult {
+  if (decision === false || decision instanceof UrlTree || decision instanceof RedirectCommand) {
+    return decision;
+  }
+
+  throw new TypeError("onInvalidParams must return false, a UrlTree or a RedirectCommand");
+}
+
 export function redirect(definition: () => AnyRoute): RedirectFunction {
   return async (snapshot) => {
     const router = inject(Router);
@@ -228,7 +291,8 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
         const codec = target.search[key];
         const raws = snapshot.queryParamMap.getAll(key);
 
-        if (raws.length === 0 && codecPresence(codec) === "optional") {
+        // An optional destination key recovers any incoming value, so it has nothing to check.
+        if (codecPresence(codec) === "optional") {
           continue;
         }
 
