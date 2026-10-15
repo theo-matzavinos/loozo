@@ -2,7 +2,7 @@ import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { packages } from "../../../generated/content/index.generated.js";
 import { injectRoute } from "./route.generated.js";
-import { destination as packageOverview } from "../package/overview/route.generated.js";
+import { destination as packageOverview } from "../$package/+overview/route.generated.js";
 
 @Component({
   imports: [RouterLink],

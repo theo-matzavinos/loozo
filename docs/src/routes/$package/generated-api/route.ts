@@ -1,7 +1,7 @@
 import { defineRoute } from "@loozo/angular-router";
 import { loadPackage } from "../../../../generated/content/index.generated.js";
 import { notFoundRedirect } from "../../../package-content.js";
-import packageRoute from "../definition.js";
+import packageRoute from "../route.js";
 
 export default defineRoute("generated-api", {
   parent: packageRoute,

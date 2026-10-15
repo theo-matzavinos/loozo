@@ -3,8 +3,8 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from "@angular/router";
 import { packages } from "../../../generated/content/index.generated.js";
 import { CurrentPackage } from "../../package-content.js";
 import { injectRoute } from "./route.generated.js";
-import { destination as guide } from "./guide/route.generated.js";
-import { destination as api } from "./api/route.generated.js";
+import { destination as guide } from "./guide/$guide/route.generated.js";
+import { destination as api } from "./api/$symbol/route.generated.js";
 import { destination as generatedApi } from "./generated-api/route.generated.js";
 
 /** Layout for every page of one package: the documentation sidebar beside the page. */

@@ -1,7 +1,7 @@
 import { Component, computed, inject } from "@angular/core";
-import { CurrentPackage } from "../../../package-content.js";
-import { pageTitle } from "../../../page-title.js";
-import { SymbolDetails } from "../../../symbol-details.js";
+import { CurrentPackage } from "../../../../package-content.js";
+import { pageTitle } from "../../../../page-title.js";
+import { SymbolDetails } from "../../../../symbol-details.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
