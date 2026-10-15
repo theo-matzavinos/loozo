@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, writeFile, readFile, rm, realpath, stat, symlink } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rename, rm, realpath, stat, symlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import ts from "typescript";
 import { AnchorState, CompilerState } from "../node/src/generation/index.js";
@@ -364,7 +364,7 @@ test("session-backed generation follows edits across passes and recovers after a
 
   // The repair also adds a title, which the next pass must adapt through the route set. Callback
   // options reach the definition through the route set, so routes.generated.ts doesn't import it.
-  await writeFile(definition, seeded.replace("{ parent }", '{ parent, title: "Manual" }'));
+  await writeFile(definition, seeded.replace("{}", '{ title: "Manual" }'));
   await pass();
   assert.match(
     await readFile(routes, "utf8"),
@@ -373,7 +373,7 @@ test("session-backed generation follows edits across passes and recovers after a
   assert.doesNotMatch(await readFile(routes, "utf8"), /import definition/);
 
   // A native option is read from the definition itself, which is then imported.
-  await writeFile(definition, seeded.replace("{ parent }", "{ parent, providers: [] }"));
+  await writeFile(definition, seeded.replace("{}", "{ providers: [] }"));
   await pass();
   assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition1\)/);
   assert.match(await readFile(routes, "utf8"), /import definition1 from/);
@@ -381,6 +381,314 @@ test("session-backed generation follows edits across passes and recovers after a
 
   // Session passes leave exactly what stateless generation would publish.
   await generate(root, { ...options, check: true }, () => false);
+});
+
+// A filesystem-mode project with helpers for authoring pages and declarations.
+async function filesystemProject() {
+  const root = await fixture();
+  const packageDirectory = resolve(import.meta.dirname, "..");
+  const options = {
+    tsconfig: "tsconfig.json",
+    scanDirectories: ["src/routes"],
+    outDirectory: "generated",
+    autoDefineRoutes: {},
+  };
+
+  async function write(path, bytes) {
+    await mkdir(dirname(resolve(root, path)), { recursive: true });
+    await writeFile(resolve(root, path), bytes);
+  }
+
+  async function exists(path) {
+    try {
+      await stat(resolve(root, path));
+
+      return true;
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+
+      return false;
+    }
+  }
+
+  await mkdir(resolve(root, "node_modules/@loozo"), { recursive: true });
+  await Promise.all([
+    writeFile(
+      resolve(root, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          strict: true,
+          skipLibCheck: true,
+          experimentalDecorators: true,
+          lib: ["ES2022", "DOM"],
+          types: [],
+        },
+        include: ["src/**/*.ts"],
+      }),
+    ),
+    symlink(packageDirectory, resolve(root, "node_modules/@loozo/angular-router"), "dir"),
+    symlink(
+      resolve(packageDirectory, "node_modules/@angular"),
+      resolve(root, "node_modules/@angular"),
+      "dir",
+    ),
+  ]);
+
+  return {
+    root,
+    header: 'import { defineRoute } from "@loozo/angular-router";\n',
+    write,
+    exists,
+    read: (path) => readFile(resolve(root, path), "utf8"),
+    routes: () => readFile(resolve(root, "generated/routes.generated.ts"), "utf8"),
+    move: async (from, to) => {
+      await mkdir(dirname(resolve(root, to)), { recursive: true });
+      await rename(resolve(root, from), resolve(root, to));
+    },
+    page: (directory) =>
+      write(
+        `src/routes/${directory}/page.ts`,
+        `import { Component } from "@angular/core";\n\n@Component({ template: "${directory}" })\nexport default class Page {}\n`,
+      ),
+    generate: () => generate(root, options, () => false),
+  };
+}
+
+test("filesystem mode: only directories with a page or declaration become records; others prefix the records below", async () => {
+  const project = await filesystemProject();
+  const { header, read, exists } = project;
+
+  await project.page("teams/$teamId/items/$id");
+  await project.page("+group/plain");
+  // An authored declaration makes a page-less directory a (componentless) record.
+  await project.write(
+    "src/routes/shell/route.ts",
+    `${header}\nexport default defineRoute("shell", {});\n`,
+  );
+  await project.page("shell/docs/$slug");
+  await project.generate();
+
+  assert.equal(
+    await read("src/routes/teams/$teamId/items/$id/route.ts"),
+    'import { defineRoute, stringParam } from "@loozo/angular-router";\n\nexport default defineRoute("teams/$teamId/items/$id", { params: { "teamId": stringParam, "id": stringParam } });\n',
+  );
+  assert.equal(
+    await read("src/routes/+group/plain/route.ts"),
+    'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("plain", {});\n',
+  );
+  assert.equal(
+    await read("src/routes/shell/docs/$slug/route.ts"),
+    'import { defineRoute, stringParam } from "@loozo/angular-router";\nimport parent from "../../route.js";\n\nexport default defineRoute("docs/$slug", { parent, params: { "slug": stringParam } });\n',
+  );
+
+  // Neither the scan root nor any page-less directory is seeded.
+  for (const directory of [
+    "",
+    "teams",
+    "teams/$teamId",
+    "teams/$teamId/items",
+    "+group",
+    "shell/docs",
+  ]) {
+    assert.equal(await exists(`src/routes/${directory}/route.ts`), false, directory);
+  }
+
+  const generated = await project.routes();
+
+  assert.match(generated, /^export const routes: Routes = \[\{ path: "plain",$/m);
+  assert.match(generated, /path: "teams\/:teamId\/items\/:id"/);
+  assert.match(generated, /path: "shell",\ndata: [^\n]+\nchildren: \[\{ path: "docs\/:slug"/);
+  assert.doesNotMatch(generated, /path: ""|path: "teams",|path: "items"/);
+
+  // Prefixed paths keep the path grammar's rejections, before any write.
+  await project.page("files/$rest[]/more");
+  await assert.rejects(
+    project.generate(),
+    /Invalid filesystem path "files\/\$rest\[\]\/more".*Catchall must be terminal/,
+  );
+  assert.equal(await exists("src/routes/files/$rest[]/more/route.ts"), false);
+  assert.equal(await project.routes(), generated);
+});
+
+test("filesystem mode: a declaration added to a page-less directory re-parents and renames sole parent bindings", async () => {
+  const project = await filesystemProject();
+  const { header, read } = project;
+  const declarations = {
+    topic: "",
+    shared: "export const same = libRoute;\n",
+    busy: 'export const parent = "occupied";\n',
+  };
+
+  await project.page("lib");
+
+  for (const [name, extra] of Object.entries(declarations)) {
+    await project.page(`lib/section/${name}`);
+    await project.write(
+      `src/routes/lib/section/${name}/route.ts`,
+      `${header}import libRoute from "../../route.js";\n\n${extra}export default defineRoute("section/${name}", { parent: libRoute });\n`,
+    );
+  }
+
+  await project.generate();
+  assert.match(await project.routes(), /path: "section\/topic"/);
+  await project.write(
+    "src/routes/lib/section/route.ts",
+    `${header}import parent from "../route.js";\n\nexport default defineRoute("section", { parent });\n`,
+  );
+  await project.generate();
+
+  // A binding that named the previous parent and is used nowhere else becomes `parent`.
+  assert.equal(
+    await read("src/routes/lib/section/topic/route.ts"),
+    `${header}import parent from "../route.js";\n\nexport default defineRoute("topic", { parent });\n`,
+  );
+  // A binding used elsewhere keeps its import; the new parent gets its own.
+  assert.equal(
+    await read("src/routes/lib/section/shared/route.ts"),
+    `${header}import libRoute from "../../route.js";\nimport parent from "../route.js";\n\n${declarations.shared}export default defineRoute("shared", { parent });\n`,
+  );
+  // With `parent` taken, the binding keeps its name.
+  assert.equal(
+    await read("src/routes/lib/section/busy/route.ts"),
+    `${header}import libRoute from "../route.js";\n\n${declarations.busy}export default defineRoute("busy", { parent: libRoute });\n`,
+  );
+  assert.match(
+    await project.routes(),
+    /path: "section",\ndata: [^\n]+\nchildren: \[\{ path: "busy"/,
+  );
+});
+
+test("filesystem mode: moving a declaration under and out of a page-less prefix rewrites its path, parent and imports", async () => {
+  const project = await filesystemProject();
+  const { header, read } = project;
+  const solo = `// Keep this header.\n${header.trimEnd()} // keep with this import\n\nexport const marker = 1;\nexport default defineRoute("solo", { data: { marker } });\n`;
+  const taken = `${header}\nexport const parent = "occupied";\nexport default defineRoute("taken", {});\n`;
+
+  await project.write(
+    "src/routes/shell/route.ts",
+    `${header}\nexport default defineRoute("shell", {});\n`,
+  );
+  await project.page("shell/docs");
+  await project.page("solo");
+  await project.write("src/routes/solo/route.ts", solo);
+  await project.page("taken");
+  await project.write("src/routes/taken/route.ts", taken);
+  await project.generate();
+  await project.move("src/routes/solo", "src/routes/shell/extra/solo");
+  await project.move("src/routes/taken", "src/routes/shell/extra/taken");
+  await project.generate();
+
+  // The import follows the last import and its same-line comment, named `parent` when free.
+  assert.equal(
+    await read("src/routes/shell/extra/solo/route.ts"),
+    solo
+      .replace(
+        "// keep with this import\n",
+        '// keep with this import\nimport parent from "../../route.js";\n',
+      )
+      .replace('"solo", { data: { marker } }', '"extra/solo", { data: { marker } , parent }'),
+  );
+  assert.equal(
+    await read("src/routes/shell/extra/taken/route.ts"),
+    taken
+      .replace(header, `${header}import filesystemParent from "../../route.js";\n`)
+      .replace('"taken", {}', '"extra/taken", { parent: filesystemParent }'),
+  );
+  assert.match(await project.routes(), /path: "extra\/solo"/);
+
+  // Moving back out drops the prefix and the parent.
+  await project.move("src/routes/shell/extra/solo", "src/routes/solo");
+  await project.generate();
+
+  const restored = await read("src/routes/solo/route.ts");
+
+  assert.match(restored, /defineRoute\("solo", \{ data: \{ marker \} *\}\)/);
+  assert.doesNotMatch(restored, /parent/);
+  assert.match(await project.routes(), /path: "solo"/);
+});
+
+test("filesystem mode: a page-less param prefix adds a string codec and keeps authored ones", async () => {
+  const project = await filesystemProject();
+  const { header, read } = project;
+  const imports = 'import { defineRoute, numberParam } from "@loozo/angular-router";\n';
+  const parentImport = 'import parent from "../route.js";\n';
+  const item = `${imports}${parentImport}\nexport default defineRoute("$id", { parent, params: { id: numberParam /* comment */ } });\n`;
+  const aliased = `import { defineRoute, numberParam, stringParam as text } from "@loozo/angular-router";\nimport parent from "../../route.js";\n\nexport const label = text;\nexport default defineRoute("codes/$code", { parent, params: { code: numberParam } });\n`;
+  const file = "src/routes/shell/$team/$id/route.ts";
+
+  await project.write(
+    "src/routes/shell/route.ts",
+    `${header}\nexport default defineRoute("shell", {});\n`,
+  );
+  await project.page("shell/$id");
+  await project.write("src/routes/shell/$id/route.ts", item);
+  await project.page("shell/codes/$code");
+  await project.write("src/routes/shell/codes/$code/route.ts", aliased);
+  await project.generate();
+  await project.move("src/routes/shell/$id", "src/routes/shell/$team/$id");
+  await project.move("src/routes/shell/codes", "src/routes/shell/$team/codes");
+  await project.generate();
+
+  // The authored codec expression and its comment stay; the new param gets the seed's codec.
+  assert.equal(
+    await read(file),
+    item
+      .replace(
+        parentImport,
+        'import parent from "../../route.js";\nimport { stringParam } from "@loozo/angular-router";\n',
+      )
+      .replace('"$id"', '"$team/$id"')
+      .replace("numberParam /* comment */ }", 'numberParam /* comment */ , "team": stringParam }'),
+  );
+  // An existing stringParam import is reused under its local name.
+  assert.equal(
+    await read("src/routes/shell/$team/codes/$code/route.ts"),
+    aliased
+      .replace('"../../route.js"', '"../../../route.js"')
+      .replace('"codes/$code"', '"$team/codes/$code"')
+      .replace("code: numberParam }", 'code: numberParam , "team": text }'),
+  );
+  assert.match(
+    await project.routes(),
+    /path: "shell",\ndata: [^\n]+\nchildren: \[[^\n]*path: ":team\/:id"/,
+  );
+
+  // A second pass has nothing left to write.
+  const { mtimeNs } = await stat(resolve(project.root, file), {
+    bigint: true,
+  });
+
+  await project.generate();
+  assert.equal((await stat(resolve(project.root, file), { bigint: true })).mtimeNs, mtimeNs);
+
+  // Removing a param would discard its codec.
+  const synchronized = await read(file);
+
+  await project.move("src/routes/shell/$team/$id", "src/routes/shell/$id");
+  await assert.rejects(project.generate(), /Ambiguous filesystem codec change/);
+  assert.equal(await read("src/routes/shell/$id/route.ts"), synchronized);
+  await project.move("src/routes/shell/$id", "src/routes/shell/$team/$id");
+
+  // Additions apply only onto params whose keys are exactly the old placeholders.
+  for (const [name, params] of [
+    ["spread", "{ ...shared, slug: numberParam }"],
+    ["extra", "{ slug: numberParam, other: numberParam }"],
+  ]) {
+    const bytes = `${imports}${parentImport}\nconst shared = {};\nexport default defineRoute("$slug", { parent, params: ${params} });\n`;
+
+    await project.page(`shell/$team/${name}/$slug`);
+    await project.write(`src/routes/shell/$team/${name}/$slug/route.ts`, bytes);
+    await assert.rejects(project.generate(), /Ambiguous filesystem codec change|no spreads/, name);
+    assert.equal(await read(`src/routes/shell/$team/${name}/$slug/route.ts`), bytes, name);
+    await rm(resolve(project.root, `src/routes/shell/$team/${name}`), {
+      recursive: true,
+    });
+  }
 });
 
 test("local path params get the generated matching guard; misplaced onInvalidParams fails preflight", async () => {

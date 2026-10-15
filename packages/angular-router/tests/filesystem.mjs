@@ -214,7 +214,20 @@ function page(label) {
 export default class Page {}\n`;
 }
 
+// Only directories with a page or a declaration become records; the authored root declaration
+// gives top-level records a parent to synchronize.
+await write(
+  "src/routes/route.ts",
+  'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("", {});\n',
+);
 await write("src/routes/home/page.ts", page("home"));
+await write(
+  "src/routes/+layout/page.ts",
+  `import { Component } from "@angular/core";
+import { RouterOutlet } from "@angular/router";
+@Component({ imports: [RouterOutlet], template: "<router-outlet />" })
+export default class Layout {}\n`,
+);
 await write("src/routes/+layout/plain/page.ts", page("plain"));
 await write("src/routes/-tools/flat/page.ts", page("flat"));
 await write(
@@ -317,80 +330,83 @@ assert.match(JSON.stringify(reports.at(-1)), /definitions missing\/changed/);
 assert.deepEqual(await snapshot(), cold);
 await expectBuild();
 
-assert.match(await read("src/routes/route.ts"), /defineRoute\("",/);
-assert.match(await read("src/routes/+layout/route.ts"), /defineRoute\("",/);
+const routerImport = 'import { defineRoute } from "@loozo/angular-router";';
+const parentImport = 'import parent from "../route.js";';
+
+assert.match(await read("src/routes/+layout/route.ts"), /defineRoute\("", \{ parent \}\)/);
 assert.match(await read("src/routes/+layout/plain/route.ts"), /defineRoute\("plain",/);
-assert.match(await read("src/routes/-tools/flat/route.ts"), /from "\.\.\/\.\.\/route.js"/);
+assert.equal(
+  await read("src/routes/-tools/flat/route.ts"),
+  `${routerImport}\nimport parent from "../../route.js";\n\nexport default defineRoute("flat", { parent });\n`,
+);
 assert.equal(await exists("src/routes/-tools/route.ts"), false);
 assert.equal(await exists("src/routes/-tools/route.generated.ts"), false);
 assert.equal(await exists("src/routes/unused/route.ts"), false);
 assert.equal(await exists("src/routes/empty/route.ts"), false);
+// Page-less directories contribute their segment to the records below them.
+assert.equal(await exists("src/routes/teams/route.ts"), false);
 assert.equal(await exists("src/routes/teams/$team/route.ts"), false);
-assert.match(await read("src/routes/files/$parts[]/route.ts"), /"parts": stringParam/);
+assert.match(await read("src/routes/teams/$team/named-definition.ts"), /"teams\/\$team"/);
+assert.equal(await exists("src/routes/files/route.ts"), false);
+assert.match(
+  await read("src/routes/files/$parts[]/route.ts"),
+  /defineRoute\("files\/\$parts\[\]", \{ parent, params: \{ "parts": stringParam \} \}\)/,
+);
+assert.match(await read("generated/routes.generated.ts"), /path: "teams\/:team"/);
 assert.equal(
   await read("src/routes/trivia/definition.ts"),
-  trivia.replace(
-    "{ data: { suppressed } }",
-    "{ data: { suppressed } , parent: filesystemParent }",
-  ) + '\nimport filesystemParent from "../route.js";\n',
+  trivia
+    .replace(routerImport, `${routerImport}\n${parentImport}`)
+    .replace("{ data: { suppressed } }", "{ data: { suppressed } , parent }"),
+  "A new import follows the last import, before a directive on the next line",
 );
 assert.deepEqual(
   await readFile(join(fixture, "src/routes/bom/$bom/definition.ts")),
   Buffer.from(
     bom
-      .replace('"before"', '"$bom"')
-      .replace("{}", '{ params: { "bom": filesystemStringParam }, parent: filesystemParent }') +
-      '\r\nimport { stringParam as filesystemStringParam } from "@loozo/angular-router";\r\nimport filesystemParent from "../route.js";\r\n',
+      .replace(
+        "// retained\r\n",
+        `// retained\r\nimport { stringParam } from "@loozo/angular-router";\r\nimport parent from "../../route.js";\r\n`,
+      )
+      .replace('"before"', '"bom/$bom"')
+      .replace("{}", '{ params: { "bom": stringParam }, parent }'),
     "utf8",
   ),
-  "Surgical source patches retain exact BOM/CRLF bytes outside structural edits",
+  "Surgical source patches retain exact BOM/CRLF bytes and keep a same-line comment on its import",
 );
 
-assert.equal(
-  await read("src/routes/block-lint/definition.ts"),
-  blockLint.replace("{}", "{ parent: filesystemParent }") +
-    '\nimport filesystemParent from "../route.js";\n',
-  "New import cannot detach a lint directive after a multiline trailing comment",
-);
-assert.equal(
-  await read("src/routes/block-ts/definition.ts"),
-  blockTypeScript.replace(
-    "{ data: { suppressed } }",
-    "{ data: { suppressed } , parent: filesystemParent }",
-  ) + '\nimport filesystemParent from "../route.js";\n',
-  "New import cannot detach a TypeScript directive after a multiline trailing comment",
-);
+// A directive or multiline comment after the last import can bind to the next line, so a new
+// import goes before it.
+for (const [directory, source, message] of [
+  ["block-lint", blockLint, "lint directive after a multiline trailing comment"],
+  ["block-ts", blockTypeScript, "TypeScript directive after a multiline trailing comment"],
+  ["trailing-line", trailingLine, "trailing lint directive"],
+  ["trailing-block", trailingBlock, "lint directive in a trailing multiline comment"],
+  ["trailing-ts-block", trailingTypeScript, "TypeScript directive in a trailing multiline comment"],
+]) {
+  assert.equal(
+    await read(`src/routes/${directory}/definition.ts`),
+    source
+      .replace(routerImport, `${routerImport}\n${parentImport}`)
+      .replace("{}", "{ parent }")
+      .replace("{ data: { suppressed } }", "{ data: { suppressed } , parent }"),
+    `New import cannot detach a ${message}`,
+  );
+}
+
 assert.deepEqual(
   await readFile(join(fixture, "src/routes/bom-shebang/$value/definition.ts")),
   Buffer.from(
     bomShebang
-      .replace('"before"', '"$value"')
-      .replace("{}", '{ params: { "value": filesystemStringParam }, parent: filesystemParent }') +
-      '\r\nimport { stringParam as filesystemStringParam } from "@loozo/angular-router";\r\nimport filesystemParent from "../route.js";\r\n',
+      .replace(
+        `${routerImport}\r\n`,
+        `${routerImport}\r\nimport { stringParam } from "@loozo/angular-router";\r\nimport parent from "../../route.js";\r\n`,
+      )
+      .replace('"before"', '"bom-shebang/$value"')
+      .replace("{}", '{ params: { "value": stringParam }, parent }'),
     "utf8",
   ),
   "Compiler normalization must not alter raw BOM/shebang/CRLF publication bytes",
-);
-
-for (const [directory, source] of [
-  ["trailing-line", trailingLine],
-  ["trailing-block", trailingBlock],
-]) {
-  assert.equal(
-    await read(`src/routes/${directory}/definition.ts`),
-    source.replace("{}", "{ parent: filesystemParent }") +
-      '\nimport filesystemParent from "../route.js";\n',
-    "EOF imports preserve all existing bytes and lint directive attachments",
-  );
-}
-
-assert.equal(
-  await read("src/routes/trailing-ts-block/definition.ts"),
-  trailingTypeScript.replace(
-    "{ data: { suppressed } }",
-    "{ data: { suppressed } , parent: filesystemParent }",
-  ) + '\nimport filesystemParent from "../route.js";\n',
-  "EOF imports preserve a directive inside a trailing multiline comment",
 );
 
 const initialized = await snapshot();
@@ -674,7 +690,7 @@ const beforeTenant = initialized["src/routes/teams/$team/named-definition.ts"].b
 assert.equal(
   tenant,
   beforeTenant
-    .replace("'$team'", '"$tenant"')
+    .replace('"teams/$team"', '"teams/$tenant"')
     .replace("team: numberParam", '"tenant": numberParam'),
 );
 assert.match(await read("src/routes/+layout/renamed/route.ts"), /defineRoute\("renamed",/);
@@ -819,6 +835,19 @@ await write(
 );
 await write("src/routes/type-invalid/page.ts", page("type-invalid"));
 await preflight("declaration codec types still preflight", /not assignable|ParamCodec/);
+
+// Expected generation failures are failed builds with logged diagnostics, not thrown errors.
+for (const target of ["build", "serve"]) {
+  assert.equal(await build({}, target), false);
+
+  const report = reports.at(-1);
+  const logged = report.logs.filter((entry) => entry.level === "error");
+
+  assert.equal(report.error, undefined, target);
+  assert.equal(report.output.success, false, target);
+  assert.match(logged.map((entry) => entry.message).join("\n"), /type-invalid\/definition\.ts/);
+}
+
 await rm(join(fixture, "src/routes/type-invalid"), { recursive: true });
 await write(
   "src/routes/$new/definition.ts",

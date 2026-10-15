@@ -7,7 +7,7 @@ import { generate, type GenerationOptions, type GenerationState } from "../gener
 import { workspacePaths, markers } from "../generation/files.js";
 import { CompilerState } from "../generation/compiler.js";
 import { AnchorState } from "../generation/anchor.js";
-import { buildTargetOptions, type JsonObject } from "./options.js";
+import { buildTargetOptions, message, type JsonObject } from "./options.js";
 
 // Polling catches what Angular 22.2's native watcher (@parcel/watcher) misses: edits to files
 // inside a renamed directory, which otherwise leave the dev server serving stale output.
@@ -89,13 +89,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
             try {
               await regenerate();
             } catch (error) {
-              let message = String(error);
-
-              if (error instanceof Error) {
-                message = error.message;
-              }
-
-              context.logger.error(message);
+              context.logger.error(message(error));
             }
           }
         })();
@@ -196,10 +190,21 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         const generation = regenerate();
 
         active = generation;
-        await generation;
 
-        if (active === generation) {
-          active = undefined;
+        try {
+          await generation;
+        } catch (error) {
+          // The dev server never starts on a failed initial generation; report it as a build failure.
+          context.logger.error(message(error));
+          await stop();
+          subscriber.next({ success: false });
+          subscriber.complete();
+
+          return;
+        } finally {
+          if (active === generation) {
+            active = undefined;
+          }
         }
 
         if (stopped) {
