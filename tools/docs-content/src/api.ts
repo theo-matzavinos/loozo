@@ -18,7 +18,7 @@ import type {
 } from "@angular/compiler-cli";
 import { join } from "node:path";
 import ts from "typescript";
-import { renderMarkdown, repositoryUrl, type PackageContext } from "./markdown.ts";
+import { renderMarkdown, repositoryUrl, type Hidden, type PackageContext } from "./markdown.ts";
 import type {
   AngularMetadata,
   ApiMember,
@@ -478,6 +478,7 @@ function toApiSignature(
   prefix: string,
   signature: FunctionSignatureMetadata,
   { fallback, parentDescription, render }: SignatureDocs,
+  hidden?: Hidden,
 ): ApiSignature {
   const own = hasDocs(signature);
   let docs = signature;
@@ -510,7 +511,7 @@ function toApiSignature(
   }
 
   return {
-    html: highlightSignature(context, origin, callSignature(prefix, signature)),
+    html: highlightSignature(context, origin, callSignature(prefix, signature), hidden),
     descriptionHtml,
     params,
     returnsHtml: render(findTag(docs.jsdocTags, "returns")?.comment ?? ""),
@@ -533,12 +534,17 @@ function declarationSignature(context: PackageContext, origin: Origin, text: str
  * Highlights declaration text, failing on the abbreviations TypeScript uses when it truncates a
  * type (`{ ...; }`, `... 3 more ...`) instead of publishing an incomplete declaration.
  */
-function highlightSignature(context: PackageContext, origin: Origin, text: string): string {
+function highlightSignature(
+  context: PackageContext,
+  origin: Origin,
+  text: string,
+  hidden?: Hidden,
+): string {
   if (/\.\.\.;|\.\.\. \d+ more \.\.\./.test(text)) {
     throw new SourceError(origin.file, origin.line, `declaration text is truncated: ${text}`);
   }
 
-  return context.highlight(text, "typescript");
+  return context.highlight(text, "typescript", hidden);
 }
 
 function toTypeParams(
@@ -645,11 +651,16 @@ function toApiMembers(
 
         for (const signature of functionSignatures(method)) {
           signatures.push(
-            toApiSignature(context, origin, `${modifiers}${name}`, signature, {
-              fallback,
-              parentDescription: description,
-              render,
-            }),
+            toApiSignature(
+              context,
+              origin,
+              `${modifiers}${name}`,
+              signature,
+              { fallback, parentDescription: description, render },
+              // The TypeScript grammar doesn't recognize a method whose type parameters span lines,
+              // so methods are highlighted as functions.
+              { column: modifiers.length, text: "function " },
+            ),
           );
         }
       }

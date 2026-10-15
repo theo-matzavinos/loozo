@@ -22,7 +22,7 @@ import { injectRoute } from "./route.generated.js";
             <ul>
               @for (heading of page.guide.headings; track heading.id) {
                 <li [class.nested]="heading.level === 4">
-                  <!-- Untyped: typed links only accept fragments declared on the route. -->
+                  <!-- Same-page anchors to content headings aren't route destinations, so not typed links. -->
                   <a [routerLink]="[]" [fragment]="heading.id">{{ heading.text }}</a>
                 </li>
               }

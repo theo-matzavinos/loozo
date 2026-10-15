@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import MarkdownIt, { type Token } from "markdown-it";
-import { createHighlighter } from "shiki";
+import { createHighlighter, type ThemedToken } from "shiki";
 import { attribute, findSnippetEmbed, readSnippet, SourceError } from "./snippets.ts";
 
 export const markdown = new MarkdownIt({ html: true });
@@ -55,14 +55,58 @@ const languages = [
   "diff",
 ];
 
-export type Highlight = (code: string, language: string) => string;
+/**
+ * Highlights code. `hidden` is text the grammar reads as if it were inserted into the first line,
+ * without it appearing in the output.
+ */
+export type Highlight = (code: string, language: string, hidden?: Hidden) => string;
+
+/** Text inserted into the first line, at `column`, for highlighting only. */
+export interface Hidden {
+  readonly column: number;
+  readonly text: string;
+}
 
 /** Creates a Shiki highlighter with dual light/dark themes exposed as CSS variables. */
 export async function createHighlight(): Promise<Highlight> {
   const highlighter = await createHighlighter({ themes: Object.values(themes), langs: languages });
 
-  return (code, language) => {
-    return highlighter.codeToHtml(code, { lang: language, themes, defaultColor: false });
+  return (code, language, hidden) => {
+    if (hidden === undefined) {
+      return highlighter.codeToHtml(code, { lang: language, themes, defaultColor: false });
+    }
+
+    const { column, text } = hidden;
+    const end = column + text.length;
+
+    return highlighter.codeToHtml(code.slice(0, column) + text + code.slice(column), {
+      lang: language,
+      themes,
+      defaultColor: false,
+      transformers: [
+        {
+          tokens(lines) {
+            const first: ThemedToken[] = [];
+            let start = 0;
+
+            for (const token of lines[0]) {
+              const from = start;
+              const content =
+                token.content.slice(0, Math.max(0, column - from)) +
+                token.content.slice(Math.max(0, end - from));
+
+              start += token.content.length;
+
+              if (content !== "") {
+                first.push({ ...token, content });
+              }
+            }
+
+            lines[0] = first;
+          },
+        },
+      ],
+    });
   };
 }
 
