@@ -1,16 +1,13 @@
-import { Component, computed, inject } from "@angular/core";
-import { NotFound } from "../../../not-found.js";
+import { Component, inject } from "@angular/core";
 import { CurrentPackage } from "../../../package-content.js";
 import { pageTitle } from "../../../page-title.js";
 import { SymbolDetails } from "../../../symbol-details.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [NotFound, SymbolDetails],
+  imports: [SymbolDetails],
   template: `
-    @if (page() === null) {
-      <docs-not-found />
-    } @else if (page(); as page) {
+    @if (content(); as page) {
       <article class="prose">
         <p class="meta">{{ page.name }}</p>
         <h1>Generated API</h1>
@@ -36,34 +33,15 @@ export default class GeneratedApi {
   readonly route = injectRoute();
   readonly content = inject(CurrentPackage);
 
-  /** undefined while loading, null when the package has no generated API. */
-  readonly page = computed(() => {
-    const content = this.content();
-
-    if (!content) {
-      return undefined;
-    }
-
-    if (content.generatedApi.length === 0) {
-      return null;
-    }
-
-    return content;
-  });
-
   constructor() {
     pageTitle(() => {
-      const page = this.page();
+      const content = this.content();
 
-      if (page === undefined) {
+      if (content === undefined) {
         return undefined;
       }
 
-      if (page === null) {
-        return "Page not found";
-      }
-
-      return `Generated API · ${page.name}`;
+      return `Generated API · ${content.name}`;
     });
   }
 }

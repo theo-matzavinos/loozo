@@ -1,17 +1,14 @@
 import { Component, computed, inject } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { ContentHtml } from "../../../content-html.js";
-import { NotFound } from "../../../not-found.js";
 import { CurrentPackage } from "../../../package-content.js";
 import { pageTitle } from "../../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [RouterLink, ContentHtml, NotFound],
+  imports: [RouterLink, ContentHtml],
   template: `
-    @if (page() === null) {
-      <docs-not-found />
-    } @else if (page(); as page) {
+    @if (page(); as page) {
       <article class="prose">
         <p class="meta">{{ page.packageName }}</p>
         <h1>{{ page.guide.title }}</h1>
@@ -52,7 +49,7 @@ export default class Guide {
   readonly route = injectRoute();
   readonly content = inject(CurrentPackage);
 
-  /** undefined while loading, null when the package has no such guide. */
+  /** undefined while loading; the route's guard has checked that the guide exists. */
   readonly page = computed(() => {
     const params = this.route.params.value();
     const content = this.content();
@@ -64,7 +61,7 @@ export default class Guide {
     const index = content.guides.findIndex((candidate) => candidate.slug === params.guide);
 
     if (index === -1) {
-      return null;
+      return undefined;
     }
 
     let previous = null;
@@ -93,10 +90,6 @@ export default class Guide {
 
       if (page === undefined) {
         return undefined;
-      }
-
-      if (page === null) {
-        return "Page not found";
       }
 
       return `${page.guide.title} · ${page.packageName}`;

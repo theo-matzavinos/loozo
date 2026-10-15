@@ -1,7 +1,6 @@
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { packages } from "../../../generated/content/index.generated.js";
-import { pageTitle } from "../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 import { destination as packageOverview } from "../package/overview/route.generated.js";
 
@@ -28,10 +27,6 @@ import { destination as packageOverview } from "../package/overview/route.genera
 export default class Home {
   readonly route = injectRoute();
   readonly items = this.packageItems();
-
-  constructor() {
-    pageTitle(() => "Packages");
-  }
 
   packageItems() {
     const items = [];

@@ -1,12 +1,18 @@
 import { Component } from "@angular/core";
-import { NotFound } from "../../not-found.js";
+import { RouterLink } from "@angular/router";
+import { createUrl } from "@loozo/angular-router";
+import home from "../home/definition.js";
 
 @Component({
-  imports: [NotFound],
+  imports: [RouterLink],
   template: `
     <main id="main" tabindex="-1" class="page">
-      <docs-not-found />
+      <h1>Page not found</h1>
+      <p>There's no documentation page at this address.</p>
+      <p><a [routerLink]="homeUrl">Browse all packages</a></p>
     </main>
   `,
 })
-export default class NotFoundPage {}
+export default class NotFoundPage {
+  readonly homeUrl = createUrl(home, {});
+}

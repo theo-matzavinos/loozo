@@ -1,3 +1,3 @@
 import { defineRoute } from "@loozo/angular-router";
 
-export default defineRoute("", {});
+export default defineRoute("", { title: "Packages · loozo docs" });
