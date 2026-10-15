@@ -112,11 +112,10 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           devServer.poll = poll;
         }
 
-        // Both validations precede the watcher and generation, so invalid options never write.
-        [, router] = await Promise.all([
-          context.validateOptions(devServer, devServerBuilder),
-          buildTargetOptions(context, options.buildTarget),
-        ]);
+        // Architect already validated the dev-server options against schemas/serve.json, Angular's
+        // dev-server schema with this poll. The build target is validated before the watcher and
+        // generation too, so invalid options never write.
+        router = await buildTargetOptions(context, options.buildTarget);
 
         if (stopped) {
           return;

@@ -609,7 +609,7 @@ Maintain and commit generated outputs with authored definitions; check them in C
 
 Builder name: `@loozo/angular-router:application`.
 
-Options are the router options below plus `@angular/build:application` options, which pass through unchanged. Configure ordinary Angular options inline on this target; there is no separate official target. The builder schema is generated at package build from the installed `@angular/build` application schema plus the router options (`scripts/application-schema.mjs`), keeping Angular's defaults, required options and `additionalProperties: false`; a test fails when the committed schema is stale.
+Options are the router options below plus `@angular/build:application` options, which pass through unchanged. Configure ordinary Angular options inline on this target; there is no separate official target. The builder schema is generated at package build from the installed `@angular/build` application schema plus the router options (`scripts/builder-schemas.mjs`), keeping Angular's defaults, required options and `additionalProperties: false`; a test fails when the committed schema is stale.
 
 - Required nonempty `tsconfig: string`.
 - Required `scanDirectories: string[]` containing exactly one nonempty string, in both modes.
@@ -635,12 +635,12 @@ Run generation/check before scheduling `@angular/build:application` by name (Arc
 
 Builder name: `@loozo/angular-router:serve`.
 
-Options are `@angular/build:dev-server` options, which pass through unchanged, plus:
+Options are `@angular/build:dev-server` options, from the workspace configuration or the command line, which pass through unchanged, plus the ones below. The builder schema is generated at package build from the installed `@angular/build` dev-server schema (`scripts/builder-schemas.mjs`), replacing its `poll` with the one below and keeping Angular's other options, defaults, checks and `additionalProperties: false`, so the CLI offers every option as a flag and rejects unknown ones; a test fails when the committed schema is stale. Architect applies the copied defaults before serve runs; they equal the defaults the dev server applies to the forwarded options itself, so they change nothing it sees.
 
 - Required `buildTarget`: a target using `@loozo/angular-router:application`, resolved as Angular's dev server resolves it. Router options come from that target and are not repeated. Angular's dev server reads the target's options itself and validates them against the companion schema, which carries Angular's application defaults and checks. Reject a resolved `check: true`: serve always writes. Serve never executes the companion application builder.
 - Optional `poll: number | false`. Omitted, serve passes `poll: 1000` to the dev server; `false` passes none, so the router adds no default and Angular's own configuration applies (native file events unless the build target sets `poll`). Other values must be positive milliseconds. The CLI flag accepts milliseconds only; `false` is workspace configuration. `0` is rejected: Angular 22.2.2 turns any numeric `poll`, zero included, into chokidar polling with that interval, so it can't mean native events.
 
-1. Validate the build target and the dev-server options (against `@angular/build:dev-server`, with `poll` translated) before watching or generating.
+1. Architect validates the options against the builder schema before the builder runs. Validate the build target before watching or generating.
 2. Start watching configured route roots **before initial generation** so initial edits are not missed.
 3. Initial generation must succeed before scheduling `@angular/build:dev-server` by name with the passthrough options and the current target. A failed initial generation is logged, emitted as `{ success: false }`, and completes the builder without starting the dev server.
 4. Forward continuous native success/failure outputs unchanged.
