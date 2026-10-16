@@ -1,7 +1,7 @@
 {
   "name": "@loozo/origami-ui",
   "version": "0.0.1",
-  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle and tabs.",
+  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs and toggle group.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
   "author": "Theophilos Matzavinos",
@@ -48,6 +48,10 @@
     "./tabs": {
       "types": "./dist/types/loozo-origami-ui-tabs.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-tabs.mjs"
+    },
+    "./toggle-group": {
+      "types": "./dist/types/loozo-origami-ui-toggle-group.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-toggle-group.mjs"
     },
     "./package.json": "./package.json"
   },

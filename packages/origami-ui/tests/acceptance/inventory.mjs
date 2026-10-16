@@ -64,6 +64,16 @@ export const inventory = {
     "OrigamiTabsOrientation",
     "OrigamiTabsActivation",
   ],
+  "toggle-group": [
+    "OrigamiToggleGroupSingle",
+    "OrigamiToggleGroupSingleOptions",
+    "OrigamiToggleGroupMultiple",
+    "OrigamiToggleGroupMultipleOptions",
+    "OrigamiToggleGroupState",
+    "OrigamiToggleGroupItem",
+    "OrigamiToggleGroupItemOptions",
+    "OrigamiToggleGroupOrientation",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -74,4 +84,5 @@ export const typeOnly = new Set([
   "OrigamiPopoverAlign",
   "OrigamiTabsOrientation",
   "OrigamiTabsActivation",
+  "OrigamiToggleGroupOrientation",
 ]);

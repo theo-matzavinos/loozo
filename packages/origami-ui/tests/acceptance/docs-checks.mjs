@@ -47,6 +47,7 @@ for (const directory of [
   "popover/src",
   "toggle/src",
   "tabs/src",
+  "toggle-group/src",
 ]) {
   await collect(directory);
 }
@@ -111,6 +112,15 @@ const directiveDefaults = {
   "OrigamiTabs.orientation": ["horizontal", /\bhorizontal\b/i],
   "OrigamiTabs.activation": ["automatic", /\bautomatic\b/i],
   "OrigamiTabsTrigger.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToggleGroupSingle.value": ["null", /\bnull\b/i],
+  "OrigamiToggleGroupSingle.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToggleGroupSingle.orientation": ["horizontal", /\bhorizontal\b/i],
+  "OrigamiToggleGroupSingle.deselectable": ["false", /\bfalse\b/i],
+  "OrigamiToggleGroupMultiple.value": ["empty array", /empty|\[\]/i],
+  "OrigamiToggleGroupMultiple.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToggleGroupMultiple.orientation": ["horizontal", /\bhorizontal\b/i],
+  "OrigamiToggleGroupItem.value": ["generated value", /generat|unique|opaque/i],
+  "OrigamiToggleGroupItem.disabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

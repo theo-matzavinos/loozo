@@ -110,6 +110,7 @@ import { OrigamiAccordionOptions, OrigamiAccordionSingleOptions, OrigamiAccordio
 import { OrigamiPopoverOptions, OrigamiPopoverTriggerOptions, OrigamiPopoverAnchorOptions, OrigamiPopoverContentOptions, type OrigamiPopoverContentState } from '@loozo/origami-ui/popover';
 import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
 import { OrigamiTabsOptions, OrigamiTabsTriggerOptions, OrigamiTabsPanelOptions, type OrigamiTabsOrientation, type OrigamiTabsActivation } from '@loozo/origami-ui/tabs';
+import { OrigamiToggleGroupSingleOptions, OrigamiToggleGroupMultipleOptions, OrigamiToggleGroupItemOptions, type OrigamiToggleGroupOrientation } from '@loozo/origami-ui/toggle-group';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -176,11 +177,22 @@ OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>(null), di
 OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab')}));
 // @ts-expect-error a Tabs Panel factory must supply value
 OrigamiTabsPanelOptions.provideFactory(() => ({id: signal('billing-panel')}));
+// @ts-expect-error ToggleGroup Single value must be writable
+OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal'), deselectable: signal(false)}));
+// @ts-expect-error ToggleGroup orientation is horizontal or vertical
+OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), orientation: signal('diagonal'), deselectable: signal(false)}));
+// @ts-expect-error a ToggleGroup Single factory must supply deselectable
+OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')}));
+// @ts-expect-error ToggleGroup Multiple value must be writable
+OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')}));
+// @ts-expect-error a ToggleGroup Item factory must supply disabled
+OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold')}));
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
 class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); }
 class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); }
+class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -193,6 +205,8 @@ OrigamiCollapsiblePanelOptions.provideExisting(() => WrongIdentity);
 OrigamiToggleOptions.provideExisting(() => WrongToggle);
 // @ts-expect-error incompatible existing Tabs Trigger class
 OrigamiTabsTriggerOptions.provideExisting(() => WrongTabsTrigger);
+// @ts-expect-error incompatible existing ToggleGroup Item class
+OrigamiToggleGroupItemOptions.provideExisting(() => WrongToggleGroupItem);
 // Positive: complete factories and abstract existing classes return ordinary Provider arrays.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -236,6 +250,16 @@ abstract class AbstractTabsPart {
   abstract readonly value: Signal<string>;
   abstract readonly id: Signal<string>;
 }
+abstract class AbstractToggleGroupSingle {
+  abstract readonly value: WritableSignal<string | null>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly orientation: Signal<OrigamiToggleGroupOrientation>;
+  abstract readonly deselectable: Signal<boolean>;
+}
+abstract class AbstractToggleGroupItem {
+  abstract readonly value: Signal<string>;
+  abstract readonly disabled: Signal<boolean>;
+}
 export const providers: Provider[][] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -264,6 +288,11 @@ export const providers: Provider[][] = [
   OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab'), disabled: computed(() => false)})),
   OrigamiTabsPanelOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-panel')})),
   OrigamiTabsPanelOptions.provideExisting(() => AbstractTabsPart),
+  OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | null>('start'), disabled: computed(() => false), orientation: signal<OrigamiToggleGroupOrientation>('vertical'), deselectable: signal(true)})),
+  OrigamiToggleGroupSingleOptions.provideExisting(() => AbstractToggleGroupSingle),
+  OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>(['bold']), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')})),
+  OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: computed(() => false)})),
+  OrigamiToggleGroupItemOptions.provideExisting(() => AbstractToggleGroupItem),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -309,6 +338,16 @@ import { OrigamiCollapsible, OrigamiCollapsibleTrigger } from "@loozo/origami-ui
   readonly selected = signal<string | null>(null);
   readonly wrongSelected = signal(1);
   valueOutput(value: string | null): void { void value; }
+  wrongOutput(value: number): void { void value; }`,
+  },
+  "toggle-group": {
+    imports: `import { OrigamiToggleGroupSingle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";`,
+    directives: "OrigamiToggleGroupSingle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
+    members: `
+  readonly alignment = signal<string | null>(null);
+  readonly marks = signal<readonly string[]>([]);
+  alignmentOutput(value: string | null): void { void value; }
+  marksOutput(value: readonly string[]): void { void value; }
   wrongOutput(value: number): void { void value; }`,
   },
 };
@@ -461,6 +500,52 @@ const templates = [
       code: 2322,
       span: "activation",
       message: /Type '"auto"' is not assignable to type 'OrigamiTabsActivation'/,
+    },
+  },
+  {
+    name: "toggle-group-positive",
+    family: "toggle-group",
+    template: `<div ogToggleGroupSingle [(value)]="alignment" orientation="vertical" deselectable disabled (valueChange)="alignmentOutput($event)"><button ogToggleGroupItem value="start" disabled>Start</button></div><div ogToggleGroupMultiple [(value)]="marks" (valueChange)="marksOutput($event)"><button ogToggleGroupItem value="bold">Bold</button></div>`,
+  },
+  {
+    name: "toggle-group-single-model",
+    family: "toggle-group",
+    template: `<div ogToggleGroupSingle [(value)]="marks"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /Type 'readonly string\[\]' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "toggle-group-multiple-output",
+    family: "toggle-group",
+    template: `<div ogToggleGroupMultiple (valueChange)="wrongOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message:
+        /Argument of type 'readonly string\[\]' is not assignable to parameter of type 'number'/,
+    },
+  },
+  {
+    name: "toggle-group-orientation",
+    family: "toggle-group",
+    template: `<div ogToggleGroupMultiple orientation="diagonal"></div>`,
+    expected: {
+      code: 2322,
+      span: "orientation",
+      message: /Type '"diagonal"' is not assignable to type 'OrigamiToggleGroupOrientation'/,
+    },
+  },
+  {
+    name: "toggle-group-multiple-deselectable",
+    family: "toggle-group",
+    template: `<div ogToggleGroupMultiple [deselectable]="true"></div>`,
+    expected: {
+      code: -998002,
+      span: '[deselectable]="true"',
+      message: /Can't bind to 'deselectable' since it isn't a known property of 'div'/,
     },
   },
 ];

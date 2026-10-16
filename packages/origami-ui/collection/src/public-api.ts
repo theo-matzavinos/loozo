@@ -6,3 +6,4 @@ export {
 } from "./collection";
 export type { OrigamiCollectionRecord } from "./collection";
 export { ɵOrigamiRovingFocus } from "./roving-focus";
+export { ɵrequestSingleSelection, ɵrequestMultipleSelection } from "./selection";

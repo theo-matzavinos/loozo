@@ -24,6 +24,11 @@ import {
   OrigamiTabsTrigger,
   OrigamiTabsPanel,
 } from "@loozo/origami-ui/tabs";
+import {
+  OrigamiToggleGroupSingle,
+  OrigamiToggleGroupMultiple,
+  OrigamiToggleGroupItem,
+} from "@loozo/origami-ui/toggle-group";
 
 /** Observes public Collection State without accessing registration internals. */
 @Directive({
@@ -64,6 +69,9 @@ export class CollectionObservation {
     OrigamiTabsList,
     OrigamiTabsTrigger,
     OrigamiTabsPanel,
+    OrigamiToggleGroupSingle,
+    OrigamiToggleGroupMultiple,
+    OrigamiToggleGroupItem,
   ],
   template: `
     <h1>Origami public contracts</h1>
@@ -284,6 +292,102 @@ export class CollectionObservation {
       <output data-testid="tab-outputs">{{ tabOutputs() }}</output>
       <output data-testid="tab-submits">{{ tabSubmits() }}</output>
     </section>
+
+    <section>
+      <h2>ToggleGroup</h2>
+      <button
+        type="button"
+        data-testid="disable-alignment"
+        (click)="alignmentDisabled.set(!alignmentDisabled())"
+      >
+        Toggle alignment disabled
+      </button>
+      <button
+        type="button"
+        data-testid="alignment-deselectable"
+        (click)="alignmentDeselectable.set(!alignmentDeselectable())"
+      >
+        Toggle alignment deselectable
+      </button>
+      <button
+        type="button"
+        data-testid="disable-center-alignment"
+        (click)="toggleAlignmentDisabled('center')"
+      >
+        Toggle center disabled
+      </button>
+      <button type="button" data-testid="script-alignment" (click)="alignment.set('end')">
+        Align end from consumer
+      </button>
+      <button
+        type="button"
+        data-testid="script-alignment-unknown"
+        (click)="alignment.set('unmounted')"
+      >
+        Write an unknown alignment
+      </button>
+      <button
+        type="button"
+        data-testid="remove-center-alignment"
+        (click)="removeAlignment('center')"
+      >
+        Remove center
+      </button>
+      <button type="button" data-testid="restore-alignments" (click)="restoreAlignments()">
+        Restore alignments
+      </button>
+      <form (submit)="$event.preventDefault(); alignmentSubmits.update(increment)">
+        <div
+          ogToggleGroupSingle
+          #alignmentGroup="ogToggleGroupSingle"
+          [(value)]="alignment"
+          [disabled]="alignmentDisabled()"
+          [deselectable]="alignmentDeselectable()"
+          (valueChange)="alignmentOutputs.update(increment)"
+          aria-label="Text alignment"
+          data-testid="alignment"
+        >
+          @for (key of alignmentKeys(); track key) {
+            <!-- Consumer-owned keys: Delete removes and D disables the focused item. -->
+            <button
+              ogToggleGroupItem
+              [value]="key"
+              [disabled]="disabledAlignments().includes(key)"
+              [attr.data-testid]="'align-' + key"
+              (keydown.delete)="removeAlignment(key)"
+              (keydown.d)="toggleAlignmentDisabled(key)"
+            >
+              {{ key }}
+            </button>
+          }
+        </div>
+      </form>
+      <button type="button" data-testid="alignment-outside">Outside the alignment group</button>
+      <output data-testid="alignment-value">{{ alignment() }}</output>
+      <output data-testid="alignment-disabled">{{ alignmentGroup.state.disabled() }}</output>
+      <output data-testid="alignment-outputs">{{ alignmentOutputs() }}</output>
+      <output data-testid="alignment-submits">{{ alignmentSubmits() }}</output>
+
+      <button type="button" data-testid="remove-italic-mark" (click)="markKeys.set(['bold', 'underline'])">
+        Remove italic
+      </button>
+      <div
+        ogToggleGroupMultiple
+        [(value)]="marks"
+        (valueChange)="markOutputs.update(increment)"
+        aria-label="Text formatting"
+        data-testid="marks"
+      >
+        @for (key of markKeys(); track key) {
+          <button ogToggleGroupItem [value]="key" [attr.data-testid]="'mark-' + key">
+            {{ key }}
+          </button>
+        }
+      </div>
+      <output data-testid="marks-value">{{ marks() }}</output>
+      <output data-testid="marks-original">{{ originalMarks }}</output>
+      <output data-testid="mark-outputs">{{ markOutputs() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -359,6 +463,17 @@ export class CoreConsumer {
   readonly billingPanelMounted = signal(true);
   readonly tabOutputs = signal(0);
   readonly tabSubmits = signal(0);
+  readonly alignment = signal<string | null>("start");
+  readonly alignmentKeys = signal<readonly string[]>(["start", "center", "end"]);
+  readonly disabledAlignments = signal<readonly string[]>([]);
+  readonly alignmentDisabled = signal(false);
+  readonly alignmentDeselectable = signal(false);
+  readonly alignmentOutputs = signal(0);
+  readonly alignmentSubmits = signal(0);
+  readonly originalMarks: readonly string[] = Object.freeze(["unmounted"]);
+  readonly marks = signal<readonly string[]>(this.originalMarks);
+  readonly markKeys = signal<readonly string[]>(["bold", "italic", "underline"]);
+  readonly markOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   reverseItems(): void {
@@ -409,5 +524,42 @@ export class CoreConsumer {
 
   restoreTabs(): void {
     this.tabKeys.set(["profile", "billing", "security"]);
+  }
+
+  toggleAlignmentDisabled(key: string): void {
+    const disabled = this.disabledAlignments();
+
+    if (disabled.includes(key)) {
+      const remaining: string[] = [];
+
+      for (const entry of disabled) {
+        if (entry !== key) {
+          remaining.push(entry);
+        }
+      }
+
+      this.disabledAlignments.set(remaining);
+
+      return;
+    }
+
+    this.disabledAlignments.set([...disabled, key]);
+  }
+
+  removeAlignment(key: string): void {
+    const remaining: string[] = [];
+
+    for (const entry of this.alignmentKeys()) {
+      if (entry !== key) {
+        remaining.push(entry);
+      }
+    }
+
+    this.alignmentKeys.set(remaining);
+  }
+
+  restoreAlignments(): void {
+    this.alignmentKeys.set(["start", "center", "end"]);
+    this.disabledAlignments.set([]);
   }
 }
