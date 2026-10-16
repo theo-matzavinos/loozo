@@ -7,8 +7,15 @@ import {
   OrigamiAccordionTrigger,
   OrigamiAccordionPanel,
 } from "@loozo/origami-ui/accordion";
+import { OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
+import { OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
+import {
+  OrigamiToolbarRadioGroup,
+  OrigamiToolbarToggleGroupMultiple,
+  OrigamiToolbarToggleGroupSingle,
+} from "@loozo/origami-ui/toolbar";
 
-// SSR-only construction failures rendered by tests/acceptance/ssr-checks.mjs; never routed.
+// SSR-only construction and publish failures rendered by tests/acceptance/ssr-checks.mjs; never routed.
 
 @Component({
   selector: "error-app",
@@ -53,3 +60,26 @@ export class DuplicateTrigger {}
   </div>`,
 })
 export class DuplicatePanel {}
+
+@Component({
+  selector: "error-app",
+  imports: [OrigamiToolbarToggleGroupSingle, OrigamiToggleGroupItem],
+  template: `<div ogToolbarToggleGroupSingle><button ogToggleGroupItem value="a">A</button></div>`,
+})
+export class OrphanToolbarToggleGroupSingle {}
+
+@Component({
+  selector: "error-app",
+  imports: [OrigamiToolbarToggleGroupMultiple, OrigamiToggleGroupItem],
+  template: `<div ogToolbarToggleGroupMultiple>
+    <button ogToggleGroupItem value="a">A</button>
+  </div>`,
+})
+export class OrphanToolbarToggleGroupMultiple {}
+
+@Component({
+  selector: "error-app",
+  imports: [OrigamiToolbarRadioGroup, OrigamiRadioGroupItem],
+  template: `<div ogToolbarRadioGroup><button ogRadioGroupItem value="a">A</button></div>`,
+})
+export class OrphanToolbarRadioGroup {}

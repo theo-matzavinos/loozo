@@ -1,6 +1,6 @@
 import { signal, type ProviderToken, type Signal, type WritableSignal } from "@angular/core";
 import type * as OrigamiRoot from "@loozo/origami-ui";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import type { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import type { OrigamiPresenceState } from "@loozo/origami-ui/presence";
 import type { OrigamiCollapsibleState } from "@loozo/origami-ui/collapsible";
@@ -38,6 +38,9 @@ import {
 import {
   OrigamiToolbarOptions,
   OrigamiToolbarItemOptions,
+  type OrigamiToolbarRadioGroup,
+  type OrigamiToolbarToggleGroupMultiple,
+  type OrigamiToolbarToggleGroupSingle,
   type OrigamiToolbarState,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
@@ -237,8 +240,29 @@ export function checkProviderShapes(): void {
 
 export function checkUtilitySignatures(token: ProviderToken<number>): void {
   const resolve: () => number = injectDeferred(token);
-  const id: string = injectUniqueId("opaque-key");
+  const id: string = injectUniqueId("element-key");
+  const value: string = injectUniqueValue("value-key");
 
   void resolve;
   void id;
+  void value;
+}
+
+/** Toolbar groups are the standalone groups' Options and expose the same State. */
+export function checkToolbarGroups(
+  single: OrigamiToolbarToggleGroupSingle,
+  multiple: OrigamiToolbarToggleGroupMultiple,
+  radio: OrigamiToolbarRadioGroup,
+): void {
+  const singleOptions: OrigamiToggleGroupSingleOptions = single;
+  const multipleOptions: OrigamiToggleGroupMultipleOptions = multiple;
+  const radioOptions: OrigamiRadioGroupOptions = radio;
+  const toggleGroupState: OrigamiToggleGroupState = single.state;
+  const radioGroupState: OrigamiRadioGroupState = radio.state;
+
+  void singleOptions;
+  void multipleOptions;
+  void radioOptions;
+  void toggleGroupState;
+  void radioGroupState;
 }

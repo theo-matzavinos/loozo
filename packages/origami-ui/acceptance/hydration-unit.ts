@@ -42,6 +42,9 @@ import {
 import {
   OrigamiToolbar,
   OrigamiToolbarItem,
+  OrigamiToolbarRadioGroup,
+  OrigamiToolbarToggleGroupSingle,
+  OrigamiToolbarToggleGroupMultiple,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
 import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
@@ -82,11 +85,15 @@ export class AccordionObservation {
     OrigamiToggleGroupItem,
     OrigamiToolbar,
     OrigamiToolbarItem,
+    OrigamiToolbarRadioGroup,
+    OrigamiToolbarToggleGroupSingle,
+    OrigamiToolbarToggleGroupMultiple,
     OrigamiRadioGroup,
     OrigamiRadioGroupItem,
   ],
   host: {
     "[attr.data-unit]": "label()",
+    "[id]": "generatedId",
     "[attr.data-generated-id]": "generatedId",
     "[attr.data-client-render-seen]": "clientRenderSeen()",
   },
@@ -205,7 +212,7 @@ export class AccordionObservation {
       </button>
       <button ogToolbarItem data-testid="hydration-toolbar-redo">Redo</button>
       <div
-        ogToggleGroupMultiple
+        ogToolbarToggleGroupMultiple
         [(value)]="toolbarMarks"
         aria-label="Server toolbar marks"
         data-testid="hydration-toolbar-marks"
@@ -225,9 +232,13 @@ export class AccordionObservation {
     </div>
     <output data-testid="toolbar-clear-count">{{ clearCount() }}</output>
     <output data-testid="toolbar-undo-count">{{ undoCount() }}</output>
-    <!-- The first control is a joined group whose pressed item is not first. -->
+    <!-- The first control is a Toolbar group whose pressed item is not first. -->
     <div ogToolbar aria-label="Server group first" data-testid="hydration-group-toolbar">
-      <div ogToggleGroupSingle [(value)]="toolbarAlignment" aria-label="Server toolbar alignment">
+      <div
+        ogToolbarToggleGroupSingle
+        [(value)]="toolbarAlignment"
+        aria-label="Server toolbar alignment"
+      >
         <button ogToggleGroupItem value="first" data-testid="hydration-group-first">First</button>
         <button ogToggleGroupItem value="second" data-testid="hydration-group-second">
           Second
@@ -266,10 +277,10 @@ export class AccordionObservation {
       </button>
       <button ogRadioGroupItem value="second" data-testid="hydration-locked-second">Second</button>
     </div>
-    <!-- A joined RadioGroup whose checked radio is not preferred. -->
+    <!-- A Toolbar Radio Group whose checked radio is not preferred. -->
     <div ogToolbar aria-label="Server alignment toolbar" data-testid="hydration-radio-toolbar">
       <button ogToolbarItem data-testid="hydration-radio-copy">Copy</button>
-      <div ogRadioGroup [(value)]="toolbarRadio" aria-label="Server toolbar alignment">
+      <div ogToolbarRadioGroup [(value)]="toolbarRadio" aria-label="Server toolbar alignment">
         <button ogRadioGroupItem value="left" data-testid="hydration-radio-left">Left</button>
         <button ogRadioGroupItem value="center" data-testid="hydration-radio-center">Center</button>
       </div>

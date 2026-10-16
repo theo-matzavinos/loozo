@@ -1,5 +1,4 @@
-import { ChangeDetectorRef, Component, Directive, computed, inject, signal } from "@angular/core";
-import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
+import { ChangeDetectorRef, Component, Directive, inject, signal } from "@angular/core";
 import {
   OrigamiPopover,
   OrigamiPopoverTrigger,
@@ -8,43 +7,37 @@ import {
 } from "@loozo/origami-ui/popover";
 import {
   OrigamiToggleGroupSingle,
-  OrigamiToggleGroupMultiple,
   OrigamiToggleGroupItem,
   OrigamiToggleGroupState,
 } from "@loozo/origami-ui/toggle-group";
-import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
+import {
+  OrigamiToolbar,
+  OrigamiToolbarItem,
+  OrigamiToolbarToggleGroupSingle,
+  OrigamiToolbarToggleGroupMultiple,
+} from "@loozo/origami-ui/toolbar";
 
-// K2 keyboard, vertical and reading direction, the K3 joined groups, the K4 focus repair and the
-// K7 Popover Content cut, beside the core seed's Toolbar. Each case is identified by
-// `data-toolbar-case`.
+// K2 keyboard, vertical and reading direction, the K3 Toolbar groups, the K4 focus repair and the
+// K7 standalone group in Popover Content, beside the core seed's Toolbar. Each case is identified
+// by `data-toolbar-case`.
 
-/** The nearest Collection's values in order, read on a Toolbar host. */
-@Directive({ selector: "[toolbarValues]", exportAs: "toolbarValues" })
-export class ToolbarValues {
-  readonly #state = inject(OrigamiCollectionState);
-  readonly values = computed(() => {
-    const values: string[] = [];
-
-    for (const item of this.#state.items()) {
-      values.push(item.value());
-    }
-
-    return values;
-  });
-}
-
-/** A joined group's effective orientation, read from its State. */
+/** A Toolbar group's effective orientation, read from its State. */
 @Directive({ selector: "[toolbarGroupProbe]", exportAs: "toolbarGroupProbe" })
 export class ToolbarGroupProbe {
   readonly state = inject(OrigamiToggleGroupState);
 }
 
-/** A Single group rendered through a child component's own template inside a Toolbar. */
+/** A Toolbar Single group rendered through a child component's own template inside a Toolbar. */
 @Component({
   selector: "acceptance-toolbar-alignment",
-  imports: [OrigamiToggleGroupSingle, OrigamiToggleGroupItem],
+  imports: [OrigamiToolbarToggleGroupSingle, OrigamiToggleGroupItem],
   template: `
-    <div ogToggleGroupSingle [(value)]="alignment" aria-label="Alignment" data-role="alignment">
+    <div
+      ogToolbarToggleGroupSingle
+      [(value)]="alignment"
+      aria-label="Alignment"
+      data-role="alignment"
+    >
       <button ogToggleGroupItem value="left" data-role="left">Left</button>
       <button ogToggleGroupItem value="right" data-role="right">Right</button>
     </div>
@@ -60,14 +53,13 @@ export class ToolbarAlignment {
   imports: [
     OrigamiToolbar,
     OrigamiToolbarItem,
+    OrigamiToolbarToggleGroupMultiple,
     OrigamiToggleGroupSingle,
-    OrigamiToggleGroupMultiple,
     OrigamiToggleGroupItem,
     OrigamiPopover,
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
-    ToolbarValues,
     ToolbarGroupProbe,
     ToolbarAlignment,
   ],
@@ -107,18 +99,12 @@ export class ToolbarAlignment {
       </div>
     </div>
 
-    <h2>Toolbar with joined groups</h2>
-    <div
-      ogToolbar
-      toolbarValues
-      #joined="toolbarValues"
-      aria-label="Clipboard and format"
-      data-toolbar-case="joined"
-    >
+    <h2>Toolbar with Toolbar groups</h2>
+    <div ogToolbar aria-label="Clipboard and format" data-toolbar-case="joined">
       @for (key of joinedKeys(); track key) {
         @if (key === "marks") {
           <div
-            ogToggleGroupMultiple
+            ogToolbarToggleGroupMultiple
             [(value)]="marks"
             [disabled]="marksDisabled()"
             orientation="vertical"
@@ -138,7 +124,6 @@ export class ToolbarAlignment {
       }
       <acceptance-toolbar-alignment />
       <button ogToolbarItem data-role="paste">Paste</button>
-      <output data-role="values">{{ joined.values().length }}:{{ knownValues(joined.values()) }}</output>
       <output data-role="marks-value">{{ marks().join(",") }}</output>
       <output data-role="mark-outputs">{{ markOutputs() }}</output>
     </div>
@@ -167,7 +152,7 @@ export class ToolbarAlignment {
           {{ key }}
         </button>
       }
-      <div ogToggleGroupMultiple aria-label="Repair marks" data-role="repair-marks">
+      <div ogToolbarToggleGroupMultiple aria-label="Repair marks" data-role="repair-marks">
         @for (key of repairMarks(); track key) {
           <button
             ogToggleGroupItem
@@ -228,21 +213,6 @@ export class ToolbarCases {
   readonly insertKind = signal<string | null>(null);
   readonly increment = (value: number): number => value + 1;
   readonly changeDetector = inject(ChangeDetectorRef);
-
-  /** The joined group values in Collection order; Toolbar items have generated values. */
-  knownValues(values: readonly string[]): string {
-    const known: string[] = [];
-
-    for (const value of values) {
-      if (["b", "i", "u", "left", "right"].includes(value)) {
-        known.push(value);
-      } else {
-        known.push("*");
-      }
-    }
-
-    return known.join(",");
-  }
 
   removeRepair(key: string): void {
     this.repairKeys.update((keys) => keys.filter((candidate) => candidate !== key));

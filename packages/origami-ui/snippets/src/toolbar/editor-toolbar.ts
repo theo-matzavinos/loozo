@@ -29,8 +29,7 @@ export class EditorToolbar {}
 
 export type Command = { readonly available: boolean; run(): void };
 
-// A command whose disabled state comes from the domain. The Toolbar reads every item's Options
-// while rendering, so the input has a default instead of being required.
+// A command whose disabled state comes from the domain.
 @Directive({
   selector: "button[appCommand]",
   hostDirectives: [OrigamiToolbarItem],
@@ -38,7 +37,7 @@ export type Command = { readonly available: boolean; run(): void };
   host: { "(click)": "command().run()" },
 })
 export class EditorCommand implements OrigamiToolbarItemOptions {
-  readonly command = input<Command>({ available: false, run: () => {} }, { alias: "appCommand" });
+  readonly command = input.required<Command>({ alias: "appCommand" });
   readonly #layout = inject(EditorLayout);
   readonly disabled = computed(() => this.#layout.readOnly() || !this.command().available);
 }

@@ -8,36 +8,41 @@ import {
   inject,
   signal,
 } from "@angular/core";
-import type { Signal } from "@angular/core";
+import type { Provider, Signal } from "@angular/core";
+import { Subject } from "rxjs";
+import type { Observable } from "rxjs";
 import { injectDeferred } from "@loozo/origami-ui/utils";
-import { CollectionContext } from "./collection";
-import { OrigamiCollectionItemOptions } from "./collection-item";
+import { documentOrder } from "./document-order";
 
-type Orientation = "horizontal" | "vertical";
 /** A widget's arrow keys: one orientation, or `both` for a widget with no orientation (RadioGroup). */
-type Axis = Orientation | "both";
+type Orientation = "horizontal" | "vertical" | "both";
 type Move = "next" | "previous" | "first" | "last";
 
-/** One item's tab stop observation and the handlers its host events forward to. */
-type Registration = {
-  readonly tabStop: Signal<boolean>;
-  keydown(event: KeyboardEvent, axis: Axis): void;
-  focus(): void;
-  blur(): void;
+/** One item host: its element and the value and disabled state it publishes. */
+type Member = {
+  readonly element: HTMLElement;
+  readonly value: Signal<string>;
+  readonly disabled: Signal<boolean>;
 };
 
-type Entry = {
-  readonly element: HTMLElement;
-  readonly disabled: Signal<boolean>;
-  readonly preferred: Signal<boolean>;
-  readonly navigated: () => void;
+/** One item's unpublished handle: its tab stop observation, host event handlers and `publish`. */
+type RovingItem = {
+  readonly tabStop: Signal<boolean>;
+  keydown(event: KeyboardEvent): void;
+  focus(): void;
+  blur(): void;
+  /**
+   * Adds the item to the published members unless its host is already destroyed; called from
+   * `ngOnInit`, after its inputs are set.
+   */
+  publish(): void;
 };
 
 /**
  * Maps a key to a move. Horizontal arrows follow reading direction; vertical arrows ignore it.
  * `both` takes the vertical and the horizontal arrows.
  */
-function moveFor(key: string, axis: Axis, rtl: boolean): Move | null {
+function moveFor(key: string, orientation: Orientation, rtl: boolean): Move | null {
   if (key === "Home") {
     return "first";
   }
@@ -46,7 +51,7 @@ function moveFor(key: string, axis: Axis, rtl: boolean): Move | null {
     return "last";
   }
 
-  if (axis !== "horizontal") {
+  if (orientation !== "horizontal") {
     if (key === "ArrowDown") {
       return "next";
     }
@@ -56,7 +61,7 @@ function moveFor(key: string, axis: Axis, rtl: boolean): Move | null {
     }
   }
 
-  if (axis === "vertical") {
+  if (orientation === "vertical") {
     return null;
   }
 
@@ -79,13 +84,13 @@ function moveFor(key: string, axis: Axis, rtl: boolean): Move | null {
   return null;
 }
 
-/** Walks DOM order from `current`, skipping disabled entries and wrapping at both ends. */
-function targetOf(ordered: readonly Entry[], current: Entry, move: Move): Entry | null {
-  const enabled: Entry[] = [];
+/** Walks DOM order from `current`, skipping disabled members and wrapping at both ends. */
+function targetOf(ordered: readonly Member[], current: Member, move: Move): Member | null {
+  const enabled: Member[] = [];
 
-  for (const entry of ordered) {
-    if (!entry.disabled()) {
-      enabled.push(entry);
+  for (const member of ordered) {
+    if (!member.disabled()) {
+      enabled.push(member);
     }
   }
 
@@ -126,39 +131,51 @@ function targetOf(ordered: readonly Entry[], current: Entry, move: Move): Entry 
 }
 
 /**
+ * @internal Package-private roving focus policy, supplied by the widget root that provides
+ * `ɵOrigamiRovingFocusContext`. Not an application API.
+ */
+export abstract class ɵOrigamiRovingFocusOptions {
+  /** The arrow keys that move focus; horizontal arrows follow reading direction. */
+  abstract readonly orientation: Signal<"horizontal" | "vertical" | "both">;
+  /** Values that should hold the tab stop when no item is focused (Tabs: the selected value). */
+  abstract readonly preferred: Signal<readonly string[]>;
+
+  /**
+   * @internal Provides the policy beside its Context on the widget root.
+   * @param factory - Runs in the root's injection context the first time the Context reads it.
+   * @returns A one-provider local array.
+   */
+  static provideFactory(factory: () => ɵOrigamiRovingFocusOptions): Provider[] {
+    return [{ provide: ɵOrigamiRovingFocusOptions, useFactory: factory }];
+  }
+}
+
+/**
  * @internal Package-private ordered focus for Origami composite widgets; not an application API.
  *
- * Provide it locally on a widget root that composes `OrigamiCollection`; each item composes
- * `OrigamiCollectionItem` and registers from its own injection context. DOM order comes from
- * that Collection. The core owns one roving tab stop, arrow/Home/End movement with wrapping,
- * disabled skipping and focus repair. It does not select, activate, typeahead or use
- * `aria-activedescendant`; the widget decides what a preferred item and a navigation mean.
- * Items of a nested selection group can `join` an enclosing owner's core instead of their own.
+ * A widget root provides it locally with `ɵOrigamiRovingFocusOptions`. Each item takes an
+ * unpublished handle from its own injection context and publishes it in `ngOnInit`, so render
+ * reads only see members whose inputs are set. The Context keeps its published members and
+ * sorts them by DOM position on every read. It owns one roving tab stop, arrow/Home/End movement
+ * with wrapping, disabled skipping and focus repair. It does not select, activate, typeahead or
+ * use `aria-activedescendant`; a widget that acts on a keyboard move subscribes to `navigations`.
  */
 @Service({ autoProvided: false })
-export class ɵOrigamiRovingFocus {
-  readonly #collection = inject(CollectionContext);
+export class ɵOrigamiRovingFocusContext {
+  readonly #options = injectDeferred(ɵOrigamiRovingFocusOptions);
   readonly #document = inject(DOCUMENT);
-  readonly #entries = signal<ReadonlyMap<Element, Entry>>(new Map());
-  /** The item that last received focus, kept through removal so repair can see it. */
-  readonly #focused = signal<Entry | null>(null);
+  readonly #members = signal<readonly Member[]>([]);
+  /** The member that last received focus, kept through removal so repair can see it. */
+  readonly #focused = signal<Member | null>(null);
+  readonly #navigations = new Subject<string>();
 
-  readonly #ordered = computed(() => {
-    const entries = this.#entries();
-    const ordered: Entry[] = [];
+  /**
+   * A keyboard move landed on this value while it is focused, published and enabled, after its
+   * focus handlers ran; never after focus repair. Emits synchronously inside the keydown handler.
+   */
+  readonly navigations: Observable<string> = this.#navigations.asObservable();
 
-    for (const element of this.#collection.elements()) {
-      const entry = entries.get(element);
-
-      if (entry !== undefined) {
-        ordered.push(entry);
-      }
-    }
-
-    return ordered;
-  });
-
-  /** The focused enabled item; otherwise the first enabled preferred item, then the first enabled item. */
+  /** The focused enabled member; otherwise the first enabled preferred member, then the first enabled member. */
   readonly #tabStop = computed(() => {
     const ordered = this.#ordered();
     const focused = this.#focused();
@@ -167,19 +184,20 @@ export class ɵOrigamiRovingFocus {
       return focused;
     }
 
-    let firstEnabled: Entry | null = null;
+    const preferred = this.#options().preferred();
+    let firstEnabled: Member | null = null;
 
-    for (const entry of ordered) {
-      if (entry.disabled()) {
+    for (const member of ordered) {
+      if (member.disabled()) {
         continue;
       }
 
-      if (entry.preferred()) {
-        return entry;
+      if (preferred.includes(member.value())) {
+        return member;
       }
 
       if (firstEnabled === null) {
-        firstEnabled = entry;
+        firstEnabled = member;
       }
     }
 
@@ -187,6 +205,10 @@ export class ɵOrigamiRovingFocus {
   });
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      this.#navigations.complete();
+    });
+
     // Browser-only: render effects never run on the server.
     afterRenderEffect(() => {
       const focused = this.#focused();
@@ -195,9 +217,7 @@ export class ɵOrigamiRovingFocus {
         return;
       }
 
-      const mounted = this.#entries().get(focused.element) === focused;
-
-      if (mounted && !focused.disabled()) {
+      if (this.#members().includes(focused) && !focused.disabled()) {
         return;
       }
 
@@ -215,72 +235,48 @@ export class ɵOrigamiRovingFocus {
   }
 
   /**
-   * @internal Registers the calling item host from its injection context, with caller-scoped
-   * `DestroyRef` cleanup removing only this registration.
-   * @param item - `disabled` items are never targets or tab stops; `preferred` marks the widget's
-   *   preferred tab stop (Tabs: selected); `navigated` runs on the target after a keyboard move
-   *   focuses it, or lands on the already focused item, and it is still registered, enabled and
-   *   focused (Tabs: select while automatic; RadioGroup: check), never after focus repair.
-   * @returns The item's tab stop observation and the handlers its host events forward to.
-   * @throws If the item's nearest Collection is not this core's owner Collection.
+   * @internal Creates the calling item host's unpublished handle from its injection context.
+   * Caller-scoped `DestroyRef` cleanup, attached now, removes only it. Publishing adds it to the
+   * members, unless the host was already destroyed (a hook earlier in its view can destroy the
+   * view before the item's `ngOnInit` runs).
+   * @param item - `value` matches the root's preferred values and is what `navigations` emits;
+   *   `disabled` items are never targets or tab stops.
+   * @returns The item's tab stop observation, the handlers its host events forward to and `publish`.
    */
-  register(item: {
-    readonly disabled: Signal<boolean>;
-    readonly preferred: Signal<boolean>;
-    readonly navigated: () => void;
-  }): Registration {
-    if (inject(CollectionContext) !== this.#collection) {
-      throw new Error("Roving focus item must belong to its owner's Collection.");
-    }
-
-    return this.#add(item);
-  }
-
-  /**
-   * @internal Registers the calling item host of a nested selection group (a ToggleGroup or
-   * RadioGroup inside a Toolbar) from its injection context. The host also becomes a member of
-   * this owner's Collection, so it is ordered among the owner's own items in rendered DOM order,
-   * also after server refreshes confined to the group's descendant views. A joined item is never
-   * preferred, so the owner's tab stop falls on its first enabled item.
-   * @param item - As for `register`, without `preferred`.
-   * @returns As for `register`.
-   */
-  join(item: { readonly disabled: Signal<boolean>; readonly navigated: () => void }): Registration {
-    this.#collection.join(injectDeferred(OrigamiCollectionItemOptions));
-
-    return this.#add({ ...item, preferred: computed(() => false) });
-  }
-
-  /** Adds the calling host's entry with caller-scoped cleanup. */
-  #add(item: {
-    readonly disabled: Signal<boolean>;
-    readonly preferred: Signal<boolean>;
-    readonly navigated: () => void;
-  }): Registration {
-    const entry: Entry = {
+  item(item: { readonly value: Signal<string>; readonly disabled: Signal<boolean> }): RovingItem {
+    const member: Member = {
       element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
+      value: item.value,
       disabled: item.disabled,
-      preferred: item.preferred,
-      navigated: item.navigated,
     };
+    let destroyed = false;
+    let published = false;
 
-    this.#entries.update((entries) => new Map(entries).set(entry.element, entry));
     inject(DestroyRef).onDestroy(() => {
-      const entries = new Map(this.#entries());
+      destroyed = true;
 
-      if (entries.get(entry.element) === entry) {
-        entries.delete(entry.element);
-        this.#entries.set(entries);
+      if (!published) {
+        return;
       }
+
+      const remaining: Member[] = [];
+
+      for (const mounted of this.#members()) {
+        if (mounted !== member) {
+          remaining.push(mounted);
+        }
+      }
+
+      this.#members.set(remaining);
     });
 
     return {
-      tabStop: computed(() => this.#tabStop() === entry),
-      keydown: (event, axis) => {
-        this.#keydown(entry, event, axis);
+      tabStop: computed(() => this.#tabStop() === member),
+      keydown: (event) => {
+        this.#keydown(member, event);
       },
       focus: () => {
-        this.#focused.set(entry);
+        this.#focused.set(member);
       },
       blur: () => {
         // Engines differ on blur during removal or disabling; a still-connected, enabled host
@@ -289,19 +285,36 @@ export class ɵOrigamiRovingFocus {
         // meantime keeps its record.
         queueMicrotask(() => {
           const departed =
-            entry.element.isConnected &&
-            !entry.disabled() &&
-            this.#document.activeElement !== entry.element;
+            member.element.isConnected &&
+            !member.disabled() &&
+            this.#document.activeElement !== member.element;
 
-          if (this.#focused() === entry && departed) {
+          if (this.#focused() === member && departed) {
             this.#focused.set(null);
           }
         });
       },
+      publish: () => {
+        if (destroyed) {
+          return;
+        }
+
+        published = true;
+        this.#members.update((members) => [...members, member]);
+      },
     };
   }
 
-  #keydown(entry: Entry, event: KeyboardEvent, axis: Axis): void {
+  /** Published members in current DOM order. */
+  #ordered(): readonly Member[] {
+    const ordered = [...this.#members()];
+
+    ordered.sort((left, right) => documentOrder(left.element, right.element));
+
+    return ordered;
+  }
+
+  #keydown(member: Member, event: KeyboardEvent): void {
     if (
       event.defaultPrevented ||
       event.isComposing ||
@@ -317,10 +330,10 @@ export class ɵOrigamiRovingFocus {
     let rtl = false;
 
     if (view !== null) {
-      rtl = view.getComputedStyle(entry.element).direction === "rtl";
+      rtl = view.getComputedStyle(member.element).direction === "rtl";
     }
 
-    const move = moveFor(event.key, axis, rtl);
+    const move = moveFor(event.key, this.#options().orientation(), rtl);
 
     if (move === null) {
       return;
@@ -328,34 +341,22 @@ export class ɵOrigamiRovingFocus {
 
     event.preventDefault();
 
-    const target = targetOf(this.#ordered(), entry, move);
+    const target = targetOf(this.#ordered(), member, move);
 
     if (target === null) {
       return;
     }
 
     // A move onto the focused item still navigates to it.
-    if (target !== entry) {
+    if (target !== member) {
       target.element.focus();
     }
 
-    // Focus handlers run inside focus(): navigate only to a target still mounted, enabled and focused.
-    const mounted = this.#entries().get(target.element) === target;
+    // Focus handlers run inside focus(): navigate only to a target still published, enabled and focused.
+    const published = this.#members().includes(target);
 
-    if (mounted && !target.disabled() && this.#document.activeElement === target.element) {
-      target.navigated();
+    if (published && !target.disabled() && this.#document.activeElement === target.element) {
+      this.#navigations.next(target.value());
     }
   }
-}
-
-/**
- * @internal Package-private: provided by an owner whose nested selection groups join its roving
- * focus (Toolbar), and cut with a null value where a subtree must not join (Popover Content).
- * Not an application API.
- */
-export abstract class ɵOrigamiRovingFocusScope {
-  /** The owner's roving focus, which joined items register with through `join`. */
-  abstract readonly focus: ɵOrigamiRovingFocus;
-  /** The owner's effective axis; joined items navigate along it instead of their group's. */
-  abstract readonly orientation: Signal<Orientation>;
 }

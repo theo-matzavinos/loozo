@@ -1,5 +1,4 @@
-import { ChangeDetectorRef, Component, Directive, computed, inject, signal } from "@angular/core";
-import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
+import { ChangeDetectorRef, Component, inject, signal } from "@angular/core";
 import {
   OrigamiPopover,
   OrigamiPopoverTrigger,
@@ -7,43 +6,33 @@ import {
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
 import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
-import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
-import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
+import { OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
+import {
+  OrigamiToolbar,
+  OrigamiToolbarItem,
+  OrigamiToolbarRadioGroup,
+  OrigamiToolbarToggleGroupMultiple,
+} from "@loozo/origami-ui/toolbar";
 
 // Q2 keyboard, reading direction, entry and moves onto the focused radio, the Q3 navigation
 // targets whose own focus handler removes, disables or redirects them and the focus repair, and
-// the Q4 groups inside Toolbars, beside the core seed's RadioGroup. Each case is identified by
+// the Q4 Toolbar groups and a standalone group in Popover Content within a Toolbar, beside the core seed's RadioGroup. Each case is identified by
 // `data-radio-case`.
-
-/** The nearest Collection's values in order, read on a Toolbar host. */
-@Directive({ selector: "[radioToolbarValues]", exportAs: "radioToolbarValues" })
-export class RadioToolbarValues {
-  readonly #state = inject(OrigamiCollectionState);
-  readonly values = computed(() => {
-    const values: string[] = [];
-
-    for (const item of this.#state.items()) {
-      values.push(item.value());
-    }
-
-    return values.join(",");
-  });
-}
 
 @Component({
   selector: "acceptance-radio-group-cases",
   imports: [
     OrigamiRadioGroup,
     OrigamiRadioGroupItem,
-    OrigamiToggleGroupMultiple,
     OrigamiToggleGroupItem,
     OrigamiToolbar,
     OrigamiToolbarItem,
+    OrigamiToolbarRadioGroup,
+    OrigamiToolbarToggleGroupMultiple,
     OrigamiPopover,
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
-    RadioToolbarValues,
   ],
   template: `
     <h2>RadioGroup keyboard</h2>
@@ -200,19 +189,13 @@ export class RadioToolbarValues {
     </button>
 
     <h2>RadioGroup in a Toolbar</h2>
-    <div
-      ogToolbar
-      radioToolbarValues
-      #toolbarValues="radioToolbarValues"
-      aria-label="Text formatting"
-      data-radio-case="toolbar"
-    >
-      <div ogToggleGroupMultiple [(value)]="marks" aria-label="Style" data-role="marks">
+    <div ogToolbar aria-label="Text formatting" data-radio-case="toolbar">
+      <div ogToolbarToggleGroupMultiple [(value)]="marks" aria-label="Style" data-role="marks">
         <button ogToggleGroupItem value="bold" data-role="bold">Bold</button>
         <button ogToggleGroupItem value="italic" data-role="italic">Italic</button>
       </div>
       <div
-        ogRadioGroup
+        ogToolbarRadioGroup
         [(value)]="alignment"
         (valueChange)="alignmentOutputs.update(increment)"
         aria-label="Text alignment"
@@ -223,7 +206,6 @@ export class RadioToolbarValues {
         <button ogRadioGroupItem value="right" data-role="right">Right</button>
       </div>
       <button ogToolbarItem data-role="copy" (click)="copies.update(increment)">Copy</button>
-      <output data-role="values">{{ knownValues(toolbarValues.values()) }}</output>
       <output data-role="value">{{ alignment() }}</output>
       <output data-role="outputs">{{ alignmentOutputs() }}</output>
       <output data-role="copies">{{ copies() }}</output>
@@ -232,7 +214,7 @@ export class RadioToolbarValues {
     <h2>RadioGroup in a vertical Toolbar</h2>
     <div ogToolbar orientation="vertical" aria-label="Layout" data-radio-case="vertical-toolbar">
       <button ogToolbarItem data-role="top">Top</button>
-      <div ogRadioGroup [(value)]="layout" aria-label="Columns" data-role="columns">
+      <div ogToolbarRadioGroup [(value)]="layout" aria-label="Columns" data-role="columns">
         <button ogRadioGroupItem value="one" data-role="one">One</button>
         <button ogRadioGroupItem value="two" data-role="two">Two</button>
       </div>
@@ -283,21 +265,6 @@ export class RadioGroupCases {
   readonly spacing = signal<string | null>("single");
   readonly increment = (value: number): number => value + 1;
   readonly changeDetector = inject(ChangeDetectorRef);
-
-  /** The joined values in Collection order; Toolbar items have generated values. */
-  knownValues(values: string): string {
-    const known: string[] = [];
-
-    for (const value of values.split(",")) {
-      if (["bold", "italic", "left", "center", "right"].includes(value)) {
-        known.push(value);
-      } else {
-        known.push("*");
-      }
-    }
-
-    return known.join(",");
-  }
 
   /** A `valueChange` listener that removes the radio a selection just checked. */
   removeOnCheck(value: string | null): void {

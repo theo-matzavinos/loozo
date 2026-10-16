@@ -10,8 +10,8 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { OrigamiCollectionItem, OrigamiCollectionItemOptions } from "@loozo/origami-ui/collection";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
+import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { RadioGroupContext } from "./radio-group";
 
 const itemReplacement = new InjectionToken<OrigamiRadioGroupItemOptions>(
@@ -19,11 +19,9 @@ const itemReplacement = new InjectionToken<OrigamiRadioGroupItemOptions>(
 );
 
 /**
- * Effective item configuration. It also drives the composed Collection Item, so replacing only
- * these Options sets the item's Collection value and roving order without lower Options. The
- * group reads every item's Options while rendering, so replacement Options must be readable as
- * soon as the item is constructed; a required input in a repeated item can be read before
- * Angular sets it (NG0950).
+ * Effective item configuration. Other items read it only once the item has published its roving
+ * registration in `ngOnInit`, after Angular set its inputs, so replacement Options may use
+ * required inputs.
  */
 export abstract class OrigamiRadioGroupItemOptions {
   /** The value this item checks in its group. */
@@ -87,17 +85,16 @@ export abstract class OrigamiRadioGroupItemOptions {
 }
 
 /**
- * A native `type="button"` with `role="radio"` and always-present `aria-checked`, composed with
- * Collection Item. Click, Enter or Space focuses it and checks its value once if it is still
+ * A native `type="button"` with `role="radio"` and always-present `aria-checked`. Click, Enter or Space focuses it and checks its value once if it is still
  * mounted and enabled after its focus handlers ran; checking the checked item writes nothing and
  * there is no unchecking. Arrow keys move focus among enabled items in DOM order, wrapping at the
  * ends: ArrowDown and ArrowRight to the next, ArrowUp and ArrowLeft to the previous, with
  * ArrowLeft and ArrowRight swapped in right-to-left text; Home and End move to the first and last.
  * The item a move focuses is checked if it is still mounted, enabled and focused after its focus
  * handlers ran; other focus never checks. One enabled item is the tab stop (`tabindex="0"`): the
- * focused one, else the first checked, else the first. Inside a Toolbar (but not inside Popover
- * Content within it) the item joins the Toolbar's roving focus instead: it shares the Toolbar's
- * tab stop and arrow order along its orientation, is never preferred, and moves never check.
+ * focused one, else the first checked, else the first. In a Toolbar Radio Group the item belongs
+ * to the Toolbar's roving focus instead: it shares the Toolbar's tab stop and arrow order along
+ * its orientation, is never preferred, and moves never check.
  * Root or own disabled state sets native `disabled`, `aria-disabled` and `data-disabled` and
  * removes the item from navigation; a disabled checked item stays `aria-checked="true"`. If a
  * focused item is removed or disabled while focus has not moved elsewhere, focus moves to the new
@@ -105,11 +102,7 @@ export abstract class OrigamiRadioGroupItemOptions {
  */
 @Directive({
   selector: "button[ogRadioGroupItem]",
-  hostDirectives: [OrigamiCollectionItem],
-  providers: [
-    OrigamiRadioGroupItemOptions.ɵprovideDefault(() => OrigamiRadioGroupItem),
-    OrigamiCollectionItemOptions.provideFactory(() => inject(OrigamiRadioGroupItemOptions)),
-  ],
+  providers: [OrigamiRadioGroupItemOptions.ɵprovideDefault(() => OrigamiRadioGroupItem)],
   host: {
     role: "radio",
     type: "button",
@@ -127,10 +120,10 @@ export abstract class OrigamiRadioGroupItemOptions {
 })
 export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   /**
-   * Own value input, default opaque hydration-stable generated identity; give each item an
+   * Own value input, default a generated value that hydration doesn't keep; give each item an
    * explicit value. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueId("radio-group-item"));
+  readonly value = input(injectUniqueValue("radio-group-item"));
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */
   readonly disabled = input(false, { transform: booleanAttribute });
 
@@ -146,14 +139,9 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   /** @internal Checked ARIA observation, always `true` or `false`. */
   protected readonly checked = computed(() => this.#context.value() === this.#options().value());
 
-  readonly #focus = this.#context.registerFocus({
+  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
+    value: computed(() => this.#options().value()),
     disabled: this.effectiveDisabled,
-    preferred: this.checked,
-    navigated: () => {
-      if (this.#selectable()) {
-        this.#context.select(this.#options().value());
-      }
-    },
   });
 
   /** @internal Roving tab stop. */
@@ -199,6 +187,11 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
     });
   }
 
+  /** @internal Publishes this item's roving registration once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#focus.publish();
+  }
+
   /**
    * @internal Live native activation request, obeying effective disabled Options. Not every
    * engine focuses a clicked button, so activation focuses this item to make it the roving
@@ -219,9 +212,9 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
     this.#context.select(this.#options().value());
   }
 
-  /** @internal Arrow/Home/End navigation: all four arrows, or the Toolbar's axis while joined. */
+  /** @internal Arrow/Home/End navigation: all four arrows, or the Toolbar's axis in a Toolbar Radio Group. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event, this.#context.axis());
+    this.#focus.keydown(event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */

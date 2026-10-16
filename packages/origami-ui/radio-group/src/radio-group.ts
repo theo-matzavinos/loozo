@@ -12,9 +12,8 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import {
-  OrigamiCollection,
-  ɵOrigamiRovingFocus,
-  ɵOrigamiRovingFocusScope,
+  ɵOrigamiRovingFocusContext,
+  ɵOrigamiRovingFocusOptions,
   ɵrequestSingleSelection,
 } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
@@ -90,19 +89,10 @@ export abstract class OrigamiRadioGroupOptions {
 @Service({ autoProvided: false })
 export class RadioGroupContext {
   readonly #options = injectDeferred(OrigamiRadioGroupOptions);
-  readonly #scope = inject(ɵOrigamiRovingFocusScope, { optional: true });
   #destroyed = false;
 
   readonly value = computed(() => this.#options().value());
   readonly disabled = computed(() => this.#options().disabled());
-  /** Arrow keys: the enclosing Toolbar's orientation while joined, otherwise all four arrows. */
-  readonly axis = computed<"horizontal" | "vertical" | "both">(() => {
-    if (this.#scope !== null) {
-      return this.#scope.orientation();
-    }
-
-    return "both";
-  });
 
   readonly disabledAttribute = computed(() => {
     if (this.disabled()) {
@@ -116,22 +106,12 @@ export class RadioGroupContext {
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
-  }
-
-  /**
-   * Registers the calling item, from its injection context, with the enclosing Toolbar's roving
-   * focus, where it is never preferred and a move never checks, or otherwise with the group's own.
-   */
-  registerFocus(item: {
-    readonly disabled: Signal<boolean>;
-    readonly preferred: Signal<boolean>;
-    readonly navigated: () => void;
-  }) {
-    if (this.#scope !== null) {
-      return this.#scope.focus.join({ disabled: item.disabled, navigated: () => {} });
-    }
-
-    return inject(ɵOrigamiRovingFocus).register(item);
+    // Only a standalone group provides its own roving focus; there a keyboard move checks.
+    inject(ɵOrigamiRovingFocusContext, { self: true, optional: true })?.navigations.subscribe(
+      (value) => {
+        this.select(value);
+      },
+    );
   }
 
   /** A user check request; the caller has already applied its own disabled policy. There is no user unchecking. */
@@ -154,16 +134,34 @@ export class OrigamiRadioGroupState {
 }
 
 /**
+ * @internal Package-private shared Radio Group root, composed by `OrigamiRadioGroup` and
+ * `OrigamiToolbarRadioGroup`, each of which supplies `OrigamiRadioGroupOptions`. It provides the
+ * Context and State its items read. Static `role="radiogroup"` (a consumer's static `role`
+ * overrides it); `data-disabled` reflects effective Options. Not an application API.
+ */
+@Directive({
+  providers: [RadioGroupContext, OrigamiRadioGroupState],
+  host: {
+    role: "radiogroup",
+    "[attr.data-disabled]": "disabledAttribute()",
+  },
+})
+export class ɵOrigamiRadioGroupRoot {
+  /** @internal Readonly disabled host marker. */
+  protected readonly disabledAttribute = inject(RadioGroupContext).disabledAttribute;
+}
+
+/**
  * Radio Group root: at most one item is checked, and the user can check an item but never
- * uncheck one. Composes Collection so focus follows rendered DOM order. While the value is null
+ * uncheck one. Its items share one tab stop, held by the focused item, else the checked one,
+ * else the first, and all four arrow keys move along rendered DOM order. While the value is null
  * or no mounted item has it, nothing is checked; the model is never written without user action.
  * Static `role="radiogroup"` (a consumer's static `role` overrides it); `data-disabled` reflects
- * effective Options. It has no orientation: all four arrow keys move. It binds no
- * `aria-orientation`, `aria-required` or `aria-disabled`; consumers may write them statically,
- * and own the accessible name, item labels, layout and styling. Inside an `ogToolbar` the group
- * joins the Toolbar: its items share the Toolbar's single tab stop and arrow order, arrows follow
- * the Toolbar's orientation and only move focus. It is not a form control: no `name`, form value,
- * `required` or validity.
+ * effective Options. It has no orientation. It binds no `aria-orientation`, `aria-required` or
+ * `aria-disabled`; consumers may write them statically, and own the accessible name, item
+ * labels, layout and styling. Inside an `ogToolbar` it keeps its own tab stop; to share the
+ * Toolbar's, use `OrigamiToolbarRadioGroup` from `@loozo/origami-ui/toolbar`. It is not a form
+ * control: no `name`, form value, `required` or validity.
  *
  * @example
  * ```html
@@ -176,17 +174,27 @@ export class OrigamiRadioGroupState {
 @Directive({
   selector: "[ogRadioGroup]",
   exportAs: "ogRadioGroup",
-  hostDirectives: [OrigamiCollection],
+  hostDirectives: [ɵOrigamiRadioGroupRoot],
   providers: [
-    RadioGroupContext,
-    OrigamiRadioGroupState,
-    ɵOrigamiRovingFocus,
     OrigamiRadioGroupOptions.ɵprovideDefault(() => OrigamiRadioGroup),
+    ɵOrigamiRovingFocusContext,
+    ɵOrigamiRovingFocusOptions.provideFactory(() => {
+      const context = inject(RadioGroupContext);
+
+      return {
+        orientation: computed<"both">(() => "both"),
+        preferred: computed(() => {
+          const value = context.value();
+
+          if (value === null) {
+            return [];
+          }
+
+          return [value];
+        }),
+      };
+    }),
   ],
-  host: {
-    role: "radiogroup",
-    "[attr.data-disabled]": "disabledAttribute()",
-  },
 })
 export class OrigamiRadioGroup implements OrigamiRadioGroupOptions {
   /**
@@ -198,7 +206,4 @@ export class OrigamiRadioGroup implements OrigamiRadioGroupOptions {
   readonly disabled = input(false, { transform: booleanAttribute });
   /** This root's readonly effective Options observation, shared with its descendants. */
   readonly state = inject(OrigamiRadioGroupState);
-
-  /** @internal Readonly disabled host marker. */
-  protected readonly disabledAttribute = inject(RadioGroupContext).disabledAttribute;
 }

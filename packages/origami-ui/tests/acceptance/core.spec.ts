@@ -4,7 +4,7 @@ import { bootstrapHeld, fixture, stopRetentionObservation } from "./observation.
 const core = (page: Parameters<typeof fixture>[0], info: Parameters<typeof fixture>[2]) =>
   fixture(page, "core", info);
 
-test("C1 C2 C3: keyed collection insert/remove/move and reactive values exclude nested owners", async ({
+test("C1 C2 C3: keyed collection insert/remove read DOM order, a keyed move notifies no reader, reactive values exclude nested owners", async ({
   page,
 }, info) => {
   await core(page, info);
@@ -12,13 +12,15 @@ test("C1 C2 C3: keyed collection insert/remove/move and reactive values exclude 
 
   const keyed = await page.locator('[data-item-key="one"]').elementHandle();
 
+  // A keyed move keeps membership, so readers keep the order of the latest membership change.
   await page.getByTestId("reverse-items").click();
-  await expect(page.getByTestId("collection-values")).toHaveText("two,one,original");
+  await expect(page.locator("[data-item-key]")).toHaveText(["two", "one"]);
+  await expect(page.getByTestId("collection-values")).toHaveText("one,two,original");
   expect(
     await keyed?.evaluate((node) => node === document.querySelector('[data-item-key="one"]')),
   ).toBe(true);
   await page.getByTestId("rename-item").click();
-  await expect(page.getByTestId("collection-values")).toHaveText("two,one,renamed");
+  await expect(page.getByTestId("collection-values")).toHaveText("one,two,renamed");
 
   const initial = await page.getByTestId("variant-collection-values").textContent();
 
@@ -36,13 +38,17 @@ test("C1 C2 C3: keyed collection insert/remove/move and reactive values exclude 
   await page.getByTestId("collection-remove").click();
   await expect(page.getByTestId("variant-collection-values")).toHaveText(`three,two,${generated}`);
   await page.getByTestId("collection-move").click();
-  await expect(page.getByTestId("variant-collection-values")).toHaveText(`two,three,${generated}`);
+  await expect(page.getByTestId("variant-collection").locator("[data-key]")).toHaveText([
+    "two",
+    "three",
+  ]);
+  await expect(page.getByTestId("variant-collection-values")).toHaveText(`three,two,${generated}`);
   expect(
     await surviving?.evaluate((node) => node === document.querySelector('[data-key="two"]')),
   ).toBe(true);
 });
 
-test("C1 C3: a first order read after unread keyed moves and insertion reports rendered order", async ({
+test("C1 C3 C4: a first order read after unread keyed moves and insertion reports rendered order; a later keyed move publishes nothing until membership changes", async ({
   page,
 }, info) => {
   await core(page, info);
@@ -59,7 +65,14 @@ test("C1 C3: a first order read after unread keyed moves and insertion reports r
   await expect(page.getByTestId("late-unrelated-count")).toHaveText("1");
   await expect(page.getByTestId("late-publications")).toHaveText("1");
   await page.getByTestId("late-move").click();
-  await expect(page.getByTestId("late-values")).toHaveText("one,three,two");
+  await expect(page.locator("[data-late-key]")).toHaveText(["one", "three", "two"]);
+  await page.getByTestId("late-unrelated").click();
+  await expect(page.getByTestId("late-unrelated-count")).toHaveText("2");
+  await expect(page.getByTestId("late-values")).toHaveText("three,two,one");
+  await expect(page.getByTestId("late-publications")).toHaveText("1");
+  // A removal changes membership: readers get current DOM order.
+  await page.getByTestId("late-remove").click();
+  await expect(page.getByTestId("late-values")).toHaveText("one,two");
   await expect(page.getByTestId("late-publications")).toHaveText("2");
 });
 
@@ -469,9 +482,21 @@ test("A3 A4 A5: effective factory setter reentry, combined disabled, mounted ord
   const generated = initial?.split(",")[2];
 
   expect(generated).toBeTruthy();
+  // A keyed move keeps membership: itemValues keeps the order of the latest membership change.
   await page.getByTestId("single-item-move").click();
+  await expect
+    .poll(() =>
+      page
+        .getByTestId("factory-single-security")
+        .evaluate((security) =>
+          security.compareDocumentPosition(
+            document.querySelector('[data-testid="factory-single-billing"]') ?? security,
+          ),
+        ),
+    )
+    .toBe(4);
   await expect(page.getByTestId("factory-single-values")).toHaveText(
-    `security,billing,${generated}`,
+    `billing,security,${generated}`,
   );
   await page.getByTestId("single-item-remove").click();
   await expect(page.getByTestId("factory-single-values")).toHaveText(`security,${generated}`);
@@ -635,7 +660,7 @@ test("A4 A5: Multiple effective setter observation, normal output binding reentr
   );
 });
 
-test("A5 O1: two generated values survive a keyed reverse; replaced Item Options govern values and activation", async ({
+test("A5 O1: two generated values survive a keyed reverse, which notifies no itemValues reader; replaced Item Options govern values and activation", async ({
   page,
 }, info) => {
   await core(page, info);
@@ -654,7 +679,14 @@ test("A5 O1: two generated values survive a keyed reverse; replaced Item Options
   ];
 
   await page.getByTestId("generated-reverse").click();
-  await expect(page.getByTestId("generated-values")).toHaveText(`${generated[1]},${generated[0]}`);
+  await expect
+    .poll(() =>
+      page
+        .locator("[data-generated-key]")
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-generated-key"))),
+    )
+    .toEqual(["two", "one"]);
+  await expect(page.getByTestId("generated-values")).toHaveText(`${generated[0]},${generated[1]}`);
 
   for (const [index, key] of ["one", "two"].entries()) {
     expect(

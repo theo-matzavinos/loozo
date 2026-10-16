@@ -10,7 +10,7 @@ The consumer's authored sources are the workspace example [`examples/origami-ui`
 | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `examples/origami-ui/` → `.scratch/consumer/`                                                                | The one Angular SSR consumer: lazy fixture routes (`src/fixtures/*`), eager/incremental hydration configurations and the SSR-only fixtures (`server-*.ts`) that only the Node checks compile |
 | `playwright.config.ts`                                                                                       | The one browser configuration: the 24 product projects and, with `ORIGAMI_SUITE=calibration`, the observer calibration                                                                       |
-| `{core,composition,popover,toggle,tabs,toggle-group,toolbar,radio-group,hydration,errors,lifetimes}.spec.ts` | Product cases, 156 per project                                                                                                                                                               |
+| `{core,composition,popover,toggle,tabs,toggle-group,toolbar,radio-group,hydration,errors,lifetimes}.spec.ts` | Product cases, 162 per project                                                                                                                                                               |
 | `contract-test.ts`, `observation.ts`, `geometry.ts`                                                          | Central runtime-error capture, SSR/hydration retention observer, independent geometry oracle                                                                                                 |
 | `observer-calibration.test.ts`                                                                               | Native calibration of `observation.ts`; no product imports or servers                                                                                                                        |
 | `prepare-consumer.mjs`, `consumer-install.mjs`                                                               | Pack the build; stage the example; warm-refresh the installed APF or install the consumer from clean                                                                                         |
@@ -188,7 +188,7 @@ Further rules:
 - `geometry.ts` derives expected placement from measured DOM edges and independent logical-axis arithmetic, never Floating UI.
 - Waits are bounded observable predicates or real animation/frame observations, not fixed sleeps. Trusted input comes from Playwright; synthetic events are labelled as handler checks, never as trusted evidence.
 - Managed-lifetime cases use genuine `ViewContainerRef`/`ComponentRef` and `ApplicationRef` destruction.
-- `injectUniqueId` SSR identity matching is guaranteed only for element-host calls. No-host allocations are checked for validity, uniqueness and stability, never for server/client correspondence.
+- `injectUniqueId` SSR identity matching is guaranteed only for an ID rendered as its host element's `id`. Other allocations, and every `injectUniqueValue` allocation, are checked for validity, uniqueness and stability, never for server/client correspondence.
 
 ## Observer calibration
 

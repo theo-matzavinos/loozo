@@ -33,18 +33,14 @@ export type SpeedRecord = {
   readonly available: boolean;
 };
 
-// A radio whose value and availability come from a domain record. The group reads every item's
-// Options while rendering, so the input has a default instead of being required.
+// A radio whose value and availability come from a domain record.
 @Directive({
   selector: "button[appSpeedOption]",
   hostDirectives: [OrigamiRadioGroupItem],
   providers: [OrigamiRadioGroupItemOptions.provideExisting(() => SpeedOption)],
 })
 export class SpeedOption implements OrigamiRadioGroupItemOptions {
-  readonly option = input<SpeedRecord>(
-    { id: "", label: "", available: false },
-    { alias: "appSpeedOption" },
-  );
+  readonly option = input.required<SpeedRecord>({ alias: "appSpeedOption" });
   readonly value = computed(() => this.option().id);
   readonly disabled = computed(() => !this.option().available);
 }

@@ -35,15 +35,14 @@ export class EditorAlignment {}
 
 export type Alignment = { readonly id: string; readonly available: boolean };
 
-// An item whose value and disabled state come from a domain record. The group reads every
-// item's Options while rendering, so the input has a default instead of being required.
+// An item whose value and disabled state come from a domain record.
 @Directive({
   selector: "button[appAlignment]",
   hostDirectives: [OrigamiToggleGroupItem],
   providers: [OrigamiToggleGroupItemOptions.provideExisting(() => AlignmentOption)],
 })
 export class AlignmentOption implements OrigamiToggleGroupItemOptions {
-  readonly alignment = input<Alignment>({ id: "", available: false }, { alias: "appAlignment" });
+  readonly alignment = input.required<Alignment>({ alias: "appAlignment" });
   readonly value = computed(() => this.alignment().id);
   readonly disabled = computed(() => !this.alignment().available);
 }

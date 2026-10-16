@@ -12,6 +12,13 @@ import {
   OrigamiPopoverAnchor,
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
+import { OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
+import { OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
+import {
+  OrigamiToolbarRadioGroup,
+  OrigamiToolbarToggleGroupMultiple,
+  OrigamiToolbarToggleGroupSingle,
+} from "@loozo/origami-ui/toolbar";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -28,6 +35,11 @@ import {
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
+    OrigamiToolbarToggleGroupSingle,
+    OrigamiToolbarToggleGroupMultiple,
+    OrigamiToolbarRadioGroup,
+    OrigamiToggleGroupItem,
+    OrigamiRadioGroupItem,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -43,6 +55,13 @@ import {
         <option value="orphan-collapsible-trigger">Orphan collapsible trigger</option>
         <option value="orphan-collapsible-panel">Orphan collapsible panel</option>
         <option value="orphan-accordion-panel">Accordion panel under a Collapsible only</option>
+        <option value="orphan-toolbar-toggle-group-single">
+          Toolbar Single group outside a Toolbar
+        </option>
+        <option value="orphan-toolbar-toggle-group-multiple">
+          Toolbar Multiple group outside a Toolbar
+        </option>
+        <option value="orphan-toolbar-radio-group">Toolbar Radio Group outside a Toolbar</option>
         <option value="trigger">Duplicate collapsible trigger</option>
         <option value="panel">Duplicate collapsible panel</option>
         <option value="popover-trigger">Duplicate popover trigger</option>
@@ -73,6 +92,19 @@ import {
     }
     @if (mounted() && selected() === "orphan-accordion-panel") {
       <section ogCollapsible><div ogAccordionPanel>Missing Accordion Item ancestor</div></section>
+    }
+    @if (mounted() && selected() === "orphan-toolbar-toggle-group-single") {
+      <div ogToolbarToggleGroupSingle>
+        <button ogToggleGroupItem value="a">Missing Toolbar</button>
+      </div>
+    }
+    @if (mounted() && selected() === "orphan-toolbar-toggle-group-multiple") {
+      <div ogToolbarToggleGroupMultiple>
+        <button ogToggleGroupItem value="a">Missing Toolbar</button>
+      </div>
+    }
+    @if (mounted() && selected() === "orphan-toolbar-radio-group") {
+      <div ogToolbarRadioGroup><button ogRadioGroupItem value="a">Missing Toolbar</button></div>
     }
     <section ogCollapsible>
       <button ogCollapsibleTrigger>First trigger</button>

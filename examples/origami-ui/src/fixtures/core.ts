@@ -39,6 +39,7 @@ import { TabsCases } from "./tabs-cases.js";
 import { ToggleGroupCases } from "./toggle-group-cases.js";
 import { ToolbarCases } from "./toolbar-cases.js";
 import { RadioGroupCases } from "./radio-group-cases.js";
+import { DestroyedBeforePublish } from "./destroyed-before-publish.js";
 
 @Directive({ selector: "[presenceObservation]", exportAs: "presenceObservation" })
 export class PresenceObservation {
@@ -252,6 +253,7 @@ export class ReplacedAccordionItem {}
     ToggleGroupCases,
     ToolbarCases,
     RadioGroupCases,
+    DestroyedBeforePublish,
   ],
   providers: [ReplacedItemValue],
   template: `
@@ -262,6 +264,7 @@ export class ReplacedAccordionItem {}
     <acceptance-toggle-group-cases />
     <acceptance-toolbar-cases />
     <acceptance-radio-group-cases />
+    <acceptance-destroyed-before-publish />
     <h2>Mounted collection order</h2>
     <section ogCollection collectionValues #items="collectionValues" data-testid="variant-collection">
       @for (key of keys(); track key) {
@@ -286,6 +289,7 @@ export class ReplacedAccordionItem {}
     <button type="button" data-testid="late-read" (click)="late.read.set(true)">Read order</button>
     <button type="button" data-testid="late-unrelated" (click)="lateUnrelated.update(increment)">Unrelated update</button>
     <button type="button" data-testid="late-move" (click)="lateKeys.set(['one', 'three', 'two'])">Move read items</button>
+    <button type="button" data-testid="late-remove" (click)="lateKeys.set(['one', 'two'])">Remove a read item</button>
     <output data-testid="late-values">{{ late.values() }}</output>
     <output data-testid="late-publications">{{ late.publications() }}</output>
     <output data-testid="late-unrelated-count">{{ lateUnrelated() }}</output>

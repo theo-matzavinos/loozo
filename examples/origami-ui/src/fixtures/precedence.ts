@@ -45,7 +45,6 @@ import {
   type OrigamiPopoverSide,
   type OrigamiPopoverAlign,
 } from "@loozo/origami-ui/popover";
-import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 // O1-O3 precedence: whole replacement Options win over conflicting direct inputs in both
 // directive import orders and through transitive host-directive diamonds. Each case shares one
@@ -644,13 +643,13 @@ const PopoverCaseLabel = new InjectionToken<string>("popover co-match case label
 @Service({ autoProvided: false })
 export class PopoverCoMatchSettings {
   readonly label = inject(PopoverCaseLabel);
-  readonly identity = injectUniqueId("popover-co-match");
   readonly open = signal(false);
   readonly disabled = signal(true);
   readonly dismissible = signal(false);
-  readonly triggerId = signal(`${this.identity}-trigger`);
-  readonly anchorId = signal(`${this.identity}-anchor`);
-  readonly contentId = signal(`${this.identity}-content`);
+  // Element IDs that match between server and client: derived from the case, not allocated.
+  readonly triggerId = signal(`${this.label}-co-trigger`);
+  readonly anchorId = signal(`${this.label}-co-anchor`);
+  readonly contentId = signal(`${this.label}-co-content`);
   readonly side = signal<OrigamiPopoverSide>("inline-end");
   readonly align = signal<OrigamiPopoverAlign>("center");
   readonly gap = signal(11);

@@ -70,11 +70,14 @@ for (const [entrypoint, expected] of Object.entries(inventory)) {
     `${name} declaration inventory including type-only exports`,
   );
 
-  if (entrypoint === "accordion") {
-    assert.ok(
-      actual.includes("ɵOrigamiAccordionRoot"),
-      "Compiler-required Accordion root importability must be preserved",
-    );
+  for (const [owner, root] of [
+    ["accordion", "ɵOrigamiAccordionRoot"],
+    ["toggle-group", "ɵOrigamiToggleGroupRoot"],
+    ["radio-group", "ɵOrigamiRadioGroupRoot"],
+  ]) {
+    if (entrypoint === owner) {
+      assert.ok(actual.includes(root), `Compiler-required ${root} importability must be preserved`);
+    }
   }
 
   const module = await import(pathToFileURL(require.resolve(name)).href);

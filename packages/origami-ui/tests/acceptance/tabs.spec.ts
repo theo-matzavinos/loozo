@@ -383,9 +383,11 @@ test("S5: no auto-selection; disabled and removed selections keep the value; foc
   await page.getByTestId("script-tab-null").click();
   await page.getByTestId("restore-tabs").click();
 
-  // A keyed reorder with no selection moves the tab stop to the new first Trigger.
+  // A keyed reorder with no selection keeps membership, so the fallback tab stop keeps the
+  // order of the latest membership change.
   await page.getByTestId("reverse-tabs").click();
-  await expectTabStop(list, tab(page, "security"));
+  await expect(list.getByRole("tab").first()).toHaveAttribute("data-testid", "tab-security");
+  await expectTabStop(list, tab(page, "profile"));
   await page.getByTestId("restore-tabs").click();
   await expectTabStop(list, tab(page, "profile"));
   await expect(outputs).toHaveText("0");
@@ -550,8 +552,7 @@ test("S6: replaced root, Trigger and Panel Options drive behavior and associatio
   await expect(page.getByTestId("factory-tabs-state")).toHaveText("profile");
   await expect(root).toHaveAttribute("data-orientation", "vertical");
   await expect(list).toHaveAttribute("aria-orientation", "vertical");
-  // Upper Trigger Options alone drive the composed Collection's values and the IDs.
-  await expect(page.getByTestId("factory-tabs-items")).toHaveText("profile,billing,security");
+  // Upper Trigger Options alone drive the IDs.
   await expect(profile).toHaveAttribute("id", "consumer-tab-profile");
   await expect(profile).toHaveAttribute("aria-controls", "consumer-panel-profile");
   await expect(billing).not.toHaveAttribute("aria-controls", /.*/);

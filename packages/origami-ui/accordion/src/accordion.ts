@@ -135,7 +135,11 @@ export class OrigamiAccordionState {
   readonly #collection = inject(OrigamiCollectionState);
   readonly #context = inject(AccordionContext);
 
-  /** Mounted effective item values in Collection DOM order; value edits/removal never normalize selection. */
+  /**
+   * Effective values of the items Angular has initialized, in DOM order as of the latest insertion
+   * or removal: a keyed move that keeps the same items notifies no reader. Value edits and removal
+   * never normalize selection.
+   */
   readonly itemValues: Signal<readonly string[]> = computed(() => {
     const values: string[] = [];
 

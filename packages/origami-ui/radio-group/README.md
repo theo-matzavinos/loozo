@@ -27,13 +27,11 @@ Give each item an explicit `value`; values should be distinct within one group.
 
 Moves skip disabled items and wrap at both ends. A move checks the item it lands on, even the one already focused (Home on the first item, or any arrow with one enabled item), but only if, once its focus handlers have run, it's still there, enabled and focused. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
 
-Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the checked enabled item, otherwise the first enabled item. Tabbing in never checks anything. A click focuses the item and then checks it, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without checking it.
+Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the checked enabled item, otherwise the first enabled item. "First" reads DOM order whenever items mount or unmount or focus, disabled state or the value change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. Tabbing in never checks anything. A click focuses the item and then checks it, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without checking it.
 
 ## Inside a Toolbar
 
-A group inside a [Toolbar](../toolbar/README.md) joins it, as in the [APG toolbar example](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/examples/toolbar/): its items share the Toolbar's single tab stop and arrow-key order with the Toolbar's other controls, in DOM order, and the group has no tab stop of its own. Tabbing into the Toolbar lands on its first enabled control, even if that's not the checked item. **Arrow keys only move focus there and never check**; they follow the Toolbar's orientation. Space, Enter or a click checks the focused item. Its role, name, value and checked state don't change. A group in Popover Content doesn't join a Toolbar around the Popover.
-
-[src/radio-group/alignment-toolbar.ts](../snippets/src/radio-group/alignment-toolbar.ts "both")
+`ogRadioGroup` keeps its own tab stop inside a [Toolbar](../toolbar/README.md), and its arrow keys still check. To share the Toolbar's tab stop, use its [Toolbar group](../toolbar/README.md#toolbar-groups) `ogToolbarRadioGroup`, with the same items; there arrow keys only move focus.
 
 ## Replacing Options
 
@@ -41,7 +39,7 @@ The root and the item each have their own Options. Here the value and a lock liv
 
 [src/radio-group/checkout-speed.ts](../snippets/src/radio-group/checkout-speed.ts)
 
-Item Options also drive the composed Collection Item, so replacing them alone sets the item's place in the arrow-key order. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
+Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
 
 ## State and attributes
 
@@ -55,7 +53,7 @@ Item Options also drive the composed Collection Item, so replacing them alone se
 ## Accessibility
 
 - You supply the group's accessible name with `aria-label` or `aria-labelledby`, and each item's label. A static `role` you write on the root replaces `radiogroup`. You can also write `aria-orientation` or `aria-required` statically on the root; RadioGroup doesn't set them.
-- Items are `<button role="radio">`, not native `<input type="radio">`: RadioGroup owns the tab stop and the keys, which is what lets a group join a Toolbar. A disabled checked item stays `aria-checked="true"` and isn't focusable.
+- Items are `<button role="radio">`, not native `<input type="radio">`: RadioGroup owns the tab stop and the keys, which is what lets a group share a Toolbar's tab stop. A disabled checked item stays `aria-checked="true"` and isn't focusable.
 - RadioGroup isn't a form control yet: it has no `name`, form value, `required`, validity or Signal Forms integration. There's no typeahead or `aria-activedescendant`. A group inside a non-item descendant of another group is independent of it.
 
 ## Server rendering and hydration

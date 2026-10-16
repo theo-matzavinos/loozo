@@ -41,16 +41,10 @@ export class ServerEnvironmentIdentity {
 export class ServerHostedIdentity {
   readonly first = injectUniqueId("server-repeated");
   readonly second = injectUniqueId("server-repeated");
-  readonly surrogate = injectUniqueId("\ud800");
-  readonly replacement = injectUniqueId("�");
+  readonly other = injectUniqueId("server-other");
 
   constructor() {
-    inject(ServerIdentityEvidence).hosted.push(
-      this.first,
-      this.second,
-      this.surrogate,
-      this.replacement,
-    );
+    inject(ServerIdentityEvidence).hosted.push(this.first, this.second, this.other);
   }
 }
 

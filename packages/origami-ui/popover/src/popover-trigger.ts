@@ -128,12 +128,18 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
     return null;
   });
 
-  /** Registers this role synchronously with caller-scoped cleanup; construction never resolves its own alias. */
+  readonly #registration = this.#context.trigger(this.#options);
+
+  /** Captures this role's unpublished registration; construction never resolves its own alias. */
   constructor() {
-    this.#context.registerTrigger(injectDeferred(OrigamiPopoverTriggerOptions));
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Publishes this Trigger once Angular has set its inputs; a second mounted Trigger fails clearly. */
+  ngOnInit(): void {
+    this.#registration.publish();
   }
 
   /** @internal Live native activation; disabled user input cannot write intent. */

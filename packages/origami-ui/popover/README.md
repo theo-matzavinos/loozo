@@ -11,7 +11,7 @@ Popover is a non-modal floating surface anchored to an element: Content stays wh
 | `ogPopoverAnchor`  | `id` (default generated); may share the Trigger's element, which then uses the Trigger's ID       |
 | `ogPopoverContent` | `id` (default generated), `side` (`"block-end"`), `align` (`"start"`), `gap` (`0`, in CSS pixels) |
 
-Trigger, Anchor and Content are all required for the Popover to show. When one is missing, or a parent Popover closes, the Content is hidden but `open` keeps its value, so mounting the part again shows it. One of each part is supported per Popover.
+Trigger, Anchor and Content are all required for the Popover to show. When one is missing, or a parent Popover closes, the Content is hidden but `open` keeps its value, so mounting the part again shows it. One of each part is supported per Popover. Content can be rendered by its own component, such as a menu: the Trigger names Content's ID once Angular has set Content's inputs, so the server HTML already has a bound ID.
 
 ## Replacing Options
 

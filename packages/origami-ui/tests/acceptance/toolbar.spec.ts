@@ -226,7 +226,7 @@ test("K2: arrows skip disabled items and wrap; vertical and reading direction; r
   await expect(rtlVerticalPart("first")).toBeFocused();
 });
 
-test("K3: joined groups share one tab stop and arrow sequence in DOM order, in server HTML, after hydration and after a keyed move", async ({
+test("K3: Toolbar groups share one tab stop and arrow sequence in DOM order, in server HTML, after hydration and after a keyed move", async ({
   page,
 }, info) => {
   const release = await bootstrapHeld(page, "/core", info);
@@ -257,7 +257,6 @@ test("K3: joined groups share one tab stop and arrow sequence in DOM order, in s
   await stopRetentionObservation(page);
   await expectTabStop(toolbar, part("cut"));
   await expect(part("marks-orientation")).toHaveText("horizontal");
-  await expect(part("values")).toHaveText("8:*,*,b,i,u,left,right,*");
 
   await part("cut").focus();
 
@@ -273,7 +272,7 @@ test("K3: joined groups share one tab stop and arrow sequence in DOM order, in s
   await expect(part("mark-outputs")).toHaveText("0");
   await expect(casePart(page, "joined", "alignment-value")).toHaveText("right");
 
-  // The group's own vertical orientation has no effect while joined.
+  // The Toolbar group's own vertical orientation has no effect.
   await part("b").focus();
   await page.keyboard.press("ArrowDown");
   await expect(part("b")).toBeFocused();
@@ -291,7 +290,6 @@ test("K3: joined groups share one tab stop and arrow sequence in DOM order, in s
   // A keyed move of the whole group reorders the interleaving.
   await page.getByTestId("toolbar-joined-move").click();
   await expect(toolbar.locator("button").first()).toHaveAttribute("data-role", "b");
-  await expect(part("values")).toHaveText("8:b,i,u,*,*,left,right,*");
   await part("paste").focus();
   await page.keyboard.press("End");
   await expect(part("paste")).toBeFocused();
@@ -317,7 +315,7 @@ test("K3: joined groups share one tab stop and arrow sequence in DOM order, in s
   await expect(outside.locator('[data-role="a"]')).toBeFocused();
 });
 
-test("K4: focus repair for toolbar and joined items never activates or steals focus", async ({
+test("K4: focus repair for toolbar and Toolbar group items never activates or steals focus", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);
@@ -326,7 +324,7 @@ test("K4: focus repair for toolbar and joined items never activates or steals fo
   const part = (role: string) => casePart(page, "repair", role);
   const restore = page.getByTestId("toolbar-repair-restore");
 
-  // Removing or disabling the focused toolbar item or joined item moves focus to the tab stop.
+  // Removing or disabling the focused toolbar item or Toolbar group item moves focus to the tab stop.
   for (const [role, key] of [
     ["beta", "Delete"],
     ["gamma", "d"],
@@ -385,8 +383,6 @@ test("K5: replaced root and item Options drive behavior with no fallback; State 
   await expect(command("paste")).toBeDisabled();
   await expect(command("paste")).toHaveAttribute("aria-disabled", "true");
   await expectTabStop(toolbar, command("cut"));
-  // The co-applied Toggle is a single toolbar control.
-  await expect(page.getByTestId("editor-items")).toHaveText("4");
   await expect(command("spellcheck")).toHaveAttribute("aria-pressed", "false");
 
   await command("cut").focus();
@@ -456,7 +452,7 @@ test("K5: replaced root and item Options drive behavior with no fallback; State 
   }
 });
 
-test("K7: a group in Popover Content whose Trigger is a toolbar item keeps its own roving and tab stop", async ({
+test("K7: a standalone group in Popover Content whose Trigger is a toolbar item keeps its own roving and tab stop", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);

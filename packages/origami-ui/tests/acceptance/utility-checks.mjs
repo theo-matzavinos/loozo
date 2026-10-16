@@ -13,7 +13,7 @@ async function load(specifier) {
 await load("@angular/compiler");
 
 const { Injector, InjectionToken, runInInjectionContext } = await load("@angular/core");
-const { injectDeferred, injectUniqueId } = await load("@loozo/origami-ui/utils");
+const { injectDeferred, injectUniqueId, injectUniqueValue } = await load("@loozo/origami-ui/utils");
 const token = new InjectionToken("public utility check");
 let lookups = 0;
 const outer = Injector.create({
@@ -36,6 +36,13 @@ const nested = Injector.create({
 try {
   assert.throws(() => injectDeferred(token), /NG0203|injection context/);
   assert.throws(() => injectUniqueId("outside"), /NG0203|injection context/);
+  assert.throws(() => injectUniqueValue("outside"), /NG0203|injection context/);
+
+  // Keys are lowercase kebab-case; anything else fails before allocating.
+  for (const key of ["", "Upper", "1st", "-lead", "snake_case", "\ud800", "�", 7]) {
+    assert.throws(() => runInInjectionContext(outer, () => injectUniqueId(key)), TypeError);
+    assert.throws(() => runInInjectionContext(outer, () => injectUniqueValue(key)), TypeError);
+  }
 
   const resolveOuter = runInInjectionContext(outer, () => injectDeferred(token));
   const resolveNested = runInInjectionContext(nested, () => injectDeferred(token));
@@ -51,5 +58,5 @@ try {
 }
 
 console.log(
-  "I1 I2: installed utilities reject outside context, resolve nearest lazily and cache per injector.",
+  "I1 I2: installed utilities reject outside context and invalid keys, resolve nearest lazily and cache per injector.",
 );

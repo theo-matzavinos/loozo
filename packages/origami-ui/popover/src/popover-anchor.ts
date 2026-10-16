@@ -97,8 +97,10 @@ export class OrigamiPopoverAnchor implements OrigamiPopoverAnchorOptions {
     this.#context.anchorId(this.#element, this.#options),
   );
 
-  /** Registers this independent role with caller-scoped teardown; Trigger/Anchor co-location is valid. */
-  constructor() {
-    this.#context.registerAnchor(injectDeferred(OrigamiPopoverAnchorOptions));
+  readonly #registration = this.#context.anchor(this.#options);
+
+  /** @internal Publishes this independent role once Angular has set its inputs; Trigger/Anchor co-location is valid. */
+  ngOnInit(): void {
+    this.#registration.publish();
   }
 }

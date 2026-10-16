@@ -333,25 +333,28 @@ for (const entrypoint of Object.keys(inventory)) {
       }
 
       if (name === "injectUniqueId") {
+        facets.push(["application-local uniqueness", /unique/i, /application/i]);
         facets.push([
-          "opaque mounted-stable application-local identity",
-          /opaque/i,
-          /unique/i,
-          /stable/i,
-          /application|app.local/i,
+          "the browser reuses the host's rendered id while hydrating",
+          /browser/i,
+          /rendered/i,
+          /\bid\b/i,
+          /host/i,
+          /hydrat/i,
         ]);
+        facets.push(["server allocations carry the s prefix", /server/i, /og-<key>-s<n>/]);
+        facets.push(["keys are validated", /key/i, /\/\^\[a-z\]\[a-z0-9-\]\*\$\//, /TypeError/]);
+      }
+
+      if (name === "injectUniqueValue") {
+        facets.push(["application-local uniqueness", /unique/i, /application.local/i]);
         facets.push([
-          "SSR identity matching is guaranteed for element-host calls only",
-          /hydrat|server|\bSSR\b/i,
-          /element.?host|host element|element.bound|element.backed|ElementRef|element.injector/i,
-          /only|limited|boundar|guarantee/i,
+          "never rendered, and not guaranteed to match across hydration",
+          /never rendered/i,
+          /isn't guaranteed to match|not guaranteed to match/i,
+          /hydrat/i,
         ]);
-        facets.push([
-          "no-host calls remain valid without an SSR matching guarantee or scope API",
-          /no.?host|non.?element|without (an? )?(element|host)|environment injector|application injector/i,
-          /valid|supported/i,
-          /stable/i,
-        ]);
+        facets.push(["keys are validated", /key/i, /\/\^\[a-z\]\[a-z0-9-\]\*\$\//, /TypeError/]);
       }
 
       if (name.includes("State.")) {

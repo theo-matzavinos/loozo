@@ -435,10 +435,9 @@ test("U5: replaced root and item Options drive behavior, roving order and the co
   // The factory value wins over the unused lower model.
   await expect(item("start")).toHaveAttribute("aria-pressed", "true");
   await expect(item("end")).toHaveAttribute("aria-pressed", "false");
-  // Domain-derived item Options drive the composed Toggle and the Collection.
+  // Domain-derived item Options drive the composed Toggle.
   await expect(item("center")).toBeDisabled();
   await expect(item("center")).toHaveAttribute("aria-disabled", "true");
-  await expect(page.getByTestId("factory-alignment-items")).toHaveText("start,center,end");
   await expect(observer("start")).toHaveAttribute("data-observed-pressed", "true");
   await expect(observer("end")).toHaveAttribute("data-observed-pressed", "false");
   await expect(groupObserver).toHaveAttribute("data-observed-orientation", "vertical");
@@ -476,9 +475,9 @@ test("U5: replaced root and item Options drive behavior, roving order and the co
   await page.keyboard.press("ArrowRight");
   await expect(item("end")).toBeFocused();
 
-  // Roving order follows the reordered Collection values the upper Options supply.
+  // Arrow keys follow the reordered DOM.
   await page.getByTestId("reverse-alignments").click();
-  await expect(page.getByTestId("factory-alignment-items")).toHaveText("end,center,start");
+  await expect(root.locator("button").first()).toHaveAttribute("data-testid", "consumer-align-end");
   await item("end").focus();
   await page.keyboard.press("ArrowRight");
   await expect(item("center")).toBeFocused();

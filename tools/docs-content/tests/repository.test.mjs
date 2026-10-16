@@ -276,19 +276,25 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/radio-group",
     "@loozo/origami-ui/utils",
   ]);
-  assert.deepEqual(names["@loozo/origami-ui/utils"], ["injectDeferred", "injectUniqueId"]);
+  assert.deepEqual(names["@loozo/origami-ui/utils"], [
+    "injectDeferred",
+    "injectUniqueId",
+    "injectUniqueValue",
+  ]);
   // Compiler-required ɵ exports are not application API.
   assert.equal(names["@loozo/origami-ui/accordion"].includes("ɵOrigamiAccordionRoot"), false);
   assert.equal(names["@loozo/origami-ui/accordion"].length, 11);
   assert.equal(names["@loozo/origami-ui/popover"].length, 12);
-  assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocus"), false);
+  assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusContext"), false);
   assert.equal(names["@loozo/origami-ui/tabs"].length, 10);
   assert.equal(names["@loozo/origami-ui/collection"].includes("ɵrequestSingleSelection"), false);
   assert.equal(names["@loozo/origami-ui/collection"].includes("ɵrequestMultipleSelection"), false);
   assert.equal(names["@loozo/origami-ui/toggle-group"].length, 8);
-  assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusScope"), false);
-  assert.equal(names["@loozo/origami-ui/toolbar"].length, 6);
+  assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusOptions"), false);
+  assert.equal(names["@loozo/origami-ui/toggle-group"].includes("ɵOrigamiToggleGroupRoot"), false);
+  assert.equal(names["@loozo/origami-ui/toolbar"].length, 9);
   assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
+  assert.equal(names["@loozo/origami-ui/radio-group"].includes("ɵOrigamiRadioGroupRoot"), false);
   assert.deepEqual(origami.generatedApi, []);
 });
 

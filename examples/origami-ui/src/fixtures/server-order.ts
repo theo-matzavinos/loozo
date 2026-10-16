@@ -1,5 +1,4 @@
 import {
-  ChangeDetectionStrategy,
   Component,
   Directive,
   ElementRef,
@@ -9,19 +8,9 @@ import {
   signal,
   viewChild,
 } from "@angular/core";
-import {
-  OrigamiCollection,
-  OrigamiCollectionItem,
-  OrigamiCollectionState,
-} from "@loozo/origami-ui/collection";
+import { OrigamiCollection, OrigamiCollectionItem } from "@loozo/origami-ui/collection";
 import type { OrigamiCollectionRecord } from "@loozo/origami-ui/collection";
-import {
-  OrigamiAccordionMultiple,
-  OrigamiAccordionItem,
-  OrigamiAccordionState,
-} from "@loozo/origami-ui/accordion";
-import { OrigamiToggleGroupItem, OrigamiToggleGroupMultiple } from "@loozo/origami-ui/toggle-group";
-import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
+import { OrigamiAccordionMultiple, OrigamiAccordionItem } from "@loozo/origami-ui/accordion";
 
 // SSR-only consumers rendered by tests/acceptance/ssr-checks.mjs; never imported by browser routes.
 
@@ -37,15 +26,15 @@ export class ServerOrderEvidence {
   finalNodes: readonly Element[] = [];
   initialRecords: readonly OrigamiCollectionRecord[] = [];
   retained = false;
+  /** Whether the final `items` read returned the initial array: a keyed move notified no reader. */
+  sameItems = false;
   observations = 0;
-  ownerChecks = 0;
-  finalReads: readonly {
-    collection: readonly string[];
-    accordion: readonly string[];
-  }[] = [];
 }
 
-/** Genuine pending-task async key move after the first public State read and rendered-node capture. */
+/**
+ * Genuine pending-task keyed move after the first public State read and rendered-node capture.
+ * Membership doesn't change, so `items` and `itemValues` keep their order.
+ */
 @Component({
   selector: "order-app",
   imports: [
@@ -137,256 +126,7 @@ export class ServerOrderConsumer {
       ) &&
       evidence.initialRecords.length === records.length &&
       evidence.initialRecords.every((record) => records.includes(record));
-  }
-}
-
-/** Only this OnPush descendant owns the keyed Collection item views and their State output. */
-@Component({
-  selector: "server-collection-descendant",
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OrigamiCollectionItem],
-  template: `
-    @for (key of keys(); track key) {
-      <span ogCollectionItem [value]="key" [attr.data-server-item]="key">{{ key }}</span>
-    }
-    <output id="onpush-collection-order">{{ state.items()[0]?.value() }},{{ state.items()[1]?.value() }}</output>
-  `,
-})
-export class ServerCollectionDescendant {
-  readonly keys = signal(["one", "two"]);
-  readonly state = inject(OrigamiCollectionState);
-}
-
-/** Accordion composes the Collection Item hook in the descendant's own keyed embedded views. */
-@Component({
-  selector: "server-accordion-descendant",
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OrigamiAccordionItem],
-  template: `
-    @for (key of keys(); track key) {
-      <article ogAccordionItem [value]="key" [attr.data-server-accordion-item]="key">{{ key }}</article>
-    }
-    <output id="onpush-accordion-order">{{ state.itemValues().join(',') }}</output>
-  `,
-})
-export class ServerAccordionDescendant {
-  readonly keys = signal(["one", "two"]);
-  readonly state = inject(OrigamiAccordionState);
-}
-
-/**
- * Static OnPush owner views are only traversed after their OnPush children change keys.
- * State capture occurs in lifecycle/final serialization callbacks, not owner template bindings;
- * no markForCheck, detectChanges or owner signal write can conceal skipped owner hooks.
- */
-@Component({
-  selector: "onpush-order-app",
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    OrigamiCollection,
-    OrigamiAccordionMultiple,
-    ServerCollectionDescendant,
-    ServerAccordionDescendant,
-  ],
-  template: `
-    <section ogCollection>
-      <server-collection-descendant />
-    </section>
-    <section ogAccordionMultiple>
-      <server-accordion-descendant />
-    </section>
-  `,
-})
-export class ServerOnPushOrderConsumer {
-  protected readonly collectionView = viewChild.required(OrigamiCollection);
-  protected readonly accordionView = viewChild.required(OrigamiAccordionMultiple);
-  protected readonly collectionChild = viewChild.required(ServerCollectionDescendant);
-  protected readonly accordionChild = viewChild.required(ServerAccordionDescendant);
-  readonly #host = inject<ElementRef<Element>>(ElementRef).nativeElement;
-  readonly #evidence = inject(ServerOrderEvidence);
-  #releaseInitial: () => void = () => {};
-
-  constructor() {
-    this.#evidence.observeFinal = () => this.#recordFinal();
-
-    const initialRender = new Promise<void>((resolve) => {
-      this.#releaseInitial = resolve;
-    });
-
-    inject(PendingTasks).run(async () => {
-      await initialRender;
-      this.collectionChild().keys.set(["two", "one"]);
-      this.accordionChild().keys.set(["two", "one"]);
-    });
-  }
-
-  ngAfterViewChecked(): void {
-    const evidence = this.#evidence;
-
-    evidence.ownerChecks += 1;
-
-    if (evidence.initialNodes.length !== 0) {
-      return;
-    }
-
-    const records = this.collectionView().state.items();
-    const values: string[] = [];
-
-    for (const record of records) {
-      values.push(record.value());
-    }
-
-    // Prime both public computed signals before either descendant changes keys.
-    this.accordionView().state.itemValues();
-    evidence.initialValues = values;
-    evidence.initialRecords = records;
-    evidence.initialNodes = Array.from(
-      this.#host.querySelectorAll("[data-server-item], [data-server-accordion-item]"),
-    );
-    evidence.initialParents = evidence.initialNodes.map((node) => node.parentNode);
-    evidence.observations += 1;
-    this.#releaseInitial();
-  }
-
-  #recordFinal(): void {
-    const evidence = this.#evidence;
-    const reads: { collection: readonly string[]; accordion: readonly string[] }[] = [];
-
-    // Consecutive reads must stay current, without any requested render between them.
-    for (let index = 0; index < 3; index += 1) {
-      const values: string[] = [];
-
-      for (const record of this.collectionView().state.items()) {
-        values.push(record.value());
-      }
-
-      reads.push({
-        collection: values,
-        accordion: this.accordionView().state.itemValues(),
-      });
-    }
-
-    const records = this.collectionView().state.items();
-
-    evidence.finalReads = reads;
-    evidence.finalCollectionValues = reads[0].collection;
-    evidence.finalValues = reads[0].accordion;
-    evidence.finalNodes = Array.from(
-      this.#host.querySelectorAll("[data-server-item], [data-server-accordion-item]"),
-    );
-    evidence.retained =
-      evidence.initialNodes.length === evidence.finalNodes.length &&
-      evidence.initialNodes.every(
-        (node, index) =>
-          evidence.finalNodes.includes(node) && node.parentNode === evidence.initialParents[index],
-      ) &&
-      evidence.initialRecords.length === records.length &&
-      evidence.initialRecords.every((record) => records.includes(record));
-    evidence.observations += 1;
-  }
-}
-
-/** Evidence for a joined group whose keyed items move only inside an OnPush descendant. */
-@Service({ autoProvided: false })
-export class ServerJoinedOrderEvidence {
-  initialValues: readonly string[] = [];
-  initialNodes: readonly Element[] = [];
-  finalValues: readonly string[] = [];
-  finalNodes: readonly Element[] = [];
-  retained = false;
-  ownerChecks = 0;
-  observeFinal = (): void => {};
-}
-
-/** Only this OnPush descendant owns the joined group's keyed item views. */
-@Component({
-  selector: "server-toolbar-group-descendant",
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OrigamiToggleGroupMultiple, OrigamiToggleGroupItem],
-  template: `
-    <div ogToggleGroupMultiple aria-label="Marks">
-      @for (key of keys(); track key) {
-        <button ogToggleGroupItem [value]="key" [attr.data-server-joined-item]="key">
-          {{ key }}
-        </button>
-      }
-    </div>
-  `,
-})
-export class ServerToolbarGroupDescendant {
-  readonly keys = signal(["bold", "italic"]);
-}
-
-/**
- * The static OnPush Toolbar owner is only traversed after the descendant group changes keys, so
- * neither the Toolbar's nor its own item's view-check hooks run again.
- */
-@Component({
-  selector: "onpush-toolbar-order-app",
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OrigamiToolbar, OrigamiToolbarItem, ServerToolbarGroupDescendant],
-  template: `
-    <div ogToolbar aria-label="Formatting">
-      <server-toolbar-group-descendant />
-      <button ogToolbarItem data-server-joined-item="paste">Paste</button>
-    </div>
-  `,
-})
-export class ServerOnPushToolbarOrderConsumer {
-  protected readonly collection = viewChild.required(OrigamiToolbar, {
-    read: OrigamiCollectionState,
-  });
-  protected readonly group = viewChild.required(ServerToolbarGroupDescendant);
-  readonly #host = inject<ElementRef<Element>>(ElementRef).nativeElement;
-  readonly #evidence = inject(ServerJoinedOrderEvidence);
-  #releaseInitial: () => void = () => {};
-
-  constructor() {
-    this.#evidence.observeFinal = () => {
-      const records = this.collection().items();
-
-      this.#evidence.finalValues = this.#values();
-      this.#evidence.finalNodes = this.#nodes();
-      this.#evidence.retained =
-        this.#evidence.initialNodes.every((node) => this.#evidence.finalNodes.includes(node)) &&
-        records.length === this.#evidence.initialNodes.length;
-    };
-
-    const initialRender = new Promise<void>((resolve) => {
-      this.#releaseInitial = resolve;
-    });
-
-    inject(PendingTasks).run(async () => {
-      await initialRender;
-      this.group().keys.set(["italic", "bold"]);
-    });
-  }
-
-  ngAfterViewChecked(): void {
-    this.#evidence.ownerChecks += 1;
-
-    if (this.#evidence.initialNodes.length !== 0) {
-      return;
-    }
-
-    // Primes the Toolbar's public Collection order before the descendant changes keys.
-    this.#evidence.initialValues = this.#values();
-    this.#evidence.initialNodes = this.#nodes();
-    this.#releaseInitial();
-  }
-
-  #values(): string[] {
-    const values: string[] = [];
-
-    for (const record of this.collection().items()) {
-      values.push(record.value());
-    }
-
-    return values;
-  }
-
-  #nodes(): Element[] {
-    return Array.from(this.#host.querySelectorAll("[data-server-joined-item]"));
+    evidence.sameItems = records === evidence.initialRecords;
   }
 }
 
@@ -395,6 +135,8 @@ export class ServerOnPushToolbarOrderConsumer {
 export class ServerLateOrderEvidence {
   firstCollection: readonly string[] = [];
   firstAccordion: readonly string[] = [];
+  movedCollection: readonly string[] = [];
+  movedAccordion: readonly string[] = [];
   finalCollection: readonly string[] = [];
   finalAccordion: readonly string[] = [];
   finalNodes: readonly Element[] = [];
@@ -413,7 +155,7 @@ export class LateOrderChecked {
 
 /**
  * Pending-task keyed moves and an insertion render while no State is read; the first reads follow
- * those renders, then a further move must still refresh order before serialization.
+ * those renders. A further keyed move keeps the read order; a later removal reads DOM order again.
  */
 @Component({
   selector: "late-order-app",
@@ -465,6 +207,10 @@ export class ServerLateOrderConsumer {
       this.#evidence.firstCollection = this.#collectionValues();
       this.#evidence.firstAccordion = this.accordionView().state.itemValues();
       this.keys.set(["one", "three", "two"]);
+      await this.#nextCheck();
+      this.#evidence.movedCollection = this.#collectionValues();
+      this.#evidence.movedAccordion = this.accordionView().state.itemValues();
+      this.keys.set(["one", "two"]);
     });
   }
 

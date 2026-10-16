@@ -29,7 +29,7 @@ Single, Multiple, shared, Trigger and Panel Options can each be replaced. Here t
 
 ## State and attributes
 
-`OrigamiAccordionState` has `itemValues()`, the mounted items' values in DOM order, and `disabled()`, the effective root policy.
+`OrigamiAccordionState` has `itemValues()`, the mounted items' values in DOM order as of the latest insertion or removal (a keyed move that keeps the same items doesn't notify readers), and `disabled()`, the effective root policy.
 
 Each item is a Collapsible, so the item element carries the Collapsible root attributes, and the Trigger and Panel carry the Collapsible Trigger and Panel attributes above.
 

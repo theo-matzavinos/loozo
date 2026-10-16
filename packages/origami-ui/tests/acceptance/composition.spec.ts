@@ -106,13 +106,13 @@ test("I1 I2: deferred capture is nearest, later, cached and context-bound; facto
   await page.getByTestId("resolve-first").click();
   await expect(page.getByTestId("deferred-lookups")).toHaveText("1");
   await page.getByTestId("utilities-outside").click();
-  await expect(page.getByTestId("outside-injection-errors")).toHaveText("2");
+  await expect(page.getByTestId("outside-injection-errors")).toHaveText("3");
   await page.getByTestId("factory-trigger").click();
   await expect(page.getByTestId("factory-expanded")).toHaveText("true");
   await expect(page.getByTestId("unused-lower-outputs")).toHaveText("0");
 });
 
-test("I3: opaque mounted identities are independent of DOM IDs and keyed order; independent applications", async ({
+test("I3: generated element IDs are host IDs until the consumer binds one, stable through keyed order; independent applications", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -127,6 +127,8 @@ test("I3: opaque mounted identities are independent of DOM IDs and keyed order; 
   expect(ids[0]).toBeTruthy();
   expect(ids[1]).toBeTruthy();
   expect(new Set(ids).size).toBe(2);
+  await expect(first).toHaveAttribute("id", ids[0] ?? "");
+  await expect(second).toHaveAttribute("id", ids[1] ?? "");
 
   const firstNode = await first.elementHandle();
 
@@ -157,14 +159,11 @@ test("I3: opaque mounted identities are independent of DOM IDs and keyed order; 
     expect(new Set(values).size).toBe(2);
   }
 
-  // These owners have element hosts. No-host calls retain validity/uniqueness/mounted
-  // stability/application locality, but their SSR matching is not asserted here.
-  // The approved amendment adds no scope API.
   // Cross-application document uniqueness and exact allocator spelling/sequence are deliberately not asserted.
   await expect(first).toHaveAttribute("data-generated-id", ids[0] ?? "");
 });
 
-test("I3: repeated/odd-key hosted allocations, no-host application identities and reused-host application isolation", async ({
+test("I3: hosted ID and value allocations, no-host application identities and reused-host application isolation", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -196,9 +195,9 @@ test("I3: repeated/odd-key hosted allocations, no-host application identities an
   expect(before).toHaveLength(2);
 
   for (const [index, owner] of before.entries()) {
-    // Same-key repeat, lone-surrogate key and replacement-character key all stay distinct.
-    expect(owner).toHaveLength(4);
-    expect(new Set(owner).size).toBe(4);
+    // An element ID and a value default with the same key on one host stay distinct.
+    expect(owner).toHaveLength(2);
+    expect(new Set(owner).size).toBe(2);
     await expect(owners.nth(index)).toHaveAttribute("data-generated-id", owner[0] ?? "");
     all.push(...owner);
   }
@@ -207,7 +206,7 @@ test("I3: repeated/odd-key hosted allocations, no-host application identities an
     expect(value).not.toBe("");
   }
 
-  expect(new Set(all).size).toBe(8);
+  expect(new Set(all).size).toBe(4);
 
   const unhosted = page.getByTestId("unhosted-identities");
 

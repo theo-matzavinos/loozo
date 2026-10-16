@@ -10,16 +10,16 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { OrigamiCollectionItem } from "@loozo/origami-ui/collection";
+import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { ToolbarContext } from "./toolbar";
 
 const itemReplacement = new InjectionToken<OrigamiToolbarItemOptions>("Toolbar Item replacement");
 
 /**
- * Effective item configuration. The Toolbar reads every item's Options while rendering, so
- * replacement Options must be readable as soon as the item is constructed; a required input in a
- * repeated item can be read before Angular sets it (NG0950).
+ * Effective item configuration. Other items read it only once the item has published its roving
+ * registration in `ngOnInit`, after Angular set its inputs, so replacement Options may use
+ * required inputs.
  */
 export abstract class OrigamiToolbarItemOptions {
   /** Sets native `disabled` and removes the item from navigation. */
@@ -81,20 +81,18 @@ export abstract class OrigamiToolbarItemOptions {
 }
 
 /**
- * A native `type="button"` control in the nearest Toolbar, composed with Collection Item. It
- * keeps its own activation: Toolbar never clicks, and a click focuses the item if it is still
+ * A native `type="button"` control in the nearest Toolbar. It keeps its own activation: Toolbar never clicks, and a click focuses the item if it is still
  * mounted and enabled, so it becomes the roving position in every engine. Arrow keys along the
  * Toolbar's orientation (horizontal arrows follow reading direction), Home and End move focus among
- * enabled items and joined group items in DOM order, wrapping at the ends, and never activate.
+ * enabled items and Toolbar group items in DOM order, wrapping at the ends, and never activate.
  * One enabled control is the tab stop (`tabindex="0"`): the focused one, else the first. Own
  * disabled state sets native `disabled`, `aria-disabled` and `data-disabled` and removes the item
  * from navigation. If a focused item is removed or disabled while focus has not moved elsewhere,
  * focus moves to the new tab stop without activating. Requires a nearest Toolbar; do not also
- * apply it to a ToggleGroup or RadioGroup item, which joins on its own.
+ * apply it to a ToggleGroup or RadioGroup item, which registers on its own.
  */
 @Directive({
   selector: "button[ogToolbarItem]",
-  hostDirectives: [OrigamiCollectionItem],
   providers: [OrigamiToolbarItemOptions.ɵprovideDefault(() => OrigamiToolbarItem)],
   host: {
     type: "button",
@@ -113,17 +111,16 @@ export class OrigamiToolbarItem implements OrigamiToolbarItemOptions {
   readonly disabled = input(false, { transform: booleanAttribute });
 
   readonly #options = injectDeferred(OrigamiToolbarItemOptions);
-  readonly #context = inject(ToolbarContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   #destroyed = false;
 
   /** @internal Native disabled host binding. */
   protected readonly effectiveDisabled = computed(() => this.#options().disabled());
 
-  readonly #focus = this.#context.focus.register({
+  // An item has no value of its own; the Toolbar prefers no value, so it never matters.
+  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
+    value: computed(() => ""),
     disabled: this.effectiveDisabled,
-    preferred: computed(() => false),
-    navigated: () => {},
   });
 
   /** @internal Roving tab stop. */
@@ -155,9 +152,15 @@ export class OrigamiToolbarItem implements OrigamiToolbarItemOptions {
 
   /** Resolves the nearest Toolbar synchronously; an orphan fails Angular DI clearly. */
   constructor() {
+    inject(ToolbarContext);
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Publishes this item's roving registration once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#focus.publish();
   }
 
   /**
@@ -175,7 +178,7 @@ export class OrigamiToolbarItem implements OrigamiToolbarItemOptions {
 
   /** @internal Arrow/Home/End navigation along the Toolbar's orientation. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event, this.#context.orientation());
+    this.#focus.keydown(event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
