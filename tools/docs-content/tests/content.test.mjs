@@ -231,11 +231,13 @@ test('a snippet embed titled "both" becomes a demo block between the page\'s HTM
     kinds.push(block.kind);
   }
 
-  assert.deepEqual(kinds, ["html", "demo", "html"]);
+  assert.deepEqual(kinds, ["html", "demo", "html", "demo"]);
 
   const demo = widgets.guides[2].blocks[1];
 
   assert.equal(demo.demo, "widgets/snippets/counter.ts");
+  assert.equal(demo.view, "both");
+  assert.deepEqual(demo.controls, []);
   assert.match(
     demo.sourceHtml,
     /^<figure class="docs-snippet"><figcaption><code>snippets\/counter.ts/,
@@ -253,7 +255,46 @@ test("lists every demo with the snippet file and component export it runs", asyn
       file: join(fixture, "packages/widgets/snippets/counter.ts"),
       exportName: "Counter",
     },
+    {
+      id: "widgets/snippets/panel.ts",
+      file: join(fixture, "packages/widgets/snippets/panel.ts"),
+      exportName: "Panel",
+    },
   ]);
+});
+
+test("a playground's controls come from its component's inputs and models", () => {
+  const playground = widgets.guides[2].blocks[3];
+
+  assert.equal(playground.view, "playground");
+  assert.deepEqual(playground.controls, [
+    { name: "open", binding: "model", kind: "boolean", initial: false },
+    {
+      name: "side",
+      binding: "input",
+      kind: "options",
+      options: ["start", "end", null],
+      initial: "end",
+    },
+    { name: "gap", binding: "input", kind: "number", initial: -4 },
+    { name: "panelLabel", binding: "input", kind: "string", initial: "Panel" },
+    { name: "items", binding: "input", kind: "fixed", type: "readonly string[]" },
+    { name: "size", binding: "input", kind: "fixed", type: "number" },
+  ]);
+});
+
+test("fails on a playground whose component has a required input", async () => {
+  const root = await brokenFixture(async (dir) => {
+    const panel = join(dir, "packages/widgets/snippets/panel.ts");
+    const source = await readFile(panel, "utf8");
+
+    await writeFile(panel, source.replace('input("Panel", {', "input.required<string>({"));
+  });
+
+  await assert.rejects(
+    buildContent({ root, commit }),
+    /README\.md:\d+: a playground has no value for required input "panelLabel" of Panel/,
+  );
 });
 
 const demoFailures = [
@@ -405,8 +446,8 @@ const embedFailures = [
   ],
   [
     "a reserved view",
-    '[](snippets/example.ts "playground")',
-    /README\.md:20: snippet view "playground" is not supported yet/,
+    '[](snippets/example.ts "output")',
+    /README\.md:20: snippet view "output" is not supported yet/,
   ],
   [
     "code outside snippets/",
@@ -574,6 +615,7 @@ test("renders the published README with snippet embeds replaced by fenced code",
     ].join("\n"),
   );
   assert.doesNotMatch(published, /#region|\]\(snippets\//);
+  assert.match(published, /`snippets\/panel.ts`\n\n```ts\nimport \{ Component, input, model \}/);
   // A running view publishes as its source.
   assert.match(
     published,

@@ -2,7 +2,10 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import MarkdownIt, { type Token } from "markdown-it";
 import { createHighlighter, type ThemedToken } from "shiki";
+import type ts from "typescript";
+import { readControls } from "./controls.ts";
 import { findDemo, type Demo } from "./demos.ts";
+import type { GuideBlock } from "./model.ts";
 import { attribute, findSnippetEmbed, readSnippet, SourceError } from "./snippets.ts";
 
 export const markdown = new MarkdownIt({ html: true });
@@ -133,7 +136,14 @@ export interface PackageContext {
   readonly symbols: ReadonlyMap<string, string>;
   /** Running snippets by id; `transformTokens` adds every one it embeds. */
   readonly demos: Map<string, Demo>;
+  /** The program over the package's snippets, for playground controls. */
+  readonly snippetProgram: () => ts.Program;
 }
+
+/** A running snippet's block, without the source figure its token carries as content. */
+type DemoToken = Omit<Extract<GuideBlock, { kind: "demo" }>, "sourceHtml">;
+
+const demoTokens = new WeakMap<Token, DemoToken>();
 
 /** Where a piece of markdown comes from. */
 export interface MarkdownOrigin {
@@ -144,20 +154,9 @@ export interface MarkdownOrigin {
   readonly tsdoc: boolean;
 }
 
-/** The demo id `transformTokens` put on a running snippet's token; undefined for other tokens. */
-export function demoOf(token: Token): string | undefined {
-  const meta: unknown = token.meta;
-
-  if (
-    typeof meta === "object" &&
-    meta !== null &&
-    "demo" in meta &&
-    typeof meta.demo === "string"
-  ) {
-    return meta.demo;
-  }
-
-  return undefined;
+/** The block of a running snippet's token, as `transformTokens` left it; undefined otherwise. */
+export function demoOf(token: Token): DemoToken | undefined {
+  return demoTokens.get(token);
 }
 
 /** Renders TSDoc or other standalone markdown text of a package. */
@@ -175,8 +174,8 @@ export function renderMarkdown(context: PackageContext, text: string, origin: Ma
 
 /**
  * Rewrites parsed tokens in place: highlights code, embeds snippets, resolves links and links
- * inline code that names a public symbol. A running snippet becomes its source figure with the
- * demo id in `token.meta.demo`, for the guide page renderer to split on.
+ * inline code that names a public symbol. A running snippet becomes its source figure, and
+ * `demoOf` returns its block for the guide page renderer to split on.
  */
 export function transformTokens(context: PackageContext, tokens: Token[], origin: MarkdownOrigin) {
   const baseDir = dirname(origin.file);
@@ -220,15 +219,20 @@ export function transformTokens(context: PackageContext, tokens: Token[], origin
           `${context.highlight(snippet.code, snippet.language)}</figure>\n`;
         tokens.splice(index + 1, 2);
 
-        if (embed.view === "both") {
+        if (embed.view !== "source") {
           if (origin.tsdoc) {
             throw new SourceError(origin.file, line, "running snippets belong in guide pages");
           }
 
           const demo = findDemo(context.slug, embed, origin.file, line);
+          let controls: DemoToken["controls"] = [];
+
+          if (embed.view === "playground") {
+            controls = readControls(context.snippetProgram(), demo, origin.file, line);
+          }
 
           context.demos.set(demo.id, demo);
-          token.meta = { demo: demo.id };
+          demoTokens.set(token, { kind: "demo", demo: demo.id, view: embed.view, controls });
         }
 
         continue;

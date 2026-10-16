@@ -39,3 +39,5 @@ Code `[spec](SPEC.md)` stays beside [the spec again](SPEC.md).
 [Counter](snippets/counter.ts "both")
 
 After the demo.
+
+[Panel](snippets/panel.ts "playground")

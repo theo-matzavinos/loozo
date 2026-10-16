@@ -152,6 +152,48 @@ pre code {
   border-radius: 6px 6px 0 0;
 }
 
+docs-demo-playground {
+  display: contents;
+}
+
+.docs-demo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+
+.docs-demo-controls legend {
+  float: left;
+  margin-inline-end: 0.5rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.docs-demo-controls label {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.docs-demo-controls input[type="number"] {
+  inline-size: 6rem;
+}
+
+.docs-demo-controls p {
+  margin: 0;
+}
+
+.docs-demo-controls .fixed {
+  color: var(--muted);
+}
+
 .docs-demo .docs-snippet {
   margin: 0;
 }

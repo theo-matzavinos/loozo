@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { isDocEntryWithSourceInfo, type DocEntryWithSourceInfo } from "@angular/compiler-cli";
 import { isDocumented, symbolSlug, toApiSymbol, type DeclarationSource } from "./api.ts";
 import { extractPackage, type ExtractedEntryPoint } from "./extract.ts";
+import { snippetProgramLoader } from "./controls.ts";
 import type { Demo } from "./demos.ts";
 import { createHighlight, type PackageContext, type ReadmeAnchors } from "./markdown.ts";
 import type { ApiSymbol, EntryPoint, PackageContent } from "./model.ts";
@@ -115,6 +116,7 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Bu
       readmes: anchors,
       symbols,
       demos,
+      snippetProgram: snippetProgramLoader(workspacePackage.dir),
     };
 
     const entryPoints: EntryPoint[] = [];

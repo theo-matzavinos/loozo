@@ -2,12 +2,13 @@ import { Component, computed, inject } from "@angular/core";
 import { NgComponentOutlet } from "@angular/common";
 import { RouterLink } from "@angular/router";
 import { ContentHtml } from "../../../../content-html.js";
+import { DemoPlayground } from "../../../../demo-playground.js";
 import { CurrentPackage, findGuide } from "../../../../package-content.js";
 import { pageTitle } from "../../../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [RouterLink, ContentHtml, NgComponentOutlet],
+  imports: [RouterLink, ContentHtml, NgComponentOutlet, DemoPlayground],
   template: `
     @if (page(); as page) {
       <article class="prose">
@@ -28,14 +29,19 @@ import { injectRoute } from "./route.generated.js";
           </nav>
         }
 
-        @for (block of page.blocks; track $index) {
+        <!-- Tracked by identity, so another page's blocks create their demos afresh. -->
+        @for (block of page.blocks; track block) {
           @if (block.kind === "html") {
             <div [docsContentHtml]="block.html"></div>
           } @else {
             <div class="docs-demo">
-              <div class="docs-demo-output" role="group" aria-label="Running example">
-                <ng-container *ngComponentOutlet="block.component" />
-              </div>
+              @if (block.view === "playground") {
+                <docs-demo-playground [component]="block.component" [controls]="block.controls" />
+              } @else {
+                <div class="docs-demo-output" role="group" aria-label="Running example">
+                  <ng-container *ngComponentOutlet="block.component" />
+                </div>
+              }
               <div [docsContentHtml]="block.sourceHtml"></div>
             </div>
           }

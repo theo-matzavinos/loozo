@@ -236,7 +236,7 @@ function renderBlocks(tokens: Token[]): GuideBlock[] {
       blocks.push({ kind: "html", html: render(pending) });
     }
 
-    blocks.push({ kind: "demo", demo, sourceHtml: token.content });
+    blocks.push({ ...demo, sourceHtml: token.content });
     pending = [];
   }
 
