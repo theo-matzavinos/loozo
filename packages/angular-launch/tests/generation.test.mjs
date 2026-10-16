@@ -839,7 +839,7 @@ test("exact ownership markers, excluded stale facade inventory, standalone isola
   // Exclude retained facades whose type-only server imports were removed.
   config.exclude.push("**/rpc.generated.ts", "generated/server.generated.ts");
   await put(root, "tsconfig.json", JSON.stringify(config));
-  await generateRouter(root, options, () => false);
+  await generateRouter(root, { ...options, autoDefineRoutes: false }, () => false);
   assert.deepEqual((await snapshot(root))["src/routes/left/rpc.generated.ts"], launchBefore);
 });
 
