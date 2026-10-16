@@ -57,13 +57,14 @@ const first = copies[0];
 const second = copies[1];
 const metadata = JSON.parse(await readFile(join(first, "package.json"), "utf8"));
 const secondMetadata = JSON.parse(await readFile(join(second, "package.json"), "utf8"));
+const source = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
 
 for (const [directory, declaration] of [
   [first, metadata],
   [second, secondMetadata],
 ]) {
   assert.equal(declaration.private, undefined);
-  assert.equal(declaration.version, "0.0.4");
+  assert.equal(declaration.version, source.version);
   assert.equal(declaration.license, "MIT");
 
   const packedLicense = await readFile(join(directory, "LICENSE"), "utf8");

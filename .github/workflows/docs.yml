@@ -3,6 +3,10 @@ name: Docs
 on:
   push:
     branches: [main]
+  # The release commit is pushed with GITHUB_TOKEN, which doesn't trigger push workflows.
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
   workflow_dispatch:
 
 permissions:

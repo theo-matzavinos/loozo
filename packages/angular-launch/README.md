@@ -6,12 +6,12 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. Version `0.0.2`, MIT license. It currently covers queries, mutations, guards and declared errors. There's no builder or watch mode yet, and no subscriptions, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, guards and declared errors. There's no builder or watch mode yet, and no subscriptions, optimistic updates, automatic invalidation or storage adapters.
 
 ## Requirements
 
 - Angular 22 with SSR: `@angular/core` and `@angular/common` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/router`, `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.2.2.
-- `@loozo/angular-router` at exactly the version Launch was released with (`0.0.4` for Launch `0.0.2`), as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
+- `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
 

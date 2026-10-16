@@ -35,13 +35,13 @@ Pack and publish only from `dist/`; publishing from a package root fails on purp
 
 ## Releasing
 
-Set the new version in `packages/<package>/package.json`, commit it, then push a `<package>@<version>` tag:
+Release a package from the Actions tab: run the **Publish** workflow on `main` and pick the package. The workflow:
 
-```sh
-git tag angular-router@0.0.4
-git push origin main angular-router@0.0.4
-```
+1. Bumps the package to the next `0.0.x` with `scripts/bump-version.mjs`. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed.
+2. Builds the package and the workspace packages it depends on, then runs its `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one.
+3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main`. If `main` moved during the run, the push fails and nothing is published.
+4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token. If only this step fails, use **Re-run failed jobs**.
 
-The tag starts `.github/workflows/publish.yml`. It fails if the tag doesn't match the version in `package.json`. Otherwise it builds the package and the workspace packages it depends on. It then runs the package's `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one. If they all pass, it publishes `dist/` to npm through trusted publishing, with provenance and no stored token. Run the extended proofs a package's README lists, such as Origami's `test:full`, before tagging; the workflow doesn't run them.
+Run the extended proofs a package's README lists, such as Origami's `test:full`, before releasing; the workflow doesn't run them.
 
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).

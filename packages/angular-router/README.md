@@ -6,7 +6,7 @@ Angular still does all the routing: matching, activation, guards, resolvers, red
 
 Use it when you want route params, query params and links to be type-checked end to end in an Angular 22 application, and you're happy to run generation through the provided Angular builders.
 
-**Status:** experimental and not yet broadly battle-tested. Version `0.0.4`, MIT license.
+**Status:** experimental and not yet broadly battle-tested. MIT license.
 
 ## Install
 
