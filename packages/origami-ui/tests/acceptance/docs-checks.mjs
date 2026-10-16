@@ -49,6 +49,7 @@ for (const directory of [
   "tabs/src",
   "toggle-group/src",
   "toolbar/src",
+  "radio-group/src",
 ]) {
   await collect(directory);
 }
@@ -124,6 +125,10 @@ const directiveDefaults = {
   "OrigamiToggleGroupItem.disabled": ["false", /\bfalse\b/i],
   "OrigamiToolbar.orientation": ["horizontal", /\bhorizontal\b/i],
   "OrigamiToolbarItem.disabled": ["false", /\bfalse\b/i],
+  "OrigamiRadioGroup.value": ["null", /\bnull\b/i],
+  "OrigamiRadioGroup.disabled": ["false", /\bfalse\b/i],
+  "OrigamiRadioGroupItem.value": ["generated value", /generat|unique|opaque/i],
+  "OrigamiRadioGroupItem.disabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

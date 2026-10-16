@@ -195,6 +195,19 @@ test("S2: automatic horizontal arrows skip disabled Triggers, wrap, select once 
   await tab(page, "profile").focus();
   await expect(outputs).toHaveText("1");
 
+  // Home onto the focused unselected tab selects it; again, it writes nothing.
+  await page.keyboard.press("Home");
+  await expect(tab(page, "profile")).toBeFocused();
+  await expect(state).toHaveText("profile");
+  await expect(outputs).toHaveText("2");
+  await page.keyboard.press("Home");
+  // A duplicate write would render only after the zoneless scheduler's next turn (an animation
+  // frame or a timer), so let both pass before asserting it never happened.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+  await expect(outputs).toHaveText("2");
+
   const moves = [
     { key: "ArrowRight", focused: "security" },
     { key: "ArrowRight", focused: "profile" },
@@ -202,7 +215,7 @@ test("S2: automatic horizontal arrows skip disabled Triggers, wrap, select once 
     { key: "Home", focused: "profile" },
     { key: "End", focused: "security" },
   ];
-  let count = 1;
+  let count = 2;
 
   for (const move of moves) {
     await page.keyboard.press(move.key);
@@ -288,6 +301,18 @@ test("S3: manual vertical arrows move focus only; Enter selects; Shift+Tab leave
   await expect(part("outputs")).toHaveText("1");
   await expect(part("panel-security")).toBeVisible();
   await expect(part("panel-profile")).toBeHidden();
+
+  // Home onto the focused unselected tab only keeps focus there.
+  await part("profile").focus();
+  await page.keyboard.press("Home");
+  await expect(part("profile")).toBeFocused();
+  // A wrong selection would render only after the zoneless scheduler's next turn (an animation
+  // frame or a timer), so let both pass before asserting it never happened.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+  await expect(part("value")).toHaveText("security");
+  await expect(part("outputs")).toHaveText("1");
 });
 
 test("S4: horizontal arrows follow reading direction; vertical arrows ignore it", async ({

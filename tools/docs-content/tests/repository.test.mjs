@@ -261,6 +261,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/tabs",
     "@loozo/origami-ui/toggle-group",
     "@loozo/origami-ui/toolbar",
+    "@loozo/origami-ui/radio-group",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], ["injectDeferred", "injectUniqueId"]);
   // Compiler-required ɵ exports are not application API.
@@ -274,6 +275,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/toggle-group"].length, 8);
   assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusScope"), false);
   assert.equal(names["@loozo/origami-ui/toolbar"].length, 6);
+  assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
   assert.deepEqual(origami.generatedApi, []);
 });
 

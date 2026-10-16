@@ -56,6 +56,13 @@ import {
   OrigamiToolbarItemOptions,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import {
+  OrigamiRadioGroup,
+  OrigamiRadioGroupOptions,
+  OrigamiRadioGroupState,
+  OrigamiRadioGroupItem,
+  OrigamiRadioGroupItemOptions,
+} from "@loozo/origami-ui/radio-group";
 import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 
@@ -347,6 +354,85 @@ export class EditorSeparator {
   });
 }
 
+@Service({ autoProvided: false })
+export class CheckoutStore {
+  readonly speed = signal<string | null>("standard");
+  readonly locked = signal(false);
+}
+
+/** The checkout store owns the value and the lock; the exposed own model stays unused. */
+@Directive({
+  selector: "[checkoutSpeed]",
+  exportAs: "checkoutSpeed",
+  hostDirectives: [
+    {
+      directive: OrigamiRadioGroup,
+      inputs: ["value: lowerValue"],
+      outputs: ["valueChange: lowerValueChange"],
+    },
+  ],
+  providers: [
+    OrigamiRadioGroupOptions.provideFactory(() => {
+      const store = inject(CheckoutStore);
+
+      return { value: store.speed, disabled: store.locked };
+    }),
+  ],
+})
+export class CheckoutSpeed {
+  readonly state = inject(OrigamiRadioGroupState);
+  readonly #items = inject(OrigamiCollectionState);
+  /** The composed Collection's values, which only the upper item Options supply. */
+  readonly itemValues = computed(() => {
+    const values: string[] = [];
+
+    for (const item of this.#items.items()) {
+      values.push(item.value());
+    }
+
+    return values.join(",");
+  });
+}
+
+export type SpeedRecord = { readonly id: string; readonly available: boolean };
+
+/** Readable before Angular sets the input: the group reads every repeated item's Options while rendering. */
+const pendingSpeed: SpeedRecord = { id: "", available: false };
+
+/** Existing item Options: value and availability come from the consumer's domain record. */
+@Directive({
+  selector: "button[speedOption]",
+  hostDirectives: [OrigamiRadioGroupItem],
+  providers: [OrigamiRadioGroupItemOptions.provideExisting(() => SpeedOption)],
+})
+export class SpeedOption implements OrigamiRadioGroupItemOptions {
+  readonly option = input<SpeedRecord>(pendingSpeed, { alias: "speedOption" });
+  readonly value = computed(() => this.option().id);
+  readonly disabled = computed(() => !this.option().available);
+}
+
+/** A delivery estimate under the group, from descendant State. */
+@Directive({
+  selector: "[speedEstimate]",
+  host: { "[attr.data-estimate]": "estimate()" },
+})
+export class SpeedEstimate {
+  readonly #group = inject(OrigamiRadioGroupState);
+  protected readonly estimate = computed(() => {
+    const speed = this.#group.value();
+
+    if (speed === "standard") {
+      return "3-5 days";
+    }
+
+    if (speed === "express") {
+      return "next day";
+    }
+
+    return "unknown";
+  });
+}
+
 const DeferredValue = new InjectionToken<string>("acceptance deferred value");
 
 @Directive({
@@ -394,6 +480,11 @@ export class UtilityObservation {
     EditorSeparator,
     OrigamiToggle,
     OrigamiToolbarItem,
+    CheckoutSpeed,
+    SpeedOption,
+    SpeedEstimate,
+    OrigamiRadioGroup,
+    OrigamiRadioGroupItem,
   ],
   providers: [
     FactorySettings,
@@ -401,6 +492,7 @@ export class UtilityObservation {
     TabsSettings,
     AlignmentSettings,
     EditorLayout,
+    CheckoutStore,
     {
       provide: DeferredValue,
       useFactory: () => {
@@ -703,6 +795,75 @@ export class UtilityObservation {
       <output data-testid="editor-spellcheck-value">{{ spellcheck() }}</output>
       <output data-testid="editor-spellcheck-outputs">{{ spellcheckOutputs() }}</output>
     </section>
+
+    <section>
+      <h2>RadioGroup composition</h2>
+      <button
+        type="button"
+        data-testid="checkout-lock"
+        (click)="checkoutStore.locked.set(!checkoutStore.locked())"
+      >
+        Toggle the checkout lock
+      </button>
+      <button
+        type="button"
+        data-testid="checkout-write-express"
+        (click)="checkoutStore.speed.set('express')"
+      >
+        Write express
+      </button>
+      <button
+        type="button"
+        data-testid="checkout-same-day-available"
+        (click)="makeSameDayAvailable()"
+      >
+        Make same day available
+      </button>
+      <div
+        checkoutSpeed
+        #checkout="checkoutSpeed"
+        lowerValue="same-day"
+        (lowerValueChange)="unusedSpeedOutputs.update(increment)"
+        aria-label="Checkout speed"
+        data-testid="checkout-speed"
+      >
+        @for (option of speedOptions(); track option.id) {
+          <button [speedOption]="option" [attr.data-testid]="'checkout-' + option.id">
+            {{ option.id }}
+          </button>
+        }
+        <span speedEstimate data-testid="checkout-estimate"></span>
+      </div>
+      <output data-testid="checkout-value">{{ checkoutStore.speed() }}</output>
+      <output data-testid="checkout-state">{{ checkout.state.value() }}</output>
+      <output data-testid="checkout-state-disabled">{{ checkout.state.disabled() }}</output>
+      <output data-testid="checkout-item-values">{{ checkout.itemValues() }}</output>
+      <output data-testid="checkout-unused-outputs">{{ unusedSpeedOutputs() }}</output>
+
+      <!-- A root inside a non-item descendant of another root is independent. -->
+      <div
+        ogRadioGroup
+        [(value)]="outerSize"
+        aria-label="Outer size"
+        data-testid="nested-radio-outer"
+      >
+        <button ogRadioGroupItem value="a" data-testid="nested-radio-a">A</button>
+        <div>
+          <div
+            ogRadioGroup
+            [(value)]="innerSize"
+            aria-label="Inner size"
+            data-testid="nested-radio-inner"
+          >
+            <button ogRadioGroupItem value="x" data-testid="nested-radio-x">X</button>
+            <button ogRadioGroupItem value="y" data-testid="nested-radio-y">Y</button>
+          </div>
+        </div>
+        <button ogRadioGroupItem value="b" data-testid="nested-radio-b">B</button>
+      </div>
+      <output data-testid="nested-radio-outer-value">{{ outerSize() }}</output>
+      <output data-testid="nested-radio-inner-value">{{ innerSize() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -779,6 +940,15 @@ export class CompositionConsumer {
   ]);
   readonly spellcheck = signal(false);
   readonly spellcheckOutputs = signal(0);
+  readonly checkoutStore = inject(CheckoutStore);
+  readonly speedOptions = signal<readonly SpeedRecord[]>([
+    { id: "standard", available: true },
+    { id: "express", available: true },
+    { id: "same-day", available: false },
+  ]);
+  readonly unusedSpeedOutputs = signal(0);
+  readonly outerSize = signal<string | null>("a");
+  readonly innerSize = signal<string | null>("x");
   readonly increment = (value: number): number => value + 1;
 
   makeCenterAvailable(): void {
@@ -807,6 +977,20 @@ export class CompositionConsumer {
     }
 
     this.commands.set(commands);
+  }
+
+  makeSameDayAvailable(): void {
+    const options: SpeedRecord[] = [];
+
+    for (const option of this.speedOptions()) {
+      if (option.id === "same-day") {
+        options.push({ id: "same-day", available: true });
+      } else {
+        options.push(option);
+      }
+    }
+
+    this.speedOptions.set(options);
   }
 
   reverseAlignments(): void {

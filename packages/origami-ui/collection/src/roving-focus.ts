@@ -12,12 +12,14 @@ import type { Signal } from "@angular/core";
 import { CollectionContext } from "./collection";
 
 type Orientation = "horizontal" | "vertical";
+/** A widget's arrow keys: one orientation, or `both` for a widget with no orientation (RadioGroup). */
+type Axis = Orientation | "both";
 type Move = "next" | "previous" | "first" | "last";
 
 /** One item's tab stop observation and the handlers its host events forward to. */
 type Registration = {
   readonly tabStop: Signal<boolean>;
-  keydown(event: KeyboardEvent, orientation: Orientation): void;
+  keydown(event: KeyboardEvent, axis: Axis): void;
   focus(): void;
   blur(): void;
 };
@@ -29,8 +31,11 @@ type Entry = {
   readonly navigated: () => void;
 };
 
-/** Maps a key to a move. Horizontal arrows follow reading direction; vertical arrows ignore it. */
-function moveFor(key: string, orientation: Orientation, rtl: boolean): Move | null {
+/**
+ * Maps a key to a move. Horizontal arrows follow reading direction; vertical arrows ignore it.
+ * `both` takes the vertical and the horizontal arrows.
+ */
+function moveFor(key: string, axis: Axis, rtl: boolean): Move | null {
   if (key === "Home") {
     return "first";
   }
@@ -39,7 +44,7 @@ function moveFor(key: string, orientation: Orientation, rtl: boolean): Move | nu
     return "last";
   }
 
-  if (orientation === "vertical") {
+  if (axis !== "horizontal") {
     if (key === "ArrowDown") {
       return "next";
     }
@@ -47,7 +52,9 @@ function moveFor(key: string, orientation: Orientation, rtl: boolean): Move | nu
     if (key === "ArrowUp") {
       return "previous";
     }
+  }
 
+  if (axis === "vertical") {
     return null;
   }
 
@@ -210,8 +217,8 @@ export class ɵOrigamiRovingFocus {
    * `DestroyRef` cleanup removing only this registration.
    * @param item - `disabled` items are never targets or tab stops; `preferred` marks the widget's
    *   preferred tab stop (Tabs: selected); `navigated` runs on the target after a keyboard move
-   *   focuses it and it is still registered, enabled and focused (Tabs: select while automatic),
-   *   never after focus repair.
+   *   focuses it, or lands on the already focused item, and it is still registered, enabled and
+   *   focused (Tabs: select while automatic; RadioGroup: check), never after focus repair.
    * @returns The item's tab stop observation and the handlers its host events forward to.
    * @throws If the item's nearest Collection is not this core's owner Collection.
    */
@@ -228,11 +235,11 @@ export class ɵOrigamiRovingFocus {
   }
 
   /**
-   * @internal Registers the calling item host of a nested selection group (a ToggleGroup inside a
-   * Toolbar) from its injection context. The host also becomes a member of this owner's
-   * Collection, so it is ordered among the owner's own items in rendered DOM order, also after
-   * server refreshes confined to the group's descendant views. A joined item is never preferred,
-   * so the owner's tab stop falls on its first enabled item.
+   * @internal Registers the calling item host of a nested selection group (a ToggleGroup or
+   * RadioGroup inside a Toolbar) from its injection context. The host also becomes a member of
+   * this owner's Collection, so it is ordered among the owner's own items in rendered DOM order,
+   * also after server refreshes confined to the group's descendant views. A joined item is never
+   * preferred, so the owner's tab stop falls on its first enabled item.
    * @param item - As for `register`, without `preferred`.
    * @returns As for `register`.
    */
@@ -267,8 +274,8 @@ export class ɵOrigamiRovingFocus {
 
     return {
       tabStop: computed(() => this.#tabStop() === entry),
-      keydown: (event, orientation) => {
-        this.#keydown(entry, event, orientation);
+      keydown: (event, axis) => {
+        this.#keydown(entry, event, axis);
       },
       focus: () => {
         this.#focused.set(entry);
@@ -292,7 +299,7 @@ export class ɵOrigamiRovingFocus {
     };
   }
 
-  #keydown(entry: Entry, event: KeyboardEvent, orientation: Orientation): void {
+  #keydown(entry: Entry, event: KeyboardEvent, axis: Axis): void {
     if (
       event.defaultPrevented ||
       event.isComposing ||
@@ -311,7 +318,7 @@ export class ɵOrigamiRovingFocus {
       rtl = view.getComputedStyle(entry.element).direction === "rtl";
     }
 
-    const move = moveFor(event.key, orientation, rtl);
+    const move = moveFor(event.key, axis, rtl);
 
     if (move === null) {
       return;
@@ -321,11 +328,14 @@ export class ɵOrigamiRovingFocus {
 
     const target = targetOf(this.#ordered(), entry, move);
 
-    if (target === null || target === entry) {
+    if (target === null) {
       return;
     }
 
-    target.element.focus();
+    // A move onto the focused item still navigates to it.
+    if (target !== entry) {
+      target.element.focus();
+    }
 
     // Focus handlers run inside focus(): navigate only to a target still mounted, enabled and focused.
     const mounted = this.#entries().get(target.element) === target;
