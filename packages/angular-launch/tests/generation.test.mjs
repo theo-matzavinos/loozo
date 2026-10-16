@@ -68,7 +68,10 @@ export default context(async (request: Request) => ({ request, user: null as {id
     `import { defineRpc as rpc, query as read } from '@loozo/angular-launch/server'; export default rpc('session', {current: read({handler: ({context}) => context.value})});`,
   );
 
-  for (const name of ["left", "right"]) {
+  for (const [name, namespace] of [
+    ["left", "todos"],
+    ["right", "items"],
+  ]) {
     // Explicit parent need not match directory ancestry.
     await put(
       root,
@@ -83,7 +86,7 @@ export default context(async (request: Request) => ({ request, user: null as {id
     await put(
       root,
       `src/routes/${name}/rpc.ts`,
-      `import { defineRpc, query } from '@loozo/angular-launch/server'; export default defineRpc('todos', {list: query({handler: async ({context}) => ({value: context.value})})});`,
+      `import { defineRpc, query } from '@loozo/angular-launch/server'; export default defineRpc('${namespace}', {list: query({handler: async ({context}) => ({value: context.value})})});`,
     );
   }
 
@@ -173,7 +176,7 @@ injectRoot().todos;
 // @ts-expect-error ancestor facade has no descendant
 injectAuth().todos;
 // @ts-expect-error no sibling method
-injectRight().todos.length;
+injectRight().items.length;
 // @ts-expect-error no traversal API
 client.at('/right');
 // @ts-expect-error cannot relabel kind
@@ -368,7 +371,7 @@ test("generated context and every group payload import reject native suffix redi
   }
 });
 
-test("nonwriting check and stop; stable opaque source IDs across relocation and nonnamespace edits", async () => {
+test("nonwriting check and stop; namespace wire IDs stable across relocation", async () => {
   const root = await fixture();
 
   await generate(root, options, () => true);
@@ -389,21 +392,33 @@ test("nonwriting check and stop; stable opaque source IDs across relocation and 
   assert.deepEqual(await snapshot(root), drift);
   await generate(root, options);
 
-  const id = /"id":"([a-f0-9]{24})"/.exec(first["src/routes/left/rpc.generated.ts"].bytes)[1];
+  const registry = /export const registry = .*;/.exec(
+    first["generated/server.generated.ts"].bytes,
+  )[0];
 
+  assert.match(registry, /"session": group\d, "todos": group\d, "items": group\d/);
+  assert.doesNotMatch(first["src/routes/left/rpc.generated.ts"].bytes, /"id"/);
+  await rename(resolve(root, "src/routes/left"), resolve(root, "src/routes/relocated"));
+  await generate(root, options);
+  assert.equal(
+    /export const registry = .*;/.exec(
+      (await snapshot(root))["generated/server.generated.ts"].bytes,
+    )[0],
+    registry,
+  );
+  await rename(resolve(root, "src/routes/relocated"), resolve(root, "src/routes/left"));
   await put(
     root,
     "src/routes/left/rpc.ts",
     `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('renamed', {different:query({handler:()=>8})});`,
   );
   await generate(root, options);
-  assert.match((await snapshot(root))["src/routes/left/rpc.generated.ts"].bytes, new RegExp(id));
+  assert.match((await snapshot(root))["generated/server.generated.ts"].bytes, /"renamed": group/);
 
   const moved = root + "-moved";
 
   await rename(root, moved);
   await generate(moved, options);
-  assert.match((await snapshot(moved))["src/routes/left/rpc.generated.ts"].bytes, new RegExp(id));
   assert.match((await snapshot(moved))["generated/server.generated.ts"].bytes, new RegExp(appId));
   await put(
     moved,
@@ -415,7 +430,6 @@ test("nonwriting check and stop; stable opaque source IDs across relocation and 
     (await snapshot(moved))["generated/server.generated.ts"].bytes,
     new RegExp(appId),
   );
-  assert.match((await snapshot(moved))["src/routes/left/rpc.generated.ts"].bytes, new RegExp(id));
 });
 
 test("combined semantic preflight is strict and prevents all router and Launch writes", async () => {
@@ -584,7 +598,11 @@ void a;void b;void c;void d;void e;`,
 
   const facade = await readFile(resolve(root, "src/routes/left/rpc.generated.ts"), "utf8");
 
-  assert.ok(facade.includes('"constructor":{"id":'));
+  assert.ok(facade.includes('"constructor":{"methods":'));
+  assert.match(
+    await readFile(resolve(root, "generated/server.generated.ts"), "utf8"),
+    /"constructor": group\d, "toString": group\d/,
+  );
   assert.ok(facade.includes('"name":"constructor","input":true'));
   assert.ok(facade.includes('"name":"toString","input":false'));
 });
@@ -634,7 +652,7 @@ export default defineRpc('todos',{list:query({input:optionalSchema,handler:()=>1
   assert.deepEqual(await snapshot(root), {});
 });
 
-test("missing/duplicate context, unknown defaults, missing/redirect owners and ancestry namespace collisions", async () => {
+test("missing/duplicate context, unknown defaults, missing/redirect owners and namespace collisions", async () => {
   const cases = [
     ["missing", async (root) => rm(resolve(root, "src/context.ts")), /exactly one/],
     [
@@ -682,7 +700,17 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and a
           "src/routes/left/rpc.ts",
           `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('session',{x:query({handler:()=>7})});`,
         ),
-      /Duplicate RPC namespace/,
+      /Duplicate RPC namespace: session/,
+    ],
+    [
+      "sibling namespace",
+      async (root) =>
+        put(
+          root,
+          "src/routes/right/rpc.ts",
+          `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{x:query({handler:()=>7})});`,
+        ),
+      /Duplicate RPC namespace: todos/,
     ],
     [
       "same-directory groups",

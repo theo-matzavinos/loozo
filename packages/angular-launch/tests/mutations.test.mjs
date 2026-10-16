@@ -25,7 +25,7 @@ import { dispatch } from "../dist/server/dispatch.js";
 import { injectClient } from "../dist/generated.js";
 import { RpcError, frameworkFailures } from "../dist/client.js";
 
-const id = "c".repeat(24);
+const id = "todos";
 const path = `/_rpc/${id}/write`;
 const application = { id: "mutation-contracts", context: defineContext(() => ({})) };
 const declaration = { status: 404, message: "Todo does not exist" };
@@ -288,7 +288,7 @@ test("client mutation kind/cache, legitimate framework errors and declared trans
     { name: "read", input: false, kind: "query", errors: [] },
   ];
   const client = runInInjectionContext(injector, () =>
-    injectClient({ todos: { id, methods }, otherTodos: { id: "e".repeat(24), methods } }),
+    injectClient({ todos: { methods }, otherTodos: { methods } }),
   );
 
   try {
@@ -465,7 +465,7 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
       );
       const client = runInInjectionContext(app.injector, () =>
         injectClient({
-          todos: { id, methods: [{ name: "write", input: true, kind: "mutation", errors: [] }] },
+          todos: { methods: [{ name: "write", input: true, kind: "mutation", errors: [] }] },
         }),
       );
       const http = app.injector.get(HttpClient);
@@ -482,7 +482,7 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
       // A caller can spoof helper metadata, but actual registry kind still wins.
       const spoofed = runInInjectionContext(app.injector, () =>
         injectClient({
-          todos: { id, methods: [{ name: "write", input: false, kind: "query", errors: [] }] },
+          todos: { methods: [{ name: "write", input: false, kind: "query", errors: [] }] },
         }),
       );
 

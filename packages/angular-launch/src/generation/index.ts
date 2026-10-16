@@ -79,7 +79,6 @@ interface RpcGroup {
   declaration: LaunchDeclaration;
   owner: Declaration;
   namespace: string;
-  id: string;
   methods: {
     name: string;
     input: boolean;
@@ -197,6 +196,7 @@ async function groupsOf(
 
   const groups: RpcGroup[] = [];
   const owners = new Set<Declaration>();
+  const namespaces = new Map<string, LaunchDeclaration>();
 
   for (const declaration of launch.declarations) {
     if (declaration.kind !== "defineRpc") {
@@ -237,6 +237,17 @@ async function groupsOf(
     if (namespace.text === "__proto__") {
       fail(namespace, "RPC namespace '__proto__' is reserved");
     }
+
+    const previous = namespaces.get(namespace.text);
+
+    if (previous) {
+      fail(
+        namespace,
+        `Duplicate RPC namespace: ${namespace.text}; also defined in ${previous.file}`,
+      );
+    }
+
+    namespaces.set(namespace.text, declaration);
 
     if (options) {
       const fields = properties(options, "RPC group options");
@@ -296,10 +307,7 @@ async function groupsOf(
       });
     }
 
-    const identity = relative(dirname(sources.configFile), declaration.file).split(sep).join("/");
-    const id = createHash("sha256").update(`launch-v1\0${identity}`).digest("hex").slice(0, 24);
-
-    groups.push({ declaration, owner, namespace: namespace.text, id, methods });
+    groups.push({ declaration, owner, namespace: namespace.text, methods });
   }
 
   return { context, groups };
@@ -352,7 +360,7 @@ function emitLaunch(
   }
 
   server.push(
-    `export const registry = { ${groups.map((group, index) => `${JSON.stringify(group.id)}: group${index}`).join(", ")} };`,
+    `export const registry = { ${groups.map((group, index) => `${JSON.stringify(group.namespace)}: group${index}`).join(", ")} };`,
     `export const appBinding = { id: ${JSON.stringify(appId)}, context };`,
     `export const createContext = (request: Request) => createRequestScope(appBinding, request);`,
     `export const handleRequest = (request: Request) => handleRpc(registry, appBinding, request);`,
@@ -369,18 +377,12 @@ function emitLaunch(
     }
 
     const available: RpcGroup[] = [];
-    const namespaces = new Set<string>();
     let current: Declaration | undefined = owner;
 
     while (current) {
       const group = byOwner.get(current);
 
       if (group) {
-        if (namespaces.has(group.namespace)) {
-          fail(group.declaration.call, `Duplicate RPC namespace in ancestry: ${group.namespace}`);
-        }
-
-        namespaces.add(group.namespace);
         available.unshift(group);
       }
 
@@ -400,7 +402,6 @@ function emitLaunch(
 
       lines.push(payloadImport(file, group.declaration.file, `group${index}`, true));
       metadata[group.namespace] = {
-        id: group.id,
         methods: group.methods.map(({ name, input, kind, errors }) => ({
           name,
           input,

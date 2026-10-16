@@ -69,7 +69,10 @@ async function fixture() {
     ),
   ];
 
-  for (const name of ["left", "right"]) {
+  for (const [name, namespace] of [
+    ["left", "todos"],
+    ["right", "items"],
+  ]) {
     writes.push(
       put(
         root,
@@ -84,7 +87,7 @@ async function fixture() {
       put(
         root,
         `src/routes/${name}/rpc.ts`,
-        "import {defineRpc,query} from '@loozo/angular-launch/server';import {schema} from '../../schema';export default defineRpc('todos',{read:query({input:schema,handler:({input,context})=>({length:input.length,value:context.value})})});",
+        `import {defineRpc,query} from '@loozo/angular-launch/server';import {schema} from '../../schema';export default defineRpc('${namespace}',{read:query({input:schema,handler:({input,context})=>({length:input.length,value:context.value})})});`,
       ),
     );
   }
@@ -194,7 +197,7 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
 
     await rm(resolve(root, "src/routes/right/rpc.ts"));
     await session.generate();
-    assert.doesNotMatch((await snapshot(root))["src/routes/right/rpc.generated.ts"].bytes, /todos/);
+    assert.doesNotMatch((await snapshot(root))["src/routes/right/rpc.generated.ts"].bytes, /items/);
     await put(root, "src/routes/right/rpc.ts", rpc.replace("'todos'", "'added'"));
     await session.generate();
     assert.match((await snapshot(root))["src/routes/right/rpc.generated.ts"].bytes, /added/);

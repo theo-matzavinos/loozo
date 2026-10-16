@@ -185,7 +185,7 @@ assert.deepEqual(Object.keys(client).sort(),['RpcError','frameworkFailures']);
 assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','mutation','query']);
 assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleRpc','provideLaunchServer']);
 const binding={id:'packed-test-app',context:defineContext(()=>({value:1}))};
-const id = 'd'.repeat(24);
+const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
   if (typeof value !== 'string') { return { issues: [{ message: 'private string detail' }] }; }
   return { value: { id: value.trim() } };

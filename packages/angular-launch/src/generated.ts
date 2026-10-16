@@ -94,9 +94,7 @@ function call(
 }
 
 export function injectClient(
-  groups: Readonly<
-    Record<string, { readonly id: string; readonly methods: readonly ClientMethod[] }>
-  >,
+  groups: Readonly<Record<string, { readonly methods: readonly ClientMethod[] }>>,
 ): unknown {
   const http = inject(HttpClient);
   const result: Record<string, Record<string, unknown>> = Object.create(null);
@@ -109,10 +107,10 @@ export function injectClient(
 
       if (method.input) {
         invoke = (input, options) =>
-          call(http, group.id, method, input, options as CallOptions | undefined);
+          call(http, namespace, method, input, options as CallOptions | undefined);
       } else {
         invoke = (options) =>
-          call(http, group.id, method, null, options as CallOptions | undefined);
+          call(http, namespace, method, null, options as CallOptions | undefined);
       }
 
       methods[method.name] = Object.assign(invoke, {
@@ -124,7 +122,7 @@ export function injectClient(
 
           const owner = errorOwners.get(error);
 
-          return owner?.group === group.id && owner.method === method.name;
+          return owner?.group === namespace && owner.method === method.name;
         },
       });
     }

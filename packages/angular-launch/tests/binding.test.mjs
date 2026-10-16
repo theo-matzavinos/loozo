@@ -24,7 +24,7 @@ const require = createRequire(
 const { sanitizeRequestHeaders } = await import(
   new URL("./_validation-chunk.mjs", `file://${require.resolve("@angular/ssr")}`)
 );
-const id = "b".repeat(24);
+const id = "test";
 const path = `/_rpc/${id}/read`;
 
 function backend(registry, application, scope, nativeRequest, fallback) {

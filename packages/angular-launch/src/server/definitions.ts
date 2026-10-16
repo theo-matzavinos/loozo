@@ -517,7 +517,8 @@ export interface Group<
  * identifiers other than `__proto__` for the namespace and procedure names, and
  * write the procedures, options and `canActivate` arrays inline. Each route's
  * generated `injectRpc()` exposes its own group and its ancestors' groups under their
- * namespaces, so a namespace can't repeat within one route's ancestry.
+ * namespaces. Each namespace must be unique across the app: calls go to
+ * `/_rpc/<namespace>/<procedure>`.
  *
  * Exposure isn't authorization: anyone who can reach the server can call any
  * procedure, so guard every group and procedure that needs it.
