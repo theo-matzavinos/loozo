@@ -2,7 +2,7 @@
 
 Toolbar groups controls, such as formatting buttons, into one tab stop with arrow-key navigation. A ToggleGroup or RadioGroup inside it joins that single tab stop.
 
-[src/toolbar/formatting-toolbar.ts](../snippets/src/toolbar/formatting-toolbar.ts)
+[src/toolbar/formatting-toolbar.ts](../snippets/src/toolbar/formatting-toolbar.ts "both")
 
 | Directive       | Configuration                                                          |
 | --------------- | ---------------------------------------------------------------------- |

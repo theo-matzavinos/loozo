@@ -2,7 +2,7 @@
 
 Collection tracks the items mounted under it, in rendered DOM order. It's the ordering layer under Accordion, and you can use it directly when your own component needs to know which items exist and in what order.
 
-[src/collection/sections.ts](../snippets/src/collection/sections.ts)
+[src/collection/sections.ts](../snippets/src/collection/sections.ts "both")
 
 Each item has a `value` input. Without one it gets a generated value that's stable while the item is mounted and across hydration; pass explicit values when they mean something in your domain. Values are opaque strings and aren't normalized.
 

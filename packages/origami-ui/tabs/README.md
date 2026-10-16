@@ -2,7 +2,7 @@
 
 Tabs shows one panel at a time, chosen from a list of native buttons with arrow-key navigation.
 
-[src/tabs/demo-views.ts](../snippets/src/tabs/demo-views.ts)
+[src/tabs/demo-views.ts](../snippets/src/tabs/demo-views.ts "both")
 
 | Directive       | Configuration                                                                                                                                                                                                           |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

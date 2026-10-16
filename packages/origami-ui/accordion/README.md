@@ -2,7 +2,7 @@
 
 Accordion is a set of Collapsible items with single or multiple selection.
 
-[src/accordion/faq.ts](../snippets/src/accordion/faq.ts)
+[src/accordion/faq.ts](../snippets/src/accordion/faq.ts "both")
 
 | Directive             | Configuration                                                                            |
 | --------------------- | ---------------------------------------------------------------------------------------- |
