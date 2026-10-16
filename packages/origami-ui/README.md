@@ -6,7 +6,7 @@ Every primitive is a directive you put on your own elements, or compose into you
 
 Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation, anchored popovers, toggle buttons, tabs, toggle groups, toolbars and radio groups, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
 
-**Status:** experimental and published on npm. Version `0.0.1`, MIT license.
+**Status:** experimental and published on npm. MIT license.
 
 ## Install
 
@@ -23,21 +23,21 @@ Peer dependencies:
 
 The package is tested against Angular 22.2.2. It supports Angular 22.2.x from 22.2.2, not earlier patches: it's built with the 22.2.2 compiler, and an application's Angular compiler must be at least as new as the one a library was built with. Popover positioning uses `@floating-ui/dom` `1.8.0`, a regular dependency. Its types and middleware aren't part of the API.
 
-The root entry point `@loozo/origami-ui` is intentionally empty. Import from the secondary entry points:
+The root entry point `@loozo/origami-ui` is intentionally empty. Import from the secondary entry points, each documented in its own README:
 
-| Entry point                      | Exports                                                                                                                                                                                                                                                                                                                        |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@loozo/origami-ui/utils`        | `injectDeferred`, `injectUniqueId`                                                                                                                                                                                                                                                                                             |
-| `@loozo/origami-ui/collection`   | `OrigamiCollection`, `OrigamiCollectionState`, `OrigamiCollectionItem`, `OrigamiCollectionItemOptions`, type `OrigamiCollectionRecord`                                                                                                                                                                                         |
-| `@loozo/origami-ui/presence`     | `OrigamiPresence`, `OrigamiPresenceOptions`, `OrigamiPresenceState`, type `OrigamiPresencePhase`                                                                                                                                                                                                                               |
-| `@loozo/origami-ui/collapsible`  | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
-| `@loozo/origami-ui/accordion`    | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
-| `@loozo/origami-ui/popover`      | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
-| `@loozo/origami-ui/toggle`       | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
-| `@loozo/origami-ui/tabs`         | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                      |
-| `@loozo/origami-ui/toggle-group` | `OrigamiToggleGroupSingle`, `OrigamiToggleGroupSingleOptions`, `OrigamiToggleGroupMultiple`, `OrigamiToggleGroupMultipleOptions`, `OrigamiToggleGroupState`, `OrigamiToggleGroupItem`, `OrigamiToggleGroupItemOptions`, type `OrigamiToggleGroupOrientation`                                                                   |
-| `@loozo/origami-ui/toolbar`      | `OrigamiToolbar`, `OrigamiToolbarOptions`, `OrigamiToolbarState`, `OrigamiToolbarItem`, `OrigamiToolbarItemOptions`, type `OrigamiToolbarOrientation`                                                                                                                                                                          |
-| `@loozo/origami-ui/radio-group`  | `OrigamiRadioGroup`, `OrigamiRadioGroupOptions`, `OrigamiRadioGroupState`, `OrigamiRadioGroupItem`, `OrigamiRadioGroupItemOptions`                                                                                                                                                                                             |
+| Entry point                                                | Exports                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`@loozo/origami-ui/collection`](collection/README.md)     | `OrigamiCollection`, `OrigamiCollectionState`, `OrigamiCollectionItem`, `OrigamiCollectionItemOptions`, type `OrigamiCollectionRecord`                                                                                                                                                                                         |
+| [`@loozo/origami-ui/presence`](presence/README.md)         | `OrigamiPresence`, `OrigamiPresenceOptions`, `OrigamiPresenceState`, type `OrigamiPresencePhase`                                                                                                                                                                                                                               |
+| [`@loozo/origami-ui/collapsible`](collapsible/README.md)   | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
+| [`@loozo/origami-ui/accordion`](accordion/README.md)       | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
+| [`@loozo/origami-ui/popover`](popover/README.md)           | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
+| [`@loozo/origami-ui/toggle`](toggle/README.md)             | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
+| [`@loozo/origami-ui/tabs`](tabs/README.md)                 | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                      |
+| [`@loozo/origami-ui/toggle-group`](toggle-group/README.md) | `OrigamiToggleGroupSingle`, `OrigamiToggleGroupSingleOptions`, `OrigamiToggleGroupMultiple`, `OrigamiToggleGroupMultipleOptions`, `OrigamiToggleGroupState`, `OrigamiToggleGroupItem`, `OrigamiToggleGroupItemOptions`, type `OrigamiToggleGroupOrientation`                                                                   |
+| [`@loozo/origami-ui/toolbar`](toolbar/README.md)           | `OrigamiToolbar`, `OrigamiToolbarOptions`, `OrigamiToolbarState`, `OrigamiToolbarItem`, `OrigamiToolbarItemOptions`, type `OrigamiToolbarOrientation`                                                                                                                                                                          |
+| [`@loozo/origami-ui/radio-group`](radio-group/README.md)   | `OrigamiRadioGroup`, `OrigamiRadioGroupOptions`, `OrigamiRadioGroupState`, `OrigamiRadioGroupItem`, `OrigamiRadioGroupItemOptions`                                                                                                                                                                                             |
+| [`@loozo/origami-ui/utils`](utils/README.md)               | `injectDeferred`, `injectUniqueId`                                                                                                                                                                                                                                                                                             |
 
 The Accordion entry point also exports `ɵOrigamiAccordionRoot`, which compiled composition needs, and the Collection entry point exports `ɵOrigamiRovingFocus`, the package-private keyboard focus behind Tabs, ToggleGroup, Toolbar and RadioGroup, `ɵOrigamiRovingFocusScope`, through which a Toolbar shares it with nested groups, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private selection writes behind Accordion, ToggleGroup and RadioGroup. None of them is an application API. Every export carries TSDoc with its defaults, ownership, errors and hydration behavior; your editor shows it from the published declarations.
 
@@ -71,476 +71,6 @@ Upper primitives are built from lower ones: Accordion composes Collection and Co
 
 A primitive that needs an owner, such as an item without a Collection, fails with Angular's missing-provider error. A second mounted Trigger, Panel, Anchor or Content in one Collapsible or Popover fails with an error naming the role.
 
-## Collection
-
-Collection tracks the items mounted under it, in rendered DOM order. It's the ordering layer under Accordion, and you can use it directly when your own component needs to know which items exist and in what order.
-
-[src/collection/sections.ts](snippets/src/collection/sections.ts)
-
-Each item has a `value` input. Without one it gets a generated value that's stable while the item is mounted and across hydration; pass explicit values when they mean something in your domain. Values are opaque strings and aren't normalized.
-
-### Replacing item Options
-
-[src/collection/tag.ts](snippets/src/collection/tag.ts)
-
-### State
-
-`OrigamiCollectionState.items()` is a readonly array of records, each with a readonly `value` signal. Order follows the DOM, not construction order: keyed moves, insertions and removals show up after the render that made them. Changing an item's value updates its record without replacing it. Server rendering produces the same order without browser APIs.
-
-Nested Collections are independent: an inner Collection's items don't appear in the outer one.
-
-### Accessibility
-
-Collection adds no attributes, roles, selection or keyboard behavior. Give the container and items the semantics your use needs, such as a list.
-
-## Presence
-
-Presence tracks an enter/exit lifecycle for its host, so you can keep content rendered until its exit animation finishes. It doesn't hide, move or remove the host; you decide what to render from its State.
-
-[src/presence/notice.ts](snippets/src/presence/notice.ts)
-
-### Replacing Options
-
-Drive Presence from application state instead of its own `present` model:
-
-[src/presence/offline-banner.ts](snippets/src/presence/offline-banner.ts)
-
-### State and attributes
-
-```text
-present becomes true  → opening → open
-present becomes false → closing → closed
-```
-
-`OrigamiPresenceState` has `phase()`, one of `opening`, `open`, `closing` and `closed`, and `open()`, which is true in every phase except `closed`. Gate children on `open()` to keep them through the exit.
-
-| Host attribute  | Present during |
-| --------------- | -------------- |
-| `data-entering` | `opening`      |
-| `data-present`  | `open`         |
-| `data-leaving`  | `closing`      |
-
-Each attribute is empty when present and absent otherwise. They're owned by Presence; don't author them yourself.
-
-Presence adds no ARIA and doesn't hide, detach or remove its host. Presence itself does not hide retained content from assistive technology; you own its accessibility during exit.
-
-`opening` and `closing` settle when the finite animations on the host itself finish or are cancelled. Presence looks for them after the transition's attribute, the host's bindings and the newly rendered children have taken effect, so an animation your CSS starts from `data-entering` or `data-leaving` is found. Infinite animations are ignored, even alongside finite ones, and no animation or a zero duration settles straight away, without a timer. Reversing mid-transition, or destroying the host, discards the earlier transition's pending completion. Reduced motion is up to your CSS: when your `prefers-reduced-motion` styles remove the animation, the transition settles without one.
-
-## Collapsible
-
-Collapsible is a disclosure: a native button that shows and hides one panel.
-
-[src/collapsible/details.ts](snippets/src/collapsible/details.ts)
-
-The root has an `expanded` model (default `false`), a `disabled` input (default `false`) and a `hiding` input (default `"hidden"`). A Collapsible supports one Trigger and one Panel; either may be missing, which removes its ARIA association.
-
-### Replacing Options
-
-Root, Trigger and Panel each have their own Options. This root replacement makes `until-found` its own default:
-
-[src/collapsible/searchable-section.ts](snippets/src/collapsible/searchable-section.ts)
-
-### State and attributes
-
-`OrigamiCollapsibleState` has `expanded()` and `disabled()`, the effective values from the root Options.
-
-| Element | Attributes                                                                                                                                                                             |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `data-expanded`, `data-disabled`                                                                                                                                                       |
-| Trigger | `type="button"`, `id`, `aria-expanded`, `aria-controls` (only while a Panel is mounted), `data-expanded`; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-| Panel   | `id`, `aria-labelledby` (only while a Trigger is mounted), `data-expanded`, `hidden` once collapsed, and Presence's `data-entering`, `data-present` and `data-leaving`                 |
-
-`data-expanded` follows the requested state, not the exit animation: it's removed as soon as the panel starts closing. The Panel stays visible through its finite exit animation and gets `hidden` once Presence closes.
-
-### Accessibility
-
-- The Trigger is a native button. Enter and Space work natively; there's no custom keyboard handling.
-- An enabled click toggles `expanded`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply.
-- You supply the heading, any `role="region"` on the Panel, and the content's semantics. The Panel's `aria-labelledby` names the Trigger.
-- `hiding="until-found"` lets the browser's find-in-page reveal collapsed content where `beforematch` is supported; the reveal expands the Collapsible. Elsewhere it behaves like `hidden`, with no polyfill. A disabled Collapsible uses plain `hidden`, so find-in-page can't expand it.
-
-## Accordion
-
-Accordion is a set of Collapsible items with single or multiple selection.
-
-[src/accordion/faq.ts](snippets/src/accordion/faq.ts)
-
-| Directive             | Configuration                                                                            |
-| --------------------- | ---------------------------------------------------------------------------------------- |
-| `ogAccordionSingle`   | `value: string \| null` model (default `null`), `disabled`, `collapsible` (both `false`) |
-| `ogAccordionMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`)            |
-| `ogAccordionItem`     | `value` (default generated), `disabled` (default `false`), `hiding` (default `"hidden"`) |
-| `ogAccordionTrigger`  | `id` (default generated); must be a `<button>`                                           |
-| `ogAccordionPanel`    | `id` (default generated)                                                                 |
-
-Give items distinct explicit values when they need independent selection.
-
-- **Single:** clicking an unselected item selects it. Clicking the selected item clears the value to `null` only when `collapsible` is true.
-- **Multiple:** clicking adds the item's value at the end of a new array, or removes it. Your array is never mutated, and the other values keep their order.
-- In both modes, the value is yours: values with no mounted item are kept, nothing is selected automatically, and removing an item doesn't remove its value.
-- Root and item `disabled` combine. While disabled, user clicks and find-in-page reveals can't change the selection; your own writes still apply.
-
-### Replacing Options
-
-Single, Multiple, shared, Trigger and Panel Options can each be replaced. Here the selection lives in an application service:
-
-[src/accordion/settings-sections.ts](snippets/src/accordion/settings-sections.ts)
-
-`OrigamiAccordionOptions` holds only the shared `disabled`; replace `OrigamiAccordionSingleOptions` or `OrigamiAccordionMultipleOptions` for the selection. Replacing Trigger or Panel Options also sets the composed Collapsible's IDs and associations.
-
-### State and attributes
-
-`OrigamiAccordionState` has `itemValues()`, the mounted items' values in DOM order, and `disabled()`, the effective root policy.
-
-Each item is a Collapsible, so the item element carries the Collapsible root attributes, and the Trigger and Panel carry the Collapsible Trigger and Panel attributes above.
-
-### Accessibility
-
-- In Single mode without `collapsible`, the selected item's Trigger has `aria-disabled="true"`, because clicking it does nothing. It stays a focusable, natively enabled button unless the root or item is disabled.
-- There's no arrow-key navigation, roving tabindex or focus management; Tab moves between the native buttons. You supply the headings and any Panel roles.
-
-## Popover
-
-Popover is a non-modal floating surface anchored to an element: Content stays where you author it and is shown in the browser's top layer, positioned next to its Anchor.
-
-[src/popover/task-chooser.ts](snippets/src/popover/task-chooser.ts)
-
-| Part               | Configuration                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------- |
-| `ogPopover`        | `open` model (default `false`), `disabled` (default `false`), `dismissible` (default `true`)      |
-| `ogPopoverTrigger` | `id` (default generated); must be a `<button>`                                                    |
-| `ogPopoverAnchor`  | `id` (default generated); may share the Trigger's element, which then uses the Trigger's ID       |
-| `ogPopoverContent` | `id` (default generated), `side` (`"block-end"`), `align` (`"start"`), `gap` (`0`, in CSS pixels) |
-
-Trigger, Anchor and Content are all required for the Popover to show. When one is missing, or a parent Popover closes, the Content is hidden but `open` keeps its value, so mounting the part again shows it. One of each part is supported per Popover.
-
-### Replacing Options
-
-Root, Trigger, Anchor and Content each have their own Options. A Content replacement must supply all four properties:
-
-[src/popover/callout.ts](snippets/src/popover/callout.ts)
-
-### Native top layer
-
-Content gets `popover="manual"` and is shown with `showPopover()`, so it paints above the page and escapes ancestors that clip or create stacking contexts, while staying in its authored place in the DOM with its Angular bindings intact. Nothing is portaled or moved, so Content can sit inside a scrolling, transformed or clipped container next to its Anchor.
-
-Origami owns the `popover` attribute and the native show/hide calls; don't drive them yourself. It also sets `position: fixed`, `top`/`left` coordinates, resets `right`, `bottom` and `margin`, and suppresses paint and pointer events briefly while it measures. Everything else about the Content's box is yours:
-
-- Give Content stable, measurable dimensions. Origami doesn't size it or keep oversized content inside the viewport.
-- Scope any custom `display` to `:popover-open`, so the browser's closed Popover stays hidden.
-- Use `gap` for distance from the Anchor, not margins.
-- `transform` is free for your animations; positioning doesn't use it. `z-index` doesn't reorder top-layer elements.
-
-### Positioning
-
-`side` and `align` are logical, resolved from the **Anchor's** writing mode and direction, not the Content's. The default places Content below the Anchor with their start edges aligned in horizontal writing. `align` is along the side's cross axis, and `"center"` centers it.
-
-| Anchor writing mode | `block-start` / `block-end` | `inline-start` / `inline-end`, LTR | `inline-start` / `inline-end`, RTL |
-| ------------------- | --------------------------- | ---------------------------------- | ---------------------------------- |
-| `horizontal-tb`     | top / bottom                | left / right                       | right / left                       |
-| `vertical-rl`       | right / left                | top / bottom                       | bottom / top                       |
-| `vertical-lr`       | left / right                | top / bottom                       | bottom / top                       |
-
-When the requested placement overflows, Floating UI tries the opposite side, then the opposite alignment, then both (`"center"` has no opposite alignment). If none fits, it prefers a candidate that fits along the main axis with the least cross-axis overflow, and otherwise the one with the least overflow. That isn't a guarantee that Content fits on every edge, or that it moves back to the requested placement. `gap` must be finite and nonnegative; reading any other effective value throws a `RangeError` rather than clamping it. That's a configuration error, separate from the positioning failure below. All three settings are reactive.
-
-While Content is shown, including during its exit animation while the Anchor is still available, its position follows document and nested scrolling, viewport resizes, Anchor and Content resizes and observed Anchor movement. Tracking stops once Content is fully closed, suppressed or destroyed. It doesn't follow an ancestor that resizes without any of those, or an Anchor moved by a transform animation. A nested Popover is positioned only after its parent has been positioned and revealed.
-
-### Dismissal and focus
-
-- **Escape** asks the topmost open Popover to close: the one the browser most recently showed. Reopening a Popover during its exit animation, or repositioning it, doesn't change that order. Events already handled (`defaultPrevented`) or sent during IME composition are ignored. If the Popover's branch refuses to close (see below), Escape is still consumed; it doesn't fall through to a parent or another Popover. On close, focus returns to its Trigger once, if that Trigger is still connected, enabled and not inert, and a listener hasn't moved focus elsewhere.
-- **Outside pointer:** a trusted primary-button press whose `pointerdown` and matching `pointerup` are both outside the Popover closes it. A drag that starts inside doesn't, and neither does a mismatched pointer or button, or a `pointercancel` or lost pointer capture before the `pointerup`. The gesture completes at `pointerup`: cancellation or capture loss after it doesn't undo it. The Popover closes after that `pointerup` has been dispatched, so your listeners can still cancel it with `preventDefault()` on either event, and only if the Popover's branch hasn't been replaced meanwhile. Focus stays where the user put it.
-- A nested Popover counts as inside its parent. A user dismissal closes the affected branch, descendants before ancestors, only if every open member allows it: one with `dismissible` set to false vetoes the whole request, and nothing closes or emits `openChange`. A root's own Trigger can close it despite its own `dismissible`, but not past a protected descendant.
-- Setting `open` to false yourself always closes, regardless of `dismissible`. Open descendants are hidden but keep their own `open`. Focus returns to the Trigger only if it was inside the closing Popover or its open descendants, and then only once, to the closing Popover's own Trigger, under the same conditions as Escape.
-- `disabled` blocks the Trigger, not Escape or outside dismissal.
-- Unrelated Popovers stay open independently; opening one doesn't close another.
-
-The Popover is non-modal: there's no focus trap, no scroll lock, no automatic focus and no close when focus leaves. Native `autofocus` on an element inside Content still works when it opens. Tab order follows the DOM, so author Content right after its Trigger if keyboard users should reach it next. While Content runs its exit animation, it's `inert` and the Trigger's `aria-expanded` is already false. You supply Content's role and accessible name; Popover isn't a menu, listbox or dialog.
-
-### State and attributes
-
-`OrigamiPopoverState` has `open()`, `disabled()` and `dismissible()`, the effective values from the root Options. `dismissible()` is the permission described above, so false doesn't stop the root's own Trigger from closing it. `open()` reports what was requested, not whether Content is visible. `OrigamiPopoverContentState.open()` is Presence's `open()`: true while Content's children should stay rendered, including the exit.
-
-| Element | Attributes                                                                                                                                                            |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger | `type="button"`, `id`, `aria-controls` (only while Content is mounted), `aria-expanded`; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-| Content | `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), and Presence's `data-entering`, `data-present` and `data-leaving`          |
-
-`aria-expanded` is true from the moment the browser shows Content, including the short measuring step, and false as soon as a close is accepted. For Popover, `opening` can start before `data-entering` appears: the entering attribute waits until Content has been positioned, so your entrance animation starts in the right place.
-
-### Positioning failure
-
-If positioning fails, for example because the Anchor uses an unsupported writing mode, Origami hides the Content immediately, without an exit animation, and reports the error once through Angular's `ErrorHandler`. That applies whether it fails while opening, on a later update, or during a visible exit. Nothing is revealed, no failed coordinates are applied, and the Trigger's `aria-expanded` is false. `open` keeps its value and Presence keeps its phase. The same attempt isn't retried; changing `open`, a part, the Content Options or the parent Popover's presentation tries again. A failure from a calculation that a newer one has already replaced is still reported once, but doesn't hide the newer presentation. Positioning needs `ResizeObserver` and `IntersectionObserver`.
-
-## Toggle
-
-Toggle is a two-state button, such as a mute, bold or dark-theme button: a native button that flips a `pressed` model.
-
-[src/toggle/mute.ts](snippets/src/toggle/mute.ts)
-
-It has a `pressed` model (default `false`) and a `disabled` input (default `false`). Each Toggle is its own owner; for a set of toggles with one tab stop and arrow keys, use [ToggleGroup](#togglegroup).
-
-### Replacing Options
-
-Drive the pressed state from application state instead of the directive's own model:
-
-[src/toggle/bold-format.ts](snippets/src/toggle/bold-format.ts)
-
-### State and attributes
-
-`OrigamiToggleState` has `pressed()` and `disabled()`, the effective values from the Options. The directive exposes it as `state`, and descendants of the button can inject it.
-
-| Element | Attributes                                                                                                                                                          |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Toggle  | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `data-pressed` while pressed; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-
-### Accessibility
-
-- The Toggle is a native button. Enter and Space work natively; there's no custom keyboard handling.
-- An enabled click flips `pressed`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply.
-- `aria-pressed` is always `"true"` or `"false"`; there's no mixed state. You supply the accessible name. Keep it the same in both states, because `aria-pressed` already announces the state.
-- Toggle isn't a form control: it has no form value or Signal Forms integration. A standalone Toggle has no group or arrow-key navigation; ToggleGroup's items compose Toggle for that, and a Toggle that also has `ogToolbarItem` is one control in a [Toolbar](#toolbar).
-
-## Tabs
-
-Tabs shows one panel at a time, chosen from a list of native buttons with arrow-key navigation.
-
-[src/tabs/demo-views.ts](snippets/src/tabs/demo-views.ts)
-
-| Directive       | Configuration                                                                                                                                                                                                           |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ogTabs`        | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `activation` (`"automatic"` or `"manual"`, default `"automatic"`) |
-| `ogTabsList`    | none                                                                                                                                                                                                                    |
-| `ogTabsTrigger` | `value` (default generated), `id` (default generated), `disabled` (default `false`); must be a `<button>`                                                                                                               |
-| `ogTabsPanel`   | `value` (default generated), `id` (default generated)                                                                                                                                                                   |
-
-Give each Trigger and its Panel the same explicit `value`; a generated value pairs with nothing. Values should be distinct within one Tabs.
-
-- Clicking an enabled Trigger, or pressing Enter or Space on it, selects its value. Selecting the selected tab does nothing; there's no deselection.
-- The value is yours, and Tabs never selects a first tab for you. A Panel is visible exactly when its value is the root value, whether or not a Trigger with that value is mounted. So `null` hides every Panel, a value no Trigger or Panel has selects nothing and hides every Panel, and removing the selected Trigger keeps the value while its Panel stays visible.
-- Root and Trigger `disabled` combine. While disabled, user clicks and keys can't change the selection; your own writes still apply.
-
-### Keyboard
-
-| Key                    | Horizontal                                              | Vertical                |
-| ---------------------- | ------------------------------------------------------- | ----------------------- |
-| ArrowRight / ArrowLeft | next / previous Trigger, reversed in right-to-left text | nothing                 |
-| ArrowDown / ArrowUp    | nothing                                                 | next / previous Trigger |
-| Home / End             | first / last Trigger                                    | first / last Trigger    |
-
-Moves skip disabled Triggers and wrap at both ends. With `activation="automatic"` an arrow, Home or End move selects the Trigger it lands on, even the one already focused; with `"manual"` focus moves only, and Enter or Space selects. Focus that arrives by Tab, pointer or script doesn't select. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the Trigger's computed `direction` when the key is pressed, so `dir` on any ancestor works.
-
-Only one Trigger is in the Tab order (`tabindex="0"`): the focused one while focus is in the list, otherwise the first selected enabled Trigger, otherwise the first enabled Trigger. Tabbing back into the list lands on the selected tab. A click focuses the Trigger it selects in every browser, so the next arrow key moves from there. If the focused Trigger is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without selecting it.
-
-### Replacing Options
-
-Root, Trigger and Panel each have their own Options. Here the selection lives in an application service, and the Trigger derives its ID from its value:
-
-[src/tabs/settings-tabs.ts](snippets/src/tabs/settings-tabs.ts)
-
-Trigger Options also supply the composed Collection Item's value, so replacing them alone sets the Trigger's entry in the root's `OrigamiCollectionState`. The root reads every Trigger's Options while rendering, so replacement Trigger Options must be readable as soon as the Trigger is constructed: a required input in a repeated Trigger, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default.
-
-### State and attributes
-
-`OrigamiTabsState` has `value()`, `disabled()`, `orientation()` and `activation()`, the effective values from the root Options. The root exposes it as `state`; use it to render a Panel's heavy content only while that Panel is selected.
-
-| Element | Attributes                                                                                                                                                                                                                                                             |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `data-orientation`, `data-disabled`                                                                                                                                                                                                                                    |
-| List    | `role="tablist"`, `aria-orientation`                                                                                                                                                                                                                                   |
-| Trigger | `role="tab"`, `type="button"`, `id`, `aria-selected` (`"true"` or `"false"`), `aria-controls` (only while a Panel with its value is mounted), `tabindex`, `data-selected` while selected; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-| Panel   | `role="tabpanel"`, `tabindex="0"`, `id`, `aria-labelledby` (only while a Trigger with its value is mounted), `hidden` unless selected, `data-selected` while selected                                                                                                  |
-
-### Accessibility
-
-- You supply the List's accessible name with `aria-label` or `aria-labelledby`, and each Trigger's label.
-- A Panel is a tab stop (`tabindex="0"`), so its content is reachable even when it has nothing focusable. Write a static `tabindex="-1"` on a Panel whose content starts with a focusable element.
-- A disabled Trigger is natively disabled, so it can't be focused. A disabled selected Trigger stays `aria-selected="true"` and shows its Panel.
-- There's no typeahead, `aria-activedescendant` or enter/exit animation on Panels, and Tabs isn't a form control. A Tabs inside a Panel is independent of the outer one.
-
-## ToggleGroup
-
-ToggleGroup is a set of pressed buttons with one tab stop and arrow-key navigation, such as text alignment or bold, italic and underline. Single presses at most one item; Multiple presses any number.
-
-[src/toggle-group/text-alignment.ts](snippets/src/toggle-group/text-alignment.ts)
-
-[src/toggle-group/text-format.ts](snippets/src/toggle-group/text-format.ts)
-
-| Directive               | Configuration                                                                                                                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ogToggleGroupSingle`   | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `deselectable` (default `false`) |
-| `ogToggleGroupMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                  |
-| `ogToggleGroupItem`     | `value` (default generated), `disabled` (default `false`); must be a `<button>`                                                                                                        |
-
-Give each item an explicit `value`; values should be distinct within one group. Don't also put `ogToggle` on an item: the item already composes Toggle.
-
-- Clicking an enabled item, or pressing Enter or Space on it, requests a press once. In Single, an unpressed item writes its value; the pressed item writes `null` with `deselectable` and otherwise does nothing, staying an ordinary enabled pressed button. In Multiple, an item adds its value at the end of a new array or removes it.
-- The value is yours. ToggleGroup never writes it without user action: `null` or a value no item has presses nothing and is kept, Multiple keeps values no item has in order, and removing an item doesn't remove its value. Your array is never mutated.
-- Root and item `disabled` combine. While disabled, user clicks and keys can't change the value; your own writes still apply.
-
-### Keyboard
-
-| Key                    | Horizontal                                           | Vertical               |
-| ---------------------- | ---------------------------------------------------- | ---------------------- |
-| ArrowRight / ArrowLeft | next / previous item, reversed in right-to-left text | nothing                |
-| ArrowDown / ArrowUp    | nothing                                              | next / previous item   |
-| Home / End             | first / last item                                    | first / last item      |
-| Enter / Space          | press the focused item                               | press the focused item |
-
-Moves skip disabled items, wrap at both ends and never press. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
-
-Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the first pressed enabled item, otherwise the first enabled item. A click focuses the item after requesting its press, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without pressing it.
-
-### Replacing Options
-
-Single, Multiple and the item each have their own Options. Here the alignment lives in an application service, and each item's value and disabled state come from a domain record:
-
-[src/toggle-group/editor-alignment.ts](snippets/src/toggle-group/editor-alignment.ts)
-
-Item Options also drive the composed Collection Item and Toggle, so replacing them alone sets the item's place in the arrow-key order and its pressed and disabled state. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
-
-### State and attributes
-
-`OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Descendants of an item inject the composed `OrigamiToggleState` for its `pressed()` and `disabled()`.
-
-| Element | Attributes                                                                                                                                                                      |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `role="group"`, `data-orientation`, `data-disabled`                                                                                                                             |
-| Item    | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `tabindex`, `data-pressed` while pressed; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-
-### Accessibility
-
-- You supply the group's accessible name with `aria-label` or `aria-labelledby`, and each item's. Keep an item's name the same in both states, because `aria-pressed` already announces the state.
-- Both modes are a `group` of `aria-pressed` buttons, not a radio group: there's no `aria-orientation` (ARIA doesn't allow it on `group`) and focus never presses. For radio semantics, where arrow keys check, use [RadioGroup](#radiogroup). A static `role` you write on the root replaces `group`.
-- There's no typeahead, `aria-activedescendant`, mixed state or form value. A group inside a non-item descendant of another group is independent of it.
-
-### Inside a Toolbar
-
-A group inside a [Toolbar](#toolbar) joins it: its items share the Toolbar's single tab stop and arrow-key order with the Toolbar's own items, in DOM order, and the group has no tab stop of its own. Tabbing into the Toolbar lands on its first enabled control, even if that's not a pressed item. The group follows the Toolbar's orientation, which `data-orientation` and State report; its own `orientation` has no effect there. Its role, name, value and pressed state don't change. A group in Popover Content doesn't join a Toolbar around the Popover.
-
-## Toolbar
-
-Toolbar groups controls, such as formatting buttons, into one tab stop with arrow-key navigation. A ToggleGroup or RadioGroup inside it joins that single tab stop.
-
-[src/toolbar/formatting-toolbar.ts](snippets/src/toolbar/formatting-toolbar.ts)
-
-| Directive       | Configuration                                                          |
-| --------------- | ---------------------------------------------------------------------- |
-| `ogToolbar`     | `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`) |
-| `ogToolbarItem` | `disabled` (default `false`); must be a `<button>`                     |
-
-- Toolbar never activates an item: a click, Enter or Space runs only your button's own listeners.
-- Items are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as items. Other focusable content inside the Toolbar that isn't an item, such as a search field, keeps its own Tab stop and its own arrow keys.
-- A disabled item is natively disabled: arrows skip it and it's never the tab stop. There's no Toolbar-wide `disabled`; disable items, or a group's own `disabled`.
-- `ogToggle` and `ogToolbarItem` can share a button, which is then one Toolbar control; one `[disabled]` binding sets both. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which joins on its own.
-
-### Keyboard
-
-| Key                    | Horizontal                                              | Vertical                |
-| ---------------------- | ------------------------------------------------------- | ----------------------- |
-| ArrowRight / ArrowLeft | next / previous control, reversed in right-to-left text | nothing                 |
-| ArrowDown / ArrowUp    | nothing                                                 | next / previous control |
-| Home / End             | first / last control                                    | first / last control    |
-
-Controls are the Toolbar's items and the items of groups inside it. Moves skip disabled controls, wrap at both ends and never activate, press or check. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
-
-Only one control is in the Tab order (`tabindex="0"`): the focused one while focus is in the Toolbar, otherwise the first enabled control. Tabbing back into the Toolbar lands on its first enabled control, not the last one you focused. A click focuses the item in every browser, so the next arrow key moves from there. If the focused control is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without activating it.
-
-A group joins the Toolbar it sits in through Angular DI. A group projected through `<ng-content>` into a component whose own template holds the `ogToolbar` doesn't join it and keeps its own tab stop; put the Toolbar on the projecting component's host with `hostDirectives` instead.
-
-### Replacing Options
-
-The root and the item each have their own Options. Here the application owns the orientation, each command's disabled state comes from the domain, and a separator follows the orientation through State:
-
-[src/toolbar/editor-toolbar.ts](snippets/src/toolbar/editor-toolbar.ts)
-
-The Toolbar reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
-
-### State and attributes
-
-`OrigamiToolbarState` has `orientation()`, the effective value from the root Options. The root exposes it as `state`, and descendants can inject it.
-
-| Element | Attributes                                                                                                |
-| ------- | --------------------------------------------------------------------------------------------------------- |
-| Root    | `role="toolbar"`, `aria-orientation`, `data-orientation`                                                  |
-| Item    | `type="button"`, `tabindex`; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-
-### Accessibility
-
-- You supply the Toolbar's accessible name with `aria-label` or `aria-labelledby`, and each control's label. A static `role` you write on the root replaces `toolbar`. Use a Toolbar for three or more controls.
-- Separators are yours: `role="separator"` with an `aria-orientation` perpendicular to the Toolbar's.
-- There's no typeahead, `aria-activedescendant` or multi-row navigation. A Toolbar inside another Toolbar is independent of it.
-
-## RadioGroup
-
-RadioGroup is a set of radio buttons with one tab stop, where arrow keys move and check, such as a shipping speed or a size. At most one item is checked, and the user can't uncheck it.
-
-[src/radio-group/shipping-speed.ts](snippets/src/radio-group/shipping-speed.ts)
-
-| Directive          | Configuration                                                                   |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `ogRadioGroup`     | `value: string \| null` model (default `null`), `disabled` (default `false`)    |
-| `ogRadioGroupItem` | `value` (default generated), `disabled` (default `false`); must be a `<button>` |
-
-Give each item an explicit `value`; values should be distinct within one group.
-
-- Clicking an enabled unchecked item, or pressing Enter or Space on it, checks it once. On the checked item they do nothing: there's no unchecking. Items are `type="button"`, so nothing submits a form.
-- The value is yours. RadioGroup never writes it without user action: `null` or a value no item has checks nothing and is kept, nothing is checked for you, and removing the checked item doesn't change the value.
-- Root and item `disabled` combine. While disabled, user clicks and keys can't change the value; your own writes still apply.
-- There's no orientation: lay the items out in a column or a row with your own CSS. The keys are the same either way.
-
-### Keyboard
-
-| Key                    | Action                                                                                         |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| ArrowDown / ArrowRight | move to the next item and check it; ArrowRight moves to the previous one in right-to-left text |
-| ArrowUp / ArrowLeft    | move to the previous item and check it; ArrowLeft moves to the next one in right-to-left text  |
-| Home / End             | move to the first / last item and check it                                                     |
-| Enter / Space          | check the focused item                                                                         |
-
-Moves skip disabled items and wrap at both ends. A move checks the item it lands on, even the one already focused (Home on the first item, or any arrow with one enabled item), but only if, once its focus handlers have run, it's still there, enabled and focused. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
-
-Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the checked enabled item, otherwise the first enabled item. Tabbing in never checks anything. A click focuses the item and then checks it, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without checking it.
-
-### Inside a Toolbar
-
-A group inside a [Toolbar](#toolbar) joins it, as in the [APG toolbar example](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/examples/toolbar/): its items share the Toolbar's single tab stop and arrow-key order with the Toolbar's other controls, in DOM order, and the group has no tab stop of its own. Tabbing into the Toolbar lands on its first enabled control, even if that's not the checked item. **Arrow keys only move focus there and never check**; they follow the Toolbar's orientation. Space, Enter or a click checks the focused item. Its role, name, value and checked state don't change. A group in Popover Content doesn't join a Toolbar around the Popover.
-
-[src/radio-group/alignment-toolbar.ts](snippets/src/radio-group/alignment-toolbar.ts)
-
-### Replacing Options
-
-The root and the item each have their own Options. Here the value and a lock live in an application store, each item's value and availability come from a domain record, and an estimate under the group reads its State:
-
-[src/radio-group/checkout-speed.ts](snippets/src/radio-group/checkout-speed.ts)
-
-Item Options also drive the composed Collection Item, so replacing them alone sets the item's place in the arrow-key order. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
-
-### State and attributes
-
-`OrigamiRadioGroupState` has `value()` and `disabled()`, the effective values from the root Options, including `null` and values no item has. The root exposes it as `state`, and descendants can inject it. Items have no State; style a checked item with `data-checked`.
-
-| Element | Attributes                                                                                                                                                                                      |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `role="radiogroup"`, `data-disabled`                                                                                                                                                            |
-| Item    | `type="button"`, `role="radio"`, `aria-checked` (`"true"` or `"false"`), `tabindex`, `data-checked` while checked; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-
-### Accessibility
-
-- You supply the group's accessible name with `aria-label` or `aria-labelledby`, and each item's label. A static `role` you write on the root replaces `radiogroup`. You can also write `aria-orientation` or `aria-required` statically on the root; RadioGroup doesn't set them.
-- Items are `<button role="radio">`, not native `<input type="radio">`: RadioGroup owns the tab stop and the keys, which is what lets a group join a Toolbar. A disabled checked item stays `aria-checked="true"` and isn't focusable.
-- RadioGroup isn't a form control yet: it has no `name`, form value, `required`, validity or Signal Forms integration. There's no typeahead or `aria-activedescendant`. A group inside a non-item descendant of another group is independent of it.
-
-## Utilities
-
-`@loozo/origami-ui/utils` exports the two helpers the primitives use:
-
-[src/utils/field-hint.ts](snippets/src/utils/field-hint.ts)
-
-- `injectUniqueId(key)` returns an opaque ID that's stable for this allocation and unique within the application. Call it once per mounted identity, in an injection context, and keep the result. Its spelling and allocation order aren't part of the API.
-- `injectDeferred(token)` captures the current injector in an injection context and returns a function that resolves `token` from it later, outside the injection context. Nothing is resolved at capture time.
-
-Both throw when called outside an injection context.
-
 ## Server rendering and hydration
 
 Every primitive renders on the server and hydrates with Angular's `provideClientHydration`, with or without incremental hydration. There's no extra provider, `ngSkipHydration` or client-only rendering.
@@ -549,12 +79,6 @@ Every primitive renders on the server and hydrates with Angular's `provideClient
 - Initially-absent Presence-gated content isn't in the server HTML and doesn't appear when its owner hydrates.
 - Generated IDs and item values match between server and client, including when `@defer` blocks hydrate in a different order from the server.
 - An Angular event replayed after incremental hydration reaches the model once.
-- A Toggle's `aria-pressed`, `data-pressed` and disabled attributes are in the server HTML. If the server can't know the pressed state, for example a theme stored in the browser, render the Toggle disabled until the browser has it.
-- Tabs' selection, roles, associations, hidden Panels and single `tabindex="0"` are in the server HTML, and hydration doesn't change them.
-- ToggleGroup's `role="group"`, `aria-pressed`, disabled attributes and single `tabindex="0"` are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration presses once.
-- Toolbar's `role="toolbar"`, `aria-orientation`, disabled attributes and single `tabindex="0"`, chosen in DOM order across joined groups, are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration runs your handler once.
-- RadioGroup's `role="radiogroup"`, `role="radio"`, `aria-checked`, disabled attributes and single `tabindex="0"`, chosen in DOM order, are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration checks once.
-- Popover Content is in the server HTML with `popover="manual"`, but the browser shows a closed Popover until the Content has hydrated and opened. An initially-open Popover's children are in the server HTML; it appears as a floating surface only once it hydrates.
 
 **The element-host identity rule:** `injectUniqueId` matches server and client only when it's called with an element host, that is in a directive or component on an element, as every primitive does. A call from an application service or another injection context without an element host still returns an application-unique ID, but don't bind it into server-rendered DOM, because the client will generate a different one. Uniqueness across several Angular applications in one document isn't guaranteed; coordinate explicit IDs there.
 
@@ -565,17 +89,15 @@ Explicit and static `id` bindings always take precedence over generated ones.
 - No styled components, themes or design tokens. No menu, listbox or select semantics or focus traps. Tabs, ToggleGroup, Toolbar and RadioGroup are the only primitives with roving tabindex and arrow-key navigation, and their replacement item Options must be readable before Angular sets the item's inputs.
 - Angular 22.2.x from 22.2.2 only; tested against 22.2.2.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
-- `until-found` is a progressive enhancement and falls back to `hidden` without find-in-page.
-- Popover supports the `horizontal-tb`, `vertical-rl` and `vertical-lr` writing modes; others fail positioning. It doesn't keep oversized content inside the viewport, doesn't track transform-animated anchors or unobserved ancestor resizes, and doesn't create a source association for Tab order.
-- Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/tests/acceptance/README.md#known-evidence-limits).
+- Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](tests/acceptance/README.md#known-evidence-limits).
 
 ## Further reading
 
-- [SPEC.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/SPEC.md): the product contract.
-- [SPEC-POPOVER.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/SPEC-POPOVER.md): the Popover design.
-- [acceptance/](https://github.com/theo-matzavinos/loozo/tree/main/packages/origami-ui/acceptance): case definitions (`CASES.md`), public type checks and handwritten consumers.
-- [`examples/origami-ui`](https://github.com/theo-matzavinos/loozo/tree/main/examples/origami-ui): the consumer application the acceptance suite runs.
-- [PROVENANCE.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/PROVENANCE.md): where this package came from.
+- [SPEC.md](SPEC.md): the product contract.
+- [SPEC-POPOVER.md](SPEC-POPOVER.md): the Popover design.
+- [acceptance/](acceptance/): case definitions (`CASES.md`), public type checks and handwritten consumers.
+- [`examples/origami-ui`](../../examples/origami-ui/): the consumer application the acceptance suite runs.
+- [PROVENANCE.md](PROVENANCE.md): where this package came from.
 
 ## Developing this package
 
@@ -593,4 +115,4 @@ pnpm run test:full   # the release gate: 24 projects across three engines (about
 
 Acceptance tests the packed build installed into a scratch copy of the example application. On a fresh checkout, the first `test` (or `test:fast`, `test:focus`) runs the clean strict installation itself; after changing the example's `package.json` or the library's dependencies, run `pnpm run acceptance:prepare`. Set `NG_BUILD_MAX_WORKERS=2` on small hosts. WebKit may need private libraries.
 
-The README's code examples live in [`snippets/`](https://github.com/theo-matzavinos/loozo/tree/main/packages/origami-ui/snippets) and are typechecked by `pnpm run snippets:check`, which `test` and `test:full` run. See [tests/acceptance/README.md](https://github.com/theo-matzavinos/loozo/blob/main/packages/origami-ui/tests/acceptance/README.md) for the suite, its prerequisites and every script.
+The READMEs' code examples live in [`snippets/`](snippets/) and are typechecked by `pnpm run snippets:check`, which `test` and `test:full` run. See [tests/acceptance/README.md](tests/acceptance/README.md) for the suite, its prerequisites and every script.

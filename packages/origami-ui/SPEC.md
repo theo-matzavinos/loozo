@@ -708,6 +708,7 @@ A new primitive ships with:
 - Its own section in this contract, with its own section ID: selectors, export names, Options/State shapes, behavior, SSR/hydration semantics and exclusions, plus its rows in section 4's entrypoint and shape tables.
 - Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition.
 - Complete public TSDoc per section 4.
+- A `<primitive>/README.md` with its usage, linked from the package README's entry-point table.
 - SSR plus eager and incremental hydration per section 17.
 - Chromium, Firefox and WebKit qualification in development and production.
 - Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 18's coverage map and assertions in the acceptance gate.

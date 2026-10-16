@@ -251,7 +251,6 @@ test("origami's empty root is left out and its secondary entry points list the p
   }
 
   assert.deepEqual(Object.keys(names), [
-    "@loozo/origami-ui/utils",
     "@loozo/origami-ui/collection",
     "@loozo/origami-ui/presence",
     "@loozo/origami-ui/collapsible",
@@ -262,6 +261,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/toggle-group",
     "@loozo/origami-ui/toolbar",
     "@loozo/origami-ui/radio-group",
+    "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], ["injectDeferred", "injectUniqueId"]);
   // Compiler-required ɵ exports are not application API.
@@ -277,6 +277,52 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/toolbar"].length, 6);
   assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
   assert.deepEqual(origami.generatedApi, []);
+});
+
+test("origami's README sections and entry-point READMEs are its guide pages", () => {
+  const guides = [];
+  const entryGuides = [];
+
+  for (const guide of origami.guides) {
+    guides.push(guide.slug);
+  }
+
+  for (const entryPoint of origami.entryPoints) {
+    entryGuides.push(`${entryPoint.guide.slug}:${entryPoint.guide.title}`);
+  }
+
+  assert.deepEqual(guides, [
+    "install",
+    "how-the-primitives-fit-together",
+    "server-rendering-and-hydration",
+    "limitations",
+    "further-reading",
+    "developing-this-package",
+  ]);
+  assert.deepEqual(entryGuides, [
+    "collection:Collection",
+    "presence:Presence",
+    "collapsible:Collapsible",
+    "accordion:Accordion",
+    "popover:Popover",
+    "toggle:Toggle",
+    "tabs:Tabs",
+    "toggle-group:ToggleGroup",
+    "toolbar:Toolbar",
+    "radio-group:RadioGroup",
+    "utils:Utilities",
+  ]);
+
+  const install = origami.guides[0].html;
+  const toggle = entryPoint(origami, "@loozo/origami-ui/toggle").guide.html;
+
+  assert.match(install, /<a href="origami-ui\/guide\/popover" data-docs-link="">/);
+  assert.match(toggle, /<a href="origami-ui\/guide\/toggle-group" data-docs-link="">ToggleGroup/);
+  assert.match(
+    toggle,
+    /<a href="origami-ui\/guide\/server-rendering-and-hydration" data-docs-link="">/,
+  );
+  assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/mute.ts<\/code>/);
 });
 
 test("generated modules typecheck against model.generated.ts under strict settings", async () => {

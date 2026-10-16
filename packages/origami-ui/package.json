@@ -17,10 +17,6 @@
       "types": "./dist/types/loozo-origami-ui.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui.mjs"
     },
-    "./utils": {
-      "types": "./dist/types/loozo-origami-ui-utils.d.ts",
-      "default": "./dist/fesm2022/loozo-origami-ui-utils.mjs"
-    },
     "./collection": {
       "types": "./dist/types/loozo-origami-ui-collection.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-collection.mjs"
@@ -60,6 +56,10 @@
     "./radio-group": {
       "types": "./dist/types/loozo-origami-ui-radio-group.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-radio-group.mjs"
+    },
+    "./utils": {
+      "types": "./dist/types/loozo-origami-ui-utils.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-utils.mjs"
     },
     "./package.json": "./package.json"
   },
