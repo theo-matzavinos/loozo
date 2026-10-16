@@ -65,7 +65,7 @@ Consumer directive / component
     │ hostDirectives + typed Options replacement
     ▼
 Primitive directive
-    │ owns inputs, model defaults, outputs and host bindings
+    │ owns inputs, model defaults and host bindings; re-exposes State events as outputs
     ▼
 Options token ─────► private Context
                        │ behavior, registration and lifecycle
@@ -93,6 +93,12 @@ Context is private and owns behavior. State is a concrete, locally provided, rea
 Direct selectors and `hostDirectives` composition expose equivalent behavior. Descendants observe the nearest logical Angular DI owner. Nested roots have independent Context and State instances; consumers under one root share that root's State instance.
 
 Locally provided injectable classes use Angular `@Service({ autoProvided: false })`; application services use appropriate `@Service` configuration. This preserves the established Angular architecture. Actual supported APIs must be checked against the selected dependency version.
+
+### Events
+
+Context exposes each event as an `Observable`, emitting synchronously where the event happens, so subscribers run under the same guards. State re-exposes it as a readonly `Observable`. The directive re-exposes it as an output with `outputFromObservable`.
+
+Two-way state isn't an event. A directive `model()` maps to a `WritableSignal` on its Options, and the model's change output is exempt from this rule.
 
 ### Registration and teardown
 
