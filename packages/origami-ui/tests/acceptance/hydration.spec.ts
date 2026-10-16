@@ -589,6 +589,127 @@ test("S7 H1 H2 H3: Tabs server selection, DOM-order tab stop and associations su
   }
 });
 
+/** Server-rendered ToggleGroup semantics; C has no Single value, a disabled first item and no marks. */
+async function expectServerToggleGroups(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const alignment = unit.getByTestId("hydration-alignment");
+    const marks = unit.getByTestId("hydration-marks");
+    const start = unit.getByTestId("hydration-align-start");
+    const end = unit.getByTestId("hydration-align-end");
+    const bold = unit.getByTestId("hydration-mark-bold");
+    const italic = unit.getByTestId("hydration-mark-italic");
+    const underline = unit.getByTestId("hydration-mark-underline");
+
+    for (const group of [alignment, marks]) {
+      await expect(group).toHaveAttribute("role", "group");
+      await expect(group).toHaveAttribute("data-orientation", "horizontal");
+      await expect(group).not.toHaveAttribute("aria-orientation", /.*/);
+    }
+
+    for (const item of [start, end, bold, italic, underline]) {
+      await expect(item).toHaveAttribute("type", "button");
+    }
+
+    await expect(end).toHaveAttribute("aria-pressed", "false");
+    await expect(underline).toHaveAttribute("aria-pressed", "false");
+    await expect(underline).not.toHaveAttribute("data-pressed", /.*/);
+    await expect(underline).toHaveAttribute("tabindex", "-1");
+    await expect(italic).toHaveAttribute("tabindex", "-1");
+
+    if (label === "C") {
+      await expect(start).toBeDisabled();
+      await expect(start).toHaveAttribute("aria-disabled", "true");
+      await expect(start).toHaveAttribute("data-disabled", "");
+      await expect(start).toHaveAttribute("aria-pressed", "false");
+      await expect(start).toHaveAttribute("tabindex", "-1");
+      await expect(end).toHaveAttribute("tabindex", "0");
+      await expect(bold).toHaveAttribute("aria-pressed", "false");
+      await expect(italic).toHaveAttribute("aria-pressed", "false");
+      await expect(bold).toHaveAttribute("tabindex", "0");
+    } else {
+      await expect(start).toBeEnabled();
+      await expect(start).toHaveAttribute("aria-pressed", "true");
+      await expect(start).toHaveAttribute("data-pressed", "");
+      await expect(start).toHaveAttribute("tabindex", "0");
+      await expect(end).toHaveAttribute("tabindex", "-1");
+      await expect(bold).toHaveAttribute("aria-pressed", "true");
+      await expect(bold).toHaveAttribute("data-pressed", "");
+      await expect(italic).toHaveAttribute("aria-pressed", "true");
+      await expect(bold).toHaveAttribute("tabindex", "0");
+    }
+  }
+}
+
+test("U6 H1 H2 H3: ToggleGroup server pressed state and DOM-order tab stop survive hydration; a click after attachment or replay presses once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerToggleGroups(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const underline = b.getByTestId("hydration-mark-underline");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await underline.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("mark-output-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerToggleGroups(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerToggleGroups(page, ["A", "B", "C"]);
+      await underline.click();
+    }
+
+    await expect(b.getByTestId("mark-output-count")).toHaveText("1");
+    await expect(underline).toHaveAttribute("aria-pressed", "true");
+    await expect(underline).toHaveAttribute("data-pressed", "");
+    await expect(b.getByTestId("hydration-mark-bold")).toHaveAttribute("aria-pressed", "true");
+    await expect(b.getByTestId("hydration-mark-italic")).toHaveAttribute("aria-pressed", "true");
+    await assertReferences(page, info);
+    await b.getByTestId("hydration-mark-bold").click();
+    await expect(b.getByTestId("mark-output-count")).toHaveText("2");
+    await expect(b.getByTestId("hydration-mark-bold")).toHaveAttribute("aria-pressed", "false");
+    await expect(underline).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {

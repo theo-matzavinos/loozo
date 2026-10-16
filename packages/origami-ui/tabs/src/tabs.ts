@@ -105,7 +105,10 @@ export abstract class OrigamiTabsOptions {
 
 /**
  * Effective Trigger configuration. It also drives the composed Collection Item, so replacing
- * only these Options sets the Trigger's Collection value and order without lower Options.
+ * only these Options sets the Trigger's Collection value and order without lower Options. The
+ * root reads every Trigger's Options while rendering, so replacement Options must be readable as
+ * soon as the Trigger is constructed; a required input in a repeated Trigger can be read before
+ * Angular sets it (NG0950).
  */
 export abstract class OrigamiTabsTriggerOptions {
   /** The value this Trigger selects and pairs with the Panel of the same value. */

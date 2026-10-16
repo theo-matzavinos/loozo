@@ -28,6 +28,13 @@ import {
   type OrigamiTabsOrientation,
   type OrigamiTabsActivation,
 } from "@loozo/origami-ui/tabs";
+import {
+  OrigamiToggleGroupSingleOptions,
+  OrigamiToggleGroupMultipleOptions,
+  OrigamiToggleGroupItemOptions,
+  type OrigamiToggleGroupState,
+  type OrigamiToggleGroupOrientation,
+} from "@loozo/origami-ui/toggle-group";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -42,6 +49,7 @@ export function checkReadonlyState(
   content: OrigamiPopoverContentState,
   toggle: OrigamiToggleState,
   tabs: OrigamiTabsState,
+  toggleGroup: OrigamiToggleGroupState,
 ): void {
   // @ts-expect-error Collection observation is not writable.
   collection.items.set([]);
@@ -83,6 +91,10 @@ export function checkReadonlyState(
   tabs.value.set("billing");
   // @ts-expect-error Tabs orientation observation is not writable.
   tabs.orientation.set("vertical");
+  // @ts-expect-error ToggleGroup disabled observation is not writable.
+  toggleGroup.disabled.set(true);
+  // @ts-expect-error ToggleGroup orientation observation is not writable.
+  toggleGroup.orientation.set("vertical");
 }
 
 export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
@@ -105,6 +117,16 @@ export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
   const multipleValue: OrigamiAccordionMultipleOptions["value"] = signal<string | null>(null);
 
   void multipleValue;
+
+  // @ts-expect-error Multiple ToggleGroup Options do not gain Single's deselectable setting.
+  const multipleDeselectable: OrigamiToggleGroupMultipleOptions["deselectable"] = signal(false);
+
+  void multipleDeselectable;
+
+  // @ts-expect-error Single ToggleGroup value is a nullable string, not an array.
+  const pressedValue: OrigamiToggleGroupSingleOptions["value"] = signal<readonly string[]>([]);
+
+  void pressedValue;
 
   // @ts-expect-error ID-only Content replacements require migration.
   const content: OrigamiPopoverContentOptions = { id: signal("id-only") };
@@ -159,6 +181,21 @@ export function checkProviderShapes(): void {
   OrigamiTabsPanelOptions.provideFactory(() => ({
     value: signal("billing"),
     id: signal("billing-panel"),
+  }));
+  OrigamiToggleGroupSingleOptions.provideFactory(() => ({
+    value: signal<string | null>("start"),
+    disabled: signal(false),
+    orientation: signal<OrigamiToggleGroupOrientation>("vertical"),
+    deselectable: signal(true),
+  }));
+  OrigamiToggleGroupMultipleOptions.provideFactory(() => ({
+    value: signal<readonly string[]>(["bold"]),
+    disabled: signal(false),
+    orientation: signal<OrigamiToggleGroupOrientation>("horizontal"),
+  }));
+  OrigamiToggleGroupItemOptions.provideFactory(() => ({
+    value: signal("bold"),
+    disabled: signal(false),
   }));
 }
 

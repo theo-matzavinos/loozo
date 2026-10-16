@@ -40,6 +40,14 @@ import {
   type OrigamiTabsOrientation,
   type OrigamiTabsActivation,
 } from "@loozo/origami-ui/tabs";
+import {
+  OrigamiToggleGroupSingle,
+  OrigamiToggleGroupSingleOptions,
+  OrigamiToggleGroupState,
+  OrigamiToggleGroupItem,
+  OrigamiToggleGroupItemOptions,
+  type OrigamiToggleGroupOrientation,
+} from "@loozo/origami-ui/toggle-group";
 import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 
@@ -208,6 +216,72 @@ export class TabsObservation {
   readonly state = inject(OrigamiTabsState);
 }
 
+@Service({ autoProvided: false })
+export class AlignmentSettings {
+  readonly value = signal<string | null>("start");
+  readonly disabled = signal(false);
+  readonly orientation = signal<OrigamiToggleGroupOrientation>("vertical");
+  readonly deselectable = signal(true);
+}
+
+/** Writable factory Options win over the unused root model, whose output stays silent. */
+@Directive({
+  selector: "[factoryAlignment]",
+  exportAs: "factoryAlignment",
+  hostDirectives: [
+    {
+      directive: OrigamiToggleGroupSingle,
+      inputs: ["value: lowerValue"],
+      outputs: ["valueChange: lowerValueChange"],
+    },
+  ],
+  providers: [OrigamiToggleGroupSingleOptions.provideFactory(() => inject(AlignmentSettings))],
+})
+export class FactoryAlignment {
+  readonly state = inject(OrigamiToggleGroupState);
+  readonly #items = inject(OrigamiCollectionState);
+  /** The composed Collection's values, which only the upper item Options supply. */
+  readonly itemValues = computed(() => {
+    const values: string[] = [];
+
+    for (const item of this.#items.items()) {
+      values.push(item.value());
+    }
+
+    return values.join(",");
+  });
+}
+
+export type Alignment = { readonly id: string; readonly available: boolean };
+
+/** Readable before Angular sets the input: the group reads every repeated item's Options while rendering. */
+const pendingAlignment: Alignment = { id: "", available: false };
+
+/** Existing item Options: value and disabled state come from the consumer's domain record. */
+@Directive({
+  selector: "button[consumerAlignment]",
+  hostDirectives: [OrigamiToggleGroupItem],
+  providers: [OrigamiToggleGroupItemOptions.provideExisting(() => ConsumerAlignment)],
+})
+export class ConsumerAlignment implements OrigamiToggleGroupItemOptions {
+  readonly alignment = input<Alignment>(pendingAlignment, { alias: "consumerAlignment" });
+  readonly value = computed(() => this.alignment().id);
+  readonly disabled = computed(() => !this.alignment().available);
+}
+
+/** A descendant observes its nearest ToggleGroup State. */
+@Directive({
+  selector: "[toggleGroupObservation]",
+  exportAs: "toggleGroupObservation",
+  host: {
+    "[attr.data-observed-orientation]": "state.orientation()",
+    "[attr.data-observed-disabled]": "state.disabled()",
+  },
+})
+export class ToggleGroupObservation {
+  readonly state = inject(OrigamiToggleGroupState);
+}
+
 const DeferredValue = new InjectionToken<string>("acceptance deferred value");
 
 @Directive({
@@ -247,11 +321,15 @@ export class UtilityObservation {
     ConsumerTab,
     ConsumerTabPanel,
     TabsObservation,
+    FactoryAlignment,
+    ConsumerAlignment,
+    ToggleGroupObservation,
   ],
   providers: [
     FactorySettings,
     ToggleSettings,
     TabsSettings,
+    AlignmentSettings,
     {
       provide: DeferredValue,
       useFactory: () => {
@@ -435,6 +513,76 @@ export class UtilityObservation {
       <output data-testid="factory-tabs-items">{{ factoryTabs.itemValues() }}</output>
       <output data-testid="unused-tab-outputs">{{ unusedTabOutputs() }}</output>
     </section>
+
+    <section>
+      <h2>ToggleGroup composition</h2>
+      <button
+        type="button"
+        data-testid="factory-alignment-select"
+        (click)="alignmentSettings.value.set('end')"
+      >
+        Write factory alignment
+      </button>
+      <button
+        type="button"
+        data-testid="factory-alignment-disable"
+        (click)="alignmentSettings.disabled.set(!alignmentSettings.disabled())"
+      >
+        Toggle factory alignment disabled
+      </button>
+      <button
+        type="button"
+        data-testid="factory-alignment-horizontal"
+        (click)="alignmentSettings.orientation.set('horizontal')"
+      >
+        Make factory alignment horizontal
+      </button>
+      <button
+        type="button"
+        data-testid="factory-alignment-strict"
+        (click)="alignmentSettings.deselectable.set(false)"
+      >
+        Make factory alignment non-deselectable
+      </button>
+      <button type="button" data-testid="center-available" (click)="makeCenterAvailable()">
+        Make center available
+      </button>
+      <button type="button" data-testid="reverse-alignments" (click)="reverseAlignments()">
+        Reverse alignments
+      </button>
+      <div
+        factoryAlignment
+        #factoryAlignment="factoryAlignment"
+        lowerValue="end"
+        (lowerValueChange)="unusedAlignmentOutputs.update(increment)"
+        aria-label="Composed alignment"
+        data-testid="factory-alignment"
+      >
+        @for (alignment of alignments(); track alignment.id) {
+          <button
+            [consumerAlignment]="alignment"
+            [attr.data-testid]="'consumer-align-' + alignment.id"
+          >
+            {{ alignment.id }}
+            <span
+              toggleObservation
+              [attr.data-testid]="'consumer-align-observer-' + alignment.id"
+            ></span>
+          </button>
+        }
+        <span
+          toggleGroupObservation
+          #groupObservation="toggleGroupObservation"
+          data-testid="toggle-group-observer"
+        ></span>
+      </div>
+      <output data-testid="factory-alignment-value">{{ alignmentSettings.value() }}</output>
+      <output data-testid="factory-alignment-items">{{ factoryAlignment.itemValues() }}</output>
+      <output data-testid="factory-alignment-shared">{{
+        factoryAlignment.state === groupObservation.state
+      }}</output>
+      <output data-testid="unused-alignment-outputs">{{ unusedAlignmentOutputs() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -496,5 +644,33 @@ export class CompositionConsumer {
   readonly consumerToggleOutputs = signal(0);
   readonly tabsSettings = inject(TabsSettings);
   readonly unusedTabOutputs = signal(0);
+  readonly alignmentSettings = inject(AlignmentSettings);
+  readonly alignments = signal<readonly Alignment[]>([
+    { id: "start", available: true },
+    { id: "center", available: false },
+    { id: "end", available: true },
+  ]);
+  readonly unusedAlignmentOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
+
+  makeCenterAvailable(): void {
+    const alignments: Alignment[] = [];
+
+    for (const alignment of this.alignments()) {
+      if (alignment.id === "center") {
+        alignments.push({ id: "center", available: true });
+      } else {
+        alignments.push(alignment);
+      }
+    }
+
+    this.alignments.set(alignments);
+  }
+
+  reverseAlignments(): void {
+    const alignments = [...this.alignments()];
+
+    alignments.reverse();
+    this.alignments.set(alignments);
+  }
 }

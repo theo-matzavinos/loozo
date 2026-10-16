@@ -36,6 +36,7 @@ import {
 } from "@loozo/origami-ui/accordion";
 import { CoreConsumer } from "./seeds/core-consumer.js";
 import { TabsCases } from "./tabs-cases.js";
+import { ToggleGroupCases } from "./toggle-group-cases.js";
 
 @Directive({ selector: "[presenceObservation]", exportAs: "presenceObservation" })
 export class PresenceObservation {
@@ -246,6 +247,7 @@ export class ReplacedAccordionItem {}
     ItemOptions,
     ReplacedAccordionItem,
     TabsCases,
+    ToggleGroupCases,
   ],
   providers: [ReplacedItemValue],
   template: `
@@ -253,6 +255,7 @@ export class ReplacedAccordionItem {}
     <output data-testid="fixture-attached">{{ attached() }}</output>
     <acceptance-core />
     <acceptance-tabs-cases />
+    <acceptance-toggle-group-cases />
     <h2>Mounted collection order</h2>
     <section ogCollection collectionValues #items="collectionValues" data-testid="variant-collection">
       @for (key of keys(); track key) {

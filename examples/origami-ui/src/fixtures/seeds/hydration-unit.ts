@@ -33,6 +33,11 @@ import {
   OrigamiTabsTrigger,
   OrigamiTabsPanel,
 } from "@loozo/origami-ui/tabs";
+import {
+  OrigamiToggleGroupSingle,
+  OrigamiToggleGroupMultiple,
+  OrigamiToggleGroupItem,
+} from "@loozo/origami-ui/toggle-group";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Directive({
@@ -65,6 +70,9 @@ export class AccordionObservation {
     OrigamiTabsList,
     OrigamiTabsTrigger,
     OrigamiTabsPanel,
+    OrigamiToggleGroupSingle,
+    OrigamiToggleGroupMultiple,
+    OrigamiToggleGroupItem,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -138,6 +146,37 @@ export class AccordionObservation {
         <button ogTabsTrigger value="two" data-testid="hydration-order-two">Two</button>
       </div>
     </div>
+
+    <div
+      ogToggleGroupSingle
+      [(value)]="alignment"
+      aria-label="Server alignment"
+      data-testid="hydration-alignment"
+    >
+      <button
+        ogToggleGroupItem
+        value="start"
+        [disabled]="!initiallyPresent()"
+        data-testid="hydration-align-start"
+      >
+        Start
+      </button>
+      <button ogToggleGroupItem value="end" data-testid="hydration-align-end">End</button>
+    </div>
+    <div
+      ogToggleGroupMultiple
+      [(value)]="marks"
+      (valueChange)="markOutputs.update(increment)"
+      aria-label="Server formatting"
+      data-testid="hydration-marks"
+    >
+      <button ogToggleGroupItem value="bold" data-testid="hydration-mark-bold">Bold</button>
+      <button ogToggleGroupItem value="italic" data-testid="hydration-mark-italic">Italic</button>
+      <button ogToggleGroupItem value="underline" data-testid="hydration-mark-underline">
+        Underline
+      </button>
+    </div>
+    <output data-testid="mark-output-count">{{ markOutputs() }}</output>
 
     <div
       ogAccordionSingle
@@ -274,6 +313,21 @@ export class HydrationUnit {
   });
   readonly tabOutputs = signal(0);
   readonly earlyTrigger = signal(true);
+  readonly alignment = linkedSignal<string | null>(() => {
+    if (this.initiallyPresent()) {
+      return "start";
+    }
+
+    return null;
+  });
+  readonly marks = linkedSignal<readonly string[]>(() => {
+    if (this.initiallyPresent()) {
+      return ["bold", "italic"];
+    }
+
+    return [];
+  });
+  readonly markOutputs = signal(0);
   readonly popoverOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
 

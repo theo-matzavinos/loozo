@@ -17,6 +17,8 @@ import {
   OrigamiCollectionItem,
   OrigamiCollectionItemOptions,
   OrigamiCollectionState,
+  ɵrequestMultipleSelection,
+  ɵrequestSingleSelection,
 } from "@loozo/origami-ui/collection";
 import {
   OrigamiCollapsible,
@@ -399,21 +401,8 @@ class SingleSelection implements Selection {
 
   request(value: string, expanded: boolean): void {
     const options = this.#options();
-    const selected = options.value() === value;
 
-    if (expanded === selected) {
-      return;
-    }
-
-    if (expanded) {
-      options.value.set(value);
-
-      return;
-    }
-
-    if (options.collapsible()) {
-      options.value.set(null);
-    }
+    ɵrequestSingleSelection(options.value, value, expanded, options.collapsible());
   }
 }
 
@@ -430,29 +419,7 @@ class MultipleSelection implements Selection {
   }
 
   request(value: string, expanded: boolean): void {
-    const options = this.#options();
-    const current = options.value();
-    const selected = current.includes(value);
-
-    if (expanded === selected) {
-      return;
-    }
-
-    if (expanded) {
-      options.value.set([...current, value]);
-
-      return;
-    }
-
-    const remaining: string[] = [];
-
-    for (const entry of current) {
-      if (entry !== value) {
-        remaining.push(entry);
-      }
-    }
-
-    options.value.set(remaining);
+    ɵrequestMultipleSelection(this.#options().value, value, expanded);
   }
 }
 

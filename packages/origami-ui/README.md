@@ -1,10 +1,10 @@
 # @loozo/origami-ui
 
-Headless, accessible Angular primitives: Collection, Presence, Collapsible, single and multiple Accordion, Popover, Toggle and Tabs. They own behavior, state, generated IDs, ARIA associations and Popover's native top-layer presentation, and they're safe to render on the server and hydrate. You own the markup, roles and accessible names, styling, dimensions and animation.
+Headless, accessible Angular primitives: Collection, Presence, Collapsible, single and multiple Accordion, Popover, Toggle, Tabs and single and multiple ToggleGroup. They own behavior, state, generated IDs, ARIA associations and Popover's native top-layer presentation, and they're safe to render on the server and hydrate. You own the markup, roles and accessible names, styling, dimensions and animation.
 
 Every primitive is a directive you put on your own elements, or compose into your own directives through `hostDirectives`. Each configurable part reads typed **Options** that you can replace. The roots, Presence, Popover Content and Toggle also expose a readonly **State** that you can inject.
 
-Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation, anchored popovers, toggle buttons and tabs, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
+Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation, anchored popovers, toggle buttons, tabs and toggle groups, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
 
 **Status:** experimental and published on npm. Version `0.0.1`, MIT license.
 
@@ -25,18 +25,19 @@ The package is tested against Angular 22.2.2. It supports Angular 22.2.x from 22
 
 The root entry point `@loozo/origami-ui` is intentionally empty. Import from the secondary entry points:
 
-| Entry point                     | Exports                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@loozo/origami-ui/utils`       | `injectDeferred`, `injectUniqueId`                                                                                                                                                                                                                                                                                             |
-| `@loozo/origami-ui/collection`  | `OrigamiCollection`, `OrigamiCollectionState`, `OrigamiCollectionItem`, `OrigamiCollectionItemOptions`, type `OrigamiCollectionRecord`                                                                                                                                                                                         |
-| `@loozo/origami-ui/presence`    | `OrigamiPresence`, `OrigamiPresenceOptions`, `OrigamiPresenceState`, type `OrigamiPresencePhase`                                                                                                                                                                                                                               |
-| `@loozo/origami-ui/collapsible` | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
-| `@loozo/origami-ui/accordion`   | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
-| `@loozo/origami-ui/popover`     | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
-| `@loozo/origami-ui/toggle`      | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
-| `@loozo/origami-ui/tabs`        | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                      |
+| Entry point                      | Exports                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@loozo/origami-ui/utils`        | `injectDeferred`, `injectUniqueId`                                                                                                                                                                                                                                                                                             |
+| `@loozo/origami-ui/collection`   | `OrigamiCollection`, `OrigamiCollectionState`, `OrigamiCollectionItem`, `OrigamiCollectionItemOptions`, type `OrigamiCollectionRecord`                                                                                                                                                                                         |
+| `@loozo/origami-ui/presence`     | `OrigamiPresence`, `OrigamiPresenceOptions`, `OrigamiPresenceState`, type `OrigamiPresencePhase`                                                                                                                                                                                                                               |
+| `@loozo/origami-ui/collapsible`  | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
+| `@loozo/origami-ui/accordion`    | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
+| `@loozo/origami-ui/popover`      | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
+| `@loozo/origami-ui/toggle`       | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
+| `@loozo/origami-ui/tabs`         | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                      |
+| `@loozo/origami-ui/toggle-group` | `OrigamiToggleGroupSingle`, `OrigamiToggleGroupSingleOptions`, `OrigamiToggleGroupMultiple`, `OrigamiToggleGroupMultipleOptions`, `OrigamiToggleGroupState`, `OrigamiToggleGroupItem`, `OrigamiToggleGroupItemOptions`, type `OrigamiToggleGroupOrientation`                                                                   |
 
-The Accordion entry point also exports `ɵOrigamiAccordionRoot`, which compiled composition needs, and the Collection entry point exports `ɵOrigamiRovingFocus`, the package-private keyboard focus behind Tabs. Neither is an application API. Every export carries TSDoc with its defaults, ownership, errors and hydration behavior; your editor shows it from the published declarations.
+The Accordion entry point also exports `ɵOrigamiAccordionRoot`, which compiled composition needs, and the Collection entry point exports `ɵOrigamiRovingFocus`, the package-private keyboard focus behind Tabs and ToggleGroup, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private selection writes behind Accordion and ToggleGroup. None of them is an application API. Every export carries TSDoc with its defaults, ownership, errors and hydration behavior; your editor shows it from the published declarations.
 
 ## How the primitives fit together
 
@@ -60,11 +61,11 @@ Options token ──► private Context ──► readonly State
   A replacement replaces the configuration as a whole: it must supply every property, and the directive's own inputs and defaults are ignored. Writable properties can be ordinary `signal()`s; writing them doesn't emit the unused directive's model output.
 
 - **Context** is private and owns the behavior. Parts register with the nearest owner in Angular's DI, so nested roots are independent and descendants share their own root's State.
-- **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root, Popover Content, Toggle and the Tabs root. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
+- **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root, Popover Content, Toggle, the Tabs root and each ToggleGroup mode. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
 
 Angular 22.2.2's template type-checker crashes ("Could not resolve [object Object]") on a template reference to a primitive's `exportAs` name, such as `#t="ogToggle"`, when that element matches the primitive both directly and through your directive's `hostDirectives`. Reference your own directive instead, and expose the primitive's State from it.
 
-Upper primitives are built from lower ones: Accordion composes Collection and Collapsible, Tabs composes Collection, and Collapsible's Panel and Popover's Content compose Presence. Replacing an upper part's Options also drives the lower part, so you don't need to replace lower Options yourself.
+Upper primitives are built from lower ones: Accordion composes Collection and Collapsible, Tabs composes Collection, ToggleGroup composes Collection and its items compose Toggle, and Collapsible's Panel and Popover's Content compose Presence. Replacing an upper part's Options also drives the lower part, so you don't need to replace lower Options yourself.
 
 A primitive that needs an owner, such as an item without a Collection, fails with Angular's missing-provider error. A second mounted Trigger, Panel, Anchor or Content in one Collapsible or Popover fails with an error naming the role.
 
@@ -274,7 +275,7 @@ Toggle is a two-state button, such as a mute, bold or dark-theme button: a nativ
 
 [src/toggle/mute.ts](snippets/src/toggle/mute.ts)
 
-It has a `pressed` model (default `false`) and a `disabled` input (default `false`). Each Toggle is its own owner; there's no group.
+It has a `pressed` model (default `false`) and a `disabled` input (default `false`). Each Toggle is its own owner; for a set of toggles with one tab stop and arrow keys, use [ToggleGroup](#togglegroup).
 
 ### Replacing Options
 
@@ -295,7 +296,7 @@ Drive the pressed state from application state instead of the directive's own mo
 - The Toggle is a native button. Enter and Space work natively; there's no custom keyboard handling.
 - An enabled click flips `pressed`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply.
 - `aria-pressed` is always `"true"` or `"false"`; there's no mixed state. You supply the accessible name. Keep it the same in both states, because `aria-pressed` already announces the state.
-- Toggle isn't a form control: it has no form value or Signal Forms integration. For several related toggles, use separate Toggles; there's no group or arrow-key navigation.
+- Toggle isn't a form control: it has no form value or Signal Forms integration. A standalone Toggle has no group or arrow-key navigation; ToggleGroup's items compose Toggle for that.
 
 ## Tabs
 
@@ -334,7 +335,7 @@ Root, Trigger and Panel each have their own Options. Here the selection lives in
 
 [src/tabs/settings-tabs.ts](snippets/src/tabs/settings-tabs.ts)
 
-Trigger Options also supply the composed Collection Item's value, so replacing them alone sets the Trigger's entry in the root's `OrigamiCollectionState`.
+Trigger Options also supply the composed Collection Item's value, so replacing them alone sets the Trigger's entry in the root's `OrigamiCollectionState`. The root reads every Trigger's Options while rendering, so replacement Trigger Options must be readable as soon as the Trigger is constructed: a required input in a repeated Trigger, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default.
 
 ### State and attributes
 
@@ -353,6 +354,62 @@ Trigger Options also supply the composed Collection Item's value, so replacing t
 - A Panel is a tab stop (`tabindex="0"`), so its content is reachable even when it has nothing focusable. Write a static `tabindex="-1"` on a Panel whose content starts with a focusable element.
 - A disabled Trigger is natively disabled, so it can't be focused. A disabled selected Trigger stays `aria-selected="true"` and shows its Panel.
 - There's no typeahead, `aria-activedescendant` or enter/exit animation on Panels, and Tabs isn't a form control. A Tabs inside a Panel is independent of the outer one.
+
+## ToggleGroup
+
+ToggleGroup is a set of pressed buttons with one tab stop and arrow-key navigation, such as text alignment or bold, italic and underline. Single presses at most one item; Multiple presses any number.
+
+[src/toggle-group/text-alignment.ts](snippets/src/toggle-group/text-alignment.ts)
+
+[src/toggle-group/text-format.ts](snippets/src/toggle-group/text-format.ts)
+
+| Directive               | Configuration                                                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogToggleGroupSingle`   | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `deselectable` (default `false`) |
+| `ogToggleGroupMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                  |
+| `ogToggleGroupItem`     | `value` (default generated), `disabled` (default `false`); must be a `<button>`                                                                                                        |
+
+Give each item an explicit `value`; values should be distinct within one group. Don't also put `ogToggle` on an item: the item already composes Toggle.
+
+- Clicking an enabled item, or pressing Enter or Space on it, requests a press once. In Single, an unpressed item writes its value; the pressed item writes `null` with `deselectable` and otherwise does nothing, staying an ordinary enabled pressed button. In Multiple, an item adds its value at the end of a new array or removes it.
+- The value is yours. ToggleGroup never writes it without user action: `null` or a value no item has presses nothing and is kept, Multiple keeps values no item has in order, and removing an item doesn't remove its value. Your array is never mutated.
+- Root and item `disabled` combine. While disabled, user clicks and keys can't change the value; your own writes still apply.
+
+### Keyboard
+
+| Key                    | Horizontal                                           | Vertical               |
+| ---------------------- | ---------------------------------------------------- | ---------------------- |
+| ArrowRight / ArrowLeft | next / previous item, reversed in right-to-left text | nothing                |
+| ArrowDown / ArrowUp    | nothing                                              | next / previous item   |
+| Home / End             | first / last item                                    | first / last item      |
+| Enter / Space          | press the focused item                               | press the focused item |
+
+Moves skip disabled items, wrap at both ends and never press. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
+
+Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the first pressed enabled item, otherwise the first enabled item. A click focuses the item after requesting its press, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without pressing it.
+
+### Replacing Options
+
+Single, Multiple and the item each have their own Options. Here the alignment lives in an application service, and each item's value and disabled state come from a domain record:
+
+[src/toggle-group/editor-alignment.ts](snippets/src/toggle-group/editor-alignment.ts)
+
+Item Options also drive the composed Collection Item and Toggle, so replacing them alone sets the item's place in the arrow-key order and its pressed and disabled state. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
+
+### State and attributes
+
+`OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Descendants of an item inject the composed `OrigamiToggleState` for its `pressed()` and `disabled()`.
+
+| Element | Attributes                                                                                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `role="group"`, `data-orientation`, `data-disabled`                                                                                                                             |
+| Item    | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `tabindex`, `data-pressed` while pressed; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
+
+### Accessibility
+
+- You supply the group's accessible name with `aria-label` or `aria-labelledby`, and each item's. Keep an item's name the same in both states, because `aria-pressed` already announces the state.
+- Both modes are a `group` of `aria-pressed` buttons, not a radio group: there's no `aria-orientation` (ARIA doesn't allow it on `group`) and focus never presses. A static `role` you write on the root replaces `group`.
+- There's no typeahead, `aria-activedescendant`, mixed state or form value. A group inside a non-item descendant of another group is independent of it.
 
 ## Utilities
 
@@ -375,6 +432,7 @@ Every primitive renders on the server and hydrates with Angular's `provideClient
 - An Angular event replayed after incremental hydration reaches the model once.
 - A Toggle's `aria-pressed`, `data-pressed` and disabled attributes are in the server HTML. If the server can't know the pressed state, for example a theme stored in the browser, render the Toggle disabled until the browser has it.
 - Tabs' selection, roles, associations, hidden Panels and single `tabindex="0"` are in the server HTML, and hydration doesn't change them.
+- ToggleGroup's `role="group"`, `aria-pressed`, disabled attributes and single `tabindex="0"` are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration presses once.
 - Popover Content is in the server HTML with `popover="manual"`, but the browser shows a closed Popover until the Content has hydrated and opened. An initially-open Popover's children are in the server HTML; it appears as a floating surface only once it hydrates.
 
 **The element-host identity rule:** `injectUniqueId` matches server and client only when it's called with an element host, that is in a directive or component on an element, as every primitive does. A call from an application service or another injection context without an element host still returns an application-unique ID, but don't bind it into server-rendered DOM, because the client will generate a different one. Uniqueness across several Angular applications in one document isn't guaranteed; coordinate explicit IDs there.
@@ -383,7 +441,7 @@ Explicit and static `id` bindings always take precedence over generated ones.
 
 ## Limitations
 
-- No styled components, themes or design tokens. No menu, listbox or select semantics or focus traps. Tabs is the only primitive with roving tabindex and arrow-key navigation.
+- No styled components, themes or design tokens. No menu, listbox or select semantics or focus traps. Tabs and ToggleGroup are the only primitives with roving tabindex and arrow-key navigation, and their replacement item Options must be readable before Angular sets the item's inputs.
 - Angular 22.2.x from 22.2.2 only; tested against 22.2.2.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
 - `until-found` is a progressive enhancement and falls back to `hidden` without find-in-page.
