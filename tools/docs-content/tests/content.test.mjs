@@ -139,6 +139,69 @@ test("same-README anchors resolve to the guide page and heading that contain the
   );
 });
 
+test("an entry point's README is one guide page on that entry point", () => {
+  const [root, extras] = widgets.entryPoints;
+  const guide = extras.guide;
+
+  assert.equal(root.guide, null);
+  assert.equal(widgets.guides.length, 3);
+  assert.equal(guide.slug, "extras");
+  assert.equal(guide.title, "Extras");
+  assert.doesNotMatch(guide.html, /<h1/);
+  assert.match(guide.html, /^<p>Extras overview/);
+  assert.match(guide.html, /<h2 id="usage">Usage<\/h2>/);
+  assert.deepEqual(guide.headings, [
+    { id: "usage", text: "Usage", level: 2 },
+    { id: "details", text: "Details", level: 3 },
+  ]);
+  assert.match(guide.html, /<figcaption><code>snippets\/example.ts<\/code>/);
+  assert.match(guide.html, /<a href="widgets\/guide\/setup" data-docs-link="">the setup guide/);
+  assert.match(guide.html, /<a href="widgets\/guide\/extras#usage" data-docs-link="">usage/);
+  assert.match(
+    guide.html,
+    /<a href="widgets\/api\/extra-label" data-docs-link=""><code>extraLabel/,
+  );
+  assert.match(guide.html, /and <a href="widgets\/api\/toggle-label" data-docs-link="">/);
+});
+
+test("links to an entry point's README resolve to its guide page and headings", () => {
+  assert.match(widgets.guides[2].html, /<a href="widgets\/guide\/extras" data-docs-link="">extras/);
+  assert.match(
+    widgets.guides[2].html,
+    /<a href="widgets\/guide\/extras#usage" data-docs-link="">its usage/,
+  );
+});
+
+test("fails when an entry point's guide slug is also a README section's", async () => {
+  const root = await brokenFixture(async (dir) => {
+    await appendFile(join(dir, "packages/widgets/README.md"), "\n## Extras\n");
+  });
+
+  await assert.rejects(
+    buildContent({ root, commit }),
+    /extras\/README\.md: guide slug "extras" is also used by .*widgets\/README\.md/,
+  );
+});
+
+const entryReadmeFailures = [
+  [
+    "doesn't start with an H1",
+    "Intro.\n\n# Extras\n",
+    /README\.md:1: an entry-point README starts/,
+  ],
+  ["has a second H1", "# Extras\n\n# More\n", /README\.md:3: an entry-point README has one H1/],
+];
+
+for (const [name, readme, message] of entryReadmeFailures) {
+  test(`fails on an entry-point README that ${name}`, async () => {
+    const root = await brokenFixture(async (dir) => {
+      await writeFile(join(dir, "packages/widgets/extras/README.md"), readme);
+    });
+
+    await assert.rejects(buildContent({ root, commit }), message);
+  });
+}
+
 test("wraps tables in a scrollable region named after their heading and column headers", () => {
   assert.match(
     widgets.guides[2].html,
@@ -372,7 +435,6 @@ test("renders the published README with snippet embeds replaced by fenced code",
   const published = renderPublishedReadme(join(fixture, "packages/widgets"));
 
   assert.match(published, /^# @fixture\/widgets\n/);
-  assert.match(published, /\[the spec\]\(SPEC\.md\)/);
   const snippets = published.slice(
     published.indexOf("## Snippets"),
     published.lastIndexOf("## Setup"),
@@ -415,6 +477,45 @@ test("renders the published README with snippet embeds replaced by fenced code",
     ].join("\n"),
   );
   assert.doesNotMatch(published, /#region|\]\(snippets\//);
+});
+
+test("pins the published README's relative links to the release tag on GitHub", () => {
+  const published = renderPublishedReadme(join(fixture, "packages/widgets"));
+  const tag = "https://github.com/theo-matzavinos/loozo/blob/widgets@1.2.3";
+
+  assert.match(published, new RegExp(`\\[the spec\\]\\(${tag}/packages/widgets/SPEC\\.md\\)`));
+  assert.match(
+    published,
+    new RegExp(`\\[notes tips\\]\\(${tag}/packages/notes/README\\.md#usage-tips\\)`),
+  );
+  assert.match(
+    published,
+    new RegExp(`\\[the docs folder\\]\\(${tag.replace("/blob/", "/tree/")}/docs\\)`),
+  );
+  assert.match(published, new RegExp(`\\[repo notes\\]\\(${tag}/docs/notes\\.md#top\\)`));
+  assert.match(published, new RegExp(`\\| \\[spec\\]\\(${tag}/packages/widgets/SPEC\\.md\\) \\|`));
+  assert.match(
+    published,
+    new RegExp(`\\[its usage\\]\\(${tag}/packages/widgets/extras/README\\.md#usage\\)`),
+  );
+  assert.match(
+    published,
+    new RegExp(`Code \`\\[spec\\]\\(SPEC\\.md\\)\` stays beside \\[the spec again\\]\\(${tag}/`),
+  );
+  // Same-page anchors and external URLs are left alone.
+  assert.match(published, /\[the setup guide\]\(#setup\)/);
+  assert.match(published, /\[external\]\(https:\/\/example\.com\)/);
+});
+
+test("fails the published README on a relative link to a missing file", async () => {
+  const root = await brokenFixture(async (dir) => {
+    await appendFile(join(dir, "packages/widgets/README.md"), "\n[gone](GONE.md)\n");
+  });
+
+  assert.throws(
+    () => renderPublishedReadme(join(root, "packages/widgets")),
+    /README\.md:\d+: link target not found in the repository: GONE\.md/,
+  );
 });
 
 test("extracts directive metadata and Angular input and output names", () => {
@@ -711,7 +812,14 @@ test("internal entry points contribute only documented symbols no public entry p
   }
 
   assert.deepEqual(names, ["@fixture/widgets/_internal InternalHandle"]);
-  assert.equal(widgets.entryPoints.length, 1);
+
+  const importPaths = [];
+
+  for (const entryPoint of widgets.entryPoints) {
+    importPaths.push(entryPoint.importPath);
+  }
+
+  assert.deepEqual(importPaths, ["@fixture/widgets", "@fixture/widgets/extras"]);
 });
 
 test("fails on a symbol slug collision within a package", async () => {

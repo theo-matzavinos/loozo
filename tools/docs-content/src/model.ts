@@ -1,5 +1,4 @@
-// Contract v2 (v1 + per-signature details, typeParams, grouped member overloads, generated-API deep links,
-// typed slugs in the index). See contract-changes-v2.md.
+// Contract v3 (v2 + entry-point guides from `<package>/<subpath>/README.md` and H2 guide headings).
 //
 // Content contract between the docs content step (tools/docs-content) and the docs app (docs/).
 //
@@ -42,7 +41,7 @@ export interface PackageSummary {
 export interface PackageContent extends PackageSummary {
   /** README content before the first H2, rendered (the H1 is excluded). */
   readonly overviewHtml: string;
-  /** One page per README H2, in README order. */
+  /** One page per README H2, in README order. Entry-point guides are on their entry points. */
   readonly guides: readonly GuidePage[];
   /** Public entry points with at least one symbol, in package.json "exports" order. */
   readonly entryPoints: readonly EntryPoint[];
@@ -53,27 +52,36 @@ export interface PackageContent extends PackageSummary {
   readonly generatedApi: readonly ApiSymbol[];
 }
 
+/**
+ * A guide page, at `<slug>/guide/<guide slug>`. It is one H2 section of the package README, or a
+ * whole entry-point README; both kinds share one slug space per package.
+ */
 export interface GuidePage {
-  /** URL segment from the heading text, unique within the package. */
+  /**
+   * URL segment, unique within the package: from the H2 text, or the entry point's last subpath
+   * segment (e.g. "toggle-group").
+   */
   readonly slug: string;
-  /** Heading text, plain. */
+  /** H2 or H1 text, plain. */
   readonly title: string;
-  /** Section body, rendered; the H2 itself is excluded; H3/H4 carry ids. */
+  /** Page body, rendered, without the title heading; the headings below it carry ids. */
   readonly html: string;
-  /** H3/H4 headings for an on-page table of contents. */
+  /** Headings for an on-page table of contents: H3/H4 of an H2 section, H2–H4 of a README. */
   readonly headings: readonly GuideHeading[];
 }
 
 export interface GuideHeading {
   readonly id: string;
   readonly text: string;
-  readonly level: 3 | 4;
+  readonly level: 2 | 3 | 4;
 }
 
 export interface EntryPoint {
   /** Import specifier, e.g. "@loozo/angular-launch/server". */
   readonly importPath: string;
   readonly symbols: readonly ApiSymbol[];
+  /** The README in the entry point's directory (`<package>/<subpath>/README.md`); null when absent. */
+  readonly guide: GuidePage | null;
 }
 
 export type ApiSymbolKind =

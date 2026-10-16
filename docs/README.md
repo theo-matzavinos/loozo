@@ -2,7 +2,7 @@
 
 The static documentation site for the loozo packages, published to GitHub Pages at <https://theo-matzavinos.github.io/loozo/>. It is an Angular application built on `@loozo/angular-router` and fully prerendered.
 
-Page content comes from `generated/content/`, which `@loozo/docs-content` (`tools/docs-content`) generates from the packages' READMEs, snippets and TSDoc; packages marked `"private": true` are left out. Every `build`, `generate` and `serve` regenerates it first. It is gitignored because its source links pin the current commit; `pnpm --filter @loozo/docs run content` regenerates it on its own, for example before type-checking in an editor.
+Page content comes from `generated/content/`, which `@loozo/docs-content` (`tools/docs-content`) generates from the packages' READMEs, snippets and TSDoc. Each H2 section of a package README is a guide page, and so is a README in an entry point's directory, such as `packages/origami-ui/collapsible/README.md`; packages marked `"private": true` are left out. Every `build`, `generate` and `serve` regenerates it first. It is gitignored because its source links pin the current commit; `pnpm --filter @loozo/docs run content` regenerates it on its own, for example before type-checking in an editor.
 
 From the workspace root:
 

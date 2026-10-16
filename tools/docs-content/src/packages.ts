@@ -94,7 +94,8 @@ function readWorkspacePackage(dir: string): WorkspacePackage | undefined {
   };
 }
 
-function repositoryUrl(manifestPath: string, repository: unknown): string {
+/** The GitHub URL of a package.json "repository", without a trailing slash. */
+export function repositoryUrl(manifestPath: string, repository: unknown): string {
   let url: unknown = repository;
 
   if (typeof repository === "object" && repository !== null && "url" in repository) {

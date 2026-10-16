@@ -62,6 +62,16 @@ import { destination as generatedApi } from "./generated-api/route.generated.js"
                       API <code>{{ entryPoint.importPath }}</code>
                     </h2>
                     <ul>
+                      @if (entryPoint.guide; as entry) {
+                        <li>
+                          <a
+                            [routerLink]="entry.link"
+                            routerLinkActive="active"
+                            ariaCurrentWhenActive="page"
+                            >{{ entry.title }}</a
+                          >
+                        </li>
+                      }
                       @for (entry of entryPoint.symbols; track entry.slug) {
                         <li>
                           <a
@@ -134,7 +144,17 @@ export default class Package {
         symbols.push({ slug: symbol.slug, name: symbol.name, link });
       }
 
-      entryPoints.push({ importPath: entryPoint.importPath, symbols });
+      let entryGuide = null;
+
+      if (entryPoint.guide !== null) {
+        const link = this.route.link(guide, {
+          params: { package: params.package, guide: entryPoint.guide.slug },
+        });
+
+        entryGuide = { title: entryPoint.guide.title, link };
+      }
+
+      entryPoints.push({ importPath: entryPoint.importPath, guide: entryGuide, symbols });
     }
 
     let generatedApiLink = null;

@@ -1,16 +1,30 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { isDocEntryWithSourceInfo, type DocEntryWithSourceInfo } from "@angular/compiler-cli";
 import { isDocumented, symbolSlug, toApiSymbol, type DeclarationSource } from "./api.ts";
 import { extractPackage, type ExtractedEntryPoint } from "./extract.ts";
 import { createHighlight, type PackageContext, type ReadmeAnchors } from "./markdown.ts";
 import type { ApiSymbol, EntryPoint, PackageContent } from "./model.ts";
 import { readWorkspacePackages, sourcePaths, type WorkspacePackage } from "./packages.ts";
-import { parseReadme, renderReadme, type ParsedReadme } from "./readme.ts";
+import {
+  parseEntryReadme,
+  parsePackageReadme,
+  renderEntryReadme,
+  renderReadme,
+  type ParsedReadme,
+} from "./readme.ts";
 
 export interface ContentOptions {
   /** Repository root containing `packages/*`. */
   readonly root: string;
   /** Commit that GitHub source links are pinned to. */
   readonly commit: string;
+}
+
+/** An entry-point README and the guide slug it is published under. */
+interface EntryReadme {
+  readonly slug: string;
+  readonly readme: ParsedReadme;
 }
 
 interface Located {
@@ -25,15 +39,23 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
   const paths = sourcePaths(packages);
   const highlight = await createHighlight();
   const readmes = new Map<string, ParsedReadme>();
+  // Package slug → entry point subpath → its README.
+  const entryReadmes = new Map<string, Map<string, EntryReadme>>();
   const anchors = new Map<string, ReadmeAnchors>();
 
   packages.sort((left, right) => compare(left.slug, right.slug));
 
   for (const workspacePackage of packages) {
-    const readme = parseReadme(workspacePackage.dir, workspacePackage.slug);
+    const readme = parsePackageReadme(workspacePackage.dir, workspacePackage.slug);
+    const entries = parseEntryReadmes(workspacePackage, readme);
 
     readmes.set(workspacePackage.slug, readme);
+    entryReadmes.set(workspacePackage.slug, entries);
     anchors.set(readme.file, readme.anchors);
+
+    for (const entry of entries.values()) {
+      anchors.set(entry.readme.file, entry.readme.anchors);
+    }
   }
 
   const result: PackageContent[] = [];
@@ -100,13 +122,25 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
 
       position++;
 
+      const entryReadme = entryReadmes.get(workspacePackage.slug)!.get(entryPoint.subpath);
+
       // An intentionally empty entry point, such as a root that only secondary entry points
       // populate, has nothing to list.
       if (apiSymbols.length === 0) {
+        if (entryReadme !== undefined) {
+          throw new Error(`${entryReadme.readme.file}: its entry point exports no symbols`);
+        }
+
         continue;
       }
 
-      entryPoints.push({ importPath: entryPoint.importPath, symbols: apiSymbols });
+      let guide = null;
+
+      if (entryReadme !== undefined) {
+        guide = renderEntryReadme(context, entryReadme.readme, entryReadme.slug);
+      }
+
+      entryPoints.push({ importPath: entryPoint.importPath, symbols: apiSymbols, guide });
     }
 
     const generatedApi: ApiSymbol[] = [];
@@ -127,6 +161,45 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
       entryPoints,
       generatedApi,
     });
+  }
+
+  return result;
+}
+
+/**
+ * Parses the READMEs in the directories of the package's public secondary entry points. Each is a
+ * guide page named after the entry point's last subpath segment.
+ */
+function parseEntryReadmes(
+  workspacePackage: WorkspacePackage,
+  packageReadme: ParsedReadme,
+): Map<string, EntryReadme> {
+  const guidePrefix = `${workspacePackage.slug}/guide/`;
+  const slugs = new Map<string, string>();
+  const result = new Map<string, EntryReadme>();
+
+  for (const href of packageReadme.anchors.anchors.values()) {
+    if (href.startsWith(guidePrefix) && !href.includes("#")) {
+      slugs.set(href.slice(guidePrefix.length), packageReadme.file);
+    }
+  }
+
+  for (const entryPoint of workspacePackage.entryPoints) {
+    const file = join(workspacePackage.dir, entryPoint.subpath, "README.md");
+
+    if (entryPoint.internal || entryPoint.subpath === "." || !existsSync(file)) {
+      continue;
+    }
+
+    const slug = entryPoint.subpath.slice(entryPoint.subpath.lastIndexOf("/") + 1);
+    const existing = slugs.get(slug);
+
+    if (existing !== undefined) {
+      throw new Error(`${file}: guide slug "${slug}" is also used by ${existing}`);
+    }
+
+    slugs.set(slug, file);
+    result.set(entryPoint.subpath, { slug, readme: parseEntryReadme(file, guidePrefix + slug) });
   }
 
   return result;

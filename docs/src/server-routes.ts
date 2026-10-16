@@ -32,6 +32,12 @@ export const serverRoutes: ServerRoute[] = [
         for (const guide of content.guides) {
           params.push({ package: content.slug, guide: guide.slug });
         }
+
+        for (const entryPoint of content.entryPoints) {
+          if (entryPoint.guide !== null) {
+            params.push({ package: content.slug, guide: entryPoint.guide.slug });
+          }
+        }
       }
 
       return params;
