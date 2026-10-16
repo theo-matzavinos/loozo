@@ -48,6 +48,7 @@ for (const directory of [
   "toggle/src",
   "tabs/src",
   "toggle-group/src",
+  "toolbar/src",
 ]) {
   await collect(directory);
 }
@@ -121,6 +122,8 @@ const directiveDefaults = {
   "OrigamiToggleGroupMultiple.orientation": ["horizontal", /\bhorizontal\b/i],
   "OrigamiToggleGroupItem.value": ["generated value", /generat|unique|opaque/i],
   "OrigamiToggleGroupItem.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToolbar.orientation": ["horizontal", /\bhorizontal\b/i],
+  "OrigamiToolbarItem.disabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

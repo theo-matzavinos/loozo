@@ -111,6 +111,7 @@ import { OrigamiPopoverOptions, OrigamiPopoverTriggerOptions, OrigamiPopoverAnch
 import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
 import { OrigamiTabsOptions, OrigamiTabsTriggerOptions, OrigamiTabsPanelOptions, type OrigamiTabsOrientation, type OrigamiTabsActivation } from '@loozo/origami-ui/tabs';
 import { OrigamiToggleGroupSingleOptions, OrigamiToggleGroupMultipleOptions, OrigamiToggleGroupItemOptions, type OrigamiToggleGroupOrientation } from '@loozo/origami-ui/toggle-group';
+import { OrigamiToolbarOptions, OrigamiToolbarItemOptions, type OrigamiToolbarOrientation } from '@loozo/origami-ui/toolbar';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -187,12 +188,17 @@ OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | nu
 OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')}));
 // @ts-expect-error a ToggleGroup Item factory must supply disabled
 OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold')}));
+// @ts-expect-error Toolbar orientation is horizontal or vertical
+OrigamiToolbarOptions.provideFactory(() => ({orientation: signal('diagonal')}));
+// @ts-expect-error a Toolbar Item factory must supply disabled
+OrigamiToolbarItemOptions.provideFactory(() => ({}));
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
 class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); }
 class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); }
 class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
+class WrongToolbarItem { readonly disabled = signal('no'); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -207,6 +213,8 @@ OrigamiToggleOptions.provideExisting(() => WrongToggle);
 OrigamiTabsTriggerOptions.provideExisting(() => WrongTabsTrigger);
 // @ts-expect-error incompatible existing ToggleGroup Item class
 OrigamiToggleGroupItemOptions.provideExisting(() => WrongToggleGroupItem);
+// @ts-expect-error incompatible existing Toolbar Item class
+OrigamiToolbarItemOptions.provideExisting(() => WrongToolbarItem);
 // Positive: complete factories and abstract existing classes return ordinary Provider arrays.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -260,6 +268,12 @@ abstract class AbstractToggleGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractToolbar {
+  abstract readonly orientation: Signal<OrigamiToolbarOrientation>;
+}
+abstract class AbstractToolbarItem {
+  abstract readonly disabled: Signal<boolean>;
+}
 export const providers: Provider[][] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -293,6 +307,10 @@ export const providers: Provider[][] = [
   OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>(['bold']), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')})),
   OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: computed(() => false)})),
   OrigamiToggleGroupItemOptions.provideExisting(() => AbstractToggleGroupItem),
+  OrigamiToolbarOptions.provideFactory(() => ({orientation: signal<OrigamiToolbarOrientation>('vertical')})),
+  OrigamiToolbarOptions.provideExisting(() => AbstractToolbar),
+  OrigamiToolbarItemOptions.provideFactory(() => ({disabled: computed(() => false)})),
+  OrigamiToolbarItemOptions.provideExisting(() => AbstractToolbarItem),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -349,6 +367,16 @@ import { OrigamiCollapsible, OrigamiCollapsibleTrigger } from "@loozo/origami-ui
   alignmentOutput(value: string | null): void { void value; }
   marksOutput(value: readonly string[]): void { void value; }
   wrongOutput(value: number): void { void value; }`,
+  },
+  toolbar: {
+    imports: `import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
+import { OrigamiToggle } from "@loozo/origami-ui/toggle";
+import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";`,
+    directives:
+      "OrigamiToolbar, OrigamiToolbarItem, OrigamiToggle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
+    members: `
+  readonly pressed = signal(false);
+  readonly marks = signal<readonly string[]>([]);`,
   },
 };
 const templates = [
@@ -546,6 +574,21 @@ const templates = [
       code: -998002,
       span: '[deselectable]="true"',
       message: /Can't bind to 'deselectable' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "toolbar-positive",
+    family: "toolbar",
+    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled>Undo</button><button ogToggle ogToolbarItem [(pressed)]="pressed" [disabled]="false">Spell check</button><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold">Bold</button></div></div>`,
+  },
+  {
+    name: "toolbar-orientation",
+    family: "toolbar",
+    template: `<div ogToolbar orientation="diagonal"></div>`,
+    expected: {
+      code: 2322,
+      span: "orientation",
+      message: /Type '"diagonal"' is not assignable to type 'OrigamiToolbarOrientation'/,
     },
   },
 ];

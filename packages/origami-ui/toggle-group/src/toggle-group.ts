@@ -18,6 +18,7 @@ import {
   OrigamiCollectionItem,
   OrigamiCollectionItemOptions,
   ɵOrigamiRovingFocus,
+  ɵOrigamiRovingFocusScope,
   ɵrequestMultipleSelection,
   ɵrequestSingleSelection,
 } from "@loozo/origami-ui/collection";
@@ -53,7 +54,7 @@ export abstract class OrigamiToggleGroupSingleOptions {
   abstract readonly value: WritableSignal<string | null>;
   /** Blocks every item's user activation and removes the tab stop, not external configuration writes; default false. */
   abstract readonly disabled: Signal<boolean>;
-  /** Arrow-key axis; default `horizontal`. */
+  /** Arrow-key axis; default `horizontal`. Has no effect inside a Toolbar, whose orientation applies. */
   abstract readonly orientation: Signal<OrigamiToggleGroupOrientation>;
   /** Whether activating the pressed item clears the value to null; default false, when it writes nothing. */
   abstract readonly deselectable: Signal<boolean>;
@@ -126,7 +127,7 @@ export abstract class OrigamiToggleGroupMultipleOptions {
   abstract readonly value: WritableSignal<readonly string[]>;
   /** Blocks every item's user activation and removes the tab stop, not external configuration writes; default false. */
   abstract readonly disabled: Signal<boolean>;
-  /** Arrow-key axis; default `horizontal`. */
+  /** Arrow-key axis; default `horizontal`. Has no effect inside a Toolbar, whose orientation applies. */
   abstract readonly orientation: Signal<OrigamiToggleGroupOrientation>;
 
   /**
@@ -293,10 +294,18 @@ class MultipleSelection implements Selection {
 class ToggleGroupContext {
   readonly #configuration = injectDeferred(groupConfiguration);
   readonly #selection = injectDeferred(Selection);
+  readonly #scope = inject(ɵOrigamiRovingFocusScope, { optional: true });
   #destroyed = false;
 
   readonly disabled = computed(() => this.#configuration().disabled());
-  readonly orientation = computed(() => this.#configuration().orientation());
+  /** Effective axis: the enclosing Toolbar's while joined, otherwise the group's own Options. */
+  readonly orientation = computed(() => {
+    if (this.#scope !== null) {
+      return this.#scope.orientation();
+    }
+
+    return this.#configuration().orientation();
+  });
 
   readonly disabledAttribute = computed(() => {
     if (this.disabled()) {
@@ -314,6 +323,18 @@ class ToggleGroupContext {
 
   selected(value: string): boolean {
     return this.#selection().selected(value);
+  }
+
+  /**
+   * Registers the calling item, from its injection context, with the enclosing Toolbar's roving
+   * focus, where it is never preferred, or otherwise with the group's own.
+   */
+  registerFocus(item: { readonly disabled: Signal<boolean>; readonly preferred: Signal<boolean> }) {
+    if (this.#scope !== null) {
+      return this.#scope.focus.join({ disabled: item.disabled, navigated: () => {} });
+    }
+
+    return inject(ɵOrigamiRovingFocus).register({ ...item, navigated: () => {} });
   }
 
   /** A user press request; the caller has already applied its own disabled policy. */
@@ -346,6 +367,11 @@ class ToggleGroupItemContext {
       this.#destroyed = true;
     });
   }
+
+  /** Registers the calling item from its injection context; see the root's `registerFocus`. */
+  registerFocus() {
+    return this.#root.registerFocus({ disabled: this.disabled, preferred: this.pressed });
+  }
 }
 
 /** Locally provided readonly facade for the nearest Single or Multiple root; nested roots have independent owners. */
@@ -355,7 +381,7 @@ export class OrigamiToggleGroupState {
 
   /** Effective root disabled policy. External Options/model writes remain authoritative while disabled. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
-  /** Effective arrow-key axis. */
+  /** Effective arrow-key axis; inside a Toolbar, the Toolbar's. */
   readonly orientation: Signal<OrigamiToggleGroupOrientation> = this.#context.orientation;
 }
 
@@ -367,7 +393,8 @@ export class OrigamiToggleGroupState {
  * overrides it), `data-orientation` and `data-disabled` reflect effective Options; there is no
  * `aria-orientation`, which ARIA does not allow on `group`. Consumers own the accessible name,
  * item labels and styling. For radio semantics, where selection follows focus, this is not the
- * primitive.
+ * primitive. Inside an `ogToolbar` the group joins the Toolbar: its items share the Toolbar's
+ * single tab stop and arrow order, and the effective orientation is the Toolbar's.
  *
  * @example
  * ```html
@@ -430,7 +457,9 @@ export class OrigamiToggleGroupSingle implements OrigamiToggleGroupSingleOptions
  * follows rendered DOM order; the model is never written without user action. Static
  * `role="group"` (a consumer's static `role` overrides it), `data-orientation` and
  * `data-disabled` reflect effective Options; there is no `aria-orientation`. Consumers own the
- * accessible name, item labels and styling.
+ * accessible name, item labels and styling. Inside an `ogToolbar` the group joins the Toolbar: its
+ * items share the Toolbar's single tab stop and arrow order, and the effective orientation is the
+ * Toolbar's.
  *
  * @example
  * ```html
@@ -490,7 +519,9 @@ export class OrigamiToggleGroupMultiple implements OrigamiToggleGroupMultipleOpt
  * so it becomes the roving position in every engine; that focus never presses. Arrow keys along
  * the effective orientation (horizontal arrows follow reading direction), Home and End move focus
  * among enabled items in DOM order, wrapping at the ends, and never press. One enabled item is
- * the tab stop (`tabindex="0"`): the focused one, else the first pressed, else the first. Root or
+ * the tab stop (`tabindex="0"`): the focused one, else the first pressed, else the first. Inside a
+ * Toolbar (but not inside Popover Content within it) the item joins the Toolbar's roving focus
+ * instead: it shares the Toolbar's tab stop and arrow order and is never preferred. Root or
  * own disabled state removes the item from navigation and blocks only user activation. If a
  * focused item is removed or disabled while focus has not moved elsewhere, focus moves to the new
  * tab stop without pressing. Requires a nearest Toggle Group root; values should be distinct within it.
@@ -529,11 +560,7 @@ export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   #destroyed = false;
 
-  readonly #focus = inject(ɵOrigamiRovingFocus).register({
-    disabled: this.#context.disabled,
-    preferred: this.#context.pressed,
-    navigated: () => {},
-  });
+  readonly #focus = this.#context.registerFocus();
 
   /** @internal Roving tab stop. */
   protected readonly tabIndex = computed(() => {

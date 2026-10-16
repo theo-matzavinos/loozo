@@ -710,6 +710,127 @@ test("U6 H1 H2 H3: ToggleGroup server pressed state and DOM-order tab stop survi
   }
 });
 
+/** Server-rendered Toolbar semantics; C is vertical with a disabled first item and no marks. */
+async function expectServerToolbars(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const toolbar = unit.getByTestId("hydration-toolbar");
+    const undo = unit.getByTestId("hydration-toolbar-undo");
+    const redo = unit.getByTestId("hydration-toolbar-redo");
+    const bold = unit.getByTestId("hydration-toolbar-bold");
+    const italic = unit.getByTestId("hydration-toolbar-italic");
+    const clear = unit.getByTestId("hydration-toolbar-clear");
+    const groupToolbar = unit.getByTestId("hydration-group-toolbar");
+
+    await expect(toolbar).toHaveAttribute("role", "toolbar");
+    await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(1);
+    await expect(unit.getByTestId("hydration-toolbar-marks")).toHaveAttribute("role", "group");
+
+    for (const item of [undo, redo, bold, italic, clear]) {
+      await expect(item).toHaveAttribute("type", "button");
+    }
+
+    await expect(italic).toHaveAttribute("aria-pressed", "false");
+    await expect(italic).toHaveAttribute("tabindex", "-1");
+    await expect(clear).toHaveAttribute("tabindex", "-1");
+
+    if (label === "C") {
+      await expect(toolbar).toHaveAttribute("aria-orientation", "vertical");
+      await expect(toolbar).toHaveAttribute("data-orientation", "vertical");
+      await expect(undo).toBeDisabled();
+      await expect(undo).toHaveAttribute("aria-disabled", "true");
+      await expect(undo).toHaveAttribute("data-disabled", "");
+      await expect(undo).toHaveAttribute("tabindex", "-1");
+      await expect(redo).toHaveAttribute("tabindex", "0");
+      await expect(bold).toHaveAttribute("aria-pressed", "false");
+    } else {
+      await expect(toolbar).toHaveAttribute("aria-orientation", "horizontal");
+      await expect(toolbar).toHaveAttribute("data-orientation", "horizontal");
+      await expect(undo).toBeEnabled();
+      await expect(undo).toHaveAttribute("tabindex", "0");
+      await expect(redo).toHaveAttribute("tabindex", "-1");
+      // A pressed joined item is not preferred.
+      await expect(bold).toHaveAttribute("aria-pressed", "true");
+      await expect(bold).toHaveAttribute("tabindex", "-1");
+    }
+
+    // The joined group comes first: its first item is the tab stop, not the pressed second one.
+    await expect(groupToolbar.locator('button[tabindex="0"]')).toHaveCount(1);
+    await expect(unit.getByTestId("hydration-group-first")).toHaveAttribute("tabindex", "0");
+    await expect(unit.getByTestId("hydration-group-second")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(unit.getByTestId("hydration-group-second")).toHaveAttribute("tabindex", "-1");
+  }
+}
+
+test("K6 H1 H2 H3: Toolbar server tab stop across joined groups survives hydration; a click after attachment or replay runs the handler once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerToolbars(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const clear = b.getByTestId("hydration-toolbar-clear");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await clear.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("toolbar-clear-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerToolbars(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerToolbars(page, ["A", "B", "C"]);
+      await clear.click();
+    }
+
+    await expect(b.getByTestId("toolbar-clear-count")).toHaveText("1");
+    await assertReferences(page, info);
+    await b.getByTestId("hydration-toolbar-italic").click();
+    await expect(b.getByTestId("hydration-toolbar-italic")).toHaveAttribute("aria-pressed", "true");
+    await expect(b.getByTestId("hydration-toolbar-bold")).toHaveAttribute("aria-pressed", "true");
+    await expect(b.getByTestId("toolbar-clear-count")).toHaveText("1");
+    await expect(b.getByTestId("toolbar-undo-count")).toHaveText("0");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {

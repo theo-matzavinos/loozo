@@ -142,7 +142,9 @@ export class OrigamiToggleState {
  * `aria-disabled`, `data-pressed` and `data-disabled` reflect effective substituted Options.
  * Consumers own the accessible name, label/icon changes, styling and any side effects.
  * Not a form control: it has no Signal Forms integration. A standalone Toggle has no group or
- * roving focus; `ogToggleGroupItem` from `@loozo/origami-ui/toggle-group` composes it into one.
+ * roving focus; `ogToggleGroupItem` from `@loozo/origami-ui/toggle-group` composes it into one,
+ * and `ogToolbarItem` from `@loozo/origami-ui/toolbar` co-applied on the same button makes it one
+ * Toolbar control.
  * @example
  * ```html
  * <button ogToggle [(pressed)]="muted">Mute</button>

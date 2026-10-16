@@ -72,6 +72,7 @@ import { Precedence } from "./precedence.js";
 import { TogglePrecedence } from "./toggle-precedence.js";
 import { TabsPrecedence } from "./tabs-precedence.js";
 import { ToggleGroupPrecedence } from "./toggle-group-precedence.js";
+import { ToolbarPrecedence } from "./toolbar-precedence.js";
 
 @Component({
   selector: "acceptance-identity-owner",
@@ -533,6 +534,7 @@ export class StateObservation {
     TogglePrecedence,
     TabsPrecedence,
     ToggleGroupPrecedence,
+    ToolbarPrecedence,
   ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach composition behavior</button>
@@ -657,6 +659,7 @@ export class StateObservation {
     <acceptance-toggle-precedence />
     <acceptance-tabs-precedence />
     <acceptance-toggle-group-precedence />
+    <acceptance-toolbar-precedence />
   `,
   styles: `
     :host {

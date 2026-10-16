@@ -29,6 +29,11 @@ import {
   OrigamiToggleGroupMultiple,
   OrigamiToggleGroupItem,
 } from "@loozo/origami-ui/toggle-group";
+import {
+  OrigamiToolbar,
+  OrigamiToolbarItem,
+  type OrigamiToolbarOrientation,
+} from "@loozo/origami-ui/toolbar";
 
 /** Observes public Collection State without accessing registration internals. */
 @Directive({
@@ -72,6 +77,8 @@ export class CollectionObservation {
     OrigamiToggleGroupSingle,
     OrigamiToggleGroupMultiple,
     OrigamiToggleGroupItem,
+    OrigamiToolbar,
+    OrigamiToolbarItem,
   ],
   template: `
     <h1>Origami public contracts</h1>
@@ -388,6 +395,44 @@ export class CollectionObservation {
       <output data-testid="marks-original">{{ originalMarks }}</output>
       <output data-testid="mark-outputs">{{ markOutputs() }}</output>
     </section>
+
+    <section>
+      <h2>Toolbar</h2>
+      <button type="button" data-testid="toolbar-redo-disable" (click)="redoDisabled.set(!redoDisabled())">
+        Toggle redo disabled
+      </button>
+      <button type="button" data-testid="toolbar-vertical" (click)="toolbarOrientation.set('vertical')">
+        Make the toolbar vertical
+      </button>
+      <form (submit)="$event.preventDefault(); toolbarSubmits.update(increment)">
+        <div
+          ogToolbar
+          #editing="ogToolbar"
+          [orientation]="toolbarOrientation()"
+          aria-label="Editing"
+          data-testid="toolbar"
+        >
+          <button ogToolbarItem data-testid="toolbar-undo" (click)="undos.update(increment)">Undo</button>
+          <button
+            ogToolbarItem
+            [disabled]="redoDisabled()"
+            data-testid="toolbar-redo"
+            (click)="redos.update(increment)"
+          >
+            Redo
+          </button>
+          <span role="separator" aria-orientation="vertical"></span>
+          <button ogToolbarItem data-testid="toolbar-clear" (click)="clears.update(increment)">
+            Clear formatting
+          </button>
+        </div>
+      </form>
+      <output data-testid="toolbar-orientation">{{ editing.state.orientation() }}</output>
+      <output data-testid="toolbar-undos">{{ undos() }}</output>
+      <output data-testid="toolbar-redos">{{ redos() }}</output>
+      <output data-testid="toolbar-clears">{{ clears() }}</output>
+      <output data-testid="toolbar-submits">{{ toolbarSubmits() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -474,6 +519,12 @@ export class CoreConsumer {
   readonly marks = signal<readonly string[]>(this.originalMarks);
   readonly markKeys = signal<readonly string[]>(["bold", "italic", "underline"]);
   readonly markOutputs = signal(0);
+  readonly toolbarOrientation = signal<OrigamiToolbarOrientation>("horizontal");
+  readonly redoDisabled = signal(true);
+  readonly undos = signal(0);
+  readonly redos = signal(0);
+  readonly clears = signal(0);
+  readonly toolbarSubmits = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   reverseItems(): void {
