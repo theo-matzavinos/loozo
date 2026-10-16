@@ -31,12 +31,17 @@ Root commands run the corresponding script across `packages/*`, not the example 
 
 Each package’s `build` ends with `scripts/finish-package.mjs`, which makes `packages/<package>/dist/` the complete npm package: its own `package.json`, `README.md`, `LICENSE` and compiled files.
 
-Pack and publish only from `dist/`; publishing from a package root fails on purpose:
+Pack and publish only from `dist/`; publishing from a package root fails on purpose.
+
+## Releasing
+
+Set the new version in `packages/<package>/package.json`, commit it, then push a `<package>@<version>` tag:
 
 ```sh
-pnpm build
-node packages/<package>/tests/packed.mjs <absent absolute directory>
-pnpm --dir packages/<package>/dist publish
+git tag angular-router@0.0.4
+git push origin main angular-router@0.0.4
 ```
+
+The tag starts `.github/workflows/publish.yml`. It fails if the tag doesn't match the version in `package.json`. Otherwise it builds the package and the workspace packages it depends on. It then runs the package's `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one. If they all pass, it publishes `dist/` to npm through trusted publishing, with provenance and no stored token. Run the extended proofs a package's README lists, such as Origami's `test:full`, before tagging; the workflow doesn't run them.
 
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).
