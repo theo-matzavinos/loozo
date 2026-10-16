@@ -2,7 +2,7 @@
 
 RadioGroup is a set of radio buttons with one tab stop, where arrow keys move and check, such as a shipping speed or a size. At most one item is checked, and the user can't uncheck it.
 
-[src/radio-group/shipping-speed.ts](../snippets/src/radio-group/shipping-speed.ts)
+[src/radio-group/shipping-speed.ts](../snippets/src/radio-group/shipping-speed.ts "both")
 
 | Directive          | Configuration                                                                   |
 | ------------------ | ------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ Only one item is in the Tab order (`tabindex="0"`): the focused one while focus 
 
 A group inside a [Toolbar](../toolbar/README.md) joins it, as in the [APG toolbar example](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/examples/toolbar/): its items share the Toolbar's single tab stop and arrow-key order with the Toolbar's other controls, in DOM order, and the group has no tab stop of its own. Tabbing into the Toolbar lands on its first enabled control, even if that's not the checked item. **Arrow keys only move focus there and never check**; they follow the Toolbar's orientation. Space, Enter or a click checks the focused item. Its role, name, value and checked state don't change. A group in Popover Content doesn't join a Toolbar around the Popover.
 
-[src/radio-group/alignment-toolbar.ts](../snippets/src/radio-group/alignment-toolbar.ts)
+[src/radio-group/alignment-toolbar.ts](../snippets/src/radio-group/alignment-toolbar.ts "both")
 
 ## Replacing Options
 

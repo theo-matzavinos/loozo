@@ -2,7 +2,7 @@
 
 Presence tracks an enter/exit lifecycle for its host, so you can keep content rendered until its exit animation finishes. It doesn't hide, move or remove the host; you decide what to render from its State.
 
-[src/presence/notice.ts](../snippets/src/presence/notice.ts)
+[src/presence/notice.ts](../snippets/src/presence/notice.ts "both")
 
 ## Replacing Options
 

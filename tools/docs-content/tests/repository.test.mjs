@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -335,7 +335,27 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     toggle,
     /<a href="origami-ui\/guide\/server-rendering-and-hydration" data-docs-link="">/,
   );
-  assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/mute.ts<\/code>/);
+  assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
+});
+
+test("origami's guide pages run the 13 snippets that export one component", async () => {
+  const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
+  const ids = [];
+
+  for (const match of loaders.matchAll(/^  "(origami-ui\/[^"]+)": \(\) =>$/gm)) {
+    ids.push(match[1]);
+  }
+
+  assert.equal(ids.length, 13);
+  assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
+
+  const kinds = [];
+
+  for (const block of entryPoint(origami, "@loozo/origami-ui/toggle").guide.blocks) {
+    kinds.push(block.kind);
+  }
+
+  assert.deepEqual(kinds, ["html", "demo", "html"]);
 });
 
 test("generated modules typecheck against model.generated.ts under strict settings", async () => {

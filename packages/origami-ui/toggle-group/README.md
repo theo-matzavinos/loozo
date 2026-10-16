@@ -2,9 +2,9 @@
 
 ToggleGroup is a set of pressed buttons with one tab stop and arrow-key navigation, such as text alignment or bold, italic and underline. Single presses at most one item; Multiple presses any number.
 
-[src/toggle-group/text-alignment.ts](../snippets/src/toggle-group/text-alignment.ts)
+[src/toggle-group/text-alignment.ts](../snippets/src/toggle-group/text-alignment.ts "both")
 
-[src/toggle-group/text-format.ts](../snippets/src/toggle-group/text-format.ts)
+[src/toggle-group/text-format.ts](../snippets/src/toggle-group/text-format.ts "both")
 
 | Directive               | Configuration                                                                                                                                                                          |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
