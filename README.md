@@ -4,10 +4,11 @@ A monorepo for Angular-related packages. Each package owns its API, contract, do
 
 ## Packages
 
-| Package                                                    | Purpose                                                                                                                                             | Status       |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| [@loozo/angular-router](packages/angular-router/README.md) | Typed route declarations, URLs, navigation and route handles over Angular’s native router                                                           | Experimental |
-| [@loozo/origami-ui](packages/origami-ui/README.md)         | Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs, toggle group, toolbar and radio group | Experimental |
+| Package                                                    | Purpose                                                                                   | Status       |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------ |
+| [@loozo/angular-router](packages/angular-router/README.md) | Typed route declarations, URLs, navigation and route handles over Angular’s native router | Experimental |
+| [@loozo/angular-launch](packages/angular-launch/README.md) | Typed server functions for Angular SSR applications built with `@loozo/angular-router`    | Experimental |
+| [@loozo/origami-ui](packages/origami-ui/README.md)         | Headless, accessible Angular primitives                                                   | Experimental |
 
 ## Repository layout
 
