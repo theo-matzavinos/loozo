@@ -2,9 +2,7 @@ export {
   OrigamiCollapsible,
   OrigamiCollapsibleOptions,
   OrigamiCollapsibleState,
-  OrigamiCollapsibleTrigger,
-  OrigamiCollapsibleTriggerOptions,
-  OrigamiCollapsiblePanel,
-  OrigamiCollapsiblePanelOptions,
 } from "./collapsible";
 export type { OrigamiCollapsibleHiding } from "./collapsible";
+export { OrigamiCollapsibleTrigger, OrigamiCollapsibleTriggerOptions } from "./collapsible-trigger";
+export { OrigamiCollapsiblePanel, OrigamiCollapsiblePanelOptions } from "./collapsible-panel";

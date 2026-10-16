@@ -1,10 +1,8 @@
+export { OrigamiToggleGroupState } from "./toggle-group";
+export type { OrigamiToggleGroupOrientation } from "./toggle-group";
+export { OrigamiToggleGroupSingle, OrigamiToggleGroupSingleOptions } from "./toggle-group-single";
 export {
-  OrigamiToggleGroupSingle,
-  OrigamiToggleGroupSingleOptions,
   OrigamiToggleGroupMultiple,
   OrigamiToggleGroupMultipleOptions,
-  OrigamiToggleGroupState,
-  OrigamiToggleGroupItem,
-  OrigamiToggleGroupItemOptions,
-} from "./toggle-group";
-export type { OrigamiToggleGroupOrientation } from "./toggle-group";
+} from "./toggle-group-multiple";
+export { OrigamiToggleGroupItem, OrigamiToggleGroupItemOptions } from "./toggle-group-item";
