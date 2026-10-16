@@ -1,10 +1,12 @@
-import { Component, signal } from "@angular/core";
+import { Component, input, model } from "@angular/core";
 import { OrigamiToggle } from "@loozo/origami-ui/toggle";
 
 @Component({
   selector: "app-mute",
   imports: [OrigamiToggle],
-  template: `<button ogToggle class="mute" [(pressed)]="muted">Mute</button>`,
+  template: `<button ogToggle class="mute" [(pressed)]="muted" [disabled]="disabled()">
+    Mute
+  </button>`,
   styles: `
     .mute[data-pressed] {
       background: var(--accent);
@@ -12,5 +14,6 @@ import { OrigamiToggle } from "@loozo/origami-ui/toggle";
   `,
 })
 export class Mute {
-  readonly muted = signal(false);
+  readonly muted = model(false);
+  readonly disabled = input(false);
 }

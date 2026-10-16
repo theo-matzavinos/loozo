@@ -2,7 +2,7 @@
 
 Popover is a non-modal floating surface anchored to an element: Content stays where you author it and is shown in the browser's top layer, positioned next to its Anchor.
 
-[src/popover/task-chooser.ts](../snippets/src/popover/task-chooser.ts "both")
+[src/popover/task-chooser.ts](../snippets/src/popover/task-chooser.ts "playground")
 
 | Part               | Configuration                                                                                     |
 | ------------------ | ------------------------------------------------------------------------------------------------- |

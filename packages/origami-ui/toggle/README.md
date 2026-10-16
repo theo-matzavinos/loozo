@@ -2,7 +2,7 @@
 
 Toggle is a two-state button, such as a mute, bold or dark-theme button: a native button that flips a `pressed` model.
 
-[src/toggle/mute.ts](../snippets/src/toggle/mute.ts "both")
+[src/toggle/mute.ts](../snippets/src/toggle/mute.ts "playground")
 
 It has a `pressed` model (default `false`) and a `disabled` input (default `false`). Each Toggle is its own owner; for a set of toggles with one tab stop and arrow keys, use [ToggleGroup](../toggle-group/README.md).
 

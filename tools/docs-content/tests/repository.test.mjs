@@ -358,6 +358,38 @@ test("origami's guide pages run the 13 snippets that export one component", asyn
   assert.deepEqual(kinds, ["html", "demo", "html"]);
 });
 
+test("origami's playgrounds get a control for each input and model of their component", () => {
+  const playgrounds = {};
+
+  for (const entry of origami.entryPoints) {
+    for (const block of entry.guide.blocks) {
+      if (block.kind === "demo" && block.view === "playground") {
+        const controls = [];
+
+        for (const control of block.controls) {
+          controls.push(`${control.name}:${control.binding}:${control.kind}`);
+        }
+
+        playgrounds[block.demo.replace("origami-ui/snippets/src/", "")] = controls;
+      }
+    }
+  }
+
+  assert.deepEqual(playgrounds, {
+    "collapsible/details.ts": ["expanded:model:boolean", "disabled:input:boolean"],
+    "presence/notice.ts": ["visible:model:boolean"],
+    "popover/task-chooser.ts": [
+      "open:model:boolean",
+      "side:input:options",
+      "align:input:options",
+      "gap:input:number",
+    ],
+    "toggle/mute.ts": ["muted:model:boolean", "disabled:input:boolean"],
+    "toggle-group/text-alignment.ts": ["alignment:model:options", "highlight:model:options"],
+    "radio-group/shipping-speed.ts": ["speed:model:options", "sameDayAvailable:input:boolean"],
+  });
+});
+
 test("generated modules typecheck against model.generated.ts under strict settings", async () => {
   await writeFile(
     join(out, "tsconfig.json"),
