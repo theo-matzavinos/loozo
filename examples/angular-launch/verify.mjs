@@ -19,12 +19,6 @@ const checks = [];
 const requests = [];
 const requestFailures = [];
 const errors = [];
-const facade = await readFile(
-  new URL("./src/routes/+authenticated/todos/rpc.generated.ts", import.meta.url),
-  "utf8",
-);
-const metadata = JSON.parse(/injectClient\((.*) as const\) as Rpc/.exec(facade)[1]);
-const id = metadata.todos.id;
 
 async function stats() {
   return (await fetch(`${base}/__proof/stats`)).json();
@@ -105,7 +99,7 @@ try {
       headers.cookie = `proof-user=${cookie}`;
     }
 
-    const response = await fetch(`${base}/_rpc/${id}/list`, {
+    const response = await fetch(`${base}/_rpc/todos/list`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -269,7 +263,7 @@ try {
       headers.cookie = `proof-user=${user}`;
     }
 
-    const response = await fetch(`${base}/_rpc/${id}/${method}`, {
+    const response = await fetch(`${base}/_rpc/todos/${method}`, {
       method: "POST",
       headers,
       body: JSON.stringify({ input }),

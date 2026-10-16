@@ -247,7 +247,7 @@ mutation({ input?, canActivate?, errors?, handler });
 
 The handler receives `{ context, input, errors }` and returns a value or a promise.
 
-- **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route; a namespace can't repeat within one route's ancestry, but unrelated branches may reuse it.
+- **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route, and each namespace is unique across the app because it names the group's URL.
 - **Inputs** are [Standard Schema](https://standardschema.dev) V1 schemas, from any library or written by hand. Validation can be async and can transform the value: callers pass the schema's input type, and guards and handlers receive its output. The `input` schema must have a concrete type without `undefined` or `null` branches, though its caller input type may be a union such as `Schema<string | number, …>`. Omit `input` for a procedure without input.
 - **Guards** return `boolean` or `Promise<boolean>`; `false` fails the call with `FORBIDDEN`. Group guards (in `defineRpc` options) get `{ context, request }`; procedure guards also get the validated `input`. Guards are never inherited through the route tree. A call runs input validation, then the group's guards, then the procedure's guards, then the handler.
 - Guards don't narrow types. Use an ordinary function to narrow, such as the example's `requireUser`:
@@ -408,9 +408,9 @@ The server bundle includes your dependencies by default, so the host doesn't nee
 
 The host check covers page rendering only. `handleRequest` runs before Angular and answers RPC requests for any host.
 
-Launch calls `/_rpc/<group>/<procedure>` from the root of the domain, even when the app has a different `<base href>`. If the app is served under a path prefix, route `/_rpc/` to the same server.
+Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even when the app has a different `<base href>`. If the app is served under a path prefix, route `/_rpc/` to the same server.
 
-Browser tabs opened before a deploy keep calling the procedures they were built with. After you move an `rpc.ts`, rename a procedure or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
+Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
 
 Launch has been verified on Node only.
 
@@ -491,7 +491,7 @@ Generated browser code contains only names, kinds and error metadata, never your
 
 `server.generated.ts` binds Launch's internal `createRequestScope`, `handleRpc` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name, the generation tsconfig's path within the app, and the context file's path and contents, so moving the whole app directory doesn't change it.
 
-Wire IDs come from each group's file path relative to the generation tsconfig's directory. Moving or renaming an `rpc.ts` changes its URL, and moving the generation tsconfig to another directory changes every group's URL. Renaming a namespace or procedure doesn't change the group ID. The example doesn't commit generated files: it regenerates before every build, and `node generate.mjs --check` verifies them without writing.
+RPC URLs are `/_rpc/<namespace>/<procedure>`, so they change only when you rename a namespace or procedure. Moving an `rpc.ts` or the generation tsconfig doesn't change them. The example doesn't commit generated files: it regenerates before every build, and `node generate.mjs --check` verifies them without writing.
 
 `@loozo/angular-launch/generation` is Node-only.
 

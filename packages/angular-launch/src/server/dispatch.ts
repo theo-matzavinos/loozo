@@ -14,7 +14,7 @@ import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
 
 /**
- * The application's RPC groups, keyed by generated group ID.
+ * The application's RPC groups, keyed by namespace.
  *
  * @remarks
  * Internal; not exported from a public entry point. Generation writes it as
@@ -190,7 +190,7 @@ interface RuntimeProcedure extends ProcedureDefinition {
  * unexpected errors are logged on the server.
  *
  * In order: the scope must belong to `application` and `request` (`INTERNAL`); the
- * path must be `/_rpc/<group ID>/<procedure>` for a registered procedure
+ * path must be `/_rpc/<namespace>/<procedure>` for a registered procedure
  * (`RPC_NOT_FOUND`); a mutation in `"rendering"` mode is refused (`FORBIDDEN`); the
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
  * a cycle or an accessor); it must then be exactly `{ input }` (`INVALID_INPUT`) with
@@ -221,7 +221,7 @@ export async function dispatch(
   try {
     assertBoundScope(scope, application, request);
 
-    const parts = /^\/_rpc\/([a-f0-9]{24})\/([A-Za-z_][A-Za-z0-9_]*)$/.exec(path);
+    const parts = /^\/_rpc\/([A-Za-z_][A-Za-z0-9_]*)\/([A-Za-z_][A-Za-z0-9_]*)$/.exec(path);
 
     if (!parts || !Object.hasOwn(registry, parts[1])) {
       return failure("RPC_NOT_FOUND");

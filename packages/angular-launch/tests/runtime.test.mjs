@@ -25,7 +25,7 @@ import { injectClient, RPC_CALL } from "../dist/generated.js";
 import { RpcError, recognizedFailure, frameworkFailures } from "../dist/client.js";
 import { serializeJson } from "../dist/json.js";
 
-const id = "a".repeat(24);
+const id = "test";
 const path = `/_rpc/${id}/read`;
 
 function registry(procedures, canActivate = []) {
@@ -378,7 +378,7 @@ test("constructor/toString namespaces and own procedures work through native Htt
 
   for (const namespace of ["constructor", "toString"]) {
     const routes = {
-      [id]: defineRpc(namespace, {
+      [namespace]: defineRpc(namespace, {
         constructor: query({ handler: () => `${namespace}.constructor` }),
         toString: query({ handler: () => `${namespace}.toString` }),
       }),
@@ -419,7 +419,6 @@ test("constructor/toString namespaces and own procedures work through native Htt
       const client = runInInjectionContext(injector, () =>
         injectClient({
           [namespace]: {
-            id,
             methods: [
               { name: "constructor", input: false, kind: "query", errors: [] },
               { name: "toString", input: false, kind: "query", errors: [] },
@@ -433,7 +432,7 @@ test("constructor/toString namespaces and own procedures work through native Htt
       assert.equal(Object.getPrototypeOf(client[namespace]), null);
 
       for (const method of ["constructor", "toString"]) {
-        assert.equal(Object.hasOwn(routes[id].procedures, method), true);
+        assert.equal(Object.hasOwn(routes[namespace].procedures, method), true);
         assert.equal(Object.hasOwn(client[namespace], method), true);
         assert.equal(client[namespace][method].kind, "query");
         assert.equal(await client[namespace][method](), `${namespace}.${method}`);
@@ -464,7 +463,7 @@ test("recognized framework frames vs network errors; HttpClient cancellation uns
   );
   const client = runInInjectionContext(injector, () =>
     injectClient({
-      test: { id, methods: [{ name: "read", input: false, kind: "query", errors: [] }] },
+      test: { methods: [{ name: "read", input: false, kind: "query", errors: [] }] },
     }),
   );
   const controller = new AbortController();
@@ -541,7 +540,7 @@ test("recognized framework frames vs network errors; HttpClient cancellation uns
     );
     const client = runInInjectionContext(injector, () =>
       injectClient({
-        test: { id, methods: [{ name: "read", input: false, kind: "query", errors: [] }] },
+        test: { methods: [{ name: "read", input: false, kind: "query", errors: [] }] },
       }),
     );
 
