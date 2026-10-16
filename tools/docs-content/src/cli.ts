@@ -15,11 +15,12 @@ if (values.out === undefined) {
 const root = resolve(import.meta.dirname, "../../..");
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 const started = performance.now();
-const contents = await buildContent({ root, commit });
+const built = await buildContent({ root, commit });
 
-await writeContent(resolve(values.out), contents);
+await writeContent(resolve(values.out), built);
 
 console.log(
-  `docs-content: wrote ${contents.length} packages to ${values.out} ` +
+  `docs-content: wrote ${built.contents.length} packages and ${built.demos.length} demos to ` +
+    `${values.out} ` +
     `in ${Math.round(performance.now() - started)}ms`,
 );

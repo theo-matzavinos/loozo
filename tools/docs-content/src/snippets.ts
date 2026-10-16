@@ -10,7 +10,7 @@ const snippetLanguages: Record<string, string> = {
   ".html": "html",
 };
 
-const reservedViews = new Set(["both", "output", "playground"]);
+const reservedViews = new Set(["output", "playground"]);
 const markerLine = /^\s*(?:\/\/|<!--)\s*#(?:end)?region\b/;
 
 /** A paragraph that consists of a single link to a file in the package's `snippets/` directory. */
@@ -19,6 +19,8 @@ export interface SnippetEmbed {
   /** Package-relative POSIX path, shown as the caption. */
   readonly caption: string;
   readonly region: string | undefined;
+  /** The link title: "source" (the default) shows the code, "both" also runs its component. */
+  readonly view: "source" | "both";
 }
 
 export interface Snippet extends SnippetEmbed {
@@ -107,9 +109,9 @@ export function findSnippetEmbed(
     throw new SourceError(file, line, `unsupported snippet file type "${extension}": ${href}`);
   }
 
-  const view = attribute(link, "title");
+  const view = attribute(link, "title") ?? "source";
 
-  if (view !== undefined && view !== "source") {
+  if (view !== "source" && view !== "both") {
     if (reservedViews.has(view)) {
       throw new SourceError(file, line, `snippet view "${view}" is not supported yet: ${href}`);
     }
@@ -131,7 +133,7 @@ export function findSnippetEmbed(
 
   const caption = relative(packageDir, target).split(sep).join("/");
 
-  return { file: target, caption, region };
+  return { file: target, caption, region, view };
 }
 
 function paragraphLink(tokens: readonly Token[], index: number): Token | undefined {

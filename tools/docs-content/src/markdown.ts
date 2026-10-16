@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import MarkdownIt, { type Token } from "markdown-it";
 import { createHighlighter, type ThemedToken } from "shiki";
+import { findDemo, type Demo } from "./demos.ts";
 import { attribute, findSnippetEmbed, readSnippet, SourceError } from "./snippets.ts";
 
 export const markdown = new MarkdownIt({ html: true });
@@ -130,6 +131,8 @@ export interface PackageContext {
   readonly readmes: ReadonlyMap<string, ReadmeAnchors>;
   /** Public and generated-API symbol name → docs href. */
   readonly symbols: ReadonlyMap<string, string>;
+  /** Running snippets by id; `transformTokens` adds every one it embeds. */
+  readonly demos: Map<string, Demo>;
 }
 
 /** Where a piece of markdown comes from. */
@@ -139,6 +142,22 @@ export interface MarkdownOrigin {
   readonly line: number;
   /** TSDoc text supports `{@link Name}`; README text supports same-file `#anchor` links. */
   readonly tsdoc: boolean;
+}
+
+/** The demo id `transformTokens` put on a running snippet's token; undefined for other tokens. */
+export function demoOf(token: Token): string | undefined {
+  const meta: unknown = token.meta;
+
+  if (
+    typeof meta === "object" &&
+    meta !== null &&
+    "demo" in meta &&
+    typeof meta.demo === "string"
+  ) {
+    return meta.demo;
+  }
+
+  return undefined;
 }
 
 /** Renders TSDoc or other standalone markdown text of a package. */
@@ -156,7 +175,8 @@ export function renderMarkdown(context: PackageContext, text: string, origin: Ma
 
 /**
  * Rewrites parsed tokens in place: highlights code, embeds snippets, resolves links and links
- * inline code that names a public symbol.
+ * inline code that names a public symbol. A running snippet becomes its source figure with the
+ * demo id in `token.meta.demo`, for the guide page renderer to split on.
  */
 export function transformTokens(context: PackageContext, tokens: Token[], origin: MarkdownOrigin) {
   const baseDir = dirname(origin.file);
@@ -199,6 +219,18 @@ export function transformTokens(context: PackageContext, tokens: Token[], origin
           `<a href="${escapeHtml(sourceUrl)}">Source</a></figcaption>` +
           `${context.highlight(snippet.code, snippet.language)}</figure>\n`;
         tokens.splice(index + 1, 2);
+
+        if (embed.view === "both") {
+          if (origin.tsdoc) {
+            throw new SourceError(origin.file, line, "running snippets belong in guide pages");
+          }
+
+          const demo = findDemo(context.slug, embed, origin.file, line);
+
+          context.demos.set(demo.id, demo);
+          token.meta = { demo: demo.id };
+        }
+
         continue;
       }
     }

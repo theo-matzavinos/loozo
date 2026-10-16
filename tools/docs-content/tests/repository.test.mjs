@@ -44,6 +44,19 @@ after(async () => {
   await rm(out, { recursive: true, force: true });
 });
 
+/** A guide page's HTML blocks, joined; running snippets are left out. */
+function pageHtml(guide) {
+  let html = "";
+
+  for (const block of guide.blocks) {
+    if (block.kind === "html") {
+      html += block.html;
+    }
+  }
+
+  return html;
+}
+
 function entryPoint(content, importPath) {
   for (const candidate of content.entryPoints) {
     if (candidate.importPath === importPath) {
@@ -313,8 +326,8 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "utils:Utilities",
   ]);
 
-  const install = origami.guides[0].html;
-  const toggle = entryPoint(origami, "@loozo/origami-ui/toggle").guide.html;
+  const install = pageHtml(origami.guides[0]);
+  const toggle = pageHtml(entryPoint(origami, "@loozo/origami-ui/toggle").guide);
 
   assert.match(install, /<a href="origami-ui\/guide\/popover" data-docs-link="">/);
   assert.match(toggle, /<a href="origami-ui\/guide\/toggle-group" data-docs-link="">ToggleGroup/);
@@ -342,6 +355,8 @@ test("generated modules typecheck against model.generated.ts under strict settin
         exactOptionalPropertyTypes: true,
       },
       include: ["content/*.ts", "consumer.ts"],
+      // Its loaders import Angular snippet components; the docs app build typechecks them.
+      exclude: ["content/demos.generated.ts"],
     }),
   );
   // The index types each listed slug as a PackageSlug.

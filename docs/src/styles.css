@@ -12,6 +12,8 @@
   --warning-border: light-dark(#bf8700, #d29922);
   --warning-surface: light-dark(#fff8c5, #272115);
   --focus: light-dark(#0954c4, #4493f8);
+  /* Snippets use it as a design system's accent, for example a pressed Toggle. */
+  --accent: light-dark(#b6e3ff, #1f4f8f);
   --header-height: 3.5rem;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -136,6 +138,26 @@ pre code {
 .docs-snippet pre {
   margin: 0;
   border-radius: 0 0 6px 6px;
+}
+
+/* A running snippet: its output above its source, in one box. */
+.docs-demo {
+  margin: 1rem 0;
+}
+
+.docs-demo-output {
+  padding: 1.5rem 1rem;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.docs-demo .docs-snippet {
+  margin: 0;
+}
+
+.docs-demo .docs-snippet figcaption {
+  border-radius: 0;
 }
 
 h1,

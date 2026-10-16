@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { isDocEntryWithSourceInfo, type DocEntryWithSourceInfo } from "@angular/compiler-cli";
 import { isDocumented, symbolSlug, toApiSymbol, type DeclarationSource } from "./api.ts";
 import { extractPackage, type ExtractedEntryPoint } from "./extract.ts";
+import type { Demo } from "./demos.ts";
 import { createHighlight, type PackageContext, type ReadmeAnchors } from "./markdown.ts";
 import type { ApiSymbol, EntryPoint, PackageContent } from "./model.ts";
 import { readWorkspacePackages, sourcePaths, type WorkspacePackage } from "./packages.ts";
@@ -27,14 +28,22 @@ interface EntryReadme {
   readonly readme: ParsedReadme;
 }
 
+/** Everything the content step writes. */
+export interface BuiltContent {
+  /** Ordered by slug. */
+  readonly contents: readonly PackageContent[];
+  /** Every running snippet of every package, ordered by id. */
+  readonly demos: readonly Demo[];
+}
+
 interface Located {
   readonly entry: DocEntryWithSourceInfo;
   readonly importPath: string;
   readonly source: DeclarationSource;
 }
 
-/** Builds the docs content of every package under `<root>/packages`, ordered by slug. */
-export async function buildContent({ root, commit }: ContentOptions): Promise<PackageContent[]> {
+/** Builds the docs content of every package under `<root>/packages`. */
+export async function buildContent({ root, commit }: ContentOptions): Promise<BuiltContent> {
   const packages = readWorkspacePackages(root);
   const paths = sourcePaths(packages);
   const highlight = await createHighlight();
@@ -42,6 +51,7 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
   // Package slug → entry point subpath → its README.
   const entryReadmes = new Map<string, Map<string, EntryReadme>>();
   const anchors = new Map<string, ReadmeAnchors>();
+  const demos = new Map<string, Demo>();
 
   packages.sort((left, right) => compare(left.slug, right.slug));
 
@@ -104,6 +114,7 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
       highlight,
       readmes: anchors,
       symbols,
+      demos,
     };
 
     const entryPoints: EntryPoint[] = [];
@@ -163,7 +174,13 @@ export async function buildContent({ root, commit }: ContentOptions): Promise<Pa
     });
   }
 
-  return result;
+  const sortedDemos: Demo[] = [];
+
+  for (const id of [...demos.keys()].sort(compare)) {
+    sortedDemos.push(demos.get(id)!);
+  }
+
+  return { contents: result, demos: sortedDemos };
 }
 
 /**

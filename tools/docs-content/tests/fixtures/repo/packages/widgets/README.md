@@ -35,3 +35,7 @@ The second setup heading.
 See [extras](extras/README.md) and [its usage](extras/README.md#usage).
 
 Code `[spec](SPEC.md)` stays beside [the spec again](SPEC.md).
+
+[Counter](snippets/counter.ts "both")
+
+After the demo.

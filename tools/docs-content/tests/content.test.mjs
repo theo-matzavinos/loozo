@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildContent } from "../src/content.ts";
@@ -28,7 +28,7 @@ let widgets;
 let notes;
 
 before(async () => {
-  const contents = await buildContent({ root: fixture, commit });
+  const { contents } = await buildContent({ root: fixture, commit });
 
   notes = contents[0];
   widgets = contents[1];
@@ -50,6 +50,19 @@ async function brokenFixture(change) {
   await change(root);
 
   return root;
+}
+
+/** A guide page's HTML blocks, joined; running snippets are left out. */
+function pageHtml(guide) {
+  let html = "";
+
+  for (const block of guide.blocks) {
+    if (block.kind === "html") {
+      html += block.html;
+    }
+  }
+
+  return html;
 }
 
 function text(html) {
@@ -88,7 +101,7 @@ test("leaves private packages out of the docs", async () => {
 
     await writeFile(manifestPath, JSON.stringify({ ...manifest, private: true }));
   });
-  const contents = await buildContent({ root, commit });
+  const { contents } = await buildContent({ root, commit });
   const slugs = [];
 
   for (const content of contents) {
@@ -112,9 +125,9 @@ test("splits the README into an overview and one guide per H2", () => {
 
   const setup = widgets.guides[0];
 
-  assert.doesNotMatch(setup.html, /<h2/);
-  assert.match(setup.html, /<h3 id="details">Details<\/h3>/);
-  assert.match(setup.html, /<h4 id="deep-heading">Deep <code>heading<\/code><\/h4>/);
+  assert.doesNotMatch(pageHtml(setup), /<h2/);
+  assert.match(pageHtml(setup), /<h3 id="details">Details<\/h3>/);
+  assert.match(pageHtml(setup), /<h4 id="deep-heading">Deep <code>heading<\/code><\/h4>/);
   assert.deepEqual(setup.headings, [
     { id: "details", text: "Details", level: 3 },
     { id: "deep-heading", text: "Deep heading", level: 4 },
@@ -125,7 +138,10 @@ test("links to other packages' READMEs resolve to their docs pages and headings"
   assert.match(notes.overviewHtml, /<a href="widgets\/guide\/setup" data-docs-link="">/);
   assert.match(notes.overviewHtml, /<a href="widgets\/guide\/setup#details" data-docs-link="">/);
   assert.match(notes.overviewHtml, /<a href="widgets" data-docs-link="">widgets<\/a>/);
-  assert.match(widgets.guides[0].html, /<a href="notes\/guide\/usage-tips" data-docs-link="">/);
+  assert.match(
+    pageHtml(widgets.guides[0]),
+    /<a href="notes\/guide\/usage-tips" data-docs-link="">/,
+  );
 });
 
 test("same-README anchors resolve to the guide page and heading that contain them", () => {
@@ -134,7 +150,7 @@ test("same-README anchors resolve to the guide page and heading that contain the
     /<a href="widgets\/guide\/setup" data-docs-link="">the setup guide/,
   );
   assert.match(
-    widgets.guides[0].html,
+    pageHtml(widgets.guides[0]),
     /<a href="widgets\/guide\/setup#details" data-docs-link="">details/,
   );
 });
@@ -147,27 +163,33 @@ test("an entry point's README is one guide page on that entry point", () => {
   assert.equal(widgets.guides.length, 3);
   assert.equal(guide.slug, "extras");
   assert.equal(guide.title, "Extras");
-  assert.doesNotMatch(guide.html, /<h1/);
-  assert.match(guide.html, /^<p>Extras overview/);
-  assert.match(guide.html, /<h2 id="usage">Usage<\/h2>/);
+  assert.doesNotMatch(pageHtml(guide), /<h1/);
+  assert.match(pageHtml(guide), /^<p>Extras overview/);
+  assert.match(pageHtml(guide), /<h2 id="usage">Usage<\/h2>/);
   assert.deepEqual(guide.headings, [
     { id: "usage", text: "Usage", level: 2 },
     { id: "details", text: "Details", level: 3 },
   ]);
-  assert.match(guide.html, /<figcaption><code>snippets\/example.ts<\/code>/);
-  assert.match(guide.html, /<a href="widgets\/guide\/setup" data-docs-link="">the setup guide/);
-  assert.match(guide.html, /<a href="widgets\/guide\/extras#usage" data-docs-link="">usage/);
+  assert.match(pageHtml(guide), /<figcaption><code>snippets\/example.ts<\/code>/);
   assert.match(
-    guide.html,
+    pageHtml(guide),
+    /<a href="widgets\/guide\/setup" data-docs-link="">the setup guide/,
+  );
+  assert.match(pageHtml(guide), /<a href="widgets\/guide\/extras#usage" data-docs-link="">usage/);
+  assert.match(
+    pageHtml(guide),
     /<a href="widgets\/api\/extra-label" data-docs-link=""><code>extraLabel/,
   );
-  assert.match(guide.html, /and <a href="widgets\/api\/toggle-label" data-docs-link="">/);
+  assert.match(pageHtml(guide), /and <a href="widgets\/api\/toggle-label" data-docs-link="">/);
 });
 
 test("links to an entry point's README resolve to its guide page and headings", () => {
-  assert.match(widgets.guides[2].html, /<a href="widgets\/guide\/extras" data-docs-link="">extras/);
   assert.match(
-    widgets.guides[2].html,
+    pageHtml(widgets.guides[2]),
+    /<a href="widgets\/guide\/extras" data-docs-link="">extras/,
+  );
+  assert.match(
+    pageHtml(widgets.guides[2]),
     /<a href="widgets\/guide\/extras#usage" data-docs-link="">its usage/,
   );
 });
@@ -202,15 +224,90 @@ for (const [name, readme, message] of entryReadmeFailures) {
   });
 }
 
+test('a snippet embed titled "both" becomes a demo block between the page\'s HTML', () => {
+  const kinds = [];
+
+  for (const block of widgets.guides[2].blocks) {
+    kinds.push(block.kind);
+  }
+
+  assert.deepEqual(kinds, ["html", "demo", "html"]);
+
+  const demo = widgets.guides[2].blocks[1];
+
+  assert.equal(demo.demo, "widgets/snippets/counter.ts");
+  assert.match(
+    demo.sourceHtml,
+    /^<figure class="docs-snippet"><figcaption><code>snippets\/counter.ts/,
+  );
+  assert.match(demo.sourceHtml, new RegExp(`href="${blob}/packages/widgets/snippets/counter.ts"`));
+  assert.match(widgets.guides[2].blocks[2].html, /^<p>After the demo.<\/p>/);
+});
+
+test("lists every demo with the snippet file and component export it runs", async () => {
+  const { demos } = await buildContent({ root: fixture, commit });
+
+  assert.deepEqual(demos, [
+    {
+      id: "widgets/snippets/counter.ts",
+      file: join(fixture, "packages/widgets/snippets/counter.ts"),
+      exportName: "Counter",
+    },
+  ]);
+});
+
+const demoFailures = [
+  [
+    "a snippet without a component",
+    '[](snippets/example.ts "both")',
+    /README\.md:20: a running snippet needs exactly one exported component, snippets\/example\.ts has 0/,
+  ],
+  [
+    "a snippet with two components",
+    '[](snippets/pair.ts "both")',
+    /README\.md:20: a running snippet needs exactly one exported component, snippets\/pair\.ts has 2 \(First, Second\)/,
+  ],
+];
+
+for (const [name, embed, message] of demoFailures) {
+  test(`fails on a running view of ${name}`, async () => {
+    const root = await brokenFixture(async (dir) => {
+      const readme = join(dir, "packages/widgets/README.md");
+      const source = await readFile(readme, "utf8");
+
+      await writeFile(readme, source.replace("[](snippets/example.ts)", embed));
+    });
+
+    await assert.rejects(buildContent({ root, commit }), message);
+  });
+}
+
+test("fails on a running view in the overview", async () => {
+  const root = await brokenFixture(async (dir) => {
+    const readme = join(dir, "packages/widgets/README.md");
+    const source = await readFile(readme, "utf8");
+
+    await writeFile(
+      readme,
+      source.replace("## Setup", '[](snippets/counter.ts "both")\n\n## Setup'),
+    );
+  });
+
+  await assert.rejects(
+    buildContent({ root, commit }),
+    /README\.md:6: running snippets belong in guide pages/,
+  );
+});
+
 test("wraps tables in a scrollable region named after their heading and column headers", () => {
   assert.match(
-    widgets.guides[2].html,
+    pageHtml(widgets.guides[2]),
     /<div class="table-scroll" role="region" aria-label="Option, Meaning table" tabindex="0"><table>\n<thead>[\s\S]*<code>label<\/code>[\s\S]*<\/table>\n<\/div>/,
   );
 });
 
 test("other repository links become GitHub URLs pinned to the commit", () => {
-  const html = widgets.guides[0].html;
+  const html = pageHtml(widgets.guides[0]);
 
   assert.match(html, new RegExp(`href="${blob}/packages/widgets/SPEC.md"`));
   assert.match(html, new RegExp(`href="${blob.replace("/blob/", "/tree/")}/docs"`));
@@ -229,14 +326,14 @@ test("inline code naming a symbol of the same package links to its API page", ()
     /and <a href="widgets\/generated-api#internal-handle" data-docs-link=""><code>InternalHandle<\/code><\/a>/,
   );
   // Other packages' symbols stay plain code.
-  assert.match(notes.guides[0].html, /; <code>Toggle<\/code> belongs/);
+  assert.match(pageHtml(notes.guides[0]), /; <code>Toggle<\/code> belongs/);
   assert.match(
-    notes.guides[0].html,
+    pageHtml(notes.guides[0]),
     /<a href="notes\/api\/note-title" data-docs-link=""><code>noteTitle/,
   );
   // Code that is already a link keeps its own target.
   assert.match(
-    widgets.guides[0].html,
+    pageHtml(widgets.guides[0]),
     /Linked code <a href="widgets\/guide\/setup" data-docs-link=""><code>Toggle<\/code><\/a>/,
   );
 });
@@ -262,7 +359,7 @@ test("TSDoc {@link Name | label} resolves when the label contains inline code", 
 });
 
 test("embeds snippets with captions, regions, dedent and source links", () => {
-  const html = widgets.guides[1].html;
+  const html = pageHtml(widgets.guides[1]);
   const figures = html.split("</figure>");
 
   assert.equal(figures.length, 4);
@@ -403,10 +500,10 @@ test("encodes repository paths in GitHub URLs", async () => {
       '\nexport { special } from "./a#b.js";\n',
     );
   });
-  const contents = await buildContent({ root, commit });
+  const { contents } = await buildContent({ root, commit });
 
   assert.match(
-    contents[1].guides[1].html,
+    pageHtml(contents[1].guides[1]),
     new RegExp(`href="${blob}/packages/widgets/snippets/a%23b\\.ts"`),
   );
   assert.equal(
@@ -477,6 +574,11 @@ test("renders the published README with snippet embeds replaced by fenced code",
     ].join("\n"),
   );
   assert.doesNotMatch(published, /#region|\]\(snippets\//);
+  // A running view publishes as its source.
+  assert.match(
+    published,
+    /`snippets\/counter.ts`\n\n```ts\nimport \{ Component, Directive, signal \}/,
+  );
 });
 
 test("pins the published README's relative links to the release tag on GitHub", () => {
@@ -858,6 +960,7 @@ test("writes byte-identical modules for the same inputs", async () => {
   const names = (await readdir(first)).sort();
 
   assert.deepEqual(names, [
+    "demos.generated.ts",
     "index.generated.ts",
     "model.generated.ts",
     "notes.generated.ts",
@@ -875,6 +978,16 @@ test("writes byte-identical modules for the same inputs", async () => {
   assert.equal(
     await readFile(join(first, "model.generated.ts"), "utf8"),
     await readFile(join(tool, "src/model.ts"), "utf8"),
+  );
+
+  const specifier = relative(first, join(fixture, "packages/widgets/snippets/counter"));
+
+  assert.match(
+    await readFile(join(first, "demos.generated.ts"), "utf8"),
+    new RegExp(
+      `"widgets/snippets/counter.ts": \\(\\) =>\\n    import\\(${JSON.stringify(specifier)}\\)` +
+        `\\.then\\(\\(module\\) => module\\.Counter\\),`,
+    ),
   );
 });
 
