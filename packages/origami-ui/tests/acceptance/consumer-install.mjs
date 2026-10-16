@@ -35,6 +35,8 @@ const hiddenLockfile = path.join(directory, "node_modules/.package-lock.json");
 // has succeeded. Kept outside node_modules: a new file there would make npm distrust its
 // hidden lockfile.
 const stamp = path.join(directory, ".runtime/consumer-install.json");
+// The packed library, installed into the consumer, carries this version.
+const library = JSON.parse(await readFile("package.json", "utf8"));
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -321,7 +323,7 @@ export async function verifyConsumerDependencies() {
       }
 
       if (name === "@loozo/origami-ui") {
-        assert.equal(dependency.version, "0.0.1");
+        assert.equal(dependency.version, library.version);
       } else {
         assert.ok(
           allowed.get(name)?.has(dependency.version),
