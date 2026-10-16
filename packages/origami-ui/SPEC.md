@@ -711,3 +711,10 @@ A new primitive ships with:
 - SSR plus eager and incremental hydration per section 17.
 - Chromium, Firefox and WebKit qualification in development and production.
 - Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 18's coverage map and assertions in the acceptance gate.
+- A design map in `<primitive>/DESIGN.md`, approved by loozo before implementation and checked against the code before sign-off. It records:
+  - the public surface;
+  - who owns each fact the primitive depends on, and who reads it;
+  - for every read of state another part owns: the reader, the lifecycle phase (construction, render, after render, event), the platform, and what the reader gets if the owner's inputs aren't set yet;
+  - every place where correctness depends on Angular refreshing a view again.
+
+  A render-time read of another part's Options is valid only when the owner's inputs are set first in every layout the primitive supports. Repeated items, later sibling views and child components are where they aren't.
