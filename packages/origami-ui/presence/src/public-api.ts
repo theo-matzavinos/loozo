@@ -1,7 +1,3 @@
-export {
-  OrigamiPresence,
-  OrigamiPresenceOptions,
-  OrigamiPresenceState,
-  ɵOrigamiPresencePresentation,
-} from "./presence";
+export { OrigamiPresence, OrigamiPresenceOptions, OrigamiPresenceState } from "./presence";
 export type { OrigamiPresencePhase } from "./presence";
+export { ɵOrigamiPresencePresentation } from "./presence-presentation";

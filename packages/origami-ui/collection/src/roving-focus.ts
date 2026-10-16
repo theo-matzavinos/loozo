@@ -9,7 +9,9 @@ import {
   signal,
 } from "@angular/core";
 import type { Signal } from "@angular/core";
+import { injectDeferred } from "@loozo/origami-ui/utils";
 import { CollectionContext } from "./collection";
+import { OrigamiCollectionItemOptions } from "./collection-item";
 
 type Orientation = "horizontal" | "vertical";
 /** A widget's arrow keys: one orientation, or `both` for a widget with no orientation (RadioGroup). */
@@ -244,7 +246,7 @@ export class ɵOrigamiRovingFocus {
    * @returns As for `register`.
    */
   join(item: { readonly disabled: Signal<boolean>; readonly navigated: () => void }): Registration {
-    this.#collection.join();
+    this.#collection.join(injectDeferred(OrigamiCollectionItemOptions));
 
     return this.#add({ ...item, preferred: computed(() => false) });
   }

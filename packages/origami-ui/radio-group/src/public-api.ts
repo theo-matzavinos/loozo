@@ -1,7 +1,2 @@
-export {
-  OrigamiRadioGroup,
-  OrigamiRadioGroupOptions,
-  OrigamiRadioGroupState,
-  OrigamiRadioGroupItem,
-  OrigamiRadioGroupItemOptions,
-} from "./radio-group";
+export { OrigamiRadioGroup, OrigamiRadioGroupOptions, OrigamiRadioGroupState } from "./radio-group";
+export { OrigamiRadioGroupItem, OrigamiRadioGroupItemOptions } from "./radio-group-item";

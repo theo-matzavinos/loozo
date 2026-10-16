@@ -1,6 +1,6 @@
 import { DestroyRef, DOCUMENT, PLATFORM_ID, Service, inject } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
-import type { Activation, Intent, Parts, Policy, PopoverContext } from "./context";
+import type { Activation, Intent, Parts, Policy, PopoverContext } from "./popover";
 
 export type BranchMember = {
   readonly context: PopoverContext;

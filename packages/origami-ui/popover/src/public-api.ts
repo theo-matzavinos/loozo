@@ -1,16 +1,10 @@
+export { OrigamiPopover, OrigamiPopoverOptions, OrigamiPopoverState } from "./popover";
+export { OrigamiPopoverTrigger, OrigamiPopoverTriggerOptions } from "./popover-trigger";
+export { OrigamiPopoverAnchor, OrigamiPopoverAnchorOptions } from "./popover-anchor";
 export {
-  OrigamiPopoverOptions,
-  OrigamiPopoverTriggerOptions,
-  OrigamiPopoverAnchorOptions,
+  OrigamiPopoverContent,
   OrigamiPopoverContentOptions,
+  OrigamiPopoverContentState,
   type OrigamiPopoverSide,
   type OrigamiPopoverAlign,
-} from "./options";
-export {
-  OrigamiPopover,
-  OrigamiPopoverState,
-  OrigamiPopoverTrigger,
-  OrigamiPopoverAnchor,
-  OrigamiPopoverContent,
-  OrigamiPopoverContentState,
-} from "./popover";
+} from "./popover-content";

@@ -1,6 +1,6 @@
 import { computePosition, flip, offset, platform } from "@floating-ui/dom";
 import type { Placement, Side } from "@floating-ui/dom";
-import type { OrigamiPopoverAlign, OrigamiPopoverSide } from "./options";
+import type { OrigamiPopoverAlign, OrigamiPopoverSide } from "./popover-content";
 
 export interface PositionConfiguration {
   readonly id: string;
