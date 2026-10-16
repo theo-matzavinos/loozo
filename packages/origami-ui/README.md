@@ -1,10 +1,10 @@
 # @loozo/origami-ui
 
-Headless, accessible Angular primitives: Collection, Presence, Collapsible, single and multiple Accordion, Popover, Toggle, Tabs and single and multiple ToggleGroup. They own behavior, state, generated IDs, ARIA associations and Popover's native top-layer presentation, and they're safe to render on the server and hydrate. You own the markup, roles and accessible names, styling, dimensions and animation.
+Headless, accessible Angular primitives: Collection, Presence, Collapsible, single and multiple Accordion, Popover, Toggle, Tabs, single and multiple ToggleGroup, and Toolbar. They own behavior, state, generated IDs, ARIA associations and Popover's native top-layer presentation, and they're safe to render on the server and hydrate. You own the markup, roles and accessible names, styling, dimensions and animation.
 
 Every primitive is a directive you put on your own elements, or compose into your own directives through `hostDirectives`. Each configurable part reads typed **Options** that you can replace. The roots, Presence, Popover Content and Toggle also expose a readonly **State** that you can inject.
 
-Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation, anchored popovers, toggle buttons, tabs and toggle groups, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
+Use it when you're building your own design system or application components in Angular 22 and want tested behavior for disclosure, selection, enter/exit animation, anchored popovers, toggle buttons, tabs, toggle groups and toolbars, without adopting someone else's markup or styles. It renders on the server and hydrates, both eagerly and incrementally, without client-only fallbacks.
 
 **Status:** experimental and published on npm. Version `0.0.1`, MIT license.
 
@@ -36,8 +36,9 @@ The root entry point `@loozo/origami-ui` is intentionally empty. Import from the
 | `@loozo/origami-ui/toggle`       | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
 | `@loozo/origami-ui/tabs`         | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                      |
 | `@loozo/origami-ui/toggle-group` | `OrigamiToggleGroupSingle`, `OrigamiToggleGroupSingleOptions`, `OrigamiToggleGroupMultiple`, `OrigamiToggleGroupMultipleOptions`, `OrigamiToggleGroupState`, `OrigamiToggleGroupItem`, `OrigamiToggleGroupItemOptions`, type `OrigamiToggleGroupOrientation`                                                                   |
+| `@loozo/origami-ui/toolbar` | `OrigamiToolbar`, `OrigamiToolbarOptions`, `OrigamiToolbarState`, `OrigamiToolbarItem`, `OrigamiToolbarItemOptions`, type `OrigamiToolbarOrientation` |
 
-The Accordion entry point also exports `ɵOrigamiAccordionRoot`, which compiled composition needs, and the Collection entry point exports `ɵOrigamiRovingFocus`, the package-private keyboard focus behind Tabs and ToggleGroup, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private selection writes behind Accordion and ToggleGroup. None of them is an application API. Every export carries TSDoc with its defaults, ownership, errors and hydration behavior; your editor shows it from the published declarations.
+The Accordion entry point also exports `ɵOrigamiAccordionRoot`, which compiled composition needs, and the Collection entry point exports `ɵOrigamiRovingFocus`, the package-private keyboard focus behind Tabs, ToggleGroup and Toolbar, `ɵOrigamiRovingFocusScope`, through which a Toolbar shares it with nested groups, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private selection writes behind Accordion and ToggleGroup. None of them is an application API. Every export carries TSDoc with its defaults, ownership, errors and hydration behavior; your editor shows it from the published declarations.
 
 ## How the primitives fit together
 
@@ -61,11 +62,11 @@ Options token ──► private Context ──► readonly State
   A replacement replaces the configuration as a whole: it must supply every property, and the directive's own inputs and defaults are ignored. Writable properties can be ordinary `signal()`s; writing them doesn't emit the unused directive's model output.
 
 - **Context** is private and owns the behavior. Parts register with the nearest owner in Angular's DI, so nested roots are independent and descendants share their own root's State.
-- **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root, Popover Content, Toggle, the Tabs root and each ToggleGroup mode. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
+- **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root, Popover Content, Toggle, the Tabs root, each ToggleGroup mode and the Toolbar. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
 
 Angular 22.2.2's template type-checker crashes ("Could not resolve [object Object]") on a template reference to a primitive's `exportAs` name, such as `#t="ogToggle"`, when that element matches the primitive both directly and through your directive's `hostDirectives`. Reference your own directive instead, and expose the primitive's State from it.
 
-Upper primitives are built from lower ones: Accordion composes Collection and Collapsible, Tabs composes Collection, ToggleGroup composes Collection and its items compose Toggle, and Collapsible's Panel and Popover's Content compose Presence. Replacing an upper part's Options also drives the lower part, so you don't need to replace lower Options yourself.
+Upper primitives are built from lower ones: Accordion composes Collection and Collapsible, Tabs composes Collection, ToggleGroup composes Collection and its items compose Toggle, Toolbar composes Collection, and Collapsible's Panel and Popover's Content compose Presence. Replacing an upper part's Options also drives the lower part, so you don't need to replace lower Options yourself.
 
 A primitive that needs an owner, such as an item without a Collection, fails with Angular's missing-provider error. A second mounted Trigger, Panel, Anchor or Content in one Collapsible or Popover fails with an error naming the role.
 
@@ -296,7 +297,7 @@ Drive the pressed state from application state instead of the directive's own mo
 - The Toggle is a native button. Enter and Space work natively; there's no custom keyboard handling.
 - An enabled click flips `pressed`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply.
 - `aria-pressed` is always `"true"` or `"false"`; there's no mixed state. You supply the accessible name. Keep it the same in both states, because `aria-pressed` already announces the state.
-- Toggle isn't a form control: it has no form value or Signal Forms integration. A standalone Toggle has no group or arrow-key navigation; ToggleGroup's items compose Toggle for that.
+- Toggle isn't a form control: it has no form value or Signal Forms integration. A standalone Toggle has no group or arrow-key navigation; ToggleGroup's items compose Toggle for that, and a Toggle that also has `ogToolbarItem` is one control in a [Toolbar](#toolbar).
 
 ## Tabs
 
@@ -411,6 +412,63 @@ Item Options also drive the composed Collection Item and Toggle, so replacing th
 - Both modes are a `group` of `aria-pressed` buttons, not a radio group: there's no `aria-orientation` (ARIA doesn't allow it on `group`) and focus never presses. A static `role` you write on the root replaces `group`.
 - There's no typeahead, `aria-activedescendant`, mixed state or form value. A group inside a non-item descendant of another group is independent of it.
 
+### Inside a Toolbar
+
+A group inside a [Toolbar](#toolbar) joins it: its items share the Toolbar's single tab stop and arrow-key order with the Toolbar's own items, in DOM order, and the group has no tab stop of its own. Tabbing into the Toolbar lands on its first enabled control, even if that's not a pressed item. The group follows the Toolbar's orientation, which `data-orientation` and State report; its own `orientation` has no effect there. Its role, name, value and pressed state don't change. A group in Popover Content doesn't join a Toolbar around the Popover.
+
+## Toolbar
+
+Toolbar groups controls, such as formatting buttons, into one tab stop with arrow-key navigation. A ToggleGroup inside it joins that single tab stop.
+
+[src/toolbar/formatting-toolbar.ts](snippets/src/toolbar/formatting-toolbar.ts)
+
+| Directive       | Configuration                                                                       |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `ogToolbar`     | `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)              |
+| `ogToolbarItem` | `disabled` (default `false`); must be a `<button>`                                  |
+
+- Toolbar never activates an item: a click, Enter or Space runs only your button's own listeners.
+- Items are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as items. Other focusable content inside the Toolbar that isn't an item, such as a search field, keeps its own Tab stop and its own arrow keys.
+- A disabled item is natively disabled: arrows skip it and it's never the tab stop. There's no Toolbar-wide `disabled`; disable items, or a group's own `disabled`.
+- `ogToggle` and `ogToolbarItem` can share a button, which is then one Toolbar control; one `[disabled]` binding sets both. Don't put `ogToolbarItem` on a ToggleGroup item, which joins on its own.
+
+### Keyboard
+
+| Key                    | Horizontal                                              | Vertical                |
+| ---------------------- | ------------------------------------------------------- | ----------------------- |
+| ArrowRight / ArrowLeft | next / previous control, reversed in right-to-left text | nothing                 |
+| ArrowDown / ArrowUp    | nothing                                                 | next / previous control |
+| Home / End             | first / last control                                    | first / last control    |
+
+Controls are the Toolbar's items and the items of groups inside it. Moves skip disabled controls, wrap at both ends and never activate or press. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
+
+Only one control is in the Tab order (`tabindex="0"`): the focused one while focus is in the Toolbar, otherwise the first enabled control. Tabbing back into the Toolbar lands on its first enabled control, not the last one you focused. A click focuses the item in every browser, so the next arrow key moves from there. If the focused control is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without activating it.
+
+A group joins the Toolbar it sits in through Angular DI. A group projected through `<ng-content>` into a component whose own template holds the `ogToolbar` doesn't join it and keeps its own tab stop; put the Toolbar on the projecting component's host with `hostDirectives` instead.
+
+### Replacing Options
+
+The root and the item each have their own Options. Here the application owns the orientation, each command's disabled state comes from the domain, and a separator follows the orientation through State:
+
+[src/toolbar/editor-toolbar.ts](snippets/src/toolbar/editor-toolbar.ts)
+
+The Toolbar reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
+
+### State and attributes
+
+`OrigamiToolbarState` has `orientation()`, the effective value from the root Options. The root exposes it as `state`, and descendants can inject it.
+
+| Element | Attributes                                                                                                         |
+| ------- | ------------------------------------------------------------------------------------------------------------------ |
+| Root    | `role="toolbar"`, `aria-orientation`, `data-orientation`                                                           |
+| Item    | `type="button"`, `tabindex`; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled`          |
+
+### Accessibility
+
+- You supply the Toolbar's accessible name with `aria-label` or `aria-labelledby`, and each control's label. A static `role` you write on the root replaces `toolbar`. Use a Toolbar for three or more controls.
+- Separators are yours: `role="separator"` with an `aria-orientation` perpendicular to the Toolbar's.
+- There's no typeahead, `aria-activedescendant` or multi-row navigation. A Toolbar inside another Toolbar is independent of it.
+
 ## Utilities
 
 `@loozo/origami-ui/utils` exports the two helpers the primitives use:
@@ -433,6 +491,7 @@ Every primitive renders on the server and hydrates with Angular's `provideClient
 - A Toggle's `aria-pressed`, `data-pressed` and disabled attributes are in the server HTML. If the server can't know the pressed state, for example a theme stored in the browser, render the Toggle disabled until the browser has it.
 - Tabs' selection, roles, associations, hidden Panels and single `tabindex="0"` are in the server HTML, and hydration doesn't change them.
 - ToggleGroup's `role="group"`, `aria-pressed`, disabled attributes and single `tabindex="0"` are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration presses once.
+- Toolbar's `role="toolbar"`, `aria-orientation`, disabled attributes and single `tabindex="0"`, chosen in DOM order across joined groups, are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration runs your handler once.
 - Popover Content is in the server HTML with `popover="manual"`, but the browser shows a closed Popover until the Content has hydrated and opened. An initially-open Popover's children are in the server HTML; it appears as a floating surface only once it hydrates.
 
 **The element-host identity rule:** `injectUniqueId` matches server and client only when it's called with an element host, that is in a directive or component on an element, as every primitive does. A call from an application service or another injection context without an element host still returns an application-unique ID, but don't bind it into server-rendered DOM, because the client will generate a different one. Uniqueness across several Angular applications in one document isn't guaranteed; coordinate explicit IDs there.
@@ -441,7 +500,7 @@ Explicit and static `id` bindings always take precedence over generated ones.
 
 ## Limitations
 
-- No styled components, themes or design tokens. No menu, listbox or select semantics or focus traps. Tabs and ToggleGroup are the only primitives with roving tabindex and arrow-key navigation, and their replacement item Options must be readable before Angular sets the item's inputs.
+- No styled components, themes or design tokens. No menu, listbox or select semantics or focus traps. Tabs, ToggleGroup and Toolbar are the only primitives with roving tabindex and arrow-key navigation, and their replacement item Options must be readable before Angular sets the item's inputs.
 - Angular 22.2.x from 22.2.2 only; tested against 22.2.2.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
 - `until-found` is a progressive enhancement and falls back to `hidden` without find-in-page.

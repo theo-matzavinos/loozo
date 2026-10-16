@@ -14,6 +14,14 @@ import { CollectionContext } from "./collection";
 type Orientation = "horizontal" | "vertical";
 type Move = "next" | "previous" | "first" | "last";
 
+/** One item's tab stop observation and the handlers its host events forward to. */
+type Registration = {
+  readonly tabStop: Signal<boolean>;
+  keydown(event: KeyboardEvent, orientation: Orientation): void;
+  focus(): void;
+  blur(): void;
+};
+
 type Entry = {
   readonly element: HTMLElement;
   readonly disabled: Signal<boolean>;
@@ -116,6 +124,7 @@ function targetOf(ordered: readonly Entry[], current: Entry, move: Move): Entry 
  * that Collection. The core owns one roving tab stop, arrow/Home/End movement with wrapping,
  * disabled skipping and focus repair. It does not select, activate, typeahead or use
  * `aria-activedescendant`; the widget decides what a preferred item and a navigation mean.
+ * Items of a nested selection group can `join` an enclosing owner's core instead of their own.
  */
 @Service({ autoProvided: false })
 export class ɵOrigamiRovingFocus {
@@ -210,16 +219,35 @@ export class ɵOrigamiRovingFocus {
     readonly disabled: Signal<boolean>;
     readonly preferred: Signal<boolean>;
     readonly navigated: () => void;
-  }): {
-    readonly tabStop: Signal<boolean>;
-    keydown(event: KeyboardEvent, orientation: Orientation): void;
-    focus(): void;
-    blur(): void;
-  } {
+  }): Registration {
     if (inject(CollectionContext) !== this.#collection) {
       throw new Error("Roving focus item must belong to its owner's Collection.");
     }
 
+    return this.#add(item);
+  }
+
+  /**
+   * @internal Registers the calling item host of a nested selection group (a ToggleGroup inside a
+   * Toolbar) from its injection context. The host also becomes a member of this owner's
+   * Collection, so it is ordered among the owner's own items in rendered DOM order, also after
+   * server refreshes confined to the group's descendant views. A joined item is never preferred,
+   * so the owner's tab stop falls on its first enabled item.
+   * @param item - As for `register`, without `preferred`.
+   * @returns As for `register`.
+   */
+  join(item: { readonly disabled: Signal<boolean>; readonly navigated: () => void }): Registration {
+    this.#collection.join();
+
+    return this.#add({ ...item, preferred: computed(() => false) });
+  }
+
+  /** Adds the calling host's entry with caller-scoped cleanup. */
+  #add(item: {
+    readonly disabled: Signal<boolean>;
+    readonly preferred: Signal<boolean>;
+    readonly navigated: () => void;
+  }): Registration {
     const entry: Entry = {
       element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
       disabled: item.disabled,
@@ -306,4 +334,16 @@ export class ɵOrigamiRovingFocus {
       target.navigated();
     }
   }
+}
+
+/**
+ * @internal Package-private: provided by an owner whose nested selection groups join its roving
+ * focus (Toolbar), and cut with a null value where a subtree must not join (Popover Content).
+ * Not an application API.
+ */
+export abstract class ɵOrigamiRovingFocusScope {
+  /** The owner's roving focus, which joined items register with through `join`. */
+  abstract readonly focus: ɵOrigamiRovingFocus;
+  /** The owner's effective axis; joined items navigate along it instead of their group's. */
+  abstract readonly orientation: Signal<Orientation>;
 }

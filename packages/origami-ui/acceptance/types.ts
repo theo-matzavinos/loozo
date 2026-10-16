@@ -35,6 +35,12 @@ import {
   type OrigamiToggleGroupState,
   type OrigamiToggleGroupOrientation,
 } from "@loozo/origami-ui/toggle-group";
+import {
+  OrigamiToolbarOptions,
+  OrigamiToolbarItemOptions,
+  type OrigamiToolbarState,
+  type OrigamiToolbarOrientation,
+} from "@loozo/origami-ui/toolbar";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -50,6 +56,7 @@ export function checkReadonlyState(
   toggle: OrigamiToggleState,
   tabs: OrigamiTabsState,
   toggleGroup: OrigamiToggleGroupState,
+  toolbar: OrigamiToolbarState,
 ): void {
   // @ts-expect-error Collection observation is not writable.
   collection.items.set([]);
@@ -95,6 +102,8 @@ export function checkReadonlyState(
   toggleGroup.disabled.set(true);
   // @ts-expect-error ToggleGroup orientation observation is not writable.
   toggleGroup.orientation.set("vertical");
+  // @ts-expect-error Toolbar orientation observation is not writable.
+  toolbar.orientation.set("vertical");
 }
 
 export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
@@ -197,6 +206,10 @@ export function checkProviderShapes(): void {
     value: signal("bold"),
     disabled: signal(false),
   }));
+  OrigamiToolbarOptions.provideFactory(() => ({
+    orientation: signal<OrigamiToolbarOrientation>("vertical"),
+  }));
+  OrigamiToolbarItemOptions.provideFactory(() => ({ disabled: signal(false) }));
 }
 
 export function checkUtilitySignatures(token: ProviderToken<number>): void {

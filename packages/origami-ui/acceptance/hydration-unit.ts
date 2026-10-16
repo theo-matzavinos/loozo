@@ -2,6 +2,7 @@ import {
   Component,
   Directive,
   afterNextRender,
+  computed,
   inject,
   input,
   linkedSignal,
@@ -38,6 +39,11 @@ import {
   OrigamiToggleGroupMultiple,
   OrigamiToggleGroupItem,
 } from "@loozo/origami-ui/toggle-group";
+import {
+  OrigamiToolbar,
+  OrigamiToolbarItem,
+  type OrigamiToolbarOrientation,
+} from "@loozo/origami-ui/toolbar";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Directive({
@@ -73,6 +79,8 @@ export class AccordionObservation {
     OrigamiToggleGroupSingle,
     OrigamiToggleGroupMultiple,
     OrigamiToggleGroupItem,
+    OrigamiToolbar,
+    OrigamiToolbarItem,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -177,6 +185,53 @@ export class AccordionObservation {
       </button>
     </div>
     <output data-testid="mark-output-count">{{ markOutputs() }}</output>
+
+    <div
+      ogToolbar
+      [orientation]="toolbarOrientation()"
+      aria-label="Server editing"
+      data-testid="hydration-toolbar"
+    >
+      <button
+        ogToolbarItem
+        [disabled]="!initiallyPresent()"
+        data-testid="hydration-toolbar-undo"
+        (click)="undoCount.update(increment)"
+      >
+        Undo
+      </button>
+      <button ogToolbarItem data-testid="hydration-toolbar-redo">Redo</button>
+      <div
+        ogToggleGroupMultiple
+        [(value)]="toolbarMarks"
+        aria-label="Server toolbar marks"
+        data-testid="hydration-toolbar-marks"
+      >
+        <button ogToggleGroupItem value="bold" data-testid="hydration-toolbar-bold">Bold</button>
+        <button ogToggleGroupItem value="italic" data-testid="hydration-toolbar-italic">
+          Italic
+        </button>
+      </div>
+      <button
+        ogToolbarItem
+        data-testid="hydration-toolbar-clear"
+        (click)="clearCount.update(increment)"
+      >
+        Clear
+      </button>
+    </div>
+    <output data-testid="toolbar-clear-count">{{ clearCount() }}</output>
+    <output data-testid="toolbar-undo-count">{{ undoCount() }}</output>
+    <!-- The first control is a joined group whose pressed item is not first. -->
+    <div ogToolbar aria-label="Server group first" data-testid="hydration-group-toolbar">
+      <div ogToggleGroupSingle [(value)]="toolbarAlignment" aria-label="Server toolbar alignment">
+        <button ogToggleGroupItem value="first" data-testid="hydration-group-first">First</button>
+        <button ogToggleGroupItem value="second" data-testid="hydration-group-second">
+          Second
+        </button>
+      </div>
+      <button ogToolbarItem data-testid="hydration-group-after">After</button>
+    </div>
 
     <div
       ogAccordionSingle
@@ -284,6 +339,23 @@ export class HydrationUnit {
     return [];
   });
   readonly markOutputs = signal(0);
+  readonly toolbarOrientation = computed<OrigamiToolbarOrientation>(() => {
+    if (this.initiallyPresent()) {
+      return "horizontal";
+    }
+
+    return "vertical";
+  });
+  readonly toolbarMarks = linkedSignal<readonly string[]>(() => {
+    if (this.initiallyPresent()) {
+      return ["bold"];
+    }
+
+    return [];
+  });
+  readonly toolbarAlignment = signal<string | null>("second");
+  readonly clearCount = signal(0);
+  readonly undoCount = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   constructor() {

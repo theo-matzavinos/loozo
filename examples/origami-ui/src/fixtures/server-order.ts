@@ -20,6 +20,8 @@ import {
   OrigamiAccordionItem,
   OrigamiAccordionState,
 } from "@loozo/origami-ui/accordion";
+import { OrigamiToggleGroupItem, OrigamiToggleGroupMultiple } from "@loozo/origami-ui/toggle-group";
+import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
 
 // SSR-only consumers rendered by tests/acceptance/ssr-checks.mjs; never imported by browser routes.
 
@@ -284,6 +286,110 @@ export class ServerOnPushOrderConsumer {
   }
 }
 
+/** Evidence for a joined group whose keyed items move only inside an OnPush descendant. */
+@Service({ autoProvided: false })
+export class ServerJoinedOrderEvidence {
+  initialValues: readonly string[] = [];
+  initialNodes: readonly Element[] = [];
+  finalValues: readonly string[] = [];
+  finalNodes: readonly Element[] = [];
+  retained = false;
+  ownerChecks = 0;
+  observeFinal = (): void => {};
+}
+
+/** Only this OnPush descendant owns the joined group's keyed item views. */
+@Component({
+  selector: "server-toolbar-group-descendant",
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [OrigamiToggleGroupMultiple, OrigamiToggleGroupItem],
+  template: `
+    <div ogToggleGroupMultiple aria-label="Marks">
+      @for (key of keys(); track key) {
+        <button ogToggleGroupItem [value]="key" [attr.data-server-joined-item]="key">
+          {{ key }}
+        </button>
+      }
+    </div>
+  `,
+})
+export class ServerToolbarGroupDescendant {
+  readonly keys = signal(["bold", "italic"]);
+}
+
+/**
+ * The static OnPush Toolbar owner is only traversed after the descendant group changes keys, so
+ * neither the Toolbar's nor its own item's view-check hooks run again.
+ */
+@Component({
+  selector: "onpush-toolbar-order-app",
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [OrigamiToolbar, OrigamiToolbarItem, ServerToolbarGroupDescendant],
+  template: `
+    <div ogToolbar aria-label="Formatting">
+      <server-toolbar-group-descendant />
+      <button ogToolbarItem data-server-joined-item="paste">Paste</button>
+    </div>
+  `,
+})
+export class ServerOnPushToolbarOrderConsumer {
+  protected readonly collection = viewChild.required(OrigamiToolbar, {
+    read: OrigamiCollectionState,
+  });
+  protected readonly group = viewChild.required(ServerToolbarGroupDescendant);
+  readonly #host = inject<ElementRef<Element>>(ElementRef).nativeElement;
+  readonly #evidence = inject(ServerJoinedOrderEvidence);
+  #releaseInitial: () => void = () => {};
+
+  constructor() {
+    this.#evidence.observeFinal = () => {
+      const records = this.collection().items();
+
+      this.#evidence.finalValues = this.#values();
+      this.#evidence.finalNodes = this.#nodes();
+      this.#evidence.retained =
+        this.#evidence.initialNodes.every((node) => this.#evidence.finalNodes.includes(node)) &&
+        records.length === this.#evidence.initialNodes.length;
+    };
+
+    const initialRender = new Promise<void>((resolve) => {
+      this.#releaseInitial = resolve;
+    });
+
+    inject(PendingTasks).run(async () => {
+      await initialRender;
+      this.group().keys.set(["italic", "bold"]);
+    });
+  }
+
+  ngAfterViewChecked(): void {
+    this.#evidence.ownerChecks += 1;
+
+    if (this.#evidence.initialNodes.length !== 0) {
+      return;
+    }
+
+    // Primes the Toolbar's public Collection order before the descendant changes keys.
+    this.#evidence.initialValues = this.#values();
+    this.#evidence.initialNodes = this.#nodes();
+    this.#releaseInitial();
+  }
+
+  #values(): string[] {
+    const values: string[] = [];
+
+    for (const record of this.collection().items()) {
+      values.push(record.value());
+    }
+
+    return values;
+  }
+
+  #nodes(): Element[] {
+    return Array.from(this.#host.querySelectorAll("[data-server-joined-item]"));
+  }
+}
+
 /** Evidence for a Collection and an Accordion whose order is first read after unread renders. */
 @Service({ autoProvided: false })
 export class ServerLateOrderEvidence {
@@ -326,7 +432,9 @@ export class LateOrderChecked {
     </section>
     <section ogAccordionMultiple>
       @for (key of keys(); track key) {
-        <article ogAccordionItem [value]="key" [attr.data-server-accordion-item]="key">{{ key }}</article>
+        <article ogAccordionItem [value]="key" [attr.data-server-accordion-item]="key">
+          {{ key }}
+        </article>
       }
     </section>
   `,

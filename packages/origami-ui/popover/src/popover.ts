@@ -16,6 +16,7 @@ import {
   OrigamiPresenceState,
   ɵOrigamiPresencePresentation,
 } from "@loozo/origami-ui/presence";
+import { ɵOrigamiRovingFocusScope } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import {
   OrigamiPopoverOptions,
@@ -276,6 +277,8 @@ export class OrigamiPopoverAnchor implements OrigamiPopoverAnchorOptions {
     OrigamiPopoverContentState,
     OrigamiPopoverContentOptions.ɵprovideDefault(() => OrigamiPopoverContent),
     OrigamiPresenceOptions.provideFactory(() => ({ present: inject(PopoverContext).desired })),
+    // A selection group in Content keeps its own tab stop instead of joining an enclosing Toolbar.
+    { provide: ɵOrigamiRovingFocusScope, useValue: null },
   ],
   host: {
     "[id]": "effectiveId()",

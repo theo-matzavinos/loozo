@@ -48,6 +48,14 @@ import {
   OrigamiToggleGroupItemOptions,
   type OrigamiToggleGroupOrientation,
 } from "@loozo/origami-ui/toggle-group";
+import {
+  OrigamiToolbar,
+  OrigamiToolbarOptions,
+  OrigamiToolbarState,
+  OrigamiToolbarItem,
+  OrigamiToolbarItemOptions,
+  type OrigamiToolbarOrientation,
+} from "@loozo/origami-ui/toolbar";
 import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 
@@ -282,6 +290,63 @@ export class ToggleGroupObservation {
   readonly state = inject(OrigamiToggleGroupState);
 }
 
+@Service({ autoProvided: false })
+export class EditorLayout {
+  readonly orientation = signal<OrigamiToolbarOrientation>("horizontal");
+  readonly readOnly = signal(false);
+}
+
+/** The application owns orientation through a factory; the exposed own input stays unused. */
+@Directive({
+  selector: "[editorToolbar]",
+  exportAs: "editorToolbar",
+  hostDirectives: [{ directive: OrigamiToolbar, inputs: ["orientation: lowerOrientation"] }],
+  providers: [
+    OrigamiToolbarOptions.provideFactory(() => ({
+      orientation: inject(EditorLayout).orientation,
+    })),
+  ],
+})
+export class EditorToolbar {
+  readonly state = inject(OrigamiToolbarState);
+  readonly #items = inject(OrigamiCollectionState);
+  /** How many controls the composed Collection holds. */
+  readonly itemCount = computed(() => this.#items.items().length);
+}
+
+export type EditorCommand = { readonly id: string; readonly available: boolean };
+
+/** Readable before Angular sets the input: the Toolbar reads every repeated item's Options while rendering. */
+const pendingCommand: EditorCommand = { id: "", available: false };
+
+/** Existing item Options: disabled state comes from the consumer's domain record and layout. */
+@Directive({
+  selector: "button[editorCommand]",
+  hostDirectives: [OrigamiToolbarItem],
+  providers: [OrigamiToolbarItemOptions.provideExisting(() => EditorCommandItem)],
+})
+export class EditorCommandItem implements OrigamiToolbarItemOptions {
+  readonly command = input<EditorCommand>(pendingCommand, { alias: "editorCommand" });
+  readonly #layout = inject(EditorLayout);
+  readonly disabled = computed(() => this.#layout.readOnly() || !this.command().available);
+}
+
+/** A separator perpendicular to the effective Toolbar orientation, through descendant State. */
+@Directive({
+  selector: "[editorSeparator]",
+  host: { role: "separator", "[attr.aria-orientation]": "orientation()" },
+})
+export class EditorSeparator {
+  readonly #toolbar = inject(OrigamiToolbarState);
+  protected readonly orientation = computed(() => {
+    if (this.#toolbar.orientation() === "horizontal") {
+      return "vertical";
+    }
+
+    return "horizontal";
+  });
+}
+
 const DeferredValue = new InjectionToken<string>("acceptance deferred value");
 
 @Directive({
@@ -324,12 +389,18 @@ export class UtilityObservation {
     FactoryAlignment,
     ConsumerAlignment,
     ToggleGroupObservation,
+    EditorToolbar,
+    EditorCommandItem,
+    EditorSeparator,
+    OrigamiToggle,
+    OrigamiToolbarItem,
   ],
   providers: [
     FactorySettings,
     ToggleSettings,
     TabsSettings,
     AlignmentSettings,
+    EditorLayout,
     {
       provide: DeferredValue,
       useFactory: () => {
@@ -583,6 +654,55 @@ export class UtilityObservation {
       }}</output>
       <output data-testid="unused-alignment-outputs">{{ unusedAlignmentOutputs() }}</output>
     </section>
+
+    <section>
+      <h2>Toolbar composition</h2>
+      <button
+        type="button"
+        data-testid="editor-vertical"
+        (click)="editorLayout.orientation.set('vertical')"
+      >
+        Make the editor toolbar vertical
+      </button>
+      <button
+        type="button"
+        data-testid="editor-read-only"
+        (click)="editorLayout.readOnly.set(!editorLayout.readOnly())"
+      >
+        Toggle read-only
+      </button>
+      <button type="button" data-testid="editor-paste-available" (click)="makePasteAvailable()">
+        Make paste available
+      </button>
+      <div
+        editorToolbar
+        #editor="editorToolbar"
+        lowerOrientation="vertical"
+        aria-label="Editor"
+        data-testid="editor-toolbar"
+      >
+        @for (command of commands(); track command.id) {
+          <button [editorCommand]="command" [attr.data-testid]="'editor-' + command.id">
+            {{ command.id }}
+          </button>
+        }
+        <span editorSeparator data-testid="editor-separator"></span>
+        <button
+          ogToggle
+          ogToolbarItem
+          [(pressed)]="spellcheck"
+          [disabled]="editorLayout.readOnly()"
+          (pressedChange)="spellcheckOutputs.update(increment)"
+          data-testid="editor-spellcheck"
+        >
+          Spell check
+        </button>
+      </div>
+      <output data-testid="editor-orientation">{{ editor.state.orientation() }}</output>
+      <output data-testid="editor-items">{{ editor.itemCount() }}</output>
+      <output data-testid="editor-spellcheck-value">{{ spellcheck() }}</output>
+      <output data-testid="editor-spellcheck-outputs">{{ spellcheckOutputs() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -651,6 +771,14 @@ export class CompositionConsumer {
     { id: "end", available: true },
   ]);
   readonly unusedAlignmentOutputs = signal(0);
+  readonly editorLayout = inject(EditorLayout);
+  readonly commands = signal<readonly EditorCommand[]>([
+    { id: "cut", available: true },
+    { id: "copy", available: true },
+    { id: "paste", available: false },
+  ]);
+  readonly spellcheck = signal(false);
+  readonly spellcheckOutputs = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   makeCenterAvailable(): void {
@@ -665,6 +793,20 @@ export class CompositionConsumer {
     }
 
     this.alignments.set(alignments);
+  }
+
+  makePasteAvailable(): void {
+    const commands: EditorCommand[] = [];
+
+    for (const command of this.commands()) {
+      if (command.id === "paste") {
+        commands.push({ id: "paste", available: true });
+      } else {
+        commands.push(command);
+      }
+    }
+
+    this.commands.set(commands);
   }
 
   reverseAlignments(): void {

@@ -126,6 +126,8 @@ export class CollectionContext {
   #observed = false;
   /** Membership at the latest checkpoint skipped before the first read. */
   #skippedRegistrations: readonly Registration[] | null = null;
+  /** Enclosing Collections that this Collection's items also joined; refreshed with it on the server. */
+  readonly #joined = new Set<CollectionContext>();
 
   readonly items: Signal<readonly OrigamiCollectionRecord[]> = computed(() => {
     const records: OrigamiCollectionRecord[] = [];
@@ -173,6 +175,18 @@ export class CollectionContext {
     }
   }
 
+  /**
+   * Server view-check refresh of this order and of every Collection its items joined, whose own
+   * hooks are skipped when only this Collection's descendant views are refreshed.
+   */
+  refreshServerOrder(): void {
+    this.refreshOrder();
+
+    for (const joined of this.#joined) {
+      joined.refreshOrder();
+    }
+  }
+
   register(): void {
     const element = inject<ElementRef<Element>>(ElementRef).nativeElement;
     const options = injectDeferred(OrigamiCollectionItemOptions);
@@ -194,6 +208,15 @@ export class CollectionContext {
 
       this.#registrations.set(remaining);
     });
+  }
+
+  /**
+   * Registers the calling item host, whose nearest Collection is another one, as a member of this
+   * enclosing Collection too; the nearest Collection's server view checks then refresh this order.
+   */
+  join(): void {
+    inject(CollectionContext).#joined.add(this);
+    this.register();
   }
 
   /** Reactive current order: tracks order revisions and membership, observing on first read. */
@@ -309,7 +332,7 @@ export class OrigamiCollection {
   /** @internal Server-only post-view order check; browser order retains its after-render READ scheduling. */
   ngAfterViewChecked(): void {
     if (this.#server) {
-      this.#context.refreshOrder();
+      this.#context.refreshServerOrder();
     }
   }
 }
@@ -342,10 +365,13 @@ export class OrigamiCollectionItem implements OrigamiCollectionItemOptions {
     this.#context.register();
   }
 
-  /** @internal Checks server order in this item's view when descendant-only refreshes skip owner hooks. */
+  /**
+   * @internal Checks server order in this item's view, including Collections its nearest
+   * Collection's items joined, when descendant-only refreshes skip owner hooks.
+   */
   ngAfterViewChecked(): void {
     if (this.#server) {
-      this.#context.refreshOrder();
+      this.#context.refreshServerOrder();
     }
   }
 }

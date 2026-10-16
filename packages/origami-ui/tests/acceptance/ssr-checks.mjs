@@ -161,6 +161,8 @@ const {
   ServerOrderConsumer,
   ServerOrderEvidence,
   ServerOnPushOrderConsumer,
+  ServerOnPushToolbarOrderConsumer,
+  ServerJoinedOrderEvidence,
   ServerLateOrderConsumer,
   ServerLateOrderEvidence,
 } = await fixture("server-order");
@@ -211,6 +213,39 @@ assert.match(onPushRender.html, /id="onpush-collection-order"[^>]*>two,one<\/out
 assert.match(onPushRender.html, /id="onpush-accordion-order"[^>]*>two,one<\/output>/);
 console.log(
   "C3 A5: OnPush owner checked once; descendant-only reorder, three current public reads, serialized two,one.",
+);
+
+// C3: a joined group's keyed move confined to an OnPush descendant of an unchanged Toolbar
+// owner refreshes the Toolbar's Collection order and server tab stop too.
+const joined = new ServerJoinedOrderEvidence();
+const joinedRender = await render(ServerOnPushToolbarOrderConsumer, "onpush-toolbar-order-app", [
+  { provide: BEFORE_APP_SERIALIZED, multi: true, useValue: () => joined.observeFinal() },
+  { provide: ServerJoinedOrderEvidence, useValue: joined },
+]);
+const joinedDom = [];
+
+for (const node of joined.finalNodes) {
+  joinedDom.push(node.getAttribute("data-server-joined-item"));
+}
+
+const tabStops = [];
+
+for (const match of joinedRender.html.matchAll(/<button[^>]*>/g)) {
+  if (match[0].includes('tabindex="0"')) {
+    tabStops.push(match[0].match(/data-server-joined-item="([^"]+)"/)?.[1]);
+  }
+}
+
+assert.deepEqual(joinedRender.errors, []);
+assert.equal(joined.ownerChecks, 1, "No owner refresh may mask descendant-only ordering");
+assert.deepEqual(joined.initialValues.slice(0, 2), ["bold", "italic"]);
+assert.equal(joined.retained, true);
+assert.deepEqual(joinedDom, ["italic", "bold", "paste"]);
+assert.equal(joined.finalValues.length, 3);
+assert.deepEqual(joined.finalValues.slice(0, 2), ["italic", "bold"]);
+assert.deepEqual(tabStops, ["italic"], "The server tab stop is the first control in DOM order");
+console.log(
+  "C3: descendant-only joined group move refreshed the Toolbar order to italic,bold and its server tab stop.",
 );
 
 // C3 A5: order first read after unread pending-task moves and an insertion is current DOM order,
