@@ -63,7 +63,6 @@ import {
   OrigamiRadioGroupItem,
   OrigamiRadioGroupItemOptions,
 } from "@loozo/origami-ui/radio-group";
-import { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Service({ autoProvided: false })
@@ -181,17 +180,6 @@ export class TabsSettings {
 })
 export class FactoryTabs {
   readonly state = inject(OrigamiTabsState);
-  readonly #items = inject(OrigamiCollectionState);
-  /** The composed Collection's values, which only the upper Trigger Options supply. */
-  readonly itemValues = computed(() => {
-    const values: string[] = [];
-
-    for (const item of this.#items.items()) {
-      values.push(item.value());
-    }
-
-    return values.join(",");
-  });
 }
 
 /** Existing Trigger Options: the consumer's own value input and a value-derived ID. */
@@ -254,17 +242,6 @@ export class AlignmentSettings {
 })
 export class FactoryAlignment {
   readonly state = inject(OrigamiToggleGroupState);
-  readonly #items = inject(OrigamiCollectionState);
-  /** The composed Collection's values, which only the upper item Options supply. */
-  readonly itemValues = computed(() => {
-    const values: string[] = [];
-
-    for (const item of this.#items.items()) {
-      values.push(item.value());
-    }
-
-    return values.join(",");
-  });
 }
 
 export type Alignment = { readonly id: string; readonly available: boolean };
@@ -316,9 +293,6 @@ export class EditorLayout {
 })
 export class EditorToolbar {
   readonly state = inject(OrigamiToolbarState);
-  readonly #items = inject(OrigamiCollectionState);
-  /** How many controls the composed Collection holds. */
-  readonly itemCount = computed(() => this.#items.items().length);
 }
 
 export type EditorCommand = { readonly id: string; readonly available: boolean };
@@ -381,17 +355,6 @@ export class CheckoutStore {
 })
 export class CheckoutSpeed {
   readonly state = inject(OrigamiRadioGroupState);
-  readonly #items = inject(OrigamiCollectionState);
-  /** The composed Collection's values, which only the upper item Options supply. */
-  readonly itemValues = computed(() => {
-    const values: string[] = [];
-
-    for (const item of this.#items.items()) {
-      values.push(item.value());
-    }
-
-    return values.join(",");
-  });
 }
 
 export type SpeedRecord = { readonly id: string; readonly available: boolean };
@@ -444,10 +407,11 @@ export class NestedDeferredScope {}
 @Directive({
   selector: "[utilityObservation]",
   exportAs: "utilityObservation",
-  host: { "[attr.data-generated-id]": "generatedId" },
+  host: { "[id]": "id()", "[attr.data-generated-id]": "id()" },
 })
 export class UtilityObservation {
-  readonly generatedId = injectUniqueId("acceptance-repeated");
+  /** A static or bound DOM ID wins; otherwise the generated ID, which hydration keeps. */
+  readonly id = input(injectUniqueId("acceptance-repeated"));
   readonly resolve = injectDeferred(DeferredValue);
   readonly value = signal("unresolved");
 }
@@ -673,7 +637,6 @@ export class UtilityObservation {
         </div>
       </div>
       <output data-testid="factory-tabs-state">{{ factoryTabs.state.value() }}</output>
-      <output data-testid="factory-tabs-items">{{ factoryTabs.itemValues() }}</output>
       <output data-testid="unused-tab-outputs">{{ unusedTabOutputs() }}</output>
     </section>
 
@@ -740,7 +703,6 @@ export class UtilityObservation {
         ></span>
       </div>
       <output data-testid="factory-alignment-value">{{ alignmentSettings.value() }}</output>
-      <output data-testid="factory-alignment-items">{{ factoryAlignment.itemValues() }}</output>
       <output data-testid="factory-alignment-shared">{{
         factoryAlignment.state === groupObservation.state
       }}</output>
@@ -791,7 +753,6 @@ export class UtilityObservation {
         </button>
       </div>
       <output data-testid="editor-orientation">{{ editor.state.orientation() }}</output>
-      <output data-testid="editor-items">{{ editor.itemCount() }}</output>
       <output data-testid="editor-spellcheck-value">{{ spellcheck() }}</output>
       <output data-testid="editor-spellcheck-outputs">{{ spellcheckOutputs() }}</output>
     </section>
@@ -837,7 +798,6 @@ export class UtilityObservation {
       <output data-testid="checkout-value">{{ checkoutStore.speed() }}</output>
       <output data-testid="checkout-state">{{ checkout.state.value() }}</output>
       <output data-testid="checkout-state-disabled">{{ checkout.state.disabled() }}</output>
-      <output data-testid="checkout-item-values">{{ checkout.itemValues() }}</output>
       <output data-testid="checkout-unused-outputs">{{ unusedSpeedOutputs() }}</output>
 
       <!-- A root inside a non-item descendant of another root is independent. -->

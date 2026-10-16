@@ -16,7 +16,7 @@ Decisions:
 - Chromium, Firefox and WebKit runtime qualification is mandatory. The formal Baseline audit was explicitly skipped on 2026-10-11 and is not a release gate; no Baseline widely-available certification claim is made.
 - `hiding="until-found"` is an explicitly approved progressive enhancement: native find-to-reveal where supported, ordinary hidden behavior elsewhere, without a polyfill.
 - Require real development and production serving, eager hydration and incremental/deferred hydration.
-- Preserve the `injectUniqueId(key)` signature, but generated identity is opaque. Exact spelling and construction-order counter sequencing are deliberately no longer public guarantees.
+- Generated element IDs (`injectUniqueId`) and generated value defaults (`injectUniqueValue`) are separate public utilities with the shapes and hydration semantics section 5 specifies.
 - Popover uses the proven Options/Context/State and consumer-composition architecture. The approved design is authored-in-place Content + native manual top-layer presentation + private Floating UI positioning, excluding CSS anchors and `{ source }`. There is no alternate presentation fallback. Section 11 records the skipped formal Baseline audit without claiming qualification.
 
 ## 2. Consumer and ownership model [P]
@@ -96,13 +96,16 @@ Locally provided injectable classes use Angular `@Service({ autoProvided: false 
 
 ### Events
 
-Context exposes each event as an `Observable`, emitting synchronously where the event happens, so subscribers run under the same guards. State re-exposes it as a readonly `Observable`. The directive re-exposes it as an output with `outputFromObservable`.
+Context exposes each event it exposes as an `Observable`, emitting synchronously where the event happens, so subscribers run under the same guards. State re-exposes it as a readonly `Observable`. The directive re-exposes it as an output with `outputFromObservable`.
+
+This applies to exposed events only. Internal coordination between package-private parts may use plain calls, or RxJS where it helps.
 
 Two-way state isn't an event. A directive `model()` maps to a `WritableSignal` on its Options, and the model's change output is exempt from this rule.
 
 ### Registration and teardown
 
-Element construction registers each mounted role with its nearest Context. Registration methods needing DI execute synchronously in the caller's injection context and own caller-scoped `DestroyRef` cleanup.
+1. **Render reads self, ancestors and published registrations only.** A part's host bindings and `computed`s read the part's own Options, its ancestors' Options and State, and registrations other parts have published. They never read a sibling's Options directly. A reader therefore sees a counterpart that isn't published yet as absent (no association attribute, not a tab stop), never as its default or unset inputs.
+2. **Parts are constructed unpublished, and their registrations publish in `ngOnInit`.** Construction captures what needs the part's injection context (`ElementRef`, `DestroyRef`, Options deferred with `injectDeferred`) into an unpublished handle. `ngOnInit` publishes it, after Angular has set the part's inputs; it is used only for this. Cleanup stays caller-scoped through the captured `DestroyRef`, attached at construction while the caller is alive; a part whose view is destroyed before its `ngOnInit`, such as by a consumer hook earlier in the same view, never publishes. A role limited to one mounted part fails when a second part publishes.
 
 Aliased Options resolve only after construction, when inputs/providers can be read safely. Registration must not eagerly resolve the directive under construction. `injectDeferred` preserves the originating injector for later reads.
 
@@ -114,19 +117,18 @@ Unregistering a part removes only its own registration. A stale animation, point
 Accordion root ──► Collection
 Accordion item ──► Collection Item + Collapsible
 Accordion trigger / panel ──► Collapsible trigger / panel
-Tabs root ──► Collection (+ package-private roving focus)
-Tabs trigger ──► Collection Item
-ToggleGroup root ──► Collection (+ package-private roving focus)
-ToggleGroup item ──► Collection Item + Toggle
-Toolbar root ──► Collection (+ package-private roving focus shared with nested groups)
-Toolbar item ──► Collection Item
-RadioGroup root ──► Collection (+ package-private roving focus)
-RadioGroup item ──► Collection Item
+Tabs root ──► package-private roving focus
+ToggleGroup Single / Multiple ──► ToggleGroup root (+ package-private roving focus)
+ToggleGroup item ──► Toggle
+Toolbar root ──► package-private roving focus
+Toolbar ToggleGroup Single / Multiple ──► ToggleGroup root
+Toolbar RadioGroup ──► RadioGroup root
+RadioGroup ──► RadioGroup root (+ package-private roving focus)
 Collapsible panel ──► Presence
 Popover content ──► Presence
 ```
 
-Single/multiple selection are concrete behavior variants, not an extensible public strategy framework. Accordion, ToggleGroup and RadioGroup share package-private single/multiple write rules; each widget states its own policy around them, such as Accordion's lock on a non-collapsible selection or RadioGroup's missing deselection. A ToggleGroup or RadioGroup item inside a Toolbar is also a member of the Toolbar's Collection, through the package-private roving focus (section 15). There is no public generic overlay stack, state engine or registration framework.
+Single/multiple selection are concrete behavior variants, not an extensible public strategy framework. Accordion, ToggleGroup and RadioGroup share package-private single/multiple write rules; each widget states its own policy around them, such as Accordion's lock on a non-collapsible selection or RadioGroup's missing deselection. The roving widgets don't compose Collection: the package-private roving focus keeps its own items. A Toolbar group (section 15) provides no roving focus of its own, so its items register with the Toolbar's. There is no public generic overlay stack, state engine or registration framework.
 
 ## 4. Public package and type surface [E]
 
@@ -134,7 +136,7 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 
 | Entrypoint     | Public symbols                                                                                                                                                                                                                                                                                                                 |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/utils`       | `injectDeferred`, `injectUniqueId`                                                                                                                                                                                                                                                                                             |
+| `/utils`       | `injectDeferred`, `injectUniqueId`, `injectUniqueValue`                                                                                                                                                                                                                                                                        |
 | `/collection`  | `OrigamiCollection`, `OrigamiCollectionState`, `OrigamiCollectionItem`, `OrigamiCollectionItemOptions`, type `OrigamiCollectionRecord`                                                                                                                                                                                         |
 | `/presence`    | `OrigamiPresence`, `OrigamiPresenceOptions`, `OrigamiPresenceState`, type `OrigamiPresencePhase`                                                                                                                                                                                                                               |
 | `/collapsible` | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
@@ -143,14 +145,14 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 | `/toggle`      | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
 | `/tabs`        | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                    |
 | `/toggle-group` | `OrigamiToggleGroupSingle`, `OrigamiToggleGroupSingleOptions`, `OrigamiToggleGroupMultiple`, `OrigamiToggleGroupMultipleOptions`, `OrigamiToggleGroupState`, `OrigamiToggleGroupItem`, `OrigamiToggleGroupItemOptions`, type `OrigamiToggleGroupOrientation` |
-| `/toolbar`     | `OrigamiToolbar`, `OrigamiToolbarOptions`, `OrigamiToolbarState`, `OrigamiToolbarItem`, `OrigamiToolbarItemOptions`, type `OrigamiToolbarOrientation` |
+| `/toolbar`     | `OrigamiToolbar`, `OrigamiToolbarOptions`, `OrigamiToolbarState`, `OrigamiToolbarItem`, `OrigamiToolbarItemOptions`, `OrigamiToolbarToggleGroupSingle`, `OrigamiToolbarToggleGroupMultiple`, `OrigamiToolbarRadioGroup`, type `OrigamiToolbarOrientation` |
 | `/radio-group` | `OrigamiRadioGroup`, `OrigamiRadioGroupOptions`, `OrigamiRadioGroupState`, `OrigamiRadioGroupItem`, `OrigamiRadioGroupItemOptions` |
 
 The inventories include the approved Popover placement exports and four-property Content Options. ID-only Content factories must migrate; Trigger/Anchor Options remain ID-only.
 
 The Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled composition. Preserve whatever export visibility Angular packaging requires; it is not a supported application authoring API. Removing its importability is a deliberate API change made through this contract, not a side effect of a refactor.
 
-The Collection entrypoint also exposes `ɵOrigamiRovingFocus`, package-private ordered-focus infrastructure for Origami's composite widgets; `ɵOrigamiRovingFocusScope`, through which a Toolbar shares that focus with nested selection groups and Popover Content cuts it; and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private single/multiple selection write rules Accordion, ToggleGroup and RadioGroup share (section 19). None of them is an application API.
+The Collection entrypoint also exposes `ɵOrigamiRovingFocusContext` and `ɵOrigamiRovingFocusOptions`, package-private ordered-focus infrastructure for Origami's composite widgets, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private single/multiple selection write rules Accordion, ToggleGroup and RadioGroup share (section 19). The ToggleGroup and RadioGroup entrypoints expose `ɵOrigamiToggleGroupRoot` and `ɵOrigamiRadioGroupRoot`, the internal roots their standalone and Toolbar groups compose. None of them is an application API.
 
 Built packaging must support genuine Angular AOT consumers, strict templates and TypeScript package resolution, with shared token identities across entrypoints. No fake Angular decorators or shimmed framework runtime.
 
@@ -183,12 +185,12 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Tabs root                                                                   | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiTabsOrientation>`, `activation: Signal<OrigamiTabsActivation>` |
 | Tabs Trigger                                                                | `value: Signal<string>`, `id: Signal<string>`, `disabled: Signal<boolean>`                                            |
 | Tabs Panel                                                                  | `value: Signal<string>`, `id: Signal<string>`                                                                         |
-| ToggleGroup Single                                                          | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiToggleGroupOrientation>`, `deselectable: Signal<boolean>` |
-| ToggleGroup Multiple                                                        | `value: WritableSignal<readonly string[]>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiToggleGroupOrientation>` |
+| ToggleGroup Single, also for `OrigamiToolbarToggleGroupSingle`             | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiToggleGroupOrientation>`, `deselectable: Signal<boolean>` |
+| ToggleGroup Multiple, also for `OrigamiToolbarToggleGroupMultiple`         | `value: WritableSignal<readonly string[]>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiToggleGroupOrientation>` |
 | ToggleGroup Item                                                            | `value: Signal<string>`, `disabled: Signal<boolean>`                                                                  |
 | Toolbar root                                                                | `orientation: Signal<OrigamiToolbarOrientation>`                                                                      |
 | Toolbar Item                                                                | `disabled: Signal<boolean>`                                                                                           |
-| RadioGroup root                                                             | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`                                                  |
+| RadioGroup root, also for `OrigamiToolbarRadioGroup`                        | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`                                                  |
 | RadioGroup Item                                                             | `value: Signal<string>`, `disabled: Signal<boolean>`                                                                  |
 
 | State           | Readonly signals                                                                       |
@@ -214,19 +216,18 @@ State signals reject `.set` and `.update` at compile time. Shared Accordion Opti
 ```ts
 injectDeferred<T>(token: ProviderToken<T>): () => T;
 injectUniqueId(key: string): string;
+injectUniqueValue(key: string): string;
 ```
 
-Both functions require Angular injection context when called. Deferred resolution is callable outside injection context afterward, uses the captured nearest injector and does not resolve the token at capture time.
+All three require Angular injection context when called. Deferred resolution is callable outside injection context afterward, uses the captured nearest injector and does not resolve the token at capture time.
 
-Generated identities are stable for a mounted instance, unique within an application's relevant identity namespace, and independent of consumer-bound DOM IDs. Their spelling and allocation sequence are opaque. Consumers requiring persistent domain identity supply explicit item values and IDs.
+Keys match `/^[a-z][a-z0-9-]*$/`; any other key, including a non-string, throws a `TypeError`. Each application has one counter per key, shared by both functions; independent application injectors share no allocation state, and uniqueness across several Angular applications in one document is not promised.
 
-**Implementation-time amendment, explicitly approved by loozo:** SSR identity matching is guaranteed for element-host calls only. Calls without an element host remain valid in any Angular injection context and produce application-local unique, mounted-stable identities, but consumers must not rely on them matching IDs bound into SSR DOM. No scope-provider API is added; `injectUniqueId(key)` is unchanged.
+`injectUniqueId(key)` allocates an element ID, the default of an `id` input. In the browser it first returns the host element's rendered `id` attribute, so a hydrating host keeps the ID the server rendered. Otherwise it allocates `og-<key>-s<n>` on the server or `og-<key>-<n>` in the browser. The separate namespaces keep IDs the browser allocates, for parts it creates after a block hydrates, from colliding with the IDs of still-dehydrated server DOM, whatever order blocks hydrate in. Call it once per element and render the result as that element's `id`: only a rendered `id` is matched across hydration. Static and bound DOM IDs remain authoritative and reactive.
 
-For element-host calls, server and client must agree on generated identities for SSR nodes reused during hydration. Hydrating sibling blocks in a different order must not change their IDs, generated item values or private positioning associations, or introduce duplicates alongside still-dehydrated siblings. Explicitly bound and static DOM IDs must remain authoritative and reactive.
+`injectUniqueValue(key)` allocates a value default: `og-<key>-<n>`. It is never rendered and is not matched between server and client. Consumers requiring persistent domain identity, or values that survive hydration, supply explicit values.
 
-Independent application injectors must not share mutable allocation state accidentally. Uniqueness across multiple independent Angular applications in the same document is not promised by this contract; consumers must coordinate explicit identity across such applications.
-
-The identity implementation is not specified here. A plain per-key construction counter is insufficient evidence for the deferred-order contract. No requirement to use transfer state, an ID service protocol or Angular private hydration metadata is implied.
+Every Origami `id` input default uses `injectUniqueId`, and every `value` input default uses `injectUniqueValue`.
 
 ## 6. Collection [C]
 
@@ -235,13 +236,13 @@ Selectors and template export names:
 - `[ogCollection]`, `exportAs: 'ogCollection'`.
 - `[ogCollectionItem]`, `exportAs: 'ogCollectionItem'`.
 
-An item has a readonly `value` input defaulting to a generated stable string. Its public record contains `value: Signal<string>`; consumers do not receive writable registration collections.
+An item has a readonly `value` input defaulting to a generated string (`injectUniqueValue`). Its public record contains `value: Signal<string>`; consumers do not receive writable registration collections.
 
-Collection State reports mounted items in rendered DOM order, not registration/construction order. Keyed moves, insertion and removal update order after the corresponding render. Value changes remain observable without destroying an item. SSR must produce valid collection observation without requiring browser globals or browser-only render callbacks.
+An item is published in its `ngOnInit`, once Angular has set its inputs (section 3), so readers never see its default value in place of a bound one. Collection State reports published items in DOM order, not registration/construction order. Order is read when membership changes: an insertion or removal sorts the published items by their current DOM position and notifies readers. A keyed move that keeps membership notifies no reader of `items` (or Accordion `itemValues`); they keep the order of the latest membership change until the next insertion or removal. Value changes remain observable without destroying an item. SSR produces valid collection observation without browser globals or browser-only render callbacks.
 
-Each item belongs to the nearest Collection DI context, including composition through host directives. Mounting an item without a Collection owner fails clearly. Nested collections do not contribute their items to their ancestor collection, except that items of a selection group inside a Toolbar are also members of the Toolbar's Collection (section 15).
+Each item belongs to the nearest Collection DI context, including composition through host directives. Mounting an item without a Collection owner fails clearly. Nested collections do not contribute their items to their ancestor collection.
 
-Collection does not supply keyboard navigation, roving tabindex, selection, a role or item semantics. Item values are opaque; Collection does not normalize them against another registry. The entrypoint's package-private roving focus (section 4) builds on Collection order for Origami's composite widgets; it is not part of Collection's contract.
+Collection does not supply keyboard navigation, roving tabindex, selection, a role or item semantics. Item values are opaque; Collection does not normalize them against another registry. Accordion is the only primitive that composes it.
 
 ## 7. Presence [R]
 
@@ -290,7 +291,7 @@ Selectors/export names:
 
 Root configuration: `expanded` boolean model false, `disabled` boolean input false, `hiding: 'hidden' | 'until-found'` input default `'hidden'`. Root exposes readonly State. Root `data-expanded` and `data-disabled` reflect effective Options.
 
-One mounted trigger and one mounted panel are supported per Collapsible. Missing counterparts are allowed and remove their association attributes. A second mounted role fails clearly. Unmount/remount cleanup preserves the surviving and replacement registrations.
+One mounted trigger and one mounted panel are supported per Collapsible. Each publishes its registration in `ngOnInit` (section 3), so its counterpart's association names it only once its inputs are set, also when the parts are rendered by separate components. Missing counterparts are allowed and remove their association attributes. A second mounted role fails clearly when it publishes. Unmount/remount cleanup preserves the surviving and replacement registrations.
 
 Trigger:
 
@@ -353,7 +354,7 @@ The consumer supplies headings and optional panel roles. No roving tabindex, arr
 
 Root `[ogPopover]`, `exportAs: 'ogPopover'`: `open` boolean model false, `disabled` false, `dismissible` true. Root State `open()` observes requested state, not exit retention or actual presentation.
 
-Trigger remains a native `button[ogPopoverTrigger]`. Explicit Anchor, Trigger and Content roles are required for presentation. Support one mounted instance of each role; Trigger and Anchor may share one element. Duplicate role registration fails clearly, while co-location is not a duplicate role.
+Trigger remains a native `button[ogPopoverTrigger]`. Explicit Anchor, Trigger and Content roles are required for presentation. Support one mounted instance of each role; Trigger and Anchor may share one element. Each role publishes its registration in `ngOnInit` (section 3), so the Trigger's `aria-controls` names Content only once Content's inputs are set, also when Content is rendered by a child component. Duplicate role registration fails clearly when the second role publishes, while co-location is not a duplicate role.
 
 Missing required parts suppress presentation without clearing desired open. Remounting parts can restore presentation from retained intent. Parent suppression also retains child intent. Parts and nested popovers belong to nearest logical DI owners. Native manual presentation changes their paint layer, not their authored DOM location.
 
@@ -441,21 +442,21 @@ Exclusions: Toggle is a button, not a form control. It has no Signal Forms integ
 
 Selectors/export names:
 
-- `[ogTabs]`, `exportAs: 'ogTabs'`; composes Collection.
+- `[ogTabs]`, `exportAs: 'ogTabs'`.
 - `[ogTabsList]`.
-- `button[ogTabsTrigger]`; composes Collection Item.
+- `button[ogTabsTrigger]`.
 - `[ogTabsPanel]`.
 
 Root configuration: `value: string | null` model null, `disabled` boolean input false, `orientation: 'horizontal' | 'vertical'` input default `'horizontal'`, `activation: 'automatic' | 'manual'` input default `'automatic'`. The root exposes readonly State; descendants inject it. The List has no configuration. Trigger: `value` input defaulting to a generated string, `id` input defaulting to a generated ID, `disabled` boolean input false. Panel: `value` input defaulting to a generated string, `id` input defaulting to a generated ID. A Trigger and a Panel pair by equal value, so consumers give each pair the same explicit value; a generated value pairs with nothing. Values within one Tabs are expected to be distinct and are not validated; associations use the first mounted match.
 
-Trigger Options feed the composed Collection Item, so replacing only the upper Trigger Options drives Collection value and order. The root reads every Trigger's Options while rendering, so replacement Trigger Options must be readable as soon as the Trigger is constructed; a required input in a repeated Trigger can be read before Angular sets it (NG0950). Lists, Triggers and Panels belong to the nearest Tabs root and fail through Angular DI without one. A Tabs root inside a Panel is fully independent.
+Triggers and Panels publish their registrations in `ngOnInit` (section 3); other parts read a Trigger's or Panel's Options only once it has published, so replacement Options may use required inputs, and repeated Triggers and Panels in `@for` blocks are read only after Angular sets their inputs. Lists, Triggers and Panels belong to the nearest Tabs root and fail through Angular DI without one. A Tabs root inside a Panel is fully independent.
 
 Host semantics:
 
 - Root: `data-orientation` reflects effective orientation; `data-disabled` is empty while root-disabled and absent otherwise.
 - List: static `role="tablist"`; `aria-orientation` always present, reflecting effective orientation. The consumer supplies its accessible name.
-- Trigger: native button semantics, `type="button"`, static `role="tab"`, effective ID, `aria-selected` always `"true"` or `"false"`, `aria-controls` naming only a mounted Panel of the same value, `tabindex` `"0"` on the single tab stop and `"-1"` on every other Trigger, and empty `data-selected` while selected. Root or own disabled state sets native `disabled`, `aria-disabled="true"` and empty `data-disabled`; they are absent while enabled.
-- Panel: static `role="tabpanel"`, static `tabindex="0"`, effective ID, `aria-labelledby` naming only a mounted Trigger of the same value, `hidden` unless its value is selected, and empty `data-selected` while selected. A consumer's static `tabindex` overrides the Panel default.
+- Trigger: native button semantics, `type="button"`, static `role="tab"`, effective ID, `aria-selected` always `"true"` or `"false"`, `aria-controls` naming only a published Panel of the same value, `tabindex` `"0"` on the single tab stop and `"-1"` on every other Trigger, and empty `data-selected` while selected. Root or own disabled state sets native `disabled`, `aria-disabled="true"` and empty `data-disabled`; they are absent while enabled.
+- Panel: static `role="tabpanel"`, static `tabindex="0"`, effective ID, `aria-labelledby` naming only a published Trigger of the same value, `hidden` unless its value is selected, and empty `data-selected` while selected. A consumer's static `tabindex` overrides the Panel default.
 
 Selection:
 
@@ -470,11 +471,11 @@ Keyboard and focus:
 - Horizontal: ArrowRight moves to the next and ArrowLeft to the previous Trigger in DOM order; in right-to-left text, read from the Trigger's computed `direction` at key time, they are swapped. Vertical: ArrowDown moves next and ArrowUp previous, independent of direction; the other axis is not handled. Home and End move to the first and last enabled Trigger.
 - Moves skip disabled Triggers and wrap at both ends. Handled keys prevent their default action. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
 - Automatic activation selects the Trigger a keyboard move lands on, also when that is the Trigger already focused (Home on the first enabled Trigger, End on the last, a wrap with one enabled Trigger), provided it is still mounted, enabled and focused after any focus handlers ran; manual activation moves focus only. Focus arriving by Tab, pointer, activation, script or focus repair never selects by itself.
-- Exactly one enabled Trigger is the tab stop: the focused Trigger while focus is on one, otherwise the first enabled Trigger in DOM order whose value is selected, otherwise the first enabled Trigger in DOM order. With no enabled Trigger there is no tab stop.
+- Exactly one enabled Trigger is the tab stop: the focused Trigger while focus is on one, otherwise the first enabled Trigger in DOM order whose value is selected, otherwise the first enabled Trigger in DOM order. With no enabled Trigger there is no tab stop. The tab stop reads DOM order when Trigger membership, focus, disabled state, values or selection change; a keyed move alone doesn't move it. Arrow keys always read current DOM order.
 - Focus repair: when the focused Trigger is removed or becomes disabled while focus has not moved elsewhere (it remains on that Trigger, the body or nowhere), focus moves to the new tab stop without selecting. Focus the application moved elsewhere is never taken.
 - External selection never moves focus.
 
-Server HTML carries roles, IDs, the mounted associations, `aria-selected`, the single `tabindex="0"`, `hidden` on unselected Panels and the disabled attributes. The tab stop follows DOM order on the server even when Triggers register in a different order. Eager and incremental hydration reuse the server Triggers and Panels without transient removal, and hydration does not change those attributes. An initiating click on a Trigger replayed after hydration selects exactly once. Keyboard interaction before hydration is not promised.
+Server HTML carries roles, IDs, the mounted associations, `aria-selected`, the single `tabindex="0"`, `hidden` on unselected Panels and the disabled attributes. The tab stop follows DOM order on the server even when Triggers register in a different order, and is the selected Trigger even when repeated Triggers render in `@for`. Associations with Panels rendered later, such as by a later `@for`, are complete in server HTML. Eager and incremental hydration reuse the server Triggers and Panels without transient removal, and hydration does not change those attributes. An initiating click on a Trigger replayed after hydration selects exactly once. Keyboard interaction before hydration is not promised.
 
 The consumer supplies the List's accessible name, Trigger labels, Panel content and styling.
 
@@ -484,13 +485,15 @@ Exclusions: no typeahead, `aria-activedescendant`, Page Up/Down or two-dimension
 
 Selectors/export names:
 
-- `[ogToggleGroupSingle]`, `exportAs: 'ogToggleGroupSingle'`; composes Collection.
-- `[ogToggleGroupMultiple]`, `exportAs: 'ogToggleGroupMultiple'`; composes Collection.
-- `button[ogToggleGroupItem]`; composes Collection Item and Toggle.
+- `[ogToggleGroupSingle]`, `exportAs: 'ogToggleGroupSingle'`.
+- `[ogToggleGroupMultiple]`, `exportAs: 'ogToggleGroupMultiple'`.
+- `button[ogToggleGroupItem]`; composes Toggle.
+
+Both roots compose the package-private ToggleGroup root, which the Toolbar's Toggle Groups (section 15) also compose.
 
 Configuration: Single has a `value: string | null` model null, `disabled` boolean input false, `orientation: 'horizontal' | 'vertical'` input default `'horizontal'` and `deselectable` boolean input false. Multiple has a `value: readonly string[]` model defaulting to empty, `disabled` and `orientation`; it has no `deselectable`. Both roots expose the same readonly State; descendants inject it. Item: `value` input defaulting to a generated string, `disabled` boolean input false. Values within one group are expected to be distinct and are not validated.
 
-Item Options feed the composed Collection Item and the composed Toggle's Options, so replacing only the upper item Options drives the Collection value, roving order and the Toggle's pressed and disabled state; consumers never provide Collection Item or Toggle Options. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed; a required input in a repeated item can be read before Angular sets it (NG0950). Descendants of an item observe the composed Toggle's State; ToggleGroup adds no item State. Items belong to the nearest root and fail through Angular DI without one. An item is not also matched by `ogToggle`. A root inside a non-item descendant of another root is fully independent.
+Item Options feed the composed Toggle's Options, so replacing only the upper item Options drives the item's value and the Toggle's pressed and disabled state; consumers never provide Toggle Options. An item publishes its roving registration in `ngOnInit` (section 3); other items read its Options only once it has published, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. Descendants of an item observe the composed Toggle's State; ToggleGroup adds no item State. Items belong to the nearest root and fail through Angular DI without one. An item is not also matched by `ogToggle`. A root inside a non-item descendant of another root is fully independent.
 
 Host semantics:
 
@@ -507,13 +510,13 @@ Selection, ToggleGroup's own policy:
 - Root and item disabled state combine and block only user activation. External Options/model writes remain authoritative while disabled and emit no output from an unused model. A write to the composed Toggle's effective `pressed` Options under an item is a group request under the same policy; it never moves focus.
 - A rejected request writes nothing; pressed state never runs ahead of the group value.
 
-Keyboard and focus follow section 13's rules, reading "pressed" for "selected": arrows along the effective orientation (horizontal arrows read the item's computed `direction` at key time), Home and End, wrapping, disabled skipping and the ignored keys; exactly one enabled item is the tab stop (the focused item, otherwise the first enabled pressed item in DOM order, otherwise the first enabled item; none when no item is enabled); focus repair never takes focus the application moved elsewhere. Differences:
+Keyboard and focus follow section 13's rules, reading "pressed" for "selected": arrows along the effective orientation (horizontal arrows read the item's computed `direction` at key time), Home and End, wrapping, disabled skipping and the ignored keys; exactly one enabled item is the tab stop (the focused item, otherwise the first enabled pressed item in DOM order, otherwise the first enabled item; none when no item is enabled), with section 13's DOM order reading; focus repair never takes focus the application moved elsewhere. Differences:
 
 - Moves never press. Focus arriving by a move, Tab, pointer, activation, script or focus repair never presses.
 - A click runs the composed Toggle's click listener first, which requests the press, and then the item's, which focuses the item if it is still mounted and enabled. A click therefore makes the item the tab stop and the origin of the next keyboard move even in engines whose click doesn't focus a button. This "toggle, then focus" order was observed in Chromium, Firefox and WebKit; as a result, a focus handler that disables or removes the item during a click doesn't undo the request already made, and focus repair then moves focus to the tab stop.
 - External value writes never move focus.
 
-Inside a Toolbar: a root with an enclosing Toolbar in nearest logical Angular DI joins it (section 15). Its items share the Toolbar's single tab stop and arrow sequence, in DOM order among the Toolbar's own items; the group has no tab stop of its own, and a pressed item is not preferred. The group's effective orientation is the Toolbar's: `data-orientation` and State report it, and the group's own `orientation` Option has no effect while joined. Everything else (role, name, selection, `aria-pressed`, disabled and State) is unchanged. A group inside Popover Content does not join a Toolbar enclosing the Popover; it keeps its own tab stop.
+Inside a Toolbar: `ogToggleGroupSingle` and `ogToggleGroupMultiple` provide their own roving focus wherever they are, so inside a Toolbar they keep their own tab stop. To share the Toolbar's tab stop, use the Toolbar's Toggle Groups (section 15).
 
 Server HTML carries `role="group"`, `data-orientation`, `aria-pressed`, `data-pressed`, the disabled attributes and the single `tabindex="0"`, chosen in DOM order. Eager and incremental hydration reuse the server root and items without transient removal, and hydration does not change those attributes. An initiating click on an item replayed after hydration presses exactly once. Keyboard interaction before hydration is not promised.
 
@@ -525,12 +528,15 @@ Exclusions: no typeahead, `aria-activedescendant`, Page Up/Down or two-dimension
 
 Selectors/export names:
 
-- `[ogToolbar]`, `exportAs: 'ogToolbar'`; composes Collection.
-- `button[ogToolbarItem]`; composes Collection Item.
+- `[ogToolbar]`, `exportAs: 'ogToolbar'`.
+- `button[ogToolbarItem]`.
+- `[ogToolbarToggleGroupSingle]`, `exportAs: 'ogToolbarToggleGroupSingle'`; composes the package-private ToggleGroup root.
+- `[ogToolbarToggleGroupMultiple]`, `exportAs: 'ogToolbarToggleGroupMultiple'`; composes the package-private ToggleGroup root.
+- `[ogToolbarRadioGroup]`, `exportAs: 'ogToolbarRadioGroup'`; composes the package-private RadioGroup root.
 
-Configuration: the root has an `orientation: 'horizontal' | 'vertical'` input default `'horizontal'` and exposes readonly State; descendants inject it. There is no root `disabled`. Item: `disabled` boolean input false; there is no item value, and the composed Collection Item keeps its generated value. Items belong to the nearest Toolbar and fail through Angular DI without one. A Toolbar inside another Toolbar is fully independent.
+Configuration: the root has an `orientation: 'horizontal' | 'vertical'` input default `'horizontal'` and exposes readonly State; descendants inject it. There is no root `disabled`. Item: `disabled` boolean input false; there is no item value. Items and Toolbar groups belong to the nearest Toolbar and fail through Angular DI without one. A Toolbar inside another Toolbar is fully independent.
 
-The Toolbar reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed; a required input in a repeated item can be read before Angular sets it (NG0950).
+An item publishes its roving registration in `ngOnInit` (section 3); other controls read its Options only once it has published, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs.
 
 Host semantics:
 
@@ -541,18 +547,18 @@ Items are buttons only. Native `disabled`, `type="button"` and Enter/Space activ
 
 Disabled items are skipped by arrows, are never the tab stop and carry native `disabled`; there are no focusable disabled items. The Toolbar never activates an item: a click, Enter or Space runs only the button's own listeners.
 
-Nested selection groups: a ToggleGroup or RadioGroup root with an enclosing Toolbar in nearest logical Angular DI joins it. Its items register with the Toolbar's roving focus instead of the group's own, and also become members of the Toolbar's Collection, so the Toolbar has one tab stop and one arrow sequence across its own items and joined items in rendered DOM order, including after keyed moves. The Toolbar's `OrigamiCollectionState.items` lists every control in that order. Joining is automatic and adds no public API. A joined group keeps its role, name, selection, `aria-pressed` or `aria-checked`, disabled state and State; it navigates along the Toolbar's orientation (sections 14 and 16). Joining follows logical DI: a group projected through `<ng-content>` into a component whose template holds the `ogToolbar` does not join and keeps its own tab stop; put the Toolbar on the projecting host with `hostDirectives` instead. A group inside Popover Content does not join a Toolbar enclosing the Popover. A group joins its nearest Toolbar. A ToggleGroup or RadioGroup item is not also matched by `ogToolbarItem`; it joins on its own.
+Toolbar groups: `OrigamiToolbarToggleGroupSingle`, `OrigamiToolbarToggleGroupMultiple` and `OrigamiToolbarRadioGroup` are selection groups whose items share the nearest Toolbar's tab stop. Each has the same inputs, Options, State, host semantics and selection policy as `OrigamiToggleGroupSingle`, `OrigamiToggleGroupMultiple` or `OrigamiRadioGroup` (sections 14 and 16), takes `ogToggleGroupItem` or `ogRadioGroupItem` items, and provides no roving focus of its own: its items register with the Toolbar's, so the Toolbar has one tab stop and one arrow sequence across its own items and the groups' items in DOM order. A Toolbar group's items navigate along the Toolbar's orientation; a Toolbar Toggle Group's own `orientation` Option has no effect, and its `data-orientation` and State report the Toolbar's. A pressed or checked item is not preferred, and moves never press or check; Click, Enter and Space still do. A Toolbar group finds its Toolbar through logical DI, so outside a Toolbar it fails through Angular DI, and inside Popover Content within a Toolbar it still joins that Toolbar. A standalone `ogToggleGroupSingle`, `ogToggleGroupMultiple` or `ogRadioGroup` inside a Toolbar, including inside Popover Content, keeps its own tab stop. A ToggleGroup or RadioGroup item is not also matched by `ogToolbarItem`; it registers on its own.
 
 Keyboard and focus follow section 13's rules: arrows along the effective orientation (horizontal arrows read the focused control's computed `direction` at key time), Home and End, wrapping, disabled skipping and the ignored keys; focus repair never takes focus the application moved elsewhere. Differences:
 
-- No control is preferred: exactly one enabled control is the tab stop, the focused one while focus is on one, otherwise the first enabled control in DOM order, including joined items. A pressed or checked joined item is not preferred. Tab back into a Toolbar lands on its first enabled control, not the last focused one.
+- No control is preferred: exactly one enabled control is the tab stop, the focused one while focus is on one, otherwise the first enabled control in DOM order, including Toolbar group items, with section 13's DOM order reading. A pressed or checked Toolbar group item is not preferred. Tab back into a Toolbar lands on its first enabled control, not the last focused one.
 - Moves never activate, press or check.
-- A click focuses the item if it is still mounted and enabled after its listeners ran, so it becomes the tab stop and the origin of the next keyboard move even in engines whose click doesn't focus a button. A joined ToggleGroup item keeps ToggleGroup's "toggle, then focus" order; a joined RadioGroup item keeps RadioGroup's "focus, then check" order.
+- A click focuses the item if it is still mounted and enabled after its listeners ran, so it becomes the tab stop and the origin of the next keyboard move even in engines whose click doesn't focus a button. A Toolbar Toggle Group item keeps ToggleGroup's "toggle, then focus" order; a Toolbar Radio Group item keeps RadioGroup's "focus, then check" order.
 - External orientation writes never move focus.
 
 Co-application: `ogToggle` and `ogToolbarItem` may be applied to the same button; it is one Toolbar control and one Toggle. Both have a `disabled` input, so one binding sets both. Another co-applied primitive whose disabled state comes from elsewhere must be kept equal by the consumer.
 
-Server HTML carries `role="toolbar"`, `aria-orientation`, `data-orientation`, the disabled attributes, joined groups' `aria-pressed` and `aria-checked` and the single `tabindex="0"`, chosen in DOM order across joined items. Eager and incremental hydration reuse the server root and controls without transient removal, and hydration does not change those attributes. An initiating click replayed after hydration runs the consumer's handler, or presses or checks a joined item, exactly once. Keyboard interaction before hydration is not promised.
+Server HTML carries `role="toolbar"`, `aria-orientation`, `data-orientation`, the disabled attributes, Toolbar groups' `aria-pressed` and `aria-checked` and the single `tabindex="0"`, chosen in DOM order across Toolbar group items. Eager and incremental hydration reuse the server root and controls without transient removal, and hydration does not change those attributes. An initiating click replayed after hydration runs the consumer's handler, or presses or checks a Toolbar group item, exactly once. Keyboard interaction before hydration is not promised.
 
 The consumer supplies the accessible name, item labels, separators (`role="separator"` with an `aria-orientation` perpendicular to the Toolbar's) and styling. APG recommends `role="toolbar"` only for three or more controls.
 
@@ -562,18 +568,18 @@ Exclusions: no typeahead, `aria-activedescendant`, multi-row or two-dimensional 
 
 Selectors/export names:
 
-- `[ogRadioGroup]`, `exportAs: 'ogRadioGroup'`; composes Collection.
-- `button[ogRadioGroupItem]`; composes Collection Item.
+- `[ogRadioGroup]`, `exportAs: 'ogRadioGroup'`; composes the package-private RadioGroup root, which `OrigamiToolbarRadioGroup` (section 15) also composes.
+- `button[ogRadioGroupItem]`.
 
 Configuration: the root has a `value: string | null` model null and a `disabled` boolean input false, and exposes readonly State; descendants inject it. There is one mode and no orientation. Item: `value` input defaulting to a generated string, `disabled` boolean input false. Values within one group are expected to be distinct and are not validated; every item whose value is the root value is checked.
 
-Item Options feed the composed Collection Item, so replacing only the upper item Options drives the Collection value and roving order; consumers never provide Collection Item Options. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed; a required input in a repeated item can be read before Angular sets it (NG0950). RadioGroup has no item State; descendants of an item read the root's State or style from `data-checked`. Items belong to the nearest root and fail through Angular DI without one. A root inside a non-item descendant of another root is fully independent.
+An item publishes its roving registration in `ngOnInit` (section 3); other items read its Options only once it has published, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. RadioGroup has no item State; descendants of an item read the root's State or style from `data-checked`. Items belong to the nearest root and fail through Angular DI without one. A root inside a non-item descendant of another root is fully independent.
 
 Host semantics:
 
 - Root: static `role="radiogroup"`, which a consumer's static `role` overrides; `data-disabled` is empty while root-disabled and absent otherwise. The root binds no `aria-orientation`, `aria-required` or `aria-disabled`; a consumer may write any of them statically. The consumer supplies the accessible name with `aria-label` or `aria-labelledby`.
 - Item: static `type="button"` and `role="radio"`; `aria-checked` always `"true"` or `"false"`; empty `data-checked` while checked; `tabindex` `"0"` on the single tab stop and `"-1"` on every other item; while root- or own-disabled native `disabled`, `aria-disabled="true"` and empty `data-disabled`, absent while enabled.
-- Items are `<button>` elements with `role="radio"`, not native `<input type="radio">`: Origami owns the tab stop, the keys and the write, so selection never runs ahead of the value and a radio can join a Toolbar (section 15). Native button activation turns Enter and Space into one click.
+- Items are `<button>` elements with `role="radio"`, not native `<input type="radio">`: Origami owns the tab stop, the keys and the write, so selection never runs ahead of the value and a radio can share a Toolbar's tab stop (section 15). Native button activation turns Enter and Space into one click.
 
 Selection, RadioGroup's own policy on the shared single write rule:
 
@@ -582,20 +588,20 @@ Selection, RadioGroup's own policy on the shared single write rule:
 - A disabled checked item stays `aria-checked="true"`.
 - Root and item disabled state combine and block only user selection. External Options/model writes remain authoritative while disabled and emit no output from an unused model.
 
-Keyboard and focus follow section 13's rules, reading "checked" for "selected": Home and End, wrapping, disabled skipping and the ignored keys; exactly one enabled item is the tab stop (the focused item, otherwise the first enabled checked item in DOM order, otherwise the first enabled item; none when no item is enabled); focus repair never takes focus the application moved elsewhere and never checks. Differences:
+Keyboard and focus follow section 13's rules, reading "checked" for "selected": Home and End, wrapping, disabled skipping and the ignored keys; exactly one enabled item is the tab stop (the focused item, otherwise the first enabled checked item in DOM order, otherwise the first enabled item; none when no item is enabled), with section 13's DOM order reading; focus repair never takes focus the application moved elsewhere and never checks. Differences:
 
 - All four arrows move, whatever the layout: ArrowDown and ArrowRight to the next enabled item, ArrowUp and ArrowLeft to the previous one. ArrowLeft and ArrowRight read the focused item's computed `direction` at key time and swap in right-to-left text; ArrowUp and ArrowDown ignore it.
 - Every move checks the item it lands on, as Tabs' automatic activation does, also when that is the item already focused (Home on the first enabled item, End on the last, a wrap with one enabled item): only if the item is still mounted, enabled and focused after any focus handlers ran. Home and End are moves too. Focus arriving by Tab, pointer, activation, script or focus repair never checks by itself.
 - Activation focuses the item and then checks it, only if the item is still mounted and enabled after its focus handlers ran. A click therefore makes the item the tab stop and the origin of the next keyboard move even in engines whose click doesn't focus a button.
 - External value writes never move focus.
 
-Inside a Toolbar: a root with an enclosing Toolbar in nearest logical Angular DI joins it (section 15). Its items share the Toolbar's single tab stop and arrow sequence, in DOM order among the Toolbar's other controls; the group has no tab stop of its own, and a checked item is not preferred. Arrows follow the Toolbar's orientation, so the other pair does nothing, and they only move focus: inside a Toolbar a move never checks. Click, Enter and Space still check the item once. Everything else (role, name, selection, `aria-checked`, disabled and State) is unchanged. A group inside Popover Content does not join a Toolbar enclosing the Popover; it keeps its own tab stop and its moves check.
+Inside a Toolbar: `ogRadioGroup` provides its own roving focus wherever it is, so inside a Toolbar it keeps its own tab stop and its moves check. `OrigamiToolbarRadioGroup` shares the Toolbar's tab stop instead (section 15): its arrows follow the Toolbar's orientation, so the other pair does nothing, and they only move focus; Click, Enter and Space still check the item once.
 
-Server HTML carries `role="radiogroup"`, `role="radio"`, `aria-checked`, `data-checked`, the disabled attributes and the single `tabindex="0"`, chosen in DOM order: the first enabled checked item, otherwise the first enabled item, and inside a Toolbar the Toolbar's first enabled control. Eager and incremental hydration reuse the server root and items without transient removal, and hydration does not change those attributes. An initiating click on an item replayed after hydration checks exactly once. Keyboard interaction before hydration is not promised.
+Server HTML carries `role="radiogroup"`, `role="radio"`, `aria-checked`, `data-checked`, the disabled attributes and the single `tabindex="0"`, chosen in DOM order: the first enabled checked item, otherwise the first enabled item, and in a Toolbar Radio Group the Toolbar's first enabled control. Eager and incremental hydration reuse the server root and items without transient removal, and hydration does not change those attributes. An initiating click on an item replayed after hydration checks exactly once. Keyboard interaction before hydration is not promised.
 
 The consumer supplies the group's accessible name, item labels, layout and styling, and may write `aria-orientation` or `aria-required` statically on the root.
 
-Exclusions: no typeahead, `aria-activedescendant`, Page Up/Down or two-dimensional navigation, and inside a Toolbar no arrows across the Toolbar's axis; no user unchecking, no orientation Option and no item State; no form value, `name`, `required`, validity or Signal Forms integration (a later slice: the root's `value` model and `disabled` input are named and typed so that slice can adopt them); not native `<input type="radio">`; no public roving-focus or selection API.
+Exclusions: no typeahead, `aria-activedescendant`, Page Up/Down or two-dimensional navigation, and in a Toolbar Radio Group no arrows across the Toolbar's axis; no user unchecking, no orientation Option and no item State; no form value, `name`, `required`, validity or Signal Forms integration (a later slice: the root's `value` model and `disabled` input are named and typed so that slice can adopt them); not native `<input type="radio">`; no public roving-focus or selection API.
 
 ## 17. Browser, SSR and hydration qualification [H]
 
@@ -645,17 +651,17 @@ This is the public-contract coverage map. Case definitions and handwritten consu
 | T-Package     | Built entrypoints; no accidental root exports; strict TS/AOT/template consumers; token identity; readonly State and mode/provider negative types                            |
 | T-Docs        | Complete public declaration/member TSDoc; accurate defaults, ownership and constraints; applicable examples; documentation retained in built declarations                   |
 | T-Composition | Direct and host-composed consumers; upper existing/factory Options substitutions; nearest/nested State sharing; no premature injection                                      |
-| T-Identity    | Native static/bound IDs; reactive association updates; mounted-only links; application isolation; reordered deferred hydration identities                                   |
-| T-Collection  | Addition/removal/keyed movement; reactive values; nearest-owner isolation; valid SSR ordering                                                                               |
+| T-Identity    | Native static/bound IDs; reactive association updates; mounted-only links; application isolation; rendered IDs kept through hydration; key validation; browser allocations never collide with dehydrated server IDs |
+| T-Collection  | Addition/removal in DOM order; keyed moves notify no reader; reactive values; nearest-owner isolation; valid SSR ordering                                                   |
 | T-Presence    | Finite completion/cancellation; no/zero/infinite animation; reduced motion; reversal; concurrent hosts; destruction; real write-before-read observation                     |
-| T-Collapsible | Enabled/disabled activation; Presence-retained hiding; native/progressive until-found behavior; role cardinality and remount                                                |
+| T-Collapsible | Enabled/disabled activation; Presence-retained hiding; native/progressive until-found behavior; role cardinality and remount; parts split across components complete in server HTML |
 | T-Accordion   | Single/multiple contracts; unknown values; immutable array toggles; combined disabled; non-collapsible focusability; factory writable signals; exactly-once outputs/reentry |
-| T-Popover     | Required parts; co-location; nesting/veto; trusted pointer lifetime; topmost Escape; reentry; focus eligibility; exit interaction; layout ownership and tracking            |
+| T-Popover     | Required parts; co-location; nesting/veto; trusted pointer lifetime; topmost Escape; reentry; focus eligibility; exit interaction; layout ownership and tracking; Content in a child component complete in server HTML |
 | T-Toggle      | Native activation exactly once; form type; always-present `aria-pressed`; disabled blocks only user activation; replacement precedence in both import orders and diamonds  |
-| T-Tabs        | Click/keyboard selection exactly once; automatic/manual; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; null/unknown/Panel-only/removed/disabled-selected policies; mounted-only associations; Panel tab stop override; SSR tab stop in DOM order |
-| T-ToggleGroup | Single/deselect and multiple activation exactly once; unknown values kept; immutable arrays; Toggle composition driven by upper item Options only; moves never press; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; `role="group"` without `aria-orientation`; SSR tab stop in DOM order |
-| T-Toolbar     | `role="toolbar"` with `aria-orientation`; buttons only, native disabled skipped; orientation and RTL mapping; Home/End/wrap; single tab stop across joined groups with no preferred pressed item, re-entry on the first enabled control; joined group orientation overridden; Collection membership in DOM order after keyed moves; click focus and focus repair; co-applied Toggle; Popover Content cuts joining; SSR tab stop in DOM order across a joined group |
-| T-RadioGroup  | `radiogroup` with `radio` items and always-present `aria-checked`; click/Space/Enter check exactly once, no unchecking, no submit; all-four-arrow moves check exactly once with RTL mapping, Home/End, wrap and disabled skipping; Tab entry on the checked item, otherwise the first enabled; revalidation of a move or click target changed by its focus handlers; focus repair without checking; null/unknown/removed/disabled-checked policies; inside a Toolbar arrows never check and Space/Enter/click do; Popover Content cuts joining; replacement precedence; SSR tab stop in DOM order |
+| T-Tabs        | Click/keyboard selection exactly once; automatic/manual; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; null/unknown/Panel-only/removed/disabled-selected policies; mounted-only associations; Panel tab stop override; SSR tab stop in DOM order; repeated required-input Triggers and later `@for` Panels complete in server HTML |
+| T-ToggleGroup | Single/deselect and multiple activation exactly once; unknown values kept; immutable arrays; Toggle composition driven by upper item Options only; moves never press; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; `role="group"` without `aria-orientation`; SSR tab stop in DOM order, also with repeated required-input items |
+| T-Toolbar     | `role="toolbar"` with `aria-orientation`; buttons only, native disabled skipped; orientation and RTL mapping; Home/End/wrap; single tab stop across Toolbar groups with no preferred pressed item, re-entry on the first enabled control; Toolbar group orientation overridden; arrow order in DOM order after keyed moves; click focus and focus repair; co-applied Toggle; a standalone group in Popover Content keeps its own tab stop; a Toolbar group outside a Toolbar fails through DI; SSR tab stop in DOM order across a Toolbar group and with repeated required-input items |
+| T-RadioGroup  | `radiogroup` with `radio` items and always-present `aria-checked`; click/Space/Enter check exactly once, no unchecking, no submit; all-four-arrow moves check exactly once with RTL mapping, Home/End, wrap and disabled skipping; Tab entry on the checked item, otherwise the first enabled; revalidation of a move or click target changed by its focus handlers; focus repair without checking; null/unknown/removed/disabled-checked policies; in a Toolbar Radio Group arrows never check and Space/Enter/click do; a standalone group in Popover Content keeps its own tab stop; replacement precedence; SSR tab stop in DOM order, also with repeated required-input items |
 | T-Hydration   | Development/production serving; eager/deferred node retention; no transient duplication; generated identity; event replay; post-hydration interaction                       |
 | T-Support     | Skipped formal Baseline audit recorded without certification; optional enhancement degradation; explicit Chromium/Firefox/WebKit runtime evidence and stated limits         |
 
@@ -718,10 +724,9 @@ A new primitive ships with:
 - SSR plus eager and incremental hydration per section 17.
 - Chromium, Firefox and WebKit qualification in development and production.
 - Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 18's coverage map and assertions in the acceptance gate.
-- A design map in `<primitive>/DESIGN.md`, approved by loozo before implementation and checked against the code before sign-off. It records:
-  - the public surface;
+- A design map in `<primitive>/DESIGN.md`, approved by loozo before implementation and checked against the code before sign-off. It records ownership and read timing only:
   - who owns each fact the primitive depends on, and who reads it;
   - for every read of state another part owns: the reader, the lifecycle phase (construction, render, after render, event), the platform, and what the reader gets if the owner's inputs aren't set yet;
   - every place where correctness depends on Angular refreshing a view again.
 
-  A render-time read of another part's Options is valid only when the owner's inputs are set first in every layout the primitive supports. Repeated items, later sibling views and child components are where they aren't.
+  Render-time reads follow section 3's registration rules: a part reads its own Options, its ancestors' Options and State, and registrations other parts have published. A direct render-time read of a sibling's Options isn't valid: repeated items, later sibling views and child components are layouts where the sibling's inputs aren't set yet.

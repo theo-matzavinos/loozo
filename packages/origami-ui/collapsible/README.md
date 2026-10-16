@@ -4,7 +4,7 @@ Collapsible is a disclosure: a native button that shows and hides one panel.
 
 [src/collapsible/details.ts](../snippets/src/collapsible/details.ts "playground")
 
-The root has an `expanded` model (default `false`), a `disabled` input (default `false`) and a `hiding` input (default `"hidden"`). A Collapsible supports one Trigger and one Panel; either may be missing, which removes its ARIA association.
+The root has an `expanded` model (default `false`), a `disabled` input (default `false`) and a `hiding` input (default `"hidden"`). A Collapsible supports one Trigger and one Panel; either may be missing, which removes its ARIA association. They can be rendered by different components: each names the other's ID once Angular has set the other's inputs, so the server HTML already has the bound IDs.
 
 ## Replacing Options
 

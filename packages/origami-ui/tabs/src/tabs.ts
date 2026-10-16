@@ -12,7 +12,10 @@ import {
   signal,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
-import { OrigamiCollection, ɵOrigamiRovingFocus } from "@loozo/origami-ui/collection";
+import {
+  ɵOrigamiRovingFocusContext,
+  ɵOrigamiRovingFocusOptions,
+} from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 
 /** Tabs list axis: `horizontal` uses ArrowLeft/ArrowRight (reading-direction aware), `vertical` uses ArrowUp/ArrowDown. */
@@ -93,15 +96,13 @@ export abstract class OrigamiTabsOptions {
   }
 }
 
-type PartRegistration = {
-  readonly options: () => { readonly value: Signal<string>; readonly id: Signal<string> };
-};
+type PartOptions = { readonly value: Signal<string>; readonly id: Signal<string> };
 
 @Service({ autoProvided: false })
 export class TabsContext {
   readonly #options = injectDeferred(OrigamiTabsOptions);
-  readonly #triggers = signal<readonly PartRegistration[]>([]);
-  readonly #panels = signal<readonly PartRegistration[]>([]);
+  readonly #triggers = signal<readonly (() => PartOptions)[]>([]);
+  readonly #panels = signal<readonly (() => PartOptions)[]>([]);
   #destroyed = false;
 
   readonly value = computed(() => this.#options().value());
@@ -121,26 +122,29 @@ export class TabsContext {
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+    inject(ɵOrigamiRovingFocusContext).navigations.subscribe((value) => {
+      if (this.activation() === "automatic") {
+        this.select(value);
+      }
+    });
   }
 
-  registerTrigger(
-    options: () => { readonly value: Signal<string>; readonly id: Signal<string> },
-  ): void {
-    this.#register(this.#triggers, options);
+  /** The calling Trigger's unpublished registration, captured in its injection context. */
+  trigger(options: () => PartOptions): { publish(): void } {
+    return this.#part(this.#triggers, options);
   }
 
-  registerPanel(
-    options: () => { readonly value: Signal<string>; readonly id: Signal<string> },
-  ): void {
-    this.#register(this.#panels, options);
+  /** The calling Panel's unpublished registration, captured in its injection context. */
+  panel(options: () => PartOptions): { publish(): void } {
+    return this.#part(this.#panels, options);
   }
 
-  /** ID of the first mounted Trigger with `value`, or null. */
+  /** ID of the first published Trigger with `value`, or null. */
   triggerId(value: string): string | null {
     return this.#idOf(this.#triggers(), value);
   }
 
-  /** ID of the first mounted Panel with `value`, or null. */
+  /** ID of the first published Panel with `value`, or null. */
   panelId(value: string): string | null {
     return this.#idOf(this.#panels(), value);
   }
@@ -158,9 +162,9 @@ export class TabsContext {
     }
   }
 
-  #idOf(registrations: readonly PartRegistration[], value: string): string | null {
-    for (const registration of registrations) {
-      const options = registration.options();
+  #idOf(published: readonly (() => PartOptions)[], value: string): string | null {
+    for (const part of published) {
+      const options = part();
 
       if (options.value() === value) {
         return options.id();
@@ -170,25 +174,41 @@ export class TabsContext {
     return null;
   }
 
-  #register(
-    slot: WritableSignal<readonly PartRegistration[]>,
-    options: PartRegistration["options"],
-  ): void {
-    const registration: PartRegistration = { options };
-    const destroyRef = inject(DestroyRef);
+  #part(
+    slot: WritableSignal<readonly (() => PartOptions)[]>,
+    options: () => PartOptions,
+  ): { publish(): void } {
+    let destroyed = false;
+    let published = false;
 
-    slot.update((registrations) => [...registrations, registration]);
-    destroyRef.onDestroy(() => {
-      const remaining: PartRegistration[] = [];
+    inject(DestroyRef).onDestroy(() => {
+      destroyed = true;
+
+      if (!published) {
+        return;
+      }
+
+      const remaining: (() => PartOptions)[] = [];
 
       for (const mounted of slot()) {
-        if (mounted !== registration) {
+        if (mounted !== options) {
           remaining.push(mounted);
         }
       }
 
       slot.set(remaining);
     });
+
+    return {
+      publish: () => {
+        if (destroyed) {
+          return;
+        }
+
+        published = true;
+        slot.update((parts) => [...parts, options]);
+      },
+    };
   }
 }
 
@@ -209,7 +229,7 @@ export class OrigamiTabsState {
 
 /**
  * Tabs root: owns one selected value for its Triggers and Panels through nearest logical
- * Angular DI, composing Collection so focus follows rendered DOM order. While the value is null
+ * Angular DI; keyboard focus follows rendered DOM order. While the value is null
  * or no mounted Trigger has it, no Trigger is selected; a Panel shows whenever its value is the
  * root value. The model is never written without user action.
  * Root `data-orientation` and `data-disabled` reflect effective Options. Consumers own the
@@ -231,11 +251,26 @@ export class OrigamiTabsState {
 @Directive({
   selector: "[ogTabs]",
   exportAs: "ogTabs",
-  hostDirectives: [OrigamiCollection],
   providers: [
     TabsContext,
     OrigamiTabsState,
-    ɵOrigamiRovingFocus,
+    ɵOrigamiRovingFocusContext,
+    ɵOrigamiRovingFocusOptions.provideFactory(() => {
+      const context = inject(TabsContext);
+
+      return {
+        orientation: context.orientation,
+        preferred: computed(() => {
+          const value = context.value();
+
+          if (value === null) {
+            return [];
+          }
+
+          return [value];
+        }),
+      };
+    }),
     OrigamiTabsOptions.ɵprovideDefault(() => OrigamiTabs),
   ],
   host: {

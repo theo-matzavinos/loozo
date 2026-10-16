@@ -130,12 +130,14 @@ export class CollapsibleContext {
     });
   }
 
-  registerTrigger(options: () => { readonly id: Signal<string> }): void {
-    this.#register(this.#trigger, options, "trigger");
+  /** The calling Trigger's unpublished registration, captured in its injection context. */
+  trigger(options: () => { readonly id: Signal<string> }): { publish(): void } {
+    return this.#part(this.#trigger, options, "trigger");
   }
 
-  registerPanel(options: () => { readonly id: Signal<string> }): void {
-    this.#register(this.#panel, options, "panel");
+  /** The calling Panel's unpublished registration, captured in its injection context. */
+  panel(options: () => { readonly id: Signal<string> }): { publish(): void } {
+    return this.#part(this.#panel, options, "panel");
   }
 
   toggle(): void {
@@ -154,24 +156,35 @@ export class CollapsibleContext {
     this.#options().expanded.set(true);
   }
 
-  #register(
+  #part(
     slot: WritableSignal<PartRegistration | null>,
     options: () => { readonly id: Signal<string> },
     role: "trigger" | "panel",
-  ): void {
-    if (slot() !== null) {
-      throw new Error(`Collapsible supports only one mounted ${role}.`);
-    }
-
+  ): { publish(): void } {
     const registration: PartRegistration = { options };
-    const destroyRef = inject(DestroyRef);
+    let destroyed = false;
 
-    slot.set(registration);
-    destroyRef.onDestroy(() => {
+    inject(DestroyRef).onDestroy(() => {
+      destroyed = true;
+
       if (slot() === registration) {
         slot.set(null);
       }
     });
+
+    return {
+      publish: () => {
+        if (destroyed) {
+          return;
+        }
+
+        if (slot() !== null) {
+          throw new Error(`Collapsible supports only one mounted ${role}.`);
+        }
+
+        slot.set(registration);
+      },
+    };
   }
 }
 

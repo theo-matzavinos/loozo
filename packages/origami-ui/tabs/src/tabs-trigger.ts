@@ -10,12 +10,8 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import {
-  OrigamiCollectionItem,
-  OrigamiCollectionItemOptions,
-  ɵOrigamiRovingFocus,
-} from "@loozo/origami-ui/collection";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
+import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
 
 const triggerReplacement = new InjectionToken<OrigamiTabsTriggerOptions>(
@@ -23,11 +19,9 @@ const triggerReplacement = new InjectionToken<OrigamiTabsTriggerOptions>(
 );
 
 /**
- * Effective Trigger configuration. It also drives the composed Collection Item, so replacing
- * only these Options sets the Trigger's Collection value and order without lower Options. The
- * root reads every Trigger's Options while rendering, so replacement Options must be readable as
- * soon as the Trigger is constructed; a required input in a repeated Trigger can be read before
- * Angular sets it (NG0950).
+ * Effective Trigger configuration. Other parts read it only once the Trigger has published its
+ * registration in `ngOnInit`, after Angular set its inputs, so replacement Options may use
+ * required inputs.
  */
 export abstract class OrigamiTabsTriggerOptions {
   /** The value this Trigger selects and pairs with the Panel of the same value. */
@@ -93,7 +87,7 @@ export abstract class OrigamiTabsTriggerOptions {
 }
 
 /**
- * A native `type="button"` with `role="tab"`, composed with Collection Item. Click, Enter or
+ * A native `type="button"` with `role="tab"`. Click, Enter or
  * Space focuses it and selects its value once if it is still mounted and enabled after its focus
  * handlers ran; selecting the selected tab writes nothing and there is no deselection. Arrow keys along the effective orientation (horizontal arrows follow
  * reading direction), Home and End move focus among enabled Triggers in DOM order, wrapping at
@@ -108,11 +102,7 @@ export abstract class OrigamiTabsTriggerOptions {
  */
 @Directive({
   selector: "button[ogTabsTrigger]",
-  hostDirectives: [OrigamiCollectionItem],
-  providers: [
-    OrigamiTabsTriggerOptions.ɵprovideDefault(() => OrigamiTabsTrigger),
-    OrigamiCollectionItemOptions.provideFactory(() => inject(OrigamiTabsTriggerOptions)),
-  ],
+  providers: [OrigamiTabsTriggerOptions.ɵprovideDefault(() => OrigamiTabsTrigger)],
   host: {
     role: "tab",
     type: "button",
@@ -132,10 +122,10 @@ export abstract class OrigamiTabsTriggerOptions {
 })
 export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
   /**
-   * Own value input, default opaque generated identity that pairs with nothing; give each
+   * Own value input, default a generated value that pairs with nothing; give each
    * Trigger and its Panel the same explicit value. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueId("tabs-trigger-value"));
+  readonly value = input(injectUniqueValue("tabs-trigger-value"));
   /** Own ID input, default opaque hydration-stable generated identity; replaced Options supply the effective ID. */
   readonly id = input(injectUniqueId("tabs-trigger"));
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */
@@ -157,14 +147,10 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
   /** @internal Mounted-only control association. */
   protected readonly panelId = computed(() => this.#context.panelId(this.#options().value()));
 
-  readonly #focus = inject(ɵOrigamiRovingFocus).register({
+  readonly #registration = this.#context.trigger(this.#options);
+  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
+    value: computed(() => this.#options().value()),
     disabled: this.effectiveDisabled,
-    preferred: this.selected,
-    navigated: () => {
-      if (this.#context.activation() === "automatic" && this.#selectable()) {
-        this.#context.select(this.#options().value());
-      }
-    },
   });
 
   /** @internal Roving tab stop. */
@@ -203,12 +189,17 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
     return null;
   });
 
-  /** Registers this Trigger synchronously with caller-scoped teardown; an orphan fails Angular DI clearly. */
+  /** Captures this Trigger's unpublished registrations; an orphan fails Angular DI clearly. */
   constructor() {
-    this.#context.registerTrigger(injectDeferred(OrigamiTabsTriggerOptions));
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Publishes this Trigger's registrations once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#registration.publish();
+    this.#focus.publish();
   }
 
   /**
@@ -233,7 +224,7 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
 
   /** @internal Arrow/Home/End navigation along the effective orientation. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event, this.#context.orientation());
+    this.#focus.keydown(event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */

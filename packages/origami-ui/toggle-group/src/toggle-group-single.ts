@@ -1,25 +1,21 @@
 import {
   Directive,
   InjectionToken,
-  Service,
   booleanAttribute,
+  computed,
   forwardRef,
   inject,
   input,
   model,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
-import {
-  OrigamiCollection,
-  ɵOrigamiRovingFocus,
-  ɵrequestSingleSelection,
-} from "@loozo/origami-ui/collection";
+import { ɵrequestSingleSelection } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import {
   OrigamiToggleGroupState,
-  Selection,
-  ToggleGroupContext,
-  groupConfiguration,
+  ownRovingFocus,
+  ɵOrigamiToggleGroupRoot,
+  ToggleGroupRootOptions,
 } from "./toggle-group";
 import type { OrigamiToggleGroupOrientation } from "./toggle-group";
 
@@ -37,7 +33,7 @@ export abstract class OrigamiToggleGroupSingleOptions {
   abstract readonly value: WritableSignal<string | null>;
   /** Blocks every item's user activation and removes the tab stop, not external configuration writes; default false. */
   abstract readonly disabled: Signal<boolean>;
-  /** Arrow-key axis; default `horizontal`. Has no effect inside a Toolbar, whose orientation applies. */
+  /** Arrow-key axis; default `horizontal`. Has no effect on a Toolbar Toggle Group, whose Toolbar's orientation applies. */
   abstract readonly orientation: Signal<OrigamiToggleGroupOrientation>;
   /** Whether activating the pressed item clears the value to null; default false, when it writes nothing. */
   abstract readonly deselectable: Signal<boolean>;
@@ -99,33 +95,67 @@ export abstract class OrigamiToggleGroupSingleOptions {
       },
     ];
   }
-}
 
-@Service({ autoProvided: false })
-class SingleSelection implements Selection {
-  readonly #options = injectDeferred(OrigamiToggleGroupSingleOptions);
+  /**
+   * @internal Providers for a Single root directive that composes `ɵOrigamiToggleGroupRoot`:
+   * its Options default and the root Options derived from these Options.
+   * @param type - Deferred same-host directive supplying the default Options.
+   * @param orientation - Supplies the effective axis in the root's injection context; omitted,
+   *   these Options' orientation applies.
+   * @returns Local providers for the Single root directive.
+   */
+  static ɵprovideRoot(
+    type: () =>
+      | Type<OrigamiToggleGroupSingleOptions>
+      | AbstractType<OrigamiToggleGroupSingleOptions>,
+    orientation?: () => Signal<OrigamiToggleGroupOrientation>,
+  ): Provider[] {
+    return [
+      OrigamiToggleGroupSingleOptions.ɵprovideDefault(type),
+      ToggleGroupRootOptions.provideFactory(() => {
+        const options = injectDeferred(OrigamiToggleGroupSingleOptions);
+        let effectiveOrientation: Signal<OrigamiToggleGroupOrientation> = computed(() =>
+          options().orientation(),
+        );
 
-  selected(value: string): boolean {
-    return this.#options().value() === value;
-  }
+        if (orientation !== undefined) {
+          effectiveOrientation = orientation();
+        }
 
-  request(value: string, pressed: boolean): void {
-    const options = this.#options();
+        return {
+          disabled: computed(() => options().disabled()),
+          orientation: effectiveOrientation,
+          values: computed(() => {
+            const value = options().value();
 
-    ɵrequestSingleSelection(options.value, value, pressed, options.deselectable());
+            if (value === null) {
+              return [];
+            }
+
+            return [value];
+          }),
+          request: (value, pressed) => {
+            const current = options();
+
+            ɵrequestSingleSelection(current.value, value, pressed, current.deselectable());
+          },
+        };
+      }),
+    ];
   }
 }
 
 /**
  * Single-pressed Toggle Group root: at most one item is pressed, and with `deselectable` the
- * pressed item can clear the value to null. Composes Collection so focus follows rendered DOM
- * order. While the value is null or no mounted item has it, nothing is pressed; the model is
- * never written without user action. Static `role="group"` (a consumer's static `role`
- * overrides it), `data-orientation` and `data-disabled` reflect effective Options; there is no
+ * pressed item can clear the value to null. Its items share one tab stop, held by the focused
+ * item, else the first pressed, else the first, and arrow keys follow rendered DOM order. While
+ * the value is null or no mounted item has it, nothing is pressed; the model is never written
+ * without user action. Static `role="group"` (a consumer's static `role` overrides it),
+ * `data-orientation` and `data-disabled` reflect effective Options; there is no
  * `aria-orientation`, which ARIA does not allow on `group`. Consumers own the accessible name,
  * item labels and styling. For radio semantics, where selection follows focus, use
- * `OrigamiRadioGroup`. Inside an `ogToolbar` the group joins the Toolbar: its items share the
- * Toolbar's single tab stop and arrow order, and the effective orientation is the Toolbar's.
+ * `OrigamiRadioGroup`. Inside an `ogToolbar` it keeps its own tab stop; to share the Toolbar's,
+ * use `OrigamiToolbarToggleGroupSingle` from `@loozo/origami-ui/toolbar`.
  *
  * @example
  * ```html
@@ -138,21 +168,11 @@ class SingleSelection implements Selection {
 @Directive({
   selector: "[ogToggleGroupSingle]",
   exportAs: "ogToggleGroupSingle",
-  hostDirectives: [OrigamiCollection],
+  hostDirectives: [ɵOrigamiToggleGroupRoot],
   providers: [
-    ToggleGroupContext,
-    OrigamiToggleGroupState,
-    ɵOrigamiRovingFocus,
-    SingleSelection,
-    { provide: Selection, useExisting: SingleSelection },
-    OrigamiToggleGroupSingleOptions.ɵprovideDefault(() => OrigamiToggleGroupSingle),
-    { provide: groupConfiguration, useExisting: OrigamiToggleGroupSingleOptions },
+    OrigamiToggleGroupSingleOptions.ɵprovideRoot(() => OrigamiToggleGroupSingle),
+    ownRovingFocus,
   ],
-  host: {
-    role: "group",
-    "[attr.data-orientation]": "effectiveOrientation()",
-    "[attr.data-disabled]": "disabledAttribute()",
-  },
 })
 export class OrigamiToggleGroupSingle implements OrigamiToggleGroupSingleOptions {
   /**
@@ -172,11 +192,4 @@ export class OrigamiToggleGroupSingle implements OrigamiToggleGroupSingleOptions
   readonly deselectable = input(false, { transform: booleanAttribute });
   /** This root's readonly effective Options observation, shared with its descendants. */
   readonly state = inject(OrigamiToggleGroupState);
-
-  readonly #context = inject(ToggleGroupContext);
-
-  /** @internal Effective orientation host marker. */
-  protected readonly effectiveOrientation = this.#context.orientation;
-  /** @internal Readonly disabled host marker. */
-  protected readonly disabledAttribute = this.#context.disabledAttribute;
 }

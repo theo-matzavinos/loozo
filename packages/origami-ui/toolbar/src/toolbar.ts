@@ -9,9 +9,8 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import {
-  OrigamiCollection,
-  ɵOrigamiRovingFocus,
-  ɵOrigamiRovingFocusScope,
+  ɵOrigamiRovingFocusContext,
+  ɵOrigamiRovingFocusOptions,
 } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 
@@ -23,7 +22,7 @@ const toolbarReplacement = new InjectionToken<OrigamiToolbarOptions>("Toolbar re
 
 /** Effective root configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiToolbarOptions {
-  /** Arrow-key axis and `aria-orientation`, also for joined groups; default `horizontal`. */
+  /** Arrow-key axis and `aria-orientation`, also for Toolbar groups; default `horizontal`. */
   abstract readonly orientation: Signal<OrigamiToolbarOrientation>;
 
   /**
@@ -81,12 +80,11 @@ export abstract class OrigamiToolbarOptions {
   }
 }
 
-/** The Toolbar's roving focus and axis, shared with joined groups through the package-private scope. */
+/** The Toolbar's axis, read by its items and Toolbar groups; a Toolbar group fails DI without it. */
 @Service({ autoProvided: false })
-export class ToolbarContext implements ɵOrigamiRovingFocusScope {
+export class ToolbarContext {
   readonly #options = injectDeferred(OrigamiToolbarOptions);
 
-  readonly focus = inject(ɵOrigamiRovingFocus);
   readonly orientation = computed(() => this.#options().orientation());
 }
 
@@ -95,26 +93,26 @@ export class ToolbarContext implements ɵOrigamiRovingFocusScope {
 export class OrigamiToolbarState {
   readonly #context = inject(ToolbarContext);
 
-  /** Effective arrow-key axis, also used by joined groups. */
+  /** Effective arrow-key axis, also used by Toolbar groups. */
   readonly orientation: Signal<OrigamiToolbarOrientation> = this.#context.orientation;
 }
 
 /**
  * A row or column of controls with one tab stop: static `role="toolbar"` (a consumer's static
- * `role` overrides it), `aria-orientation` and `data-orientation` from effective Options. Composes
- * Collection so focus follows rendered DOM order. A ToggleGroup or RadioGroup root inside it, in
- * nearest logical DI, joins it: the group's items share the Toolbar's single tab stop and arrow
- * sequence and navigate along the Toolbar's orientation, moves never press or check, and the group
- * keeps its role, name and pressed or checked state.
- * A group inside Popover Content does not join. Other focusable content that is not an item keeps
- * its own Tab stop and its own arrow keys. Consumers own the accessible name, separators and
- * styling.
+ * `role` overrides it), `aria-orientation` and `data-orientation` from effective Options. Its
+ * items, and the items of the Toolbar groups inside it (`OrigamiToolbarToggleGroupSingle`,
+ * `OrigamiToolbarToggleGroupMultiple`, `OrigamiToolbarRadioGroup`), share its one tab stop, held
+ * by the focused item, else the first enabled one, and its arrow sequence in rendered DOM order
+ * along its orientation; moves never press or check, and each group keeps its role, name and
+ * pressed or checked state. A standalone ToggleGroup or RadioGroup inside it keeps its own tab
+ * stop, as does other focusable content that is not an item. Consumers own the accessible name,
+ * separators and styling.
  *
  * @example
  * ```html
  * <div ogToolbar aria-label="Formatting">
  *   <button ogToolbarItem (click)="undo()">Undo</button>
- *   <div ogToggleGroupMultiple [(value)]="marks" aria-label="Text style">
+ *   <div ogToolbarToggleGroupMultiple [(value)]="marks" aria-label="Text style">
  *     <button ogToggleGroupItem value="bold">Bold</button>
  *   </div>
  * </div>
@@ -123,12 +121,14 @@ export class OrigamiToolbarState {
 @Directive({
   selector: "[ogToolbar]",
   exportAs: "ogToolbar",
-  hostDirectives: [OrigamiCollection],
   providers: [
     ToolbarContext,
     OrigamiToolbarState,
-    ɵOrigamiRovingFocus,
-    { provide: ɵOrigamiRovingFocusScope, useExisting: ToolbarContext },
+    ɵOrigamiRovingFocusContext,
+    ɵOrigamiRovingFocusOptions.provideFactory(() => ({
+      orientation: inject(ToolbarContext).orientation,
+      preferred: computed<readonly string[]>(() => []),
+    })),
     OrigamiToolbarOptions.ɵprovideDefault(() => OrigamiToolbar),
   ],
   host: {

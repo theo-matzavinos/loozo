@@ -1,4 +1,4 @@
-export { OrigamiToggleGroupState } from "./toggle-group";
+export { OrigamiToggleGroupState, ɵOrigamiToggleGroupRoot } from "./toggle-group";
 export type { OrigamiToggleGroupOrientation } from "./toggle-group";
 export { OrigamiToggleGroupSingle, OrigamiToggleGroupSingleOptions } from "./toggle-group-single";
 export {

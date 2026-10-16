@@ -29,7 +29,7 @@ Give each item an explicit `value`; values should be distinct within one group. 
 
 Moves skip disabled items, wrap at both ends and never press. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
 
-Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the first pressed enabled item, otherwise the first enabled item. A click focuses the item after requesting its press, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without pressing it.
+Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the first pressed enabled item, otherwise the first enabled item. "First" reads DOM order whenever items mount or unmount or focus, disabled state or the value change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the item after requesting its press, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without pressing it.
 
 ## Replacing Options
 
@@ -37,7 +37,7 @@ Single, Multiple and the item each have their own Options. Here the alignment li
 
 [src/toggle-group/editor-alignment.ts](../snippets/src/toggle-group/editor-alignment.ts)
 
-Item Options also drive the composed Collection Item and Toggle, so replacing them alone sets the item's place in the arrow-key order and its pressed and disabled state. The group reads every item's Options while rendering, so replacement item Options must be readable as soon as the item is constructed: a required input in a repeated item, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default, as the snippet does.
+Item Options also drive the composed Toggle, so replacing them alone sets the item's pressed and disabled state. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
 
 ## State and attributes
 
@@ -56,7 +56,7 @@ Item Options also drive the composed Collection Item and Toggle, so replacing th
 
 ## Inside a Toolbar
 
-A group inside a [Toolbar](../toolbar/README.md) joins it: its items share the Toolbar's single tab stop and arrow-key order with the Toolbar's own items, in DOM order, and the group has no tab stop of its own. Tabbing into the Toolbar lands on its first enabled control, even if that's not a pressed item. The group follows the Toolbar's orientation, which `data-orientation` and State report; its own `orientation` has no effect there. Its role, name, value and pressed state don't change. A group in Popover Content doesn't join a Toolbar around the Popover.
+`ogToggleGroupSingle` and `ogToggleGroupMultiple` keep their own tab stop inside a [Toolbar](../toolbar/README.md). To share the Toolbar's tab stop, use its [Toolbar groups](../toolbar/README.md#toolbar-groups), `ogToolbarToggleGroupSingle` and `ogToolbarToggleGroupMultiple`, with the same items.
 
 ## Server rendering and hydration
 

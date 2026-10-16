@@ -44,6 +44,9 @@ for (const [variant, caseId, context] of [
   ["orphan-collapsible-trigger", "L2", /NG0201/],
   ["orphan-collapsible-panel", "L2", /NG0201/],
   ["orphan-accordion-panel", "A3 L2", /NG0201/],
+  ["orphan-toolbar-toggle-group-single", "K9", /NG0201:[\s\S]*ToolbarContext/],
+  ["orphan-toolbar-toggle-group-multiple", "K9", /NG0201:[\s\S]*ToolbarContext/],
+  ["orphan-toolbar-radio-group", "K9", /NG0201:[\s\S]*ToolbarContext/],
   ["trigger", "L2 O3", /trigger/i],
   ["panel", "L2 O3", /panel/i],
   ["popover-trigger", "V1", /trigger/i],
@@ -81,6 +84,9 @@ for (const [variant, caseId, context] of [
         "orphan-collapsible-trigger",
         "orphan-collapsible-panel",
         "orphan-accordion-panel",
+        "orphan-toolbar-toggle-group-single",
+        "orphan-toolbar-toggle-group-multiple",
+        "orphan-toolbar-radio-group",
       ].includes(variant);
 
     if (nativeProductionProvider) {
@@ -134,7 +140,7 @@ for (const [variant, caseId, context] of [
       await expect(page.getByTestId("error-case")).toHaveValue(variant);
     } else {
       info.annotations.push({ type: "expected-error", description: variant });
-      // Development keeps exact CollectionContext/AccordionContext distinction. Custom errors keep prose in all modes.
+      // Development keeps exact CollectionContext/AccordionContext/ToolbarContext distinction. Custom errors keep prose in all modes.
       await expect
         .poll(async () => {
           await drainIssues();

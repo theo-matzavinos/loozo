@@ -536,7 +536,7 @@ export async function auditBundleContexts(
     }
   }
 
-  assert.equal(publicClasses.length, 63, "Packaged token inventory changed; review required");
+  assert.equal(publicClasses.length, 66, "Packaged token inventory changed; review required");
 
   assert.deepEqual(
     Object.keys(metafiles).sort(),

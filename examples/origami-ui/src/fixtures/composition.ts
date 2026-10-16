@@ -7,6 +7,7 @@ import {
   EnvironmentInjector,
   InjectionToken,
   Service,
+  computed,
   createComponent,
   createEnvironmentInjector,
   forwardRef,
@@ -63,7 +64,7 @@ import {
   type OrigamiPopoverSide,
   type OrigamiPopoverAlign,
 } from "@loozo/origami-ui/popover";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { CompositionConsumer } from "./seeds/composition-consumer.js";
 import { createApplication } from "@angular/platform-browser";
 import type { ApplicationRef } from "@angular/core";
@@ -75,25 +76,22 @@ import { ToggleGroupPrecedence } from "./toggle-group-precedence.js";
 import { ToolbarPrecedence } from "./toolbar-precedence.js";
 import { RadioGroupPrecedence } from "./radio-group-precedence.js";
 
+/** An element ID owner: its generated ID is the host `id` until the consumer binds one. */
 @Component({
   selector: "acceptance-identity-owner",
   host: {
     "[attr.data-generated-id]": "identity",
     "[attr.data-generated-allocations]": "allocations",
-    "[id]": "domId()",
+    "[id]": "effectiveId()",
   },
   template: `{{ identity }}`,
 })
 export class IdentityOwner {
-  readonly domId = input("");
-  readonly identity = injectUniqueId("independent-repeated-key");
-  // Repeated same-key calls and odd keys on one host; JSON keeps any value attribute-safe.
-  readonly allocations = JSON.stringify([
-    this.identity,
-    injectUniqueId("independent-repeated-key"),
-    injectUniqueId("\ud800"),
-    injectUniqueId("\ufffd"),
-  ]);
+  readonly domId = input<string | null>(null);
+  readonly identity = injectUniqueId("identity-owner");
+  // A value default on the same host and key: never rendered, and distinct from the ID.
+  readonly allocations = JSON.stringify([this.identity, injectUniqueValue("identity-owner")]);
+  readonly effectiveId = computed(() => this.domId() ?? this.identity);
 }
 
 /** Root service: an allocation without an element host. */
@@ -646,9 +644,9 @@ export class StateObservation {
     <button type="button" data-testid="utilities-outside" (click)="checkOutsideContext()">Check required injection context</button>
     <output data-testid="outside-injection-errors">{{ outsideErrors() }}</output>
     <button type="button" data-testid="identity-reorder" (click)="identityKeys.set(['second', 'first'])">Reorder identity owners</button>
-    <button type="button" data-testid="identity-dom-id" (click)="identityDomId.set('changed-domain')">Change consumer DOM IDs</button>
+    <button type="button" data-testid="identity-dom-id" (click)="identityDomain.set('changed-domain')">Change consumer DOM IDs</button>
     @for (key of identityKeys(); track key) {
-      <acceptance-identity-owner [domId]="identityDomId() + '-' + key" [attr.data-key]="key" data-testid="identity-owner" />
+      <acceptance-identity-owner [domId]="identityDomId(key)" [attr.data-key]="key" data-testid="identity-owner" />
     }
     <button type="button" data-testid="independent-applications" (click)="mountIndependentApplications()">Mount two independent Angular applications</button>
     <div data-testid="independent-host-a"></div><div data-testid="independent-host-b"></div>
@@ -691,7 +689,16 @@ export class CompositionFixture {
   readonly outsideErrors = signal(0);
   readonly increment = (value: number): number => value + 1;
   readonly identityKeys = signal(["first", "second"]);
-  readonly identityDomId = signal("initial-domain");
+  readonly identityDomain = signal<string | null>(null);
+  readonly identityDomId = (key: string): string | null => {
+    const domain = this.identityDomain();
+
+    if (domain === null) {
+      return null;
+    }
+
+    return `${domain}-${key}`;
+  };
   readonly element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly applications: ApplicationRef[] = [];
   readonly applicationIsolation = signal("unverified");
@@ -721,7 +728,7 @@ export class CompositionFixture {
     });
   }
 
-  /** A host reused after its application is destroyed cannot import the old namespace. */
+  /** A host reused after its application is destroyed takes a new ID from the new application. */
   async verifyApplicationNamespaces(): Promise<void> {
     const reusedHost = document.createElement("div");
     const freshHost = document.createElement("div");
@@ -805,6 +812,12 @@ export class CompositionFixture {
 
     try {
       injectUniqueId("outside");
+    } catch {
+      errors += 1;
+    }
+
+    try {
+      injectUniqueValue("outside");
     } catch {
       errors += 1;
     }

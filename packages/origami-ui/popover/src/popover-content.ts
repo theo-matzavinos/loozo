@@ -16,7 +16,6 @@ import {
   OrigamiPresenceState,
   ɵOrigamiPresencePresentation,
 } from "@loozo/origami-ui/presence";
-import { ɵOrigamiRovingFocusScope } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { PopoverContext } from "./popover";
 
@@ -184,8 +183,6 @@ export class OrigamiPopoverContentState {
     OrigamiPopoverContentState,
     OrigamiPopoverContentOptions.ɵprovideDefault(() => OrigamiPopoverContent),
     OrigamiPresenceOptions.provideFactory(() => ({ present: inject(PopoverContext).desired })),
-    // A selection group in Content keeps its own tab stop instead of joining an enclosing Toolbar.
-    { provide: ɵOrigamiRovingFocusScope, useValue: null },
   ],
   host: {
     "[id]": "effectiveId()",
@@ -229,12 +226,18 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
     return "";
   });
 
-  /** Registers Content with caller-scoped cleanup; local Presence/Options aliases resolve only after construction. */
+  readonly #registration = this.#context.content(this.#options);
+
+  /** Captures Content's unpublished registration; local Presence/Options aliases resolve only after construction. */
   constructor() {
-    this.#context.registerContent(injectDeferred(OrigamiPopoverContentOptions));
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Publishes Content once Angular has set its inputs; a second mounted Content fails clearly. */
+  ngOnInit(): void {
+    this.#registration.publish();
   }
 
   /** @internal Consults current native state, never queued toggle intent. Bubbled descendant events are ignored. */

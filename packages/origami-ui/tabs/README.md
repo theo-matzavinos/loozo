@@ -27,7 +27,7 @@ Give each Trigger and its Panel the same explicit `value`; a generated value pai
 
 Moves skip disabled Triggers and wrap at both ends. With `activation="automatic"` an arrow, Home or End move selects the Trigger it lands on, even the one already focused; with `"manual"` focus moves only, and Enter or Space selects. Focus that arrives by Tab, pointer or script doesn't select. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the Trigger's computed `direction` when the key is pressed, so `dir` on any ancestor works.
 
-Only one Trigger is in the Tab order (`tabindex="0"`): the focused one while focus is in the list, otherwise the first selected enabled Trigger, otherwise the first enabled Trigger. Tabbing back into the list lands on the selected tab. A click focuses the Trigger it selects in every browser, so the next arrow key moves from there. If the focused Trigger is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without selecting it.
+Only one Trigger is in the Tab order (`tabindex="0"`): the focused one while focus is in the list, otherwise the first selected enabled Trigger, otherwise the first enabled Trigger. Tabbing back into the list lands on the selected tab. "First" reads DOM order whenever Triggers mount or unmount or focus, disabled state or the selection changes; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the Trigger it selects in every browser, so the next arrow key moves from there. If the focused Trigger is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without selecting it.
 
 ## Replacing Options
 
@@ -35,7 +35,7 @@ Root, Trigger and Panel each have their own Options. Here the selection lives in
 
 [src/tabs/settings-tabs.ts](../snippets/src/tabs/settings-tabs.ts)
 
-Trigger Options also supply the composed Collection Item's value, so replacing them alone sets the Trigger's entry in the root's `OrigamiCollectionState`. The root reads every Trigger's Options while rendering, so replacement Trigger Options must be readable as soon as the Trigger is constructed: a required input in a repeated Trigger, for example inside `@for`, can be read before Angular sets it and throws NG0950. Give such an input a default.
+Other parts read a Trigger's or Panel's Options only after Angular has set its inputs, so replacement Options can use required inputs, also in Triggers and Panels repeated with `@for`.
 
 ## State and attributes
 
@@ -57,6 +57,6 @@ Trigger Options also supply the composed Collection Item's value, so replacing t
 
 ## Server rendering and hydration
 
-Tabs' selection, roles, associations, hidden Panels and single `tabindex="0"` are in the server HTML, and hydration doesn't change them.
+Tabs' selection, roles, associations, hidden Panels and single `tabindex="0"` are in the server HTML, also when Triggers and Panels repeat in `@for`, and hydration doesn't change them.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).

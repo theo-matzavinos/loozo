@@ -13,7 +13,6 @@ interface SavedNode {
   controls: string | null;
   labelledBy: string | null;
   generated: string | null;
-  values: string | null;
 }
 interface Discovery {
   testid: string | null;
@@ -370,7 +369,6 @@ export function captureDomRetention(): void {
       controls: node.getAttribute("aria-controls"),
       labelledBy: node.getAttribute("aria-labelledby"),
       generated: node.getAttribute("data-generated-id"),
-      values: node.getAttribute("data-item-values"),
     });
   }
 
@@ -623,8 +621,7 @@ export async function assertReferences(
         node.getAttribute("data-unit") !== saved.unitLabel ||
         node.getAttribute("aria-controls") !== saved.controls ||
         node.getAttribute("aria-labelledby") !== saved.labelledBy ||
-        node.getAttribute("data-generated-id") !== saved.generated ||
-        node.getAttribute("data-item-values") !== saved.values
+        node.getAttribute("data-generated-id") !== saved.generated
       ) {
         changed.push(saved.key);
       }

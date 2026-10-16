@@ -123,12 +123,18 @@ export class OrigamiCollapsibleTrigger implements OrigamiCollapsibleTriggerOptio
   /** @internal Disabled marker. */
   protected readonly disabledAttribute = this.#context.disabledAttribute;
 
-  /** Registers this Trigger synchronously with caller-scoped teardown; duplicate roles fail clearly. */
+  readonly #registration = this.#context.trigger(this.#options);
+
+  /** Captures this Trigger's unpublished registration; an orphan fails Angular DI clearly. */
   constructor() {
-    this.#context.registerTrigger(injectDeferred(OrigamiCollapsibleTriggerOptions));
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Publishes this Trigger once Angular has set its inputs; a second mounted Trigger fails clearly. */
+  ngOnInit(): void {
+    this.#registration.publish();
   }
 
   /** @internal Live native activation request, obeying effective disabled Options. */

@@ -1,11 +1,20 @@
 import { Component, signal } from "@angular/core";
-import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
-import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
+import {
+  OrigamiToolbar,
+  OrigamiToolbarItem,
+  OrigamiToolbarToggleGroupMultiple,
+} from "@loozo/origami-ui/toolbar";
+import { OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
 
-// The nested group joins the Toolbar: one tab stop and one arrow sequence across all controls.
+// The Toolbar group's items share the Toolbar's tab stop and arrow sequence.
 @Component({
   selector: "app-formatting-toolbar",
-  imports: [OrigamiToolbar, OrigamiToolbarItem, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem],
+  imports: [
+    OrigamiToolbar,
+    OrigamiToolbarItem,
+    OrigamiToolbarToggleGroupMultiple,
+    OrigamiToggleGroupItem,
+  ],
   template: `
     <div ogToolbar aria-label="Formatting">
       <button ogToolbarItem (click)="undo()">Undo</button>
@@ -13,7 +22,7 @@ import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origa
 
       <span role="separator" aria-orientation="vertical"></span>
 
-      <div ogToggleGroupMultiple [(value)]="marks" aria-label="Text style">
+      <div ogToolbarToggleGroupMultiple [(value)]="marks" aria-label="Text style">
         <button ogToggleGroupItem value="bold" aria-label="Bold"><b>B</b></button>
         <button ogToggleGroupItem value="italic" aria-label="Italic"><i>I</i></button>
         <button ogToggleGroupItem value="underline" aria-label="Underline"><u>U</u></button>

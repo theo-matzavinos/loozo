@@ -1,6 +1,6 @@
 import { Directive, InjectionToken, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
 
 const panelReplacement = new InjectionToken<OrigamiTabsPanelOptions>("Tabs Panel replacement");
@@ -89,10 +89,10 @@ export abstract class OrigamiTabsPanelOptions {
 })
 export class OrigamiTabsPanel implements OrigamiTabsPanelOptions {
   /**
-   * Own value input, default opaque generated identity that pairs with nothing; give each
+   * Own value input, default a generated value that pairs with nothing; give each
    * Panel its Trigger's explicit value. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueId("tabs-panel-value"));
+  readonly value = input(injectUniqueValue("tabs-panel-value"));
   /** Own ID input, default opaque hydration-stable generated identity; replaced Options supply the effective ID. */
   readonly id = input(injectUniqueId("tabs-panel"));
 
@@ -123,8 +123,10 @@ export class OrigamiTabsPanel implements OrigamiTabsPanelOptions {
     return null;
   });
 
-  /** Registers this Panel synchronously with caller-scoped teardown; an orphan fails Angular DI clearly. */
-  constructor() {
-    this.#context.registerPanel(injectDeferred(OrigamiTabsPanelOptions));
+  readonly #registration = this.#context.panel(this.#options);
+
+  /** @internal Publishes this Panel's registration once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#registration.publish();
   }
 }

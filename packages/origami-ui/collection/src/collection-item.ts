@@ -1,7 +1,6 @@
-import { Directive, InjectionToken, PLATFORM_ID, forwardRef, inject, input } from "@angular/core";
+import { Directive, InjectionToken, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { isPlatformServer } from "@angular/common";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { CollectionContext } from "./collection";
 
 // Module-private so Options retain structural compatibility in packaged declarations.
@@ -15,7 +14,7 @@ const itemReplacement = new InjectionToken<OrigamiCollectionItemOptions>(
  * Primitive defaults cannot override replacements when direct/host selectors co-match.
  */
 export abstract class OrigamiCollectionItemOptions {
-  /** Item value, defaulting to an opaque mounted-stable generated identity. No normalization is performed. */
+  /** Item value, defaulting to a generated value that is stable while mounted. No normalization is performed. */
   abstract readonly value: Signal<string>;
 
   /**
@@ -71,11 +70,12 @@ export abstract class OrigamiCollectionItemOptions {
 }
 
 /**
- * Registers one host with its nearest logical Collection owner during construction.
- * Options are resolved later, avoiding consumer/host-directive construction cycles.
- * Helper-provided replacements override the default even when direct and host-composed selectors co-match.
- * Server item-view checks refresh order even when an unchanged OnPush owner is only traversed.
- * Caller-scoped destruction removes only this registration. An orphan fails Angular DI clearly.
+ * One item of its nearest logical Collection owner. Construction captures the item's
+ * registration unpublished; it publishes in `ngOnInit`, once Angular has set its inputs, so
+ * readers never see an item's default value in place of its bound one. Options are resolved
+ * later, avoiding consumer/host-directive construction cycles. Helper-provided replacements
+ * override the default even when direct and host-composed selectors co-match. Caller-scoped
+ * destruction removes only this item. An orphan fails Angular DI clearly.
  */
 @Directive({
   selector: "[ogCollectionItem]",
@@ -84,27 +84,16 @@ export abstract class OrigamiCollectionItemOptions {
 })
 export class OrigamiCollectionItem implements OrigamiCollectionItemOptions {
   /**
-   * Own value input, default opaque generated identity. Reused SSR element hosts preserve
-   * the default through hydration; persistent domain identity should use explicit values.
+   * Own value input, default a generated value that is unique in the application and isn't
+   * guaranteed to match across hydration, so persistent domain identity should use explicit values.
    * Replaced Options supply effective values instead of this unused default.
    */
-  readonly value = input(injectUniqueId("collection-item"));
+  readonly value = input(injectUniqueValue("collection-item"));
 
-  readonly #context = inject(CollectionContext);
-  readonly #server = isPlatformServer(inject(PLATFORM_ID));
+  readonly #member = inject(CollectionContext).member(injectDeferred(OrigamiCollectionItemOptions));
 
-  /** Registers synchronously in this item's injection context, with this item's DestroyRef cleanup. */
-  constructor() {
-    this.#context.register(injectDeferred(OrigamiCollectionItemOptions));
-  }
-
-  /**
-   * @internal Checks server order in this item's view, including Collections its nearest
-   * Collection's items joined, when descendant-only refreshes skip owner hooks.
-   */
-  ngAfterViewChecked(): void {
-    if (this.#server) {
-      this.#context.refreshServerOrder();
-    }
+  /** @internal Publishes this item once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#member.publish();
   }
 }

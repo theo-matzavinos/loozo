@@ -484,7 +484,7 @@ test("Q3: a move or click target changed by its own focus handlers is not checke
   await expect(part("outputs")).toHaveText("2");
 });
 
-test("Q4: inside a Toolbar arrows only move focus and Space, Enter or a click checks once; a vertical Toolbar's axis applies; Popover Content cuts joining", async ({
+test("Q4: in a Toolbar Radio Group arrows only move focus and Space, Enter or a click checks once; a vertical Toolbar's axis applies; a standalone group in Popover Content keeps its own tab stop", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);
@@ -495,7 +495,6 @@ test("Q4: inside a Toolbar arrows only move focus and Space, Enter or a click ch
   await expect(part("alignment")).toHaveAttribute("role", "radiogroup");
   await expect(part("left")).toHaveAttribute("aria-checked", "true");
   await expectTabStop(toolbar, part("bold"));
-  await expect(part("values")).toHaveText("bold,italic,left,center,right,*");
 
   await part("bold").focus();
 
@@ -597,8 +596,7 @@ test("Q5: replaced root and item Options drive behavior with no fallback; descen
   await expect(option("same-day")).toHaveAttribute("aria-checked", "false");
   await expect(page.getByTestId("checkout-state")).toHaveText("standard");
   await expect(estimate).toHaveAttribute("data-estimate", "3-5 days");
-  // Domain-derived item Options drive the Collection values and native disabled.
-  await expect(page.getByTestId("checkout-item-values")).toHaveText("standard,express,same-day");
+  // Domain-derived item Options drive native disabled.
   await expect(option("same-day")).toBeDisabled();
   await expectTabStop(group, option("standard"));
 

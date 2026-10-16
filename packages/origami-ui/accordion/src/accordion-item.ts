@@ -14,7 +14,7 @@ import type { Signal } from "@angular/core";
 import { OrigamiCollectionItem, OrigamiCollectionItemOptions } from "@loozo/origami-ui/collection";
 import { OrigamiCollapsible, OrigamiCollapsibleOptions } from "@loozo/origami-ui/collapsible";
 import type { OrigamiCollapsibleHiding } from "@loozo/origami-ui/collapsible";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { AccordionContext } from "./accordion";
 
 /** Private upper Item configuration, aliased after construction; not an application authoring API. */
@@ -78,8 +78,8 @@ export class AccordionItemContext {
   ],
 })
 export class OrigamiAccordionItem implements OrigamiCollectionItemOptions {
-  /** Own value input, default opaque hydration-stable generated identity. Explicit distinct domain values provide persistent independent selection. */
-  readonly value = input(injectUniqueId("accordion-item"));
+  /** Own value input, default a generated value that hydration doesn't keep. Explicit distinct domain values provide persistent independent selection. */
+  readonly value = input(injectUniqueValue("accordion-item"));
   /** Own disabled input, default false with boolean-attribute coercion; combined reactively with root disabled for click/native reveal requests. */
   readonly disabled = input(false, { transform: booleanAttribute });
   /** Own collapsed hiding input, default hidden; inherits Presence exit retention and progressive until-found behavior. */

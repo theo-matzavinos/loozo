@@ -11,7 +11,7 @@ import { performCompilation, readConfiguration } from "@angular/compiler-cli";
 // change detection: every render is driven only by Angular and PendingTasks.
 const sourceRoot = path.resolve(".scratch/consumer/src");
 const outDir = path.resolve(".scratch/consumer/.runtime/acceptance-ssr");
-const fixtures = ["server-order", "server-errors", "server-identity"];
+const fixtures = ["server-order", "server-errors", "server-identity", "server-roving"];
 const configuration = readConfiguration(path.resolve(".scratch/consumer/tsconfig.app.json"));
 
 await rm(outDir, { recursive: true, force: true });
@@ -110,15 +110,17 @@ function serverItemValues(nodes) {
   return values;
 }
 
-// C2 A3 L2: construction failures surface from a genuine server render.
+// C2 A3 K9: construction failures surface from a genuine server render, including a Toolbar
+// group outside a Toolbar.
 const errors = await fixture("server-errors");
 
 for (const [name, expected] of [
   ["OrphanCollection", /NG0201: No provider found/],
   ["OrphanAccordion", /NG0201: No provider found/],
   ["OrphanAccordionPanel", /NG0201: No provider found/],
-  ["DuplicateTrigger", /only one mounted trigger/],
-  ["DuplicatePanel", /only one mounted panel/],
+  ["OrphanToolbarToggleGroupSingle", /NG0201: No provider found for `ToolbarContext`/],
+  ["OrphanToolbarToggleGroupMultiple", /NG0201: No provider found for `ToolbarContext`/],
+  ["OrphanToolbarRadioGroup", /NG0201: No provider found for `ToolbarContext`/],
 ]) {
   const handled = [];
 
@@ -153,16 +155,28 @@ for (const [name, expected] of [
   }
 }
 
-console.log("C2 A3 L2: five SSR construction failures rejected clearly.");
+console.log("C2 A3 K9: six SSR construction failures rejected clearly.");
 
-// C3 A5: an async PendingTasks key move after the first public State read retains all nodes,
-// parents and Collection records, and serializes the final public order.
+// L2: a second mounted part throws when it publishes in ngOnInit, during change detection, so
+// Angular reports it once through the application's ErrorHandler.
+for (const [name, expected] of [
+  ["DuplicateTrigger", /only one mounted trigger/],
+  ["DuplicatePanel", /only one mounted panel/],
+]) {
+  const duplicate = await render(errors[name], "error-app", []);
+
+  assert.equal(duplicate.errors.length, 1, `${name} must report exactly one error`);
+  assert.match(String(duplicate.errors[0]), expected, `${name} must fail clearly during SSR`);
+}
+
+console.log("L2: two duplicate SSR parts reported clearly at publish.");
+
+// C3 A5: an async PendingTasks keyed move after the first public State read retains all nodes,
+// parents and Collection records. Membership is unchanged, so no reader is notified: `items`
+// stays the same array and the serialized public order is the order before the move.
 const {
   ServerOrderConsumer,
   ServerOrderEvidence,
-  ServerOnPushOrderConsumer,
-  ServerOnPushToolbarOrderConsumer,
-  ServerJoinedOrderEvidence,
   ServerLateOrderConsumer,
   ServerLateOrderEvidence,
 } = await fixture("server-order");
@@ -176,80 +190,19 @@ assert.deepEqual(ordered.errors, []);
 assert.deepEqual(evidence.initialValues, ["one", "two"]);
 assert.equal(evidence.initialNodes.length, 4);
 assert.equal(evidence.retained, true, "Nodes, parents and Collection records are retained");
-assert.deepEqual(evidence.finalValues, ["two", "one"]);
-assert.deepEqual(evidence.finalCollectionValues, ["two", "one"]);
 assert.deepEqual(serverItemValues(evidence.finalNodes), ["two", "one", "two", "one"]);
+assert.equal(evidence.sameItems, true, "A keyed move notifies no items reader");
+assert.deepEqual(evidence.finalCollectionValues, ["one", "two"]);
+assert.deepEqual(evidence.finalValues, ["one", "two"]);
 assert.ok(evidence.observations >= 2 && evidence.observations < 20, "No stabilization loop");
-assert.match(ordered.html, /id="server-collection-order"[^>]*>two,one<\/output>/);
-assert.match(ordered.html, /id="server-accordion-order"[^>]*>two,one<\/output>/);
+assert.match(ordered.html, /id="server-collection-order"[^>]*>one,two<\/output>/);
+assert.match(ordered.html, /id="server-accordion-order"[^>]*>one,two<\/output>/);
 console.log(
-  `C3 A5: pending-task SSR key move retained four nodes/records and serialized two,one (${evidence.observations} observations).`,
+  `C3 A5: pending-task SSR keyed move retained four nodes/records and notified no reader (${evidence.observations} observations).`,
 );
 
-// The static OnPush owner is checked once; only dirty descendants reorder. Three consecutive
-// public reads before serialization must already be current.
-const onPush = new ServerOrderEvidence();
-const onPushRender = await render(ServerOnPushOrderConsumer, "onpush-order-app", [
-  { provide: BEFORE_APP_SERIALIZED, multi: true, useValue: () => onPush.observeFinal() },
-  { provide: ServerOrderEvidence, useValue: onPush },
-]);
-const onPushDom = serverItemValues(onPush.finalNodes);
-
-assert.deepEqual(onPushRender.errors, []);
-assert.equal(onPush.ownerChecks, 1, "No owner refresh may mask descendant-only ordering");
-assert.deepEqual(onPush.initialValues, ["one", "two"]);
-assert.equal(onPush.initialNodes.length, 4);
-assert.equal(onPush.retained, true);
-assert.deepEqual(onPushDom, ["two", "one", "two", "one"]);
-assert.equal(onPush.finalReads.length, 3);
-
-for (const read of onPush.finalReads) {
-  assert.deepEqual(read.collection, onPushDom.slice(0, 2));
-  assert.deepEqual(read.accordion, onPushDom.slice(2));
-}
-
-assert.equal(onPush.observations, 2);
-assert.match(onPushRender.html, /id="onpush-collection-order"[^>]*>two,one<\/output>/);
-assert.match(onPushRender.html, /id="onpush-accordion-order"[^>]*>two,one<\/output>/);
-console.log(
-  "C3 A5: OnPush owner checked once; descendant-only reorder, three current public reads, serialized two,one.",
-);
-
-// C3: a joined group's keyed move confined to an OnPush descendant of an unchanged Toolbar
-// owner refreshes the Toolbar's Collection order and server tab stop too.
-const joined = new ServerJoinedOrderEvidence();
-const joinedRender = await render(ServerOnPushToolbarOrderConsumer, "onpush-toolbar-order-app", [
-  { provide: BEFORE_APP_SERIALIZED, multi: true, useValue: () => joined.observeFinal() },
-  { provide: ServerJoinedOrderEvidence, useValue: joined },
-]);
-const joinedDom = [];
-
-for (const node of joined.finalNodes) {
-  joinedDom.push(node.getAttribute("data-server-joined-item"));
-}
-
-const tabStops = [];
-
-for (const match of joinedRender.html.matchAll(/<button[^>]*>/g)) {
-  if (match[0].includes('tabindex="0"')) {
-    tabStops.push(match[0].match(/data-server-joined-item="([^"]+)"/)?.[1]);
-  }
-}
-
-assert.deepEqual(joinedRender.errors, []);
-assert.equal(joined.ownerChecks, 1, "No owner refresh may mask descendant-only ordering");
-assert.deepEqual(joined.initialValues.slice(0, 2), ["bold", "italic"]);
-assert.equal(joined.retained, true);
-assert.deepEqual(joinedDom, ["italic", "bold", "paste"]);
-assert.equal(joined.finalValues.length, 3);
-assert.deepEqual(joined.finalValues.slice(0, 2), ["italic", "bold"]);
-assert.deepEqual(tabStops, ["italic"], "The server tab stop is the first control in DOM order");
-console.log(
-  "C3: descendant-only joined group move refreshed the Toolbar order to italic,bold and its server tab stop.",
-);
-
-// C3 A5: order first read after unread pending-task moves and an insertion is current DOM order,
-// and a later move still refreshes it before serialization.
+// C3 A5: order first read after unread moves and an insertion is current DOM order; a further
+// keyed move keeps it, and a later removal reads current DOM order again before serialization.
 const late = new ServerLateOrderEvidence();
 const lateRender = await render(ServerLateOrderConsumer, "late-order-app", [
   { provide: BEFORE_APP_SERIALIZED, multi: true, useValue: () => late.observeFinal() },
@@ -259,11 +212,13 @@ const lateRender = await render(ServerLateOrderConsumer, "late-order-app", [
 assert.deepEqual(lateRender.errors, []);
 assert.deepEqual(late.firstCollection, ["three", "two", "one"]);
 assert.deepEqual(late.firstAccordion, ["three", "two", "one"]);
-assert.deepEqual(serverItemValues(late.finalNodes), ["one", "three", "two", "one", "three", "two"]);
-assert.deepEqual(late.finalCollection, ["one", "three", "two"]);
-assert.deepEqual(late.finalAccordion, ["one", "three", "two"]);
+assert.deepEqual(late.movedCollection, ["three", "two", "one"]);
+assert.deepEqual(late.movedAccordion, ["three", "two", "one"]);
+assert.deepEqual(serverItemValues(late.finalNodes), ["one", "two", "one", "two"]);
+assert.deepEqual(late.finalCollection, ["one", "two"]);
+assert.deepEqual(late.finalAccordion, ["one", "two"]);
 console.log(
-  "C3 A5: first reads after unread moves and insertion returned three,two,one; a later move serialized one,three,two.",
+  "C3 A5: first reads after unread moves and insertion returned three,two,one; a keyed move kept it; a removal read one,two.",
 );
 
 // I3: unhosted allocations are valid and application-unique; hosted allocations correspond
@@ -280,8 +235,8 @@ for (let index = 0; index < 2; index += 1) {
   assert.deepEqual(result.errors, []);
   assert.equal(identity.unhosted.length, 5);
   assert.equal(new Set(identity.unhosted).size, 5, "Unhosted allocations are unique");
-  assert.equal(identity.hosted.length, 8);
-  assert.equal(new Set(identity.hosted).size, 8, "Repeated and odd keys never collide");
+  assert.equal(identity.hosted.length, 6);
+  assert.equal(new Set(identity.hosted).size, 6, "Repeated keys never collide");
 
   for (const value of [...identity.unhosted, ...identity.hosted]) {
     assert.equal(typeof value, "string");
@@ -298,5 +253,64 @@ assert.deepEqual(
   "Independent renders allocate corresponding hosted identities",
 );
 console.log(
-  "I3: five unique unhosted SSR allocations; eight distinct hosted allocations correspond across independent renders.",
+  "I3: five unique unhosted SSR allocations; six distinct hosted allocations correspond across independent renders.",
+);
+
+/** The attributes of the element whose `data-testid` is `testid`, from serialized HTML. */
+function attributesOf(html, testid) {
+  const tag = html.match(new RegExp(`<[a-z]+\\b[^>]*data-testid="${testid}"[^>]*>`))?.[0];
+
+  assert.ok(tag, `${testid} is rendered`);
+
+  const attributes = new Map();
+
+  for (const match of tag.matchAll(/([\w:-]+)(?:="([^"]*)")?/g)) {
+    attributes.set(match[1], match[2] ?? "");
+  }
+
+  return attributes;
+}
+
+// S8 U7 K8 Q7: repeated roving items with required replacement inputs render in development
+// mode, where Angular checks for NG0100, without NG0950; the third item is each widget's only
+// tab stop. S9 L5 V15: associations to parts rendered later (a later `@for`, a later sibling
+// component) are complete in server HTML.
+const { ServerRovingConsumer } = await fixture("server-roving");
+const roving = await render(ServerRovingConsumer, "roving-app", []);
+
+assert.deepEqual(roving.errors, []);
+
+for (const widget of ["tab", "mark", "tool", "radio"]) {
+  const stops = [];
+
+  for (const key of ["one", "two", "three"]) {
+    if (attributesOf(roving.html, `repeated-${widget}-${key}`).get("tabindex") === "0") {
+      stops.push(key);
+    }
+  }
+
+  assert.deepEqual(stops, ["three"], `${widget}: one server tab stop, on the third item`);
+}
+
+for (const key of ["one", "two", "three"]) {
+  const trigger = attributesOf(roving.html, `repeated-tab-${key}`);
+  const panel = attributesOf(roving.html, `repeated-panel-${key}`);
+
+  assert.equal(trigger.get("aria-controls"), `ssr-repeated-panel-${key}`);
+  assert.equal(panel.get("id"), `ssr-repeated-panel-${key}`);
+  assert.equal(panel.get("aria-labelledby"), trigger.get("id"));
+}
+
+const splitTrigger = attributesOf(roving.html, "split-collapsible-trigger");
+const splitPanel = attributesOf(roving.html, "split-collapsible-panel");
+
+assert.equal(splitTrigger.get("id"), "ssr-split-trigger");
+assert.equal(splitTrigger.get("aria-controls"), "ssr-split-panel");
+assert.equal(splitPanel.get("aria-labelledby"), "ssr-split-trigger");
+assert.equal(
+  attributesOf(roving.html, "split-popover-trigger").get("aria-controls"),
+  "ssr-split-content",
+);
+console.log(
+  "S8 U7 K8 Q7: repeated required-input items rendered one server tab stop per widget, on the third; S9 L5 V15: later parts' associations are complete in server HTML.",
 );

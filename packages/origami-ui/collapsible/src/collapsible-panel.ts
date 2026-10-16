@@ -142,12 +142,18 @@ export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
     return "";
   });
 
-  /** Registers this Panel synchronously; unmount cleanup cannot remove a replacement registration. */
+  readonly #registration = this.#context.panel(this.#options);
+
+  /** Captures this Panel's unpublished registration; unmount cleanup cannot remove a replacement registration. */
   constructor() {
-    this.#context.registerPanel(injectDeferred(OrigamiCollapsiblePanelOptions));
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Publishes this Panel once Angular has set its inputs; a second mounted Panel fails clearly. */
+  ngOnInit(): void {
+    this.#registration.publish();
   }
 
   /** @internal Own live native reveal request; bubbled descendant events are not this Panel's request. */

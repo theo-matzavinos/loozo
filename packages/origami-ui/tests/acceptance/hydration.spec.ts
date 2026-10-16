@@ -589,6 +589,167 @@ test("S7 H1 H2 H3: Tabs server selection, DOM-order tab stop and associations su
   }
 });
 
+/**
+ * In every unit: each roving widget's only tab stop is its third repeated item, Tabs Triggers
+ * name the Panels a later `@for` renders, and the split Collapsible and Popover parts name each
+ * other's bound IDs.
+ */
+async function expectRepeatedAndSplit(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+
+    for (const widget of ["tab", "mark", "tool", "radio"]) {
+      const items = unit.locator(`[data-testid^="repeated-${widget}-"]`);
+
+      await expect(items).toHaveCount(3);
+      await expect(items.and(page.locator('[tabindex="0"]'))).toHaveCount(1);
+      await expect(unit.getByTestId(`repeated-${widget}-three`)).toHaveAttribute("tabindex", "0");
+    }
+
+    await expect(unit.getByTestId("repeated-tab-three")).toHaveAttribute("aria-selected", "true");
+    await expect(unit.getByTestId("repeated-mark-three")).toHaveAttribute("aria-pressed", "true");
+    await expect(unit.getByTestId("repeated-radio-three")).toHaveAttribute("aria-checked", "true");
+
+    for (const key of ["one", "two", "three"]) {
+      const trigger = unit.getByTestId(`repeated-tab-${key}`);
+      const panel = unit.getByTestId(`repeated-panel-${key}`);
+
+      await expect(trigger).toHaveAttribute("aria-controls", `${label}-repeated-panel-${key}`);
+      await expect(panel).toHaveAttribute("id", `${label}-repeated-panel-${key}`);
+      await expect(panel).toHaveAttribute(
+        "aria-labelledby",
+        (await trigger.getAttribute("id")) ?? "",
+      );
+    }
+
+    await expect(unit.getByTestId("split-collapsible-trigger")).toHaveAttribute(
+      "aria-controls",
+      `${label}-split-panel`,
+    );
+    await expect(unit.getByTestId("split-collapsible-panel")).toHaveAttribute(
+      "aria-labelledby",
+      `${label}-split-trigger`,
+    );
+    await expect(unit.getByTestId("split-popover-trigger")).toHaveAttribute(
+      "aria-controls",
+      `${label}-split-content`,
+    );
+  }
+}
+
+test("S8 U7 K8 Q7 S9 L5 V15 H1 H2: repeated required-input items and parts rendered later keep one tab stop and complete associations in server HTML and through hydration", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    await expectRepeatedAndSplit(page, ["A", "B", "C"]);
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    const b = page.locator('[data-unit="B"]');
+
+    if (incremental) {
+      await b.getByTestId("hydrate-unit").click();
+    }
+
+    await expect(b).toHaveAttribute("data-client-render-seen", "true");
+    await expectRepeatedAndSplit(page, ["A", "B", "C"]);
+    // Hydration changes no saved node, ID or association.
+    await assertReferences(page, info);
+  } finally {
+    releaseMain();
+  }
+});
+
+/** Every element ID in the document, with how often it occurs. */
+async function documentIds(page: Page): Promise<Map<string, number>> {
+  const ids = await page.evaluate(() => {
+    const found: string[] = [];
+
+    for (const element of document.querySelectorAll("[id]")) {
+      found.push(element.id);
+    }
+
+    return found;
+  });
+  const counts = new Map<string, number>();
+
+  for (const id of ids) {
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+test("I5 H1 H2: IDs the browser generates after a later block hydrates first collide with no ID of a dehydrated block", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    const serverIds = await documentIds(page);
+
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    // Incremental: B, the later block, hydrates first while A and C stay dehydrated.
+    const order = ["B", "A"];
+
+    if (!incremental) {
+      order.push("C");
+    }
+
+    for (const label of order) {
+      const unit = page.locator(`[data-unit="${label}"]`);
+
+      if (incremental) {
+        await unit.getByTestId("hydrate-unit").click();
+      }
+
+      await expect(unit).toHaveAttribute("data-client-render-seen", "true");
+
+      const trigger = unit.getByTestId("client-only-trigger");
+      const panel = unit.getByTestId("client-only-panel");
+      const triggerId = (await trigger.getAttribute("id")) ?? "";
+
+      expect(triggerId).not.toBe("");
+      expect(serverIds.has(triggerId)).toBe(false);
+      expect(serverIds.has((await panel.getAttribute("id")) ?? "")).toBe(false);
+      await expect(trigger).toHaveAttribute(
+        "aria-controls",
+        (await panel.getAttribute("id")) ?? "",
+      );
+
+      const duplicates: string[] = [];
+
+      for (const [id, count] of await documentIds(page)) {
+        if (count > 1) {
+          duplicates.push(id);
+        }
+      }
+
+      expect(duplicates).toEqual([]);
+    }
+
+    if (incremental) {
+      await expect(page.locator('[data-unit="C"]')).toHaveAttribute(
+        "data-client-render-seen",
+        "false",
+      );
+      await expect(page.locator('[data-unit="C"]').getByTestId("client-only-trigger")).toHaveCount(
+        0,
+      );
+    }
+
+    await assertReferences(page, info);
+  } finally {
+    releaseMain();
+  }
+});
+
 /** Server-rendered ToggleGroup semantics; C has no Single value, a disabled first item and no marks. */
 async function expectServerToggleGroups(page: Page, labels: string[]): Promise<void> {
   for (const label of labels) {
@@ -749,12 +910,12 @@ async function expectServerToolbars(page: Page, labels: string[]): Promise<void>
       await expect(undo).toBeEnabled();
       await expect(undo).toHaveAttribute("tabindex", "0");
       await expect(redo).toHaveAttribute("tabindex", "-1");
-      // A pressed joined item is not preferred.
+      // A pressed Toolbar group item is not preferred.
       await expect(bold).toHaveAttribute("aria-pressed", "true");
       await expect(bold).toHaveAttribute("tabindex", "-1");
     }
 
-    // The joined group comes first: its first item is the tab stop, not the pressed second one.
+    // The Toolbar group comes first: its first item is the tab stop, not the pressed second one.
     await expect(groupToolbar.locator('button[tabindex="0"]')).toHaveCount(1);
     await expect(unit.getByTestId("hydration-group-first")).toHaveAttribute("tabindex", "0");
     await expect(unit.getByTestId("hydration-group-second")).toHaveAttribute(
@@ -765,7 +926,7 @@ async function expectServerToolbars(page: Page, labels: string[]): Promise<void>
   }
 }
 
-test("K6 H1 H2 H3: Toolbar server tab stop across joined groups survives hydration; a click after attachment or replay runs the handler once", async ({
+test("K6 H1 H2 H3: Toolbar server tab stop across Toolbar groups survives hydration; a click after attachment or replay runs the handler once", async ({
   page,
 }, info) => {
   const incremental = info.project.metadata.hydration === "incremental";
@@ -877,7 +1038,7 @@ async function expectServerRadioGroups(page: Page, labels: string[]): Promise<vo
     await expect(lockedFirst).toHaveAttribute("tabindex", "-1");
     await expect(lockedSecond).toHaveAttribute("tabindex", "0");
 
-    // A joined checked radio is not preferred: the Toolbar's first control is its tab stop.
+    // A checked Toolbar Radio Group radio is not preferred: the Toolbar's first control is its tab stop.
     await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(1);
     await expect(unit.getByTestId("hydration-radio-copy")).toHaveAttribute("tabindex", "0");
     await expect(center).toHaveAttribute("aria-checked", "true");

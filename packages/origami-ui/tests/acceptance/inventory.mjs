@@ -1,6 +1,6 @@
 export const inventory = {
   "": [],
-  utils: ["injectDeferred", "injectUniqueId"],
+  utils: ["injectDeferred", "injectUniqueId", "injectUniqueValue"],
   collection: [
     "OrigamiCollection",
     "OrigamiCollectionState",
@@ -80,6 +80,9 @@ export const inventory = {
     "OrigamiToolbarState",
     "OrigamiToolbarItem",
     "OrigamiToolbarItemOptions",
+    "OrigamiToolbarToggleGroupSingle",
+    "OrigamiToolbarToggleGroupMultiple",
+    "OrigamiToolbarRadioGroup",
     "OrigamiToolbarOrientation",
   ],
   "radio-group": [

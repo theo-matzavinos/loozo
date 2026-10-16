@@ -1,25 +1,21 @@
 import {
   Directive,
   InjectionToken,
-  Service,
   booleanAttribute,
+  computed,
   forwardRef,
   inject,
   input,
   model,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
-import {
-  OrigamiCollection,
-  ɵOrigamiRovingFocus,
-  ɵrequestMultipleSelection,
-} from "@loozo/origami-ui/collection";
+import { ɵrequestMultipleSelection } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import {
   OrigamiToggleGroupState,
-  Selection,
-  ToggleGroupContext,
-  groupConfiguration,
+  ownRovingFocus,
+  ɵOrigamiToggleGroupRoot,
+  ToggleGroupRootOptions,
 } from "./toggle-group";
 import type { OrigamiToggleGroupOrientation } from "./toggle-group";
 
@@ -36,7 +32,7 @@ export abstract class OrigamiToggleGroupMultipleOptions {
   abstract readonly value: WritableSignal<readonly string[]>;
   /** Blocks every item's user activation and removes the tab stop, not external configuration writes; default false. */
   abstract readonly disabled: Signal<boolean>;
-  /** Arrow-key axis; default `horizontal`. Has no effect inside a Toolbar, whose orientation applies. */
+  /** Arrow-key axis; default `horizontal`. Has no effect on a Toolbar Toggle Group, whose Toolbar's orientation applies. */
   abstract readonly orientation: Signal<OrigamiToggleGroupOrientation>;
 
   /**
@@ -96,31 +92,56 @@ export abstract class OrigamiToggleGroupMultipleOptions {
       },
     ];
   }
-}
 
-@Service({ autoProvided: false })
-class MultipleSelection implements Selection {
-  readonly #options = injectDeferred(OrigamiToggleGroupMultipleOptions);
+  /**
+   * @internal Providers for a Multiple root directive that composes `ɵOrigamiToggleGroupRoot`:
+   * its Options default and the root Options derived from these Options.
+   * @param type - Deferred same-host directive supplying the default Options.
+   * @param orientation - Supplies the effective axis in the root's injection context; omitted,
+   *   these Options' orientation applies.
+   * @returns Local providers for the Multiple root directive.
+   */
+  static ɵprovideRoot(
+    type: () =>
+      | Type<OrigamiToggleGroupMultipleOptions>
+      | AbstractType<OrigamiToggleGroupMultipleOptions>,
+    orientation?: () => Signal<OrigamiToggleGroupOrientation>,
+  ): Provider[] {
+    return [
+      OrigamiToggleGroupMultipleOptions.ɵprovideDefault(type),
+      ToggleGroupRootOptions.provideFactory(() => {
+        const options = injectDeferred(OrigamiToggleGroupMultipleOptions);
+        let effectiveOrientation: Signal<OrigamiToggleGroupOrientation> = computed(() =>
+          options().orientation(),
+        );
 
-  selected(value: string): boolean {
-    return this.#options().value().includes(value);
-  }
+        if (orientation !== undefined) {
+          effectiveOrientation = orientation();
+        }
 
-  request(value: string, pressed: boolean): void {
-    ɵrequestMultipleSelection(this.#options().value, value, pressed);
+        return {
+          disabled: computed(() => options().disabled()),
+          orientation: effectiveOrientation,
+          values: computed(() => options().value()),
+          request: (value, pressed) => {
+            ɵrequestMultipleSelection(options().value, value, pressed);
+          },
+        };
+      }),
+    ];
   }
 }
 
 /**
  * Multiple-pressed Toggle Group root: each item adds or removes its value. User activation
  * writes a new array that keeps every other value, including values no item has, in order, and
- * never mutates the caller's array; removing an item never prunes. Composes Collection so focus
- * follows rendered DOM order; the model is never written without user action. Static
+ * never mutates the caller's array; removing an item never prunes. Its items share one tab
+ * stop, held by the focused item, else the first pressed in DOM order, else the first, and arrow
+ * keys follow rendered DOM order; the model is never written without user action. Static
  * `role="group"` (a consumer's static `role` overrides it), `data-orientation` and
  * `data-disabled` reflect effective Options; there is no `aria-orientation`. Consumers own the
- * accessible name, item labels and styling. Inside an `ogToolbar` the group joins the Toolbar: its
- * items share the Toolbar's single tab stop and arrow order, and the effective orientation is the
- * Toolbar's.
+ * accessible name, item labels and styling. Inside an `ogToolbar` it keeps its own tab stop; to
+ * share the Toolbar's, use `OrigamiToolbarToggleGroupMultiple` from `@loozo/origami-ui/toolbar`.
  *
  * @example
  * ```html
@@ -133,21 +154,11 @@ class MultipleSelection implements Selection {
 @Directive({
   selector: "[ogToggleGroupMultiple]",
   exportAs: "ogToggleGroupMultiple",
-  hostDirectives: [OrigamiCollection],
+  hostDirectives: [ɵOrigamiToggleGroupRoot],
   providers: [
-    ToggleGroupContext,
-    OrigamiToggleGroupState,
-    ɵOrigamiRovingFocus,
-    MultipleSelection,
-    { provide: Selection, useExisting: MultipleSelection },
-    OrigamiToggleGroupMultipleOptions.ɵprovideDefault(() => OrigamiToggleGroupMultiple),
-    { provide: groupConfiguration, useExisting: OrigamiToggleGroupMultipleOptions },
+    OrigamiToggleGroupMultipleOptions.ɵprovideRoot(() => OrigamiToggleGroupMultiple),
+    ownRovingFocus,
   ],
-  host: {
-    role: "group",
-    "[attr.data-orientation]": "effectiveOrientation()",
-    "[attr.data-disabled]": "disabledAttribute()",
-  },
 })
 export class OrigamiToggleGroupMultiple implements OrigamiToggleGroupMultipleOptions {
   /**
@@ -161,11 +172,4 @@ export class OrigamiToggleGroupMultiple implements OrigamiToggleGroupMultipleOpt
   readonly orientation = input<OrigamiToggleGroupOrientation>("horizontal");
   /** This root's readonly effective Options observation, shared with its descendants. */
   readonly state = inject(OrigamiToggleGroupState);
-
-  readonly #context = inject(ToggleGroupContext);
-
-  /** @internal Effective orientation host marker. */
-  protected readonly effectiveOrientation = this.#context.orientation;
-  /** @internal Readonly disabled host marker. */
-  protected readonly disabledAttribute = this.#context.disabledAttribute;
 }

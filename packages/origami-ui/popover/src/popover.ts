@@ -22,7 +22,7 @@ import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angu
 import { isPlatformServer } from "@angular/common";
 import { autoUpdate } from "@floating-ui/dom";
 import { OrigamiPresenceState, ɵOrigamiPresencePresentation } from "@loozo/origami-ui/presence";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import type { OrigamiPopoverAnchorOptions } from "./popover-anchor";
 import type { OrigamiPopoverContentOptions } from "./popover-content";
 import { positionContent } from "./popover-position";
@@ -150,7 +150,7 @@ export class PopoverContext {
   readonly #errorHandler = inject(ErrorHandler);
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #options = injectDeferred(OrigamiPopoverOptions);
-  readonly #preparation = new PopoverPreparation(injectUniqueId("popover-preparation"));
+  readonly #preparation = new PopoverPreparation(injectUniqueValue("popover-preparation"));
   readonly #trigger = signal<IdentityPart | null>(null);
   readonly #anchor = signal<IdentityPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
@@ -254,8 +254,9 @@ export class PopoverContext {
     });
   }
 
-  registerTrigger(options: () => { readonly id: Signal<string> }): void {
-    this.#register(
+  /** The calling Trigger's unpublished registration, captured in its injection context. */
+  trigger(options: () => { readonly id: Signal<string> }): { publish(): void } {
+    return this.#part(
       this.#trigger,
       {
         element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
@@ -265,8 +266,9 @@ export class PopoverContext {
     );
   }
 
-  registerAnchor(options: () => { readonly id: Signal<string> }): void {
-    this.#register(
+  /** The calling Anchor's unpublished registration, captured in its injection context. */
+  anchor(options: () => { readonly id: Signal<string> }): { publish(): void } {
+    return this.#part(
       this.#anchor,
       {
         element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
@@ -276,8 +278,9 @@ export class PopoverContext {
     );
   }
 
-  registerContent(options: () => OrigamiPopoverContentOptions): void {
-    this.#register(
+  /** The calling Content's unpublished registration, captured in its injection context. */
+  content(options: () => OrigamiPopoverContentOptions): { publish(): void } {
+    return this.#part(
       this.#content,
       {
         element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
@@ -289,13 +292,12 @@ export class PopoverContext {
     );
   }
 
-  #register<T>(slot: WritableSignal<T | null>, part: T, role: string): void {
-    if (slot() !== null) {
-      throw new Error(`Popover supports only one mounted ${role}.`);
-    }
+  #part<T>(slot: WritableSignal<T | null>, part: T, role: string): { publish(): void } {
+    let destroyed = false;
 
-    slot.set(part);
     inject(DestroyRef).onDestroy(() => {
+      destroyed = true;
+
       if (slot() === part) {
         this.#suppress();
         slot.set(null);
@@ -304,6 +306,20 @@ export class PopoverContext {
         this.#schedule();
       }
     });
+
+    return {
+      publish: () => {
+        if (destroyed) {
+          return;
+        }
+
+        if (slot() !== null) {
+          throw new Error(`Popover supports only one mounted ${role}.`);
+        }
+
+        slot.set(part);
+      },
+    };
   }
 
   anchorId(element: HTMLElement, options: () => OrigamiPopoverAnchorOptions): string {
