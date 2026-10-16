@@ -1,7 +1,7 @@
 import { Component, computed, inject } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { ContentHtml } from "../../../../content-html.js";
-import { CurrentPackage } from "../../../../package-content.js";
+import { CurrentPackage, findGuide } from "../../../../package-content.js";
 import { pageTitle } from "../../../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 
@@ -18,7 +18,7 @@ import { injectRoute } from "./route.generated.js";
             <h2 id="toc-heading">On this page</h2>
             <ul>
               @for (heading of page.guide.headings; track heading.id) {
-                <li [class.nested]="heading.level === 4">
+                <li [class.nested]="heading.level > page.topLevel">
                   <!-- Same-page anchors to content headings aren't route destinations, so not typed links. -->
                   <a [routerLink]="[]" [fragment]="heading.id">{{ heading.text }}</a>
                 </li>
@@ -53,30 +53,39 @@ export default class Guide {
   readonly page = computed(() => {
     const params = this.route.params();
     const content = this.content();
-    const index = content.guides.findIndex((candidate) => candidate.slug === params.guide);
+    const found = findGuide(content, params.guide);
 
-    if (index === -1) {
+    if (found === undefined) {
       return undefined;
     }
 
+    const { guide, sequence } = found;
+    const index = sequence.indexOf(guide);
     let previous = null;
     let next = null;
 
     if (index > 0) {
-      const target = content.guides[index - 1];
+      const target = sequence[index - 1];
       const link = this.route.link({ params: { package: params.package, guide: target.slug } });
 
       previous = { title: target.title, link };
     }
 
-    if (index < content.guides.length - 1) {
-      const target = content.guides[index + 1];
+    if (index < sequence.length - 1) {
+      const target = sequence[index + 1];
       const link = this.route.link({ params: { package: params.package, guide: target.slug } });
 
       next = { title: target.title, link };
     }
 
-    return { packageName: content.name, guide: content.guides[index], previous, next };
+    // The table of contents indents headings below the page's top level.
+    let topLevel = 4;
+
+    for (const heading of guide.headings) {
+      topLevel = Math.min(topLevel, heading.level);
+    }
+
+    return { packageName: content.name, guide, topLevel, previous, next };
   });
 
   constructor() {

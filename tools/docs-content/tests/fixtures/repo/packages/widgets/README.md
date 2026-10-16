@@ -27,6 +27,11 @@ Linked code [`Toggle`](#setup) stays as written.
 
 The second setup heading.
 
-| Option  | Meaning           |
-| ------- | ----------------- |
-| `label` | The toggle's text |
+| Option          | Meaning            |
+| --------------- | ------------------ |
+| `label`         | The toggle's text  |
+| [spec](SPEC.md) | Linked from a cell |
+
+See [extras](extras/README.md) and [its usage](extras/README.md#usage).
+
+Code `[spec](SPEC.md)` stays beside [the spec again](SPEC.md).

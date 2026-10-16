@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Token } from "markdown-it";
 import type { GuideHeading, GuidePage } from "./model.ts";
 import { markdown, transformTokens, type PackageContext, type ReadmeAnchors } from "./markdown.ts";
-import { attribute, findSnippetEmbed, readSnippet } from "./snippets.ts";
+import { repositoryUrl } from "./packages.ts";
+import { attribute, findSnippetEmbed, readSnippet, SourceError } from "./snippets.ts";
 
 /** A README parsed once, with heading ids assigned GitHub-style across the whole file. */
 export interface ParsedReadme {
@@ -12,11 +13,11 @@ export interface ParsedReadme {
   readonly anchors: ReadmeAnchors;
 }
 
-export function parseReadme(packageDir: string, slug: string): ParsedReadme {
+/** Parses `<packageDir>/README.md`: the package overview, and a guide page per H2. */
+export function parsePackageReadme(packageDir: string, slug: string): ParsedReadme {
   const file = join(packageDir, "README.md");
-  const tokens = markdown.parse(readFileSync(file, "utf8"), {});
+  const tokens = parseWithHeadingIds(file);
   const anchors = new Map<string, string>();
-  const seen = new Map<string, number>();
   let guide: string | undefined = undefined;
 
   for (let index = 0; index < tokens.length; index++) {
@@ -26,15 +27,13 @@ export function parseReadme(packageDir: string, slug: string): ParsedReadme {
       continue;
     }
 
-    const id = uniqueSlug(seen, headingText(tokens[index + 1]));
-
-    token.attrSet("id", id);
+    const id = attribute(token, "id")!;
 
     if (token.tag === "h1") {
       anchors.set(id, slug);
     } else if (token.tag === "h2") {
       if (id === "") {
-        throw new Error(`${file}:${token.map![0] + 1}: a guide heading needs text`);
+        throw new SourceError(file, token.map![0] + 1, "a guide heading needs text");
       }
 
       guide = `${slug}/guide/${id}`;
@@ -46,7 +45,56 @@ export function parseReadme(packageDir: string, slug: string): ParsedReadme {
     }
   }
 
-  return { file, tokens, anchors: { slug, anchors } };
+  return { file, tokens, anchors: { href: slug, anchors } };
+}
+
+/**
+ * Parses an entry-point README: one guide page at `href`, titled by the H1 it starts with.
+ *
+ * @throws SourceError when the README doesn't start with its only H1.
+ */
+export function parseEntryReadme(file: string, href: string): ParsedReadme {
+  const tokens = parseWithHeadingIds(file);
+  const anchors = new Map<string, string>();
+
+  if (tokens[0]?.type !== "heading_open" || tokens[0].tag !== "h1") {
+    throw new SourceError(file, 1, "an entry-point README starts with an H1 title");
+  }
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+
+    if (token.type !== "heading_open") {
+      continue;
+    }
+
+    if (token.tag === "h1" && index !== 0) {
+      throw new SourceError(file, token.map![0] + 1, "an entry-point README has one H1");
+    }
+
+    const id = attribute(token, "id")!;
+
+    if (index === 0) {
+      anchors.set(id, href);
+    } else {
+      anchors.set(id, `${href}#${id}`);
+    }
+  }
+
+  return { file, tokens, anchors: { href, anchors } };
+}
+
+function parseWithHeadingIds(file: string): Token[] {
+  const tokens = markdown.parse(readFileSync(file, "utf8"), {});
+  const seen = new Map<string, number>();
+
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index].type === "heading_open") {
+      tokens[index].attrSet("id", uniqueSlug(seen, headingText(tokens[index + 1])));
+    }
+  }
+
+  return tokens;
 }
 
 /** Splits a parsed README into the overview (before the first H2, H1 excluded) and guide pages. */
@@ -110,6 +158,39 @@ export function renderReadme(
   return { overviewHtml: render(overview), guides };
 }
 
+/** Renders an entry-point README as one guide page; its H1 is the title. */
+export function renderEntryReadme(
+  context: PackageContext,
+  readme: ParsedReadme,
+  slug: string,
+): GuidePage {
+  const tokens = readme.tokens;
+
+  transformTokens(context, tokens, { file: readme.file, line: 1, tsdoc: false });
+
+  const headings: GuideHeading[] = [];
+
+  // The title's open, inline and close tokens come first.
+  for (let index = 3; index < tokens.length; index++) {
+    const token = tokens[index];
+
+    if (token.type === "heading_open" && token.tag !== "h5" && token.tag !== "h6") {
+      headings.push({
+        id: attribute(token, "id")!,
+        text: headingText(tokens[index + 1]),
+        level: Number(token.tag.slice(1)) as 2 | 3 | 4,
+      });
+    }
+  }
+
+  return {
+    slug,
+    title: headingText(tokens[1]),
+    html: render(tokens.slice(3)),
+    headings,
+  };
+}
+
 function renderGuide(guide: {
   slug: string;
   title: string;
@@ -130,19 +211,34 @@ function render(tokens: Token[]): string {
 
 /**
  * Renders the README as published to npm: each snippet embed becomes its caption followed by a
- * fenced code block of the (region-extracted, dedented) snippet. Everything else is unchanged.
+ * fenced code block of the (region-extracted, dedented) snippet, and every other relative link
+ * becomes a GitHub URL pinned to the release tag `<package directory>@<version>`. Everything else
+ * is unchanged.
  */
 export function renderPublishedReadme(packageDir: string): string {
   const file = join(packageDir, "README.md");
   const source = readFileSync(file, "utf8");
   const lines = source.split("\n");
   const tokens = markdown.parse(source, {});
+  const repository = readPinnedRepository(packageDir);
   const replacements: { start: number; end: number; text: string }[] = [];
+  // Table cells' inline tokens have no lines of their own; their row's are the closest.
+  let blockLines: [number, number] | null = null;
 
   for (let index = 0; index < tokens.length; index++) {
-    const map = tokens[index].map;
+    const token = tokens[index];
+    const map = token.map;
 
-    if (tokens[index].type !== "paragraph_open" || map === null) {
+    if (token.type === "inline") {
+      pinLinks(lines, token, map ?? blockLines!, repository, file);
+      continue;
+    }
+
+    if (map !== null) {
+      blockLines = map;
+    }
+
+    if (token.type !== "paragraph_open" || map === null) {
       continue;
     }
 
@@ -165,6 +261,8 @@ export function renderPublishedReadme(packageDir: string): string {
       end: map[1],
       text: `\`${snippet.caption}\`\n\n${fence}${snippet.language}\n${snippet.code}\n${fence}`,
     });
+    // The embed's inline and closing tokens are replaced with it.
+    index += 2;
   }
 
   for (let position = replacements.length - 1; position >= 0; position--) {
@@ -174,6 +272,114 @@ export function renderPublishedReadme(packageDir: string): string {
   }
 
   return lines.join("\n");
+}
+
+/** Where a published README's relative links point: the package's release tag on GitHub. */
+interface PinnedRepository {
+  /** Repository root on disk. */
+  readonly root: string;
+  /** GitHub repository URL without a trailing slash. */
+  readonly url: string;
+  readonly tag: string;
+}
+
+function readPinnedRepository(packageDir: string): PinnedRepository {
+  const manifestPath = join(packageDir, "package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const directory: unknown = manifest.repository?.directory;
+  const mismatch = `${manifestPath}: "repository.directory" must be this package's directory`;
+
+  if (typeof directory !== "string") {
+    throw new Error(mismatch);
+  }
+
+  const suffix = `${sep}${directory.split("/").join(sep)}`;
+
+  if (!packageDir.endsWith(suffix)) {
+    throw new Error(mismatch);
+  }
+
+  return {
+    root: packageDir.slice(0, -suffix.length),
+    url: repositoryUrl(manifestPath, manifest.repository),
+    tag: `${basename(packageDir)}@${manifest.version}`,
+  };
+}
+
+/** Rewrites, in the source lines `[start, end)` of `inline`, its relative Markdown link targets. */
+function pinLinks(
+  lines: string[],
+  inline: Token,
+  [start, end]: [number, number],
+  repository: PinnedRepository,
+  file: string,
+) {
+  const relativeHrefs = new Set<string>();
+
+  for (const child of inline.children ?? []) {
+    const href = attribute(child, "href");
+
+    if (child.type !== "link_open" || href === undefined) {
+      continue;
+    }
+
+    if (!/^[a-z][a-z\d+.-]*:/i.test(href) && !href.startsWith("//") && !href.startsWith("#")) {
+      relativeHrefs.add(href);
+    }
+  }
+
+  if (relativeHrefs.size === 0) {
+    return;
+  }
+
+  // Code spans are matched first so that link-like text inside them is left alone.
+  for (let line = start; line < end; line++) {
+    lines[line] = lines[line].replace(
+      /(`+)[^]*?\1|\]\(([^)\s]+)/g,
+      (match, codeSpan: string | undefined, target: string | undefined) => {
+        if (codeSpan !== undefined || !relativeHrefs.has(markdown.normalizeLink(target!))) {
+          return match;
+        }
+
+        return `](${pinnedUrl(repository, file, line + 1, target!)}`;
+      },
+    );
+  }
+}
+
+function pinnedUrl(repository: PinnedRepository, file: string, line: number, href: string) {
+  const hashIndex = href.indexOf("#");
+  let path = href;
+  let hash = "";
+
+  if (hashIndex !== -1) {
+    path = href.slice(0, hashIndex);
+    hash = href.slice(hashIndex);
+  }
+
+  let target = resolve(dirname(file), decodeURIComponent(path));
+
+  if (path.startsWith("/")) {
+    target = join(repository.root, decodeURIComponent(path));
+  }
+
+  if (relative(repository.root, target).startsWith("..") || !existsSync(target)) {
+    throw new SourceError(file, line, `link target not found in the repository: ${href}`);
+  }
+
+  let kind = "blob";
+
+  if (statSync(target).isDirectory()) {
+    kind = "tree";
+  }
+
+  const segments: string[] = [];
+
+  for (const segment of relative(repository.root, target).split(sep)) {
+    segments.push(encodeURIComponent(segment));
+  }
+
+  return `${repository.url}/${kind}/${repository.tag}/${segments.join("/")}${hash}`;
 }
 
 function headingText(inline: Token): string {

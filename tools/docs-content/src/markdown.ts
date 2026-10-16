@@ -110,9 +110,10 @@ export async function createHighlight(): Promise<Highlight> {
   };
 }
 
-/** Docs-site locations of the headings of one package README. */
+/** Docs-site locations of one README and its headings. */
 export interface ReadmeAnchors {
-  readonly slug: string;
+  /** Docs href of the README as a whole. */
+  readonly href: string;
   /** Heading id → docs href. */
   readonly anchors: ReadonlyMap<string, string>;
 }
@@ -125,7 +126,7 @@ export interface PackageContext {
   readonly dir: string;
   readonly slug: string;
   readonly highlight: Highlight;
-  /** Absolute README path → anchors, for every documented package. */
+  /** Absolute README path → anchors, for every package and entry-point README. */
   readonly readmes: ReadonlyMap<string, ReadmeAnchors>;
   /** Public and generated-API symbol name → docs href. */
   readonly symbols: ReadonlyMap<string, string>;
@@ -422,7 +423,7 @@ function resolveHref(
 
   if (readme !== undefined) {
     if (hash === "") {
-      return { href: readme.slug, docs: true };
+      return { href: readme.href, docs: true };
     }
 
     const anchor = readme.anchors.get(decodeURIComponent(hash));
