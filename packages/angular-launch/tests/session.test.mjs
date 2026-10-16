@@ -724,7 +724,7 @@ test("session stop/overlap/dispose and independent application registrations do 
 
     const launchBefore = (await snapshot(secondRoot))["src/routes/left/rpc.generated.ts"];
 
-    await generateRouter(secondRoot, options, () => false);
+    await generateRouter(secondRoot, { ...options, autoDefineRoutes: false }, () => false);
     assert.deepEqual(
       (await snapshot(secondRoot))["src/routes/left/rpc.generated.ts"],
       launchBefore,
