@@ -1,4 +1,4 @@
-import { Component, signal } from "@angular/core";
+import { Component, model } from "@angular/core";
 import { OrigamiPresence } from "@loozo/origami-ui/presence";
 
 @Component({
@@ -43,5 +43,5 @@ import { OrigamiPresence } from "@loozo/origami-ui/presence";
   `,
 })
 export class Notice {
-  readonly visible = signal(false);
+  readonly visible = model(false);
 }

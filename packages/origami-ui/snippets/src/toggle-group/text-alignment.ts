@@ -1,4 +1,4 @@
-import { Component, signal } from "@angular/core";
+import { Component, model } from "@angular/core";
 import { OrigamiToggleGroupSingle, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
 
 @Component({
@@ -20,6 +20,6 @@ import { OrigamiToggleGroupSingle, OrigamiToggleGroupItem } from "@loozo/origami
   `,
 })
 export class TextAlignment {
-  readonly alignment = signal<string | null>("start");
-  readonly highlight = signal<string | null>(null);
+  readonly alignment = model<"start" | "center" | "end" | "justify" | null>("start");
+  readonly highlight = model<"yellow" | "green" | null>(null);
 }

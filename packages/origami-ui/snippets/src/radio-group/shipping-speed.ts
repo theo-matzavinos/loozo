@@ -1,4 +1,4 @@
-import { Component, signal } from "@angular/core";
+import { Component, input, model } from "@angular/core";
 import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
 
 // One tab stop; arrow keys move and check, and the layout is yours.
@@ -15,6 +15,6 @@ import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radi
   `,
 })
 export class ShippingSpeed {
-  readonly speed = signal<string | null>(null);
-  readonly sameDayAvailable = signal(false);
+  readonly speed = model<"standard" | "express" | "same-day" | null>(null);
+  readonly sameDayAvailable = input(false);
 }

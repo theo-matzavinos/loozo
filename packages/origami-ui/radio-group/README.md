@@ -2,7 +2,7 @@
 
 RadioGroup is a set of radio buttons with one tab stop, where arrow keys move and check, such as a shipping speed or a size. At most one item is checked, and the user can't uncheck it.
 
-[src/radio-group/shipping-speed.ts](../snippets/src/radio-group/shipping-speed.ts "both")
+[src/radio-group/shipping-speed.ts](../snippets/src/radio-group/shipping-speed.ts "playground")
 
 | Directive          | Configuration                                                                   |
 | ------------------ | ------------------------------------------------------------------------------- |

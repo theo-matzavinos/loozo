@@ -1,4 +1,4 @@
-import { Component, signal } from "@angular/core";
+import { Component, input, model } from "@angular/core";
 import {
   OrigamiCollapsible,
   OrigamiCollapsiblePanel,
@@ -9,7 +9,7 @@ import {
   selector: "app-details",
   imports: [OrigamiCollapsible, OrigamiCollapsibleTrigger, OrigamiCollapsiblePanel],
   template: `
-    <section ogCollapsible [(expanded)]="expanded">
+    <section ogCollapsible [(expanded)]="expanded" [disabled]="disabled()">
       <h2><button ogCollapsibleTrigger>Shipping details</button></h2>
       <div ogCollapsiblePanel role="region" class="panel">
         <p>Ships in two working days.</p>
@@ -34,5 +34,6 @@ import {
   `,
 })
 export class Details {
-  readonly expanded = signal(false);
+  readonly expanded = model(false);
+  readonly disabled = input(false);
 }

@@ -1,9 +1,11 @@
-import { Component, signal } from "@angular/core";
+import { Component, input, model } from "@angular/core";
 import {
   OrigamiPopover,
   OrigamiPopoverAnchor,
   OrigamiPopoverContent,
   OrigamiPopoverTrigger,
+  type OrigamiPopoverAlign,
+  type OrigamiPopoverSide,
 } from "@loozo/origami-ui/popover";
 
 @Component({
@@ -15,9 +17,9 @@ import {
       <div
         ogPopoverContent
         #content="ogPopoverContent"
-        side="block-end"
-        align="start"
-        [gap]="8"
+        [side]="side()"
+        [align]="align()"
+        [gap]="gap()"
         class="chooser"
         role="group"
         aria-label="Tasks"
@@ -59,5 +61,8 @@ import {
   `,
 })
 export class TaskChooser {
-  readonly open = signal(false);
+  readonly open = model(false);
+  readonly side = input<OrigamiPopoverSide>("block-end");
+  readonly align = input<OrigamiPopoverAlign>("start");
+  readonly gap = input(8);
 }
