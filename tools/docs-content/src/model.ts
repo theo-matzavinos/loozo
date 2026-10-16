@@ -1,4 +1,4 @@
-// Contract v4 (v3 + guide pages as blocks of HTML and running snippets).
+// Contract v5 (v4 + playground views with controls for the running component's inputs).
 //
 // Content contract between the docs content step (tools/docs-content) and the docs app (docs/).
 //
@@ -71,16 +71,39 @@ export interface GuidePage {
   readonly headings: readonly GuideHeading[];
 }
 
-/** Rendered HTML, or a running snippet: a snippet embed titled "both". */
+/** Rendered HTML, or a running snippet: a snippet embed titled "both" or "playground". */
 export type GuideBlock =
   | { readonly kind: "html"; readonly html: string }
   | {
       readonly kind: "demo";
       /** Key in `demos.generated.ts`, e.g. "origami-ui/snippets/src/toggle/mute.ts". */
       readonly demo: string;
+      readonly view: "both" | "playground";
+      /** One per `input()` and `model()` of the component, in declaration order; [] for "both". */
+      readonly controls: readonly DemoControl[];
       /** The captioned, highlighted source figure a plain embed of the same link gets. */
       readonly sourceHtml: string;
     };
+
+/**
+ * A playground control. A "fixed" input has a type or default the playground can't edit; it isn't
+ * bound, so the component keeps its own default.
+ */
+export type DemoControl = {
+  /** The input's public name. */
+  readonly name: string;
+  readonly binding: "input" | "model";
+} & (
+  | { readonly kind: "boolean"; readonly initial: boolean }
+  | { readonly kind: "number"; readonly initial: number }
+  | { readonly kind: "string"; readonly initial: string }
+  | {
+      readonly kind: "options";
+      readonly options: readonly (string | null)[];
+      readonly initial: string | null;
+    }
+  | { readonly kind: "fixed"; readonly type: string }
+);
 
 export interface GuideHeading {
   readonly id: string;
