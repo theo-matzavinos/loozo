@@ -1,0 +1,54 @@
+name: Publish
+
+# Pushing a <package>@<version> tag, e.g. angular-router@0.0.4, publishes
+# packages/<package>/dist to npm through trusted publishing (OIDC, no token).
+on:
+  push:
+    tags: ["angular-launch@*", "angular-router@*", "origami-ui@*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      # Reads the pnpm version from devEngines.packageManager in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - id: package
+        run: |
+          directory="packages/${GITHUB_REF_NAME%@*}"
+          version="${GITHUB_REF_NAME##*@}"
+          manifest_version="$(jq -r .version "$directory/package.json")"
+          if [ "$manifest_version" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match $directory/package.json version $manifest_version"
+            exit 1
+          fi
+          echo "directory=$directory" >> "$GITHUB_OUTPUT"
+          echo "name=$(jq -r .name "$directory/package.json")" >> "$GITHUB_OUTPUT"
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      # The trailing ... also builds the workspace packages it depends on.
+      - run: pnpm --filter "${{ steps.package.outputs.name }}..." run build
+      - run: pnpm --filter "${{ steps.package.outputs.name }}" run --if-present check
+      - run: pnpm --filter "${{ steps.package.outputs.name }}" run typecheck
+      - run: pnpm --filter "${{ steps.package.outputs.name }}" run test
+      - if: hashFiles(format('{0}/tests/packed.mjs', steps.package.outputs.directory)) != ''
+        run: node "${{ steps.package.outputs.directory }}/tests/packed.mjs" "$RUNNER_TEMP/packed"
+      - run: npm publish
+        working-directory: ${{ steps.package.outputs.directory }}/dist
