@@ -1,8 +1,14 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Token } from "markdown-it";
-import type { GuideHeading, GuidePage } from "./model.ts";
-import { markdown, transformTokens, type PackageContext, type ReadmeAnchors } from "./markdown.ts";
+import type { GuideBlock, GuideHeading, GuidePage } from "./model.ts";
+import {
+  demoOf,
+  markdown,
+  transformTokens,
+  type PackageContext,
+  type ReadmeAnchors,
+} from "./markdown.ts";
 import { repositoryUrl } from "./packages.ts";
 import { attribute, findSnippetEmbed, readSnippet, SourceError } from "./snippets.ts";
 
@@ -136,6 +142,14 @@ export function renderReadme(
     }
 
     if (current === null) {
+      if (demoOf(token) !== undefined) {
+        throw new SourceError(
+          readme.file,
+          token.map![0] + 1,
+          "running snippets belong in guide pages",
+        );
+      }
+
       overview.push(token);
       continue;
     }
@@ -186,7 +200,7 @@ export function renderEntryReadme(
   return {
     slug,
     title: headingText(tokens[1]),
-    html: render(tokens.slice(3)),
+    blocks: renderBlocks(tokens.slice(3)),
     headings,
   };
 }
@@ -200,9 +214,37 @@ function renderGuide(guide: {
   return {
     slug: guide.slug,
     title: guide.title,
-    html: render(guide.tokens),
+    blocks: renderBlocks(guide.tokens),
     headings: guide.headings,
   };
+}
+
+/** Renders transformed tokens, splitting the HTML around each running snippet. */
+function renderBlocks(tokens: Token[]): GuideBlock[] {
+  const blocks: GuideBlock[] = [];
+  let pending: Token[] = [];
+
+  for (const token of tokens) {
+    const demo = demoOf(token);
+
+    if (demo === undefined) {
+      pending.push(token);
+      continue;
+    }
+
+    if (pending.length > 0) {
+      blocks.push({ kind: "html", html: render(pending) });
+    }
+
+    blocks.push({ kind: "demo", demo, sourceHtml: token.content });
+    pending = [];
+  }
+
+  if (pending.length > 0) {
+    blocks.push({ kind: "html", html: render(pending) });
+  }
+
+  return blocks;
 }
 
 function render(tokens: Token[]): string {

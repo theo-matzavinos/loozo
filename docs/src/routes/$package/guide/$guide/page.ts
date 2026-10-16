@@ -1,4 +1,5 @@
 import { Component, computed, inject } from "@angular/core";
+import { NgComponentOutlet } from "@angular/common";
 import { RouterLink } from "@angular/router";
 import { ContentHtml } from "../../../../content-html.js";
 import { CurrentPackage, findGuide } from "../../../../package-content.js";
@@ -6,7 +7,7 @@ import { pageTitle } from "../../../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [RouterLink, ContentHtml],
+  imports: [RouterLink, ContentHtml, NgComponentOutlet],
   template: `
     @if (page(); as page) {
       <article class="prose">
@@ -27,7 +28,18 @@ import { injectRoute } from "./route.generated.js";
           </nav>
         }
 
-        <div [docsContentHtml]="page.guide.html"></div>
+        @for (block of page.blocks; track $index) {
+          @if (block.kind === "html") {
+            <div [docsContentHtml]="block.html"></div>
+          } @else {
+            <div class="docs-demo">
+              <div class="docs-demo-output" role="group" aria-label="Running example">
+                <ng-container *ngComponentOutlet="block.component" />
+              </div>
+              <div [docsContentHtml]="block.sourceHtml"></div>
+            </div>
+          }
+        }
 
         <nav class="pager" aria-label="Guides">
           @if (page.previous; as previous) {
@@ -85,7 +97,18 @@ export default class Guide {
       topLevel = Math.min(topLevel, heading.level);
     }
 
-    return { packageName: content.name, guide, topLevel, previous, next };
+    const demos = this.route.data().demos;
+    const blocks = [];
+
+    for (const block of guide.blocks) {
+      if (block.kind === "html") {
+        blocks.push(block);
+      } else {
+        blocks.push({ ...block, component: demos.get(block.demo)! });
+      }
+    }
+
+    return { packageName: content.name, guide, blocks, topLevel, previous, next };
   });
 
   constructor() {

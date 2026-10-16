@@ -1,4 +1,4 @@
-// Contract v3 (v2 + entry-point guides from `<package>/<subpath>/README.md` and H2 guide headings).
+// Contract v4 (v3 + guide pages as blocks of HTML and running snippets).
 //
 // Content contract between the docs content step (tools/docs-content) and the docs app (docs/).
 //
@@ -6,6 +6,7 @@
 //   model.generated.ts          a verbatim copy of this file (the app imports types from here)
 //   index.generated.ts          exports `packageSlugs`, `packages` and `loadPackage`
 //   <slug>.generated.ts         exports `content: PackageContent` for one package
+//   demos.generated.ts          exports `demos`: demo id → lazy loader of its component
 //
 // index.generated.ts shape:
 //   export const packageSlugs = ["angular-launch", "angular-router"] as const;
@@ -64,11 +65,22 @@ export interface GuidePage {
   readonly slug: string;
   /** H2 or H1 text, plain. */
   readonly title: string;
-  /** Page body, rendered, without the title heading; the headings below it carry ids. */
-  readonly html: string;
+  /** Page body in order, without the title heading; the headings in it carry ids. */
+  readonly blocks: readonly GuideBlock[];
   /** Headings for an on-page table of contents: H3/H4 of an H2 section, H2–H4 of a README. */
   readonly headings: readonly GuideHeading[];
 }
+
+/** Rendered HTML, or a running snippet: a snippet embed titled "both". */
+export type GuideBlock =
+  | { readonly kind: "html"; readonly html: string }
+  | {
+      readonly kind: "demo";
+      /** Key in `demos.generated.ts`, e.g. "origami-ui/snippets/src/toggle/mute.ts". */
+      readonly demo: string;
+      /** The captioned, highlighted source figure a plain embed of the same link gets. */
+      readonly sourceHtml: string;
+    };
 
 export interface GuideHeading {
   readonly id: string;
