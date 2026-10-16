@@ -38,6 +38,7 @@ import { CoreConsumer } from "./seeds/core-consumer.js";
 import { TabsCases } from "./tabs-cases.js";
 import { ToggleGroupCases } from "./toggle-group-cases.js";
 import { ToolbarCases } from "./toolbar-cases.js";
+import { RadioGroupCases } from "./radio-group-cases.js";
 
 @Directive({ selector: "[presenceObservation]", exportAs: "presenceObservation" })
 export class PresenceObservation {
@@ -250,6 +251,7 @@ export class ReplacedAccordionItem {}
     TabsCases,
     ToggleGroupCases,
     ToolbarCases,
+    RadioGroupCases,
   ],
   providers: [ReplacedItemValue],
   template: `
@@ -259,6 +261,7 @@ export class ReplacedAccordionItem {}
     <acceptance-tabs-cases />
     <acceptance-toggle-group-cases />
     <acceptance-toolbar-cases />
+    <acceptance-radio-group-cases />
     <h2>Mounted collection order</h2>
     <section ogCollection collectionValues #items="collectionValues" data-testid="variant-collection">
       @for (key of keys(); track key) {

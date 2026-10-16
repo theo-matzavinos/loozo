@@ -392,9 +392,9 @@ export class OrigamiToggleGroupState {
  * never written without user action. Static `role="group"` (a consumer's static `role`
  * overrides it), `data-orientation` and `data-disabled` reflect effective Options; there is no
  * `aria-orientation`, which ARIA does not allow on `group`. Consumers own the accessible name,
- * item labels and styling. For radio semantics, where selection follows focus, this is not the
- * primitive. Inside an `ogToolbar` the group joins the Toolbar: its items share the Toolbar's
- * single tab stop and arrow order, and the effective orientation is the Toolbar's.
+ * item labels and styling. For radio semantics, where selection follows focus, use
+ * `OrigamiRadioGroup`. Inside an `ogToolbar` the group joins the Toolbar: its items share the
+ * Toolbar's single tab stop and arrow order, and the effective orientation is the Toolbar's.
  *
  * @example
  * ```html

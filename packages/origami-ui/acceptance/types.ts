@@ -41,6 +41,11 @@ import {
   type OrigamiToolbarState,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import {
+  OrigamiRadioGroupOptions,
+  OrigamiRadioGroupItemOptions,
+  type OrigamiRadioGroupState,
+} from "@loozo/origami-ui/radio-group";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -57,6 +62,7 @@ export function checkReadonlyState(
   tabs: OrigamiTabsState,
   toggleGroup: OrigamiToggleGroupState,
   toolbar: OrigamiToolbarState,
+  radioGroup: OrigamiRadioGroupState,
 ): void {
   // @ts-expect-error Collection observation is not writable.
   collection.items.set([]);
@@ -104,6 +110,10 @@ export function checkReadonlyState(
   toggleGroup.orientation.set("vertical");
   // @ts-expect-error Toolbar orientation observation is not writable.
   toolbar.orientation.set("vertical");
+  // @ts-expect-error RadioGroup value observation is not writable.
+  radioGroup.value.set("express");
+  // @ts-expect-error RadioGroup disabled observation is not writable.
+  radioGroup.disabled.set(true);
 }
 
 export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
@@ -136,6 +146,11 @@ export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
   const pressedValue: OrigamiToggleGroupSingleOptions["value"] = signal<readonly string[]>([]);
 
   void pressedValue;
+
+  // @ts-expect-error RadioGroup value is a nullable string, not an array.
+  const checkedValue: OrigamiRadioGroupOptions["value"] = signal<readonly string[]>([]);
+
+  void checkedValue;
 
   // @ts-expect-error ID-only Content replacements require migration.
   const content: OrigamiPopoverContentOptions = { id: signal("id-only") };
@@ -210,6 +225,14 @@ export function checkProviderShapes(): void {
     orientation: signal<OrigamiToolbarOrientation>("vertical"),
   }));
   OrigamiToolbarItemOptions.provideFactory(() => ({ disabled: signal(false) }));
+  OrigamiRadioGroupOptions.provideFactory(() => ({
+    value: signal<string | null>("express"),
+    disabled: signal(false),
+  }));
+  OrigamiRadioGroupItemOptions.provideFactory(() => ({
+    value: signal("express"),
+    disabled: signal(false),
+  }));
 }
 
 export function checkUtilitySignatures(token: ProviderToken<number>): void {

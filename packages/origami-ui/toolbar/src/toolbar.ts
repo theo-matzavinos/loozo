@@ -171,9 +171,10 @@ export class OrigamiToolbarState {
 /**
  * A row or column of controls with one tab stop: static `role="toolbar"` (a consumer's static
  * `role` overrides it), `aria-orientation` and `data-orientation` from effective Options. Composes
- * Collection so focus follows rendered DOM order. A ToggleGroup root inside it, in nearest logical
- * DI, joins it: the group's items share the Toolbar's single tab stop and arrow sequence and
- * navigate along the Toolbar's orientation, and the group keeps its role, name and pressed state.
+ * Collection so focus follows rendered DOM order. A ToggleGroup or RadioGroup root inside it, in
+ * nearest logical DI, joins it: the group's items share the Toolbar's single tab stop and arrow
+ * sequence and navigate along the Toolbar's orientation, moves never press or check, and the group
+ * keeps its role, name and pressed or checked state.
  * A group inside Popover Content does not join. Other focusable content that is not an item keeps
  * its own Tab stop and its own arrow keys. Consumers own the accessible name, separators and
  * styling.
@@ -225,7 +226,7 @@ export class OrigamiToolbar implements OrigamiToolbarOptions {
  * disabled state sets native `disabled`, `aria-disabled` and `data-disabled` and removes the item
  * from navigation. If a focused item is removed or disabled while focus has not moved elsewhere,
  * focus moves to the new tab stop without activating. Requires a nearest Toolbar; do not also
- * apply it to a ToggleGroup item, which joins on its own.
+ * apply it to a ToggleGroup or RadioGroup item, which joins on its own.
  */
 @Directive({
   selector: "button[ogToolbarItem]",

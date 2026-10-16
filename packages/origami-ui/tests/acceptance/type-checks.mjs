@@ -112,6 +112,7 @@ import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
 import { OrigamiTabsOptions, OrigamiTabsTriggerOptions, OrigamiTabsPanelOptions, type OrigamiTabsOrientation, type OrigamiTabsActivation } from '@loozo/origami-ui/tabs';
 import { OrigamiToggleGroupSingleOptions, OrigamiToggleGroupMultipleOptions, OrigamiToggleGroupItemOptions, type OrigamiToggleGroupOrientation } from '@loozo/origami-ui/toggle-group';
 import { OrigamiToolbarOptions, OrigamiToolbarItemOptions, type OrigamiToolbarOrientation } from '@loozo/origami-ui/toolbar';
+import { OrigamiRadioGroupOptions, OrigamiRadioGroupItemOptions } from '@loozo/origami-ui/radio-group';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -192,6 +193,14 @@ OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold')}));
 OrigamiToolbarOptions.provideFactory(() => ({orientation: signal('diagonal')}));
 // @ts-expect-error a Toolbar Item factory must supply disabled
 OrigamiToolbarItemOptions.provideFactory(() => ({}));
+// @ts-expect-error RadioGroup value must be writable
+OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
+// @ts-expect-error RadioGroup value is a nullable string
+OrigamiRadioGroupOptions.provideFactory(() => ({value: signal(1), disabled: signal(false)}));
+// @ts-expect-error a RadioGroup factory must supply disabled
+OrigamiRadioGroupOptions.provideFactory(() => ({value: signal<string | null>(null)}));
+// @ts-expect-error a RadioGroup Item factory must supply disabled
+OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express')}));
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
@@ -199,6 +208,7 @@ class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(fal
 class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); }
 class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
 class WrongToolbarItem { readonly disabled = signal('no'); }
+class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -215,6 +225,8 @@ OrigamiTabsTriggerOptions.provideExisting(() => WrongTabsTrigger);
 OrigamiToggleGroupItemOptions.provideExisting(() => WrongToggleGroupItem);
 // @ts-expect-error incompatible existing Toolbar Item class
 OrigamiToolbarItemOptions.provideExisting(() => WrongToolbarItem);
+// @ts-expect-error incompatible existing RadioGroup Item class
+OrigamiRadioGroupItemOptions.provideExisting(() => WrongRadioGroupItem);
 // Positive: complete factories and abstract existing classes return ordinary Provider arrays.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -274,6 +286,14 @@ abstract class AbstractToolbar {
 abstract class AbstractToolbarItem {
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractRadioGroup {
+  abstract readonly value: WritableSignal<string | null>;
+  abstract readonly disabled: Signal<boolean>;
+}
+abstract class AbstractRadioGroupItem {
+  abstract readonly value: Signal<string>;
+  abstract readonly disabled: Signal<boolean>;
+}
 export const providers: Provider[][] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -311,6 +331,10 @@ export const providers: Provider[][] = [
   OrigamiToolbarOptions.provideExisting(() => AbstractToolbar),
   OrigamiToolbarItemOptions.provideFactory(() => ({disabled: computed(() => false)})),
   OrigamiToolbarItemOptions.provideExisting(() => AbstractToolbarItem),
+  OrigamiRadioGroupOptions.provideFactory(() => ({value: signal<string | null>('express'), disabled: computed(() => false)})),
+  OrigamiRadioGroupOptions.provideExisting(() => AbstractRadioGroup),
+  OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), disabled: computed(() => false)})),
+  OrigamiRadioGroupItemOptions.provideExisting(() => AbstractRadioGroupItem),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -377,6 +401,16 @@ import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origa
     members: `
   readonly pressed = signal(false);
   readonly marks = signal<readonly string[]>([]);`,
+  },
+  "radio-group": {
+    imports: `import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
+import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";`,
+    directives: "OrigamiRadioGroup, OrigamiRadioGroupItem, OrigamiToolbar, OrigamiToolbarItem",
+    members: `
+  readonly speed = signal<string | null>(null);
+  readonly wrongSpeed = signal(1);
+  speedOutput(value: string | null): void { void value; }
+  wrongOutput(value: number): void { void value; }`,
   },
 };
 const templates = [
@@ -589,6 +623,41 @@ const templates = [
       code: 2322,
       span: "orientation",
       message: /Type '"diagonal"' is not assignable to type 'OrigamiToolbarOrientation'/,
+    },
+  },
+  {
+    name: "radio-group-positive",
+    family: "radio-group",
+    template: `<div ogRadioGroup [(value)]="speed" disabled aria-label="Speed" (valueChange)="speedOutput($event)"><button ogRadioGroupItem value="standard" disabled>Standard</button></div><div ogToolbar aria-label="Text"><button ogToolbarItem>Copy</button><div ogRadioGroup [(value)]="speed" aria-label="Alignment"><button ogRadioGroupItem value="left">Left</button></div></div>`,
+  },
+  {
+    name: "radio-group-model",
+    family: "radio-group",
+    template: `<div ogRadioGroup [(value)]="wrongSpeed"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "radio-group-output",
+    family: "radio-group",
+    template: `<div ogRadioGroup (valueChange)="wrongOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /Argument of type 'string \| null' is not assignable to parameter of type 'number'/,
+    },
+  },
+  {
+    name: "radio-group-orientation",
+    family: "radio-group",
+    template: `<div ogRadioGroup [orientation]="'vertical'"></div>`,
+    expected: {
+      code: -998002,
+      span: `[orientation]="'vertical'"`,
+      message: /Can't bind to 'orientation' since it isn't a known property of 'div'/,
     },
   },
 ];

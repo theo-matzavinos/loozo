@@ -34,6 +34,7 @@ import {
   OrigamiToolbarItem,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
 
 /** Observes public Collection State without accessing registration internals. */
 @Directive({
@@ -79,6 +80,8 @@ export class CollectionObservation {
     OrigamiToggleGroupItem,
     OrigamiToolbar,
     OrigamiToolbarItem,
+    OrigamiRadioGroup,
+    OrigamiRadioGroupItem,
   ],
   template: `
     <h1>Origami public contracts</h1>
@@ -433,6 +436,54 @@ export class CollectionObservation {
       <output data-testid="toolbar-clears">{{ clears() }}</output>
       <output data-testid="toolbar-submits">{{ toolbarSubmits() }}</output>
     </section>
+
+    <section>
+      <h2 id="shipping-speed-label">Shipping speed</h2>
+      <button type="button" data-testid="speed-unknown" (click)="speed.set('unmounted')">
+        Write an unknown speed
+      </button>
+      <button type="button" data-testid="speed-null" (click)="speed.set(null)">Write null</button>
+      <button type="button" data-testid="speed-standard" (click)="speed.set('standard')">
+        Write standard
+      </button>
+      <button type="button" data-testid="speed-disable" (click)="speedDisabled.set(!speedDisabled())">
+        Toggle the group disabled
+      </button>
+      <button type="button" data-testid="speed-same-day" (click)="sameDayAvailable.set(!sameDayAvailable())">
+        Toggle same day available
+      </button>
+      <form (submit)="$event.preventDefault(); speedSubmits.update(increment)">
+        <div
+          ogRadioGroup
+          #shipping="ogRadioGroup"
+          [(value)]="speed"
+          [disabled]="speedDisabled()"
+          (valueChange)="speedOutputs.update(increment)"
+          aria-labelledby="shipping-speed-label"
+          data-testid="speed-group"
+        >
+          <button ogRadioGroupItem value="standard" data-testid="speed-radio-standard">
+            Standard · 3–5 days
+          </button>
+          <button ogRadioGroupItem value="express" data-testid="speed-radio-express">
+            Express · next day
+          </button>
+          <button
+            ogRadioGroupItem
+            value="same-day"
+            [disabled]="!sameDayAvailable()"
+            data-testid="speed-radio-same-day"
+          >
+            Same day
+          </button>
+        </div>
+      </form>
+      <output data-testid="speed-value">{{ speed() }}</output>
+      <output data-testid="speed-state">{{ shipping.state.value() }}</output>
+      <output data-testid="speed-state-disabled">{{ shipping.state.disabled() }}</output>
+      <output data-testid="speed-outputs">{{ speedOutputs() }}</output>
+      <output data-testid="speed-submits">{{ speedSubmits() }}</output>
+    </section>
   `,
   styles: [
     `
@@ -525,6 +576,11 @@ export class CoreConsumer {
   readonly redos = signal(0);
   readonly clears = signal(0);
   readonly toolbarSubmits = signal(0);
+  readonly speed = signal<string | null>(null);
+  readonly speedDisabled = signal(false);
+  readonly sameDayAvailable = signal(false);
+  readonly speedOutputs = signal(0);
+  readonly speedSubmits = signal(0);
   readonly increment = (value: number): number => value + 1;
 
   reverseItems(): void {

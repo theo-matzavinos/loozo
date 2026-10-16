@@ -44,6 +44,7 @@ import {
   OrigamiToolbarItem,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Directive({
@@ -81,6 +82,8 @@ export class AccordionObservation {
     OrigamiToggleGroupItem,
     OrigamiToolbar,
     OrigamiToolbarItem,
+    OrigamiRadioGroup,
+    OrigamiRadioGroupItem,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -234,6 +237,45 @@ export class AccordionObservation {
     </div>
 
     <div
+      ogRadioGroup
+      [(value)]="speed"
+      (valueChange)="speedOutputs.update(increment)"
+      aria-label="Server shipping speed"
+      data-testid="hydration-speed"
+    >
+      <button
+        ogRadioGroupItem
+        value="standard"
+        [disabled]="!initiallyPresent()"
+        data-testid="hydration-speed-standard"
+      >
+        Standard
+      </button>
+      <button ogRadioGroupItem value="express" data-testid="hydration-speed-express">
+        Express
+      </button>
+      <button ogRadioGroupItem value="same-day" data-testid="hydration-speed-same-day">
+        Same day
+      </button>
+    </div>
+    <output data-testid="speed-output-count">{{ speedOutputs() }}</output>
+    <!-- The checked first radio is disabled, so the tab stop is the first enabled one. -->
+    <div ogRadioGroup [(value)]="lockedSpeed" aria-label="Server locked speed">
+      <button ogRadioGroupItem value="first" disabled data-testid="hydration-locked-first">
+        First
+      </button>
+      <button ogRadioGroupItem value="second" data-testid="hydration-locked-second">Second</button>
+    </div>
+    <!-- A joined RadioGroup whose checked radio is not preferred. -->
+    <div ogToolbar aria-label="Server alignment toolbar" data-testid="hydration-radio-toolbar">
+      <button ogToolbarItem data-testid="hydration-radio-copy">Copy</button>
+      <div ogRadioGroup [(value)]="toolbarRadio" aria-label="Server toolbar alignment">
+        <button ogRadioGroupItem value="left" data-testid="hydration-radio-left">Left</button>
+        <button ogRadioGroupItem value="center" data-testid="hydration-radio-center">Center</button>
+      </div>
+    </div>
+
+    <div
       ogAccordionSingle
       accordionObservation
       [(value)]="selected"
@@ -356,6 +398,16 @@ export class HydrationUnit {
   readonly toolbarAlignment = signal<string | null>("second");
   readonly clearCount = signal(0);
   readonly undoCount = signal(0);
+  readonly speed = linkedSignal<string | null>(() => {
+    if (this.initiallyPresent()) {
+      return "express";
+    }
+
+    return null;
+  });
+  readonly speedOutputs = signal(0);
+  readonly lockedSpeed = signal<string | null>("first");
+  readonly toolbarRadio = signal<string | null>("center");
   readonly increment = (value: number): number => value + 1;
 
   constructor() {

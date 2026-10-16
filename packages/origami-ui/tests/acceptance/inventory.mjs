@@ -82,6 +82,13 @@ export const inventory = {
     "OrigamiToolbarItemOptions",
     "OrigamiToolbarOrientation",
   ],
+  "radio-group": [
+    "OrigamiRadioGroup",
+    "OrigamiRadioGroupOptions",
+    "OrigamiRadioGroupState",
+    "OrigamiRadioGroupItem",
+    "OrigamiRadioGroupItemOptions",
+  ],
 };
 
 export const typeOnly = new Set([

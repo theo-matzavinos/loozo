@@ -831,6 +831,128 @@ test("K6 H1 H2 H3: Toolbar server tab stop across joined groups survives hydrati
   }
 });
 
+/** Server-rendered RadioGroup semantics; C has nothing checked and a disabled first radio. */
+async function expectServerRadioGroups(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const group = unit.getByTestId("hydration-speed");
+    const standard = unit.getByTestId("hydration-speed-standard");
+    const express = unit.getByTestId("hydration-speed-express");
+    const sameDay = unit.getByTestId("hydration-speed-same-day");
+    const lockedFirst = unit.getByTestId("hydration-locked-first");
+    const lockedSecond = unit.getByTestId("hydration-locked-second");
+    const toolbar = unit.getByTestId("hydration-radio-toolbar");
+    const center = unit.getByTestId("hydration-radio-center");
+
+    await expect(group).toHaveAttribute("role", "radiogroup");
+    await expect(group.locator('button[tabindex="0"]')).toHaveCount(1);
+
+    for (const item of [standard, express, sameDay]) {
+      await expect(item).toHaveAttribute("type", "button");
+      await expect(item).toHaveAttribute("role", "radio");
+    }
+
+    await expect(sameDay).toHaveAttribute("aria-checked", "false");
+    await expect(sameDay).not.toHaveAttribute("data-checked", /.*/);
+    await expect(sameDay).toHaveAttribute("tabindex", "-1");
+    // Express is the tab stop in every unit: checked in A and B, the first enabled in C.
+    await expect(express).toHaveAttribute("tabindex", "0");
+
+    if (label === "C") {
+      await expect(standard).toBeDisabled();
+      await expect(standard).toHaveAttribute("aria-disabled", "true");
+      await expect(standard).toHaveAttribute("data-disabled", "");
+      await expect(standard).toHaveAttribute("tabindex", "-1");
+      await expect(express).toHaveAttribute("aria-checked", "false");
+    } else {
+      await expect(standard).toBeEnabled();
+      await expect(standard).toHaveAttribute("tabindex", "-1");
+      await expect(express).toHaveAttribute("aria-checked", "true");
+      await expect(express).toHaveAttribute("data-checked", "");
+    }
+
+    // A disabled checked radio stays checked and the first enabled radio is the tab stop.
+    await expect(lockedFirst).toBeDisabled();
+    await expect(lockedFirst).toHaveAttribute("aria-checked", "true");
+    await expect(lockedFirst).toHaveAttribute("tabindex", "-1");
+    await expect(lockedSecond).toHaveAttribute("tabindex", "0");
+
+    // A joined checked radio is not preferred: the Toolbar's first control is its tab stop.
+    await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(1);
+    await expect(unit.getByTestId("hydration-radio-copy")).toHaveAttribute("tabindex", "0");
+    await expect(center).toHaveAttribute("aria-checked", "true");
+    await expect(center).toHaveAttribute("tabindex", "-1");
+  }
+}
+
+test("Q6 H1 H2 H3: RadioGroup server checked state and DOM-order tab stops survive hydration; a click after attachment or replay checks once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerRadioGroups(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const sameDay = b.getByTestId("hydration-speed-same-day");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await sameDay.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("speed-output-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerRadioGroups(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerRadioGroups(page, ["A", "B", "C"]);
+      await sameDay.click();
+    }
+
+    await expect(b.getByTestId("speed-output-count")).toHaveText("1");
+    await expect(sameDay).toHaveAttribute("aria-checked", "true");
+    await expect(sameDay).toHaveAttribute("data-checked", "");
+    await expect(b.getByTestId("hydration-speed-express")).toHaveAttribute("aria-checked", "false");
+    await assertReferences(page, info);
+    await b.getByTestId("hydration-speed-standard").click();
+    await expect(b.getByTestId("speed-output-count")).toHaveText("2");
+    await expect(b.getByTestId("hydration-speed-standard")).toHaveAttribute("aria-checked", "true");
+    await expect(sameDay).toHaveAttribute("aria-checked", "false");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {
