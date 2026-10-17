@@ -15,6 +15,7 @@ import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { ɵOrigamiPresencePresentation } from "./presence-presentation";
+import type { ɵOrigamiPresenceTransition } from "./presence-presentation";
 
 /** The desired-presence transition phase; `closing` still retains consumer children. */
 export type OrigamiPresencePhase = "opening" | "open" | "closing" | "closed";
@@ -47,7 +48,7 @@ export abstract class OrigamiPresenceOptions {
 }
 
 type PresenceCompletion = {
-  readonly transition: number;
+  readonly transition: ɵOrigamiPresenceTransition;
   readonly presentationLifetime: number;
 };
 
@@ -58,47 +59,61 @@ class PresenceContext {
   readonly #options = injectDeferred(OrigamiPresenceOptions);
   readonly #presentation = inject(ɵOrigamiPresencePresentation, { optional: true, self: true });
   readonly #initiallyPresent = this.#host.hasAttribute("data-present");
-  #transition = 0;
+  /** Matches no pending work once set; captured transitions after destruction return it. */
+  #ended: ɵOrigamiPresenceTransition | null = null;
   #discovered: PresenceCompletion | null = null;
   #destroyed = false;
 
-  readonly phase = linkedSignal<boolean, OrigamiPresencePhase>({
+  /**
+   * The current transition toward desired presence. Each new transition is a new object, so its
+   * identity tells pending discovery, completion and Popover's reveal gate whether they still
+   * belong to it. Settling doesn't replace it; a desired presence that ends up unchanged before
+   * it's read isn't a new transition.
+   */
+  readonly #transition = linkedSignal<boolean, ɵOrigamiPresenceTransition>({
     source: () => this.#options().present(),
     computation: (present, previous) => {
-      if (this.#server) {
-        if (present) {
-          return "open";
-        }
-
-        return "closed";
+      if (previous !== undefined && previous.value.present === present) {
+        return previous.value;
       }
 
-      let prior: OrigamiPresencePhase = "closed";
+      return { present };
+    },
+  });
 
-      if (this.#initiallyPresent) {
-        prior = "open";
+  /** Whether the current transition has finished; a new transition starts unsettled. */
+  readonly #settled = linkedSignal<ɵOrigamiPresenceTransition, boolean>({
+    source: this.#transition,
+    computation: (transition, previous) => {
+      if (this.#server) {
+        return true;
       }
 
       if (previous !== undefined) {
-        prior = previous.value;
+        return false;
       }
 
-      if (present && prior === "open") {
+      // A reused `data-present` host attaches settled open, without a hydration-only entrance.
+      return transition.present === this.#initiallyPresent;
+    },
+  });
+
+  readonly phase = computed<OrigamiPresencePhase>(() => {
+    const present = this.#transition().present;
+
+    if (this.#settled()) {
+      if (present) {
         return "open";
       }
 
-      if (!present && prior === "closed") {
-        return "closed";
-      }
+      return "closed";
+    }
 
-      this.#transition += 1;
+    if (present) {
+      return "opening";
+    }
 
-      if (present) {
-        return "opening";
-      }
-
-      return "closing";
-    },
+    return "closing";
   });
 
   readonly entering = computed(() => {
@@ -106,7 +121,7 @@ class PresenceContext {
       return null;
     }
 
-    if (this.#presentation !== null && !this.#presentation.enteringAllowed(this.#transition)) {
+    if (this.#presentation !== null && !this.#presentation.enteringAllowed(this.#transition())) {
       return null;
     }
 
@@ -130,17 +145,11 @@ class PresenceContext {
   });
 
   constructor() {
-    this.#presentation?.attach(() => {
-      if (!this.#destroyed) {
-        this.phase();
-      }
-
-      return this.#transition;
-    });
+    this.#presentation?.attach(() => this.#ended ?? this.#transition());
 
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
-      this.#transition += 1;
+      this.#ended = { present: false };
     });
 
     afterEveryRender({
@@ -149,16 +158,14 @@ class PresenceContext {
           return null;
         }
 
-        const phase = this.phase();
-
-        if (phase !== "opening" && phase !== "closing") {
+        if (this.#settled()) {
           return null;
         }
 
         // Host attributes and retained children have been rendered. This explicit
         // WRITE barrier is observed only by the paired READ, after every owner's WRITE.
         return {
-          transition: this.#transition,
+          transition: this.#transition(),
           presentationLifetime: this.#presentation?.captureLifetime() ?? 0,
         };
       },
@@ -228,10 +235,8 @@ class PresenceContext {
       return false;
     }
 
-    this.phase();
-
     return (
-      this.#transition === completion.transition &&
+      this.#transition() === completion.transition &&
       (this.#presentation?.captureLifetime() ?? 0) === completion.presentationLifetime
     );
   }
@@ -241,15 +246,7 @@ class PresenceContext {
       return;
     }
 
-    if (this.phase() === "opening") {
-      this.phase.set("open");
-
-      return;
-    }
-
-    if (this.phase() === "closing") {
-      this.phase.set("closed");
-    }
+    this.#settled.set(true);
   }
 }
 
@@ -267,7 +264,7 @@ export class OrigamiPresenceState {
    * Popover's preparatory opening can precede its entering attribute until reveal readiness;
    * release of a native activation invalidates its pending completion independently of position updates.
    */
-  readonly phase: Signal<OrigamiPresencePhase> = this.#context.phase.asReadonly();
+  readonly phase: Signal<OrigamiPresencePhase> = this.#context.phase;
 
   /** True during opening, open and closing; false only once closed. Never writable by consumers. */
   readonly open: Signal<boolean> = computed(() => this.phase() !== "closed");

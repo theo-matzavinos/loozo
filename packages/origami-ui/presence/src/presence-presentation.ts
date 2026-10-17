@@ -1,6 +1,14 @@
 import { Service, signal } from "@angular/core";
 
 /**
+ * @internal One Presence transition toward a desired presence. Presence creates a new object for
+ * each new transition and keeps it when the transition settles, so it's compared only by identity.
+ */
+export interface ɵOrigamiPresenceTransition {
+  readonly present: boolean;
+}
+
+/**
  * @internal Popover-only coordination of retained Presence with native presentation.
  * Not a supported application API or general presentation extension point.
  *
@@ -12,19 +20,19 @@ import { Service, signal } from "@angular/core";
  */
 @Service({ autoProvided: false })
 export class ɵOrigamiPresencePresentation {
-  #readTransition: (() => number) | null = null;
-  readonly #enteringTransition = signal<number | null>(null);
-  #revealedTransition: number | null = null;
+  #readTransition: (() => ɵOrigamiPresenceTransition) | null = null;
+  readonly #enteringTransition = signal<ɵOrigamiPresenceTransition | null>(null);
+  #revealedTransition: ɵOrigamiPresenceTransition | null = null;
   readonly #visual = signal(false);
   #lifetime = 0;
 
   /** @internal Called only by the local Presence owner to attach transition capture. */
-  attach(readTransition: () => number): void {
+  attach(readTransition: () => ɵOrigamiPresenceTransition): void {
     this.#readTransition = readTransition;
   }
 
   /** @internal Captures the current Presence transition, reconciling current Options first. */
-  captureTransition(): number {
+  captureTransition(): ɵOrigamiPresenceTransition {
     if (this.#readTransition === null) {
       throw new Error("Popover presentation has no local Presence owner.");
     }
@@ -33,7 +41,7 @@ export class ɵOrigamiPresencePresentation {
   }
 
   /** @internal Permits `data-entering` in the render containing the matching reveal WRITE. */
-  permitEnter(transition: number): void {
+  permitEnter(transition: ɵOrigamiPresenceTransition): void {
     if (transition === this.captureTransition()) {
       this.#enteringTransition.set(transition);
     }
@@ -44,7 +52,7 @@ export class ɵOrigamiPresencePresentation {
    * Reusing a visible exit requires a fresh permit/commit for the new Presence transition,
    * but must not require another native activation. Ordinary position updates need not call this.
    */
-  commitReveal(transition: number): void {
+  commitReveal(transition: ɵOrigamiPresenceTransition): void {
     if (transition === this.captureTransition()) {
       this.#revealedTransition = transition;
       this.#visual.set(true);
@@ -60,12 +68,12 @@ export class ɵOrigamiPresencePresentation {
   }
 
   /** @internal Whether the matching transition may bind its entering attribute. */
-  enteringAllowed(transition: number): boolean {
+  enteringAllowed(transition: ɵOrigamiPresenceTransition): boolean {
     return this.#enteringTransition() === transition;
   }
 
   /** @internal Whether the matching entrance has committed its reveal WRITE. */
-  revealCommitted(transition: number): boolean {
+  revealCommitted(transition: ɵOrigamiPresenceTransition): boolean {
     return this.#revealedTransition === transition;
   }
 

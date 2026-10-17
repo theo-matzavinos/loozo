@@ -18,6 +18,17 @@ interface PresentationFrame {
   anchorBottom: number;
 }
 
+interface PresentationBatch {
+  changed: string[];
+  phase: string | null;
+  entering: boolean;
+  present: boolean;
+  leaving: boolean;
+  left: string;
+  top: string;
+  native: boolean;
+}
+
 declare global {
   interface Window {
     presentationProof: {
@@ -26,6 +37,7 @@ declare global {
       autofocus: Element | null;
       frames: PresentationFrame[];
       firstVisible: PresentationFrame | null;
+      batches: PresentationBatch[];
     };
     acceptancePointerOrigin: {
       trusted: boolean;
@@ -2573,6 +2585,7 @@ async function mountPresentation(page: Page, info: TestInfo): Promise<void> {
       autofocus: null,
       frames: [],
       firstVisible: null,
+      batches: [],
     };
   });
 }
@@ -2845,6 +2858,147 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
   await expect(content).toHaveAttribute("data-phase", "closed");
   await expect(intent).toHaveText("false");
   expect(await presentationNative(page)).toBe(false);
+  await expect(page.getByTestId("presentation-unused")).toHaveText("0");
+});
+
+/**
+ * Records each MutationObserver delivery: the presentation attributes it changed, in order, and
+ * the Content's state after them. One Angular render lands in one delivery.
+ */
+async function recordPresentationBatches(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const host = document.querySelector("acceptance-popover-presentation");
+    const content = document.querySelector('[data-testid="presentation-content"]');
+
+    if (host === null || !(content instanceof HTMLElement)) {
+      throw new Error("Expected the presentation hosts");
+    }
+
+    const observer = new MutationObserver((records) => {
+      const changed: string[] = [];
+
+      for (const record of records) {
+        let target = "content";
+
+        if (record.target === host) {
+          target = "host";
+        }
+
+        changed.push(`${target}:${record.attributeName}`);
+      }
+
+      window.presentationProof.batches.push({
+        changed,
+        phase: content.getAttribute("data-phase"),
+        entering: content.hasAttribute("data-entering"),
+        present: content.hasAttribute("data-present"),
+        leaving: content.hasAttribute("data-leaving"),
+        left: content.style.getPropertyValue("left"),
+        top: content.style.getPropertyValue("top"),
+        native: content.matches(":popover-open"),
+      });
+    });
+
+    observer.observe(host, { attributeFilter: ["data-settle-read"] });
+    observer.observe(content, {
+      attributeFilter: ["style", "data-entering", "data-present", "data-leaving"],
+    });
+  });
+}
+
+test("V12 V13: a finite entrance or exit that settles after the READ starting a position calculation keeps that calculation", async ({
+  page,
+}, info) => {
+  await mountPresentation(page, info);
+
+  const content = page.getByTestId("presentation-content");
+  const hosts = { content: "presentation-content", anchor: "presentation-trigger" };
+  // Genuine finite motion exists only without reduced motion; reduced projects prove the
+  // same placement outcomes with direct settlement and no animation to finish.
+  const finite = info.project.metadata.motion === "no-preference";
+
+  if (!finite) {
+    await openPresentation(page);
+    await expectPreferred(page, "block-end", "start", 8, hosts);
+    await scriptControl(page, "presentation-place-settle");
+    await expectPreferred(page, "block-start", "end", 12, hosts);
+    expect(await presentationRecord(page, "data-settle-read")).toMatchObject({
+      phase: "open",
+      finished: 0,
+    });
+    await closePresentation(page);
+    await scriptControl(page, "presentation-default-place-settle");
+    await expect
+      .poll(() => presentationRecord(page, "data-settle-read"))
+      .toMatchObject({ phase: "closed", finished: 0 });
+    await openPresentation(page);
+    await expectPreferred(page, "block-end", "start", 8, hosts);
+    await expect(page.getByTestId("presentation-unused")).toHaveText("0");
+
+    return;
+  }
+
+  await scriptControl(page, "presentation-open");
+  await pausePresentation(page, "data-entering", "entrance");
+  await expect.poll(() => presentationNative(page)).toBe(true);
+  await expect(content).toHaveAttribute("data-phase", "opening");
+  await expectPreferred(page, "block-end", "start", 8, hosts);
+  await recordPresentationBatches(page);
+
+  // The placement change starts a position calculation in the next render's READ; a consumer
+  // READ hook after it finishes the entrance, so Presence settles before any WRITE can commit
+  // that result. Nothing else changes, so no further tracking event can request another one.
+  await scriptControl(page, "presentation-place-settle");
+  await expect(content).toHaveAttribute("data-phase", "open");
+  await expectPreferred(page, "block-start", "end", 12, hosts);
+
+  const entrance = await page.evaluate(() => window.presentationProof.batches);
+
+  await info.attach("entrance-settle-interleaving", {
+    body: JSON.stringify(entrance, null, 2),
+    contentType: "application/json",
+  });
+  expect(await presentationRecord(page, "data-settle-read")).toMatchObject({
+    phase: "opening",
+    entering: true,
+    finished: 1,
+  });
+
+  // Actual interleaving: the settle-READ record lands while still entering at the old
+  // coordinates; the settled render (data-present) is no later than the coordinate commit.
+  const readBatch = entrance.findIndex((batch) => batch.changed.includes("host:data-settle-read"));
+  const presentBatch = entrance.findIndex((batch) => batch.present);
+  const movedBatch = entrance.findIndex((batch) => batch.left !== entrance[0]?.left);
+
+  expect(readBatch).toBe(0);
+  expect(entrance[readBatch]).toMatchObject({ entering: true, present: false });
+  expect(presentBatch).toBeGreaterThan(readBatch);
+  expect(movedBatch).toBeGreaterThanOrEqual(presentBatch);
+
+  // A visible exit that settles while that READ's calculation is pending hides without error.
+  await scriptControl(page, "presentation-close");
+  await pausePresentation(page, "data-leaving", "exit");
+  await expect(content).toHaveAttribute("data-phase", "closing");
+  expect(await presentationNative(page)).toBe(true);
+  await page.evaluate(() => {
+    window.presentationProof.batches = [];
+  });
+  await scriptControl(page, "presentation-default-place-settle");
+  await expect(content).toHaveAttribute("data-phase", "closed");
+  await expect.poll(() => presentationNative(page)).toBe(false);
+  await info.attach("exit-settle-interleaving", {
+    body: JSON.stringify(await page.evaluate(() => window.presentationProof.batches), null, 2),
+    contentType: "application/json",
+  });
+  expect(await presentationRecord(page, "data-settle-read")).toMatchObject({
+    phase: "closing",
+    leaving: true,
+    finished: 1,
+  });
+
+  // The same retained host still opens at the default placement afterwards.
+  await openPresentation(page);
+  await expectPreferred(page, "block-end", "start", 8, hosts);
   await expect(page.getByTestId("presentation-unused")).toHaveText("0");
 });
 
