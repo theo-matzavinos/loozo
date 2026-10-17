@@ -1,5 +1,5 @@
 import { test, expect } from "./contract-test.js";
-import type { Page } from "playwright/test";
+import type { Locator, Page } from "playwright/test";
 import { assertReferences, bootstrapHeld, stopRetentionObservation } from "./observation.js";
 
 /** Holds the genuine lazy dependency response; never substitutes code, HTML or annotations. */
@@ -989,6 +989,103 @@ test("K6 H1 H2 H3: Toolbar server tab stop across Toolbar groups survives hydrat
   } finally {
     releaseMain();
     releaseLazy();
+  }
+});
+
+/** Server-rendered K10 Toolbar: one value disables the Popover and its Trigger's toolbar item in A and B. */
+async function expectServerFormat(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const format = unit.getByTestId("hydration-format");
+    const bold = unit.getByTestId("hydration-format-bold");
+
+    await expect(
+      unit.getByTestId("hydration-format-toolbar").locator('button[tabindex="0"]'),
+    ).toHaveCount(1);
+
+    if (label === "C") {
+      await expect(format).not.toHaveAttribute("disabled");
+      await expect(format).not.toHaveAttribute("aria-disabled", /.*/);
+      await expect(format).not.toHaveAttribute("data-disabled", /.*/);
+      await expect(format).toHaveAttribute("tabindex", "0");
+      await expect(bold).toHaveAttribute("tabindex", "-1");
+    } else {
+      await expect(format).toHaveAttribute("disabled");
+      await expect(format).toHaveAttribute("aria-disabled", "true");
+      await expect(format).toHaveAttribute("data-disabled", "");
+      await expect(format).toHaveAttribute("tabindex", "-1");
+      await expect(bold).toHaveAttribute("tabindex", "0");
+    }
+  }
+}
+
+test("K10 H1 H2: a disabled Popover Trigger co-applied with a toolbar item is skipped in server HTML and once hydrated; the enabled one opens its Popover", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    await expectServerFormat(page, ["A", "B", "C"]);
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    const b = page.locator('[data-unit="B"]');
+    const c = page.locator('[data-unit="C"]');
+
+    for (const unit of [b, c]) {
+      if (incremental) {
+        await unit.getByTestId("hydrate-unit").click();
+      }
+
+      await expect(unit).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    if (incremental) {
+      await expect(page.locator('[data-unit="A"]')).toHaveAttribute(
+        "data-client-render-seen",
+        "false",
+      );
+    }
+
+    // Hydration changes no server attribute.
+    await expectServerFormat(page, ["A", "B", "C"]);
+    await assertReferences(page, info);
+
+    function nativeOpen(unit: Locator): Promise<boolean> {
+      return unit
+        .getByTestId("hydration-format-content")
+        .evaluate((node) => node.matches(":popover-open"));
+    }
+
+    // B, disabled: Tab reaches Bold, ArrowRight keeps it and the click opens nothing.
+    await b.getByTestId("hydration-format-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(b.getByTestId("hydration-format-bold")).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(b.getByTestId("hydration-format-bold")).toBeFocused();
+    await b.getByTestId("hydration-format").click({ force: true });
+    // A wrong open would render only after the zoneless scheduler's next turn (an animation frame
+    // or a timer), so let both pass, and check before any outside click could dismiss it.
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+    );
+    expect(await nativeOpen(b)).toBe(false);
+
+    // C, enabled: Tab reaches the Trigger, ArrowRight moves to Bold and clicks open and close.
+    const format = c.getByTestId("hydration-format");
+
+    await c.getByTestId("hydration-format-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(format).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(c.getByTestId("hydration-format-bold")).toBeFocused();
+    await format.click();
+    await expect.poll(() => nativeOpen(c)).toBe(true);
+    await format.click();
+    await expect.poll(() => nativeOpen(c)).toBe(false);
+  } finally {
+    releaseMain();
   }
 });
 

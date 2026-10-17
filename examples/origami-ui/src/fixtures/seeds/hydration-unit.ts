@@ -301,6 +301,31 @@ export class AccordionObservation {
       </div>
     </div>
 
+    <!-- K10: a Popover Trigger co-applied with a Toolbar item, both disabled by one value. -->
+    <button type="button" data-testid="hydration-format-before">Before the format toolbar</button>
+    <div ogToolbar aria-label="Server format" data-testid="hydration-format-toolbar">
+      <span ogPopover [disabled]="initiallyPresent()">
+        <button
+          ogPopoverTrigger
+          ogPopoverAnchor
+          ogToolbarItem
+          [disabled]="initiallyPresent()"
+          data-testid="hydration-format"
+        >
+          Format
+        </button>
+        <div
+          ogPopoverContent
+          role="group"
+          aria-label="Server format options"
+          data-testid="hydration-format-content"
+        >
+          Format options
+        </div>
+      </span>
+      <button ogToolbarItem data-testid="hydration-format-bold">Bold</button>
+    </div>
+
     <div
       ogAccordionSingle
       accordionObservation
