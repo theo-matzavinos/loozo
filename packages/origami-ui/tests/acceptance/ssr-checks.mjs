@@ -157,7 +157,7 @@ for (const [name, expected] of [
 
 console.log("C2 A3 K9: six SSR construction failures rejected clearly.");
 
-// L2: a second mounted part throws when it publishes in ngOnInit, during change detection, so
+// L2: a second mounted part throws when it registers in ngOnInit, during change detection, so
 // Angular reports it once through the application's ErrorHandler.
 for (const [name, expected] of [
   ["DuplicateTrigger", /only one mounted trigger/],
@@ -169,7 +169,7 @@ for (const [name, expected] of [
   assert.match(String(duplicate.errors[0]), expected, `${name} must fail clearly during SSR`);
 }
 
-console.log("L2: two duplicate SSR parts reported clearly at publish.");
+console.log("L2: two duplicate SSR parts reported clearly at registration.");
 
 // C3 A5: an async PendingTasks keyed move after the first public State read retains all nodes,
 // parents and Collection records. Membership is unchanged, so no reader is notified: `items`

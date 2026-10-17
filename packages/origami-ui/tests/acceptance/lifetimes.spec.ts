@@ -626,39 +626,39 @@ for (const [mode, label] of [
   });
 }
 
-test("C5: parts whose view is destroyed before they publish leave no registration", async ({
+test("C5: parts whose view is destroyed before they register leave no registration", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);
-  await page.getByTestId("unpublished-mount").click();
+  await page.getByTestId("unregistered-mount").click();
 
   // Each view cleared itself during initialization; no part from it is in the document.
-  await expect(page.getByTestId("unpublished-radio-gone")).toHaveCount(0);
-  await expect(page.getByTestId("unpublished-tab-gone")).toHaveCount(0);
-  await expect(page.getByTestId("unpublished-collapsible-trigger-gone")).toHaveCount(0);
-  await expect(page.locator("#unpublished-gone-popover-content")).toHaveCount(0);
-  await expect(page.getByTestId("unpublished-collection-items")).toHaveText("");
+  await expect(page.getByTestId("unregistered-radio-gone")).toHaveCount(0);
+  await expect(page.getByTestId("unregistered-tab-gone")).toHaveCount(0);
+  await expect(page.getByTestId("unregistered-collapsible-trigger-gone")).toHaveCount(0);
+  await expect(page.locator("#unregistered-gone-popover-content")).toHaveCount(0);
+  await expect(page.getByTestId("unregistered-collection-items")).toHaveText("");
 
-  await page.getByTestId("unpublished-remount").click();
+  await page.getByTestId("unregistered-remount").click();
 
   // A replacement under each surviving root is the only registration it sees.
-  await expect(page.getByTestId("unpublished-collection-items")).toHaveText("kept");
-  await expect(page.getByTestId("unpublished-radio-kept")).toHaveAttribute("tabindex", "0");
-  await expect(page.getByTestId("unpublished-tab-kept")).toHaveAttribute("tabindex", "0");
-  await expect(page.getByTestId("unpublished-tab-panel")).toHaveAttribute(
+  await expect(page.getByTestId("unregistered-collection-items")).toHaveText("kept");
+  await expect(page.getByTestId("unregistered-radio-kept")).toHaveAttribute("tabindex", "0");
+  await expect(page.getByTestId("unregistered-tab-kept")).toHaveAttribute("tabindex", "0");
+  await expect(page.getByTestId("unregistered-tab-panel")).toHaveAttribute(
     "aria-labelledby",
-    "unpublished-kept-tab",
+    "unregistered-kept-tab",
   );
-  await expect(page.getByTestId("unpublished-collapsible-panel")).toHaveAttribute(
+  await expect(page.getByTestId("unregistered-collapsible-panel")).toHaveAttribute(
     "aria-labelledby",
-    "unpublished-kept-collapsible-trigger",
+    "unregistered-kept-collapsible-trigger",
   );
-  await expect(page.getByTestId("unpublished-collapsible-trigger-kept")).toHaveAttribute(
+  await expect(page.getByTestId("unregistered-collapsible-trigger-kept")).toHaveAttribute(
     "aria-controls",
-    "unpublished-collapsible-panel",
+    "unregistered-collapsible-panel",
   );
-  await expect(page.getByTestId("unpublished-popover-trigger")).toHaveAttribute(
+  await expect(page.getByTestId("unregistered-popover-trigger")).toHaveAttribute(
     "aria-controls",
-    "unpublished-kept-popover-content",
+    "unregistered-kept-popover-content",
   );
 });

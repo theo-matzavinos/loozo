@@ -1,4 +1,5 @@
 import {
+  DestroyRef,
   Directive,
   ElementRef,
   InjectionToken,
@@ -97,10 +98,13 @@ export class OrigamiPopoverAnchor implements OrigamiPopoverAnchorOptions {
     this.#context.anchorId(this.#element, this.#options),
   );
 
-  readonly #registration = this.#context.anchor(this.#options);
+  readonly #destroyRef = inject(DestroyRef);
 
-  /** @internal Publishes this independent role once Angular has set its inputs; Trigger/Anchor co-location is valid. */
+  /** @internal Registers this independent role once Angular has set its inputs; Trigger/Anchor co-location is valid. */
   ngOnInit(): void {
-    this.#registration.publish();
+    this.#context.registerAnchor(
+      { element: this.#element, options: this.#options },
+      this.#destroyRef,
+    );
   }
 }

@@ -214,6 +214,9 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #context = inject(PopoverContext);
   readonly #options = injectDeferred(OrigamiPopoverContentOptions);
+  readonly #presence = inject(OrigamiPresenceState);
+  readonly #presentation = inject(ɵOrigamiPresencePresentation);
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
   /** @internal Effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
@@ -226,18 +229,23 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
     return "";
   });
 
-  readonly #registration = this.#context.content(this.#options);
-
-  /** Captures Content's unpublished registration; local Presence/Options aliases resolve only after construction. */
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes Content once Angular has set its inputs; a second mounted Content fails clearly. */
+  /** @internal Registers Content once Angular has set its inputs; a second mounted Content fails clearly. */
   ngOnInit(): void {
-    this.#registration.publish();
+    this.#context.registerContent(
+      {
+        element: this.#element,
+        options: this.#options,
+        presence: this.#presence,
+        presentation: this.#presentation,
+      },
+      this.#destroyRef,
+    );
   }
 
   /** @internal Consults current native state, never queued toggle intent. Bubbled descendant events are ignored. */

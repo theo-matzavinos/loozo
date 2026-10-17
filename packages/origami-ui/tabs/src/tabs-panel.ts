@@ -1,4 +1,12 @@
-import { Directive, InjectionToken, computed, forwardRef, inject, input } from "@angular/core";
+import {
+  DestroyRef,
+  Directive,
+  InjectionToken,
+  computed,
+  forwardRef,
+  inject,
+  input,
+} from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
@@ -123,10 +131,10 @@ export class OrigamiTabsPanel implements OrigamiTabsPanelOptions {
     return null;
   });
 
-  readonly #registration = this.#context.panel(this.#options);
+  readonly #destroyRef = inject(DestroyRef);
 
-  /** @internal Publishes this Panel's registration once Angular has set its inputs. */
+  /** @internal Registers this Panel once Angular has set its inputs. */
   ngOnInit(): void {
-    this.#registration.publish();
+    this.#context.registerPanel(this.#options, this.#destroyRef);
   }
 }

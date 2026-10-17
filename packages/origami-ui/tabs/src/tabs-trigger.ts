@@ -19,9 +19,8 @@ const triggerReplacement = new InjectionToken<OrigamiTabsTriggerOptions>(
 );
 
 /**
- * Effective Trigger configuration. Other parts read it only once the Trigger has published its
- * registration in `ngOnInit`, after Angular set its inputs, so replacement Options may use
- * required inputs.
+ * Effective Trigger configuration. Other parts read it only once the Trigger has registered in
+ * `ngOnInit`, after Angular set its inputs, so replacement Options may use required inputs.
  */
 export abstract class OrigamiTabsTriggerOptions {
   /** The value this Trigger selects and pairs with the Panel of the same value. */
@@ -134,6 +133,7 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
   readonly #options = injectDeferred(OrigamiTabsTriggerOptions);
   readonly #context = inject(TabsContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
   /** @internal Readonly effective host identity. */
@@ -147,15 +147,11 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
   /** @internal Mounted-only control association. */
   protected readonly panelId = computed(() => this.#context.panelId(this.#options().value()));
 
-  readonly #registration = this.#context.trigger(this.#options);
-  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
-    value: computed(() => this.#options().value()),
-    disabled: this.effectiveDisabled,
-  });
+  readonly #focus = inject(ɵOrigamiRovingFocusContext);
 
   /** @internal Roving tab stop. */
   protected readonly tabIndex = computed(() => {
-    if (this.#focus.tabStop()) {
+    if (this.#focus.tabStop() === this.#element) {
       return "0";
     }
 
@@ -189,17 +185,24 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
     return null;
   });
 
-  /** Captures this Trigger's unpublished registrations; an orphan fails Angular DI clearly. */
+  /** Resolves the nearest Tabs root synchronously; an orphan fails Angular DI clearly. */
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes this Trigger's registrations once Angular has set its inputs. */
+  /** @internal Registers this Trigger once Angular has set its inputs. */
   ngOnInit(): void {
-    this.#registration.publish();
-    this.#focus.publish();
+    this.#context.registerTrigger(this.#options, this.#destroyRef);
+    this.#focus.register(
+      {
+        element: this.#element,
+        value: computed(() => this.#options().value()),
+        disabled: this.effectiveDisabled,
+      },
+      this.#destroyRef,
+    );
   }
 
   /**
@@ -224,17 +227,17 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
 
   /** @internal Arrow/Home/End navigation along the effective orientation. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event);
+    this.#focus.keydown(this.#element, event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected focused(): void {
-    this.#focus.focus();
+    this.#focus.focus(this.#element);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected blurred(): void {
-    this.#focus.blur();
+    this.#focus.blur(this.#element);
   }
 
   /** Live activation guard: mounted and not disabled by the root or its own Options. */

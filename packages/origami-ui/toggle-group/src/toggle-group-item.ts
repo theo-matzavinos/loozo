@@ -24,7 +24,7 @@ const itemReplacement = new InjectionToken<OrigamiToggleGroupItemOptions>(
 /**
  * Effective item configuration. It also drives the composed Toggle, so replacing only these
  * Options sets the item's pressed and disabled state without lower Options. Other items read it
- * only once the item has published its roving registration in `ngOnInit`, after Angular set its
+ * only once the item has registered with the roving focus in `ngOnInit`, after Angular set its
  * inputs, so replacement Options may use required inputs.
  */
 export abstract class OrigamiToggleGroupItemOptions {
@@ -159,16 +159,14 @@ export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
 
   readonly #context = inject(ToggleGroupItemContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
-  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
-    value: this.#context.value,
-    disabled: this.#context.disabled,
-  });
+  readonly #focus = inject(ɵOrigamiRovingFocusContext);
 
   /** @internal Roving tab stop. */
   protected readonly tabIndex = computed(() => {
-    if (this.#focus.tabStop()) {
+    if (this.#focus.tabStop() === this.#element) {
       return "0";
     }
 
@@ -177,14 +175,17 @@ export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
 
   /** Resolves the nearest Toggle Group root synchronously; an orphan fails Angular DI clearly. */
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes this item's roving registration once Angular has set its inputs. */
+  /** @internal Registers this item for roving focus once Angular has set its inputs. */
   ngOnInit(): void {
-    this.#focus.publish();
+    this.#focus.register(
+      { element: this.#element, value: this.#context.value, disabled: this.#context.disabled },
+      this.#destroyRef,
+    );
   }
 
   /**
@@ -202,16 +203,16 @@ export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
 
   /** @internal Arrow/Home/End navigation along the effective orientation. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event);
+    this.#focus.keydown(this.#element, event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected focused(): void {
-    this.#focus.focus();
+    this.#focus.focus(this.#element);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected blurred(): void {
-    this.#focus.blur();
+    this.#focus.blur(this.#element);
   }
 }

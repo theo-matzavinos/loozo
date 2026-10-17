@@ -15,7 +15,7 @@ import {
   OrigamiToolbarToggleGroupSingle,
 } from "@loozo/origami-ui/toolbar";
 
-// SSR-only construction and publish failures rendered by tests/acceptance/ssr-checks.mjs; never routed.
+// SSR-only construction and registration failures rendered by tests/acceptance/ssr-checks.mjs; never routed.
 
 @Component({
   selector: "error-app",

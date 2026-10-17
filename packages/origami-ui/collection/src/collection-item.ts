@@ -1,4 +1,12 @@
-import { Directive, InjectionToken, forwardRef, inject, input } from "@angular/core";
+import {
+  DestroyRef,
+  Directive,
+  ElementRef,
+  InjectionToken,
+  forwardRef,
+  inject,
+  input,
+} from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { CollectionContext } from "./collection";
@@ -70,9 +78,8 @@ export abstract class OrigamiCollectionItemOptions {
 }
 
 /**
- * One item of its nearest logical Collection owner. Construction captures the item's
- * registration unpublished; it publishes in `ngOnInit`, once Angular has set its inputs, so
- * readers never see an item's default value in place of its bound one. Options are resolved
+ * One item of its nearest logical Collection owner. It registers in `ngOnInit`, once Angular has
+ * set its inputs, so readers never see an item's default value in place of its bound one. Options are resolved
  * later, avoiding consumer/host-directive construction cycles. Helper-provided replacements
  * override the default even when direct and host-composed selectors co-match. Caller-scoped
  * destruction removes only this item. An orphan fails Angular DI clearly.
@@ -90,10 +97,13 @@ export class OrigamiCollectionItem implements OrigamiCollectionItemOptions {
    */
   readonly value = input(injectUniqueValue("collection-item"));
 
-  readonly #member = inject(CollectionContext).member(injectDeferred(OrigamiCollectionItemOptions));
+  readonly #context = inject(CollectionContext);
+  readonly #element = inject<ElementRef<Element>>(ElementRef).nativeElement;
+  readonly #options = injectDeferred(OrigamiCollectionItemOptions);
+  readonly #destroyRef = inject(DestroyRef);
 
-  /** @internal Publishes this item once Angular has set its inputs. */
+  /** @internal Registers this item once Angular has set its inputs. */
   ngOnInit(): void {
-    this.#member.publish();
+    this.#context.register({ element: this.#element, options: this.#options }, this.#destroyRef);
   }
 }

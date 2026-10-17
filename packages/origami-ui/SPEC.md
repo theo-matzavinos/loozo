@@ -104,8 +104,8 @@ Two-way state isn't an event. A directive `model()` maps to a `WritableSignal` o
 
 ### Registration and teardown
 
-1. **Render reads self, ancestors and published registrations only.** A part's host bindings and `computed`s read the part's own Options, its ancestors' Options and State, and registrations other parts have published. They never read a sibling's Options directly. A reader therefore sees a counterpart that isn't published yet as absent (no association attribute, not a tab stop), never as its default or unset inputs.
-2. **Parts are constructed unpublished, and their registrations publish in `ngOnInit`.** Construction captures what needs the part's injection context (`ElementRef`, `DestroyRef`, Options deferred with `injectDeferred`) into an unpublished handle. `ngOnInit` publishes it, after Angular has set the part's inputs; it is used only for this. Cleanup stays caller-scoped through the captured `DestroyRef`, attached at construction while the caller is alive; a part whose view is destroyed before its `ngOnInit`, such as by a consumer hook earlier in the same view, never publishes. A role limited to one mounted part fails when a second part publishes.
+1. **Render reads self, ancestors and registrations only.** A part's host bindings and `computed`s read the part's own Options, its ancestors' Options and State, and registrations other parts have made. They never read a sibling's Options directly. A reader therefore sees a counterpart that isn't registered yet as absent (no association attribute, not a tab stop), never as its default or unset inputs.
+2. **Parts register in `ngOnInit`.** Construction registers nothing; it only captures what needs the part's injection context as fields (`ElementRef`, `DestroyRef`, Options deferred with `injectDeferred`). `ngOnInit` registers the part with its owner in one call, after Angular has set the part's inputs; it is used only for this. The owner attaches the part's removal to the part's `DestroyRef` as it registers it, so cleanup stays caller-scoped. A part whose view is destroyed before its `ngOnInit`, such as by a consumer hook earlier in the same view, never registers: the owner checks `DestroyRef.destroyed` first. A role limited to one mounted part fails when a second part registers.
 
 Aliased Options resolve only after construction, when inputs/providers can be read safely. Registration must not eagerly resolve the directive under construction. `injectDeferred` preserves the originating injector for later reads.
 
@@ -238,7 +238,7 @@ Selectors and template export names:
 
 An item has a readonly `value` input defaulting to a generated string (`injectUniqueValue`). Its public record contains `value: Signal<string>`; consumers do not receive writable registration collections.
 
-An item is published in its `ngOnInit`, once Angular has set its inputs (section 3), so readers never see its default value in place of a bound one. Collection State reports published items in DOM order, not registration/construction order. Order is read when membership changes: an insertion or removal sorts the published items by their current DOM position and notifies readers. A keyed move that keeps membership notifies no reader of `items` (or Accordion `itemValues`); they keep the order of the latest membership change until the next insertion or removal. Value changes remain observable without destroying an item. SSR produces valid collection observation without browser globals or browser-only render callbacks.
+An item registers in its `ngOnInit`, once Angular has set its inputs (section 3), so readers never see its default value in place of a bound one. Collection State reports registered items in DOM order, not registration/construction order. Order is read when membership changes: an insertion or removal sorts the registered items by their current DOM position and notifies readers. A keyed move that keeps membership notifies no reader of `items` (or Accordion `itemValues`); they keep the order of the latest membership change until the next insertion or removal. Value changes remain observable without destroying an item. SSR produces valid collection observation without browser globals or browser-only render callbacks.
 
 Each item belongs to the nearest Collection DI context, including composition through host directives. Mounting an item without a Collection owner fails clearly. Nested collections do not contribute their items to their ancestor collection.
 
@@ -291,7 +291,7 @@ Selectors/export names:
 
 Root configuration: `expanded` boolean model false, `disabled` boolean input false, `hiding: 'hidden' | 'until-found'` input default `'hidden'`. Root exposes readonly State. Root `data-expanded` and `data-disabled` reflect effective Options.
 
-One mounted trigger and one mounted panel are supported per Collapsible. Each publishes its registration in `ngOnInit` (section 3), so its counterpart's association names it only once its inputs are set, also when the parts are rendered by separate components. Missing counterparts are allowed and remove their association attributes. A second mounted role fails clearly when it publishes. Unmount/remount cleanup preserves the surviving and replacement registrations.
+One mounted trigger and one mounted panel are supported per Collapsible. Each registers in `ngOnInit` (section 3), so its counterpart's association names it only once its inputs are set, also when the parts are rendered by separate components. Missing counterparts are allowed and remove their association attributes. A second mounted role fails clearly when it registers. Unmount/remount cleanup preserves the surviving and replacement registrations.
 
 Trigger:
 
@@ -354,7 +354,7 @@ The consumer supplies headings and optional panel roles. No roving tabindex, arr
 
 Root `[ogPopover]`, `exportAs: 'ogPopover'`: `open` boolean model false, `disabled` false, `dismissible` true. Root State `open()` observes requested state, not exit retention or actual presentation.
 
-Trigger remains a native `button[ogPopoverTrigger]`. Explicit Anchor, Trigger and Content roles are required for presentation. Support one mounted instance of each role; Trigger and Anchor may share one element. Each role publishes its registration in `ngOnInit` (section 3), so the Trigger's `aria-controls` names Content only once Content's inputs are set, also when Content is rendered by a child component. Duplicate role registration fails clearly when the second role publishes, while co-location is not a duplicate role.
+Trigger remains a native `button[ogPopoverTrigger]`. Explicit Anchor, Trigger and Content roles are required for presentation. Support one mounted instance of each role; Trigger and Anchor may share one element. Each role registers in `ngOnInit` (section 3), so the Trigger's `aria-controls` names Content only once Content's inputs are set, also when Content is rendered by a child component. Duplicate role registration fails clearly when the second role registers, while co-location is not a duplicate role.
 
 Missing required parts suppress presentation without clearing desired open. Remounting parts can restore presentation from retained intent. Parent suppression also retains child intent. Parts and nested popovers belong to nearest logical DI owners. Native manual presentation changes their paint layer, not their authored DOM location.
 
@@ -449,14 +449,14 @@ Selectors/export names:
 
 Root configuration: `value: string | null` model null, `disabled` boolean input false, `orientation: 'horizontal' | 'vertical'` input default `'horizontal'`, `activation: 'automatic' | 'manual'` input default `'automatic'`. The root exposes readonly State; descendants inject it. The List has no configuration. Trigger: `value` input defaulting to a generated string, `id` input defaulting to a generated ID, `disabled` boolean input false. Panel: `value` input defaulting to a generated string, `id` input defaulting to a generated ID. A Trigger and a Panel pair by equal value, so consumers give each pair the same explicit value; a generated value pairs with nothing. Values within one Tabs are expected to be distinct and are not validated; associations use the first mounted match.
 
-Triggers and Panels publish their registrations in `ngOnInit` (section 3); other parts read a Trigger's or Panel's Options only once it has published, so replacement Options may use required inputs, and repeated Triggers and Panels in `@for` blocks are read only after Angular sets their inputs. Lists, Triggers and Panels belong to the nearest Tabs root and fail through Angular DI without one. A Tabs root inside a Panel is fully independent.
+Triggers and Panels register in `ngOnInit` (section 3); other parts read a Trigger's or Panel's Options only once it has registered, so replacement Options may use required inputs, and repeated Triggers and Panels in `@for` blocks are read only after Angular sets their inputs. Lists, Triggers and Panels belong to the nearest Tabs root and fail through Angular DI without one. A Tabs root inside a Panel is fully independent.
 
 Host semantics:
 
 - Root: `data-orientation` reflects effective orientation; `data-disabled` is empty while root-disabled and absent otherwise.
 - List: static `role="tablist"`; `aria-orientation` always present, reflecting effective orientation. The consumer supplies its accessible name.
-- Trigger: native button semantics, `type="button"`, static `role="tab"`, effective ID, `aria-selected` always `"true"` or `"false"`, `aria-controls` naming only a published Panel of the same value, `tabindex` `"0"` on the single tab stop and `"-1"` on every other Trigger, and empty `data-selected` while selected. Root or own disabled state sets native `disabled`, `aria-disabled="true"` and empty `data-disabled`; they are absent while enabled.
-- Panel: static `role="tabpanel"`, static `tabindex="0"`, effective ID, `aria-labelledby` naming only a published Trigger of the same value, `hidden` unless its value is selected, and empty `data-selected` while selected. A consumer's static `tabindex` overrides the Panel default.
+- Trigger: native button semantics, `type="button"`, static `role="tab"`, effective ID, `aria-selected` always `"true"` or `"false"`, `aria-controls` naming only a registered Panel of the same value, `tabindex` `"0"` on the single tab stop and `"-1"` on every other Trigger, and empty `data-selected` while selected. Root or own disabled state sets native `disabled`, `aria-disabled="true"` and empty `data-disabled`; they are absent while enabled.
+- Panel: static `role="tabpanel"`, static `tabindex="0"`, effective ID, `aria-labelledby` naming only a registered Trigger of the same value, `hidden` unless its value is selected, and empty `data-selected` while selected. A consumer's static `tabindex` overrides the Panel default.
 
 Selection:
 
@@ -493,7 +493,7 @@ Both roots compose the package-private ToggleGroup root, which the Toolbar's Tog
 
 Configuration: Single has a `value: string | null` model null, `disabled` boolean input false, `orientation: 'horizontal' | 'vertical'` input default `'horizontal'` and `deselectable` boolean input false. Multiple has a `value: readonly string[]` model defaulting to empty, `disabled` and `orientation`; it has no `deselectable`. Both roots expose the same readonly State; descendants inject it. Item: `value` input defaulting to a generated string, `disabled` boolean input false. Values within one group are expected to be distinct and are not validated.
 
-Item Options feed the composed Toggle's Options, so replacing only the upper item Options drives the item's value and the Toggle's pressed and disabled state; consumers never provide Toggle Options. An item publishes its roving registration in `ngOnInit` (section 3); other items read its Options only once it has published, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. Descendants of an item observe the composed Toggle's State; ToggleGroup adds no item State. Items belong to the nearest root and fail through Angular DI without one. An item is not also matched by `ogToggle`. A root inside a non-item descendant of another root is fully independent.
+Item Options feed the composed Toggle's Options, so replacing only the upper item Options drives the item's value and the Toggle's pressed and disabled state; consumers never provide Toggle Options. An item registers with the roving focus in `ngOnInit` (section 3); other items read its Options only once it has registered, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. Descendants of an item observe the composed Toggle's State; ToggleGroup adds no item State. Items belong to the nearest root and fail through Angular DI without one. An item is not also matched by `ogToggle`. A root inside a non-item descendant of another root is fully independent.
 
 Host semantics:
 
@@ -536,7 +536,7 @@ Selectors/export names:
 
 Configuration: the root has an `orientation: 'horizontal' | 'vertical'` input default `'horizontal'` and exposes readonly State; descendants inject it. There is no root `disabled`. Item: `disabled` boolean input false; there is no item value. Items and Toolbar groups belong to the nearest Toolbar and fail through Angular DI without one. A Toolbar inside another Toolbar is fully independent.
 
-An item publishes its roving registration in `ngOnInit` (section 3); other controls read its Options only once it has published, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs.
+An item registers with the roving focus in `ngOnInit` (section 3); other controls read its Options only once it has registered, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs.
 
 Host semantics:
 
@@ -573,7 +573,7 @@ Selectors/export names:
 
 Configuration: the root has a `value: string | null` model null and a `disabled` boolean input false, and exposes readonly State; descendants inject it. There is one mode and no orientation. Item: `value` input defaulting to a generated string, `disabled` boolean input false. Values within one group are expected to be distinct and are not validated; every item whose value is the root value is checked.
 
-An item publishes its roving registration in `ngOnInit` (section 3); other items read its Options only once it has published, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. RadioGroup has no item State; descendants of an item read the root's State or style from `data-checked`. Items belong to the nearest root and fail through Angular DI without one. A root inside a non-item descendant of another root is fully independent.
+An item registers with the roving focus in `ngOnInit` (section 3); other items read its Options only once it has registered, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. RadioGroup has no item State; descendants of an item read the root's State or style from `data-checked`. Items belong to the nearest root and fail through Angular DI without one. A root inside a non-item descendant of another root is fully independent.
 
 Host semantics:
 
@@ -729,4 +729,4 @@ A new primitive ships with:
   - for every read of state another part owns: the reader, the lifecycle phase (construction, render, after render, event), the platform, and what the reader gets if the owner's inputs aren't set yet;
   - every place where correctness depends on Angular refreshing a view again.
 
-  Render-time reads follow section 3's registration rules: a part reads its own Options, its ancestors' Options and State, and registrations other parts have published. A direct render-time read of a sibling's Options isn't valid: repeated items, later sibling views and child components are layouts where the sibling's inputs aren't set yet.
+  Render-time reads follow section 3's registration rules: a part reads its own Options, its ancestors' Options and State, and registrations other parts have made. A direct render-time read of a sibling's Options isn't valid: repeated items, later sibling views and child components are layouts where the sibling's inputs aren't set yet.
