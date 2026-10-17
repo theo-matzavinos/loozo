@@ -597,14 +597,9 @@ test("S6: replaced root, Trigger and Panel Options drive behavior and associatio
   await expect(page.getByTestId("unused-tab-outputs")).toHaveText("0");
 });
 
-const precedenceCases = [
-  "factory-upper-first",
-  "factory-lower-first",
-  "existing-upper-first",
-  "existing-lower-first",
-];
+const precedenceCases = ["factory", "existing"];
 
-test("S6: whole Tabs root replacements win over direct inputs in both import orders", async ({
+test("S6: whole Tabs root replacements win over the composed root's own inputs", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -614,7 +609,7 @@ test("S6: whole Tabs root replacements win over direct inputs in both import ord
       const part = (role: string) =>
         page.locator(`[data-tabs-case="${name}"] [data-role="${role}"]`);
 
-      // Replacement, not the contradicting direct value, disabled, orientation and activation.
+      // Replacement, not the contradicting own value, disabled, orientation and activation.
       await expect(part("value")).toHaveText("one");
       await expect(part("disabled")).toHaveText("false");
       await expect(part("shared")).toHaveText("true");
@@ -636,7 +631,7 @@ test("S6: whole Tabs root replacements win over direct inputs in both import ord
       await expect(part("one")).toHaveAttribute("aria-selected", "true");
       await part("disable").click();
       await expect(part("one")).toBeEnabled();
-      // Replacement writes never emit the directly matched primitive's output.
+      // Replacement writes never emit the composed root's unused model output.
       await expect(part("outputs")).toHaveText("0");
     });
   }

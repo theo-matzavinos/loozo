@@ -1,6 +1,5 @@
 import {
   Directive,
-  InjectionToken,
   Service,
   booleanAttribute,
   forwardRef,
@@ -18,13 +17,9 @@ import {
   ɵOrigamiAccordionRoot,
 } from "./accordion";
 
-const singleReplacement = new InjectionToken<OrigamiAccordionSingleOptions>(
-  "Accordion Single replacement",
-);
-
 /**
  * Effective Single configuration. Unknown values remain authoritative and are never auto-normalized.
- * Helper provider arrays replace configuration locally, independent of co-matched directive import order.
+ * Helper providers replace configuration locally.
  */
 export abstract class OrigamiAccordionSingleOptions {
   /** Writable nullable selected value, default null. Ordinary writable signals are valid replacements. */
@@ -37,52 +32,21 @@ export abstract class OrigamiAccordionSingleOptions {
   /**
    * Replaces all Single configuration with a compatible existing provider.
    * @param type - Concrete or abstract class supplier; forward references are supported.
-   * @returns A local replacement-and-alias provider array resolved after construction, including consumer host directives.
+   * @returns A local provider, resolved after construction.
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionSingleOptions> | AbstractType<OrigamiAccordionSingleOptions>,
-  ): Provider[] {
-    return [
-      { provide: singleReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiAccordionSingleOptions, useExisting: singleReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiAccordionSingleOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Single configuration with factory-owned signals.
    * @param factory - Runs in injection context and must supply value, disabled and collapsible.
-   * @returns A local replacement-and-alias provider array; writing replacement signals does not fabricate unused model outputs.
+   * @returns A local provider; writing replacement signals does not fabricate unused model outputs.
    */
-  static provideFactory(factory: () => OrigamiAccordionSingleOptions): Provider[] {
-    return [
-      { provide: singleReplacement, useFactory: factory },
-      { provide: OrigamiAccordionSingleOptions, useExisting: singleReplacement },
-    ];
-  }
-
-  /**
-   * @internal Creates a fallback-only Single default, independent of co-matched directive import order.
-   * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
-   */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionSingleOptions>): Provider[] {
-    return [
-      {
-        provide: OrigamiAccordionSingleOptions,
-        useFactory: () => {
-          const replacement = inject(singleReplacement, {
-            self: true,
-            optional: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject<OrigamiAccordionSingleOptions>(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiAccordionSingleOptions): Provider {
+    return { provide: OrigamiAccordionSingleOptions, useFactory: factory };
   }
 }
 
@@ -127,8 +91,8 @@ class SingleSelection implements Selection {
   providers: [
     SingleSelection,
     { provide: Selection, useExisting: SingleSelection },
-    OrigamiAccordionSingleOptions.ɵprovideDefault(() => OrigamiAccordionSingle),
-    OrigamiAccordionOptions.ɵprovideDefault(() => OrigamiAccordionSingleOptions),
+    OrigamiAccordionSingleOptions.provideExisting(() => OrigamiAccordionSingle),
+    OrigamiAccordionOptions.provideExisting(() => OrigamiAccordionSingleOptions),
   ],
 })
 export class OrigamiAccordionSingle implements OrigamiAccordionSingleOptions {

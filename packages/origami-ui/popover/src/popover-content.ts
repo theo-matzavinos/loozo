@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   Service,
   computed,
   forwardRef,
@@ -24,10 +23,6 @@ export type OrigamiPopoverSide = "block-start" | "block-end" | "inline-start" | 
 
 /** Cross-axis logical alignment. `center` has no start/end edge preference. */
 export type OrigamiPopoverAlign = "start" | "center" | "end";
-
-const contentReplacement = new InjectionToken<OrigamiPopoverContentOptions>(
-  "OrigamiPopoverContentOptions replacement",
-);
 
 /**
  * Whole Content configuration. Former ID-only factories must migrate to all four fields;
@@ -61,54 +56,21 @@ export abstract class OrigamiPopoverContentOptions {
    * Replaces every Content Option with an existing compatible provider.
    * @param type - Supplier of a compatible concrete or abstract provider class whose instances
    *   supply all four required signals; forward references are supported.
-   * @returns Local replacement and public alias providers, preserved when the primitive also matches directly in either import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiPopoverContentOptions> | AbstractType<OrigamiPopoverContentOptions>,
-  ): Provider[] {
-    return [
-      { provide: contentReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiPopoverContentOptions, useExisting: contentReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiPopoverContentOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces every Content Option, including the approved placement fields.
    * @param factory - Runs in injection context; supply `id`, `side`, `align`, and finite nonnegative `gap` signals.
-   * @returns Local replacement and public alias providers. ID-only factories are not supported.
+   * @returns A local provider. ID-only factories are not supported.
    */
-  static provideFactory(factory: () => OrigamiPopoverContentOptions): Provider[] {
-    return [
-      { provide: contentReplacement, useFactory: factory },
-      { provide: OrigamiPopoverContentOptions, useExisting: contentReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback provider, not a supported application API.
-   * @param type - Deferred Content default, resolved only when Options are read after construction.
-   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiPopoverContentOptions> | AbstractType<OrigamiPopoverContentOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiPopoverContentOptions,
-        useFactory: () => {
-          const replacement = inject(contentReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(type());
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiPopoverContentOptions): Provider {
+    return { provide: OrigamiPopoverContentOptions, useFactory: factory };
   }
 }
 
@@ -181,7 +143,7 @@ export class OrigamiPopoverContentState {
   providers: [
     ɵOrigamiPresencePresentation,
     OrigamiPopoverContentState,
-    OrigamiPopoverContentOptions.ɵprovideDefault(() => OrigamiPopoverContent),
+    OrigamiPopoverContentOptions.provideExisting(() => OrigamiPopoverContent),
     OrigamiPresenceOptions.provideFactory(() => ({ present: inject(PopoverContext).desired })),
   ],
   host: {

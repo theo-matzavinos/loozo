@@ -1,6 +1,5 @@
 import {
   Directive,
-  InjectionToken,
   booleanAttribute,
   computed,
   forwardRef,
@@ -19,10 +18,6 @@ import {
 } from "./toggle-group";
 import type { OrigamiToggleGroupOrientation } from "./toggle-group";
 
-const multipleReplacement = new InjectionToken<OrigamiToggleGroupMultipleOptions>(
-  "Toggle Group Multiple replacement",
-);
-
 /** Effective Multiple configuration; it has no Single `deselectable` policy. */
 export abstract class OrigamiToggleGroupMultipleOptions {
   /**
@@ -39,58 +34,23 @@ export abstract class OrigamiToggleGroupMultipleOptions {
    * Replaces Multiple Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () =>
       | Type<OrigamiToggleGroupMultipleOptions>
       | AbstractType<OrigamiToggleGroupMultipleOptions>,
-  ): Provider[] {
-    return [
-      { provide: multipleReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiToggleGroupMultipleOptions, useExisting: multipleReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiToggleGroupMultipleOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Multiple Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply value, disabled and orientation.
-   * @returns Local replacement and public-alias providers. Ordinary writable signals do not emit an unused directive model's output.
+   * @returns A local provider. Ordinary writable signals do not emit an unused directive model's output.
    */
-  static provideFactory(factory: () => OrigamiToggleGroupMultipleOptions): Provider[] {
-    return [
-      { provide: multipleReplacement, useFactory: factory },
-      { provide: OrigamiToggleGroupMultipleOptions, useExisting: multipleReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () =>
-      | Type<OrigamiToggleGroupMultipleOptions>
-      | AbstractType<OrigamiToggleGroupMultipleOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiToggleGroupMultipleOptions,
-        useFactory: () => {
-          const replacement = inject(multipleReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiToggleGroupMultipleOptions): Provider {
+    return { provide: OrigamiToggleGroupMultipleOptions, useFactory: factory };
   }
 
   /**
@@ -108,7 +68,7 @@ export abstract class OrigamiToggleGroupMultipleOptions {
     orientation?: () => Signal<OrigamiToggleGroupOrientation>,
   ): Provider[] {
     return [
-      OrigamiToggleGroupMultipleOptions.ɵprovideDefault(type),
+      OrigamiToggleGroupMultipleOptions.provideExisting(type),
       ToggleGroupRootOptions.provideFactory(() => {
         const options = injectDeferred(OrigamiToggleGroupMultipleOptions);
         let effectiveOrientation: Signal<OrigamiToggleGroupOrientation> = computed(() =>

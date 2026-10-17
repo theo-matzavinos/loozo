@@ -498,17 +498,12 @@ test("U5: replaced root and item Options drive behavior, roving order and the co
   await expect(unused).toHaveText("0");
 });
 
-test("U5: whole root replacements win over direct inputs in both import orders and both modes", async ({
+test("U5: whole root replacements win over the composed root's own inputs in both modes", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
 
-  for (const name of [
-    "single-upper-first",
-    "single-lower-first",
-    "multiple-upper-first",
-    "multiple-lower-first",
-  ]) {
+  for (const name of ["single-precedence", "multiple-precedence"]) {
     await test.step(name, async () => {
       const single = name.startsWith("single");
       const part = (role: string) =>
@@ -526,7 +521,7 @@ test("U5: whole root replacements win over direct inputs in both import orders a
 
       if (single) {
         await expect(part("value")).toHaveText("two");
-        // The replacement is deselectable although the direct input isn't.
+        // The replacement is deselectable although the own input isn't.
         await part("two").click();
         await expect(part("value")).toHaveText("");
       } else {

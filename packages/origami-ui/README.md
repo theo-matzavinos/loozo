@@ -56,7 +56,7 @@ Options token ──► private Context ──► readonly State
                   lifecycle
 ```
 
-- **Options** are the effective configuration of one part: an abstract class of signals. By default the directive itself provides them, from its own inputs and models. Every Options class has two helpers that replace them on one element, each returning a `Provider[]` for the directive's `providers`:
+- **Options** are the effective configuration of one part: an abstract class of signals. By default the directive itself provides them, from its own inputs and models. Every Options class has two helpers that replace them, each returning a `Provider` for the `providers` of your directive or component that composes the primitive through `hostDirectives`:
   - `provideExisting(() => Type)` uses another class on the same element, usually your own directive, which must implement the Options. Forward references work.
   - `provideFactory(() => options)` uses an object you build. The factory runs in an injection context, so it can call `inject()`.
 
@@ -64,8 +64,6 @@ Options token ──► private Context ──► readonly State
 
 - **Context** is private and owns the behavior. Parts register with the nearest owner in Angular's DI, so nested roots are independent and descendants share their own root's State. A part's registration becomes visible to other parts once Angular has set its inputs, so replacement Options can use required inputs, and a part never sees another part's default values in place of bound ones, wherever the two are rendered.
 - **State** is a readonly facade over the nearest owner, provided on that owner's element: Collection, Presence, Collapsible, each Accordion mode, the Popover root, Popover Content, Toggle, the Tabs root, each ToggleGroup mode, the Toolbar and the RadioGroup root. Inject it in a descendant or a composing directive. Those directives also expose it as their `state` property, which you can read through a template reference; items, Triggers, Anchors and Panels have no `state` property of their own. It has no writable aliases.
-
-Angular 22.2.2's template type-checker crashes ("Could not resolve [object Object]") on a template reference to a primitive's `exportAs` name, such as `#t="ogToggle"`, when that element matches the primitive both directly and through your directive's `hostDirectives`. Reference your own directive instead, and expose the primitive's State from it.
 
 Upper primitives are built from lower ones: Accordion composes Collection and Collapsible, ToggleGroup's items compose Toggle, and Collapsible's Panel and Popover's Content compose Presence. Replacing an upper part's Options also drives the lower part, so you don't need to replace lower Options yourself.
 

@@ -1,17 +1,7 @@
-import {
-  DestroyRef,
-  Directive,
-  InjectionToken,
-  computed,
-  forwardRef,
-  inject,
-  input,
-} from "@angular/core";
+import { DestroyRef, Directive, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
-
-const panelReplacement = new InjectionToken<OrigamiTabsPanelOptions>("Tabs Panel replacement");
 
 /** Effective Panel configuration, used for visibility and mounted-only associations. */
 export abstract class OrigamiTabsPanelOptions {
@@ -24,54 +14,21 @@ export abstract class OrigamiTabsPanelOptions {
    * Replaces Panel Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references.
-   * @returns Local replacement and public-alias providers; a directly matched Panel default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiTabsPanelOptions> | AbstractType<OrigamiTabsPanelOptions>,
-  ): Provider[] {
-    return [
-      { provide: panelReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiTabsPanelOptions, useExisting: panelReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiTabsPanelOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Panel Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply value and id.
-   * @returns Local replacement and public-alias providers; defaults on an unused directive cannot repair missing Options.
+   * @returns A local provider; defaults on an unused directive cannot repair missing Options.
    */
-  static provideFactory(factory: () => OrigamiTabsPanelOptions): Provider[] {
-    return [
-      { provide: panelReplacement, useFactory: factory },
-      { provide: OrigamiTabsPanelOptions, useExisting: panelReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiTabsPanelOptions> | AbstractType<OrigamiTabsPanelOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiTabsPanelOptions,
-        useFactory: () => {
-          const replacement = inject(panelReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiTabsPanelOptions): Provider {
+    return { provide: OrigamiTabsPanelOptions, useFactory: factory };
   }
 }
 
@@ -85,7 +42,7 @@ export abstract class OrigamiTabsPanelOptions {
  */
 @Directive({
   selector: "[ogTabsPanel]",
-  providers: [OrigamiTabsPanelOptions.ɵprovideDefault(() => OrigamiTabsPanel)],
+  providers: [OrigamiTabsPanelOptions.provideExisting(() => OrigamiTabsPanel)],
   host: {
     role: "tabpanel",
     tabindex: "0",

@@ -580,7 +580,7 @@ test("Q4: in a Toolbar Radio Group arrows only move focus and Space, Enter or a 
   await expect(popoverPart("value")).toHaveText("single");
 });
 
-test("Q5: replaced root and item Options drive behavior with no fallback; descendant State; precedence in both import orders; nested roots are independent", async ({
+test("Q5: replaced root and item Options drive behavior with no fallback; descendant State; replacements win over own inputs; nested roots are independent", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -635,29 +635,29 @@ test("Q5: replaced root and item Options drive behavior with no fallback; descen
   await expect(option("standard")).toBeEnabled();
   await expect(page.getByTestId("checkout-unused-outputs")).toHaveText("0");
 
-  // Whole replacement Options win over contradicting direct inputs in both import orders.
-  for (const name of ["upper-first", "lower-first"]) {
-    const root = casePart(page, name, "root");
-    const precedence = (role: string) => casePart(page, name, role);
+  // Whole replacement Options win over the composed directives' contradicting own inputs.
+  const precedence = (role: string) => casePart(page, "precedence", role);
+  const precedenceRoot = precedence("root");
 
-    await expect(precedence("value")).toHaveText("last");
-    await expect(precedence("disabled")).toHaveText("false");
-    await expect(root).not.toHaveAttribute("data-disabled", /.*/);
-    await expect(precedence("last")).toHaveAttribute("aria-checked", "true");
-    await expect(precedence("first")).toHaveAttribute("aria-checked", "false");
-    await expect(precedence("replaced")).toBeDisabled();
-    await expectTabStop(root, precedence("last"));
-    await precedence("first").focus();
-    await page.keyboard.press("ArrowDown");
-    await expect(precedence("last")).toBeFocused();
-    await precedence("enable").click();
-    await expect(precedence("replaced")).toBeEnabled();
-    await precedence("first").focus();
-    await page.keyboard.press("ArrowDown");
-    await expect(precedence("replaced")).toBeFocused();
-    await expect(precedence("value")).toHaveText("replaced");
-    await expect(precedence("replaced")).toHaveAttribute("aria-checked", "true");
-  }
+  await expect(precedence("value")).toHaveText("last");
+  await expect(precedence("disabled")).toHaveText("false");
+  await expect(precedenceRoot).not.toHaveAttribute("data-disabled", /.*/);
+  await expect(precedence("last")).toHaveAttribute("aria-checked", "true");
+  await expect(precedence("first")).toHaveAttribute("aria-checked", "false");
+  await expect(precedence("replaced")).toBeDisabled();
+  await expectTabStop(precedenceRoot, precedence("last"));
+  await precedence("first").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(precedence("last")).toBeFocused();
+  await precedence("enable").click();
+  await expect(precedence("replaced")).toBeEnabled();
+  await precedence("first").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(precedence("replaced")).toBeFocused();
+  await expect(precedence("value")).toHaveText("replaced");
+  await expect(precedence("replaced")).toHaveAttribute("aria-checked", "true");
+  // Replacement writes never emit the composed root's unused model output.
+  await expect(precedence("outputs")).toHaveText("0");
 
   // A root inside a non-item descendant of another root has its own tab stop, keys and value.
   const nested = (key: string) => page.getByTestId(`nested-radio-${key}`);

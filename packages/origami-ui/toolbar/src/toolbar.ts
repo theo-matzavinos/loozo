@@ -1,12 +1,4 @@
-import {
-  Directive,
-  InjectionToken,
-  Service,
-  computed,
-  forwardRef,
-  inject,
-  input,
-} from "@angular/core";
+import { Directive, Service, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import {
   ɵOrigamiRovingFocusContext,
@@ -17,9 +9,6 @@ import { injectDeferred } from "@loozo/origami-ui/utils";
 /** Toolbar axis: `horizontal` uses ArrowLeft/ArrowRight (reading-direction aware), `vertical` uses ArrowUp/ArrowDown. */
 export type OrigamiToolbarOrientation = "horizontal" | "vertical";
 
-// Module-private so Options retain structural compatibility in packaged declarations.
-const toolbarReplacement = new InjectionToken<OrigamiToolbarOptions>("Toolbar replacement");
-
 /** Effective root configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiToolbarOptions {
   /** Arrow-key axis and `aria-orientation`, also for Toolbar groups; default `horizontal`. */
@@ -29,54 +18,21 @@ export abstract class OrigamiToolbarOptions {
    * Replaces Toolbar Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiToolbarOptions> | AbstractType<OrigamiToolbarOptions>,
-  ): Provider[] {
-    return [
-      { provide: toolbarReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiToolbarOptions, useExisting: toolbarReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiToolbarOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Toolbar Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply orientation.
-   * @returns Local replacement and public-alias providers; unused directive defaults are not merged into the result.
+   * @returns A local provider; unused directive defaults are not merged into the result.
    */
-  static provideFactory(factory: () => OrigamiToolbarOptions): Provider[] {
-    return [
-      { provide: toolbarReplacement, useFactory: factory },
-      { provide: OrigamiToolbarOptions, useExisting: toolbarReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiToolbarOptions> | AbstractType<OrigamiToolbarOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiToolbarOptions,
-        useFactory: () => {
-          const replacement = inject(toolbarReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiToolbarOptions): Provider {
+    return { provide: OrigamiToolbarOptions, useFactory: factory };
   }
 }
 
@@ -129,7 +85,7 @@ export class OrigamiToolbarState {
       orientation: inject(ToolbarContext).orientation,
       preferred: computed<readonly string[]>(() => []),
     })),
-    OrigamiToolbarOptions.ɵprovideDefault(() => OrigamiToolbar),
+    OrigamiToolbarOptions.provideExisting(() => OrigamiToolbar),
   ],
   host: {
     role: "toolbar",

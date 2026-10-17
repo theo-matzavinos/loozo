@@ -227,7 +227,7 @@ OrigamiToggleGroupItemOptions.provideExisting(() => WrongToggleGroupItem);
 OrigamiToolbarItemOptions.provideExisting(() => WrongToolbarItem);
 // @ts-expect-error incompatible existing RadioGroup Item class
 OrigamiRadioGroupItemOptions.provideExisting(() => WrongRadioGroupItem);
-// Positive: complete factories and abstract existing classes return ordinary Provider arrays.
+// Positive: complete factories and abstract existing classes return one ordinary Provider.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
@@ -294,7 +294,7 @@ abstract class AbstractRadioGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
 }
-export const providers: Provider[][] = [
+export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
   OrigamiCollapsibleOptions.provideExisting(() => AbstractCollapsible),

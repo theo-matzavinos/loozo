@@ -1,6 +1,5 @@
 import {
   Directive,
-  InjectionToken,
   Service,
   booleanAttribute,
   forwardRef,
@@ -18,13 +17,9 @@ import {
   ɵOrigamiAccordionRoot,
 } from "./accordion";
 
-const multipleReplacement = new InjectionToken<OrigamiAccordionMultipleOptions>(
-  "Accordion Multiple replacement",
-);
-
 /**
  * Effective Multiple configuration; it does not contain Single's collapsible property.
- * Helper provider arrays replace configuration locally, independent of co-matched directive import order.
+ * Helper providers replace configuration locally.
  */
 export abstract class OrigamiAccordionMultipleOptions {
   /** Writable readonly-array selection, default empty. Unknown values/order persist; user toggles allocate new arrays. */
@@ -35,54 +30,23 @@ export abstract class OrigamiAccordionMultipleOptions {
   /**
    * Replaces all Multiple configuration with an existing provider.
    * @param type - Compatible concrete or abstract class supplier, allowing forward references.
-   * @returns A local replacement-and-alias provider array resolved after construction.
+   * @returns A local provider resolved after construction.
    */
   static provideExisting(
     type: () =>
       | Type<OrigamiAccordionMultipleOptions>
       | AbstractType<OrigamiAccordionMultipleOptions>,
-  ): Provider[] {
-    return [
-      { provide: multipleReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiAccordionMultipleOptions, useExisting: multipleReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiAccordionMultipleOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Multiple configuration without merging unused defaults.
    * @param factory - Injection-context factory supplying value and disabled signals.
-   * @returns A local replacement-and-alias provider array. Ordinary writable signals do not emit an unused root model output.
+   * @returns A local provider. Ordinary writable signals do not emit an unused root model output.
    */
-  static provideFactory(factory: () => OrigamiAccordionMultipleOptions): Provider[] {
-    return [
-      { provide: multipleReplacement, useFactory: factory },
-      { provide: OrigamiAccordionMultipleOptions, useExisting: multipleReplacement },
-    ];
-  }
-
-  /**
-   * @internal Creates a fallback-only Multiple default, independent of co-matched directive import order.
-   * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
-   */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionMultipleOptions>): Provider[] {
-    return [
-      {
-        provide: OrigamiAccordionMultipleOptions,
-        useFactory: () => {
-          const replacement = inject(multipleReplacement, {
-            self: true,
-            optional: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject<OrigamiAccordionMultipleOptions>(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiAccordionMultipleOptions): Provider {
+    return { provide: OrigamiAccordionMultipleOptions, useFactory: factory };
   }
 }
 
@@ -115,8 +79,8 @@ class MultipleSelection implements Selection {
   providers: [
     MultipleSelection,
     { provide: Selection, useExisting: MultipleSelection },
-    OrigamiAccordionMultipleOptions.ɵprovideDefault(() => OrigamiAccordionMultiple),
-    OrigamiAccordionOptions.ɵprovideDefault(() => OrigamiAccordionMultipleOptions),
+    OrigamiAccordionMultipleOptions.provideExisting(() => OrigamiAccordionMultiple),
+    OrigamiAccordionOptions.provideExisting(() => OrigamiAccordionMultipleOptions),
   ],
 })
 export class OrigamiAccordionMultiple implements OrigamiAccordionMultipleOptions {

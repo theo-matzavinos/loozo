@@ -3,7 +3,6 @@ import {
   DestroyRef,
   Directive,
   ErrorHandler,
-  InjectionToken,
   PLATFORM_ID,
   Service,
   afterEveryRender,
@@ -30,11 +29,7 @@ import { PopoverParticipants } from "./popover-participants";
 import type { Branch, BranchMember } from "./popover-participants";
 import { PopoverPreparation } from "./popover-preparation";
 
-const popoverReplacement = new InjectionToken<OrigamiPopoverOptions>(
-  "OrigamiPopoverOptions replacement",
-);
-
-/** Whole, substitutable root configuration; aliases are resolved after construction. */
+/** Whole, substitutable root configuration, resolved after construction. */
 export abstract class OrigamiPopoverOptions {
   /** Requested open state, writable by behavior; direct model default false. Not native visibility or exit retention. */
   abstract readonly open: WritableSignal<boolean>;
@@ -51,54 +46,21 @@ export abstract class OrigamiPopoverOptions {
    * Replaces all root Options with an existing compatible provider.
    * @param type - Supplier of a compatible concrete or abstract provider class; supports forward
    *   references.
-   * @returns Local replacement and public alias providers. A co-matched primitive default cannot override them in either import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiPopoverOptions> | AbstractType<OrigamiPopoverOptions>,
-  ): Provider[] {
-    return [
-      { provide: popoverReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiPopoverOptions, useExisting: popoverReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiPopoverOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all root Options, without merging unused directive defaults.
    * @param factory - Injection-context factory supplying every required signal. Ordinary writable signals are valid.
-   * @returns Local replacement and public alias providers; writes do not fabricate outputs from an unused directive model.
+   * @returns A local provider; writes do not fabricate outputs from an unused directive model.
    */
-  static provideFactory(factory: () => OrigamiPopoverOptions): Provider[] {
-    return [
-      { provide: popoverReplacement, useFactory: factory },
-      { provide: OrigamiPopoverOptions, useExisting: popoverReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback provider, not a supported application API.
-   * @param type - Deferred directive default, resolved only when Options are read after construction.
-   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiPopoverOptions> | AbstractType<OrigamiPopoverOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiPopoverOptions,
-        useFactory: () => {
-          const replacement = inject(popoverReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(type());
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiPopoverOptions): Provider {
+    return { provide: OrigamiPopoverOptions, useFactory: factory };
   }
 }
 
@@ -1161,7 +1123,7 @@ export class OrigamiPopoverState {
   providers: [
     PopoverContext,
     OrigamiPopoverState,
-    OrigamiPopoverOptions.ɵprovideDefault(() => OrigamiPopover),
+    OrigamiPopoverOptions.provideExisting(() => OrigamiPopover),
   ],
 })
 export class OrigamiPopover implements OrigamiPopoverOptions {

@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   booleanAttribute,
   computed,
   forwardRef,
@@ -13,8 +12,6 @@ import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { ToolbarContext } from "./toolbar";
-
-const itemReplacement = new InjectionToken<OrigamiToolbarItemOptions>("Toolbar Item replacement");
 
 /**
  * Effective item configuration. Other items read it only once the item has registered with the
@@ -29,54 +26,21 @@ export abstract class OrigamiToolbarItemOptions {
    * Replaces item Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers; a directly matched item default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiToolbarItemOptions> | AbstractType<OrigamiToolbarItemOptions>,
-  ): Provider[] {
-    return [
-      { provide: itemReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiToolbarItemOptions, useExisting: itemReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiToolbarItemOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all item Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply disabled.
-   * @returns Local replacement and public-alias providers; unused directive defaults are not merged into the result.
+   * @returns A local provider; unused directive defaults are not merged into the result.
    */
-  static provideFactory(factory: () => OrigamiToolbarItemOptions): Provider[] {
-    return [
-      { provide: itemReplacement, useFactory: factory },
-      { provide: OrigamiToolbarItemOptions, useExisting: itemReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiToolbarItemOptions> | AbstractType<OrigamiToolbarItemOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiToolbarItemOptions,
-        useFactory: () => {
-          const replacement = inject(itemReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiToolbarItemOptions): Provider {
+    return { provide: OrigamiToolbarItemOptions, useFactory: factory };
   }
 }
 
@@ -93,7 +57,7 @@ export abstract class OrigamiToolbarItemOptions {
  */
 @Directive({
   selector: "button[ogToolbarItem]",
-  providers: [OrigamiToolbarItemOptions.ɵprovideDefault(() => OrigamiToolbarItem)],
+  providers: [OrigamiToolbarItemOptions.provideExisting(() => OrigamiToolbarItem)],
   host: {
     type: "button",
     "[disabled]": "effectiveDisabled()",

@@ -1,7 +1,6 @@
 import {
   DestroyRef,
   Directive,
-  InjectionToken,
   Service,
   booleanAttribute,
   computed,
@@ -24,9 +23,6 @@ export type OrigamiTabsOrientation = "horizontal" | "vertical";
 /** `automatic` selects a tab when arrow/Home/End focus reaches it; `manual` moves focus only, and Enter, Space or a click selects. */
 export type OrigamiTabsActivation = "automatic" | "manual";
 
-// Module-private so Options retain structural compatibility in packaged declarations.
-const tabsReplacement = new InjectionToken<OrigamiTabsOptions>("Tabs replacement");
-
 /** Effective root configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiTabsOptions {
   /**
@@ -45,54 +41,21 @@ export abstract class OrigamiTabsOptions {
    * Replaces Tabs Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiTabsOptions> | AbstractType<OrigamiTabsOptions>,
-  ): Provider[] {
-    return [
-      { provide: tabsReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiTabsOptions, useExisting: tabsReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiTabsOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Tabs Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply all four required signals.
-   * @returns Local replacement and public-alias providers. Ordinary writable signals do not emit an unused directive model's output.
+   * @returns A local provider. Ordinary writable signals do not emit an unused directive model's output.
    */
-  static provideFactory(factory: () => OrigamiTabsOptions): Provider[] {
-    return [
-      { provide: tabsReplacement, useFactory: factory },
-      { provide: OrigamiTabsOptions, useExisting: tabsReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiTabsOptions> | AbstractType<OrigamiTabsOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiTabsOptions,
-        useFactory: () => {
-          const replacement = inject(tabsReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiTabsOptions): Provider {
+    return { provide: OrigamiTabsOptions, useFactory: factory };
   }
 }
 
@@ -258,7 +221,7 @@ export class OrigamiTabsState {
         }),
       };
     }),
-    OrigamiTabsOptions.ɵprovideDefault(() => OrigamiTabs),
+    OrigamiTabsOptions.provideExisting(() => OrigamiTabs),
   ],
   host: {
     "[attr.data-orientation]": "effectiveOrientation()",

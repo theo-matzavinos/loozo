@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   PLATFORM_ID,
   Service,
   afterEveryRender,
@@ -20,8 +19,6 @@ import { ɵOrigamiPresencePresentation } from "./presence-presentation";
 /** The desired-presence transition phase; `closing` still retains consumer children. */
 export type OrigamiPresencePhase = "opening" | "open" | "closing" | "closed";
 
-const presenceReplacement = new InjectionToken<OrigamiPresenceOptions>("Presence replacement");
-
 /** Substitutable Presence configuration, resolved after the owning directive is constructed. */
 export abstract class OrigamiPresenceOptions {
   /** Desired presence. The direct directive's model defaults to false. */
@@ -31,54 +28,21 @@ export abstract class OrigamiPresenceOptions {
    * Replaces all effective Options with an existing compatible provider.
    * @param type - Supplier of a compatible concrete or abstract provider class; forward references
    *   are supported.
-   * @returns Local replacement and public-alias providers; direct co-matches cannot override the replacement with defaults.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiPresenceOptions> | AbstractType<OrigamiPresenceOptions>,
-  ): Provider[] {
-    return [
-      { provide: presenceReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiPresenceOptions, useExisting: presenceReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiPresenceOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces effective Options with a structurally compatible factory result.
    * @param factory - Runs in Angular injection context. All required fields must be supplied.
-   * @returns Local replacement and public-alias providers. Replacement signals do not emit unused directive-model outputs.
+   * @returns A local provider. Replacement signals do not emit unused directive-model outputs.
    */
-  static provideFactory(factory: () => OrigamiPresenceOptions): Provider[] {
-    return [
-      { provide: presenceReplacement, useFactory: factory },
-      { provide: OrigamiPresenceOptions, useExisting: presenceReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiPresenceOptions> | AbstractType<OrigamiPresenceOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiPresenceOptions,
-        useFactory: () => {
-          const replacement = inject(presenceReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiPresenceOptions): Provider {
+    return { provide: OrigamiPresenceOptions, useFactory: factory };
   }
 }
 
@@ -338,7 +302,7 @@ export class OrigamiPresenceState {
   providers: [
     PresenceContext,
     OrigamiPresenceState,
-    OrigamiPresenceOptions.ɵprovideDefault(() => OrigamiPresence),
+    OrigamiPresenceOptions.provideExisting(() => OrigamiPresence),
   ],
   host: {
     "[attr.data-entering]": "entering()",

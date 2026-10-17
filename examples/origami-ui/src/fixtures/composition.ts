@@ -476,7 +476,10 @@ export class SharedFactorySingle {
 
 @Directive({ selector: "[composedCollection]", hostDirectives: [OrigamiCollection] })
 export class ComposedCollection {}
-@Directive({ selector: "[composedAccordionItem]", hostDirectives: [OrigamiAccordionItem] })
+@Directive({
+  selector: "[composedAccordionItem]",
+  hostDirectives: [{ directive: OrigamiAccordionItem, inputs: ["value"] }],
+})
 export class ComposedAccordionItem {}
 @Directive({ selector: "[stateObservation]", exportAs: "stateObservation" })
 export class StateObservation {
@@ -564,9 +567,9 @@ export class StateObservation {
         </section>
       </section>
       <section acceptanceExistingSingle #singleExisting="acceptanceExistingSingle" (unusedValueChange)="unusedOutputs.update(increment)">
-        <article composedAccordionItem ogAccordionItem value="one">
-          <button acceptanceExistingAccordionTrigger ogAccordionTrigger [id]="id() + '-accordion-existing'" data-testid="existing-accordion-trigger">Diamond-matched trigger</button>
-          <div acceptanceExistingAccordionPanel ogAccordionPanel [id]="id() + '-accordion-panel-existing'" data-testid="existing-accordion-panel">Diamond-matched panel</div>
+        <article composedAccordionItem value="one">
+          <button acceptanceExistingAccordionTrigger [id]="id() + '-accordion-existing'" data-testid="existing-accordion-trigger">Provided trigger</button>
+          <div acceptanceExistingAccordionPanel [id]="id() + '-accordion-panel-existing'" data-testid="existing-accordion-panel">Provided panel</div>
         </article>
         <span readonlyStates #accordionReadExisting="readonlyStates"><output data-testid="existing-accordion-readonly">{{ accordionReadExisting.valid() }}</output></span>
         <output data-testid="existing-single-value">{{ singleExisting.value() }}</output>
@@ -612,9 +615,9 @@ export class StateObservation {
         </section>
       </section>
       <section acceptanceFactorySingle #singleFactory="acceptanceFactorySingle" (unusedValueChange)="unusedOutputs.update(increment)">
-        <article composedAccordionItem ogAccordionItem value="one">
-          <button acceptanceFactoryAccordionTrigger ogAccordionTrigger [id]="id() + '-accordion-factory'" data-testid="factory-accordion-trigger">Diamond-matched trigger</button>
-          <div acceptanceFactoryAccordionPanel ogAccordionPanel [id]="id() + '-accordion-panel-factory'" data-testid="factory-accordion-panel">Diamond-matched panel</div>
+        <article composedAccordionItem value="one">
+          <button acceptanceFactoryAccordionTrigger [id]="id() + '-accordion-factory'" data-testid="factory-accordion-trigger">Provided trigger</button>
+          <div acceptanceFactoryAccordionPanel [id]="id() + '-accordion-panel-factory'" data-testid="factory-accordion-panel">Provided panel</div>
         </article>
         <span readonlyStates #accordionReadFactory="readonlyStates"><output data-testid="factory-accordion-readonly">{{ accordionReadFactory.valid() }}</output></span>
         <output data-testid="factory-single-value">{{ singleFactory.value() }}</output>

@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   booleanAttribute,
   computed,
   forwardRef,
@@ -13,10 +12,6 @@ import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
-
-const triggerReplacement = new InjectionToken<OrigamiTabsTriggerOptions>(
-  "Tabs Trigger replacement",
-);
 
 /**
  * Effective Trigger configuration. Other parts read it only once the Trigger has registered in
@@ -34,54 +29,21 @@ export abstract class OrigamiTabsTriggerOptions {
    * Replaces Trigger Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers; a directly matched Trigger default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiTabsTriggerOptions> | AbstractType<OrigamiTabsTriggerOptions>,
-  ): Provider[] {
-    return [
-      { provide: triggerReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiTabsTriggerOptions, useExisting: triggerReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiTabsTriggerOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Trigger Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply value, id and disabled.
-   * @returns Local replacement and public-alias providers; unused directive defaults are not merged into the result.
+   * @returns A local provider; unused directive defaults are not merged into the result.
    */
-  static provideFactory(factory: () => OrigamiTabsTriggerOptions): Provider[] {
-    return [
-      { provide: triggerReplacement, useFactory: factory },
-      { provide: OrigamiTabsTriggerOptions, useExisting: triggerReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiTabsTriggerOptions> | AbstractType<OrigamiTabsTriggerOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiTabsTriggerOptions,
-        useFactory: () => {
-          const replacement = inject(triggerReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiTabsTriggerOptions): Provider {
+    return { provide: OrigamiTabsTriggerOptions, useFactory: factory };
   }
 }
 
@@ -101,7 +63,7 @@ export abstract class OrigamiTabsTriggerOptions {
  */
 @Directive({
   selector: "button[ogTabsTrigger]",
-  providers: [OrigamiTabsTriggerOptions.ɵprovideDefault(() => OrigamiTabsTrigger)],
+  providers: [OrigamiTabsTriggerOptions.provideExisting(() => OrigamiTabsTrigger)],
   host: {
     role: "tab",
     type: "button",

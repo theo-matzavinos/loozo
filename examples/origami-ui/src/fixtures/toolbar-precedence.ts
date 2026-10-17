@@ -8,9 +8,9 @@ import {
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
 
-// K5 precedence: whole replacement Options win over conflicting direct inputs in both directive
-// import orders, with a factory for the root and an existing provider for the item. Both cases
-// share one template; only the import (registry) order differs.
+// K5 precedence: whole replacement Options win over the composed directives' own inputs, bound
+// through the consumers' exposed host-directive inputs, with a factory for the root and an
+// existing provider for the item.
 
 @Service({ autoProvided: false })
 export class ToolbarPrecedenceSettings {
@@ -21,7 +21,7 @@ export class ToolbarPrecedenceSettings {
 @Directive({
   selector: "[precedenceFactoryToolbar]",
   exportAs: "precedenceFactoryToolbar",
-  hostDirectives: [OrigamiToolbar],
+  hostDirectives: [{ directive: OrigamiToolbar, inputs: ["orientation"] }],
   providers: [
     OrigamiToolbarOptions.provideFactory(() => ({
       orientation: inject(ToolbarPrecedenceSettings).orientation,
@@ -34,25 +34,25 @@ export class PrecedenceFactoryToolbar {
 
 @Directive({
   selector: "button[precedenceExistingToolbarItem]",
-  hostDirectives: [OrigamiToolbarItem],
+  hostDirectives: [{ directive: OrigamiToolbarItem, inputs: ["disabled"] }],
   providers: [OrigamiToolbarItemOptions.provideExisting(() => PrecedenceExistingToolbarItem)],
 })
 export class PrecedenceExistingToolbarItem implements OrigamiToolbarItemOptions {
   readonly disabled = inject(ToolbarPrecedenceSettings).disabled;
 }
 
-// Direct inputs deliberately contradict the replacement. One return statement keeps the template
-// statically evaluable by the Angular compiler.
+// The composed directives' own inputs deliberately contradict the replacement.
 const template = `
-  <div precedenceFactoryToolbar ogToolbar #upper="precedenceFactoryToolbar" orientation="horizontal"
+  <h2>Toolbar replacement precedence</h2>
+  <div precedenceFactoryToolbar #consumer="precedenceFactoryToolbar" orientation="horizontal"
     aria-label="Toolbar precedence" data-role="root">
     <button ogToolbarItem data-role="first">First</button>
-    <button precedenceExistingToolbarItem ogToolbarItem [disabled]="false" data-role="replaced">
+    <button precedenceExistingToolbarItem [disabled]="false" data-role="replaced">
       Replaced
     </button>
     <button ogToolbarItem data-role="last">Last</button>
   </div>
-  <output data-role="orientation">{{ upper.state.orientation() }}</output>
+  <output data-role="orientation">{{ consumer.state.orientation() }}</output>
   <button type="button" data-role="enable" (click)="settings.disabled.set(!settings.disabled())">
     Toggle replaced disabled
   </button>
@@ -61,45 +61,13 @@ const template = `
   </button>
 `;
 
-abstract class ToolbarPrecedenceCase {
-  readonly settings = inject(ToolbarPrecedenceSettings);
-}
-
-@Component({
-  selector: "toolbar-precedence-upper-first",
-  imports: [
-    PrecedenceFactoryToolbar,
-    OrigamiToolbar,
-    PrecedenceExistingToolbarItem,
-    OrigamiToolbarItem,
-  ],
-  providers: [ToolbarPrecedenceSettings],
-  host: { "data-toolbar-case": "upper-first" },
-  template,
-})
-export class ToolbarUpperFirst extends ToolbarPrecedenceCase {}
-
-@Component({
-  selector: "toolbar-precedence-lower-first",
-  imports: [
-    OrigamiToolbar,
-    PrecedenceFactoryToolbar,
-    OrigamiToolbarItem,
-    PrecedenceExistingToolbarItem,
-  ],
-  providers: [ToolbarPrecedenceSettings],
-  host: { "data-toolbar-case": "lower-first" },
-  template,
-})
-export class ToolbarLowerFirst extends ToolbarPrecedenceCase {}
-
 @Component({
   selector: "acceptance-toolbar-precedence",
-  imports: [ToolbarUpperFirst, ToolbarLowerFirst],
-  template: `
-    <h2>Toolbar replacement precedence</h2>
-    <toolbar-precedence-upper-first />
-    <toolbar-precedence-lower-first />
-  `,
+  imports: [PrecedenceFactoryToolbar, PrecedenceExistingToolbarItem, OrigamiToolbarItem],
+  providers: [ToolbarPrecedenceSettings],
+  host: { "data-toolbar-case": "precedence" },
+  template,
 })
-export class ToolbarPrecedence {}
+export class ToolbarPrecedence {
+  readonly settings = inject(ToolbarPrecedenceSettings);
+}

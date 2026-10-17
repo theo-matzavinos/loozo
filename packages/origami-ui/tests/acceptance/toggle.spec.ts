@@ -102,16 +102,9 @@ test("G2: factory and existing Toggle Options drive behavior; descendants share 
   await expect(existing).toBeEnabled();
 });
 
-const precedenceCases = [
-  "factory-upper-first",
-  "factory-lower-first",
-  "existing-upper-first",
-  "existing-lower-first",
-  "factory-diamond",
-  "existing-diamond",
-];
+const precedenceCases = ["factory", "existing"];
 
-test("G2: whole Toggle replacements win over direct inputs in both import orders and diamonds", async ({
+test("G2: whole Toggle replacements win over the composed Toggle's own inputs", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -122,7 +115,7 @@ test("G2: whole Toggle replacements win over direct inputs in both import orders
         page.locator(`[data-toggle-case="${name}"] [data-role="${role}"]`);
       const toggle = part("toggle");
 
-      // Replacement, not the contradicting direct `[pressed]="false"` and `[disabled]="true"`.
+      // Replacement, not the contradicting own `[pressed]="false"` and `[disabled]="true"`.
       await expect(part("pressed")).toHaveText("true");
       await expect(part("disabled")).toHaveText("false");
       await expect(toggle).toHaveAttribute("aria-pressed", "true");
@@ -144,7 +137,7 @@ test("G2: whole Toggle replacements win over direct inputs in both import orders
       await expect(toggle).toHaveAttribute("aria-pressed", "true");
       await part("disable").click();
       await expect(toggle).toBeEnabled();
-      // Replacement writes never emit the directly matched primitive's output.
+      // Replacement writes never emit the composed Toggle's unused model output.
       await expect(part("outputs")).toHaveText("0");
     });
   }

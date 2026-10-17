@@ -1,25 +1,11 @@
-import {
-  DestroyRef,
-  Directive,
-  ElementRef,
-  InjectionToken,
-  forwardRef,
-  inject,
-  input,
-} from "@angular/core";
+import { DestroyRef, Directive, ElementRef, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { CollectionContext } from "./collection";
 
-// Module-private so Options retain structural compatibility in packaged declarations.
-const itemReplacement = new InjectionToken<OrigamiCollectionItemOptions>(
-  "Collection Item replacement",
-);
-
 /**
  * Effective item configuration, substitutable as a whole for direct or host-composed items.
- * Helpers return local replacement-and-alias arrays, safe to nest in `providers`.
- * Primitive defaults cannot override replacements when direct/host selectors co-match.
+ * Helpers return one local provider.
  */
 export abstract class OrigamiCollectionItemOptions {
   /** Item value, defaulting to a generated value that is stable while mounted. No normalization is performed. */
@@ -28,66 +14,34 @@ export abstract class OrigamiCollectionItemOptions {
   /**
    * Uses an existing compatible concrete or abstract provider for the item's configuration.
    * @param type - Forward-reference supplier, resolved only after construction.
-   * @returns A local replacement-and-alias provider array suitable for consumer host-directive composition.
+   * @returns A local provider suitable for consumer host-directive composition.
    */
   static provideExisting(
     type: () => Type<OrigamiCollectionItemOptions> | AbstractType<OrigamiCollectionItemOptions>,
-  ): Provider[] {
-    return [
-      { provide: itemReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiCollectionItemOptions, useExisting: itemReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiCollectionItemOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces effective item configuration without merging unused directive defaults.
    * @param factory - Injection-context factory supplying the required value signal.
-   * @returns A local replacement-and-alias provider array.
+   * @returns A local provider.
    */
-  static provideFactory(factory: () => OrigamiCollectionItemOptions): Provider[] {
-    return [
-      { provide: itemReplacement, useFactory: factory },
-      { provide: OrigamiCollectionItemOptions, useExisting: itemReplacement },
-    ];
-  }
-
-  /**
-   * @internal Creates a fallback-only primitive default, independent of co-matched directive import order.
-   * @param type - Default directive supplier, resolved lazily after construction only when no local replacement exists.
-   * @returns A local array holding one Options factory; ancestor replacement tokens are deliberately ignored.
-   */
-  static ɵprovideDefault(type: () => Type<OrigamiCollectionItemOptions>): Provider[] {
-    return [
-      {
-        provide: OrigamiCollectionItemOptions,
-        useFactory: () => {
-          const replacement = inject(itemReplacement, {
-            self: true,
-            optional: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject<OrigamiCollectionItemOptions>(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiCollectionItemOptions): Provider {
+    return { provide: OrigamiCollectionItemOptions, useFactory: factory };
   }
 }
 
 /**
  * One item of its nearest logical Collection owner. It registers in `ngOnInit`, once Angular has
  * set its inputs, so readers never see an item's default value in place of its bound one. Options are resolved
- * later, avoiding consumer/host-directive construction cycles. Helper-provided replacements
- * override the default even when direct and host-composed selectors co-match. Caller-scoped
- * destruction removes only this item. An orphan fails Angular DI clearly.
+ * later, avoiding consumer/host-directive construction cycles. Caller-scoped destruction removes
+ * only this item. An orphan fails Angular DI clearly.
  */
 @Directive({
   selector: "[ogCollectionItem]",
   exportAs: "ogCollectionItem",
-  providers: [OrigamiCollectionItemOptions.ɵprovideDefault(() => OrigamiCollectionItem)],
+  providers: [OrigamiCollectionItemOptions.provideExisting(() => OrigamiCollectionItem)],
 })
 export class OrigamiCollectionItem implements OrigamiCollectionItemOptions {
   /**

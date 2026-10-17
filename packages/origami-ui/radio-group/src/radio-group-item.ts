@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   booleanAttribute,
   computed,
   forwardRef,
@@ -13,10 +12,6 @@ import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { RadioGroupContext } from "./radio-group";
-
-const itemReplacement = new InjectionToken<OrigamiRadioGroupItemOptions>(
-  "Radio Group Item replacement",
-);
 
 /**
  * Effective item configuration. Other items read it only once the item has registered with the
@@ -33,54 +28,21 @@ export abstract class OrigamiRadioGroupItemOptions {
    * Replaces item Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers; a directly matched item default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiRadioGroupItemOptions> | AbstractType<OrigamiRadioGroupItemOptions>,
-  ): Provider[] {
-    return [
-      { provide: itemReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiRadioGroupItemOptions, useExisting: itemReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiRadioGroupItemOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all item Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply value and disabled.
-   * @returns Local replacement and public-alias providers; unused directive defaults are not merged into the result.
+   * @returns A local provider; unused directive defaults are not merged into the result.
    */
-  static provideFactory(factory: () => OrigamiRadioGroupItemOptions): Provider[] {
-    return [
-      { provide: itemReplacement, useFactory: factory },
-      { provide: OrigamiRadioGroupItemOptions, useExisting: itemReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiRadioGroupItemOptions> | AbstractType<OrigamiRadioGroupItemOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiRadioGroupItemOptions,
-        useFactory: () => {
-          const replacement = inject(itemReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiRadioGroupItemOptions): Provider {
+    return { provide: OrigamiRadioGroupItemOptions, useFactory: factory };
   }
 }
 
@@ -102,7 +64,7 @@ export abstract class OrigamiRadioGroupItemOptions {
  */
 @Directive({
   selector: "button[ogRadioGroupItem]",
-  providers: [OrigamiRadioGroupItemOptions.ɵprovideDefault(() => OrigamiRadioGroupItem)],
+  providers: [OrigamiRadioGroupItemOptions.provideExisting(() => OrigamiRadioGroupItem)],
   host: {
     role: "radio",
     type: "button",

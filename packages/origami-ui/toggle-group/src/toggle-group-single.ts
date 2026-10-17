@@ -1,6 +1,5 @@
 import {
   Directive,
-  InjectionToken,
   booleanAttribute,
   computed,
   forwardRef,
@@ -18,11 +17,6 @@ import {
   ToggleGroupRootOptions,
 } from "./toggle-group";
 import type { OrigamiToggleGroupOrientation } from "./toggle-group";
-
-// Module-private so Options retain structural compatibility in packaged declarations.
-const singleReplacement = new InjectionToken<OrigamiToggleGroupSingleOptions>(
-  "Toggle Group Single replacement",
-);
 
 /** Effective Single configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiToggleGroupSingleOptions {
@@ -42,58 +36,23 @@ export abstract class OrigamiToggleGroupSingleOptions {
    * Replaces Single Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () =>
       | Type<OrigamiToggleGroupSingleOptions>
       | AbstractType<OrigamiToggleGroupSingleOptions>,
-  ): Provider[] {
-    return [
-      { provide: singleReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiToggleGroupSingleOptions, useExisting: singleReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiToggleGroupSingleOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Single Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply all four required signals.
-   * @returns Local replacement and public-alias providers. Ordinary writable signals do not emit an unused directive model's output.
+   * @returns A local provider. Ordinary writable signals do not emit an unused directive model's output.
    */
-  static provideFactory(factory: () => OrigamiToggleGroupSingleOptions): Provider[] {
-    return [
-      { provide: singleReplacement, useFactory: factory },
-      { provide: OrigamiToggleGroupSingleOptions, useExisting: singleReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () =>
-      | Type<OrigamiToggleGroupSingleOptions>
-      | AbstractType<OrigamiToggleGroupSingleOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiToggleGroupSingleOptions,
-        useFactory: () => {
-          const replacement = inject(singleReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiToggleGroupSingleOptions): Provider {
+    return { provide: OrigamiToggleGroupSingleOptions, useFactory: factory };
   }
 
   /**
@@ -111,7 +70,7 @@ export abstract class OrigamiToggleGroupSingleOptions {
     orientation?: () => Signal<OrigamiToggleGroupOrientation>,
   ): Provider[] {
     return [
-      OrigamiToggleGroupSingleOptions.ɵprovideDefault(type),
+      OrigamiToggleGroupSingleOptions.provideExisting(type),
       ToggleGroupRootOptions.provideFactory(() => {
         const options = injectDeferred(OrigamiToggleGroupSingleOptions);
         let effectiveOrientation: Signal<OrigamiToggleGroupOrientation> = computed(() =>

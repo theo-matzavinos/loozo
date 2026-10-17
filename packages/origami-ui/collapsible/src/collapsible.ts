@@ -1,7 +1,6 @@
 import {
   DestroyRef,
   Directive,
-  InjectionToken,
   Service,
   booleanAttribute,
   computed,
@@ -17,10 +16,6 @@ import { injectDeferred } from "@loozo/origami-ui/utils";
 /** Collapsed hiding: default ordinary `hidden`; `until-found` progressive native find-to-reveal where supported, ordinary `hidden` elsewhere, no polyfill. */
 export type OrigamiCollapsibleHiding = "hidden" | "until-found";
 
-const collapsibleReplacement = new InjectionToken<OrigamiCollapsibleOptions>(
-  "Collapsible replacement",
-);
-
 /** Effective root configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiCollapsibleOptions {
   /** Writable expanded intent; the direct root model defaults to false. External writes remain authoritative. */
@@ -34,54 +29,21 @@ export abstract class OrigamiCollapsibleOptions {
    * Replaces root Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiCollapsibleOptions> | AbstractType<OrigamiCollapsibleOptions>,
-  ): Provider[] {
-    return [
-      { provide: collapsibleReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiCollapsibleOptions, useExisting: collapsibleReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiCollapsibleOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all root Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply every required signal.
-   * @returns Local replacement and public-alias providers. Ordinary writable signals do not emit an unused root model's output.
+   * @returns A local provider. Ordinary writable signals do not emit an unused root model's output.
    */
-  static provideFactory(factory: () => OrigamiCollapsibleOptions): Provider[] {
-    return [
-      { provide: collapsibleReplacement, useFactory: factory },
-      { provide: OrigamiCollapsibleOptions, useExisting: collapsibleReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiCollapsibleOptions> | AbstractType<OrigamiCollapsibleOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiCollapsibleOptions,
-        useFactory: () => {
-          const replacement = inject(collapsibleReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiCollapsibleOptions): Provider {
+    return { provide: OrigamiCollapsibleOptions, useFactory: factory };
   }
 }
 
@@ -205,7 +167,7 @@ export class OrigamiCollapsibleState {
   providers: [
     CollapsibleContext,
     OrigamiCollapsibleState,
-    OrigamiCollapsibleOptions.ɵprovideDefault(() => OrigamiCollapsible),
+    OrigamiCollapsibleOptions.provideExisting(() => OrigamiCollapsible),
   ],
   host: {
     "[attr.data-expanded]": "expandedAttribute()",
