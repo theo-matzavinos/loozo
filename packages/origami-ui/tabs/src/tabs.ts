@@ -129,22 +129,22 @@ export class TabsContext {
     });
   }
 
-  /** The calling Trigger's unpublished registration, captured in its injection context. */
-  trigger(options: () => PartOptions): { publish(): void } {
-    return this.#part(this.#triggers, options);
+  /** Registers a Trigger from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerTrigger(options: () => PartOptions, destroyRef: DestroyRef): void {
+    this.#register(this.#triggers, options, destroyRef);
   }
 
-  /** The calling Panel's unpublished registration, captured in its injection context. */
-  panel(options: () => PartOptions): { publish(): void } {
-    return this.#part(this.#panels, options);
+  /** Registers a Panel from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerPanel(options: () => PartOptions, destroyRef: DestroyRef): void {
+    this.#register(this.#panels, options, destroyRef);
   }
 
-  /** ID of the first published Trigger with `value`, or null. */
+  /** ID of the first registered Trigger with `value`, or null. */
   triggerId(value: string): string | null {
     return this.#idOf(this.#triggers(), value);
   }
 
-  /** ID of the first published Panel with `value`, or null. */
+  /** ID of the first registered Panel with `value`, or null. */
   panelId(value: string): string | null {
     return this.#idOf(this.#panels(), value);
   }
@@ -162,8 +162,8 @@ export class TabsContext {
     }
   }
 
-  #idOf(published: readonly (() => PartOptions)[], value: string): string | null {
-    for (const part of published) {
+  #idOf(registered: readonly (() => PartOptions)[], value: string): string | null {
+    for (const part of registered) {
       const options = part();
 
       if (options.value() === value) {
@@ -174,20 +174,18 @@ export class TabsContext {
     return null;
   }
 
-  #part(
+  /** A hook earlier in the part's view can destroy that view before the part's `ngOnInit` runs. */
+  #register(
     slot: WritableSignal<readonly (() => PartOptions)[]>,
     options: () => PartOptions,
-  ): { publish(): void } {
-    let destroyed = false;
-    let published = false;
+    destroyRef: DestroyRef,
+  ): void {
+    if (destroyRef.destroyed) {
+      return;
+    }
 
-    inject(DestroyRef).onDestroy(() => {
-      destroyed = true;
-
-      if (!published) {
-        return;
-      }
-
+    slot.update((parts) => [...parts, options]);
+    destroyRef.onDestroy(() => {
       const remaining: (() => PartOptions)[] = [];
 
       for (const mounted of slot()) {
@@ -198,17 +196,6 @@ export class TabsContext {
 
       slot.set(remaining);
     });
-
-    return {
-      publish: () => {
-        if (destroyed) {
-          return;
-        }
-
-        published = true;
-        slot.update((parts) => [...parts, options]);
-      },
-    };
   }
 }
 

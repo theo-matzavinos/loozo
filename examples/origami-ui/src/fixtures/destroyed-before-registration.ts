@@ -48,7 +48,7 @@ type Part = {
 };
 
 @Component({
-  selector: "acceptance-destroyed-before-publish",
+  selector: "acceptance-destroyed-before-registration",
   imports: [
     ClearOnInit,
     OrigamiCollection,
@@ -68,11 +68,11 @@ type Part = {
     OrigamiPopoverContent,
   ],
   template: `
-    <h2>Parts destroyed before they publish</h2>
-    <button type="button" data-testid="unpublished-mount" (click)="mount()">
+    <h2>Parts destroyed before they register</h2>
+    <button type="button" data-testid="unregistered-mount" (click)="mount()">
       Mount parts whose view is destroyed during initialization
     </button>
-    <button type="button" data-testid="unpublished-remount" (click)="remount()">
+    <button type="button" data-testid="unregistered-remount" (click)="remount()">
       Mount replacement parts
     </button>
 
@@ -83,14 +83,14 @@ type Part = {
       </ng-template>
       <ng-container #collectionOutlet />
     </section>
-    <output data-testid="unpublished-collection-items">{{
+    <output data-testid="unregistered-collection-items">{{
       values(collection.state.items())
     }}</output>
 
-    <div ogRadioGroup value="gone" aria-label="Unpublished radio group">
+    <div ogRadioGroup value="gone" aria-label="Unregistered radio group">
       <ng-template #radioPart let-outlet let-label="label">
         <i [clearOnInit]="outlet"></i>
-        <button ogRadioGroupItem [value]="label" [attr.data-testid]="'unpublished-radio-' + label">
+        <button ogRadioGroupItem [value]="label" [attr.data-testid]="'unregistered-radio-' + label">
           {{ label }}
         </button>
       </ng-template>
@@ -98,21 +98,26 @@ type Part = {
     </div>
 
     <div ogTabs value="gone">
-      <div ogTabsList aria-label="Unpublished tabs">
+      <div ogTabsList aria-label="Unregistered tabs">
         <ng-template #tabsPart let-outlet let-label="label">
           <i [clearOnInit]="outlet"></i>
           <button
             ogTabsTrigger
             value="gone"
-            [id]="'unpublished-' + label + '-tab'"
-            [attr.data-testid]="'unpublished-tab-' + label"
+            [id]="'unregistered-' + label + '-tab'"
+            [attr.data-testid]="'unregistered-tab-' + label"
           >
             {{ label }}
           </button>
         </ng-template>
         <ng-container #tabsOutlet />
       </div>
-      <div ogTabsPanel value="gone" id="unpublished-tab-panel" data-testid="unpublished-tab-panel">
+      <div
+        ogTabsPanel
+        value="gone"
+        id="unregistered-tab-panel"
+        data-testid="unregistered-tab-panel"
+      >
         Panel
       </div>
     </div>
@@ -122,8 +127,8 @@ type Part = {
         <i [clearOnInit]="outlet"></i>
         <button
           ogCollapsibleTrigger
-          [id]="'unpublished-' + label + '-collapsible-trigger'"
-          [attr.data-testid]="'unpublished-collapsible-trigger-' + label"
+          [id]="'unregistered-' + label + '-collapsible-trigger'"
+          [attr.data-testid]="'unregistered-collapsible-trigger-' + label"
         >
           {{ label }}
         </button>
@@ -131,8 +136,8 @@ type Part = {
       <ng-container #collapsibleOutlet />
       <div
         ogCollapsiblePanel
-        id="unpublished-collapsible-panel"
-        data-testid="unpublished-collapsible-panel"
+        id="unregistered-collapsible-panel"
+        data-testid="unregistered-collapsible-panel"
       >
         Details
       </div>
@@ -142,14 +147,14 @@ type Part = {
       <button
         ogPopoverTrigger
         ogPopoverAnchor
-        id="unpublished-popover-trigger"
-        data-testid="unpublished-popover-trigger"
+        id="unregistered-popover-trigger"
+        data-testid="unregistered-popover-trigger"
       >
         Menu
       </button>
       <ng-template #popoverPart let-outlet let-label="label">
         <i [clearOnInit]="outlet"></i>
-        <section ogPopoverContent [id]="'unpublished-' + label + '-popover-content'">
+        <section ogPopoverContent [id]="'unregistered-' + label + '-popover-content'">
           {{ label }}
         </section>
       </ng-template>
@@ -157,7 +162,7 @@ type Part = {
     </div>
   `,
 })
-export class DestroyedBeforePublish {
+export class DestroyedBeforeRegistration {
   readonly collectionPart = viewChild.required("collectionPart", { read: TemplateRef });
   readonly collectionOutlet = viewChild.required("collectionOutlet", { read: ViewContainerRef });
   readonly radioPart = viewChild.required("radioPart", { read: TemplateRef });

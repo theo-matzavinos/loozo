@@ -17,8 +17,8 @@ import { ToolbarContext } from "./toolbar";
 const itemReplacement = new InjectionToken<OrigamiToolbarItemOptions>("Toolbar Item replacement");
 
 /**
- * Effective item configuration. Other items read it only once the item has published its roving
- * registration in `ngOnInit`, after Angular set its inputs, so replacement Options may use
+ * Effective item configuration. Other items read it only once the item has registered with the
+ * roving focus in `ngOnInit`, after Angular set its inputs, so replacement Options may use
  * required inputs.
  */
 export abstract class OrigamiToolbarItemOptions {
@@ -112,20 +112,17 @@ export class OrigamiToolbarItem implements OrigamiToolbarItemOptions {
 
   readonly #options = injectDeferred(OrigamiToolbarItemOptions);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
   /** @internal Native disabled host binding. */
   protected readonly effectiveDisabled = computed(() => this.#options().disabled());
 
-  // An item has no value of its own; the Toolbar prefers no value, so it never matters.
-  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
-    value: computed(() => ""),
-    disabled: this.effectiveDisabled,
-  });
+  readonly #focus = inject(ɵOrigamiRovingFocusContext);
 
   /** @internal Roving tab stop. */
   protected readonly tabIndex = computed(() => {
-    if (this.#focus.tabStop()) {
+    if (this.#focus.tabStop() === this.#element) {
       return "0";
     }
 
@@ -153,14 +150,18 @@ export class OrigamiToolbarItem implements OrigamiToolbarItemOptions {
   /** Resolves the nearest Toolbar synchronously; an orphan fails Angular DI clearly. */
   constructor() {
     inject(ToolbarContext);
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes this item's roving registration once Angular has set its inputs. */
+  /** @internal Registers this item for roving focus once Angular has set its inputs. */
   ngOnInit(): void {
-    this.#focus.publish();
+    // An item has no value of its own; the Toolbar prefers no value, so it never matters.
+    this.#focus.register(
+      { element: this.#element, value: computed(() => ""), disabled: this.effectiveDisabled },
+      this.#destroyRef,
+    );
   }
 
   /**
@@ -178,16 +179,16 @@ export class OrigamiToolbarItem implements OrigamiToolbarItemOptions {
 
   /** @internal Arrow/Home/End navigation along the Toolbar's orientation. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event);
+    this.#focus.keydown(this.#element, event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected focused(): void {
-    this.#focus.focus();
+    this.#focus.focus(this.#element);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected blurred(): void {
-    this.#focus.blur();
+    this.#focus.blur(this.#element);
   }
 }

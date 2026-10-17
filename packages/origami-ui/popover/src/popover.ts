@@ -2,7 +2,6 @@ import {
   ChangeDetectorRef,
   DestroyRef,
   Directive,
-  ElementRef,
   ErrorHandler,
   InjectionToken,
   PLATFORM_ID,
@@ -254,50 +253,38 @@ export class PopoverContext {
     });
   }
 
-  /** The calling Trigger's unpublished registration, captured in its injection context. */
-  trigger(options: () => { readonly id: Signal<string> }): { publish(): void } {
-    return this.#part(
-      this.#trigger,
-      {
-        element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
-        options,
-      },
-      "trigger",
-    );
+  /** Registers the Trigger from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerTrigger(part: IdentityPart, destroyRef: DestroyRef): void {
+    this.#register(this.#trigger, part, "trigger", destroyRef);
   }
 
-  /** The calling Anchor's unpublished registration, captured in its injection context. */
-  anchor(options: () => { readonly id: Signal<string> }): { publish(): void } {
-    return this.#part(
-      this.#anchor,
-      {
-        element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
-        options,
-      },
-      "anchor",
-    );
+  /** Registers the Anchor from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerAnchor(part: IdentityPart, destroyRef: DestroyRef): void {
+    this.#register(this.#anchor, part, "anchor", destroyRef);
   }
 
-  /** The calling Content's unpublished registration, captured in its injection context. */
-  content(options: () => OrigamiPopoverContentOptions): { publish(): void } {
-    return this.#part(
-      this.#content,
-      {
-        element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
-        options,
-        presence: inject(OrigamiPresenceState),
-        presentation: inject(ɵOrigamiPresencePresentation),
-      },
-      "content",
-    );
+  /** Registers Content from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerContent(part: ContentPart, destroyRef: DestroyRef): void {
+    this.#register(this.#content, part, "content", destroyRef);
   }
 
-  #part<T>(slot: WritableSignal<T | null>, part: T, role: string): { publish(): void } {
-    let destroyed = false;
+  /** A hook earlier in the part's view can destroy that view before the part's `ngOnInit` runs. */
+  #register<T>(
+    slot: WritableSignal<T | null>,
+    part: T,
+    role: string,
+    destroyRef: DestroyRef,
+  ): void {
+    if (destroyRef.destroyed) {
+      return;
+    }
 
-    inject(DestroyRef).onDestroy(() => {
-      destroyed = true;
+    if (slot() !== null) {
+      throw new Error(`Popover supports only one mounted ${role}.`);
+    }
 
+    slot.set(part);
+    destroyRef.onDestroy(() => {
       if (slot() === part) {
         this.#suppress();
         slot.set(null);
@@ -306,20 +293,6 @@ export class PopoverContext {
         this.#schedule();
       }
     });
-
-    return {
-      publish: () => {
-        if (destroyed) {
-          return;
-        }
-
-        if (slot() !== null) {
-          throw new Error(`Popover supports only one mounted ${role}.`);
-        }
-
-        slot.set(part);
-      },
-    };
   }
 
   anchorId(element: HTMLElement, options: () => OrigamiPopoverAnchorOptions): string {

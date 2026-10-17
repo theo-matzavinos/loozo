@@ -1,6 +1,7 @@
 import {
   DestroyRef,
   Directive,
+  ElementRef,
   InjectionToken,
   computed,
   forwardRef,
@@ -101,6 +102,8 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
   readonly id = input(injectUniqueId("popover-trigger"));
   readonly #options = injectDeferred(OrigamiPopoverTriggerOptions);
   readonly #context = inject(PopoverContext);
+  readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
   /** @internal Effective host identity from the resolved Options token. */
@@ -128,18 +131,18 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
     return null;
   });
 
-  readonly #registration = this.#context.trigger(this.#options);
-
-  /** Captures this role's unpublished registration; construction never resolves its own alias. */
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes this Trigger once Angular has set its inputs; a second mounted Trigger fails clearly. */
+  /** @internal Registers this Trigger once Angular has set its inputs; a second mounted Trigger fails clearly. */
   ngOnInit(): void {
-    this.#registration.publish();
+    this.#context.registerTrigger(
+      { element: this.#element, options: this.#options },
+      this.#destroyRef,
+    );
   }
 
   /** @internal Live native activation; disabled user input cannot write intent. */

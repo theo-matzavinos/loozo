@@ -1,7 +1,6 @@
 import {
   DOCUMENT,
   DestroyRef,
-  ElementRef,
   Service,
   afterRenderEffect,
   computed,
@@ -18,24 +17,11 @@ import { documentOrder } from "./document-order";
 type Orientation = "horizontal" | "vertical" | "both";
 type Move = "next" | "previous" | "first" | "last";
 
-/** One item host: its element and the value and disabled state it publishes. */
+/** One item host: its element and the value and disabled state it registers. */
 type Member = {
   readonly element: HTMLElement;
   readonly value: Signal<string>;
   readonly disabled: Signal<boolean>;
-};
-
-/** One item's unpublished handle: its tab stop observation, host event handlers and `publish`. */
-type RovingItem = {
-  readonly tabStop: Signal<boolean>;
-  keydown(event: KeyboardEvent): void;
-  focus(): void;
-  blur(): void;
-  /**
-   * Adds the item to the published members unless its host is already destroyed; called from
-   * `ngOnInit`, after its inputs are set.
-   */
-  publish(): void;
 };
 
 /**
@@ -153,10 +139,10 @@ export abstract class ɵOrigamiRovingFocusOptions {
 /**
  * @internal Package-private ordered focus for Origami composite widgets; not an application API.
  *
- * A widget root provides it locally with `ɵOrigamiRovingFocusOptions`. Each item takes an
- * unpublished handle from its own injection context and publishes it in `ngOnInit`, so render
- * reads only see members whose inputs are set. The Context keeps its published members and
- * sorts them by DOM position on every read. It owns one roving tab stop, arrow/Home/End movement
+ * A widget root provides it locally with `ɵOrigamiRovingFocusOptions`. Each item registers in
+ * `ngOnInit`, so render reads only see members whose inputs are set, and forwards its host
+ * events by element. The Context keeps its registered members and sorts them by DOM position on
+ * every read. It owns one roving tab stop, arrow/Home/End movement
  * with wrapping, disabled skipping and focus repair. It does not select, activate, typeahead or
  * use `aria-activedescendant`; a widget that acts on a keyboard move subscribes to `navigations`.
  */
@@ -170,13 +156,13 @@ export class ɵOrigamiRovingFocusContext {
   readonly #navigations = new Subject<string>();
 
   /**
-   * A keyboard move landed on this value while it is focused, published and enabled, after its
+   * A keyboard move landed on this value while it is focused, registered and enabled, after its
    * focus handlers ran; never after focus repair. Emits synchronously inside the keydown handler.
    */
   readonly navigations: Observable<string> = this.#navigations.asObservable();
 
   /** The focused enabled member; otherwise the first enabled preferred member, then the first enabled member. */
-  readonly #tabStop = computed(() => {
+  readonly #tabStop = computed<Member | null>(() => {
     const ordered = this.#ordered();
     const focused = this.#focused();
 
@@ -234,31 +220,32 @@ export class ɵOrigamiRovingFocusContext {
     });
   }
 
+  /** @internal The element holding the roving tab stop, or null when no member is enabled. */
+  readonly tabStop: Signal<HTMLElement | null> = computed(() => this.#tabStop()?.element ?? null);
+
   /**
-   * @internal Creates the calling item host's unpublished handle from its injection context.
-   * Caller-scoped `DestroyRef` cleanup, attached now, removes only it. Publishing adds it to the
-   * members, unless the host was already destroyed (a hook earlier in its view can destroy the
-   * view before the item's `ngOnInit` runs).
+   * @internal Adds an item host to the members, unless its view is already destroyed (a hook
+   * earlier in its view can destroy the view before the item's `ngOnInit` runs). Called from the
+   * item's `ngOnInit`, after its inputs are set; its `destroyRef` removes it.
    * @param item - `value` matches the root's preferred values and is what `navigations` emits;
    *   `disabled` items are never targets or tab stops.
-   * @returns The item's tab stop observation, the handlers its host events forward to and `publish`.
    */
-  item(item: { readonly value: Signal<string>; readonly disabled: Signal<boolean> }): RovingItem {
-    const member: Member = {
-      element: inject<ElementRef<HTMLElement>>(ElementRef).nativeElement,
-      value: item.value,
-      disabled: item.disabled,
-    };
-    let destroyed = false;
-    let published = false;
+  register(
+    item: {
+      readonly element: HTMLElement;
+      readonly value: Signal<string>;
+      readonly disabled: Signal<boolean>;
+    },
+    destroyRef: DestroyRef,
+  ): void {
+    if (destroyRef.destroyed) {
+      return;
+    }
 
-    inject(DestroyRef).onDestroy(() => {
-      destroyed = true;
+    const member: Member = { element: item.element, value: item.value, disabled: item.disabled };
 
-      if (!published) {
-        return;
-      }
-
+    this.#members.update((members) => [...members, member]);
+    destroyRef.onDestroy(() => {
       const remaining: Member[] = [];
 
       for (const mounted of this.#members()) {
@@ -269,43 +256,61 @@ export class ɵOrigamiRovingFocusContext {
 
       this.#members.set(remaining);
     });
-
-    return {
-      tabStop: computed(() => this.#tabStop() === member),
-      keydown: (event) => {
-        this.#keydown(member, event);
-      },
-      focus: () => {
-        this.#focused.set(member);
-      },
-      blur: () => {
-        // Engines differ on blur during removal or disabling; a still-connected, enabled host
-        // that no longer has focus after the current task's synchronous work is a genuine
-        // departure, a removed or disabled one awaits repair, and one focused again in the
-        // meantime keeps its record.
-        queueMicrotask(() => {
-          const departed =
-            member.element.isConnected &&
-            !member.disabled() &&
-            this.#document.activeElement !== member.element;
-
-          if (this.#focused() === member && departed) {
-            this.#focused.set(null);
-          }
-        });
-      },
-      publish: () => {
-        if (destroyed) {
-          return;
-        }
-
-        published = true;
-        this.#members.update((members) => [...members, member]);
-      },
-    };
   }
 
-  /** Published members in current DOM order. */
+  /** @internal An item host's `keydown`; ignored unless `element` is a registered member. */
+  keydown(element: HTMLElement, event: KeyboardEvent): void {
+    const member = this.#memberOf(element);
+
+    if (member !== null) {
+      this.#keydown(member, event);
+    }
+  }
+
+  /** @internal An item host's `focus`; ignored unless `element` is a registered member. */
+  focus(element: HTMLElement): void {
+    const member = this.#memberOf(element);
+
+    if (member !== null) {
+      this.#focused.set(member);
+    }
+  }
+
+  /** @internal An item host's `blur`; only the focused member's blur can clear the focus record. */
+  blur(element: HTMLElement): void {
+    const member = this.#focused();
+
+    if (member === null || member.element !== element) {
+      return;
+    }
+
+    // Engines differ on blur during removal or disabling; a still-connected, enabled host
+    // that no longer has focus after the current task's synchronous work is a genuine
+    // departure, a removed or disabled one awaits repair, and one focused again in the
+    // meantime keeps its record.
+    queueMicrotask(() => {
+      const departed =
+        member.element.isConnected &&
+        !member.disabled() &&
+        this.#document.activeElement !== member.element;
+
+      if (this.#focused() === member && departed) {
+        this.#focused.set(null);
+      }
+    });
+  }
+
+  #memberOf(element: HTMLElement): Member | null {
+    for (const member of this.#members()) {
+      if (member.element === element) {
+        return member;
+      }
+    }
+
+    return null;
+  }
+
+  /** Registered members in current DOM order. */
   #ordered(): readonly Member[] {
     const ordered = [...this.#members()];
 
@@ -352,10 +357,10 @@ export class ɵOrigamiRovingFocusContext {
       target.element.focus();
     }
 
-    // Focus handlers run inside focus(): navigate only to a target still published, enabled and focused.
-    const published = this.#members().includes(target);
+    // Focus handlers run inside focus(): navigate only to a target still registered, enabled and focused.
+    const registered = this.#members().includes(target);
 
-    if (published && !target.disabled() && this.#document.activeElement === target.element) {
+    if (registered && !target.disabled() && this.#document.activeElement === target.element) {
       this.#navigations.next(target.value());
     }
   }

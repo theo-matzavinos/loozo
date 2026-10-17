@@ -19,8 +19,8 @@ const itemReplacement = new InjectionToken<OrigamiRadioGroupItemOptions>(
 );
 
 /**
- * Effective item configuration. Other items read it only once the item has published its roving
- * registration in `ngOnInit`, after Angular set its inputs, so replacement Options may use
+ * Effective item configuration. Other items read it only once the item has registered with the
+ * roving focus in `ngOnInit`, after Angular set its inputs, so replacement Options may use
  * required inputs.
  */
 export abstract class OrigamiRadioGroupItemOptions {
@@ -130,6 +130,7 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   readonly #options = injectDeferred(OrigamiRadioGroupItemOptions);
   readonly #context = inject(RadioGroupContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
   /** @internal Combined root and own disabled policy. */
@@ -139,14 +140,11 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   /** @internal Checked ARIA observation, always `true` or `false`. */
   protected readonly checked = computed(() => this.#context.value() === this.#options().value());
 
-  readonly #focus = inject(ɵOrigamiRovingFocusContext).item({
-    value: computed(() => this.#options().value()),
-    disabled: this.effectiveDisabled,
-  });
+  readonly #focus = inject(ɵOrigamiRovingFocusContext);
 
   /** @internal Roving tab stop. */
   protected readonly tabIndex = computed(() => {
-    if (this.#focus.tabStop()) {
+    if (this.#focus.tabStop() === this.#element) {
       return "0";
     }
 
@@ -182,14 +180,21 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
 
   /** Resolves the nearest Radio Group root synchronously; an orphan fails Angular DI clearly. */
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes this item's roving registration once Angular has set its inputs. */
+  /** @internal Registers this item for roving focus once Angular has set its inputs. */
   ngOnInit(): void {
-    this.#focus.publish();
+    this.#focus.register(
+      {
+        element: this.#element,
+        value: computed(() => this.#options().value()),
+        disabled: this.effectiveDisabled,
+      },
+      this.#destroyRef,
+    );
   }
 
   /**
@@ -214,17 +219,17 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
 
   /** @internal Arrow/Home/End navigation: all four arrows, or the Toolbar's axis in a Toolbar Radio Group. */
   protected keydown(event: KeyboardEvent): void {
-    this.#focus.keydown(event);
+    this.#focus.keydown(this.#element, event);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected focused(): void {
-    this.#focus.focus();
+    this.#focus.focus(this.#element);
   }
 
   /** @internal Focus tracking for the roving tab stop. */
   protected blurred(): void {
-    this.#focus.blur();
+    this.#focus.blur(this.#element);
   }
 
   /** Live activation guard: mounted and not disabled by the root or its own Options. */

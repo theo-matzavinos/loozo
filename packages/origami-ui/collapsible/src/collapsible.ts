@@ -130,14 +130,14 @@ export class CollapsibleContext {
     });
   }
 
-  /** The calling Trigger's unpublished registration, captured in its injection context. */
-  trigger(options: () => { readonly id: Signal<string> }): { publish(): void } {
-    return this.#part(this.#trigger, options, "trigger");
+  /** Registers the Trigger from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerTrigger(options: () => { readonly id: Signal<string> }, destroyRef: DestroyRef): void {
+    this.#register(this.#trigger, options, "trigger", destroyRef);
   }
 
-  /** The calling Panel's unpublished registration, captured in its injection context. */
-  panel(options: () => { readonly id: Signal<string> }): { publish(): void } {
-    return this.#part(this.#panel, options, "panel");
+  /** Registers the Panel from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerPanel(options: () => { readonly id: Signal<string> }, destroyRef: DestroyRef): void {
+    this.#register(this.#panel, options, "panel", destroyRef);
   }
 
   toggle(): void {
@@ -156,35 +156,29 @@ export class CollapsibleContext {
     this.#options().expanded.set(true);
   }
 
-  #part(
+  /** A hook earlier in the part's view can destroy that view before the part's `ngOnInit` runs. */
+  #register(
     slot: WritableSignal<PartRegistration | null>,
     options: () => { readonly id: Signal<string> },
     role: "trigger" | "panel",
-  ): { publish(): void } {
+    destroyRef: DestroyRef,
+  ): void {
+    if (destroyRef.destroyed) {
+      return;
+    }
+
+    if (slot() !== null) {
+      throw new Error(`Collapsible supports only one mounted ${role}.`);
+    }
+
     const registration: PartRegistration = { options };
-    let destroyed = false;
 
-    inject(DestroyRef).onDestroy(() => {
-      destroyed = true;
-
+    slot.set(registration);
+    destroyRef.onDestroy(() => {
       if (slot() === registration) {
         slot.set(null);
       }
     });
-
-    return {
-      publish: () => {
-        if (destroyed) {
-          return;
-        }
-
-        if (slot() !== null) {
-          throw new Error(`Collapsible supports only one mounted ${role}.`);
-        }
-
-        slot.set(registration);
-      },
-    };
   }
 }
 

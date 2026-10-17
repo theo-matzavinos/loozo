@@ -112,6 +112,7 @@ export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
   readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #presence = inject(OrigamiPresenceState);
   readonly #supportsReveal = "onbeforematch" in this.#host;
+  readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
   readonly #options = injectDeferred(OrigamiCollapsiblePanelOptions);
@@ -142,18 +143,15 @@ export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
     return "";
   });
 
-  readonly #registration = this.#context.panel(this.#options);
-
-  /** Captures this Panel's unpublished registration; unmount cleanup cannot remove a replacement registration. */
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
   }
 
-  /** @internal Publishes this Panel once Angular has set its inputs; a second mounted Panel fails clearly. */
+  /** @internal Registers this Panel once Angular has set its inputs; a second mounted Panel fails clearly. */
   ngOnInit(): void {
-    this.#registration.publish();
+    this.#context.registerPanel(this.#options, this.#destroyRef);
   }
 
   /** @internal Own live native reveal request; bubbled descendant events are not this Panel's request. */

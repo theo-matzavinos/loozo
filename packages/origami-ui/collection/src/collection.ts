@@ -1,12 +1,4 @@
-import {
-  DestroyRef,
-  Directive,
-  ElementRef,
-  Service,
-  computed,
-  inject,
-  signal,
-} from "@angular/core";
+import { DestroyRef, Directive, Service, computed, inject, signal } from "@angular/core";
 import type { Signal } from "@angular/core";
 import type { OrigamiCollectionItemOptions } from "./collection-item";
 import { documentOrder } from "./document-order";
@@ -27,7 +19,7 @@ type Member = {
 export class CollectionContext {
   readonly #members = signal<readonly Member[]>([]);
 
-  /** Published members in DOM order, sorted on every call; reactive to membership only. */
+  /** Registered members in DOM order, sorted on every call; reactive to membership only. */
   ordered(): readonly Member[] {
     const ordered = [...this.#members()];
 
@@ -37,26 +29,25 @@ export class CollectionContext {
   }
 
   /**
-   * The calling item host's unpublished member, captured in its injection context with its
-   * caller-scoped `DestroyRef` cleanup, which removes only it. Publishing adds it to the members,
-   * unless the host was already destroyed (a hook earlier in its view can destroy the view before
-   * the item's `ngOnInit` runs).
+   * Registers an item host from its `ngOnInit`, unless its view is already destroyed (a hook
+   * earlier in its view can destroy the view before the item's `ngOnInit` runs); `destroyRef`
+   * removes only it.
    */
-  member(options: () => OrigamiCollectionItemOptions): { publish(): void } {
+  register(
+    item: { readonly element: Element; readonly options: () => OrigamiCollectionItemOptions },
+    destroyRef: DestroyRef,
+  ): void {
+    if (destroyRef.destroyed) {
+      return;
+    }
+
     const member: Member = {
-      element: inject<ElementRef<Element>>(ElementRef).nativeElement,
-      record: { value: computed(() => options().value()) },
+      element: item.element,
+      record: { value: computed(() => item.options().value()) },
     };
-    let destroyed = false;
-    let published = false;
 
-    inject(DestroyRef).onDestroy(() => {
-      destroyed = true;
-
-      if (!published) {
-        return;
-      }
-
+    this.#members.update((members) => [...members, member]);
+    destroyRef.onDestroy(() => {
       const remaining: Member[] = [];
 
       for (const mounted of this.#members()) {
@@ -67,17 +58,6 @@ export class CollectionContext {
 
       this.#members.set(remaining);
     });
-
-    return {
-      publish: () => {
-        if (destroyed) {
-          return;
-        }
-
-        published = true;
-        this.#members.update((members) => [...members, member]);
-      },
-    };
   }
 }
 
@@ -87,8 +67,8 @@ export class OrigamiCollectionState {
   readonly #context = inject(CollectionContext);
 
   /**
-   * Published records in DOM order as of the latest membership change. An item is published
-   * once Angular has set its inputs. A keyed move that keeps membership doesn't notify readers;
+   * Registered records in DOM order as of the latest membership change. An item registers once
+   * Angular has set its inputs. A keyed move that keeps membership doesn't notify readers;
    * the next insertion or removal reads the current DOM order again. Nested Collections are
    * independent; the array and each record's value are readonly observations.
    */
