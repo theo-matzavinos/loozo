@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   Service,
   booleanAttribute,
   computed,
@@ -16,10 +15,6 @@ import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { OrigamiToggle, OrigamiToggleOptions } from "@loozo/origami-ui/toggle";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { ToggleGroupContext } from "./toggle-group";
-
-const itemReplacement = new InjectionToken<OrigamiToggleGroupItemOptions>(
-  "Toggle Group Item replacement",
-);
 
 /**
  * Effective item configuration. It also drives the composed Toggle, so replacing only these
@@ -37,54 +32,21 @@ export abstract class OrigamiToggleGroupItemOptions {
    * Replaces item Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers; a directly matched item default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiToggleGroupItemOptions> | AbstractType<OrigamiToggleGroupItemOptions>,
-  ): Provider[] {
-    return [
-      { provide: itemReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiToggleGroupItemOptions, useExisting: itemReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiToggleGroupItemOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all item Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply value and disabled.
-   * @returns Local replacement and public-alias providers; unused directive defaults are not merged into the result.
+   * @returns A local provider; unused directive defaults are not merged into the result.
    */
-  static provideFactory(factory: () => OrigamiToggleGroupItemOptions): Provider[] {
-    return [
-      { provide: itemReplacement, useFactory: factory },
-      { provide: OrigamiToggleGroupItemOptions, useExisting: itemReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiToggleGroupItemOptions> | AbstractType<OrigamiToggleGroupItemOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiToggleGroupItemOptions,
-        useFactory: () => {
-          const replacement = inject(itemReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiToggleGroupItemOptions): Provider {
+    return { provide: OrigamiToggleGroupItemOptions, useFactory: factory };
   }
 }
 
@@ -133,7 +95,7 @@ class ToggleGroupItemContext {
   hostDirectives: [OrigamiToggle],
   providers: [
     ToggleGroupItemContext,
-    OrigamiToggleGroupItemOptions.ɵprovideDefault(() => OrigamiToggleGroupItem),
+    OrigamiToggleGroupItemOptions.provideExisting(() => OrigamiToggleGroupItem),
     OrigamiToggleOptions.provideFactory(() => {
       const item = inject(ToggleGroupItemContext);
 

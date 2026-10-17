@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   computed,
   forwardRef,
   inject,
@@ -17,10 +16,6 @@ import {
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { CollapsibleContext } from "./collapsible";
 
-const panelReplacement = new InjectionToken<OrigamiCollapsiblePanelOptions>(
-  "Collapsible Panel replacement",
-);
-
 /** Effective Panel identity, used by mounted-only Trigger associations. */
 export abstract class OrigamiCollapsiblePanelOptions {
   /** Effective DOM ID; the Trigger's `aria-controls` names this ID only while the Panel is mounted. */
@@ -30,54 +25,21 @@ export abstract class OrigamiCollapsiblePanelOptions {
    * Substitutes the Panel's entire effective Options.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references.
-   * @returns Local replacement and public-alias providers; a directly matched Panel default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiCollapsiblePanelOptions> | AbstractType<OrigamiCollapsiblePanelOptions>,
-  ): Provider[] {
-    return [
-      { provide: panelReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiCollapsiblePanelOptions, useExisting: panelReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiCollapsiblePanelOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Substitutes reactive Panel identity.
    * @param factory - Runs in injection context and supplies the required `id` signal.
-   * @returns Local replacement and public-alias providers; defaults on an unused directive cannot repair missing Options.
+   * @returns A local provider; defaults on an unused directive cannot repair missing Options.
    */
-  static provideFactory(factory: () => OrigamiCollapsiblePanelOptions): Provider[] {
-    return [
-      { provide: panelReplacement, useFactory: factory },
-      { provide: OrigamiCollapsiblePanelOptions, useExisting: panelReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiCollapsiblePanelOptions> | AbstractType<OrigamiCollapsiblePanelOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiCollapsiblePanelOptions,
-        useFactory: () => {
-          const replacement = inject(panelReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiCollapsiblePanelOptions): Provider {
+    return { provide: OrigamiCollapsiblePanelOptions, useFactory: factory };
   }
 }
 
@@ -94,7 +56,7 @@ export abstract class OrigamiCollapsiblePanelOptions {
   exportAs: "ogCollapsiblePanel",
   hostDirectives: [OrigamiPresence],
   providers: [
-    OrigamiCollapsiblePanelOptions.ɵprovideDefault(() => OrigamiCollapsiblePanel),
+    OrigamiCollapsiblePanelOptions.provideExisting(() => OrigamiCollapsiblePanel),
     OrigamiPresenceOptions.provideFactory(() => ({ present: inject(CollapsibleContext).expanded })),
   ],
   host: {

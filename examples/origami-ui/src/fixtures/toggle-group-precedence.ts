@@ -9,9 +9,9 @@ import {
   type OrigamiToggleGroupOrientation,
 } from "@loozo/origami-ui/toggle-group";
 
-// U5 precedence: whole replacement root Options win over conflicting direct inputs in both
-// directive import orders, with a factory for Single and an existing provider for Multiple. Each
-// mode shares one template; only the import (registry) order differs.
+// U5 precedence: whole replacement root Options win over the composed root's own inputs, bound
+// through the consumer's exposed host-directive inputs, with a factory for Single and an existing
+// provider for Multiple.
 
 @Service({ autoProvided: false })
 export class SinglePrecedenceSettings {
@@ -31,7 +31,13 @@ export class MultiplePrecedenceSettings {
 @Directive({
   selector: "[precedenceFactorySingle]",
   exportAs: "precedenceFactorySingle",
-  hostDirectives: [OrigamiToggleGroupSingle],
+  hostDirectives: [
+    {
+      directive: OrigamiToggleGroupSingle,
+      inputs: ["value", "disabled", "orientation", "deselectable"],
+      outputs: ["valueChange"],
+    },
+  ],
   providers: [
     OrigamiToggleGroupSingleOptions.provideFactory(() => inject(SinglePrecedenceSettings)),
   ],
@@ -43,7 +49,13 @@ export class PrecedenceFactorySingle {
 @Directive({
   selector: "[precedenceExistingMultiple]",
   exportAs: "precedenceExistingMultiple",
-  hostDirectives: [OrigamiToggleGroupMultiple],
+  hostDirectives: [
+    {
+      directive: OrigamiToggleGroupMultiple,
+      inputs: ["value", "disabled", "orientation"],
+      outputs: ["valueChange"],
+    },
+  ],
   providers: [OrigamiToggleGroupMultipleOptions.provideExisting(() => PrecedenceExistingMultiple)],
 })
 export class PrecedenceExistingMultiple implements OrigamiToggleGroupMultipleOptions {
@@ -59,7 +71,7 @@ export class ToggleGroupPrecedenceProbe {
   readonly state = inject(OrigamiToggleGroupState);
 }
 
-// Direct inputs deliberately contradict the replacement. One return statement keeps each
+// The root's own inputs deliberately contradict the replacement. One return statement keeps each
 // template statically evaluable by the Angular compiler.
 const items = `
     <button ogToggleGroupItem value="one" data-role="one">One</button>
@@ -69,14 +81,14 @@ const items = `
 
 const observations = `
   <output data-role="value">{{ settings.value() }}</output>
-  <output data-role="disabled">{{ upper.state.disabled() }}</output>
-  <output data-role="shared">{{ upper.state === probe.state }}</output>
+  <output data-role="disabled">{{ consumer.state.disabled() }}</output>
+  <output data-role="shared">{{ consumer.state === probe.state }}</output>
   <button type="button" data-role="disable" (click)="settings.disabled.set(!settings.disabled())">Disable</button>
   <output data-role="outputs">{{ outputs() }}</output>
 `;
 
 const singleTemplate = `
-  <div precedenceFactorySingle ogToggleGroupSingle #upper="precedenceFactorySingle" value="direct"
+  <div precedenceFactorySingle #consumer="precedenceFactorySingle" value="direct"
     [disabled]="true" orientation="horizontal" [deselectable]="false"
     (valueChange)="outputs.update(increment)" aria-label="Single precedence" data-role="root">
     ${items}
@@ -86,7 +98,7 @@ const singleTemplate = `
 `;
 
 const multipleTemplate = `
-  <div precedenceExistingMultiple ogToggleGroupMultiple #upper="precedenceExistingMultiple"
+  <div precedenceExistingMultiple #consumer="precedenceExistingMultiple"
     [value]="direct" [disabled]="true" orientation="horizontal"
     (valueChange)="outputs.update(increment)" aria-label="Multiple precedence" data-role="root">
     ${items}
@@ -109,70 +121,30 @@ abstract class MultiplePrecedenceCase {
 }
 
 @Component({
-  selector: "toggle-group-precedence-single-upper-first",
-  imports: [
-    PrecedenceFactorySingle,
-    OrigamiToggleGroupSingle,
-    OrigamiToggleGroupItem,
-    ToggleGroupPrecedenceProbe,
-  ],
+  selector: "toggle-group-precedence-single",
+  imports: [PrecedenceFactorySingle, OrigamiToggleGroupItem, ToggleGroupPrecedenceProbe],
   providers: [SinglePrecedenceSettings],
-  host: { "data-toggle-group-case": "single-upper-first" },
+  host: { "data-toggle-group-case": "single-precedence" },
   template: singleTemplate,
 })
-export class SingleUpperFirst extends SinglePrecedenceCase {}
+export class SinglePrecedence extends SinglePrecedenceCase {}
 
 @Component({
-  selector: "toggle-group-precedence-single-lower-first",
-  imports: [
-    OrigamiToggleGroupSingle,
-    PrecedenceFactorySingle,
-    OrigamiToggleGroupItem,
-    ToggleGroupPrecedenceProbe,
-  ],
-  providers: [SinglePrecedenceSettings],
-  host: { "data-toggle-group-case": "single-lower-first" },
-  template: singleTemplate,
-})
-export class SingleLowerFirst extends SinglePrecedenceCase {}
-
-@Component({
-  selector: "toggle-group-precedence-multiple-upper-first",
-  imports: [
-    PrecedenceExistingMultiple,
-    OrigamiToggleGroupMultiple,
-    OrigamiToggleGroupItem,
-    ToggleGroupPrecedenceProbe,
-  ],
+  selector: "toggle-group-precedence-multiple",
+  imports: [PrecedenceExistingMultiple, OrigamiToggleGroupItem, ToggleGroupPrecedenceProbe],
   providers: [MultiplePrecedenceSettings],
-  host: { "data-toggle-group-case": "multiple-upper-first" },
+  host: { "data-toggle-group-case": "multiple-precedence" },
   template: multipleTemplate,
 })
-export class MultipleUpperFirst extends MultiplePrecedenceCase {}
-
-@Component({
-  selector: "toggle-group-precedence-multiple-lower-first",
-  imports: [
-    OrigamiToggleGroupMultiple,
-    PrecedenceExistingMultiple,
-    OrigamiToggleGroupItem,
-    ToggleGroupPrecedenceProbe,
-  ],
-  providers: [MultiplePrecedenceSettings],
-  host: { "data-toggle-group-case": "multiple-lower-first" },
-  template: multipleTemplate,
-})
-export class MultipleLowerFirst extends MultiplePrecedenceCase {}
+export class MultiplePrecedence extends MultiplePrecedenceCase {}
 
 @Component({
   selector: "acceptance-toggle-group-precedence",
-  imports: [SingleUpperFirst, SingleLowerFirst, MultipleUpperFirst, MultipleLowerFirst],
+  imports: [SinglePrecedence, MultiplePrecedence],
   template: `
     <h2>ToggleGroup replacement precedence</h2>
-    <toggle-group-precedence-single-upper-first />
-    <toggle-group-precedence-single-lower-first />
-    <toggle-group-precedence-multiple-upper-first />
-    <toggle-group-precedence-multiple-lower-first />
+    <toggle-group-precedence-single />
+    <toggle-group-precedence-multiple />
   `,
 })
 export class ToggleGroupPrecedence {}

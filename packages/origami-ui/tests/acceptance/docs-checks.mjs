@@ -445,7 +445,7 @@ await writeFile(
       semanticReview:
         "Parent must review every recorded subject against the frozen defaults, ownership, composition, lifecycle/errors, hydration, browser limits and examples. Automated presence/facet checks alone cannot certify meaningful prose.",
       excluded:
-        "Compiler-generated static metadata (ɵfac/ɵdir/ɵprov/ɵcmp/ɵpipe/ɵmod/ɵinj), private/protected members, members of compiler-only ɵ exports, and explicitly inventoried external apparent-type members (for example TypeScript String methods) are excluded. Compiler-required exported declarations and authored @internal members such as Options.ɵprovideDefault and SSR lifecycle hooks are included for meaningful retained-comment/provenance/@internal checks, but excluded from supported authoring API. Internal prose may occur in TypeScript's @internal tag text; raw description/tags and meaningfulDescription are all retained.",
+        "Compiler-generated static metadata (ɵfac/ɵdir/ɵprov/ɵcmp/ɵpipe/ɵmod/ɵinj), private/protected members, members of compiler-only ɵ exports, and explicitly inventoried external apparent-type members (for example TypeScript String methods) are excluded. Compiler-required exported declarations and authored @internal members such as OrigamiToggleGroupSingleOptions.ɵprovideRoot and SSR lifecycle hooks are included for meaningful retained-comment/provenance/@internal checks, but excluded from supported authoring API. Internal prose may occur in TypeScript's @internal tag text; raw description/tags and meaningfulDescription are all retained.",
     },
     null,
     2,

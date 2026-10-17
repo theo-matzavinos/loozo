@@ -1,20 +1,7 @@
-import {
-  DestroyRef,
-  Directive,
-  InjectionToken,
-  Service,
-  computed,
-  forwardRef,
-  inject,
-} from "@angular/core";
+import { DestroyRef, Directive, Service, computed, forwardRef, inject } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { OrigamiCollection, OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
-
-// Private, per-role replacement tokens keep public Options structurally implementable.
-const sharedReplacement = new InjectionToken<OrigamiAccordionOptions>(
-  "Accordion shared replacement",
-);
 
 /**
  * Shared effective root configuration; deliberately contains no mode-specific selection fields.
@@ -23,8 +10,7 @@ const sharedReplacement = new InjectionToken<OrigamiAccordionOptions>(
  * independently; selection and Single's clearing policy still come from the mode-specific
  * Options token. Replacing mode Options alone also updates the default shared policy.
  * Replacements are whole configurations, not merges with unused directive inputs.
- * Provider helpers return local replacement-plus-alias arrays, safe to nest in `providers`.
- * Primitive defaults never override those replacements when direct/host selectors co-match.
+ * Provider helpers return one local provider.
  *
  * @example
  * ```ts
@@ -43,54 +29,21 @@ export abstract class OrigamiAccordionOptions {
   /**
    * Replaces shared root configuration with an existing provider.
    * @param type - Compatible concrete or abstract class supplier, allowing forward references.
-   * @returns A local replacement-and-alias provider array; mode selection still comes from its own token.
+   * @returns A local provider; mode selection still comes from its own token.
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionOptions> | AbstractType<OrigamiAccordionOptions>,
-  ): Provider[] {
-    return [
-      { provide: sharedReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiAccordionOptions, useExisting: sharedReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiAccordionOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces the entire shared configuration.
    * @param factory - Injection-context factory supplying the required disabled signal.
-   * @returns A local replacement-and-alias provider array, without fallback to unused directive inputs.
+   * @returns A local provider, without fallback to unused directive inputs.
    */
-  static provideFactory(factory: () => OrigamiAccordionOptions): Provider[] {
-    return [
-      { provide: sharedReplacement, useFactory: factory },
-      { provide: OrigamiAccordionOptions, useExisting: sharedReplacement },
-    ];
-  }
-
-  /**
-   * @internal Creates a fallback-only default that cannot displace a helper-provided local replacement.
-   * @param type - Default provider supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiAccordionOptions> | AbstractType<OrigamiAccordionOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiAccordionOptions,
-        useFactory: () => {
-          const replacement = inject(sharedReplacement, {
-            self: true,
-            optional: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject<OrigamiAccordionOptions>(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiAccordionOptions): Provider {
+    return { provide: OrigamiAccordionOptions, useFactory: factory };
   }
 }
 

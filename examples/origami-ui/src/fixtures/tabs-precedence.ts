@@ -10,8 +10,9 @@ import {
   type OrigamiTabsActivation,
 } from "@loozo/origami-ui/tabs";
 
-// S6 precedence: whole replacement Tabs root Options win over conflicting direct inputs in both
-// directive import orders. Each case shares one template; only the import (registry) order differs.
+// S6 precedence: whole replacement Tabs root Options win over the composed root's own inputs,
+// bound through the consumer's exposed host-directive inputs. Both cases share one template; only
+// the replacement provider differs.
 
 @Service({ autoProvided: false })
 export class TabsPrecedenceSettings {
@@ -24,7 +25,13 @@ export class TabsPrecedenceSettings {
 @Directive({
   selector: "[precedenceFactoryTabs]",
   exportAs: "precedenceFactoryTabs",
-  hostDirectives: [OrigamiTabs],
+  hostDirectives: [
+    {
+      directive: OrigamiTabs,
+      inputs: ["value", "disabled", "orientation", "activation"],
+      outputs: ["valueChange"],
+    },
+  ],
   providers: [OrigamiTabsOptions.provideFactory(() => inject(TabsPrecedenceSettings))],
 })
 export class PrecedenceFactoryTabs {
@@ -34,7 +41,13 @@ export class PrecedenceFactoryTabs {
 @Directive({
   selector: "[precedenceExistingTabs]",
   exportAs: "precedenceExistingTabs",
-  hostDirectives: [OrigamiTabs],
+  hostDirectives: [
+    {
+      directive: OrigamiTabs,
+      inputs: ["value", "disabled", "orientation", "activation"],
+      outputs: ["valueChange"],
+    },
+  ],
   providers: [OrigamiTabsOptions.provideExisting(() => PrecedenceExistingTabs)],
 })
 export class PrecedenceExistingTabs implements OrigamiTabsOptions {
@@ -51,11 +64,11 @@ export class TabsPrecedenceProbe {
   readonly state = inject(OrigamiTabsState);
 }
 
-// Direct inputs deliberately contradict the replacement. One return statement keeps the
+// The root's own inputs deliberately contradict the replacement. One return statement keeps the
 // template statically evaluable by the Angular compiler.
 function tabsTemplate(prefix: "precedenceFactoryTabs" | "precedenceExistingTabs"): string {
   return `
-  <section ${prefix} ogTabs #upper="${prefix}" value="direct" [disabled]="true"
+  <section ${prefix} #consumer="${prefix}" value="direct" [disabled]="true"
     orientation="horizontal" activation="automatic" (valueChange)="outputs.update(increment)">
     <div ogTabsList aria-label="Precedence" data-role="list">
       <button ogTabsTrigger value="one" data-role="one">One</button>
@@ -64,9 +77,9 @@ function tabsTemplate(prefix: "precedenceFactoryTabs" | "precedenceExistingTabs"
     <div ogTabsPanel value="one" tabsPrecedenceProbe #probe="tabsPrecedenceProbe" data-role="panel-one">One</div>
     <div ogTabsPanel value="two" data-role="panel-two">Two</div>
   </section>
-  <output data-role="value">{{ upper.state.value() }}</output>
-  <output data-role="disabled">{{ upper.state.disabled() }}</output>
-  <output data-role="shared">{{ upper.state === probe.state }}</output>
+  <output data-role="value">{{ consumer.state.value() }}</output>
+  <output data-role="disabled">{{ consumer.state.disabled() }}</output>
+  <output data-role="shared">{{ consumer.state === probe.state }}</output>
   <button type="button" data-role="disable" (click)="settings.disabled.set(!settings.disabled())">Disable</button>
   <button type="button" data-role="external" (click)="settings.value.set('one')">External selection</button>
   <output data-role="outputs">{{ outputs() }}</output>
@@ -80,57 +93,23 @@ abstract class TabsPrecedenceCase {
 }
 
 @Component({
-  selector: "tabs-precedence-factory-upper-first",
+  selector: "tabs-precedence-factory",
   imports: [
     PrecedenceFactoryTabs,
-    OrigamiTabs,
     OrigamiTabsList,
     OrigamiTabsTrigger,
     OrigamiTabsPanel,
     TabsPrecedenceProbe,
   ],
   providers: [TabsPrecedenceSettings],
-  host: { "data-tabs-case": "factory-upper-first" },
+  host: { "data-tabs-case": "factory" },
   template: tabsTemplate("precedenceFactoryTabs"),
 })
-export class TabsFactoryUpperFirst extends TabsPrecedenceCase {}
+export class TabsFactory extends TabsPrecedenceCase {}
 
 @Component({
-  selector: "tabs-precedence-factory-lower-first",
+  selector: "tabs-precedence-existing",
   imports: [
-    OrigamiTabs,
-    PrecedenceFactoryTabs,
-    OrigamiTabsList,
-    OrigamiTabsTrigger,
-    OrigamiTabsPanel,
-    TabsPrecedenceProbe,
-  ],
-  providers: [TabsPrecedenceSettings],
-  host: { "data-tabs-case": "factory-lower-first" },
-  template: tabsTemplate("precedenceFactoryTabs"),
-})
-export class TabsFactoryLowerFirst extends TabsPrecedenceCase {}
-
-@Component({
-  selector: "tabs-precedence-existing-upper-first",
-  imports: [
-    PrecedenceExistingTabs,
-    OrigamiTabs,
-    OrigamiTabsList,
-    OrigamiTabsTrigger,
-    OrigamiTabsPanel,
-    TabsPrecedenceProbe,
-  ],
-  providers: [TabsPrecedenceSettings],
-  host: { "data-tabs-case": "existing-upper-first" },
-  template: tabsTemplate("precedenceExistingTabs"),
-})
-export class TabsExistingUpperFirst extends TabsPrecedenceCase {}
-
-@Component({
-  selector: "tabs-precedence-existing-lower-first",
-  imports: [
-    OrigamiTabs,
     PrecedenceExistingTabs,
     OrigamiTabsList,
     OrigamiTabsTrigger,
@@ -138,25 +117,18 @@ export class TabsExistingUpperFirst extends TabsPrecedenceCase {}
     TabsPrecedenceProbe,
   ],
   providers: [TabsPrecedenceSettings],
-  host: { "data-tabs-case": "existing-lower-first" },
+  host: { "data-tabs-case": "existing" },
   template: tabsTemplate("precedenceExistingTabs"),
 })
-export class TabsExistingLowerFirst extends TabsPrecedenceCase {}
+export class TabsExisting extends TabsPrecedenceCase {}
 
 @Component({
   selector: "acceptance-tabs-precedence",
-  imports: [
-    TabsFactoryUpperFirst,
-    TabsFactoryLowerFirst,
-    TabsExistingUpperFirst,
-    TabsExistingLowerFirst,
-  ],
+  imports: [TabsFactory, TabsExisting],
   template: `
     <h2>Tabs replacement precedence</h2>
-    <tabs-precedence-factory-upper-first />
-    <tabs-precedence-factory-lower-first />
-    <tabs-precedence-existing-upper-first />
-    <tabs-precedence-existing-lower-first />
+    <tabs-precedence-factory />
+    <tabs-precedence-existing />
   `,
 })
 export class TabsPrecedence {}

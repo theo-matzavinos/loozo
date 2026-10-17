@@ -7,9 +7,9 @@ import {
   OrigamiRadioGroupItemOptions,
 } from "@loozo/origami-ui/radio-group";
 
-// Q5 precedence: whole replacement Options win over conflicting direct inputs in both directive
-// import orders, with a factory for the root and an existing provider for the item. Both cases
-// share one template; only the import (registry) order differs.
+// Q5 precedence: whole replacement Options win over the composed directives' own inputs, bound
+// through the consumers' exposed host-directive inputs, with a factory for the root and an
+// existing provider for the item.
 
 @Service({ autoProvided: false })
 export class RadioGroupPrecedenceSettings {
@@ -21,7 +21,9 @@ export class RadioGroupPrecedenceSettings {
 @Directive({
   selector: "[precedenceFactoryRadioGroup]",
   exportAs: "precedenceFactoryRadioGroup",
-  hostDirectives: [OrigamiRadioGroup],
+  hostDirectives: [
+    { directive: OrigamiRadioGroup, inputs: ["value", "disabled"], outputs: ["valueChange"] },
+  ],
   providers: [
     OrigamiRadioGroupOptions.provideFactory(() => {
       const settings = inject(RadioGroupPrecedenceSettings);
@@ -36,7 +38,7 @@ export class PrecedenceFactoryRadioGroup {
 
 @Directive({
   selector: "button[precedenceExistingRadio]",
-  hostDirectives: [OrigamiRadioGroupItem],
+  hostDirectives: [{ directive: OrigamiRadioGroupItem, inputs: ["value", "disabled"] }],
   providers: [OrigamiRadioGroupItemOptions.provideExisting(() => PrecedenceExistingRadio)],
 })
 export class PrecedenceExistingRadio implements OrigamiRadioGroupItemOptions {
@@ -44,65 +46,37 @@ export class PrecedenceExistingRadio implements OrigamiRadioGroupItemOptions {
   readonly disabled = inject(RadioGroupPrecedenceSettings).itemDisabled;
 }
 
-// Direct inputs deliberately contradict the replacement. One return statement keeps the template
-// statically evaluable by the Angular compiler.
+// The composed directives' own inputs deliberately contradict the replacement.
 const template = `
-  <div precedenceFactoryRadioGroup ogRadioGroup #upper="precedenceFactoryRadioGroup" value="first"
-    [disabled]="true" aria-label="RadioGroup precedence" data-role="root">
+  <h2>RadioGroup replacement precedence</h2>
+  <div precedenceFactoryRadioGroup #consumer="precedenceFactoryRadioGroup" value="first"
+    [disabled]="true" (valueChange)="outputs.update(increment)" aria-label="RadioGroup precedence"
+    data-role="root">
     <button ogRadioGroupItem value="first" data-role="first">First</button>
-    <button precedenceExistingRadio ogRadioGroupItem value="direct" [disabled]="false"
+    <button precedenceExistingRadio value="direct" [disabled]="false"
       data-role="replaced">
       Replaced
     </button>
     <button ogRadioGroupItem value="last" data-role="last">Last</button>
   </div>
-  <output data-role="value">{{ upper.state.value() }}</output>
-  <output data-role="disabled">{{ upper.state.disabled() }}</output>
+  <output data-role="value">{{ consumer.state.value() }}</output>
+  <output data-role="disabled">{{ consumer.state.disabled() }}</output>
   <button type="button" data-role="enable"
     (click)="settings.itemDisabled.set(!settings.itemDisabled())">
     Toggle replaced disabled
   </button>
+  <output data-role="outputs">{{ outputs() }}</output>
 `;
-
-abstract class RadioGroupPrecedenceCase {
-  readonly settings = inject(RadioGroupPrecedenceSettings);
-}
-
-@Component({
-  selector: "radio-group-precedence-upper-first",
-  imports: [
-    PrecedenceFactoryRadioGroup,
-    OrigamiRadioGroup,
-    PrecedenceExistingRadio,
-    OrigamiRadioGroupItem,
-  ],
-  providers: [RadioGroupPrecedenceSettings],
-  host: { "data-radio-case": "upper-first" },
-  template,
-})
-export class RadioGroupUpperFirst extends RadioGroupPrecedenceCase {}
-
-@Component({
-  selector: "radio-group-precedence-lower-first",
-  imports: [
-    OrigamiRadioGroup,
-    PrecedenceFactoryRadioGroup,
-    OrigamiRadioGroupItem,
-    PrecedenceExistingRadio,
-  ],
-  providers: [RadioGroupPrecedenceSettings],
-  host: { "data-radio-case": "lower-first" },
-  template,
-})
-export class RadioGroupLowerFirst extends RadioGroupPrecedenceCase {}
 
 @Component({
   selector: "acceptance-radio-group-precedence",
-  imports: [RadioGroupUpperFirst, RadioGroupLowerFirst],
-  template: `
-    <h2>RadioGroup replacement precedence</h2>
-    <radio-group-precedence-upper-first />
-    <radio-group-precedence-lower-first />
-  `,
+  imports: [PrecedenceFactoryRadioGroup, PrecedenceExistingRadio, OrigamiRadioGroupItem],
+  providers: [RadioGroupPrecedenceSettings],
+  host: { "data-radio-case": "precedence" },
+  template,
 })
-export class RadioGroupPrecedence {}
+export class RadioGroupPrecedence {
+  readonly settings = inject(RadioGroupPrecedenceSettings);
+  readonly outputs = signal(0);
+  readonly increment = (value: number): number => value + 1;
+}

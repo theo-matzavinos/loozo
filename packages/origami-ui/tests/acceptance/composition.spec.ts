@@ -3,7 +3,7 @@ import { fixture } from "./observation.js";
 import { expectPreferred } from "./geometry.js";
 
 for (const provider of ["existing", "factory"]) {
-  test(`O1 O2 O3: ${provider} providers, upper-only Options, concrete state ownership and diamond matches`, async ({
+  test(`O1 O2 O3: ${provider} providers, upper-only Options, concrete state ownership and host-composed parts`, async ({
     page,
   }, info) => {
     await fixture(page, "composition", info);
@@ -242,16 +242,9 @@ test("I3: hosted ID and value allocations, no-host application identities and re
   await expect(unhosted).toHaveText(unhostedText ?? "");
 });
 
-const collapsibleCases = [
-  "factory-upper-first",
-  "factory-lower-first",
-  "existing-upper-first",
-  "existing-lower-first",
-  "factory-diamond",
-  "existing-diamond",
-];
+const collapsibleCases = ["collapsible-factory", "collapsible-existing"];
 
-test("O1 O2 O3: whole Collapsible/Presence replacements win over direct inputs in both import orders and diamonds", async ({
+test("O1 O2 O3: whole Collapsible/Presence replacements win over the composed primitives' own inputs", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -261,7 +254,7 @@ test("O1 O2 O3: whole Collapsible/Presence replacements win over direct inputs i
       const part = (role: string) => page.locator(`[data-case="${name}"] [data-role="${role}"]`);
 
       await expect(part("expanded")).toHaveText("true");
-      // Replacement, not a merged lower default or direct input.
+      // Replacement, not a merged default or the composed primitive's own input.
       await expect(part("disabled")).toHaveText("false");
       await expect(part("shared")).toHaveText("true");
       await expect(part("presence-shared")).toHaveText("true");
@@ -277,7 +270,7 @@ test("O1 O2 O3: whole Collapsible/Presence replacements win over direct inputs i
       await expect(part("nested-panel")).toHaveAttribute("data-phase", "closed");
 
       // Effective replaced hiding is until-found where the engine supports it, never the
-      // direct hidden input; unsupported engines keep ordinary hiding.
+      // own hidden input; unsupported engines keep ordinary hiding.
       const supportsReveal = await part("panel").evaluate((node) => "onbeforematch" in node);
       let replacedHidden = "";
 
@@ -334,82 +327,59 @@ test("O1 O2 O3: whole Collapsible/Presence replacements win over direct inputs i
   await expect(isolated("presence")).toHaveAttribute("data-phase", "closed");
 });
 
-test("O1 O3 A3: Collection/Accordion direct and host-composed replacements in both import orders", async ({
-  page,
-}, info) => {
+test("O1 O3 A3: host-composed Collection/Accordion replacements", async ({ page }, info) => {
   await fixture(page, "composition", info);
 
-  for (const order of ["upper-first", "lower-first"]) {
-    await test.step(order, async () => {
-      const co = (role: string) =>
-        page.locator(`[data-case="accordion-${order}"] [data-co="${role}"]`);
+  const co = (role: string) => page.locator(`[data-case="accordion"] [data-co="${role}"]`);
 
-      // Replaced Item Options govern values; an ancestor replacement does not leak to defaults.
-      await expect(co("collection")).toHaveText("factory-value,existing-value,child-default");
-      await expect(co("shared-disabled")).toHaveText("true");
-      await expect(co("factory-trigger")).toBeDisabled();
-      await expect(co("factory-trigger")).toHaveAttribute("id", `${order}-factory-trigger`);
-      await expect(co("factory-trigger")).toHaveAttribute(
-        "aria-controls",
-        `${order}-factory-panel`,
-      );
-      await expect(co("factory-panel")).toHaveAttribute(
-        "aria-labelledby",
-        `${order}-factory-trigger`,
-      );
-      await expect(co("existing-trigger")).toHaveAttribute("id", `${order}-existing-trigger`);
-      await expect(co("existing-trigger")).toHaveAttribute(
-        "aria-controls",
-        `${order}-existing-panel`,
-      );
-      await expect(co("existing-panel")).toHaveAttribute(
-        "aria-labelledby",
-        `${order}-existing-trigger`,
-      );
-      await expect(co("diamond-trigger")).toHaveAttribute("id", `${order}-diamond-trigger`);
+  // Replaced Item Options govern values; an ancestor replacement does not leak to defaults.
+  await expect(co("collection")).toHaveText("factory-value,existing-value,child-default");
+  await expect(co("shared-disabled")).toHaveText("true");
+  await expect(co("factory-trigger")).toBeDisabled();
+  await expect(co("factory-trigger")).toHaveAttribute("id", "accordion-factory-trigger");
+  await expect(co("factory-trigger")).toHaveAttribute("aria-controls", "accordion-factory-panel");
+  await expect(co("factory-panel")).toHaveAttribute("aria-labelledby", "accordion-factory-trigger");
+  await expect(co("existing-trigger")).toHaveAttribute("id", "accordion-existing-trigger");
+  await expect(co("existing-trigger")).toHaveAttribute("aria-controls", "accordion-existing-panel");
+  await expect(co("existing-panel")).toHaveAttribute(
+    "aria-labelledby",
+    "accordion-existing-trigger",
+  );
+  // A replaced Trigger and a default Panel still name each other.
+  await expect(co("mixed-trigger")).toHaveAttribute("id", "accordion-mixed-trigger");
 
-      const diamondPanel = await co("diamond-panel").getAttribute("id");
+  const mixedPanelId = await co("mixed-panel").getAttribute("id");
 
-      expect(diamondPanel).toBeTruthy();
-      await expect(co("diamond-trigger")).toHaveAttribute("aria-controls", diamondPanel ?? "");
-      await expect(co("diamond-panel")).toHaveAttribute(
-        "aria-labelledby",
-        `${order}-diamond-trigger`,
-      );
-      await co("enable").click();
-      await expect(co("shared-disabled")).toHaveText("false");
-      await expect(co("factory-trigger")).toBeEnabled();
-      await co("factory-trigger").click();
-      await expect(co("single")).toHaveText("first");
-      await expect(co("factory-trigger")).toHaveAttribute("aria-expanded", "true");
-      await co("existing-trigger").click();
-      await expect(co("single")).toHaveText("second");
-      await co("diamond-trigger").click();
-      await expect(co("single")).toHaveText("diamond");
-      await expect(co("diamond-trigger")).toHaveAttribute("aria-expanded", "true");
-      // The shared existing replacement wins over the Multiple replacement's own disabled.
-      await expect(co("multiple-trigger")).toBeEnabled();
-      await co("multiple-trigger").click();
-      await expect(co("multiple")).toHaveText("external,first");
-      await expect(co("existing-single")).toHaveText("existing-seed");
-      await co("existing-single-trigger").click();
-      await expect(co("existing-single")).toHaveText("first");
-      await expect(co("factory-multiple")).toHaveText("factory-external");
-      await co("factory-multiple-trigger").click();
-      await expect(co("factory-multiple")).toHaveText("factory-external,first");
-      await expect(co("unused")).toHaveText("0");
-    });
-  }
+  expect(mixedPanelId).toBeTruthy();
+  await expect(co("mixed-trigger")).toHaveAttribute("aria-controls", mixedPanelId ?? "");
+  await expect(co("mixed-panel")).toHaveAttribute("aria-labelledby", "accordion-mixed-trigger");
+  await co("enable").click();
+  await expect(co("shared-disabled")).toHaveText("false");
+  await expect(co("factory-trigger")).toBeEnabled();
+  await co("factory-trigger").click();
+  await expect(co("single")).toHaveText("first");
+  await expect(co("factory-trigger")).toHaveAttribute("aria-expanded", "true");
+  await co("existing-trigger").click();
+  await expect(co("single")).toHaveText("second");
+  await co("mixed-trigger").click();
+  await expect(co("single")).toHaveText("mixed");
+  await expect(co("mixed-trigger")).toHaveAttribute("aria-expanded", "true");
+  // The shared existing replacement wins over the Multiple replacement's own disabled.
+  await expect(co("multiple-trigger")).toBeEnabled();
+  await co("multiple-trigger").click();
+  await expect(co("multiple")).toHaveText("external,first");
+  await expect(co("existing-single")).toHaveText("existing-seed");
+  await co("existing-single-trigger").click();
+  await expect(co("existing-single")).toHaveText("first");
+  await expect(co("factory-multiple")).toHaveText("factory-external");
+  await co("factory-multiple-trigger").click();
+  await expect(co("factory-multiple")).toHaveText("factory-external,first");
+  await expect(co("unused")).toHaveText("0");
 });
 
-const popoverCases = [
-  "popover-factory-first",
-  "popover-factory-last",
-  "popover-existing-first",
-  "popover-existing-last",
-];
+const popoverCases = ["popover-factory", "popover-existing"];
 
-test("O1 O3 V3 V5: whole Popover replacements win over direct root/role inputs in both import orders", async ({
+test("O1 O3 V3 V5: whole Popover replacements win over the composed root/role own inputs", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -419,7 +389,7 @@ test("O1 O3 V3 V5: whole Popover replacements win over direct root/role inputs i
       .locator(`[data-case="${name}"] [data-co="content"]`)
       .evaluate((node) => node.matches(":popover-open"));
 
-  // Before any action, every effective replacement contradicts the direct inputs.
+  // Before any action, every effective replacement contradicts the own inputs.
   for (const name of popoverCases) {
     const co = (role: string) => page.locator(`[data-case="${name}"] [data-co="${role}"]`);
 

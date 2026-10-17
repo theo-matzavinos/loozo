@@ -431,25 +431,23 @@ test("K5: replaced root and item Options drive behavior with no fallback; State 
   await page.getByTestId("editor-read-only").click();
   await expect(command("spellcheck")).toBeEnabled();
 
-  // Whole replacement Options win over contradicting direct inputs in both import orders.
-  for (const name of ["upper-first", "lower-first"]) {
-    const root = casePart(page, name, "root");
-    const precedence = (role: string) => casePart(page, name, role);
+  // Whole replacement Options win over the composed directives' contradicting own inputs.
+  const precedence = (role: string) => casePart(page, "precedence", role);
+  const precedenceRoot = precedence("root");
 
-    await expect(root).toHaveAttribute("aria-orientation", "vertical");
-    await expect(precedence("orientation")).toHaveText("vertical");
-    await expect(precedence("replaced")).toBeDisabled();
-    await precedence("first").focus();
-    await page.keyboard.press("ArrowDown");
-    await expect(precedence("last")).toBeFocused();
-    await precedence("enable").click();
-    await expect(precedence("replaced")).toBeEnabled();
-    await precedence("last").focus();
-    await page.keyboard.press("ArrowUp");
-    await expect(precedence("replaced")).toBeFocused();
-    await precedence("horizontal").click();
-    await expect(root).toHaveAttribute("aria-orientation", "horizontal");
-  }
+  await expect(precedenceRoot).toHaveAttribute("aria-orientation", "vertical");
+  await expect(precedence("orientation")).toHaveText("vertical");
+  await expect(precedence("replaced")).toBeDisabled();
+  await precedence("first").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(precedence("last")).toBeFocused();
+  await precedence("enable").click();
+  await expect(precedence("replaced")).toBeEnabled();
+  await precedence("last").focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(precedence("replaced")).toBeFocused();
+  await precedence("horizontal").click();
+  await expect(precedenceRoot).toHaveAttribute("aria-orientation", "horizontal");
 });
 
 test("K7: a standalone group in Popover Content whose Trigger is a toolbar item keeps its own roving and tab stop", async ({

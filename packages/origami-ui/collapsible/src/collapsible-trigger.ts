@@ -1,19 +1,7 @@
-import {
-  DestroyRef,
-  Directive,
-  InjectionToken,
-  computed,
-  forwardRef,
-  inject,
-  input,
-} from "@angular/core";
+import { DestroyRef, Directive, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { CollapsibleContext } from "./collapsible";
-
-const triggerReplacement = new InjectionToken<OrigamiCollapsibleTriggerOptions>(
-  "Collapsible Trigger replacement",
-);
 
 /** Effective Trigger identity; independent of its generated default and reactive when replaced. */
 export abstract class OrigamiCollapsibleTriggerOptions {
@@ -24,58 +12,23 @@ export abstract class OrigamiCollapsibleTriggerOptions {
    * Substitutes the Trigger's entire effective Options.
    * @param type - Supplier of a compatible concrete or abstract provider class, resolved through a
    *   forward reference.
-   * @returns Local replacement and public-alias providers; a directly matched Trigger default cannot override this replacement.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () =>
       | Type<OrigamiCollapsibleTriggerOptions>
       | AbstractType<OrigamiCollapsibleTriggerOptions>,
-  ): Provider[] {
-    return [
-      { provide: triggerReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiCollapsibleTriggerOptions, useExisting: triggerReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiCollapsibleTriggerOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Whole Trigger Options replacement supplying reactive `id`; unused defaults are not merged.
    * @param factory - Injection-context factory supplying the required `id` signal.
-   * @returns Local replacement and public-alias providers; unused directive defaults are not merged into the result.
+   * @returns A local provider; unused directive defaults are not merged into the result.
    */
-  static provideFactory(factory: () => OrigamiCollapsibleTriggerOptions): Provider[] {
-    return [
-      { provide: triggerReplacement, useFactory: factory },
-      { provide: OrigamiCollapsibleTriggerOptions, useExisting: triggerReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () =>
-      | Type<OrigamiCollapsibleTriggerOptions>
-      | AbstractType<OrigamiCollapsibleTriggerOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiCollapsibleTriggerOptions,
-        useFactory: () => {
-          const replacement = inject(triggerReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiCollapsibleTriggerOptions): Provider {
+    return { provide: OrigamiCollapsibleTriggerOptions, useFactory: factory };
   }
 }
 
@@ -87,7 +40,7 @@ export abstract class OrigamiCollapsibleTriggerOptions {
  */
 @Directive({
   selector: "button[ogCollapsibleTrigger]",
-  providers: [OrigamiCollapsibleTriggerOptions.ɵprovideDefault(() => OrigamiCollapsibleTrigger)],
+  providers: [OrigamiCollapsibleTriggerOptions.provideExisting(() => OrigamiCollapsibleTrigger)],
   host: {
     type: "button",
     "[id]": "effectiveId()",

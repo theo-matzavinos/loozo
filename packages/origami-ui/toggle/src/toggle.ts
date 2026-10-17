@@ -1,7 +1,6 @@
 import {
   DestroyRef,
   Directive,
-  InjectionToken,
   Service,
   booleanAttribute,
   computed,
@@ -12,8 +11,6 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { injectDeferred } from "@loozo/origami-ui/utils";
-
-const toggleReplacement = new InjectionToken<OrigamiToggleOptions>("Toggle replacement");
 
 /** Effective Toggle configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiToggleOptions {
@@ -26,54 +23,21 @@ export abstract class OrigamiToggleOptions {
    * Replaces Toggle Options with an existing compatible concrete or abstract provider.
    * @param type - Supplier of a compatible concrete or abstract provider class, allowing forward
    *   references and host-directive composition.
-   * @returns Local replacement and public-alias providers. Behavior resolves after construction, independent of direct co-match import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiToggleOptions> | AbstractType<OrigamiToggleOptions>,
-  ): Provider[] {
-    return [
-      { provide: toggleReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiToggleOptions, useExisting: toggleReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiToggleOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces all Toggle Options with a structurally compatible result.
    * @param factory - Executes in Angular injection context; supply both required signals.
-   * @returns Local replacement and public-alias providers. Ordinary writable signals do not emit an unused directive model's output.
+   * @returns A local provider. Ordinary writable signals do not emit an unused directive model's output.
    */
-  static provideFactory(factory: () => OrigamiToggleOptions): Provider[] {
-    return [
-      { provide: toggleReplacement, useFactory: factory },
-      { provide: OrigamiToggleOptions, useExisting: toggleReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback; never imports parent replacement Options.
-   * @param type - Deferred same-host directive, resolved only after construction.
-   * @returns A one-provider local array preferring explicit replacement over directive defaults.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiToggleOptions> | AbstractType<OrigamiToggleOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiToggleOptions,
-        useFactory: () => {
-          const replacement = inject(toggleReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiToggleOptions): Provider {
+    return { provide: OrigamiToggleOptions, useFactory: factory };
   }
 }
 
@@ -156,7 +120,7 @@ export class OrigamiToggleState {
   providers: [
     ToggleContext,
     OrigamiToggleState,
-    OrigamiToggleOptions.ɵprovideDefault(() => OrigamiToggle),
+    OrigamiToggleOptions.provideExisting(() => OrigamiToggle),
   ],
   host: {
     type: "button",

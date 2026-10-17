@@ -26,9 +26,10 @@ class LatePointerPolicy {
   readonly dismissible = signal(true);
 }
 
-/** Replaces only root dismissal; open/disabled stay the directive's own model and input. */
+/** Replaces only root dismissal; open/disabled stay the composed root's own model and input. */
 @Directive({
   selector: "[latePointerPolicy]",
+  hostDirectives: [{ directive: OrigamiPopover, inputs: ["open"], outputs: ["openChange"] }],
   providers: [
     LatePointerPolicy,
     OrigamiPopoverOptions.provideFactory(() => {
@@ -47,14 +48,13 @@ export class LatePointerRootPolicy {
 @Component({
   selector: "acceptance-late-pointer-owner",
   imports: [
-    OrigamiPopover,
     LatePointerRootPolicy,
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
   ],
   template: `
-    <div ogPopover latePointerPolicy [(open)]="open" (openChange)="output($event)">
+    <div latePointerPolicy [(open)]="open" (openChange)="output($event)">
       <button ogPopoverTrigger ogPopoverAnchor data-testid="late-pointer-trigger">
         Scope Trigger
       </button>

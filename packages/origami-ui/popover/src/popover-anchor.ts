@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   computed,
   forwardRef,
   inject,
@@ -11,10 +10,6 @@ import {
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { PopoverContext } from "./popover";
-
-const anchorReplacement = new InjectionToken<OrigamiPopoverAnchorOptions>(
-  "OrigamiPopoverAnchorOptions replacement",
-);
 
 /** Substitutable standalone Anchor identity. Co-located Trigger Options take precedence for the shared DOM ID. */
 export abstract class OrigamiPopoverAnchorOptions {
@@ -25,54 +20,21 @@ export abstract class OrigamiPopoverAnchorOptions {
    * Substitutes the entire Anchor configuration.
    * @param type - Supplier of a compatible concrete or abstract provider class; forward references
    *   are supported.
-   * @returns Local replacement and public alias providers, preserved when the primitive also matches directly in either import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiPopoverAnchorOptions> | AbstractType<OrigamiPopoverAnchorOptions>,
-  ): Provider[] {
-    return [
-      { provide: anchorReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiPopoverAnchorOptions, useExisting: anchorReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiPopoverAnchorOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Substitutes the standalone Anchor's effective ID signal.
    * @param factory - Injection-context factory supplying `id`.
-   * @returns Local replacement and public alias providers, not a merge with unused defaults.
+   * @returns A local provider, not a merge with unused defaults.
    */
-  static provideFactory(factory: () => OrigamiPopoverAnchorOptions): Provider[] {
-    return [
-      { provide: anchorReplacement, useFactory: factory },
-      { provide: OrigamiPopoverAnchorOptions, useExisting: anchorReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback provider, not a supported application API.
-   * @param type - Deferred Anchor default, resolved only when Options are read after construction.
-   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiPopoverAnchorOptions> | AbstractType<OrigamiPopoverAnchorOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiPopoverAnchorOptions,
-        useFactory: () => {
-          const replacement = inject(anchorReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(type());
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiPopoverAnchorOptions): Provider {
+    return { provide: OrigamiPopoverAnchorOptions, useFactory: factory };
   }
 }
 
@@ -84,7 +46,7 @@ export abstract class OrigamiPopoverAnchorOptions {
  */
 @Directive({
   selector: "[ogPopoverAnchor]",
-  providers: [OrigamiPopoverAnchorOptions.ɵprovideDefault(() => OrigamiPopoverAnchor)],
+  providers: [OrigamiPopoverAnchorOptions.provideExisting(() => OrigamiPopoverAnchor)],
   host: { "[id]": "effectiveId()" },
 })
 export class OrigamiPopoverAnchor implements OrigamiPopoverAnchorOptions {

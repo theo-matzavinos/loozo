@@ -2,7 +2,6 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
-  InjectionToken,
   computed,
   forwardRef,
   inject,
@@ -11,10 +10,6 @@ import {
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { PopoverContext } from "./popover";
-
-const triggerReplacement = new InjectionToken<OrigamiPopoverTriggerOptions>(
-  "OrigamiPopoverTriggerOptions replacement",
-);
 
 /** Substitutable Trigger identity; also authoritative when Trigger and Anchor share one element. */
 export abstract class OrigamiPopoverTriggerOptions {
@@ -25,54 +20,21 @@ export abstract class OrigamiPopoverTriggerOptions {
    * Substitutes the entire Trigger configuration.
    * @param type - Supplier of a compatible concrete or abstract provider class; forward references
    *   are supported.
-   * @returns Local replacement and public alias providers, preserved when the primitive also matches directly in either import order.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiPopoverTriggerOptions> | AbstractType<OrigamiPopoverTriggerOptions>,
-  ): Provider[] {
-    return [
-      { provide: triggerReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiPopoverTriggerOptions, useExisting: triggerReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiPopoverTriggerOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces the entire Trigger Options configuration, supplying `id`, without merging unused directive defaults.
    * @param factory - Injection-context factory supplying `id`.
-   * @returns Local replacement and public alias providers, not a merge with unused defaults.
+   * @returns A local provider, not a merge with unused defaults.
    */
-  static provideFactory(factory: () => OrigamiPopoverTriggerOptions): Provider[] {
-    return [
-      { provide: triggerReplacement, useFactory: factory },
-      { provide: OrigamiPopoverTriggerOptions, useExisting: triggerReplacement },
-    ];
-  }
-
-  /**
-   * @internal Primitive-only fallback provider, not a supported application API.
-   * @param type - Deferred Trigger default, resolved only when Options are read after construction.
-   * @returns A local array holding one public-token factory that honors a same-host replacement before resolving the directive default.
-   */
-  static ɵprovideDefault(
-    type: () => Type<OrigamiPopoverTriggerOptions> | AbstractType<OrigamiPopoverTriggerOptions>,
-  ): Provider[] {
-    return [
-      {
-        provide: OrigamiPopoverTriggerOptions,
-        useFactory: () => {
-          const replacement = inject(triggerReplacement, {
-            optional: true,
-            self: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject(type());
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiPopoverTriggerOptions): Provider {
+    return { provide: OrigamiPopoverTriggerOptions, useFactory: factory };
   }
 }
 
@@ -85,7 +47,7 @@ export abstract class OrigamiPopoverTriggerOptions {
  */
 @Directive({
   selector: "button[ogPopoverTrigger]",
-  providers: [OrigamiPopoverTriggerOptions.ɵprovideDefault(() => OrigamiPopoverTrigger)],
+  providers: [OrigamiPopoverTriggerOptions.provideExisting(() => OrigamiPopoverTrigger)],
   host: {
     type: "button",
     "[id]": "effectiveId()",

@@ -8,6 +8,10 @@ these packages have no consumers and publish `0.0.x` versions, so there are no c
 - don't add deprecations, compatibility shims, aliases, fallbacks for old shapes or migration notes. update every in-repo caller, example, doc and spec in the same change.
 - don't escalate the version for a break; the next `0.0.x` is fine. keep marking breaks with `!` in conventional commit subjects.
 
+## origami composition
+
+consumers use an origami directive either directly in their template or through `hostDirectives`. don't design, test or guard for a consumer directive whose selector co-matches a primitive's on the same element, or for the import-order provider precedence that would follow from it.
+
 ## readmes
 
 each readme documents only its own scope:

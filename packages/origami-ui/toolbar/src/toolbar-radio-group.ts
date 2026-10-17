@@ -27,7 +27,7 @@ import { ToolbarContext } from "./toolbar";
   selector: "[ogToolbarRadioGroup]",
   exportAs: "ogToolbarRadioGroup",
   hostDirectives: [ɵOrigamiRadioGroupRoot],
-  providers: [OrigamiRadioGroupOptions.ɵprovideDefault(() => OrigamiToolbarRadioGroup)],
+  providers: [OrigamiRadioGroupOptions.provideExisting(() => OrigamiToolbarRadioGroup)],
 })
 export class OrigamiToolbarRadioGroup implements OrigamiRadioGroupOptions {
   /**

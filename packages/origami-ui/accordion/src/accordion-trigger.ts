@@ -1,4 +1,4 @@
-import { Directive, InjectionToken, computed, forwardRef, inject, input } from "@angular/core";
+import { Directive, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import {
   OrigamiCollapsibleTrigger,
@@ -7,13 +7,9 @@ import {
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 import { AccordionItemContext } from "./accordion-item";
 
-const triggerReplacement = new InjectionToken<OrigamiAccordionTriggerOptions>(
-  "Accordion Trigger replacement",
-);
-
 /**
  * Effective upper Trigger identity, forwarded to the composed Collapsible Options token.
- * Helper provider arrays replace identity locally, independent of co-matched directive import order.
+ * Helper providers replace identity locally.
  */
 export abstract class OrigamiAccordionTriggerOptions {
   /** Authoritative reactive DOM ID for this Trigger and its mounted Panel's labelling association. */
@@ -22,52 +18,21 @@ export abstract class OrigamiAccordionTriggerOptions {
   /**
    * Replaces upper Trigger configuration; no lower Options replacement is required.
    * @param type - Compatible concrete or abstract class supplier, allowing forward references.
-   * @returns A local replacement-and-alias provider array for direct or host-composed Triggers.
+   * @returns A local provider.
    */
   static provideExisting(
     type: () => Type<OrigamiAccordionTriggerOptions> | AbstractType<OrigamiAccordionTriggerOptions>,
-  ): Provider[] {
-    return [
-      { provide: triggerReplacement, useExisting: forwardRef(type) },
-      { provide: OrigamiAccordionTriggerOptions, useExisting: triggerReplacement },
-    ];
+  ): Provider {
+    return { provide: OrigamiAccordionTriggerOptions, useExisting: forwardRef(type) };
   }
 
   /**
    * Replaces upper Trigger identity as a whole.
    * @param factory - Injection-context factory supplying the required id signal.
-   * @returns A local replacement-and-alias provider array; lower behavior reads this upper token, not the upper directive.
+   * @returns A local provider; lower behavior reads this upper token, not the upper directive.
    */
-  static provideFactory(factory: () => OrigamiAccordionTriggerOptions): Provider[] {
-    return [
-      { provide: triggerReplacement, useFactory: factory },
-      { provide: OrigamiAccordionTriggerOptions, useExisting: triggerReplacement },
-    ];
-  }
-
-  /**
-   * @internal Creates a fallback-only Trigger default, independent of co-matched directive import order.
-   * @param type - Default directive supplier, resolved lazily after construction when no local replacement exists.
-   * @returns A local array holding one Options factory, ignoring ancestor replacement tokens.
-   */
-  static ɵprovideDefault(type: () => Type<OrigamiAccordionTriggerOptions>): Provider[] {
-    return [
-      {
-        provide: OrigamiAccordionTriggerOptions,
-        useFactory: () => {
-          const replacement = inject(triggerReplacement, {
-            self: true,
-            optional: true,
-          });
-
-          if (replacement !== null) {
-            return replacement;
-          }
-
-          return inject<OrigamiAccordionTriggerOptions>(forwardRef(type));
-        },
-      },
-    ];
+  static provideFactory(factory: () => OrigamiAccordionTriggerOptions): Provider {
+    return { provide: OrigamiAccordionTriggerOptions, useFactory: factory };
   }
 }
 
@@ -81,7 +46,7 @@ export abstract class OrigamiAccordionTriggerOptions {
   selector: "button[ogAccordionTrigger]",
   hostDirectives: [OrigamiCollapsibleTrigger],
   providers: [
-    OrigamiAccordionTriggerOptions.ɵprovideDefault(() => OrigamiAccordionTrigger),
+    OrigamiAccordionTriggerOptions.provideExisting(() => OrigamiAccordionTrigger),
     OrigamiCollapsibleTriggerOptions.provideFactory(() => inject(OrigamiAccordionTriggerOptions)),
   ],
   host: { "[attr.aria-disabled]": "disabledAria()" },
