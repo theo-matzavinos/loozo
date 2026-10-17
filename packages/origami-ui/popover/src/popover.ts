@@ -20,6 +20,7 @@ import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angu
 import { isPlatformServer } from "@angular/common";
 import { autoUpdate } from "@floating-ui/dom";
 import { OrigamiPresenceState, ɵOrigamiPresencePresentation } from "@loozo/origami-ui/presence";
+import type { ɵOrigamiPresenceTransition } from "@loozo/origami-ui/presence";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import type { OrigamiPopoverAnchorOptions } from "./popover-anchor";
 import type { OrigamiPopoverContentOptions } from "./popover-content";
@@ -98,7 +99,7 @@ type PositionSnapshot = {
   readonly intent: Intent;
   readonly configuration: PositionConfiguration;
   readonly request: number;
-  readonly transition: number;
+  readonly transition: ɵOrigamiPresenceTransition;
 };
 type PositionResult = PositionSnapshot & { readonly x: number; readonly y: number };
 

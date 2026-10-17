@@ -6,6 +6,7 @@ import {
   EnvironmentInjector,
   Service,
   afterEveryRender,
+  afterNextRender,
   inject,
   input,
   signal,
@@ -346,6 +347,20 @@ export class PresentationContent implements OrigamiPopoverContentOptions {
         </button>
         <button
           type="button"
+          data-testid="presentation-place-settle"
+          (click)="placeThenSettle(root.settings, 'block-start', 'end', 12)"
+        >
+          Logical placement, then settle after the position READ
+        </button>
+        <button
+          type="button"
+          data-testid="presentation-default-place-settle"
+          (click)="placeThenSettle(root.settings, 'block-end', 'start', 8)"
+        >
+          Default placement, then settle after the position READ
+        </button>
+        <button
+          type="button"
           data-testid="presentation-next-style"
           (click)="
             root.settings.opacity.set('0.35 !important'); root.settings.pointerEvents.set('auto')
@@ -504,6 +519,7 @@ export class PopoverPresentation {
   readonly unused = signal(0);
   readonly increment = (value: number): number => value + 1;
   readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #environment = inject(EnvironmentInjector);
   #axesChanges = 0;
   #recordingFirstVisible = false;
   #axesJournal: object[] = [];
@@ -517,7 +533,7 @@ export class PopoverPresentation {
         earlyRead: () => this.#changeAxesBeforeReveal(),
         read: () => this.#recordFirstVisible(),
       },
-      { injector: inject(EnvironmentInjector) },
+      { injector: this.#environment },
     );
 
     inject(DestroyRef).onDestroy(() => hooks.destroy());
@@ -530,6 +546,62 @@ export class PopoverPresentation {
     this.#axesJournal = [];
     this.#host.removeAttribute("data-axes-changes");
     this.#host.removeAttribute("data-first-visible");
+  }
+
+  /**
+   * Changes the placement, then finishes the Content's finite host animations from a READ hook
+   * registered now. It joins the render sequence after the Popover owners, so in the next render
+   * it runs after their READ, which starts the position calculation for this change, and before
+   * any later WRITE can commit that position. The host records what this READ saw.
+   */
+  placeThenSettle(
+    settings: PresentationSettings,
+    side: OrigamiPopoverSide,
+    align: OrigamiPopoverAlign,
+    gap: number,
+  ): void {
+    settings.side.set(side);
+    settings.align.set(align);
+    settings.gap.set(gap);
+    this.#host.removeAttribute("data-settle-read");
+    afterNextRender(
+      { read: () => this.#settleAfterPositionRead() },
+      { injector: this.#environment },
+    );
+  }
+
+  #settleAfterPositionRead(): void {
+    const content = this.#part("presentation-content");
+
+    if (content === null) {
+      throw new Error("Expected the authored Content host");
+    }
+
+    const finite: Animation[] = [];
+
+    for (const animation of content.getAnimations()) {
+      const end = Number(animation.effect?.getComputedTiming().endTime);
+
+      if (Number.isFinite(end)) {
+        finite.push(animation);
+      }
+    }
+
+    this.#host.setAttribute(
+      "data-settle-read",
+      JSON.stringify({
+        phase: content.getAttribute("data-phase"),
+        entering: content.hasAttribute("data-entering"),
+        leaving: content.hasAttribute("data-leaving"),
+        left: content.style.getPropertyValue("left"),
+        top: content.style.getPropertyValue("top"),
+        finished: finite.length,
+      }),
+    );
+
+    for (const animation of finite) {
+      animation.finish();
+    }
   }
 
   #part(testId: string): HTMLElement | null {
