@@ -17,9 +17,9 @@ import {
   OrigamiToolbarToggleGroupMultiple,
 } from "@loozo/origami-ui/toolbar";
 
-// K2 keyboard, vertical and reading direction, the K3 Toolbar groups, the K4 focus repair and the
-// K7 standalone group in Popover Content, beside the core seed's Toolbar. Each case is identified
-// by `data-toolbar-case`.
+// K2 keyboard, vertical and reading direction, the K3 Toolbar groups, the K4 focus repair, the K7
+// standalone group in Popover Content and the K10 disabled Popover Trigger, beside the core seed's
+// Toolbar. Each case is identified by `data-toolbar-case`.
 
 /** A Toolbar group's effective orientation, read from its State. */
 @Directive({ selector: "[toolbarGroupProbe]", exportAs: "toolbarGroupProbe" })
@@ -197,6 +197,31 @@ export class ToolbarAlignment {
       </span>
       <button ogToolbarItem data-role="after">After</button>
     </div>
+
+    <h2>Toolbar with a disabled Popover Trigger</h2>
+    <!-- One value disables both co-applied directives, as SPEC section 15 requires. -->
+    <button type="button" data-testid="toolbar-format-before">Before the format toolbar</button>
+    <div ogToolbar aria-label="Format" data-toolbar-case="disabled-popover">
+      <span ogPopover [(open)]="formatOpen" [disabled]="formatDisabled()">
+        <button
+          ogPopoverTrigger
+          ogPopoverAnchor
+          ogToolbarItem
+          [disabled]="formatDisabled()"
+          data-role="trigger"
+        >
+          Format
+        </button>
+        <div ogPopoverContent role="group" aria-label="Format options" data-role="content">
+          Format options
+        </div>
+      </span>
+      <button ogToolbarItem data-role="bold">Bold</button>
+    </div>
+    <button type="button" data-testid="toolbar-format-disable" (click)="formatDisabled.set(!formatDisabled())">
+      Toggle format disabled
+    </button>
+    <output data-testid="toolbar-format-open">{{ formatOpen() }}</output>
   `,
 })
 export class ToolbarCases {
@@ -211,6 +236,8 @@ export class ToolbarCases {
   readonly selfDisabled = signal(false);
   readonly insertOpen = signal(false);
   readonly insertKind = signal<string | null>(null);
+  readonly formatOpen = signal(false);
+  readonly formatDisabled = signal(true);
   readonly increment = (value: number): number => value + 1;
   readonly changeDetector = inject(ChangeDetectorRef);
 

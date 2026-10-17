@@ -488,3 +488,57 @@ test("K7: a standalone group in Popover Content whose Trigger is a toolbar item 
   await expect(part("table")).toHaveAttribute("tabindex", "0");
   await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(2);
 });
+
+test("K10: a Popover Trigger co-applied with a toolbar item and disabled with it is skipped, leaves Tab on the toolbar and opens nothing, both ways", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const toolbar = page.locator('[data-toolbar-case="disabled-popover"]');
+  const part = (role: string) => casePart(page, "disabled-popover", role);
+  const trigger = part("trigger");
+
+  /** Tab from the button before the Toolbar reaches its tab stop, `expected`. */
+  async function expectTabReaches(expected: Locator): Promise<void> {
+    await page.getByTestId("toolbar-format-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(expected).toBeFocused();
+  }
+
+  async function expectDisabled(): Promise<void> {
+    await expect(trigger).toHaveJSProperty("disabled", true);
+    await expect(trigger).toHaveAttribute("aria-disabled", "true");
+    await expect(trigger).toHaveAttribute("data-disabled", "");
+    await expect(trigger).toHaveAttribute("tabindex", "-1");
+    await expectTabStop(toolbar, part("bold"));
+    await expectTabReaches(part("bold"));
+    // The disabled Trigger is not in the arrow sequence.
+    await page.keyboard.press("ArrowRight");
+    await expect(part("bold")).toBeFocused();
+    await trigger.click({ force: true });
+    await settle(page);
+    await expect(page.getByTestId("toolbar-format-open")).toHaveText("false");
+    await expect(part("content")).toBeHidden();
+  }
+
+  await expectDisabled();
+  await page.getByTestId("toolbar-format-disable").click();
+  await expect(trigger).toHaveJSProperty("disabled", false);
+  await expect(trigger).not.toHaveAttribute("aria-disabled", /.*/);
+  await expect(trigger).not.toHaveAttribute("data-disabled", /.*/);
+  await expectTabStop(toolbar, trigger);
+  await expect(part("bold")).toHaveAttribute("tabindex", "-1");
+  await expectTabReaches(trigger);
+  await page.keyboard.press("ArrowRight");
+  await expect(part("bold")).toBeFocused();
+  await trigger.click();
+  await expect(part("content")).toBeVisible();
+  await expect(page.getByTestId("toolbar-format-open")).toHaveText("true");
+  await trigger.click();
+  await expect(part("content")).toBeHidden();
+  await expect(page.getByTestId("toolbar-format-open")).toHaveText("false");
+  // The clicks gave the Trigger the tab stop, so disabling must move it back to Bold.
+  await expectTabStop(toolbar, trigger);
+  await page.getByTestId("toolbar-format-disable").click();
+  await expectDisabled();
+});
