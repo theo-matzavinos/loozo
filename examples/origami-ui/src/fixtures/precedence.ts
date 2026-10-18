@@ -60,6 +60,8 @@ export class PrecedenceSettings {
   readonly hiding = signal<OrigamiCollapsibleHiding>("until-found");
   readonly present = signal(true);
   readonly triggerId = signal("");
+  readonly triggerDisabled = signal(false);
+  readonly triggerFocusable = signal(false);
   readonly panelId = signal("");
 }
 
@@ -81,11 +83,19 @@ export class PrecedenceFactoryRoot {
 
 @Directive({
   selector: "button[precedenceFactoryTrigger]",
-  hostDirectives: [{ directive: OrigamiCollapsibleTrigger, inputs: ["id"] }],
+  hostDirectives: [
+    { directive: OrigamiCollapsibleTrigger, inputs: ["id", "disabled", "focusableWhenDisabled"] },
+  ],
   providers: [
-    OrigamiCollapsibleTriggerOptions.provideFactory(() => ({
-      id: inject(PrecedenceSettings).triggerId,
-    })),
+    OrigamiCollapsibleTriggerOptions.provideFactory(() => {
+      const settings = inject(PrecedenceSettings);
+
+      return {
+        id: settings.triggerId,
+        disabled: settings.triggerDisabled,
+        focusableWhenDisabled: settings.triggerFocusable,
+      };
+    }),
   ],
 })
 export class PrecedenceFactoryTrigger {}
@@ -133,11 +143,16 @@ export class PrecedenceExistingRoot implements OrigamiCollapsibleOptions {
 
 @Directive({
   selector: "button[precedenceExistingTrigger]",
-  hostDirectives: [{ directive: OrigamiCollapsibleTrigger, inputs: ["id"] }],
+  hostDirectives: [
+    { directive: OrigamiCollapsibleTrigger, inputs: ["id", "disabled", "focusableWhenDisabled"] },
+  ],
   providers: [OrigamiCollapsibleTriggerOptions.provideExisting(() => PrecedenceExistingTrigger)],
 })
 export class PrecedenceExistingTrigger implements OrigamiCollapsibleTriggerOptions {
-  readonly id = inject(PrecedenceSettings).triggerId;
+  readonly #settings = inject(PrecedenceSettings);
+  readonly id = this.#settings.triggerId;
+  readonly disabled = this.#settings.triggerDisabled;
+  readonly focusableWhenDisabled = this.#settings.triggerFocusable;
 }
 
 @Directive({
@@ -193,7 +208,8 @@ function collapsibleTemplate(prefix: "precedenceFactory" | "precedenceExisting")
   <section ${prefix}Root #consumer="${prefix}Root" rootProbe #probe="rootProbe"
     [expanded]="false" [disabled]="true" hiding="hidden" data-role="root"
     (expandedChange)="outputs.update(increment)">
-    <button ${prefix}Trigger id="unused-trigger" data-role="trigger">Toggle</button>
+    <button ${prefix}Trigger id="unused-trigger" [disabled]="true" [focusableWhenDisabled]="true"
+      data-role="trigger">Toggle</button>
     <div ${prefix}Panel id="unused-panel" phaseProbe data-role="panel">Retained Panel</div>
     <output data-role="shared">{{ consumer.state === probe.state }}</output>
     <output data-role="expanded">{{ consumer.state.expanded() }}</output>
@@ -211,6 +227,8 @@ function collapsibleTemplate(prefix: "precedenceFactory" | "precedenceExisting")
   </div>
   <button type="button" data-role="presence-toggle" (click)="settings.present.set(!settings.present())">Presence intent</button>
   <button type="button" data-role="disable" (click)="settings.disabled.set(!settings.disabled())">Disable</button>
+  <button type="button" data-role="trigger-disable" (click)="settings.triggerDisabled.set(!settings.triggerDisabled())">Disable Trigger</button>
+  <button type="button" data-role="trigger-focusable" (click)="settings.triggerFocusable.set(!settings.triggerFocusable())">Focusable when disabled</button>
   <button type="button" data-role="external" (click)="settings.expanded.set(!settings.expanded())">External intent</button>
   <button type="button" data-role="ids" (click)="settings.triggerId.set(name + '-changed-trigger'); settings.panelId.set(name + '-changed-panel')">IDs</button>
   <output data-role="outputs">{{ outputs() }}</output>
@@ -284,7 +302,11 @@ export class CollapsibleExisting extends PrecedenceCase {
       disabled: signal(true),
       hiding: signal<OrigamiCollapsibleHiding>("until-found"),
     })),
-    OrigamiCollapsibleTriggerOptions.provideFactory(() => ({ id: signal("ancestor-trigger") })),
+    OrigamiCollapsibleTriggerOptions.provideFactory(() => ({
+      id: signal("ancestor-trigger"),
+      disabled: signal(true),
+      focusableWhenDisabled: signal(true),
+    })),
     OrigamiCollapsiblePanelOptions.provideFactory(() => ({ id: signal("ancestor-panel") })),
     OrigamiPresenceOptions.provideFactory(() => ({ present: signal(true) })),
   ],
@@ -575,6 +597,7 @@ export class PopoverPrecedenceSettings {
   readonly dismissible = signal(false);
   // Element IDs that match between server and client: derived from the case, not allocated.
   readonly triggerId = signal(`${this.label}-co-trigger`);
+  readonly triggerDisabled = signal(false);
   readonly anchorId = signal(`${this.label}-co-anchor`);
   readonly contentId = signal(`${this.label}-co-content`);
   readonly side = signal<OrigamiPopoverSide>("inline-end");
@@ -612,11 +635,13 @@ export class CoFactoryPopover {
 
 @Directive({
   selector: "button[coFactoryPopoverTrigger]",
-  hostDirectives: [{ directive: OrigamiPopoverTrigger, inputs: ["id"] }],
+  hostDirectives: [{ directive: OrigamiPopoverTrigger, inputs: ["id", "disabled"] }],
   providers: [
-    OrigamiPopoverTriggerOptions.provideFactory(() => ({
-      id: inject(PopoverPrecedenceSettings).triggerId,
-    })),
+    OrigamiPopoverTriggerOptions.provideFactory(() => {
+      const settings = inject(PopoverPrecedenceSettings);
+
+      return { id: settings.triggerId, disabled: settings.triggerDisabled };
+    }),
   ],
 })
 export class CoFactoryPopoverTrigger {}
@@ -678,11 +703,13 @@ export class CoExistingPopover implements OrigamiPopoverOptions {
 
 @Directive({
   selector: "button[coExistingPopoverTrigger]",
-  hostDirectives: [{ directive: OrigamiPopoverTrigger, inputs: ["id"] }],
+  hostDirectives: [{ directive: OrigamiPopoverTrigger, inputs: ["id", "disabled"] }],
   providers: [OrigamiPopoverTriggerOptions.provideExisting(() => CoExistingPopoverTrigger)],
 })
 export class CoExistingPopoverTrigger implements OrigamiPopoverTriggerOptions {
-  readonly id = inject(PopoverPrecedenceSettings).triggerId;
+  readonly #settings = inject(PopoverPrecedenceSettings);
+  readonly id = this.#settings.triggerId;
+  readonly disabled = this.#settings.triggerDisabled;
 }
 
 @Directive({
@@ -724,7 +751,8 @@ function popoverTemplate(prefix: "coFactoryPopover" | "coExistingPopover"): stri
     <output data-co="content-id">{{ root.settings.contentId() }}</output>
     <button type="button" data-co="enable" (click)="root.settings.disabled.set(false)">Enable</button>
     <button type="button" data-co="write-open" (click)="root.settings.open.set(true)">Write Options</button>
-    <button ${prefix}Trigger id="unused-direct-trigger" data-co="trigger">Toggle</button>
+    <button type="button" data-co="trigger-disable" (click)="root.settings.triggerDisabled.set(!root.settings.triggerDisabled())">Disable Trigger</button>
+    <button ${prefix}Trigger id="unused-direct-trigger" [disabled]="true" data-co="trigger">Toggle</button>
     <span ${prefix}Anchor id="unused-direct-anchor" class="anchor" data-co="anchor"
       [attr.data-testid]="root.settings.label + '-anchor'">Anchor</span>
     <section ${prefix}Content #content="coPopoverContent" id="unused-direct-content"

@@ -35,6 +35,8 @@ import {
   OrigamiAccordionState,
 } from "@loozo/origami-ui/accordion";
 import { CoreConsumer } from "./seeds/core-consumer.js";
+import { CollapsibleCases } from "./collapsible-cases.js";
+import { AccordionCases } from "./accordion-cases.js";
 import { TabsCases } from "./tabs-cases.js";
 import { ToggleGroupCases } from "./toggle-group-cases.js";
 import { ToolbarCases } from "./toolbar-cases.js";
@@ -249,6 +251,8 @@ export class ReplacedAccordionItem {}
     MultipleBillingObservation,
     ItemOptions,
     ReplacedAccordionItem,
+    CollapsibleCases,
+    AccordionCases,
     TabsCases,
     ToggleGroupCases,
     ToolbarCases,
@@ -260,6 +264,8 @@ export class ReplacedAccordionItem {}
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach core behavior</button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
     <acceptance-core />
+    <acceptance-collapsible-cases />
+    <acceptance-accordion-cases />
     <acceptance-tabs-cases />
     <acceptance-toggle-group-cases />
     <acceptance-toolbar-cases />

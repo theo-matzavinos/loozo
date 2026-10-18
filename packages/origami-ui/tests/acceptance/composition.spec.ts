@@ -2,6 +2,16 @@ import { test, expect } from "./contract-test.js";
 import { fixture } from "./observation.js";
 import { expectPreferred } from "./geometry.js";
 
+/**
+ * A wrong write would render only after the zoneless scheduler's next turn (an animation frame
+ * or a timer), so let both pass before asserting it never happened.
+ */
+async function settle(page: Parameters<typeof fixture>[0]): Promise<void> {
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+}
+
 for (const provider of ["existing", "factory"]) {
   test(`O1 O2 O3: ${provider} providers, upper-only Options, concrete state ownership and host-composed parts`, async ({
     page,
@@ -298,6 +308,25 @@ test("O1 O2 O3: whole Collapsible/Presence replacements win over the composed pr
       await part("disable").click();
       await expect(part("trigger")).toBeEnabled();
 
+      // The replaced Trigger disabled policy, never the own contradicting inputs: natively
+      // disabled, then focusable while it still blocks activation. The root stays enabled.
+      await part("trigger-disable").click();
+      await expect(part("trigger")).toBeDisabled();
+      await expect(part("trigger")).toHaveAttribute("aria-disabled", "true");
+      await expect(part("trigger")).toHaveAttribute("data-disabled", "");
+      await expect(part("disabled")).toHaveText("false");
+      await part("trigger-focusable").click();
+      await expect(part("trigger")).toHaveJSProperty("disabled", false);
+      await expect(part("trigger")).toHaveAttribute("aria-disabled", "true");
+      await part("trigger").click({ force: true });
+      await settle(page);
+      await expect(part("expanded")).toHaveText("true");
+      await part("trigger-focusable").click();
+      await part("trigger-disable").click();
+      await expect(part("trigger")).toBeEnabled();
+      await expect(part("trigger")).not.toHaveAttribute("aria-disabled", /.*/);
+      await expect(part("trigger")).not.toHaveAttribute("data-disabled", /.*/);
+
       await part("ids").click();
       await expect(part("trigger")).toHaveAttribute("id", `${name}-changed-trigger`);
       await expect(part("panel")).toHaveAttribute("id", `${name}-changed-panel`);
@@ -417,6 +446,16 @@ test("O1 O3 V3 V5: whole Popover replacements win over the composed root/role ow
       await co("enable").click();
       await expect(co("disabled")).toHaveText("false");
       await expect(co("trigger")).toBeEnabled();
+      // The replaced Trigger disabled policy, never the own contradicting input; the root stays
+      // enabled.
+      await co("trigger-disable").click();
+      await expect(co("trigger")).toBeDisabled();
+      await expect(co("trigger")).toHaveAttribute("aria-disabled", "true");
+      await expect(co("trigger")).toHaveAttribute("data-disabled", "");
+      await expect(co("disabled")).toHaveText("false");
+      await co("trigger-disable").click();
+      await expect(co("trigger")).toBeEnabled();
+      await expect(co("trigger")).not.toHaveAttribute("aria-disabled", /.*/);
       await co("anchor").evaluate((node) =>
         node.scrollIntoView({ block: "center", inline: "center" }),
       );

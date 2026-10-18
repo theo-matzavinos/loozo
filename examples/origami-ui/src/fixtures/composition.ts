@@ -162,6 +162,8 @@ export class ExistingCollapsible implements OrigamiCollapsibleOptions {
 })
 export class ExistingCollapsibleTrigger implements OrigamiCollapsibleTriggerOptions {
   readonly id = input("provided-trigger");
+  readonly disabled = signal(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Directive({
@@ -246,6 +248,7 @@ export class ExistingPopover implements OrigamiPopoverOptions {
 })
 export class ExistingPopoverTrigger implements OrigamiPopoverTriggerOptions {
   readonly id = input("provided-popover-trigger");
+  readonly disabled = signal(false);
 }
 
 @Directive({
@@ -323,6 +326,8 @@ export class FactoryCollapsible implements OrigamiCollapsibleOptions {
 })
 export class FactoryCollapsibleTrigger implements OrigamiCollapsibleTriggerOptions {
   readonly id = input("provided-trigger");
+  readonly disabled = signal(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Directive({
@@ -407,6 +412,7 @@ export class FactoryPopover implements OrigamiPopoverOptions {
 })
 export class FactoryPopoverTrigger implements OrigamiPopoverTriggerOptions {
   readonly id = input("provided-popover-trigger");
+  readonly disabled = signal(false);
 }
 
 @Directive({

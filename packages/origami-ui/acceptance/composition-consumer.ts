@@ -92,6 +92,8 @@ export class FactoryCollapsible {
 })
 export class ConsumerCollapsibleTrigger implements OrigamiCollapsibleTriggerOptions {
   readonly id = input("consumer-trigger");
+  readonly disabled = signal(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Directive({

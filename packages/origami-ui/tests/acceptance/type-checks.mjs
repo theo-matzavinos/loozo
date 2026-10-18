@@ -125,7 +125,11 @@ OrigamiCollectionItemOptions.provideFactory(() => ({value: signal(1)}));
 // @ts-expect-error Collapsible expanded must be writable
 OrigamiCollapsibleOptions.provideFactory(() => ({expanded: computed(() => false), disabled: signal(false), hiding: signal('hidden' as const)}));
 // @ts-expect-error Trigger requires a typed string id
-OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal(1)}));
+OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal(1), disabled: signal(false), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a Collapsible Trigger factory must supply disabled and focusableWhenDisabled
+OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal('trigger')}));
+// @ts-expect-error Collapsible Trigger focusableWhenDisabled must be a boolean signal
+OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: signal(false), focusableWhenDisabled: signal('yes')}));
 // Positive: Panel Options are id-only; domain roles remain consumer markup.
 OrigamiCollapsiblePanelOptions.provideFactory(() => ({id: signal('valid-id-only')}));
 // @ts-expect-error Panel id must be a string signal
@@ -145,12 +149,14 @@ OrigamiAccordionPanelOptions.provideFactory(() => ({id: signal(1)}));
 // @ts-expect-error Popover writable open cannot be a readonly computation
 OrigamiPopoverOptions.provideFactory(() => ({open: computed(() => false), disabled: signal(false), dismissible: signal(true)}));
 // @ts-expect-error Popover Trigger id remains a typed signal
-OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal(1)}));
+OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal(1), disabled: signal(false)}));
+// @ts-expect-error a Popover Trigger factory must supply disabled
+OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger')}));
 // @ts-expect-error Anchor id remains a typed signal
 OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal(1)}));
 // @ts-expect-error Content requires the complete four-field signal shape
 OrigamiPopoverContentOptions.provideFactory(() => ({id: signal('only-id')}));
-class WrongExistingTrigger { readonly id = signal(1); }
+class WrongExistingTrigger { readonly id = signal(1); readonly disabled = signal(false); }
 // @ts-expect-error provideExisting checks the compatible forward-referenced class
 OrigamiPopoverTriggerOptions.provideExisting(() => WrongExistingTrigger);
 // @ts-expect-error a Collapsible factory must supply every root field
@@ -298,7 +304,7 @@ export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
   OrigamiCollapsibleOptions.provideExisting(() => AbstractCollapsible),
-  OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
+  OrigamiCollapsibleTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(true)})),
   OrigamiCollectionItemOptions.provideFactory(() => ({value: signal('item')})),
   OrigamiCollectionItemOptions.provideExisting(() => AbstractCollectionItem),
   OrigamiAccordionOptions.provideFactory(() => ({disabled: signal(false)})),
@@ -313,7 +319,7 @@ export const providers: Provider[] = [
   OrigamiAccordionPanelOptions.provideExisting(() => AbstractIdentity),
   OrigamiPopoverOptions.provideExisting(() => AbstractPopover),
   OrigamiPopoverOptions.provideFactory(() => ({open: signal(false), disabled: signal(false), dismissible: signal(true)})),
-  OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
+  OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: computed(() => false)})),
   OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal('anchor')})),
   OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: computed(() => false)})),
   OrigamiToggleOptions.provideExisting(() => AbstractToggle),

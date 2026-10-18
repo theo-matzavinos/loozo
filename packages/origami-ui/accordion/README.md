@@ -35,5 +35,5 @@ Each item is a Collapsible, so the item element carries the Collapsible root att
 
 ## Accessibility
 
-- In Single mode without `collapsible`, the selected item's Trigger has `aria-disabled="true"`, because clicking it does nothing. It stays a focusable, natively enabled button unless the root or item is disabled.
+- In Single mode without `collapsible`, the selected item's Trigger has `aria-disabled="true"` and `data-disabled`, because clicking it does nothing. It stays a focusable, natively enabled button unless the root or item is disabled. Like a Collapsible Trigger with `focusableWhenDisabled`, its clicks still reach your own `(click)` listeners on the button.
 - There's no arrow-key navigation, roving tabindex or focus management; Tab moves between the native buttons. You supply the headings and any Panel roles.

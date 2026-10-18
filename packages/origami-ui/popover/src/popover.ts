@@ -24,6 +24,7 @@ import type { ɵOrigamiPresenceTransition } from "@loozo/origami-ui/presence";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import type { OrigamiPopoverAnchorOptions } from "./popover-anchor";
 import type { OrigamiPopoverContentOptions } from "./popover-content";
+import type { OrigamiPopoverTriggerOptions } from "./popover-trigger";
 import { positionContent } from "./popover-position";
 import type { PositionAxes, PositionConfiguration } from "./popover-position";
 import { PopoverParticipants } from "./popover-participants";
@@ -71,6 +72,10 @@ type IdentityPart = {
   readonly element: HTMLElement;
   readonly options: () => { readonly id: Signal<string> };
 };
+type TriggerPart = {
+  readonly element: HTMLElement;
+  readonly options: () => OrigamiPopoverTriggerOptions;
+};
 type ContentPart = {
   readonly element: HTMLElement;
   readonly options: () => OrigamiPopoverContentOptions;
@@ -78,12 +83,12 @@ type ContentPart = {
   readonly presentation: ɵOrigamiPresencePresentation;
 };
 export type Parts = {
-  readonly trigger: IdentityPart | null;
+  readonly trigger: TriggerPart | null;
   readonly anchor: IdentityPart | null;
   readonly content: ContentPart | null;
 };
 type CompleteParts = {
-  readonly trigger: IdentityPart;
+  readonly trigger: TriggerPart;
   readonly anchor: IdentityPart;
   readonly content: ContentPart;
 };
@@ -113,7 +118,7 @@ export class PopoverContext {
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #options = injectDeferred(OrigamiPopoverOptions);
   readonly #preparation = new PopoverPreparation(injectUniqueValue("popover-preparation"));
-  readonly #trigger = signal<IdentityPart | null>(null);
+  readonly #trigger = signal<TriggerPart | null>(null);
   readonly #anchor = signal<IdentityPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
   readonly #children = new Set<PopoverContext>();
@@ -217,7 +222,7 @@ export class PopoverContext {
   }
 
   /** Registers the Trigger from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
-  registerTrigger(part: IdentityPart, destroyRef: DestroyRef): void {
+  registerTrigger(part: TriggerPart, destroyRef: DestroyRef): void {
     this.#register(this.#trigger, part, "trigger", destroyRef);
   }
 
@@ -387,6 +392,7 @@ export class PopoverContext {
       this.#destroyed ||
       trigger === null ||
       this.disabled() ||
+      trigger.options().disabled() ||
       !trigger.element.isConnected ||
       trigger.element.matches(":disabled") ||
       trigger.element.closest("[inert]") !== null ||
@@ -1062,7 +1068,7 @@ export class OrigamiPopoverState {
   readonly #context = inject(PopoverContext);
   /** Effective requested intent, not native participation, paint readiness or retained exit. Never writable. */
   readonly open: Signal<boolean> = this.#context.desired;
-  /** Effective Trigger-disabled policy; external writes and Escape/outside dismissal are unaffected. */
+  /** Effective root disabled policy, which disables the Trigger; the Trigger's own disabled isn't included. External writes and Escape/outside dismissal are unaffected. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
   /**
    * Readonly effective user-dismissal permission. Own Trigger close bypasses only this owner's

@@ -199,10 +199,10 @@ export class ToolbarAlignment {
     </div>
 
     <h2>Toolbar with a disabled Popover Trigger</h2>
-    <!-- One value disables both co-applied directives, as SPEC section 15 requires. -->
+    <!-- One binding sets the disabled input of both co-applied directives (SPEC section 15). -->
     <button type="button" data-testid="toolbar-format-before">Before the format toolbar</button>
     <div ogToolbar aria-label="Format" data-toolbar-case="disabled-popover">
-      <span ogPopover [(open)]="formatOpen" [disabled]="formatDisabled()">
+      <span ogPopover [(open)]="formatOpen">
         <button
           ogPopoverTrigger
           ogPopoverAnchor
