@@ -1667,6 +1667,56 @@ test("V7 V8: a closing descendant's effective Options setter that protects its a
   await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
 });
 
+test("V7 V8: a child Popover mounted in the branch during an acquired outside press makes it stale; a later gesture closes the child first", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await nativeOpen(page);
+  await page.getByTestId("pointer-policy").selectOption("mount-child");
+
+  const journal = await page.getByTestId("native-journal").textContent();
+  const outside = await page.getByTestId("pointer-outside").boundingBox();
+
+  if (!outside) {
+    throw new Error("Outside pointer target is missing");
+  }
+
+  const point = { x: outside.x + 4, y: outside.y + 4 };
+  const pressChildOpen = () =>
+    page
+      .getByTestId("native-press-child-content")
+      .evaluate((node) => node.matches(":popover-open"));
+
+  // The pointerdown captures the parent branch, then its own handler mounts an open child in it.
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await expect.poll(pressChildOpen).toBe(true);
+
+  const hit = await page.evaluate(
+    ({ x, y }) => document.elementFromPoint(x, y)?.getAttribute("data-testid") ?? null,
+    point,
+  );
+
+  expect(hit, "the matching pointerup stays outside the whole branch").toBe("pointer-outside");
+  await page.mouse.up();
+  await afterPointerTasks(page);
+  // Closing the stale branch would leave the uncaptured child behind instead of closing it first.
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-press-child-intent")).toHaveText("true");
+  await expect(page.getByTestId("native-journal")).toHaveText(journal ?? "");
+  expect(await pressChildOpen()).toBe(true);
+
+  // A new gesture captures the current branch and dismisses the new child before its parent.
+  await page.getByTestId("pointer-policy").selectOption("normal");
+  await page.getByTestId("pointer-outside").click();
+  await expect(page.getByTestId("native-journal")).toHaveText(
+    `${journal}|press-child:false|parent:false`,
+  );
+  await expect(page.getByTestId("native-press-child-intent")).toHaveText("false");
+  await closed(page);
+  await expect.poll(pressChildOpen).toBe(false);
+});
+
 test("V9: Escape restores once; outside-pointer/script-outside preserve focus; nested script suppression retains intent", async ({
   page,
 }, info) => {
@@ -2477,6 +2527,79 @@ test("V13: burst real scroll/layout/config/resize then remount, current geometry
     description:
       "Real burst/remount exercised; out-of-order async resolution is not claimed without independently observed interleaving.",
   });
+});
+
+test("V13: a calculation superseded before it resolves is never committed for the same elements", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await page.getByTestId("native-motion").selectOption("none");
+  await page.getByTestId("writing-mode").selectOption("vertical-rl");
+  await page.getByTestId("native-layout").selectOption("bottom");
+  await nativeOpen(page);
+
+  const commits = await page.getByTestId("native-content").evaluateHandle((content) => {
+    const anchor = document.querySelector('[data-testid="native-anchor"]');
+
+    if (!(content instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+      throw new Error("Expected the native Content and separate Anchor");
+    }
+
+    const box = (node: Element) => {
+      const { left, top, right, bottom } = node.getBoundingClientRect();
+
+      return { left, top, right, bottom };
+    };
+    const records: { content: ReturnType<typeof box>; anchor: ReturnType<typeof box> }[] = [];
+    const record = () => {
+      records.push({ content: box(content), anchor: box(anchor) });
+    };
+    const observer = new MutationObserver(record);
+
+    record();
+    observer.observe(content, { attributes: true, attributeFilter: ["style"] });
+
+    return { records, stop: () => observer.disconnect() };
+  });
+
+  // Near the viewport's block end, vertical-rl's first fitting candidate is its third, so the older
+  // calculation flips twice and horizontal-tb's newer one once; with Floating UI 1.8.0 the older one
+  // usually resolves last. The assertion doesn't depend on that order: a superseded result committed
+  // before or after the newer one both show up as a left-of-Anchor commit. The resolution order
+  // itself isn't observed, so this is not out-of-order coverage.
+  const initial = await commits.evaluate(({ records }) => records[0]);
+
+  expect(initial.content.right, "vertical-rl places Content at the Anchor's left").toBeLessThan(
+    initial.anchor.left,
+  );
+  await scriptControl(page, "native-supersede-position");
+  await expect(page.getByTestId("native-callbacks")).toContainText("supersede");
+  await expect
+    .poll(() =>
+      commits.evaluate(({ records }) => {
+        const last = records[records.length - 1];
+
+        return Math.round(last.anchor.top - last.content.bottom);
+      }),
+    )
+    .toBe(12);
+  await afterPointerTasks(page);
+
+  const records = await commits.evaluate(({ records, stop }) => {
+    stop();
+
+    return records.slice(1);
+  });
+
+  await info.attach("V13-superseded-calculation-commits", {
+    body: JSON.stringify(records, null, 2),
+    contentType: "application/json",
+  });
+
+  // Every commit is horizontal-tb's block-start placement, never the older left-of-Anchor result.
+  for (const commit of records) {
+    expect(commit.content.bottom).toBeLessThanOrEqual(commit.anchor.top);
+  }
 });
 
 test("V11 H1: canceled initial SSR-open activation keeps settled retained phase and exact server children", async ({

@@ -1,4 +1,5 @@
 import {
+  ChangeDetectorRef,
   Component,
   Directive,
   DestroyRef,
@@ -250,8 +251,10 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     LatePointer,
     NativePopover,
     NativeContent,
+    OrigamiPopover,
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
+    OrigamiPopoverContent,
   ],
   providers: [
     BranchJournal,
@@ -305,6 +308,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         <button type="button" data-testid="native-co-locate" (click)="coLocated.set(!coLocated())">Co-locate anchor and trigger</button>
         <button type="button" data-testid="native-latch-configuration" (click)="latchPositionFailure(root.settings, 'configuration')">Open without ResizeObserver; a later WRITE changes the gap</button>
         <button type="button" data-testid="native-latch-intent" (click)="latchPositionFailure(root.settings, 'intent')">Open without ResizeObserver; a later WRITE closes and reopens</button>
+        <button type="button" data-testid="native-supersede-position" (click)="supersedePosition(root.settings)">Change the gap, then the separate anchor's writing mode in the same task</button>
         <button type="button" data-testid="native-reentry-setter" (click)="root.settings.reenterSetter.set(true)">Reopen from actual Options setter</button>
         <label>Layout <select data-testid="native-layout" (change)="setLayout($event)">
           <option value="center">Centered</option><option value="bottom">Near bottom</option><option value="right">Near right</option>
@@ -312,6 +316,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         </select></label>
         <label>Pointer policy <select data-testid="pointer-policy" (change)="select($event, pointerPolicy)">
           <option value="normal">Normal</option><option value="prevent">Prevent down</option><option value="capture">Acquire pointer capture</option>
+          <option value="mount-child">Mount an open child Popover</option>
         </select></label>
       </div>
       <button type="button" data-testid="pointer-outside" (pointerdown)="pointerDown($event)">Outside pointer target</button>
@@ -369,6 +374,13 @@ export class NativeContent implements OrigamiPopoverContentOptions {
                       </section>
                       <output data-testid="native-child-intent">{{ child.state.open() }}</output>
                     </section>
+                  @if (pressChildMounted()) {
+                    <section ogPopover [open]="pressChildOpen()" (openChange)="pressChildChange($event)">
+                      <button ogPopoverTrigger ogPopoverAnchor id="native-press-child-trigger" data-testid="native-press-child-trigger">Press child trigger</button>
+                      <section ogPopoverContent id="native-press-child-content" class="child-surface" data-testid="native-press-child-content">Mounted during an outside press</section>
+                      <output data-testid="native-press-child-intent">{{ pressChildOpen() }}</output>
+                    </section>
+                  }
                 </section>
               }
             </div>
@@ -539,6 +551,7 @@ export class PopoverFixture {
   readonly element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #environment = inject(EnvironmentInjector);
   readonly #errors = inject(FixtureErrorHandler);
+  readonly #changeDetector = inject(ChangeDetectorRef);
   readonly attached = signal(false);
   readonly motion = signal("finite");
   readonly writingMode = signal("horizontal-tb");
@@ -564,6 +577,8 @@ export class PopoverFixture {
   readonly presentationMounted = signal(false);
   readonly ownerLifetimeMounted = signal(false);
   readonly latePointerMounted = signal(false);
+  readonly pressChildMounted = signal(false);
+  readonly pressChildOpen = signal(true);
   readonly increment = (value: number): number => value + 1;
 
   select(event: Event, target: { set(value: string): void }): void {
@@ -623,6 +638,31 @@ export class PopoverFixture {
       { injector: this.#environment },
     );
     settings.open.set(true);
+  }
+
+  /**
+   * Changes the gap, so the owner's next READ starts a calculation. A READ registered now runs
+   * after it, changes the separate Anchor's writing mode on the DOM only and renders again in the
+   * same task: the owner's READ there starts a newer calculation before the older one resolves.
+   */
+  supersedePosition(settings: NativeSettings): void {
+    afterNextRender(
+      {
+        read: () => {
+          const anchor = this.element.querySelector('[data-testid="native-anchor"]');
+
+          if (!(anchor instanceof HTMLElement)) {
+            throw new Error("Expected the separate native anchor");
+          }
+
+          anchor.style.writingMode = "horizontal-tb";
+          this.#changeDetector.markForCheck();
+          settings.record("supersede");
+        },
+      },
+      { injector: this.#environment },
+    );
+    settings.gap.set(12);
   }
 
   setAction(event: Event, settings: NativeSettings): void {
@@ -712,5 +752,15 @@ export class PopoverFixture {
     if (this.pointerPolicy() === "capture" && event.target instanceof HTMLElement) {
       event.target.setPointerCapture(event.pointerId);
     }
+
+    // Renders before the matching pointerup, inside the branch that this pointerdown captures.
+    if (this.pointerPolicy() === "mount-child") {
+      this.pressChildMounted.set(true);
+    }
+  }
+
+  pressChildChange(open: boolean): void {
+    this.pressChildOpen.set(open);
+    this.journal.writes.update((entries) => [...entries, `press-child:${open}`]);
   }
 }

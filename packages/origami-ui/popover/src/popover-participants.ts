@@ -7,7 +7,7 @@ export type BranchMember = {
   intent: Intent;
   readonly parts: Parts;
   readonly policy: Policy;
-  readonly structure: number;
+  readonly children: ReadonlySet<PopoverContext>;
   readonly activation: Activation | null;
   presentationEpoch: number;
   readonly ready: boolean;
