@@ -70,9 +70,13 @@ export abstract class OrigamiCollapsiblePanelOptions {
 export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
   /** Own ID input, default opaque generated identity. Static/bound IDs drive default Options; substituted ID signals drive replacement Options. */
   readonly id = input(injectUniqueId("collapsible-panel"));
+  /**
+   * This Panel's readonly exit retention, from its composed Presence: `state.open()` stays true
+   * through a finite exit, so consumers gate content on it.
+   */
+  readonly state = inject(OrigamiPresenceState);
 
   readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
-  readonly #presence = inject(OrigamiPresenceState);
   readonly #supportsReveal = "onbeforematch" in this.#host;
   readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
@@ -88,7 +92,7 @@ export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
   protected readonly expandedAttribute = this.#context.expandedAttribute;
   /** @internal Effective collapsed hiding after Presence retention completes. */
   protected readonly hidden = computed(() => {
-    if (this.#presence.open()) {
+    if (this.state.open()) {
       return null;
     }
 

@@ -27,6 +27,7 @@ import {
   OrigamiAccordionOptions,
   OrigamiAccordionState,
   OrigamiAccordionItem,
+  OrigamiAccordionItemOptions,
   OrigamiAccordionTrigger,
   OrigamiAccordionTriggerOptions,
   OrigamiAccordionPanel,
@@ -584,6 +585,111 @@ export class AccordionPrecedence {
   readonly increment = (count: number): number => count + 1;
 }
 
+// ---- Accordion Item ----
+
+/** Ordinary non-input replacement signals for one Accordion Item case. */
+@Service({ autoProvided: false })
+export class ItemPrecedenceSettings {
+  readonly value = signal("replaced-billing");
+  readonly disabled = signal(false);
+  readonly hiding = signal<OrigamiCollapsibleHiding>("until-found");
+  readonly selection = signal<string | null>(null);
+  readonly outputs = signal(0);
+  readonly increment = (value: number): number => value + 1;
+}
+
+@Directive({
+  selector: "[itemPrecedenceFactory]",
+  exportAs: "itemPrecedence",
+  hostDirectives: [{ directive: OrigamiAccordionItem, inputs: ["value", "disabled", "hiding"] }],
+  providers: [
+    OrigamiAccordionItemOptions.provideFactory(() => {
+      const settings = inject(ItemPrecedenceSettings);
+
+      return { value: settings.value, disabled: settings.disabled, hiding: settings.hiding };
+    }),
+  ],
+})
+export class ItemPrecedenceFactory {
+  readonly state = inject(OrigamiCollapsibleState);
+}
+
+@Directive({
+  selector: "[itemPrecedenceExisting]",
+  exportAs: "itemPrecedence",
+  hostDirectives: [{ directive: OrigamiAccordionItem, inputs: ["value", "disabled", "hiding"] }],
+  providers: [OrigamiAccordionItemOptions.provideExisting(() => ItemPrecedenceExisting)],
+})
+export class ItemPrecedenceExisting implements OrigamiAccordionItemOptions {
+  readonly #settings = inject(ItemPrecedenceSettings);
+  readonly value = this.#settings.value;
+  readonly disabled = this.#settings.disabled;
+  readonly hiding = this.#settings.hiding;
+  readonly state = inject(OrigamiCollapsibleState);
+}
+
+@Directive({ selector: "[itemValuesProbe]", exportAs: "itemValuesProbe" })
+export class ItemValuesProbe {
+  readonly state = inject(OrigamiAccordionState);
+}
+
+// The composed item's own inputs deliberately contradict the replacement. One return statement
+// keeps the template statically evaluable by the Angular compiler.
+function itemTemplate(prefix: "itemPrecedenceFactory" | "itemPrecedenceExisting"): string {
+  return `
+  <section ogAccordionSingle itemValuesProbe #root="itemValuesProbe" [value]="settings.selection()"
+    [collapsible]="true" (valueChange)="settings.selection.set($event); settings.outputs.update(settings.increment)">
+    <article ${prefix} #item="itemPrecedence" value="unused-billing" [disabled]="true" hiding="hidden">
+      <button ogAccordionTrigger data-role="trigger">Billing</button>
+      <div ogAccordionPanel data-role="panel">Invoices are sent monthly.</div>
+      <output data-role="expanded">{{ item.state.expanded() }}</output>
+      <output data-role="disabled">{{ item.state.disabled() }}</output>
+    </article>
+    <output data-role="values">{{ root.state.itemValues().join(',') }}</output>
+  </section>
+  <output data-role="selection">{{ settings.selection() }}</output>
+  <output data-role="outputs">{{ settings.outputs() }}</output>
+  <button type="button" data-role="rename" (click)="settings.value.set('renamed-billing')">Rename</button>
+  <button type="button" data-role="disable" (click)="settings.disabled.set(!settings.disabled())">Disable</button>
+  <button type="button" data-role="hiding" (click)="settings.hiding.set('hidden')">Ordinary hiding</button>
+`;
+}
+
+// The two cases import the consumer directive before and after the primitives it composes.
+@Component({
+  selector: "precedence-item-factory",
+  imports: [
+    ItemPrecedenceFactory,
+    OrigamiAccordionSingle,
+    OrigamiAccordionTrigger,
+    OrigamiAccordionPanel,
+    ItemValuesProbe,
+  ],
+  providers: [ItemPrecedenceSettings],
+  host: { "data-case": "item-factory" },
+  template: itemTemplate("itemPrecedenceFactory"),
+})
+export class ItemFactory {
+  readonly settings = inject(ItemPrecedenceSettings);
+}
+
+@Component({
+  selector: "precedence-item-existing",
+  imports: [
+    OrigamiAccordionSingle,
+    OrigamiAccordionTrigger,
+    OrigamiAccordionPanel,
+    ItemValuesProbe,
+    ItemPrecedenceExisting,
+  ],
+  providers: [ItemPrecedenceSettings],
+  host: { "data-case": "item-existing" },
+  template: itemTemplate("itemPrecedenceExisting"),
+})
+export class ItemExisting {
+  readonly settings = inject(ItemPrecedenceSettings);
+}
+
 // ---- Popover ----
 
 const PopoverCaseLabel = new InjectionToken<string>("popover precedence case label");
@@ -814,6 +920,8 @@ export class PopoverExisting {}
     CollapsibleExisting,
     DefaultIsolation,
     AccordionPrecedence,
+    ItemFactory,
+    ItemExisting,
     PopoverFactory,
     PopoverExisting,
   ],
@@ -822,6 +930,7 @@ export class PopoverExisting {}
     <precedence-collapsible-factory /><precedence-collapsible-existing />
     <precedence-default-isolation />
     <precedence-accordion />
+    <precedence-item-factory /><precedence-item-existing />
     <precedence-popover-factory /><precedence-popover-existing />
     <div class="scroll-space" aria-hidden="true"></div>
   `,

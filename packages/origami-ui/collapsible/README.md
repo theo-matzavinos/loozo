@@ -14,7 +14,7 @@ Root, Trigger and Panel each have their own Options. This root replacement makes
 
 ## State and attributes
 
-`OrigamiCollapsibleState` has `expanded()` and `disabled()`, the effective values from the root Options. Neither State nor the root's `data-disabled` includes the Trigger's own `disabled`.
+`OrigamiCollapsibleState` has `expanded()` and `disabled()`, the effective values from the root Options. Neither State nor the root's `data-disabled` includes the Trigger's own `disabled`. The Panel exposes its composed `OrigamiPresenceState` as `state` (`#panel="ogCollapsiblePanel"`); gate content on `panel.state.open()` to keep it through the exit animation.
 
 | Element | Attributes                                                                                                                                                                                                              |
 | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -4,6 +4,7 @@ import {
   OrigamiCollapsiblePanel,
   OrigamiCollapsiblePanelOptions,
 } from "@loozo/origami-ui/collapsible";
+import { OrigamiPresenceState } from "@loozo/origami-ui/presence";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 import { AccordionItemContext } from "./accordion-item";
 
@@ -44,6 +45,7 @@ export abstract class OrigamiAccordionPanelOptions {
  */
 @Directive({
   selector: "[ogAccordionPanel]",
+  exportAs: "ogAccordionPanel",
   hostDirectives: [OrigamiCollapsiblePanel],
   providers: [
     OrigamiAccordionPanelOptions.provideExisting(() => OrigamiAccordionPanel),
@@ -53,6 +55,11 @@ export abstract class OrigamiAccordionPanelOptions {
 export class OrigamiAccordionPanel implements OrigamiAccordionPanelOptions {
   /** Own ID input, default opaque generated identity; static/bound IDs or substituted upper Options reactively update mounted-only controls links. */
   readonly id = input(injectUniqueId("accordion-panel"));
+  /**
+   * This Panel's readonly exit retention, from the Presence its Collapsible Panel composes:
+   * `state.open()` stays true through a finite exit, so consumers gate content on it.
+   */
+  readonly state = inject(OrigamiPresenceState);
 
   /** Validates the nearest Accordion Item synchronously; a bare Collapsible owner is not an Accordion Item. */
   constructor() {

@@ -3,13 +3,21 @@ import type * as OrigamiRoot from "@loozo/origami-ui";
 import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import type { OrigamiCollectionState } from "@loozo/origami-ui/collection";
 import type { OrigamiPresenceState } from "@loozo/origami-ui/presence";
-import type { OrigamiCollapsibleState } from "@loozo/origami-ui/collapsible";
+import type {
+  OrigamiCollapsiblePanel,
+  OrigamiCollapsibleState,
+  OrigamiCollapsibleHiding,
+} from "@loozo/origami-ui/collapsible";
 import type {
   OrigamiAccordionOptions,
-  OrigamiAccordionState} from "@loozo/origami-ui/accordion";
+  OrigamiAccordionState,
+  OrigamiAccordionItem,
+  OrigamiAccordionPanel,
+} from "@loozo/origami-ui/accordion";
 import {
   OrigamiAccordionSingleOptions,
-  OrigamiAccordionMultipleOptions
+  OrigamiAccordionMultipleOptions,
+  OrigamiAccordionItemOptions,
 } from "@loozo/origami-ui/accordion";
 import type {
   OrigamiPopoverState,
@@ -32,6 +40,7 @@ import {
   OrigamiToggleGroupSingleOptions,
   OrigamiToggleGroupMultipleOptions,
   OrigamiToggleGroupItemOptions,
+  type OrigamiToggleGroupItem,
   type OrigamiToggleGroupState,
   type OrigamiToggleGroupOrientation,
 } from "@loozo/origami-ui/toggle-group";
@@ -155,7 +164,7 @@ export function checkModeBoundaries(shared: OrigamiAccordionOptions): void {
 
   void checkedValue;
 
-  // @ts-expect-error ID-only Content replacements require migration.
+  // @ts-expect-error ID-only Content replacements lack the required placement properties.
   const content: OrigamiPopoverContentOptions = { id: signal("id-only") };
 
   void content;
@@ -183,6 +192,11 @@ export function checkProviderShapes(): void {
   OrigamiAccordionMultipleOptions.provideFactory(() => ({
     value: signal<readonly string[]>([]),
     disabled: signal(false),
+  }));
+  OrigamiAccordionItemOptions.provideFactory(() => ({
+    value: signal("billing"),
+    disabled: signal(false),
+    hiding: signal<OrigamiCollapsibleHiding>("until-found"),
   }));
   OrigamiPopoverContentOptions.provideFactory(() => ({
     id: signal("complete-content"),
@@ -265,4 +279,24 @@ export function checkToolbarGroups(
   void radioOptions;
   void toggleGroupState;
   void radioGroupState;
+}
+
+/** Each composing directive exposes the State its composed primitive provides on the same element. */
+export function checkComposedStates(
+  accordionItem: OrigamiAccordionItem,
+  accordionPanel: OrigamiAccordionPanel,
+  collapsiblePanel: OrigamiCollapsiblePanel,
+  toggleGroupItem: OrigamiToggleGroupItem,
+): void {
+  const itemOptions: OrigamiAccordionItemOptions = accordionItem;
+  const itemState: OrigamiCollapsibleState = accordionItem.state;
+  const accordionPanelState: OrigamiPresenceState = accordionPanel.state;
+  const collapsiblePanelState: OrigamiPresenceState = collapsiblePanel.state;
+  const toggleGroupItemState: OrigamiToggleState = toggleGroupItem.state;
+
+  void itemOptions;
+  void itemState;
+  void accordionPanelState;
+  void collapsiblePanelState;
+  void toggleGroupItemState;
 }

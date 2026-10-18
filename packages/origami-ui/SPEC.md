@@ -78,7 +78,7 @@ Options token ─────► private Context
 
 ### Configuration
 
-Each configurable primitive or part has its own Options token, signal properties, inputs and defaults. Options are substitutable using typed `provideExisting(() => Token)` and `provideFactory(() => options)` helpers. Each helper returns one provider for the Options token. Consumers apply a primitive directly in a template or through `hostDirectives`; a replacement goes in the providers of the directive or component that composes the primitive, which Angular resolves after its host directives', so it wins over the primitive's own default. A consumer directive whose selector co-matches the primitive's on the same element is not supported.
+Every directive applications apply, directly or through `hostDirectives`, that has an input or model is configured through an Options token, with signal properties, inputs and defaults. A variant with the same inputs as another directive, such as a Toolbar group, uses that directive's token. Options are substitutable using typed `provideExisting(() => Token)` and `provideFactory(() => options)` helpers. Each helper returns one provider for the Options token. Consumers apply a primitive directly in a template or through `hostDirectives`; a replacement goes in the providers of the directive or component that composes the primitive, which Angular resolves after its host directives', so it wins over the primitive's own default. A consumer directive whose selector co-matches the primitive's on the same element is not supported.
 
 `provideExisting` accepts forward references to compatible concrete or abstract provider classes where applicable. Factories execute in Angular injection context. Their result must structurally satisfy the selected Options contract; wrong signal value types or missing required properties fail TypeScript checking.
 
@@ -89,6 +89,8 @@ Upper primitives adapt lower Options to upper **Options tokens**, not to upper d
 ### Context and State
 
 Context is private and owns behavior. State is a concrete, locally provided, readonly facade. State is not auto-provided at application scope, and must not expose writable mutation aliases.
+
+A directive applications apply that provides a State, or composes host directives that do (directly or through their own host directives), has an `exportAs` and exposes that State as a readonly `state` member. Internal `ɵ` composition directives, such as `ɵOrigamiAccordionRoot`, are exempt from both rules; the public directives that compose them carry the Options and expose the State.
 
 Direct selectors and `hostDirectives` composition expose equivalent behavior. Descendants observe the nearest logical Angular DI owner. Nested roots have independent Context and State instances; consumers under one root share that root's State instance.
 
@@ -140,7 +142,7 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 | `/collection`  | `OrigamiCollection`, `OrigamiCollectionState`, `OrigamiCollectionItem`, `OrigamiCollectionItemOptions`, type `OrigamiCollectionRecord`                                                                                                                                                                                         |
 | `/presence`    | `OrigamiPresence`, `OrigamiPresenceOptions`, `OrigamiPresenceState`, type `OrigamiPresencePhase`                                                                                                                                                                                                                               |
 | `/collapsible` | `OrigamiCollapsible`, `OrigamiCollapsibleOptions`, `OrigamiCollapsibleState`, `OrigamiCollapsibleTrigger`, `OrigamiCollapsibleTriggerOptions`, `OrigamiCollapsiblePanel`, `OrigamiCollapsiblePanelOptions`, type `OrigamiCollapsibleHiding`                                                                                    |
-| `/accordion`   | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
+| `/accordion`   | `OrigamiAccordionSingle`, `OrigamiAccordionSingleOptions`, `OrigamiAccordionMultiple`, `OrigamiAccordionMultipleOptions`, `OrigamiAccordionOptions`, `OrigamiAccordionState`, `OrigamiAccordionItem`, `OrigamiAccordionItemOptions`, `OrigamiAccordionTrigger`, `OrigamiAccordionTriggerOptions`, `OrigamiAccordionPanel`, `OrigamiAccordionPanelOptions`     |
 | `/popover`     | `OrigamiPopover`, `OrigamiPopoverOptions`, `OrigamiPopoverState`, `OrigamiPopoverTrigger`, `OrigamiPopoverTriggerOptions`, `OrigamiPopoverAnchor`, `OrigamiPopoverAnchorOptions`, `OrigamiPopoverContent`, `OrigamiPopoverContentOptions`, `OrigamiPopoverContentState`, type `OrigamiPopoverSide`, type `OrigamiPopoverAlign` |
 | `/toggle`      | `OrigamiToggle`, `OrigamiToggleOptions`, `OrigamiToggleState`                                                                                                                                                                                                                                                                  |
 | `/tabs`        | `OrigamiTabs`, `OrigamiTabsOptions`, `OrigamiTabsState`, `OrigamiTabsList`, `OrigamiTabsTrigger`, `OrigamiTabsTriggerOptions`, `OrigamiTabsPanel`, `OrigamiTabsPanelOptions`, type `OrigamiTabsOrientation`, type `OrigamiTabsActivation`                                                                                    |
@@ -178,6 +180,7 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Accordion shared                                                            | `disabled: Signal<boolean>`                                                                                           |
 | Accordion Single                                                            | shared + `value: WritableSignal<string \| null>`, `collapsible: Signal<boolean>`                                      |
 | Accordion Multiple                                                          | shared + `value: WritableSignal<readonly string[]>`                                                                   |
+| Accordion Item                                                              | `value: Signal<string>`, `disabled: Signal<boolean>`, `hiding: Signal<'hidden' \| 'until-found'>`                     |
 | Popover root                                                                | `open: WritableSignal<boolean>`, `disabled: Signal<boolean>`, `dismissible: Signal<boolean>`                          |
 | Collapsible Trigger                                                         | `id: Signal<string>`, `disabled: Signal<boolean>`, `focusableWhenDisabled: Signal<boolean>`                           |
 | Popover Trigger                                                             | `id: Signal<string>`, `disabled: Signal<boolean>`                                                                     |
@@ -311,7 +314,7 @@ Panel:
 
 - Effective ID from Panel Options and `aria-labelledby` pointing only to its mounted trigger.
 - `data-expanded` follows desired expanded state, not Presence retention.
-- Composes Presence; remains unhidden through finite exit, then becomes hidden when Presence closes.
+- Composes Presence; remains unhidden through finite exit, then becomes hidden when Presence closes. The Panel exposes readonly `state`, its composed Presence's State, so consumers retain gated content through exit with `state.open()`.
 - Default collapsed hiding is ordinary `hidden`.
 - `until-found` uses native reveal only where supported; elsewhere it behaves as ordinary hidden content. In supported engines, enabled `beforematch` requests expansion. Disabled state blocks that request, and repeated reveal requests are idempotent.
 
@@ -325,11 +328,11 @@ Selectors/export names:
 - `[ogAccordionMultiple]`, `exportAs: 'ogAccordionMultiple'`.
 - `[ogAccordionItem]`, `exportAs: 'ogAccordionItem'`.
 - `button[ogAccordionTrigger]`.
-- `[ogAccordionPanel]`.
+- `[ogAccordionPanel]`, `exportAs: 'ogAccordionPanel'`.
 
 Single root: `value: string | null` model null; `disabled` false; `collapsible` false. Multiple root: `value: readonly string[]` model empty; `disabled` false. Mode value/output typing remains distinct.
 
-Item: `value` input default generated string, `disabled` false, `hiding` default `'hidden'`. It composes Collection Item and Collapsible. Consumers use distinct explicit values when items need independent selection.
+Item: `value` input default generated string, `disabled` false, `hiding` default `'hidden'`. It composes Collection Item and Collapsible. Item Options feed the composed Collection Item's value and the composed Collapsible's disabled and hiding, so replacing only the upper item Options configures the item; consumers never provide lower Options. The item exposes readonly `state`, its composed Collapsible's State: `expanded` follows the root's actual selection of the item's value and `disabled` is the combined root and item disabled state. Consumers use distinct explicit values when items need independent selection.
 
 Single behavior:
 
@@ -348,7 +351,7 @@ Root and item disabled state combine reactively. Trigger and native reveal paths
 
 The item's effective Collapsible expanded signal observes root selection; requests to write it route through the mode's actual behavior and disabled/collapsible policy. Idempotent writes must not cause duplicate model outputs. A synchronous root output listener may change selection; the item's next observation must reflect that actual selection, not an optimistic shadow value.
 
-Trigger/Panel Options replacement flows into the corresponding Collapsible Options; the Trigger's lock always comes from its item. IDs, associations, hiding and Presence behavior inherit Collapsible's contracts. Accordion State reports current mounted item values in Collection order.
+Trigger/Panel Options replacement flows into the corresponding Collapsible Options; the Trigger's lock always comes from its item. The Panel exposes readonly `state`, the Presence State of its composed Collapsible Panel. IDs, associations, hiding and Presence behavior inherit Collapsible's contracts. Accordion State reports current mounted item values in Collection order.
 
 The consumer supplies headings and optional panel roles. No roving tabindex, arrow-key navigation or focus manager is added; native buttons provide the mandatory activation semantics.
 
@@ -491,13 +494,13 @@ Selectors/export names:
 
 - `[ogToggleGroupSingle]`, `exportAs: 'ogToggleGroupSingle'`.
 - `[ogToggleGroupMultiple]`, `exportAs: 'ogToggleGroupMultiple'`.
-- `button[ogToggleGroupItem]`; composes Toggle.
+- `button[ogToggleGroupItem]`, `exportAs: 'ogToggleGroupItem'`; composes Toggle.
 
 Both roots compose the package-private ToggleGroup root, which the Toolbar's Toggle Groups (section 15) also compose.
 
 Configuration: Single has a `value: string | null` model null, `disabled` boolean input false, `orientation: 'horizontal' | 'vertical'` input default `'horizontal'` and `deselectable` boolean input false. Multiple has a `value: readonly string[]` model defaulting to empty, `disabled` and `orientation`; it has no `deselectable`. Both roots expose the same readonly State; descendants inject it. Item: `value` input defaulting to a generated string, `disabled` boolean input false. Values within one group are expected to be distinct and are not validated.
 
-Item Options feed the composed Toggle's Options, so replacing only the upper item Options drives the item's value and the Toggle's pressed and disabled state; consumers never provide Toggle Options. An item registers with the roving focus in `ngOnInit` (section 3); other items read its Options only once it has registered, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. Descendants of an item observe the composed Toggle's State; ToggleGroup adds no item State. Items belong to the nearest root and fail through Angular DI without one. An item is not also matched by `ogToggle`. A root inside a non-item descendant of another root is fully independent.
+Item Options feed the composed Toggle's Options, so replacing only the upper item Options drives the item's value and the Toggle's pressed and disabled state; consumers never provide Toggle Options. An item registers with the roving focus in `ngOnInit` (section 3); other items read its Options only once it has registered, so replacement item Options may use required inputs, and repeated items in `@for` are read only after Angular sets their inputs. The item exposes readonly `state`, its composed Toggle's State: `pressed` follows the group value and `disabled` is the combined root and item disabled state; descendants of an item inject the same State. ToggleGroup adds no item State of its own. Items belong to the nearest root and fail through Angular DI without one. An item is not also matched by `ogToggle`. A root inside a non-item descendant of another root is fully independent.
 
 Host semantics:
 
@@ -654,7 +657,7 @@ This is the public-contract coverage map. Case definitions and handwritten consu
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | T-Package     | Built entrypoints; no accidental root exports; strict TS/AOT/template consumers; token identity; readonly State and mode/provider negative types                            |
 | T-Docs        | Complete public declaration/member TSDoc; accurate defaults, ownership and constraints; applicable examples; documentation retained in built declarations                   |
-| T-Composition | Direct and host-composed consumers; upper existing/factory Options substitutions; nearest/nested State sharing; no premature injection                                      |
+| T-Composition | Direct and host-composed consumers; upper existing/factory Options substitutions; nearest/nested State sharing; each composing directive's `state` through its template reference; no premature injection |
 | T-Identity    | Native static/bound IDs; reactive association updates; mounted-only links; application isolation; rendered IDs kept through hydration; key validation; browser allocations never collide with dehydrated server IDs |
 | T-Collection  | Addition/removal in DOM order; keyed moves notify no reader; reactive values; nearest-owner isolation; valid SSR ordering                                                   |
 | T-Presence    | Finite completion/cancellation; no/zero/infinite animation; reduced motion; reversal; concurrent hosts; destruction; real write-before-read observation                     |
@@ -693,10 +696,10 @@ Intentional agreed changes from the archive, recorded from the rebuild:
 
 1. Generated IDs/item defaults become opaque and hydration-stable rather than exact per-key counters.
 2. `until-found` becomes explicitly capability-dependent, with ordinary-hidden degradation elsewhere.
-3. Popover replaces CSS-anchor/source-associated positioning with approved native-manual + Floating UI presentation, authored Tab order, typed side/align/gap Content configuration and coordinated native/Presence timing. ID-only Content Options factories migrate to four required properties. The formal Baseline audit is explicitly skipped without a certification claim.
+3. Popover replaces CSS-anchor/source-associated positioning with approved native-manual + Floating UI presentation, authored Tab order, typed side/align/gap Content configuration and coordinated native/Presence timing. The formal Baseline audit is explicitly skipped without a certification claim.
 4. Qualification expands from demonstrated Chromium/development eager hydration to three engines and development/production eager/deferred runtime proof.
 
-Changing shipped behavior or public API is a deliberate change to this contract. Compatibility is the default, not permission to preserve a demonstrated bug or to weaken a guarantee silently.
+Changing shipped behavior or public API is a deliberate change to this contract: the contract changes with it, and no guarantee is weakened silently.
 
 ## 20. Extraction source and dependency research
 
@@ -722,7 +725,7 @@ A filesystem-read-only inspector independently identified the Baseline conflict,
 A new primitive ships with:
 
 - Its own section in this contract, with its own section ID: selectors, export names, Options/State shapes, behavior, SSR/hydration semantics and exclusions, plus its rows in section 4's entrypoint and shape tables.
-- Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition.
+- Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition: an Options token for every application-applied directive with an input or model (section 3, Configuration), and an `exportAs` and readonly `state` on every application-applied directive that provides or composes a State (section 3, Context and State); internal `ɵ` composition directives are exempt.
 - Complete public TSDoc per section 4.
 - A `<primitive>/README.md` with its usage, linked from the package README's entry-point table.
 - SSR plus eager and incremental hydration per section 17.

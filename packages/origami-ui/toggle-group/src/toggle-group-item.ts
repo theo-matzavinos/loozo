@@ -12,7 +12,7 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
-import { OrigamiToggle, OrigamiToggleOptions } from "@loozo/origami-ui/toggle";
+import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/origami-ui/toggle";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { ToggleGroupContext } from "./toggle-group";
 
@@ -92,6 +92,7 @@ class ToggleGroupItemContext {
  */
 @Directive({
   selector: "button[ogToggleGroupItem]",
+  exportAs: "ogToggleGroupItem",
   hostDirectives: [OrigamiToggle],
   providers: [
     ToggleGroupItemContext,
@@ -118,6 +119,11 @@ export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
   readonly value = input(injectUniqueValue("toggle-group-item"));
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */
   readonly disabled = input(false, { transform: booleanAttribute });
+  /**
+   * This item's readonly observation, from its composed Toggle: `pressed` follows the group's
+   * value, and `disabled` is the item's effective disabled state, the root's or its own.
+   */
+  readonly state = inject(OrigamiToggleState);
 
   readonly #context = inject(ToggleGroupItemContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;

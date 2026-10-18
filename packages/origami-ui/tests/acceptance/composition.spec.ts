@@ -406,6 +406,60 @@ test("O1 O3 A3: host-composed Collection/Accordion replacements", async ({ page 
   await expect(co("unused")).toHaveText("0");
 });
 
+for (const name of ["item-factory", "item-existing"]) {
+  test(`O1 O3 A9: a whole ${name.replace("item-", "")} Accordion Item replacement drives value, disabled and hiding over the composed item's own inputs`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "composition", info);
+
+    const part = (role: string) => page.locator(`[data-case="${name}"] [data-role="${role}"]`);
+    const trigger = part("trigger");
+    const panel = part("panel");
+    const reveals = await page.evaluate(() => "onbeforematch" in document.createElement("div"));
+
+    // The replacement's value, enabled state and until-found hiding win over the inputs bound to
+    // `unused-billing`, disabled and hidden.
+    await expect(part("values")).toHaveText("replaced-billing");
+    await expect(part("disabled")).toHaveText("false");
+    await expect(trigger).toBeEnabled();
+
+    if (reveals) {
+      await expect(panel).toHaveAttribute("hidden", "until-found");
+    } else {
+      await expect(panel).toHaveAttribute("hidden", "");
+    }
+
+    await part("hiding").click();
+    await expect(panel).toHaveAttribute("hidden", "");
+
+    // Selection reads and writes the replaced value.
+    await trigger.click();
+    await expect(part("selection")).toHaveText("replaced-billing");
+    await expect(part("expanded")).toHaveText("true");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(part("outputs")).toHaveText("1");
+    await part("rename").click();
+    await expect(part("values")).toHaveText("renamed-billing");
+    await expect(part("selection")).toHaveText("replaced-billing");
+    await expect(part("expanded")).toHaveText("false");
+    await trigger.click();
+    await expect(part("selection")).toHaveText("renamed-billing");
+    await expect(part("expanded")).toHaveText("true");
+    await expect(part("outputs")).toHaveText("2");
+
+    // The replaced disabled state blocks user activation.
+    await part("disable").click();
+    await expect(part("disabled")).toHaveText("true");
+    await expect(trigger).toBeDisabled();
+    await part("disable").click();
+    await expect(trigger).toBeEnabled();
+    await trigger.click();
+    await expect(part("selection")).toHaveText("");
+    await expect(part("expanded")).toHaveText("false");
+    await expect(part("outputs")).toHaveText("3");
+  });
+}
+
 const popoverCases = ["popover-factory", "popover-existing"];
 
 test("O1 O3 V3 V5: whole Popover replacements win over the composed root/role own inputs", async ({

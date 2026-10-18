@@ -106,7 +106,7 @@ import { injectDeferred } from '@loozo/origami-ui/utils';
 import { OrigamiPresenceOptions } from '@loozo/origami-ui/presence';
 import { OrigamiCollectionItemOptions } from '@loozo/origami-ui/collection';
 import { OrigamiCollapsibleOptions, OrigamiCollapsibleTriggerOptions, OrigamiCollapsiblePanelOptions, type OrigamiCollapsibleHiding } from '@loozo/origami-ui/collapsible';
-import { OrigamiAccordionOptions, OrigamiAccordionSingleOptions, OrigamiAccordionMultipleOptions, OrigamiAccordionTriggerOptions, OrigamiAccordionPanelOptions } from '@loozo/origami-ui/accordion';
+import { OrigamiAccordionOptions, OrigamiAccordionSingleOptions, OrigamiAccordionMultipleOptions, OrigamiAccordionItemOptions, OrigamiAccordionTriggerOptions, OrigamiAccordionPanelOptions } from '@loozo/origami-ui/accordion';
 import { OrigamiPopoverOptions, OrigamiPopoverTriggerOptions, OrigamiPopoverAnchorOptions, OrigamiPopoverContentOptions, type OrigamiPopoverContentState } from '@loozo/origami-ui/popover';
 import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
 import { OrigamiTabsOptions, OrigamiTabsTriggerOptions, OrigamiTabsPanelOptions, type OrigamiTabsOrientation, type OrigamiTabsActivation } from '@loozo/origami-ui/tabs';
@@ -140,6 +140,12 @@ OrigamiAccordionOptions.provideFactory(() => ({disabled: signal('wrong')}));
 OrigamiAccordionSingleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), disabled: signal(false), collapsible: signal(true)}));
 // @ts-expect-error Multiple root value cannot be a string
 OrigamiAccordionMultipleOptions.provideFactory(() => ({value: signal('one'), disabled: signal(false)}));
+// @ts-expect-error an Accordion Item factory must supply hiding
+OrigamiAccordionItemOptions.provideFactory(() => ({value: signal('billing'), disabled: signal(false)}));
+// @ts-expect-error Accordion Item value must be a string signal
+OrigamiAccordionItemOptions.provideFactory(() => ({value: signal(1), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')}));
+// @ts-expect-error Accordion Item hiding is hidden or until-found
+OrigamiAccordionItemOptions.provideFactory(() => ({value: signal('billing'), disabled: signal(false), hiding: signal('collapsed')}));
 // @ts-expect-error Accordion Trigger id remains a typed signal
 OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal(1)}));
 // Positive: Accordion Panel also has id-only Options.
@@ -212,6 +218,7 @@ class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(fals
 class WrongIdentity { readonly id = signal(7); }
 class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); }
 class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); }
+class WrongAccordionItem { readonly value = signal('billing'); readonly disabled = signal('no'); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
 class WrongToolbarItem { readonly disabled = signal('no'); }
 class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
@@ -223,6 +230,8 @@ OrigamiCollapsibleOptions.provideExisting(() => WrongRoot);
 OrigamiCollapsibleTriggerOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Collapsible Panel class
 OrigamiCollapsiblePanelOptions.provideExisting(() => WrongIdentity);
+// @ts-expect-error incompatible existing Accordion Item class
+OrigamiAccordionItemOptions.provideExisting(() => WrongAccordionItem);
 // @ts-expect-error incompatible existing Toggle class
 OrigamiToggleOptions.provideExisting(() => WrongToggle);
 // @ts-expect-error incompatible existing Tabs Trigger class
@@ -253,6 +262,11 @@ abstract class AbstractAccordionSingle {
 abstract class AbstractAccordionMultiple {
   abstract readonly value: WritableSignal<readonly string[]>;
   abstract readonly disabled: Signal<boolean>;
+}
+abstract class AbstractAccordionItem {
+  abstract readonly value: Signal<string>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly hiding: Signal<OrigamiCollapsibleHiding>;
 }
 abstract class AbstractIdentity {
   abstract readonly id: Signal<string>;
@@ -313,6 +327,8 @@ export const providers: Provider[] = [
   OrigamiAccordionSingleOptions.provideExisting(() => AbstractAccordionSingle),
   OrigamiAccordionMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), disabled: signal(false)})),
   OrigamiAccordionMultipleOptions.provideExisting(() => AbstractAccordionMultiple),
+  OrigamiAccordionItemOptions.provideFactory(() => ({value: signal('billing'), disabled: computed(() => false), hiding: signal<OrigamiCollapsibleHiding>('until-found')})),
+  OrigamiAccordionItemOptions.provideExisting(() => AbstractAccordionItem),
   OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
   OrigamiAccordionTriggerOptions.provideExisting(() => AbstractIdentity),
   OrigamiAccordionPanelOptions.provideFactory(() => ({id: signal('panel')})),
@@ -407,6 +423,20 @@ import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origa
     members: `
   readonly pressed = signal(false);
   readonly marks = signal<readonly string[]>([]);`,
+  },
+  state: {
+    imports: `import { OrigamiPresenceState } from "@loozo/origami-ui/presence";
+import { OrigamiCollapsible, OrigamiCollapsiblePanel, OrigamiCollapsibleState } from "@loozo/origami-ui/collapsible";
+import { OrigamiAccordionSingle, OrigamiAccordionItem, OrigamiAccordionPanel } from "@loozo/origami-ui/accordion";
+import { OrigamiToggleState } from "@loozo/origami-ui/toggle";
+import { OrigamiToggleGroupSingle, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";`,
+    directives:
+      "OrigamiCollapsible, OrigamiCollapsiblePanel, OrigamiAccordionSingle, OrigamiAccordionItem, OrigamiAccordionPanel, OrigamiToggleGroupSingle, OrigamiToggleGroupItem",
+    members: `
+  observeCollapsible(state: OrigamiCollapsibleState): void { void state; }
+  observePresence(state: OrigamiPresenceState): void { void state; }
+  observeToggle(state: OrigamiToggleState): void { void state; }
+  observeBoolean(value: boolean): void { void value; }`,
   },
   "radio-group": {
     imports: `import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
@@ -664,6 +694,54 @@ const templates = [
       code: -998002,
       span: `[orientation]="'vertical'"`,
       message: /Can't bind to 'orientation' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "state-positive",
+    family: "state",
+    template: `<section ogAccordionSingle><article ogAccordionItem #item="ogAccordionItem" (click)="observeCollapsible(item.state); observeBoolean(item.state.expanded()); observeBoolean(item.state.disabled())"><div ogAccordionPanel #panel="ogAccordionPanel" (click)="observePresence(panel.state); observeBoolean(panel.state.open())"></div></article></section><section ogCollapsible><div ogCollapsiblePanel #collapsiblePanel="ogCollapsiblePanel" (click)="observePresence(collapsiblePanel.state); observeBoolean(collapsiblePanel.state.open())"></div></section><div ogToggleGroupSingle><button ogToggleGroupItem #toggleItem="ogToggleGroupItem" (click)="observeToggle(toggleItem.state); observeBoolean(toggleItem.state.pressed()); observeBoolean(toggleItem.state.disabled())">Bold</button></div>`,
+  },
+  {
+    name: "accordion-item-state",
+    family: "state",
+    template: `<section ogAccordionSingle><article ogAccordionItem #item="ogAccordionItem" (click)="observePresence(item.state)"></article></section>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message:
+        /'OrigamiCollapsibleState' is not assignable to parameter of type 'OrigamiPresenceState'/,
+    },
+  },
+  {
+    name: "accordion-panel-state",
+    family: "state",
+    template: `<section ogAccordionSingle><article ogAccordionItem><div ogAccordionPanel #panel="ogAccordionPanel" (click)="observeCollapsible(panel.state)"></div></article></section>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message:
+        /'OrigamiPresenceState' is not assignable to parameter of type 'OrigamiCollapsibleState'/,
+    },
+  },
+  {
+    name: "collapsible-panel-state",
+    family: "state",
+    template: `<section ogCollapsible><div ogCollapsiblePanel #collapsiblePanel="ogCollapsiblePanel" (click)="observeToggle(collapsiblePanel.state)"></div></section>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message: /'OrigamiPresenceState' is not assignable to parameter of type 'OrigamiToggleState'/,
+    },
+  },
+  {
+    name: "toggle-group-item-state",
+    family: "state",
+    template: `<div ogToggleGroupSingle><button ogToggleGroupItem #toggleItem="ogToggleGroupItem" (click)="observeCollapsible(toggleItem.state)">Bold</button></div>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message:
+        /'OrigamiToggleState' is not assignable to parameter of type 'OrigamiCollapsibleState'/,
     },
   },
 ];

@@ -41,6 +41,7 @@ import { TabsCases } from "./tabs-cases.js";
 import { ToggleGroupCases } from "./toggle-group-cases.js";
 import { ToolbarCases } from "./toolbar-cases.js";
 import { RadioGroupCases } from "./radio-group-cases.js";
+import { ComposedStateCases } from "./composed-state-cases.js";
 import { DestroyedBeforeRegistration } from "./destroyed-before-registration.js";
 
 @Directive({ selector: "[presenceObservation]", exportAs: "presenceObservation" })
@@ -257,6 +258,7 @@ export class ReplacedAccordionItem {}
     ToggleGroupCases,
     ToolbarCases,
     RadioGroupCases,
+    ComposedStateCases,
     DestroyedBeforeRegistration,
   ],
   providers: [ReplacedItemValue],
@@ -270,6 +272,7 @@ export class ReplacedAccordionItem {}
     <acceptance-toggle-group-cases />
     <acceptance-toolbar-cases />
     <acceptance-radio-group-cases />
+    <acceptance-composed-state-cases />
     <acceptance-destroyed-before-registration />
     <h2>Mounted collection order</h2>
     <section ogCollection collectionValues #items="collectionValues" data-testid="variant-collection">

@@ -32,6 +32,7 @@ export const inventory = {
     "OrigamiAccordionOptions",
     "OrigamiAccordionState",
     "OrigamiAccordionItem",
+    "OrigamiAccordionItemOptions",
     "OrigamiAccordionTrigger",
     "OrigamiAccordionTriggerOptions",
     "OrigamiAccordionPanel",
