@@ -1,14 +1,15 @@
 import { DestroyRef, DOCUMENT, PLATFORM_ID, Service, inject } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
-import type { Activation, Intent, Parts, Policy, PopoverContext } from "./popover";
+import type { ɵOrigamiIntent } from "./floating";
+import type { Parts, Policy, PopoverContext } from "./popover";
 
 export type BranchMember = {
   readonly context: PopoverContext;
-  intent: Intent;
+  intent: ɵOrigamiIntent;
   readonly parts: Parts;
   readonly policy: Policy;
   readonly children: ReadonlySet<PopoverContext>;
-  readonly activation: Activation | null;
+  readonly activation: object | null;
   presentationEpoch: number;
   readonly ready: boolean;
 };
