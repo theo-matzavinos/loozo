@@ -4,7 +4,7 @@ Toggle is a two-state button, such as a mute, bold or dark-theme button: a nativ
 
 [src/toggle/mute.ts](../snippets/src/toggle/mute.ts "playground")
 
-It has a `pressed` model (default `false`) and a `disabled` input (default `false`). Each Toggle is its own owner; for a set of toggles with one tab stop and arrow keys, use [ToggleGroup](../toggle-group/README.md).
+It has a `pressed` model (default `false`), a `disabled` input and a [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) input (both default `false`). Each Toggle is its own owner; for a set of toggles with one tab stop and arrow keys, use [ToggleGroup](../toggle-group/README.md).
 
 ## Replacing Options
 
@@ -16,16 +16,16 @@ Drive the pressed state from application state instead of the directive's own mo
 
 `OrigamiToggleState` has `pressed()` and `disabled()`, the effective values from the Options. The directive exposes it as `state`, and descendants of the button can inject it.
 
-| Element | Attributes                                                                                                                                                          |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Toggle  | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `data-pressed` while pressed; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
+| Element | Attributes                                                                                                                                                                                           |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Toggle  | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `data-pressed` while pressed; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
 
 ## Accessibility
 
 - The Toggle is a native button. Enter and Space work natively; there's no custom keyboard handling.
-- An enabled click flips `pressed`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply.
+- An enabled click flips `pressed`. While disabled, user clicks can't change it, but your own writes to the model or Options still apply. A focusable disabled Toggle stays in the Tab order, and your own `(click)` listeners on it still run.
 - `aria-pressed` is always `"true"` or `"false"`; there's no mixed state. You supply the accessible name. Keep it the same in both states, because `aria-pressed` already announces the state.
-- Toggle isn't a form control: it has no form value or Signal Forms integration. A standalone Toggle has no group or arrow-key navigation; ToggleGroup's items compose Toggle for that, and a Toggle that also has `ogToolbarItem` is one control in a [Toolbar](../toolbar/README.md).
+- Toggle isn't a form control: it has no form value or Signal Forms integration. A standalone Toggle has no group or arrow-key navigation; ToggleGroup's items compose Toggle for that, and `ogToolbarToggle` is a Toggle that is one control in a [Toolbar](../toolbar/README.md). Don't add another button primitive, such as `ogToolbarItem`, to a Toggle's button.
 
 ## Server rendering and hydration
 

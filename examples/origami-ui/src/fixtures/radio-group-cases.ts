@@ -1,7 +1,6 @@
 import { ChangeDetectorRef, Component, inject, signal } from "@angular/core";
 import {
   OrigamiPopover,
-  OrigamiPopoverTrigger,
   OrigamiPopoverAnchor,
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
@@ -10,6 +9,7 @@ import { OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
 import {
   OrigamiToolbar,
   OrigamiToolbarItem,
+  OrigamiToolbarPopoverTrigger,
   OrigamiToolbarRadioGroup,
   OrigamiToolbarToggleGroupMultiple,
 } from "@loozo/origami-ui/toolbar";
@@ -30,7 +30,7 @@ import {
     OrigamiToolbarRadioGroup,
     OrigamiToolbarToggleGroupMultiple,
     OrigamiPopover,
-    OrigamiPopoverTrigger,
+    OrigamiToolbarPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
   ],
@@ -226,7 +226,7 @@ import {
     <div ogToolbar aria-label="Spacing menu" data-radio-case="popover">
       <button ogToolbarItem data-role="before">Before</button>
       <span ogPopover [(open)]="spacingOpen">
-        <button ogPopoverTrigger ogPopoverAnchor ogToolbarItem data-role="trigger">Spacing</button>
+        <button ogToolbarPopoverTrigger ogPopoverAnchor data-role="trigger">Spacing</button>
         <div ogPopoverContent role="group" aria-label="Spacing options" data-role="content">
           <div ogRadioGroup [(value)]="spacing" aria-label="Line spacing" data-role="spacing">
             <button ogRadioGroupItem value="single" data-role="single">Single</button>

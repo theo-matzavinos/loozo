@@ -43,6 +43,7 @@ import { ToolbarCases } from "./toolbar-cases.js";
 import { RadioGroupCases } from "./radio-group-cases.js";
 import { ComposedStateCases } from "./composed-state-cases.js";
 import { DestroyedBeforeRegistration } from "./destroyed-before-registration.js";
+import { ButtonCases } from "./button-cases.js";
 
 @Directive({ selector: "[presenceObservation]", exportAs: "presenceObservation" })
 export class PresenceObservation {
@@ -260,6 +261,7 @@ export class ReplacedAccordionItem {}
     RadioGroupCases,
     ComposedStateCases,
     DestroyedBeforeRegistration,
+    ButtonCases,
   ],
   providers: [ReplacedItemValue],
   template: `
@@ -274,6 +276,7 @@ export class ReplacedAccordionItem {}
     <acceptance-radio-group-cases />
     <acceptance-composed-state-cases />
     <acceptance-destroyed-before-registration />
+    <acceptance-button-cases />
     <h2>Mounted collection order</h2>
     <section ogCollection collectionValues #items="collectionValues" data-testid="variant-collection">
       @for (key of keys(); track key) {

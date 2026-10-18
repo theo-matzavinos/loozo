@@ -44,6 +44,7 @@ export class PrecedenceFactoryRadioGroup {
 export class PrecedenceExistingRadio implements OrigamiRadioGroupItemOptions {
   readonly value = signal("replaced");
   readonly disabled = inject(RadioGroupPrecedenceSettings).itemDisabled;
+  readonly focusableWhenDisabled = signal(false);
 }
 
 // The composed directives' own inputs deliberately contradict the replacement.

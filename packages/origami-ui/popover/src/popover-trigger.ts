@@ -9,6 +9,7 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
+import { OrigamiButton, OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { PopoverContext } from "./popover";
 
@@ -22,6 +23,12 @@ export abstract class OrigamiPopoverTriggerOptions {
    * and the root's State keeps reporting only the root's own disabled policy.
    */
   abstract readonly disabled: Signal<boolean>;
+  /**
+   * While the Trigger is disabled, by the Popover or its own Options, it stays focusable:
+   * `aria-disabled="true"` and `data-disabled` without native `disabled`. Activation stays
+   * blocked, but the button's own `(click)` listeners still run. Default false.
+   */
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 
   /**
    * Substitutes the entire Trigger configuration.
@@ -36,8 +43,10 @@ export abstract class OrigamiPopoverTriggerOptions {
   }
 
   /**
-   * Replaces the entire Trigger Options configuration, supplying `id` and `disabled`, without merging unused directive defaults.
-   * @param factory - Injection-context factory supplying `id` and `disabled`.
+   * Replaces the entire Trigger Options configuration, supplying `id`, `disabled` and
+   * `focusableWhenDisabled`, without merging unused directive defaults.
+   * @param factory - Injection-context factory supplying `id`, `disabled` and
+   *   `focusableWhenDisabled`.
    * @returns A local provider, not a merge with unused defaults.
    */
   static provideFactory(factory: () => OrigamiPopoverTriggerOptions): Provider {
@@ -48,7 +57,10 @@ export abstract class OrigamiPopoverTriggerOptions {
 /**
  * Native button activation toggles effective intent. `type="button"` prevents form submission;
  * Enter/Space remain native. The Trigger is disabled while the Popover or its own Options are:
- * native `disabled`, `aria-disabled="true"` and `data-disabled`, and no activation.
+ * its composed `ogButton` sets `aria-disabled="true"`, `data-disabled` and native `disabled`
+ * unless `focusableWhenDisabled`, and activation is ignored. `ogToolbarPopoverTrigger` from
+ * `@loozo/origami-ui/toolbar` is a Popover Trigger that is one Toolbar control; don't apply
+ * another button primitive, such as `ogToolbarItem`, to the same button.
  * Requires a nearest Popover owner; duplicate Trigger roles fail.
  * `aria-controls` names only mounted Content and updates with its effective ID.
  * `aria-expanded` observes actual native participation, not requested intent or visible exit.
@@ -56,15 +68,23 @@ export abstract class OrigamiPopoverTriggerOptions {
  */
 @Directive({
   selector: "button[ogPopoverTrigger]",
-  providers: [OrigamiPopoverTriggerOptions.provideExisting(() => OrigamiPopoverTrigger)],
+  hostDirectives: [OrigamiButton],
+  providers: [
+    OrigamiPopoverTriggerOptions.provideExisting(() => OrigamiPopoverTrigger),
+    OrigamiButtonOptions.provideFactory(() => {
+      const trigger = inject(OrigamiPopoverTriggerOptions);
+      const context = inject(PopoverContext);
+
+      return {
+        disabled: computed(() => context.disabled() || trigger.disabled()),
+        focusableWhenDisabled: trigger.focusableWhenDisabled,
+      };
+    }),
+  ],
   host: {
-    type: "button",
     "[id]": "effectiveId()",
-    "[disabled]": "effectiveDisabled()",
     "[attr.aria-expanded]": "participating()",
     "[attr.aria-controls]": "contentId()",
-    "[attr.aria-disabled]": "disabledAria()",
-    "[attr.data-disabled]": "disabledAttribute()",
     "(click)": "activate()",
   },
 })
@@ -73,6 +93,9 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
   readonly id = input(injectUniqueId("popover-trigger"));
   /** Own disabled input, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
   readonly disabled = input(false, { transform: booleanAttribute });
+  /** Own input keeping the disabled Trigger focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
+
   readonly #options = injectDeferred(OrigamiPopoverTriggerOptions);
   readonly #context = inject(PopoverContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
@@ -81,30 +104,14 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
 
   /** @internal Effective host identity from the resolved Options token. */
   protected readonly effectiveId = computed(() => this.#options().id());
-  /** @internal Popover or own disabled policy; the native disabled binding. */
-  protected readonly effectiveDisabled = computed(
+  /** Popover or own disabled policy, the activation guard. */
+  readonly #effectiveDisabled = computed(
     () => this.#context.disabled() || this.#options().disabled(),
   );
   /** @internal Native participation, including transparent preparation but excluding exit. */
   protected readonly participating = this.#context.participating;
   /** @internal Mounted-only Content association. */
   protected readonly contentId = this.#context.contentId;
-  /** @internal Disabled ARIA marker. */
-  protected readonly disabledAria = computed(() => {
-    if (this.effectiveDisabled()) {
-      return "true";
-    }
-
-    return null;
-  });
-  /** @internal Disabled data marker. */
-  protected readonly disabledAttribute = computed(() => {
-    if (this.effectiveDisabled()) {
-      return "";
-    }
-
-    return null;
-  });
 
   constructor() {
     this.#destroyRef.onDestroy(() => {
@@ -122,7 +129,7 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
 
   /** @internal Live native activation; disabled user input cannot write intent. */
   protected activate(): void {
-    if (!this.#destroyed && !this.effectiveDisabled()) {
+    if (!this.#destroyed && !this.#effectiveDisabled()) {
       this.#context.activateTrigger();
     }
   }

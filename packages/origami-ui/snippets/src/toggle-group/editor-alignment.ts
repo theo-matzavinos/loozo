@@ -45,4 +45,5 @@ export class AlignmentOption implements OrigamiToggleGroupItemOptions {
   readonly alignment = input.required<Alignment>({ alias: "appAlignment" });
   readonly value = computed(() => this.alignment().id);
   readonly disabled = computed(() => !this.alignment().available);
+  readonly focusableWhenDisabled = signal(false);
 }

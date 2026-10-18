@@ -429,6 +429,7 @@ export class CoExistingMultiple implements OrigamiAccordionMultipleOptions {
   providers: [
     OrigamiAccordionTriggerOptions.provideFactory(() => ({
       id: inject(AccordionPrecedenceSettings).factoryTriggerId,
+      focusableWhenDisabled: signal(false),
     })),
   ],
 })
@@ -441,6 +442,7 @@ export class CoFactoryTrigger {}
   providers: [
     OrigamiAccordionTriggerOptions.provideFactory(() => ({
       id: inject(AccordionPrecedenceSettings).mixedTriggerId,
+      focusableWhenDisabled: signal(false),
     })),
   ],
 })
@@ -453,6 +455,7 @@ export class CoMixedTrigger {}
 })
 export class CoExistingTrigger implements OrigamiAccordionTriggerOptions {
   readonly id = inject(AccordionPrecedenceSettings).existingTriggerId;
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Directive({
@@ -746,7 +749,11 @@ export class CoFactoryPopover {
     OrigamiPopoverTriggerOptions.provideFactory(() => {
       const settings = inject(PopoverPrecedenceSettings);
 
-      return { id: settings.triggerId, disabled: settings.triggerDisabled };
+      return {
+        id: settings.triggerId,
+        disabled: settings.triggerDisabled,
+        focusableWhenDisabled: signal(false),
+      };
     }),
   ],
 })
@@ -816,6 +823,7 @@ export class CoExistingPopoverTrigger implements OrigamiPopoverTriggerOptions {
   readonly #settings = inject(PopoverPrecedenceSettings);
   readonly id = this.#settings.triggerId;
   readonly disabled = this.#settings.triggerDisabled;
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Directive({

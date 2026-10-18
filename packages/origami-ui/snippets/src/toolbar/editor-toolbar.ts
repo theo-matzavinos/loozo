@@ -4,9 +4,9 @@ import {
   OrigamiToolbarOptions,
   OrigamiToolbarState,
   OrigamiToolbarItem,
-  OrigamiToolbarItemOptions,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
 
 @Service()
 export class EditorLayout {
@@ -29,17 +29,18 @@ export class EditorToolbar {}
 
 export type Command = { readonly available: boolean; run(): void };
 
-// A command whose disabled state comes from the domain.
+// A command whose disabled state comes from the domain. A Toolbar item takes Button's Options.
 @Directive({
   selector: "button[appCommand]",
   hostDirectives: [OrigamiToolbarItem],
-  providers: [OrigamiToolbarItemOptions.provideExisting(() => EditorCommand)],
+  providers: [OrigamiButtonOptions.provideExisting(() => EditorCommand)],
   host: { "(click)": "command().run()" },
 })
-export class EditorCommand implements OrigamiToolbarItemOptions {
+export class EditorCommand implements OrigamiButtonOptions {
   readonly command = input.required<Command>({ alias: "appCommand" });
   readonly #layout = inject(EditorLayout);
   readonly disabled = computed(() => this.#layout.readOnly() || !this.command().available);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 // A separator perpendicular to the effective Toolbar orientation.

@@ -51,5 +51,6 @@ export class SettingsTabs {}
 export class SettingsTab implements OrigamiTabsTriggerOptions {
   readonly value = input.required<string>({ alias: "appSettingsTab" });
   readonly disabled = input(false, { transform: booleanAttribute });
+  readonly focusableWhenDisabled = signal(false);
   readonly id = computed(() => `settings-tab-${this.value()}`);
 }

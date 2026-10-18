@@ -30,7 +30,11 @@ export abstract class OrigamiTabsOptions {
    * Trigger has selects nothing and is never normalized. External writes remain authoritative.
    */
   abstract readonly value: WritableSignal<string | null>;
-  /** Blocks user selection and removes the tab stop, not external configuration writes; default false. */
+  /**
+   * Blocks user selection, not external configuration writes; default false. It removes the tab
+   * stop unless a Trigger is `focusableWhenDisabled`; then the focused such Trigger, else the
+   * first, keeps it.
+   */
   abstract readonly disabled: Signal<boolean>;
   /** Arrow-key axis and `aria-orientation`; default `horizontal`. */
   abstract readonly orientation: Signal<OrigamiTabsOrientation>;

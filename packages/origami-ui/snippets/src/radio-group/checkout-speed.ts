@@ -43,6 +43,7 @@ export class SpeedOption implements OrigamiRadioGroupItemOptions {
   readonly option = input.required<SpeedRecord>({ alias: "appSpeedOption" });
   readonly value = computed(() => this.option().id);
   readonly disabled = computed(() => !this.option().available);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 // A delivery estimate under the group, from descendant State.

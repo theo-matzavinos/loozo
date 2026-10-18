@@ -10,7 +10,7 @@ ToggleGroup is a set of pressed buttons with one tab stop and arrow-key navigati
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogToggleGroupSingle`   | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `deselectable` (default `false`) |
 | `ogToggleGroupMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                  |
-| `ogToggleGroupItem`     | `value` (default generated), `disabled` (default `false`); must be a `<button>`                                                                                                        |
+| `ogToggleGroupItem`     | `value` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`                           |
 
 Give each item an explicit `value`; values should be distinct within one group. Don't also put `ogToggle` on an item: the item already composes Toggle.
 
@@ -27,9 +27,9 @@ Give each item an explicit `value`; values should be distinct within one group. 
 | Home / End             | first / last item                                    | first / last item      |
 | Enter / Space          | press the focused item                               | press the focused item |
 
-Moves skip disabled items, wrap at both ends and never press. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
+Moves skip disabled items, except focusable ones, wrap at both ends and never press. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
 
-Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the first pressed enabled item, otherwise the first enabled item. "First" reads DOM order whenever items mount or unmount or focus, disabled state or the value change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the item after requesting its press, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without pressing it.
+Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the first pressed enabled item, otherwise the first enabled item, otherwise the first focusable disabled item. "First" reads DOM order whenever items mount or unmount or focus, disabled state or the value change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the item after requesting its press, in every browser, so the next arrow key moves from there. If the focused item is removed or natively disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without pressing it; one that becomes disabled but stays focusable keeps focus.
 
 ## Replacing Options
 
@@ -37,16 +37,16 @@ Single, Multiple and the item each have their own Options. Here the alignment li
 
 [src/toggle-group/editor-alignment.ts](../snippets/src/toggle-group/editor-alignment.ts)
 
-Item Options also drive the composed Toggle, so replacing them alone sets the item's pressed and disabled state. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
+Item Options also drive the composed Toggle, so replacing them alone sets the item's pressed, disabled and focusable state. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
 
 ## State and attributes
 
 `OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Each item exposes its composed `OrigamiToggleState` as `state` (`#item="ogToggleGroupItem"`), with `pressed()` and `disabled()`, the item's effective disabled state from the root's or its own; descendants of an item can inject it.
 
-| Element | Attributes                                                                                                                                                                      |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `role="group"`, `data-orientation`, `data-disabled`                                                                                                                             |
-| Item    | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `tabindex`, `data-pressed` while pressed; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
+| Element | Attributes                                                                                                                                                                                                       |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `role="group"`, `data-orientation`, `data-disabled`                                                                                                                                                              |
+| Item    | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `tabindex`, `data-pressed` while pressed; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
 
 ## Accessibility
 

@@ -28,6 +28,7 @@ import {
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
 import { OrigamiToggle } from "@loozo/origami-ui/toggle";
+import { OrigamiButton } from "@loozo/origami-ui/button";
 import {
   OrigamiTabs,
   OrigamiTabsList,
@@ -42,6 +43,8 @@ import {
 import {
   OrigamiToolbar,
   OrigamiToolbarItem,
+  OrigamiToolbarPopoverTrigger,
+  OrigamiToolbarToggle,
   OrigamiToolbarRadioGroup,
   OrigamiToolbarToggleGroupSingle,
   OrigamiToolbarToggleGroupMultiple,
@@ -89,6 +92,9 @@ export class AccordionObservation {
     OrigamiToggleGroupItem,
     OrigamiToolbar,
     OrigamiToolbarItem,
+    OrigamiToolbarPopoverTrigger,
+    OrigamiToolbarToggle,
+    OrigamiButton,
     OrigamiToolbarRadioGroup,
     OrigamiToolbarToggleGroupSingle,
     OrigamiToolbarToggleGroupMultiple,
@@ -301,14 +307,13 @@ export class AccordionObservation {
       </div>
     </div>
 
-    <!-- K10: a Popover Trigger co-applied with a Toolbar item; one binding disables both. -->
+    <!-- K10: a Toolbar Popover Trigger disabled by its own input. -->
     <button type="button" data-testid="hydration-format-before">Before the format toolbar</button>
     <div ogToolbar aria-label="Server format" data-testid="hydration-format-toolbar">
       <span ogPopover>
         <button
-          ogPopoverTrigger
+          ogToolbarPopoverTrigger
           ogPopoverAnchor
-          ogToolbarItem
           [disabled]="initiallyPresent()"
           data-testid="hydration-format"
         >
@@ -325,6 +330,59 @@ export class AccordionObservation {
       </span>
       <button ogToolbarItem data-testid="hydration-format-bold">Bold</button>
     </div>
+
+    <!-- F2: Buttons disabled in A and B, one of them focusable. -->
+    <button
+      ogButton
+      [disabled]="initiallyPresent()"
+      data-testid="hydration-button"
+      (click)="buttonClicks.update(increment)"
+    >
+      Save
+    </button>
+    <button
+      ogButton
+      [disabled]="initiallyPresent()"
+      focusableWhenDisabled
+      data-testid="hydration-button-focusable"
+      (click)="focusableButtonClicks.update(increment)"
+    >
+      Publish
+    </button>
+    <output data-testid="button-click-count">{{ buttonClicks() }}</output>
+    <output data-testid="focusable-button-click-count">{{ focusableButtonClicks() }}</output>
+
+    <!-- F5: a Toolbar Toggle, pressed in A and B, and a Toolbar Popover Trigger beside an item. -->
+    <div ogToolbar aria-label="Server insert" data-testid="hydration-variants-toolbar">
+      <button ogToolbarItem data-testid="hydration-variants-cut">Cut</button>
+      <button
+        ogToolbarToggle
+        #spellingToggle="ogToolbarToggle"
+        [(pressed)]="spelling"
+        (pressedChange)="spellingOutputs.update(increment)"
+        data-testid="hydration-variants-spelling"
+      >
+        Spelling
+      </button>
+      <span ogPopover [(open)]="insertOpen">
+        <button ogToolbarPopoverTrigger ogPopoverAnchor data-testid="hydration-variants-insert">
+          Insert
+        </button>
+        <div
+          ogPopoverContent
+          role="group"
+          aria-label="Server insert options"
+          data-testid="hydration-variants-content"
+        >
+          Insert options
+        </div>
+      </span>
+    </div>
+    <output data-testid="hydration-variants-spelling-state">{{
+      spellingToggle.state.pressed()
+    }}</output>
+    <output data-testid="hydration-variants-spelling-outputs">{{ spellingOutputs() }}</output>
+    <output data-testid="hydration-variants-insert-open">{{ insertOpen() }}</output>
 
     <!-- V16: a Popover Trigger disabled by its own input while the Popover stays enabled. -->
     <div ogPopover #share="ogPopover">
@@ -570,6 +628,11 @@ export class HydrationUnit {
   readonly toolbarAlignment = signal<string | null>("second");
   readonly clearCount = signal(0);
   readonly undoCount = signal(0);
+  readonly buttonClicks = signal(0);
+  readonly focusableButtonClicks = signal(0);
+  readonly spelling = linkedSignal(() => this.initiallyPresent());
+  readonly spellingOutputs = signal(0);
+  readonly insertOpen = signal(false);
   readonly speed = linkedSignal<string | null>(() => {
     if (this.initiallyPresent()) {
       return "express";

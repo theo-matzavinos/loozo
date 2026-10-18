@@ -17,12 +17,18 @@ import { documentOrder } from "./document-order";
 type Orientation = "horizontal" | "vertical" | "both";
 type Move = "next" | "previous" | "first" | "last";
 
-/** One item host: its element and the value and disabled state it registers. */
+/** One item host: its element and the value, disabled state and disabled focusability it registers. */
 type Member = {
   readonly element: HTMLElement;
   readonly value: Signal<string>;
   readonly disabled: Signal<boolean>;
+  readonly focusable: Signal<boolean>;
 };
+
+/** Whether a member can take focus: enabled, or disabled but focusable. */
+function reachable(member: Member): boolean {
+  return !member.disabled() || member.focusable();
+}
 
 /**
  * Maps a key to a move. Horizontal arrows follow reading direction; vertical arrows ignore it.
@@ -70,26 +76,26 @@ function moveFor(key: string, orientation: Orientation, rtl: boolean): Move | nu
   return null;
 }
 
-/** Walks DOM order from `current`, skipping disabled members and wrapping at both ends. */
+/** Walks DOM order from `current`, skipping members that can't take focus and wrapping at both ends. */
 function targetOf(ordered: readonly Member[], current: Member, move: Move): Member | null {
-  const enabled: Member[] = [];
+  const targets: Member[] = [];
 
   for (const member of ordered) {
-    if (!member.disabled()) {
-      enabled.push(member);
+    if (reachable(member)) {
+      targets.push(member);
     }
   }
 
-  if (enabled.length === 0) {
+  if (targets.length === 0) {
     return null;
   }
 
   if (move === "first") {
-    return enabled[0];
+    return targets[0];
   }
 
   if (move === "last") {
-    return enabled[enabled.length - 1];
+    return targets[targets.length - 1];
   }
 
   const start = ordered.indexOf(current);
@@ -108,7 +114,7 @@ function targetOf(ordered: readonly Member[], current: Member, move: Move): Memb
     const index = (((start + step * offset) % ordered.length) + ordered.length) % ordered.length;
     const candidate = ordered[index];
 
-    if (!candidate.disabled()) {
+    if (reachable(candidate)) {
       return candidate;
     }
   }
@@ -143,8 +149,10 @@ export abstract class ɵOrigamiRovingFocusOptions {
  * `ngOnInit`, so render reads only see members whose inputs are set, and forwards its host
  * events by element. The Context keeps its registered members and sorts them by DOM position on
  * every read. It owns one roving tab stop, arrow/Home/End movement
- * with wrapping, disabled skipping and focus repair. It does not select, activate, typeahead or
- * use `aria-activedescendant`; a widget that acts on a keyboard move subscribes to `navigations`.
+ * with wrapping, disabled skipping and focus repair. A disabled member that registers as
+ * focusable stays a move target and can hold the tab stop, but a move onto it is no navigation.
+ * It does not select, activate, typeahead or use `aria-activedescendant`; a widget that acts on
+ * a keyboard move subscribes to `navigations`.
  */
 @Service({ autoProvided: false })
 export class ɵOrigamiRovingFocusContext {
@@ -161,20 +169,28 @@ export class ɵOrigamiRovingFocusContext {
    */
   readonly navigations: Observable<string> = this.#navigations.asObservable();
 
-  /** The focused enabled member; otherwise the first enabled preferred member, then the first enabled member. */
+  /**
+   * The focused member that can take focus; otherwise the first enabled preferred member, then
+   * the first enabled member, then the first focusable disabled member.
+   */
   readonly #tabStop = computed<Member | null>(() => {
     const ordered = this.#ordered();
     const focused = this.#focused();
 
-    if (focused !== null && ordered.includes(focused) && !focused.disabled()) {
+    if (focused !== null && ordered.includes(focused) && reachable(focused)) {
       return focused;
     }
 
     const preferred = this.#options().preferred();
     let firstEnabled: Member | null = null;
+    let firstFocusable: Member | null = null;
 
     for (const member of ordered) {
       if (member.disabled()) {
+        if (firstFocusable === null && member.focusable()) {
+          firstFocusable = member;
+        }
+
         continue;
       }
 
@@ -187,7 +203,7 @@ export class ɵOrigamiRovingFocusContext {
       }
     }
 
-    return firstEnabled;
+    return firstEnabled ?? firstFocusable;
   });
 
   constructor() {
@@ -203,7 +219,8 @@ export class ɵOrigamiRovingFocusContext {
         return;
       }
 
-      if (this.#members().includes(focused) && !focused.disabled()) {
+      // A member that turns disabled but stays focusable keeps focus.
+      if (this.#members().includes(focused) && reachable(focused)) {
         return;
       }
 
@@ -220,7 +237,7 @@ export class ɵOrigamiRovingFocusContext {
     });
   }
 
-  /** @internal The element holding the roving tab stop, or null when no member is enabled. */
+  /** @internal The element holding the roving tab stop, or null when no member can take focus. */
   readonly tabStop: Signal<HTMLElement | null> = computed(() => this.#tabStop()?.element ?? null);
 
   /**
@@ -228,13 +245,15 @@ export class ɵOrigamiRovingFocusContext {
    * earlier in its view can destroy the view before the item's `ngOnInit` runs). Called from the
    * item's `ngOnInit`, after its inputs are set; its `destroyRef` removes it.
    * @param item - `value` matches the root's preferred values and is what `navigations` emits;
-   *   `disabled` items are never targets or tab stops.
+   *   `disabled` items are never navigations or preferred, and are targets or tab stops only
+   *   while `focusable`.
    */
   register(
     item: {
       readonly element: HTMLElement;
       readonly value: Signal<string>;
       readonly disabled: Signal<boolean>;
+      readonly focusable: Signal<boolean>;
     },
     destroyRef: DestroyRef,
   ): void {
@@ -242,7 +261,12 @@ export class ɵOrigamiRovingFocusContext {
       return;
     }
 
-    const member: Member = { element: item.element, value: item.value, disabled: item.disabled };
+    const member: Member = {
+      element: item.element,
+      value: item.value,
+      disabled: item.disabled,
+      focusable: item.focusable,
+    };
 
     this.#members.update((members) => [...members, member]);
     destroyRef.onDestroy(() => {
@@ -284,14 +308,14 @@ export class ɵOrigamiRovingFocusContext {
       return;
     }
 
-    // Engines differ on blur during removal or disabling; a still-connected, enabled host
-    // that no longer has focus after the current task's synchronous work is a genuine
-    // departure, a removed or disabled one awaits repair, and one focused again in the
+    // Engines differ on blur during removal or disabling; a still-connected host that can take
+    // focus and no longer has it after the current task's synchronous work is a genuine
+    // departure, a removed or natively disabled one awaits repair, and one focused again in the
     // meantime keeps its record.
     queueMicrotask(() => {
       const departed =
         member.element.isConnected &&
-        !member.disabled() &&
+        reachable(member) &&
         this.#document.activeElement !== member.element;
 
       if (this.#focused() === member && departed) {
@@ -357,7 +381,8 @@ export class ɵOrigamiRovingFocusContext {
       target.element.focus();
     }
 
-    // Focus handlers run inside focus(): navigate only to a target still registered, enabled and focused.
+    // Focus handlers run inside focus(): navigate only to a target still registered, enabled and
+    // focused. A focusable disabled target takes focus but is no navigation.
     const registered = this.#members().includes(target);
 
     if (registered && !target.disabled() && this.#document.activeElement === target.element) {

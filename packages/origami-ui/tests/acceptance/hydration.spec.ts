@@ -992,7 +992,7 @@ test("K6 H1 H2 H3: Toolbar server tab stop across Toolbar groups survives hydrat
   }
 });
 
-/** Server-rendered K10 Toolbar: one binding disables the Popover Trigger and its toolbar item in A and B. */
+/** Server-rendered K10 Toolbar: the Toolbar Popover Trigger's own input disables it in A and B. */
 async function expectServerFormat(page: Page, labels: string[]): Promise<void> {
   for (const label of labels) {
     const unit = page.locator(`[data-unit="${label}"]`);
@@ -1019,7 +1019,7 @@ async function expectServerFormat(page: Page, labels: string[]): Promise<void> {
   }
 }
 
-test("K10 H1 H2: a disabled Popover Trigger co-applied with a toolbar item is skipped in server HTML and once hydrated; the enabled one opens its Popover", async ({
+test("K10 H1 H2: a disabled Toolbar Popover Trigger is skipped in server HTML and once hydrated; the enabled one opens its Popover", async ({
   page,
 }, info) => {
   const incremental = info.project.metadata.hydration === "incremental";
@@ -1058,13 +1058,28 @@ test("K10 H1 H2: a disabled Popover Trigger co-applied with a toolbar item is sk
         .evaluate((node) => node.matches(":popover-open"));
     }
 
-    // B, disabled: Tab reaches Bold, ArrowRight keeps it and the click opens nothing.
+    // B, disabled: Tab reaches Bold, ArrowRight keeps it and the clicks open nothing.
     await b.getByTestId("hydration-format-before").focus();
     await page.keyboard.press("Tab");
     await expect(b.getByTestId("hydration-format-bold")).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await expect(b.getByTestId("hydration-format-bold")).toBeFocused();
     await b.getByTestId("hydration-format").click({ force: true });
+
+    // Native `disabled` drops the trusted click before any listener runs. A dispatched click
+    // still reaches the listeners, so only the hydrated Trigger's own guard keeps it closed.
+    const dispatched = await b.getByTestId("hydration-format").evaluate((element) => {
+      let received = 0;
+
+      element.addEventListener("click", () => {
+        received += 1;
+      });
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+      return received;
+    });
+
+    expect(dispatched).toBe(1);
     // A wrong open would render only after the zoneless scheduler's next turn (an animation frame
     // or a timer), so let both pass, and check before any outside click could dismiss it.
     await page.evaluate(
@@ -1086,6 +1101,216 @@ test("K10 H1 H2: a disabled Popover Trigger co-applied with a toolbar item is sk
     await expect.poll(() => nativeOpen(c)).toBe(false);
   } finally {
     releaseMain();
+  }
+});
+
+/** Server-rendered F2 Buttons: disabled in A and B, one of them focusable; enabled in C. */
+async function expectServerButtons(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const button = unit.getByTestId("hydration-button");
+    const focusable = unit.getByTestId("hydration-button-focusable");
+
+    for (const candidate of [button, focusable]) {
+      await expect(candidate).toHaveAttribute("type", "button");
+    }
+
+    if (label === "C") {
+      for (const candidate of [button, focusable]) {
+        await expect(candidate).not.toHaveAttribute("disabled");
+        await expect(candidate).not.toHaveAttribute("aria-disabled", /.*/);
+        await expect(candidate).not.toHaveAttribute("data-disabled", /.*/);
+      }
+    } else {
+      await expect(button).toHaveAttribute("disabled");
+      await expect(focusable).not.toHaveAttribute("disabled");
+
+      for (const candidate of [button, focusable]) {
+        await expect(candidate).toHaveAttribute("aria-disabled", "true");
+        await expect(candidate).toHaveAttribute("data-disabled", "");
+      }
+    }
+  }
+}
+
+test("F2 H1 H2: a Button's disabled attributes are in server HTML and kept through hydration; once hydrated a focusable disabled Button still runs its click listener", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    await expectServerButtons(page, ["A", "B", "C"]);
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    const b = page.locator('[data-unit="B"]');
+    const c = page.locator('[data-unit="C"]');
+
+    for (const unit of [b, c]) {
+      if (incremental) {
+        await unit.getByTestId("hydrate-unit").click();
+      }
+
+      await expect(unit).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    if (incremental) {
+      await expect(page.locator('[data-unit="A"]')).toHaveAttribute(
+        "data-client-render-seen",
+        "false",
+      );
+    }
+
+    // Hydration changes no server attribute.
+    await expectServerButtons(page, ["A", "B", "C"]);
+    await assertReferences(page, info);
+
+    // B: the natively disabled Button drops the trusted click; the focusable one takes focus and
+    // its listener runs.
+    await b.getByTestId("hydration-button").click({ force: true });
+    await b.getByTestId("hydration-button-focusable").focus();
+    await expect(b.getByTestId("hydration-button-focusable")).toBeFocused();
+    await b.getByTestId("hydration-button-focusable").click({ force: true });
+    await expect(b.getByTestId("focusable-button-click-count")).toHaveText("1");
+    await expect(b.getByTestId("button-click-count")).toHaveText("0");
+
+    // C: both are enabled.
+    await c.getByTestId("hydration-button").click();
+    await c.getByTestId("hydration-button-focusable").click();
+    await expect(c.getByTestId("button-click-count")).toHaveText("1");
+    await expect(c.getByTestId("focusable-button-click-count")).toHaveText("1");
+  } finally {
+    releaseMain();
+  }
+});
+
+/** Server-rendered F5 Toolbar: Cut, a Toolbar Toggle pressed in A and B, a Toolbar Popover Trigger. */
+async function expectServerVariants(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const spelling = unit.getByTestId("hydration-variants-spelling");
+    const insert = unit.getByTestId("hydration-variants-insert");
+
+    await expect(
+      unit.getByTestId("hydration-variants-toolbar").locator('button[tabindex="0"]'),
+    ).toHaveCount(1);
+    await expect(unit.getByTestId("hydration-variants-cut")).toHaveAttribute("tabindex", "0");
+
+    for (const control of [spelling, insert]) {
+      await expect(control).toHaveAttribute("type", "button");
+      await expect(control).toHaveAttribute("tabindex", "-1");
+      await expect(control).not.toHaveAttribute("disabled");
+    }
+
+    await expect(insert).toHaveAttribute("aria-expanded", "false");
+    await expect(insert).toHaveAttribute(
+      "aria-controls",
+      (await unit.getByTestId("hydration-variants-content").getAttribute("id")) ?? "",
+    );
+
+    if (label === "C") {
+      await expect(spelling).toHaveAttribute("aria-pressed", "false");
+      await expect(spelling).not.toHaveAttribute("data-pressed", /.*/);
+      await expect(unit.getByTestId("hydration-variants-spelling-state")).toHaveText("false");
+    } else {
+      await expect(spelling).toHaveAttribute("aria-pressed", "true");
+      await expect(spelling).toHaveAttribute("data-pressed", "");
+      await expect(unit.getByTestId("hydration-variants-spelling-state")).toHaveText("true");
+    }
+  }
+}
+
+test("F5 H1 H2 H3: a Toolbar Toggle and a Toolbar Popover Trigger keep their server attributes and one tab stop through hydration; a click after attachment or replay presses once; both share the Toolbar's arrows", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerVariants(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const spelling = b.getByTestId("hydration-variants-spelling");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await spelling.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("hydration-variants-spelling-outputs")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerVariants(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerVariants(page, ["A", "B", "C"]);
+      await spelling.click();
+    }
+
+    await expect(b.getByTestId("hydration-variants-spelling-outputs")).toHaveText("1");
+    await expect(spelling).toHaveAttribute("aria-pressed", "false");
+    await expect(b.getByTestId("hydration-variants-spelling-state")).toHaveText("false");
+    await assertReferences(page, info);
+
+    // Both variants are stops in the Toolbar's one arrow sequence; moves press and open nothing.
+    await b.getByTestId("hydration-variants-cut").focus();
+
+    for (const testid of [
+      "hydration-variants-spelling",
+      "hydration-variants-insert",
+      "hydration-variants-cut",
+    ]) {
+      await page.keyboard.press("ArrowRight");
+      await expect(b.getByTestId(testid)).toBeFocused();
+    }
+
+    await expect(b.getByTestId("hydration-variants-spelling-outputs")).toHaveText("1");
+    await expect(b.getByTestId("hydration-variants-insert-open")).toHaveText("false");
+
+    const insert = b.getByTestId("hydration-variants-insert");
+
+    await insert.click();
+    await expect(b.getByTestId("hydration-variants-insert-open")).toHaveText("true");
+    await expect
+      .poll(() =>
+        b
+          .getByTestId("hydration-variants-content")
+          .evaluate((node) => node.matches(":popover-open")),
+      )
+      .toBe(true);
+    await expect(insert).toHaveAttribute("tabindex", "0");
+    await insert.click();
+    await expect(b.getByTestId("hydration-variants-insert-open")).toHaveText("false");
+  } finally {
+    releaseMain();
+    releaseLazy();
   }
 });
 

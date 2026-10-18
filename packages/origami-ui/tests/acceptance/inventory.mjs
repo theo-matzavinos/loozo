@@ -80,7 +80,8 @@ export const inventory = {
     "OrigamiToolbarOptions",
     "OrigamiToolbarState",
     "OrigamiToolbarItem",
-    "OrigamiToolbarItemOptions",
+    "OrigamiToolbarToggle",
+    "OrigamiToolbarPopoverTrigger",
     "OrigamiToolbarToggleGroupSingle",
     "OrigamiToolbarToggleGroupMultiple",
     "OrigamiToolbarRadioGroup",
@@ -93,6 +94,7 @@ export const inventory = {
     "OrigamiRadioGroupItem",
     "OrigamiRadioGroupItemOptions",
   ],
+  button: ["OrigamiButton", "OrigamiButtonOptions"],
 };
 
 export const typeOnly = new Set([

@@ -4,13 +4,13 @@ Accordion is a set of Collapsible items with single or multiple selection.
 
 [src/accordion/faq.ts](../snippets/src/accordion/faq.ts "both")
 
-| Directive             | Configuration                                                                            |
-| --------------------- | ---------------------------------------------------------------------------------------- |
-| `ogAccordionSingle`   | `value: string \| null` model (default `null`), `disabled`, `collapsible` (both `false`) |
-| `ogAccordionMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`)            |
-| `ogAccordionItem`     | `value` (default generated), `disabled` (default `false`), `hiding` (default `"hidden"`) |
-| `ogAccordionTrigger`  | `id` (default generated); must be a `<button>`                                           |
-| `ogAccordionPanel`    | `id` (default generated)                                                                 |
+| Directive             | Configuration                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `ogAccordionSingle`   | `value: string \| null` model (default `null`), `disabled`, `collapsible` (both `false`)  |
+| `ogAccordionMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`)             |
+| `ogAccordionItem`     | `value` (default generated), `disabled` (default `false`), `hiding` (default `"hidden"`)  |
+| `ogAccordionTrigger`  | `id` (default generated), `focusableWhenDisabled` (default `false`); must be a `<button>` |
+| `ogAccordionPanel`    | `id` (default generated)                                                                  |
 
 Give items distinct explicit values when they need independent selection.
 
@@ -37,5 +37,5 @@ Each item is a Collapsible, so the item element carries the Collapsible root att
 
 ## Accessibility
 
-- In Single mode without `collapsible`, the selected item's Trigger has `aria-disabled="true"` and `data-disabled`, because clicking it does nothing. It stays a focusable, natively enabled button unless the root or item is disabled. Like a Collapsible Trigger with `focusableWhenDisabled`, its clicks still reach your own `(click)` listeners on the button.
+- In Single mode without `collapsible`, the selected item's Trigger has `aria-disabled="true"` and `data-disabled`, because clicking it does nothing. It stays a focusable, natively enabled button unless the root or item is disabled. Like a Collapsible Trigger with `focusableWhenDisabled`, its clicks still reach your own `(click)` listeners on the button. Give the Trigger [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (default `false`) to keep it focusable while the root or item disables it too.
 - There's no arrow-key navigation, roving tabindex or focus management; Tab moves between the native buttons. You supply the headings and any Panel roles.

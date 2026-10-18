@@ -9,6 +9,7 @@ import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/
 export class TogglePrecedenceSettings {
   readonly pressed = signal(true);
   readonly disabled = signal(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Directive({
@@ -35,6 +36,7 @@ export class PrecedenceExistingToggle implements OrigamiToggleOptions {
   readonly #settings = inject(TogglePrecedenceSettings);
   readonly pressed = this.#settings.pressed;
   readonly disabled = this.#settings.disabled;
+  readonly focusableWhenDisabled = this.#settings.focusableWhenDisabled;
   readonly state = inject(OrigamiToggleState);
 }
 

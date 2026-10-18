@@ -104,7 +104,7 @@ export class OrigamiAccordionSingle implements OrigamiAccordionSingleOptions {
    * Own clearing-policy input, default false with boolean-attribute coercion; replaced Options
    * supply effective policy instead. A selected non-collapsible Trigger is aria-disabled and
    * data-disabled but remains natively enabled/focusable unless root or item disabled state also
-   * applies.
+   * applies and its Trigger's `focusableWhenDisabled` is false.
    */
   readonly collapsible = input(false, { transform: booleanAttribute });
   /** Shared readonly nearest-root item order and effective disabled observation. */

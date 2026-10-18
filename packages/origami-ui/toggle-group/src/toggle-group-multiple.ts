@@ -25,7 +25,11 @@ export abstract class OrigamiToggleGroupMultipleOptions {
    * no item has persist in order; user activation writes new arrays. External writes remain authoritative.
    */
   abstract readonly value: WritableSignal<readonly string[]>;
-  /** Blocks every item's user activation and removes the tab stop, not external configuration writes; default false. */
+  /**
+   * Blocks every item's user activation, not external configuration writes; default false. It
+   * removes the group's tab stop unless an item is `focusableWhenDisabled`; then the focused such
+   * item, else the first, keeps it. In a Toolbar group, only such items stay tab-stop candidates.
+   */
   abstract readonly disabled: Signal<boolean>;
   /** Arrow-key axis; default `horizontal`. Has no effect on a Toolbar Toggle Group, whose Toolbar's orientation applies. */
   abstract readonly orientation: Signal<OrigamiToggleGroupOrientation>;

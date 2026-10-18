@@ -4,18 +4,20 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 
 [src/toolbar/formatting-toolbar.ts](../snippets/src/toolbar/formatting-toolbar.ts "both")
 
-| Directive                      | Configuration                                                                        |
-| ------------------------------ | ------------------------------------------------------------------------------------ |
-| `ogToolbar`                    | `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)               |
-| `ogToolbarItem`                | `disabled` (default `false`); must be a `<button>`                                   |
-| `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect   |
-| `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect |
-| `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md)                                        |
+| Directive                      | Configuration                                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `ogToolbar`                    | `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                                      |
+| `ogToolbarItem`                | as [`ogButton`](../button/README.md): `disabled`, `focusableWhenDisabled` (both default `false`); must be a `<button>`      |
+| `ogToolbarToggle`              | as [`ogToggle`](../toggle/README.md): `pressed` model, `disabled`, `focusableWhenDisabled`; must be a `<button>`            |
+| `ogToolbarPopoverTrigger`      | as [`ogPopoverTrigger`](../popover/README.md): `id`, `disabled`, `focusableWhenDisabled`; must be a `<button>` in a Popover |
+| `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect                                          |
+| `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect                                        |
+| `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md)                                                                               |
 
-- Toolbar never activates an item: a click, Enter or Space runs only your button's own listeners.
-- Items are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as items. Other focusable content inside the Toolbar that isn't an item, such as a search field, keeps its own Tab stop and its own arrow keys.
-- A disabled item is natively disabled: arrows skip it and it's never the tab stop. There's no Toolbar-wide `disabled`; disable items, or a group's own `disabled`.
-- `ogToggle` or `ogPopoverTrigger` can share a button with `ogToolbarItem`, which is then one Toolbar control; one `[disabled]` binding sets both. To disable a Popover root instead of its Trigger, also disable the item. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
+- Toolbar never activates a control: a click, Enter or Space runs only your button's own listeners, and a Toolbar Toggle's or Toolbar Popover Trigger's own behavior.
+- Controls are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as controls. Other focusable content inside the Toolbar that isn't a control, such as a search field, keeps its own Tab stop and its own arrow keys.
+- A disabled control is natively disabled: arrows skip it and it's never the tab stop. With `focusableWhenDisabled` it stays in the arrow sequence instead and keeps focus, and your own `(click)` listeners on it still run (see [Button](../button/README.md#focusable-when-disabled)). There's no Toolbar-wide `disabled`; disable controls, or a group's own `disabled`.
+- Each control is one directive. Don't combine `ogToolbarItem` with `ogToggle`, `ogPopoverTrigger` or another button primitive on one button: use `ogToolbarToggle` or `ogToolbarPopoverTrigger`. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
 
 ## Keyboard
 
@@ -25,9 +27,15 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 | ArrowDown / ArrowUp    | nothing                                                 | next / previous control |
 | Home / End             | first / last control                                    | first / last control    |
 
-Controls are the Toolbar's items and the items of its Toolbar groups. Moves skip disabled controls, wrap at both ends and never activate, press or check. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
+Controls are the Toolbar's items, Toolbar Toggles and Toolbar Popover Triggers and the items of its Toolbar groups. Moves skip disabled controls that aren't focusable, wrap at both ends and never activate, press or check. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
 
-Only one control is in the Tab order (`tabindex="0"`): the focused one while focus is in the Toolbar, otherwise the first enabled control. Tabbing back into the Toolbar lands on its first enabled control, not the last one you focused. "First" reads DOM order whenever controls mount or unmount or focus or disabled state change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the item in every browser, so the next arrow key moves from there. If the focused control is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without activating it.
+Only one control is in the Tab order (`tabindex="0"`): the focused one while focus is in the Toolbar, otherwise the first enabled control, otherwise the first focusable disabled one. Tabbing back into the Toolbar lands on its first enabled control, not the last one you focused. "First" reads DOM order whenever controls mount or unmount or focus or disabled state change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the control in every browser, so the next arrow key moves from there. If the focused control is removed or natively disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without activating it; one that becomes disabled but stays focusable keeps focus.
+
+## Toolbar Toggle and Toolbar Popover Trigger
+
+`ogToolbarToggle` is a Toggle and `ogToolbarPopoverTrigger` a Popover Trigger that are also Toolbar controls: each has the inputs, Options and behavior of the primitive it's built on, and takes one stop in the Toolbar's arrow sequence. `ogToolbarToggle` exposes Toggle's State as `state` (`#spelling="ogToolbarToggle"`). A Toolbar Popover Trigger is disabled in the Toolbar while it's disabled as a Trigger, by its own `disabled` or its Popover's.
+
+[src/toolbar/insert-toolbar.ts](../snippets/src/toolbar/insert-toolbar.ts)
 
 ## Toolbar groups
 
@@ -43,20 +51,20 @@ Only one control is in the Tab order (`tabindex="0"`): the focused one while foc
 
 ## Replacing Options
 
-The root and the item each have their own Options. Here the application owns the orientation, each command's disabled state comes from the domain, and a separator follows the orientation through State:
+The root has its own Options; an item takes Button's (`OrigamiButtonOptions`), a Toolbar Toggle Toggle's and a Toolbar Popover Trigger the Popover Trigger's. Here the application owns the orientation, each command's disabled state comes from the domain, and a separator follows the orientation through State:
 
 [src/toolbar/editor-toolbar.ts](../snippets/src/toolbar/editor-toolbar.ts)
 
-Other controls read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
+Other controls read a control's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
 
 ## State and attributes
 
 `OrigamiToolbarState` has `orientation()`, the effective value from the root Options. The root exposes it as `state`, and descendants can inject it.
 
-| Element | Attributes                                                                                                |
-| ------- | --------------------------------------------------------------------------------------------------------- |
-| Root    | `role="toolbar"`, `aria-orientation`, `data-orientation`                                                  |
-| Item    | `type="button"`, `tabindex`; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
+| Element | Attributes                                                                                                                                                                                                                                |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `role="toolbar"`, `aria-orientation`, `data-orientation`                                                                                                                                                                                  |
+| Control | `type="button"`, `tabindex`; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled`; a Toolbar Toggle adds Toggle's and a Toolbar Popover Trigger the Popover Trigger's attributes |
 
 ## Accessibility
 
@@ -66,6 +74,6 @@ Other controls read an item's Options only after Angular has set its inputs, so 
 
 ## Server rendering and hydration
 
-Toolbar's `role="toolbar"`, `aria-orientation`, disabled attributes and single `tabindex="0"`, chosen in DOM order across Toolbar groups, are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration runs your handler once.
+Toolbar's `role="toolbar"`, `aria-orientation`, disabled attributes, Toolbar Toggles' `aria-pressed` and single `tabindex="0"`, chosen in DOM order across Toolbar groups, are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration runs your handler, or presses a Toolbar Toggle, once.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).

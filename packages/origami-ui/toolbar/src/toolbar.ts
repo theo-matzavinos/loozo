@@ -56,11 +56,12 @@ export class OrigamiToolbarState {
 /**
  * A row or column of controls with one tab stop: static `role="toolbar"` (a consumer's static
  * `role` overrides it), `aria-orientation` and `data-orientation` from effective Options. Its
- * items, and the items of the Toolbar groups inside it (`OrigamiToolbarToggleGroupSingle`,
- * `OrigamiToolbarToggleGroupMultiple`, `OrigamiToolbarRadioGroup`), share its one tab stop, held
- * by the focused item, else the first enabled one, and its arrow sequence in rendered DOM order
- * along its orientation; moves never press or check, and each group keeps its role, name and
- * pressed or checked state. A standalone ToggleGroup or RadioGroup inside it keeps its own tab
+ * controls (`OrigamiToolbarItem`, `OrigamiToolbarToggle`, `OrigamiToolbarPopoverTrigger`) and
+ * the items of the Toolbar groups inside it (`OrigamiToolbarToggleGroupSingle`,
+ * `OrigamiToolbarToggleGroupMultiple`, `OrigamiToolbarRadioGroup`) share its one tab stop, held
+ * by the focused control, else the first enabled one, else the first focusable disabled one, and
+ * its arrow sequence in rendered DOM order along its orientation; moves never activate, press or
+ * check, and each group keeps its role, name and pressed or checked state. A standalone ToggleGroup or RadioGroup inside it keeps its own tab
  * stop, as does other focusable content that is not an item. Consumers own the accessible name,
  * separators and styling.
  *
