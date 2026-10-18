@@ -251,7 +251,6 @@ export class PopoverContext {
       if (slot() === part) {
         this.#suppress();
         slot.set(null);
-        this.#lastAttempt = null;
         this.#structure.update((value) => value + 1);
         this.#schedule();
       }
@@ -486,6 +485,7 @@ export class PopoverContext {
 
     if (intent !== previous) {
       this.#seenIntent = intent;
+      // A positioning failure may have latched this intent before synchronization observed it.
       this.#lastAttempt = null;
       this.#invalidatePosition();
 
@@ -523,6 +523,7 @@ export class PopoverContext {
 
     if (configuration !== this.#seenConfiguration) {
       this.#seenConfiguration = configuration;
+      // A positioning failure may have latched this configuration before synchronization observed it.
       this.#lastAttempt = null;
       this.#requestPosition();
     }
@@ -572,7 +573,6 @@ export class PopoverContext {
 
   #attemptMatches(attempt: Attempt): boolean {
     return (
-      !this.#destroyed &&
       this.#canPresent() &&
       this.intent() === attempt.intent &&
       this.parts() === attempt.parts &&
@@ -952,15 +952,11 @@ export class PopoverContext {
   }
 
   #trackingAllowed(activation: Activation): boolean {
-    const parts = this.parts();
-
     if (
       this.#destroyed ||
       this.#hiding ||
       this.#activation !== activation ||
-      parts.content !== activation.parts.content ||
-      parts.anchor !== activation.parts.anchor ||
-      parts.trigger !== activation.parts.trigger ||
+      !this.#ownsActivation(activation) ||
       !activation.parts.content.element.isConnected ||
       !activation.parts.content.element.matches(":popover-open")
     ) {
@@ -989,7 +985,7 @@ export class PopoverContext {
   }
 
   #hide(activation: Activation): void {
-    if (this.#activation !== activation || this.#hiding) {
+    if (this.#activation !== activation) {
       return;
     }
 

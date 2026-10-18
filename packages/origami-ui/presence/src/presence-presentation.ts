@@ -22,8 +22,7 @@ export interface ɵOrigamiPresenceTransition {
 export class ɵOrigamiPresencePresentation {
   #readTransition: (() => ɵOrigamiPresenceTransition) | null = null;
   readonly #enteringTransition = signal<ɵOrigamiPresenceTransition | null>(null);
-  #revealedTransition: ɵOrigamiPresenceTransition | null = null;
-  readonly #visual = signal(false);
+  readonly #revealedTransition = signal<ɵOrigamiPresenceTransition | null>(null);
   #lifetime = 0;
 
   /** @internal Called only by the local Presence owner to attach transition capture. */
@@ -54,8 +53,7 @@ export class ɵOrigamiPresencePresentation {
    */
   commitReveal(transition: ɵOrigamiPresenceTransition): void {
     if (transition === this.captureTransition()) {
-      this.#revealedTransition = transition;
-      this.#visual.set(true);
+      this.#revealedTransition.set(transition);
     }
   }
 
@@ -74,12 +72,12 @@ export class ɵOrigamiPresencePresentation {
 
   /** @internal Whether the matching entrance has committed its reveal WRITE. */
   revealCommitted(transition: ɵOrigamiPresenceTransition): boolean {
-    return this.#revealedTransition === transition;
+    return this.#revealedTransition() === transition;
   }
 
   /** @internal Whether an actual revealed native host exists, including a retained visible exit. */
   visual(): boolean {
-    return this.#visual();
+    return this.#revealedTransition() !== null;
   }
 
   /**
@@ -90,8 +88,7 @@ export class ɵOrigamiPresencePresentation {
    */
   reset(): void {
     this.#lifetime += 1;
-    this.#visual.set(false);
     this.#enteringTransition.set(null);
-    this.#revealedTransition = null;
+    this.#revealedTransition.set(null);
   }
 }
