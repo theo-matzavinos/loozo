@@ -15,6 +15,7 @@
     "noEmit": true,
     "paths": {
       "@loozo/origami-ui/utils": ["./utils/src/public-api.ts"],
+      "@loozo/origami-ui/button": ["./button/src/public-api.ts"],
       "@loozo/origami-ui/collection": ["./collection/src/public-api.ts"],
       "@loozo/origami-ui/presence": ["./presence/src/public-api.ts"],
       "@loozo/origami-ui/collapsible": ["./collapsible/src/public-api.ts"],
@@ -35,6 +36,7 @@
   "include": [
     "src/**/*.ts",
     "utils/src/**/*.ts",
+    "button/src/**/*.ts",
     "collection/src/**/*.ts",
     "presence/src/**/*.ts",
     "collapsible/src/**/*.ts",

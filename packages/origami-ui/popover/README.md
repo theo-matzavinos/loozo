@@ -4,12 +4,12 @@ Popover is a non-modal floating surface anchored to an element: Content stays wh
 
 [src/popover/task-chooser.ts](../snippets/src/popover/task-chooser.ts "playground")
 
-| Part               | Configuration                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------- |
-| `ogPopover`        | `open` model (default `false`), `disabled` (default `false`), `dismissible` (default `true`)      |
-| `ogPopoverTrigger` | `id` (default generated), `disabled` (default `false`); must be a `<button>`                      |
-| `ogPopoverAnchor`  | `id` (default generated); may share the Trigger's element, which then uses the Trigger's ID       |
-| `ogPopoverContent` | `id` (default generated), `side` (`"block-end"`), `align` (`"start"`), `gap` (`0`, in CSS pixels) |
+| Part               | Configuration                                                                                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogPopover`        | `open` model (default `false`), `disabled` (default `false`), `dismissible` (default `true`)                                                              |
+| `ogPopoverTrigger` | `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>` |
+| `ogPopoverAnchor`  | `id` (default generated); may share the Trigger's element, which then uses the Trigger's ID                                                               |
+| `ogPopoverContent` | `id` (default generated), `side` (`"block-end"`), `align` (`"start"`), `gap` (`0`, in CSS pixels)                                                         |
 
 Trigger, Anchor and Content are all required for the Popover to show. When one is missing, or a parent Popover closes, the Content is hidden but `open` keeps its value, so mounting the part again shows it. One of each part is supported per Popover. Content can be rendered by its own component, such as a menu: the Trigger names Content's ID once Angular has set Content's inputs, so the server HTML already has a bound ID.
 
@@ -50,7 +50,8 @@ While Content is shown, including during its exit animation while the Anchor is 
 - **Outside pointer:** a trusted primary-button press whose `pointerdown` and matching `pointerup` are both outside the Popover closes it. A drag that starts inside doesn't, and neither does a mismatched pointer or button, or a `pointercancel` or lost pointer capture before the `pointerup`. The gesture completes at `pointerup`: cancellation or capture loss after it doesn't undo it. The Popover closes after that `pointerup` has been dispatched, so your listeners can still cancel it with `preventDefault()` on either event, and only if the Popover's branch hasn't been replaced meanwhile. Focus stays where the user put it.
 - A nested Popover counts as inside its parent. A user dismissal closes the affected branch, descendants before ancestors, only if every open member allows it: one with `dismissible` set to false vetoes the whole request, and nothing closes or emits `openChange`. A root's own Trigger can close it despite its own `dismissible`, but not past a protected descendant.
 - Setting `open` to false yourself always closes, regardless of `dismissible`. Open descendants are hidden but keep their own `open`. Focus returns to the Trigger only if it was inside the closing Popover or its open descendants, and then only once, to the closing Popover's own Trigger, under the same conditions as Escape.
-- `disabled`, on the root or the Trigger, blocks the Trigger, not Escape or outside dismissal.
+- `disabled`, on the root or the Trigger, blocks the Trigger, not Escape or outside dismissal. A focusable disabled Trigger stays in the Tab order, and your own `(click)` listeners on it still run; focus is never restored to a disabled Trigger.
+- In a [Toolbar](../toolbar/README.md#toolbar-toggle-and-toolbar-popover-trigger), use `ogToolbarPopoverTrigger` instead of adding `ogToolbarItem` to the Trigger.
 - Unrelated Popovers stay open independently; opening one doesn't close another.
 
 The Popover is non-modal: there's no focus trap, no scroll lock, no automatic focus and no close when focus leaves. Native `autofocus` on an element inside Content still works when it opens. Tab order follows the DOM, so author Content right after its Trigger if keyboard users should reach it next. While Content runs its exit animation, it's `inert` and the Trigger's `aria-expanded` is already false. You supply Content's role and accessible name; Popover isn't a menu, listbox or dialog.
@@ -59,10 +60,10 @@ The Popover is non-modal: there's no focus trap, no scroll lock, no automatic fo
 
 `OrigamiPopoverState` has `open()`, `disabled()` and `dismissible()`, the effective values from the root Options; the Trigger's own `disabled` isn't included. `dismissible()` is the permission described above, so false doesn't stop the root's own Trigger from closing it. `open()` reports what was requested, not whether Content is visible. `OrigamiPopoverContentState.open()` is Presence's `open()`: true while Content's children should stay rendered, including the exit.
 
-| Element | Attributes                                                                                                                                                                              |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger | `type="button"`, `id`, `aria-controls` (only while Content is mounted), `aria-expanded`; when it or the root is disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
-| Content | `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), and Presence's `data-entering`, `data-present` and `data-leaving`                            |
+| Element | Attributes                                                                                                                                                                                                               |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Trigger | `type="button"`, `id`, `aria-controls` (only while Content is mounted), `aria-expanded`; when it or the root is disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
+| Content | `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), and Presence's `data-entering`, `data-present` and `data-leaving`                                                             |
 
 `aria-expanded` is true from the moment the browser shows Content, including the short measuring step, and false as soon as a close is accepted. For Popover, `opening` can start before `data-entering` appears: the entering attribute waits until Content has been positioned, so your entrance animation starts in the right place.
 

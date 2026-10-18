@@ -24,6 +24,7 @@ import type {
   OrigamiPopoverContentState} from "@loozo/origami-ui/popover";
 import {
   OrigamiPopoverContentOptions,
+  type OrigamiPopoverTriggerOptions,
   type OrigamiPopoverSide,
   type OrigamiPopoverAlign,
 } from "@loozo/origami-ui/popover";
@@ -46,7 +47,9 @@ import {
 } from "@loozo/origami-ui/toggle-group";
 import {
   OrigamiToolbarOptions,
-  OrigamiToolbarItemOptions,
+  type OrigamiToolbarItem,
+  type OrigamiToolbarPopoverTrigger,
+  type OrigamiToolbarToggle,
   type OrigamiToolbarRadioGroup,
   type OrigamiToolbarToggleGroupMultiple,
   type OrigamiToolbarToggleGroupSingle,
@@ -58,6 +61,7 @@ import {
   OrigamiRadioGroupItemOptions,
   type OrigamiRadioGroupState,
 } from "@loozo/origami-ui/radio-group";
+import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -207,6 +211,7 @@ export function checkProviderShapes(): void {
   OrigamiToggleOptions.provideFactory(() => ({
     pressed: signal(false),
     disabled: signal(false),
+    focusableWhenDisabled: signal(false),
   }));
   OrigamiTabsOptions.provideFactory(() => ({
     value: signal<string | null>(null),
@@ -218,6 +223,7 @@ export function checkProviderShapes(): void {
     value: signal("billing"),
     id: signal("billing-tab"),
     disabled: signal(false),
+    focusableWhenDisabled: signal(true),
   }));
   OrigamiTabsPanelOptions.provideFactory(() => ({
     value: signal("billing"),
@@ -237,11 +243,15 @@ export function checkProviderShapes(): void {
   OrigamiToggleGroupItemOptions.provideFactory(() => ({
     value: signal("bold"),
     disabled: signal(false),
+    focusableWhenDisabled: signal(false),
   }));
   OrigamiToolbarOptions.provideFactory(() => ({
     orientation: signal<OrigamiToolbarOrientation>("vertical"),
   }));
-  OrigamiToolbarItemOptions.provideFactory(() => ({ disabled: signal(false) }));
+  OrigamiButtonOptions.provideFactory(() => ({
+    disabled: signal(false),
+    focusableWhenDisabled: signal(true),
+  }));
   OrigamiRadioGroupOptions.provideFactory(() => ({
     value: signal<string | null>("express"),
     disabled: signal(false),
@@ -249,6 +259,7 @@ export function checkProviderShapes(): void {
   OrigamiRadioGroupItemOptions.provideFactory(() => ({
     value: signal("express"),
     disabled: signal(false),
+    focusableWhenDisabled: signal(false),
   }));
 }
 
@@ -299,4 +310,24 @@ export function checkComposedStates(
   void accordionPanelState;
   void collapsiblePanelState;
   void toggleGroupItemState;
+}
+
+/**
+ * The Toolbar's controls take their composed primitive's Options: an item is Button Options, a
+ * Toolbar Toggle is a Toggle with its State and a Toolbar Popover Trigger is a Popover Trigger.
+ */
+export function checkToolbarControls(
+  item: OrigamiToolbarItem,
+  toggle: OrigamiToolbarToggle,
+  trigger: OrigamiToolbarPopoverTrigger,
+): void {
+  const itemOptions: OrigamiButtonOptions = item;
+  const toggleOptions: OrigamiToggleOptions = toggle;
+  const toggleState: OrigamiToggleState = toggle.state;
+  const triggerOptions: OrigamiPopoverTriggerOptions = trigger;
+
+  void itemOptions;
+  void toggleOptions;
+  void toggleState;
+  void triggerOptions;
 }

@@ -274,6 +274,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/toggle-group",
     "@loozo/origami-ui/toolbar",
     "@loozo/origami-ui/radio-group",
+    "@loozo/origami-ui/button",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -283,7 +284,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   ]);
   // Compiler-required ɵ exports are not application API.
   assert.equal(names["@loozo/origami-ui/accordion"].includes("ɵOrigamiAccordionRoot"), false);
-  assert.equal(names["@loozo/origami-ui/accordion"].length, 11);
+  assert.equal(names["@loozo/origami-ui/accordion"].length, 12);
   assert.equal(names["@loozo/origami-ui/popover"].length, 12);
   assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusContext"), false);
   assert.equal(names["@loozo/origami-ui/tabs"].length, 10);
@@ -292,7 +293,9 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/toggle-group"].length, 8);
   assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusOptions"), false);
   assert.equal(names["@loozo/origami-ui/toggle-group"].includes("ɵOrigamiToggleGroupRoot"), false);
-  assert.equal(names["@loozo/origami-ui/toolbar"].length, 9);
+  assert.equal(names["@loozo/origami-ui/toolbar"].length, 10);
+  assert.equal(names["@loozo/origami-ui/toolbar"].includes("ɵOrigamiToolbarControl"), false);
+  assert.deepEqual(names["@loozo/origami-ui/button"], ["OrigamiButton", "OrigamiButtonOptions"]);
   assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
   assert.equal(names["@loozo/origami-ui/radio-group"].includes("ɵOrigamiRadioGroupRoot"), false);
   assert.deepEqual(origami.generatedApi, []);
@@ -329,6 +332,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "toggle-group:ToggleGroup",
     "toolbar:Toolbar",
     "radio-group:RadioGroup",
+    "button:Button",
     "utils:Utilities",
   ]);
 
@@ -344,7 +348,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 13 snippets that export one component", async () => {
+test("origami's guide pages run the 14 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -352,7 +356,7 @@ test("origami's guide pages run the 13 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 13);
+  assert.equal(ids.length, 14);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -393,6 +397,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "toggle/mute.ts": ["muted:model:boolean", "disabled:input:boolean"],
     "toggle-group/text-alignment.ts": ["alignment:model:options", "highlight:model:options"],
     "radio-group/shipping-speed.ts": ["speed:model:options", "sameDayAvailable:input:boolean"],
+    "button/save-button.ts": ["saving:input:boolean"],
   });
 });
 

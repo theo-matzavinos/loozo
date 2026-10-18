@@ -8,6 +8,7 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
+import { OrigamiButton, OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { CollapsibleContext } from "./collapsible";
 
@@ -56,22 +57,30 @@ export abstract class OrigamiCollapsibleTriggerOptions {
  * Native `type="button"` activation toggles effective expansion exactly once.
  * Enter/Space retain native button semantics; no custom keyboard handler is supplied.
  * The Trigger is disabled while the root or its own Options are; then user actions cannot write
- * expansion, and it has native `disabled` unless `focusableWhenDisabled`, `aria-disabled="true"`
- * and `data-disabled`. IDs and ARIA links follow effective Options; `aria-controls` is absent
- * when no Panel is mounted. Requires a nearest Collapsible owner.
+ * expansion, and its composed `ogButton` sets native `disabled` unless `focusableWhenDisabled`,
+ * `aria-disabled="true"` and `data-disabled`. IDs and ARIA links follow effective Options;
+ * `aria-controls` is absent when no Panel is mounted. Requires a nearest Collapsible owner.
  */
 @Directive({
   selector: "button[ogCollapsibleTrigger]",
-  providers: [OrigamiCollapsibleTriggerOptions.provideExisting(() => OrigamiCollapsibleTrigger)],
+  hostDirectives: [OrigamiButton],
+  providers: [
+    OrigamiCollapsibleTriggerOptions.provideExisting(() => OrigamiCollapsibleTrigger),
+    OrigamiButtonOptions.provideFactory(() => {
+      const trigger = inject(OrigamiCollapsibleTriggerOptions);
+      const context = inject(CollapsibleContext);
+
+      return {
+        disabled: computed(() => context.disabled() || trigger.disabled()),
+        focusableWhenDisabled: trigger.focusableWhenDisabled,
+      };
+    }),
+  ],
   host: {
-    type: "button",
     "[id]": "effectiveId()",
-    "[disabled]": "nativeDisabled()",
     "[attr.aria-expanded]": "expanded()",
     "[attr.aria-controls]": "panelId()",
-    "[attr.aria-disabled]": "disabledAria()",
     "[attr.data-expanded]": "expandedAttribute()",
-    "[attr.data-disabled]": "disabledAttribute()",
     "(click)": "activate()",
   },
 })
@@ -90,36 +99,16 @@ export class OrigamiCollapsibleTrigger implements OrigamiCollapsibleTriggerOptio
 
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
-  /** @internal Root or own disabled policy. */
-  protected readonly effectiveDisabled = computed(
+  /** Root or own disabled policy, the activation guard. */
+  readonly #effectiveDisabled = computed(
     () => this.#context.disabled() || this.#options().disabled(),
-  );
-  /** @internal Native disabled host binding, absent while a disabled Trigger stays focusable. */
-  protected readonly nativeDisabled = computed(
-    () => this.effectiveDisabled() && !this.#options().focusableWhenDisabled(),
   );
   /** @internal Desired expanded ARIA observation. */
   protected readonly expanded = this.#context.expanded;
   /** @internal Mounted-only control association. */
   protected readonly panelId = this.#context.panelId;
-  /** @internal Disabled ARIA observation. */
-  protected readonly disabledAria = computed(() => {
-    if (this.effectiveDisabled()) {
-      return "true";
-    }
-
-    return null;
-  });
   /** @internal Desired expanded marker. */
   protected readonly expandedAttribute = this.#context.expandedAttribute;
-  /** @internal Disabled marker. */
-  protected readonly disabledAttribute = computed(() => {
-    if (this.effectiveDisabled()) {
-      return "";
-    }
-
-    return null;
-  });
 
   /** Resolves the nearest Collapsible synchronously; an orphan fails Angular DI clearly. */
   constructor() {
@@ -135,7 +124,7 @@ export class OrigamiCollapsibleTrigger implements OrigamiCollapsibleTriggerOptio
 
   /** @internal Live native activation request, obeying the root's and own effective disabled Options. */
   protected activate(): void {
-    if (!this.#destroyed && !this.effectiveDisabled()) {
+    if (!this.#destroyed && !this.#effectiveDisabled()) {
       this.#context.toggle();
     }
   }

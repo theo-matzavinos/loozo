@@ -15,7 +15,11 @@ export class Editor {
     OrigamiToggleOptions.provideFactory(() => {
       const editor = inject(Editor);
 
-      return { pressed: editor.bold, disabled: editor.readonly };
+      return {
+        pressed: editor.bold,
+        disabled: editor.readonly,
+        focusableWhenDisabled: signal(false),
+      };
     }),
   ],
 })

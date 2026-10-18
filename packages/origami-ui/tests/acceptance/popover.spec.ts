@@ -1788,11 +1788,28 @@ test("V9 R2: authored Content destruction ends child ownership; remount creates 
   ).toBe(false);
 });
 
-for (const eligibility of ["disabled", "trigger-disabled", "trigger-inert", "trigger-mount"]) {
+for (const eligibility of [
+  "disabled",
+  "trigger-disabled",
+  "trigger-inert",
+  "trigger-mount",
+  "focusable-disabled",
+  "focusable-trigger-disabled",
+]) {
   test(`V9: no restoration to ${eligibility} trigger`, async ({ page }, info) => {
     await fixture(page, "popover", info);
     await nativeOpen(page);
-    await scriptControl(page, `native-${eligibility}`);
+
+    // A focusable disabled Trigger has no native `disabled`, so only the disabled policy, the
+    // root's or its own, keeps restoration off it.
+    if (eligibility.startsWith("focusable-")) {
+      await scriptControl(page, "native-trigger-focusable");
+      await scriptControl(page, `native-${eligibility.slice("focusable-".length)}`);
+      await expect(page.getByTestId("native-trigger")).toHaveJSProperty("disabled", false);
+      await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-disabled", "true");
+    } else {
+      await scriptControl(page, `native-${eligibility}`);
+    }
 
     if (eligibility !== "trigger-mount") {
       await page.getByTestId("native-first").focus();

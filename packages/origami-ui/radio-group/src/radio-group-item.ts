@@ -9,6 +9,7 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
+import { OrigamiButton, OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { RadioGroupContext } from "./radio-group";
@@ -21,8 +22,18 @@ import { RadioGroupContext } from "./radio-group";
 export abstract class OrigamiRadioGroupItemOptions {
   /** The value this item checks in its group. */
   abstract readonly value: Signal<string>;
-  /** Blocks this item's user selection and focus, combined with the root's disabled policy. */
+  /**
+   * Blocks this item's user selection, combined with the root's disabled policy; the disabled
+   * item leaves the arrow sequence and the tab stop unless `focusableWhenDisabled`.
+   */
   abstract readonly disabled: Signal<boolean>;
+  /**
+   * While the item is disabled, by the root or its own Options, it stays focusable:
+   * `aria-disabled="true"` and `data-disabled` without native `disabled`, and it stays in the
+   * arrow sequence, where a move focuses it without checking it. Activation stays blocked, but
+   * the button's own `(click)` listeners still run. Default false.
+   */
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 
   /**
    * Replaces item Options with an existing compatible concrete or abstract provider.
@@ -38,7 +49,8 @@ export abstract class OrigamiRadioGroupItemOptions {
 
   /**
    * Replaces all item Options with a structurally compatible result.
-   * @param factory - Executes in Angular injection context; supply value and disabled.
+   * @param factory - Executes in Angular injection context; supply value, disabled and
+   *   focusableWhenDisabled.
    * @returns A local provider; unused directive defaults are not merged into the result.
    */
   static provideFactory(factory: () => OrigamiRadioGroupItemOptions): Provider {
@@ -53,27 +65,37 @@ export abstract class OrigamiRadioGroupItemOptions {
  * ends: ArrowDown and ArrowRight to the next, ArrowUp and ArrowLeft to the previous, with
  * ArrowLeft and ArrowRight swapped in right-to-left text; Home and End move to the first and last.
  * The item a move focuses is checked if it is still mounted, enabled and focused after its focus
- * handlers ran; other focus never checks. One enabled item is the tab stop (`tabindex="0"`): the
- * focused one, else the first checked, else the first. In a Toolbar Radio Group the item belongs
+ * handlers ran; other focus never checks. One item is the tab stop (`tabindex="0"`): the
+ * focused one, else the first enabled checked one, else the first enabled one. In a Toolbar Radio Group the item belongs
  * to the Toolbar's roving focus instead: it shares the Toolbar's tab stop and arrow order along
  * its orientation, is never preferred, and moves never check.
- * Root or own disabled state sets native `disabled`, `aria-disabled` and `data-disabled` and
- * removes the item from navigation; a disabled checked item stays `aria-checked="true"`. If a
- * focused item is removed or disabled while focus has not moved elsewhere, focus moves to the new
- * tab stop without checking. Requires a nearest Radio Group root; values should be distinct within it.
+ * Root or own disabled state makes the composed `ogButton` set native `disabled`, `aria-disabled`
+ * and `data-disabled`, and removes the item from navigation; with `focusableWhenDisabled` it has
+ * no native `disabled`, stays in the arrow sequence and keeps focus, is the tab stop only when
+ * focused or when no item is enabled, and is never checked by a click or move. A disabled checked
+ * item stays `aria-checked="true"`. If a focused item is removed or natively disabled while focus
+ * has not moved elsewhere, focus moves to the new tab stop without checking. Requires a nearest Radio Group root; values should be distinct within it.
  */
 @Directive({
   selector: "button[ogRadioGroupItem]",
-  providers: [OrigamiRadioGroupItemOptions.provideExisting(() => OrigamiRadioGroupItem)],
+  hostDirectives: [OrigamiButton],
+  providers: [
+    OrigamiRadioGroupItemOptions.provideExisting(() => OrigamiRadioGroupItem),
+    OrigamiButtonOptions.provideFactory(() => {
+      const item = inject(OrigamiRadioGroupItemOptions);
+      const context = inject(RadioGroupContext);
+
+      return {
+        disabled: computed(() => context.disabled() || item.disabled()),
+        focusableWhenDisabled: item.focusableWhenDisabled,
+      };
+    }),
+  ],
   host: {
     role: "radio",
-    type: "button",
-    "[disabled]": "effectiveDisabled()",
     "[attr.tabindex]": "tabIndex()",
     "[attr.aria-checked]": "checked()",
-    "[attr.aria-disabled]": "disabledAria()",
     "[attr.data-checked]": "checkedAttribute()",
-    "[attr.data-disabled]": "disabledAttribute()",
     "(click)": "activate()",
     "(keydown)": "keydown($event)",
     "(focus)": "focused()",
@@ -88,6 +110,8 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   readonly value = input(injectUniqueValue("radio-group-item"));
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */
   readonly disabled = input(false, { transform: booleanAttribute });
+  /** Own input keeping the disabled item focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
 
   readonly #options = injectDeferred(OrigamiRadioGroupItemOptions);
   readonly #context = inject(RadioGroupContext);
@@ -95,10 +119,11 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
-  /** @internal Combined root and own disabled policy. */
-  protected readonly effectiveDisabled = computed(
+  /** Combined root and own disabled policy. */
+  readonly #effectiveDisabled = computed(
     () => this.#context.disabled() || this.#options().disabled(),
   );
+  readonly #focusable = computed(() => this.#options().focusableWhenDisabled());
   /** @internal Checked ARIA observation, always `true` or `false`. */
   protected readonly checked = computed(() => this.#context.value() === this.#options().value());
 
@@ -113,27 +138,9 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
     return "-1";
   });
 
-  /** @internal Disabled ARIA observation. */
-  protected readonly disabledAria = computed(() => {
-    if (this.effectiveDisabled()) {
-      return "true";
-    }
-
-    return null;
-  });
-
   /** @internal Checked host marker. */
   protected readonly checkedAttribute = computed(() => {
     if (this.checked()) {
-      return "";
-    }
-
-    return null;
-  });
-
-  /** @internal Disabled host marker. */
-  protected readonly disabledAttribute = computed(() => {
-    if (this.effectiveDisabled()) {
       return "";
     }
 
@@ -153,7 +160,8 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
       {
         element: this.#element,
         value: computed(() => this.#options().value()),
-        disabled: this.effectiveDisabled,
+        disabled: this.#effectiveDisabled,
+        focusable: this.#focusable,
       },
       this.#destroyRef,
     );
@@ -162,11 +170,11 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   /**
    * @internal Live native activation request, obeying effective disabled Options. Not every
    * engine focuses a clicked button, so activation focuses this item to make it the roving
-   * position; that focus never checks. Its focus handlers may remove or disable this item, so
-   * the guard runs again once focus returns.
+   * position, also while it is disabled but focusable; that focus never checks. Its focus
+   * handlers may remove or disable this item, so the guard runs again once focus returns.
    */
   protected activate(): void {
-    if (!this.#selectable()) {
+    if (this.#destroyed || (this.#effectiveDisabled() && !this.#focusable())) {
       return;
     }
 
@@ -196,6 +204,6 @@ export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
 
   /** Live activation guard: mounted and not disabled by the root or its own Options. */
   #selectable(): boolean {
-    return !this.#destroyed && !this.effectiveDisabled();
+    return !this.#destroyed && !this.#effectiveDisabled();
   }
 }

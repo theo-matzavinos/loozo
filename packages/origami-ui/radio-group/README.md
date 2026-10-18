@@ -4,10 +4,10 @@ RadioGroup is a set of radio buttons with one tab stop, where arrow keys move an
 
 [src/radio-group/shipping-speed.ts](../snippets/src/radio-group/shipping-speed.ts "playground")
 
-| Directive          | Configuration                                                                   |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `ogRadioGroup`     | `value: string \| null` model (default `null`), `disabled` (default `false`)    |
-| `ogRadioGroupItem` | `value` (default generated), `disabled` (default `false`); must be a `<button>` |
+| Directive          | Configuration                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ogRadioGroup`     | `value: string \| null` model (default `null`), `disabled` (default `false`)                                                                                 |
+| `ogRadioGroupItem` | `value` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>` |
 
 Give each item an explicit `value`; values should be distinct within one group.
 
@@ -25,9 +25,9 @@ Give each item an explicit `value`; values should be distinct within one group.
 | Home / End             | move to the first / last item and check it                                                     |
 | Enter / Space          | check the focused item                                                                         |
 
-Moves skip disabled items and wrap at both ends. A move checks the item it lands on, even the one already focused (Home on the first item, or any arrow with one enabled item), but only if, once its focus handlers have run, it's still there, enabled and focused. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
+Moves skip disabled items, except focusable ones, and wrap at both ends. A move checks the item it lands on, even the one already focused (Home on the first item, or any arrow with one enabled item), but only if, once its focus handlers have run, it's still there, enabled and focused. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored. Direction comes from the item's computed `direction` when the key is pressed.
 
-Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the checked enabled item, otherwise the first enabled item. "First" reads DOM order whenever items mount or unmount or focus, disabled state or the value change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. Tabbing in never checks anything. A click focuses the item and then checks it, in every browser, so the next arrow key moves from there. If the focused item is removed or disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without checking it.
+Only one item is in the Tab order (`tabindex="0"`): the focused one while focus is in the group, otherwise the checked enabled item, otherwise the first enabled item, otherwise the first focusable disabled item. "First" reads DOM order whenever items mount or unmount or focus, disabled state or the value change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. Tabbing in never checks anything. A click focuses the item and then checks it, in every browser, so the next arrow key moves from there. If the focused item is removed or natively disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without checking it; one that becomes disabled but stays focusable keeps focus.
 
 ## Inside a Toolbar
 
@@ -45,15 +45,15 @@ Other items read an item's Options only after Angular has set its inputs, so rep
 
 `OrigamiRadioGroupState` has `value()` and `disabled()`, the effective values from the root Options, including `null` and values no item has. The root exposes it as `state`, and descendants can inject it. Items have no State; style a checked item with `data-checked`.
 
-| Element | Attributes                                                                                                                                                                                      |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `role="radiogroup"`, `data-disabled`                                                                                                                                                            |
-| Item    | `type="button"`, `role="radio"`, `aria-checked` (`"true"` or `"false"`), `tabindex`, `data-checked` while checked; when disabled, native `disabled`, `aria-disabled="true"` and `data-disabled` |
+| Element | Attributes                                                                                                                                                                                                                       |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `role="radiogroup"`, `data-disabled`                                                                                                                                                                                             |
+| Item    | `type="button"`, `role="radio"`, `aria-checked` (`"true"` or `"false"`), `tabindex`, `data-checked` while checked; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
 
 ## Accessibility
 
 - You supply the group's accessible name with `aria-label` or `aria-labelledby`, and each item's label. A static `role` you write on the root replaces `radiogroup`. You can also write `aria-orientation` or `aria-required` statically on the root; RadioGroup doesn't set them.
-- Items are `<button role="radio">`, not native `<input type="radio">`: RadioGroup owns the tab stop and the keys, which is what lets a group share a Toolbar's tab stop. A disabled checked item stays `aria-checked="true"` and isn't focusable.
+- Items are `<button role="radio">`, not native `<input type="radio">`: RadioGroup owns the tab stop and the keys, which is what lets a group share a Toolbar's tab stop. A disabled checked item stays `aria-checked="true"` and isn't focusable unless it's `focusableWhenDisabled`. A move or click focuses a focusable disabled item without checking it, and your own `(click)` listeners on it still run.
 - RadioGroup isn't a form control yet: it has no `name`, form value, `required`, validity or Signal Forms integration. There's no typeahead or `aria-activedescendant`. A group inside a non-item descendant of another group is independent of it.
 
 ## Server rendering and hydration

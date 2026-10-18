@@ -10,6 +10,7 @@ import {
   model,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
+import { OrigamiButton, OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 
 /** Effective Toggle configuration, replaced as a whole rather than merged with unused defaults. */
@@ -18,6 +19,12 @@ export abstract class OrigamiToggleOptions {
   abstract readonly pressed: WritableSignal<boolean>;
   /** Blocks user activation, not external configuration writes; default false. */
   abstract readonly disabled: Signal<boolean>;
+  /**
+   * While the Toggle is disabled, it stays focusable: `aria-disabled="true"` and `data-disabled`
+   * without native `disabled`. Activation stays blocked, but the button's own `(click)` listeners
+   * still run. Default false.
+   */
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 
   /**
    * Replaces Toggle Options with an existing compatible concrete or abstract provider.
@@ -33,7 +40,8 @@ export abstract class OrigamiToggleOptions {
 
   /**
    * Replaces all Toggle Options with a structurally compatible result.
-   * @param factory - Executes in Angular injection context; supply both required signals.
+   * @param factory - Executes in Angular injection context; supply `pressed`, `disabled` and
+   *   `focusableWhenDisabled`.
    * @returns A local provider. Ordinary writable signals do not emit an unused directive model's output.
    */
   static provideFactory(factory: () => OrigamiToggleOptions): Provider {
@@ -48,26 +56,11 @@ class ToggleContext {
 
   readonly pressed = computed(() => this.#options().pressed());
   readonly disabled = computed(() => this.#options().disabled());
+  readonly focusableWhenDisabled = computed(() => this.#options().focusableWhenDisabled());
 
   readonly pressedAttribute = computed(() => {
     if (this.pressed()) {
       return "";
-    }
-
-    return null;
-  });
-
-  readonly disabledAttribute = computed(() => {
-    if (this.disabled()) {
-      return "";
-    }
-
-    return null;
-  });
-
-  readonly disabledAria = computed(() => {
-    if (this.disabled()) {
-      return "true";
     }
 
     return null;
@@ -102,13 +95,14 @@ export class OrigamiToggleState {
 /**
  * A two-state button: native `type="button"` activation flips effective pressed state exactly once.
  * Enter/Space retain native button semantics; no custom keyboard handler is supplied.
- * Disabled user actions cannot write pressed state. `aria-pressed`, native `disabled`,
- * `aria-disabled`, `data-pressed` and `data-disabled` reflect effective substituted Options.
+ * Disabled user actions cannot write pressed state. `aria-pressed` and `data-pressed` reflect
+ * effective substituted Options; the composed `ogButton` binds `type="button"`, native
+ * `disabled` (absent while `focusableWhenDisabled`), `aria-disabled` and `data-disabled` from them.
  * Consumers own the accessible name, label/icon changes, styling and any side effects.
  * Not a form control: it has no Signal Forms integration. A standalone Toggle has no group or
  * roving focus; `ogToggleGroupItem` from `@loozo/origami-ui/toggle-group` composes it into one,
- * and `ogToolbarItem` from `@loozo/origami-ui/toolbar` co-applied on the same button makes it one
- * Toolbar control.
+ * and `ogToolbarToggle` from `@loozo/origami-ui/toolbar` is a Toggle that is one Toolbar control.
+ * Don't apply another button primitive, such as `ogToolbarItem`, to the same button.
  * @example
  * ```html
  * <button ogToggle [(pressed)]="muted">Mute</button>
@@ -117,18 +111,20 @@ export class OrigamiToggleState {
 @Directive({
   selector: "button[ogToggle]",
   exportAs: "ogToggle",
+  hostDirectives: [OrigamiButton],
   providers: [
     ToggleContext,
     OrigamiToggleState,
     OrigamiToggleOptions.provideExisting(() => OrigamiToggle),
+    OrigamiButtonOptions.provideFactory(() => {
+      const toggle = inject(ToggleContext);
+
+      return { disabled: toggle.disabled, focusableWhenDisabled: toggle.focusableWhenDisabled };
+    }),
   ],
   host: {
-    type: "button",
-    "[disabled]": "effectiveDisabled()",
     "[attr.aria-pressed]": "effectivePressed()",
-    "[attr.aria-disabled]": "disabledAria()",
     "[attr.data-pressed]": "pressedAttribute()",
-    "[attr.data-disabled]": "disabledAttribute()",
     "(click)": "activate()",
   },
 })
@@ -140,6 +136,8 @@ export class OrigamiToggle implements OrigamiToggleOptions {
   readonly pressed = model(false);
   /** Own disabled input, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
   readonly disabled = input(false, { transform: booleanAttribute });
+  /** Own input keeping the disabled Toggle focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
   /** This Toggle's readonly effective Options observation. */
   readonly state = inject(OrigamiToggleState);
 
@@ -147,14 +145,8 @@ export class OrigamiToggle implements OrigamiToggleOptions {
 
   /** @internal Effective pressed ARIA observation, always `true` or `false`. */
   protected readonly effectivePressed = this.#context.pressed;
-  /** @internal Native disabled host binding. */
-  protected readonly effectiveDisabled = this.#context.disabled;
-  /** @internal Disabled ARIA observation. */
-  protected readonly disabledAria = this.#context.disabledAria;
   /** @internal Readonly pressed host marker. */
   protected readonly pressedAttribute = this.#context.pressedAttribute;
-  /** @internal Readonly disabled host marker. */
-  protected readonly disabledAttribute = this.#context.disabledAttribute;
 
   /** @internal Live native activation request, obeying effective disabled Options. */
   protected activate(): void {

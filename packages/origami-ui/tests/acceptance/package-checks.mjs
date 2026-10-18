@@ -74,6 +74,7 @@ for (const [entrypoint, expected] of Object.entries(inventory)) {
     ["accordion", "ɵOrigamiAccordionRoot"],
     ["toggle-group", "ɵOrigamiToggleGroupRoot"],
     ["radio-group", "ɵOrigamiRadioGroupRoot"],
+    ["toolbar", "ɵOrigamiToolbarControl"],
   ]) {
     if (entrypoint === owner) {
       assert.ok(actual.includes(root), `Compiler-required ${root} importability must be preserved`);

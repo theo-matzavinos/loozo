@@ -111,8 +111,9 @@ import { OrigamiPopoverOptions, OrigamiPopoverTriggerOptions, OrigamiPopoverAnch
 import { OrigamiToggleOptions } from '@loozo/origami-ui/toggle';
 import { OrigamiTabsOptions, OrigamiTabsTriggerOptions, OrigamiTabsPanelOptions, type OrigamiTabsOrientation, type OrigamiTabsActivation } from '@loozo/origami-ui/tabs';
 import { OrigamiToggleGroupSingleOptions, OrigamiToggleGroupMultipleOptions, OrigamiToggleGroupItemOptions, type OrigamiToggleGroupOrientation } from '@loozo/origami-ui/toggle-group';
-import { OrigamiToolbarOptions, OrigamiToolbarItemOptions, type OrigamiToolbarOrientation } from '@loozo/origami-ui/toolbar';
+import { OrigamiToolbarOptions, type OrigamiToolbarOrientation } from '@loozo/origami-ui/toolbar';
 import { OrigamiRadioGroupOptions, OrigamiRadioGroupItemOptions } from '@loozo/origami-ui/radio-group';
+import { OrigamiButtonOptions } from '@loozo/origami-ui/button';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -147,7 +148,9 @@ OrigamiAccordionItemOptions.provideFactory(() => ({value: signal(1), disabled: s
 // @ts-expect-error Accordion Item hiding is hidden or until-found
 OrigamiAccordionItemOptions.provideFactory(() => ({value: signal('billing'), disabled: signal(false), hiding: signal('collapsed')}));
 // @ts-expect-error Accordion Trigger id remains a typed signal
-OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal(1)}));
+OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal(1), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error an Accordion Trigger factory must supply focusableWhenDisabled
+OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal('trigger')}));
 // Positive: Accordion Panel also has id-only Options.
 OrigamiAccordionPanelOptions.provideFactory(() => ({id: signal('valid-id-only')}));
 // @ts-expect-error Accordion Panel id must be a string signal
@@ -155,14 +158,16 @@ OrigamiAccordionPanelOptions.provideFactory(() => ({id: signal(1)}));
 // @ts-expect-error Popover writable open cannot be a readonly computation
 OrigamiPopoverOptions.provideFactory(() => ({open: computed(() => false), disabled: signal(false), dismissible: signal(true)}));
 // @ts-expect-error Popover Trigger id remains a typed signal
-OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal(1), disabled: signal(false)}));
+OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal(1), disabled: signal(false), focusableWhenDisabled: signal(false)}));
 // @ts-expect-error a Popover Trigger factory must supply disabled
-OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger')}));
+OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger'), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a Popover Trigger factory must supply focusableWhenDisabled
+OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: signal(false)}));
 // @ts-expect-error Anchor id remains a typed signal
 OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal(1)}));
 // @ts-expect-error Content requires the complete four-field signal shape
 OrigamiPopoverContentOptions.provideFactory(() => ({id: signal('only-id')}));
-class WrongExistingTrigger { readonly id = signal(1); readonly disabled = signal(false); }
+class WrongExistingTrigger { readonly id = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 // @ts-expect-error provideExisting checks the compatible forward-referenced class
 OrigamiPopoverTriggerOptions.provideExisting(() => WrongExistingTrigger);
 // @ts-expect-error a Collapsible factory must supply every root field
@@ -176,11 +181,13 @@ OrigamiAccordionSingleOptions.provideFactory(() => ({value: signal<string | null
 // @ts-expect-error Popover open must be a boolean signal
 OrigamiPopoverOptions.provideFactory(() => ({open: signal('wrong'), disabled: signal(false), dismissible: signal(true)}));
 // @ts-expect-error Toggle pressed must be writable
-OrigamiToggleOptions.provideFactory(() => ({pressed: computed(() => false), disabled: signal(false)}));
+OrigamiToggleOptions.provideFactory(() => ({pressed: computed(() => false), disabled: signal(false), focusableWhenDisabled: signal(false)}));
 // @ts-expect-error Toggle pressed must be a boolean signal
-OrigamiToggleOptions.provideFactory(() => ({pressed: signal('pressed'), disabled: signal(false)}));
+OrigamiToggleOptions.provideFactory(() => ({pressed: signal('pressed'), disabled: signal(false), focusableWhenDisabled: signal(false)}));
 // @ts-expect-error a Toggle factory must supply disabled
-OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false)}));
+OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a Toggle factory must supply focusableWhenDisabled
+OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: signal(false)}));
 // @ts-expect-error Tabs value must be writable
 OrigamiTabsOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false), orientation: signal<OrigamiTabsOrientation>('horizontal'), activation: signal<OrigamiTabsActivation>('automatic')}));
 // @ts-expect-error Tabs orientation is horizontal or vertical
@@ -188,7 +195,9 @@ OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>(null), di
 // @ts-expect-error a Tabs factory must supply activation
 OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), orientation: signal<OrigamiTabsOrientation>('horizontal')}));
 // @ts-expect-error a Tabs Trigger factory must supply disabled
-OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab')}));
+OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab'), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a Tabs Trigger factory must supply focusableWhenDisabled
+OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab'), disabled: signal(false)}));
 // @ts-expect-error a Tabs Panel factory must supply value
 OrigamiTabsPanelOptions.provideFactory(() => ({id: signal('billing-panel')}));
 // @ts-expect-error ToggleGroup Single value must be writable
@@ -200,11 +209,17 @@ OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | nu
 // @ts-expect-error ToggleGroup Multiple value must be writable
 OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')}));
 // @ts-expect-error a ToggleGroup Item factory must supply disabled
-OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold')}));
+OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a ToggleGroup Item factory must supply focusableWhenDisabled
+OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: signal(false)}));
 // @ts-expect-error Toolbar orientation is horizontal or vertical
 OrigamiToolbarOptions.provideFactory(() => ({orientation: signal('diagonal')}));
-// @ts-expect-error a Toolbar Item factory must supply disabled
-OrigamiToolbarItemOptions.provideFactory(() => ({}));
+// @ts-expect-error a Button factory must supply disabled
+OrigamiButtonOptions.provideFactory(() => ({focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a Button factory must supply focusableWhenDisabled
+OrigamiButtonOptions.provideFactory(() => ({disabled: signal(false)}));
+// @ts-expect-error Button disabled must be a boolean signal
+OrigamiButtonOptions.provideFactory(() => ({disabled: signal('no'), focusableWhenDisabled: signal(false)}));
 // @ts-expect-error RadioGroup value must be writable
 OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
 // @ts-expect-error RadioGroup value is a nullable string
@@ -212,16 +227,18 @@ OrigamiRadioGroupOptions.provideFactory(() => ({value: signal(1), disabled: sign
 // @ts-expect-error a RadioGroup factory must supply disabled
 OrigamiRadioGroupOptions.provideFactory(() => ({value: signal<string | null>(null)}));
 // @ts-expect-error a RadioGroup Item factory must supply disabled
-OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express')}));
+OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a RadioGroup Item factory must supply focusableWhenDisabled
+OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), disabled: signal(false)}));
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
-class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); }
-class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); }
+class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
+class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 class WrongAccordionItem { readonly value = signal('billing'); readonly disabled = signal('no'); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
-class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
-class WrongToolbarItem { readonly disabled = signal('no'); }
-class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); }
+class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
+class WrongButton { readonly disabled = signal(false); readonly focusableWhenDisabled = signal('no'); }
+class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -238,8 +255,8 @@ OrigamiToggleOptions.provideExisting(() => WrongToggle);
 OrigamiTabsTriggerOptions.provideExisting(() => WrongTabsTrigger);
 // @ts-expect-error incompatible existing ToggleGroup Item class
 OrigamiToggleGroupItemOptions.provideExisting(() => WrongToggleGroupItem);
-// @ts-expect-error incompatible existing Toolbar Item class
-OrigamiToolbarItemOptions.provideExisting(() => WrongToolbarItem);
+// @ts-expect-error incompatible existing Button class
+OrigamiButtonOptions.provideExisting(() => WrongButton);
 // @ts-expect-error incompatible existing RadioGroup Item class
 OrigamiRadioGroupItemOptions.provideExisting(() => WrongRadioGroupItem);
 // Positive: complete factories and abstract existing classes return one ordinary Provider.
@@ -271,6 +288,15 @@ abstract class AbstractAccordionItem {
 abstract class AbstractIdentity {
   abstract readonly id: Signal<string>;
 }
+abstract class AbstractAccordionTrigger {
+  abstract readonly id: Signal<string>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
+}
+abstract class AbstractPopoverTrigger {
+  abstract readonly id: Signal<string>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
+}
 abstract class AbstractPopover {
   abstract readonly open: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
@@ -279,6 +305,7 @@ abstract class AbstractPopover {
 abstract class AbstractToggle {
   abstract readonly pressed: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 }
 abstract class AbstractTabs {
   abstract readonly value: WritableSignal<string | null>;
@@ -299,12 +326,14 @@ abstract class AbstractToggleGroupSingle {
 abstract class AbstractToggleGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 }
 abstract class AbstractToolbar {
   abstract readonly orientation: Signal<OrigamiToolbarOrientation>;
 }
-abstract class AbstractToolbarItem {
+abstract class AbstractButton {
   abstract readonly disabled: Signal<boolean>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 }
 abstract class AbstractRadioGroup {
   abstract readonly value: WritableSignal<string | null>;
@@ -313,6 +342,7 @@ abstract class AbstractRadioGroup {
 abstract class AbstractRadioGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 }
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
@@ -329,33 +359,34 @@ export const providers: Provider[] = [
   OrigamiAccordionMultipleOptions.provideExisting(() => AbstractAccordionMultiple),
   OrigamiAccordionItemOptions.provideFactory(() => ({value: signal('billing'), disabled: computed(() => false), hiding: signal<OrigamiCollapsibleHiding>('until-found')})),
   OrigamiAccordionItemOptions.provideExisting(() => AbstractAccordionItem),
-  OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal('trigger')})),
-  OrigamiAccordionTriggerOptions.provideExisting(() => AbstractIdentity),
+  OrigamiAccordionTriggerOptions.provideFactory(() => ({id: signal('trigger'), focusableWhenDisabled: computed(() => false)})),
+  OrigamiAccordionTriggerOptions.provideExisting(() => AbstractAccordionTrigger),
   OrigamiAccordionPanelOptions.provideFactory(() => ({id: signal('panel')})),
   OrigamiAccordionPanelOptions.provideExisting(() => AbstractIdentity),
   OrigamiPopoverOptions.provideExisting(() => AbstractPopover),
   OrigamiPopoverOptions.provideFactory(() => ({open: signal(false), disabled: signal(false), dismissible: signal(true)})),
-  OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: computed(() => false)})),
+  OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(true)})),
+  OrigamiPopoverTriggerOptions.provideExisting(() => AbstractPopoverTrigger),
   OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal('anchor')})),
-  OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: computed(() => false)})),
+  OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiToggleOptions.provideExisting(() => AbstractToggle),
   OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>('billing'), disabled: computed(() => false), orientation: signal<OrigamiTabsOrientation>('vertical'), activation: signal<OrigamiTabsActivation>('manual')})),
   OrigamiTabsOptions.provideExisting(() => AbstractTabs),
-  OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab'), disabled: computed(() => false)})),
+  OrigamiTabsTriggerOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-tab'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiTabsPanelOptions.provideFactory(() => ({value: signal('billing'), id: signal('billing-panel')})),
   OrigamiTabsPanelOptions.provideExisting(() => AbstractTabsPart),
   OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | null>('start'), disabled: computed(() => false), orientation: signal<OrigamiToggleGroupOrientation>('vertical'), deselectable: signal(true)})),
   OrigamiToggleGroupSingleOptions.provideExisting(() => AbstractToggleGroupSingle),
   OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>(['bold']), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')})),
-  OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: computed(() => false)})),
+  OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiToggleGroupItemOptions.provideExisting(() => AbstractToggleGroupItem),
   OrigamiToolbarOptions.provideFactory(() => ({orientation: signal<OrigamiToolbarOrientation>('vertical')})),
   OrigamiToolbarOptions.provideExisting(() => AbstractToolbar),
-  OrigamiToolbarItemOptions.provideFactory(() => ({disabled: computed(() => false)})),
-  OrigamiToolbarItemOptions.provideExisting(() => AbstractToolbarItem),
+  OrigamiButtonOptions.provideFactory(() => ({disabled: computed(() => false), focusableWhenDisabled: signal(true)})),
+  OrigamiButtonOptions.provideExisting(() => AbstractButton),
   OrigamiRadioGroupOptions.provideFactory(() => ({value: signal<string | null>('express'), disabled: computed(() => false)})),
   OrigamiRadioGroupOptions.provideExisting(() => AbstractRadioGroup),
-  OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), disabled: computed(() => false)})),
+  OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiRadioGroupItemOptions.provideExisting(() => AbstractRadioGroupItem),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
@@ -415,14 +446,24 @@ import { OrigamiCollapsible, OrigamiCollapsibleTrigger } from "@loozo/origami-ui
   wrongOutput(value: number): void { void value; }`,
   },
   toolbar: {
-    imports: `import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
-import { OrigamiToggle } from "@loozo/origami-ui/toggle";
+    imports: `import { OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger } from "@loozo/origami-ui/toolbar";
+import { OrigamiPopover } from "@loozo/origami-ui/popover";
+import { OrigamiToggleState } from "@loozo/origami-ui/toggle";
 import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";`,
     directives:
-      "OrigamiToolbar, OrigamiToolbarItem, OrigamiToggle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
+      "OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger, OrigamiPopover, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
     members: `
   readonly pressed = signal(false);
-  readonly marks = signal<readonly string[]>([]);`,
+  readonly wrongPressed = signal("pressed");
+  readonly marks = signal<readonly string[]>([]);
+  observeToggle(state: OrigamiToggleState): void { void state; }
+  observeString(value: string): void { void value; }`,
+  },
+  button: {
+    imports: `import { OrigamiButton } from "@loozo/origami-ui/button";`,
+    directives: "OrigamiButton",
+    members: `
+  readonly saving = signal(false);`,
   },
   state: {
     imports: `import { OrigamiPresenceState } from "@loozo/origami-ui/presence";
@@ -649,7 +690,42 @@ const templates = [
   {
     name: "toolbar-positive",
     family: "toolbar",
-    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled>Undo</button><button ogToggle ogToolbarItem [(pressed)]="pressed" [disabled]="false">Spell check</button><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold">Bold</button></div></div>`,
+    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled focusableWhenDisabled>Undo</button><button ogToolbarToggle #spelling="ogToolbarToggle" [(pressed)]="pressed" [disabled]="false" focusableWhenDisabled (click)="observeToggle(spelling.state)">Spell check</button><span ogPopover><button ogToolbarPopoverTrigger id="insert" disabled focusableWhenDisabled>Insert</button></span><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold" focusableWhenDisabled>Bold</button></div></div>`,
+  },
+  {
+    name: "toolbar-toggle-model",
+    family: "toolbar",
+    template: `<div ogToolbar aria-label="Editing"><button ogToolbarToggle [(pressed)]="wrongPressed">Spell check</button></div>`,
+    expected: {
+      code: 2322,
+      span: "pressed",
+      message: /Type 'string' is not assignable to type 'boolean'/,
+    },
+  },
+  {
+    name: "toolbar-toggle-state",
+    family: "toolbar",
+    template: `<div ogToolbar aria-label="Editing"><button ogToolbarToggle #spelling="ogToolbarToggle" (click)="observeString(spelling.state)">Spell check</button></div>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message: /'OrigamiToggleState' is not assignable to parameter of type 'string'/,
+    },
+  },
+  {
+    name: "toolbar-popover-trigger-id",
+    family: "toolbar",
+    template: `<div ogToolbar aria-label="Editing"><span ogPopover><button ogToolbarPopoverTrigger [id]="4">Insert</button></span></div>`,
+    expected: {
+      code: 2322,
+      span: "id",
+      message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "button-positive",
+    family: "button",
+    template: `<button ogButton [disabled]="saving()" focusableWhenDisabled>Save</button>`,
   },
   {
     name: "toolbar-orientation",

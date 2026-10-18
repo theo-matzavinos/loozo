@@ -4,9 +4,9 @@ import {
   OrigamiToolbarOptions,
   OrigamiToolbarState,
   OrigamiToolbarItem,
-  OrigamiToolbarItemOptions,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
 
 // K5 precedence: whole replacement Options win over the composed directives' own inputs, bound
 // through the consumers' exposed host-directive inputs, with a factory for the root and an
@@ -35,10 +35,11 @@ export class PrecedenceFactoryToolbar {
 @Directive({
   selector: "button[precedenceExistingToolbarItem]",
   hostDirectives: [{ directive: OrigamiToolbarItem, inputs: ["disabled"] }],
-  providers: [OrigamiToolbarItemOptions.provideExisting(() => PrecedenceExistingToolbarItem)],
+  providers: [OrigamiButtonOptions.provideExisting(() => PrecedenceExistingToolbarItem)],
 })
-export class PrecedenceExistingToolbarItem implements OrigamiToolbarItemOptions {
+export class PrecedenceExistingToolbarItem implements OrigamiButtonOptions {
   readonly disabled = inject(ToolbarPrecedenceSettings).disabled;
+  readonly focusableWhenDisabled = signal(false);
 }
 
 // The composed directives' own inputs deliberately contradict the replacement.

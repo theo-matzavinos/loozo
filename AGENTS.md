@@ -12,6 +12,8 @@ these packages have no consumers and publish `0.0.x` versions, so there are no c
 
 consumers use an origami directive either directly in their template or through `hostDirectives`. don't design, test or guard for a consumer directive whose selector co-matches a primitive's on the same element, or for the import-order provider precedence that would follow from it.
 
+two origami directives co-applied to one element in a template stay in scope, except `ogButton` next to a button primitive (a directive that composes `ogButton`), or two button primitives: that's unsupported: angular shares one `ogButton` between them and only one part's options reach it. a control that needs two of them is a toolbar variant, such as `ogToolbarToggle` or `ogToolbarPopoverTrigger`. don't design, test or guard for co-applied button primitives.
+
 ## readmes
 
 each readme documents only its own scope:

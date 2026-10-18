@@ -1,7 +1,6 @@
 import { ChangeDetectorRef, Component, Directive, inject, signal } from "@angular/core";
 import {
   OrigamiPopover,
-  OrigamiPopoverTrigger,
   OrigamiPopoverAnchor,
   OrigamiPopoverContent,
 } from "@loozo/origami-ui/popover";
@@ -13,13 +12,14 @@ import {
 import {
   OrigamiToolbar,
   OrigamiToolbarItem,
+  OrigamiToolbarPopoverTrigger,
   OrigamiToolbarToggleGroupSingle,
   OrigamiToolbarToggleGroupMultiple,
 } from "@loozo/origami-ui/toolbar";
 
 // K2 keyboard, vertical and reading direction, the K3 Toolbar groups, the K4 focus repair, the K7
-// standalone group in Popover Content and the K10 disabled Popover Trigger, beside the core seed's
-// Toolbar. Each case is identified by `data-toolbar-case`.
+// standalone group in Popover Content and the K10 disabled Toolbar Popover Trigger, beside the core
+// seed's Toolbar. Each case is identified by `data-toolbar-case`.
 
 /** A Toolbar group's effective orientation, read from its State. */
 @Directive({ selector: "[toolbarGroupProbe]", exportAs: "toolbarGroupProbe" })
@@ -57,7 +57,7 @@ export class ToolbarAlignment {
     OrigamiToggleGroupSingle,
     OrigamiToggleGroupItem,
     OrigamiPopover,
-    OrigamiPopoverTrigger,
+    OrigamiToolbarPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
     ToolbarGroupProbe,
@@ -187,7 +187,7 @@ export class ToolbarAlignment {
     <div ogToolbar aria-label="Insert menu" data-toolbar-case="popover">
       <button ogToolbarItem data-role="before">Before</button>
       <span ogPopover [(open)]="insertOpen">
-        <button ogPopoverTrigger ogPopoverAnchor ogToolbarItem data-role="trigger">Insert</button>
+        <button ogToolbarPopoverTrigger ogPopoverAnchor data-role="trigger">Insert</button>
         <div ogPopoverContent role="group" aria-label="Insert options" data-role="content">
           <div ogToggleGroupSingle [(value)]="insertKind" aria-label="Kind" data-role="kinds">
             <button ogToggleGroupItem value="image" data-role="image">Image</button>
@@ -199,14 +199,13 @@ export class ToolbarAlignment {
     </div>
 
     <h2>Toolbar with a disabled Popover Trigger</h2>
-    <!-- One binding sets the disabled input of both co-applied directives (SPEC section 15). -->
+    <!-- The Trigger's own disabled, or its Popover's, is its disabled state in the Toolbar. -->
     <button type="button" data-testid="toolbar-format-before">Before the format toolbar</button>
     <div ogToolbar aria-label="Format" data-toolbar-case="disabled-popover">
-      <span ogPopover [(open)]="formatOpen">
+      <span ogPopover [(open)]="formatOpen" [disabled]="formatRootDisabled()">
         <button
-          ogPopoverTrigger
+          ogToolbarPopoverTrigger
           ogPopoverAnchor
-          ogToolbarItem
           [disabled]="formatDisabled()"
           data-role="trigger"
         >
@@ -220,6 +219,13 @@ export class ToolbarAlignment {
     </div>
     <button type="button" data-testid="toolbar-format-disable" (click)="formatDisabled.set(!formatDisabled())">
       Toggle format disabled
+    </button>
+    <button
+      type="button"
+      data-testid="toolbar-format-root-disable"
+      (click)="formatRootDisabled.set(!formatRootDisabled())"
+    >
+      Toggle the format Popover disabled
     </button>
     <output data-testid="toolbar-format-open">{{ formatOpen() }}</output>
   `,
@@ -238,6 +244,7 @@ export class ToolbarCases {
   readonly insertKind = signal<string | null>(null);
   readonly formatOpen = signal(false);
   readonly formatDisabled = signal(true);
+  readonly formatRootDisabled = signal(false);
   readonly increment = (value: number): number => value + 1;
   readonly changeDetector = inject(ChangeDetectorRef);
 

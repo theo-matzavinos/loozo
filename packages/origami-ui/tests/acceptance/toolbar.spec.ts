@@ -364,7 +364,7 @@ test("K4: focus repair for toolbar and Toolbar group items never activates or st
   await expect(part("y")).toHaveAttribute("aria-pressed", "false");
 });
 
-test("K5: replaced root and item Options drive behavior with no fallback; State reaches a separator; a co-applied Toggle is one control", async ({
+test("K5: replaced root and item Options drive behavior with no fallback; State reaches a separator; a Toolbar Toggle is one control", async ({
   page,
 }, info) => {
   await fixture(page, "composition", info);
@@ -414,7 +414,8 @@ test("K5: replaced root and item Options drive behavior with no fallback; State 
   await page.keyboard.press("ArrowDown");
   await expect(command("paste")).toBeFocused();
 
-  // One disabled binding sets both co-applied directives; every control disabled leaves no tab stop.
+  // The Toolbar Toggle's disabled binding disables it as a Toggle and as a control; every control
+  // disabled leaves no tab stop.
   await page.getByTestId("editor-read-only").click();
 
   for (const key of ["cut", "copy", "paste", "spellcheck"]) {
@@ -450,7 +451,7 @@ test("K5: replaced root and item Options drive behavior with no fallback; State 
   await expect(precedenceRoot).toHaveAttribute("aria-orientation", "horizontal");
 });
 
-test("K7: a standalone group in Popover Content whose Trigger is a toolbar item keeps its own roving and tab stop", async ({
+test("K7: a standalone group in Popover Content whose Trigger is a Toolbar Popover Trigger keeps its own roving and tab stop", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);
@@ -489,7 +490,7 @@ test("K7: a standalone group in Popover Content whose Trigger is a toolbar item 
   await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(2);
 });
 
-test("K10: a Popover Trigger co-applied with a toolbar item and disabled with it is skipped, leaves Tab on the toolbar and opens nothing, both ways", async ({
+test("K10: a Toolbar Popover Trigger disabled by its own input or its Popover is skipped, leaves Tab on the toolbar and opens nothing, both ways", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);
@@ -516,6 +517,21 @@ test("K10: a Popover Trigger co-applied with a toolbar item and disabled with it
     await page.keyboard.press("ArrowRight");
     await expect(part("bold")).toBeFocused();
     await trigger.click({ force: true });
+
+    // Native `disabled` drops the trusted click before any listener runs. A dispatched click
+    // still reaches the listeners, so only the Trigger's own guard keeps the Popover closed.
+    const dispatched = await trigger.evaluate((element) => {
+      let received = 0;
+
+      element.addEventListener("click", () => {
+        received += 1;
+      });
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+      return received;
+    });
+
+    expect(dispatched).toBe(1);
     await settle(page);
     await expect(page.getByTestId("toolbar-format-open")).toHaveText("false");
     await expect(part("content")).toBeHidden();
@@ -541,4 +557,13 @@ test("K10: a Popover Trigger co-applied with a toolbar item and disabled with it
   await expectTabStop(toolbar, trigger);
   await page.getByTestId("toolbar-format-disable").click();
   await expectDisabled();
+
+  // Disabling the Popover root disables its Trigger as a Toolbar control too.
+  await page.getByTestId("toolbar-format-disable").click();
+  await expectTabStop(toolbar, trigger);
+  await page.getByTestId("toolbar-format-root-disable").click();
+  await expectDisabled();
+  await page.getByTestId("toolbar-format-root-disable").click();
+  await expect(trigger).toHaveJSProperty("disabled", false);
+  await expectTabStop(toolbar, trigger);
 });

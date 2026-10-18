@@ -11,11 +11,8 @@ import {
   OrigamiToggleGroupItemOptions,
   OrigamiToggleGroupMultiple,
 } from "@loozo/origami-ui/toggle-group";
-import {
-  OrigamiToolbar,
-  OrigamiToolbarItem,
-  OrigamiToolbarItemOptions,
-} from "@loozo/origami-ui/toolbar";
+import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
+import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import {
   OrigamiRadioGroup,
   OrigamiRadioGroupItem,
@@ -37,6 +34,7 @@ export class RepeatedTab implements OrigamiTabsTriggerOptions {
   readonly value = input.required<string>();
   readonly id = input(injectUniqueId("repeated-tab"));
   readonly disabled = input(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** Replacement ToggleGroup item Options whose value is a required input. */
@@ -48,16 +46,18 @@ export class RepeatedTab implements OrigamiTabsTriggerOptions {
 export class RepeatedMark implements OrigamiToggleGroupItemOptions {
   readonly value = input.required<string>();
   readonly disabled = input(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
-/** Replacement Toolbar item Options whose disabled state is a required input. */
+/** Replacement Toolbar item (Button) Options whose disabled state is a required input. */
 @Directive({
   selector: "button[repeatedTool]",
   hostDirectives: [OrigamiToolbarItem],
-  providers: [OrigamiToolbarItemOptions.provideExisting(() => RepeatedTool)],
+  providers: [OrigamiButtonOptions.provideExisting(() => RepeatedTool)],
 })
-export class RepeatedTool implements OrigamiToolbarItemOptions {
+export class RepeatedTool implements OrigamiButtonOptions {
   readonly disabled = input.required<boolean>();
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** Replacement RadioGroup item Options whose value is a required input. */
@@ -69,6 +69,7 @@ export class RepeatedTool implements OrigamiToolbarItemOptions {
 export class RepeatedRadio implements OrigamiRadioGroupItemOptions {
   readonly value = input.required<string>();
   readonly disabled = input(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** Each widget's preferred item, or for the Toolbar its first enabled one, is the third. */

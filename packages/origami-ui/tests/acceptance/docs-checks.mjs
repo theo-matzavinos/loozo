@@ -50,6 +50,7 @@ for (const directory of [
   "toggle-group/src",
   "toolbar/src",
   "radio-group/src",
+  "button/src",
 ]) {
   await collect(directory);
 }
@@ -109,6 +110,7 @@ const directiveDefaults = {
   "OrigamiPopoverContent.gap": ["0 CSS px", /\b0\b|\bzero\b/i],
   "OrigamiToggle.pressed": ["false", /\bfalse\b/i],
   "OrigamiToggle.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToggle.focusableWhenDisabled": ["false", /\bfalse\b/i],
   "OrigamiTabs.value": ["null", /\bnull\b/i],
   "OrigamiTabs.disabled": ["false", /\bfalse\b/i],
   "OrigamiTabs.orientation": ["horizontal", /\bhorizontal\b/i],
@@ -125,10 +127,20 @@ const directiveDefaults = {
   "OrigamiToggleGroupItem.disabled": ["false", /\bfalse\b/i],
   "OrigamiToolbar.orientation": ["horizontal", /\bhorizontal\b/i],
   "OrigamiToolbarItem.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToolbarItem.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiToolbarToggle.pressed": ["false", /\bfalse\b/i],
+  "OrigamiToolbarToggle.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToolbarToggle.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiToolbarPopoverTrigger.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiToolbarPopoverTrigger.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToolbarPopoverTrigger.focusableWhenDisabled": ["false", /\bfalse\b/i],
   "OrigamiRadioGroup.value": ["null", /\bnull\b/i],
   "OrigamiRadioGroup.disabled": ["false", /\bfalse\b/i],
   "OrigamiRadioGroupItem.value": ["generated value", /generat|unique|opaque/i],
   "OrigamiRadioGroupItem.disabled": ["false", /\bfalse\b/i],
+  "OrigamiRadioGroupItem.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiButton.disabled": ["false", /\bfalse\b/i],
+  "OrigamiButton.focusableWhenDisabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

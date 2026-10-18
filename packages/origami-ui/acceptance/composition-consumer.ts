@@ -53,9 +53,10 @@ import {
   OrigamiToolbarOptions,
   OrigamiToolbarState,
   OrigamiToolbarItem,
-  OrigamiToolbarItemOptions,
+  OrigamiToolbarToggle,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import {
   OrigamiRadioGroup,
   OrigamiRadioGroupOptions,
@@ -113,12 +114,14 @@ export class ConsumerCollapsiblePanel {
 })
 export class ConsumerAccordionTrigger implements OrigamiAccordionTriggerOptions {
   readonly id = input("consumer-accordion-trigger");
+  readonly focusableWhenDisabled = signal(false);
 }
 
 @Service({ autoProvided: false })
 export class ToggleSettings {
   readonly pressed = signal(false);
   readonly disabled = signal(false);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** Writable factory Options win over the unused lower model, whose output stays silent. */
@@ -148,6 +151,7 @@ export class FactoryToggle {
 export class ConsumerToggle implements OrigamiToggleOptions {
   readonly pressed = model(true);
   readonly disabled = input(false, { transform: booleanAttribute });
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** A descendant observes its nearest Toggle's State. */
@@ -193,6 +197,7 @@ export class FactoryTabs {
 export class ConsumerTab implements OrigamiTabsTriggerOptions {
   readonly value = input.required<string>({ alias: "consumerTab" });
   readonly disabled = input(false, { transform: booleanAttribute });
+  readonly focusableWhenDisabled = signal(false);
   readonly id = computed(() => `consumer-tab-${this.value()}`);
 }
 
@@ -261,6 +266,7 @@ export class ConsumerAlignment implements OrigamiToggleGroupItemOptions {
   readonly alignment = input<Alignment>(pendingAlignment, { alias: "consumerAlignment" });
   readonly value = computed(() => this.alignment().id);
   readonly disabled = computed(() => !this.alignment().available);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** A descendant observes its nearest ToggleGroup State. */
@@ -302,16 +308,17 @@ export type EditorCommand = { readonly id: string; readonly available: boolean }
 /** Readable before Angular sets the input: the Toolbar reads every repeated item's Options while rendering. */
 const pendingCommand: EditorCommand = { id: "", available: false };
 
-/** Existing item Options: disabled state comes from the consumer's domain record and layout. */
+/** Existing item Options, a Toolbar item's Button Options: disabled state comes from the consumer's domain record and layout. */
 @Directive({
   selector: "button[editorCommand]",
   hostDirectives: [OrigamiToolbarItem],
-  providers: [OrigamiToolbarItemOptions.provideExisting(() => EditorCommandItem)],
+  providers: [OrigamiButtonOptions.provideExisting(() => EditorCommandItem)],
 })
-export class EditorCommandItem implements OrigamiToolbarItemOptions {
+export class EditorCommandItem implements OrigamiButtonOptions {
   readonly command = input<EditorCommand>(pendingCommand, { alias: "editorCommand" });
   readonly #layout = inject(EditorLayout);
   readonly disabled = computed(() => this.#layout.readOnly() || !this.command().available);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** A separator perpendicular to the effective Toolbar orientation, through descendant State. */
@@ -374,6 +381,7 @@ export class SpeedOption implements OrigamiRadioGroupItemOptions {
   readonly option = input<SpeedRecord>(pendingSpeed, { alias: "speedOption" });
   readonly value = computed(() => this.option().id);
   readonly disabled = computed(() => !this.option().available);
+  readonly focusableWhenDisabled = signal(false);
 }
 
 /** A delivery estimate under the group, from descendant State. */
@@ -444,8 +452,7 @@ export class UtilityObservation {
     EditorToolbar,
     EditorCommandItem,
     EditorSeparator,
-    OrigamiToggle,
-    OrigamiToolbarItem,
+    OrigamiToolbarToggle,
     CheckoutSpeed,
     SpeedOption,
     SpeedEstimate,
@@ -744,8 +751,7 @@ export class UtilityObservation {
         }
         <span editorSeparator data-testid="editor-separator"></span>
         <button
-          ogToggle
-          ogToolbarItem
+          ogToolbarToggle
           [(pressed)]="spellcheck"
           [disabled]="editorLayout.readOnly()"
           (pressedChange)="spellcheckOutputs.update(increment)"
