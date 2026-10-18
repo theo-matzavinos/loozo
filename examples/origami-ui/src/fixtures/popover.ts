@@ -3,7 +3,10 @@ import {
   Directive,
   DestroyRef,
   ElementRef,
+  EnvironmentInjector,
+  ErrorHandler,
   Service,
+  afterNextRender,
   inject,
   input,
   linkedSignal,
@@ -40,6 +43,25 @@ export class ConsumerPaint {
   readonly pointer = signal("auto");
   readonly transform = signal("translateX(0px)");
   readonly text = signal("initial");
+}
+
+/** Reports through the application's ErrorHandler, after a callback armed for the next report. */
+@Service({ autoProvided: false })
+export class FixtureErrorHandler implements ErrorHandler {
+  readonly #application = inject(ErrorHandler, { skipSelf: true });
+  #nextReport: (() => void) | null = null;
+
+  onNextReport(callback: () => void): void {
+    this.#nextReport = callback;
+  }
+
+  handleError(error: unknown): void {
+    const callback = this.#nextReport;
+
+    this.#nextReport = null;
+    callback?.();
+    this.#application.handleError(error);
+  }
 }
 
 @Service({ autoProvided: false })
@@ -231,7 +253,12 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
   ],
-  providers: [BranchJournal, ConsumerPaint],
+  providers: [
+    BranchJournal,
+    ConsumerPaint,
+    FixtureErrorHandler,
+    { provide: ErrorHandler, useExisting: FixtureErrorHandler },
+  ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach popover behavior</button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
@@ -275,6 +302,8 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         <button type="button" data-testid="native-disabled" (click)="root.settings.disabled.set(!root.settings.disabled())">Disable trigger</button>
         <button type="button" data-testid="native-trigger-inert" (click)="triggerInert.set(!triggerInert())">Make trigger inert</button>
         <button type="button" data-testid="native-co-locate" (click)="coLocated.set(!coLocated())">Co-locate anchor and trigger</button>
+        <button type="button" data-testid="native-latch-configuration" (click)="latchPositionFailure(root.settings, 'configuration')">Open without ResizeObserver; a later WRITE changes the gap</button>
+        <button type="button" data-testid="native-latch-intent" (click)="latchPositionFailure(root.settings, 'intent')">Open without ResizeObserver; a later WRITE closes and reopens</button>
         <button type="button" data-testid="native-reentry-setter" (click)="root.settings.reenterSetter.set(true)">Reopen from actual Options setter</button>
         <label>Layout <select data-testid="native-layout" (change)="setLayout($event)">
           <option value="center">Centered</option><option value="bottom">Near bottom</option><option value="right">Near right</option>
@@ -506,6 +535,8 @@ export class NativeContent implements OrigamiPopoverContentOptions {
 export class PopoverFixture {
   readonly journal = inject(BranchJournal);
   readonly element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #environment = inject(EnvironmentInjector);
+  readonly #errors = inject(FixtureErrorHandler);
   readonly attached = signal(false);
   readonly motion = signal("finite");
   readonly writingMode = signal("horizontal-tb");
@@ -558,6 +589,37 @@ export class PopoverFixture {
 
     this.flipAnchorOnOtherOpening.set(false);
     anchor.style.direction = "rtl";
+  }
+
+  /**
+   * Requests open without ResizeObserver. A WRITE registered now runs after the owner's WRITE,
+   * which shows, and before its READ, which fails tracking acquisition with what that later WRITE
+   * changed: the gap, or open set false then true. The report restores the observer.
+   */
+  latchPositionFailure(settings: NativeSettings, change: "configuration" | "intent"): void {
+    const resizeObserver = window.ResizeObserver;
+
+    Reflect.deleteProperty(window, "ResizeObserver");
+    this.#errors.onNextReport(() => {
+      Reflect.set(window, "ResizeObserver", resizeObserver);
+      settings.record("report");
+    });
+    afterNextRender(
+      {
+        write: () => {
+          if (change === "configuration") {
+            settings.gap.set(12);
+          } else {
+            settings.open.set(false);
+            settings.open.set(true);
+          }
+
+          settings.record("consumer-write");
+        },
+      },
+      { injector: this.#environment },
+    );
+    settings.open.set(true);
   }
 
   setAction(event: Event, settings: NativeSettings): void {

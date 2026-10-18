@@ -2076,6 +2076,26 @@ test("V3 V11: a positioning failure after reveal and a configuration update hide
   await expect(page.getByTestId("native-unused-outputs")).toHaveText("0");
 });
 
+function isMissingObserver(record: ErrorRecord): boolean {
+  if (record.source !== "console") {
+    return false;
+  }
+
+  for (const argument of record.arguments ?? []) {
+    if (
+      typeof argument === "object" &&
+      argument !== null &&
+      "message" in argument &&
+      argument.message ===
+        "Popover position tracking requires ResizeObserver and IntersectionObserver."
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 test("V11 V13: a missing required observer fails the show before tracking acquisition; no listener or observer is left attached", async ({
   page,
   runtimeErrors,
@@ -2084,25 +2104,7 @@ test("V11 V13: a missing required observer fails the show before tracking acquis
   runtimeErrors.expectExactly([
     {
       description: "one missing-observer Error reported through ErrorHandler",
-      matches: (record) => {
-        if (record.source !== "console") {
-          return false;
-        }
-
-        for (const argument of record.arguments ?? []) {
-          if (
-            typeof argument === "object" &&
-            argument !== null &&
-            "message" in argument &&
-            argument.message ===
-              "Popover position tracking requires ResizeObserver and IntersectionObserver."
-          ) {
-            return true;
-          }
-        }
-
-        return false;
-      },
+      matches: isMissingObserver,
     },
   ]);
   await fixture(page, "popover", info);
@@ -2233,6 +2235,63 @@ test("V11 V13: a missing required observer fails the show before tracking acquis
     await tracking.dispose();
   }
 });
+
+for (const change of ["configuration", "intent"]) {
+  test(`V13: a positioning failure that latches a later WRITE's ${change} before synchronization observes it still retries`, async ({
+    page,
+    runtimeErrors,
+    drainIssues,
+  }, info) => {
+    runtimeErrors.expectExactly([
+      {
+        description: "one missing-observer Error reported through ErrorHandler",
+        matches: isMissingObserver,
+      },
+    ]);
+    await fixture(page, "popover", info);
+    // The fixture removes ResizeObserver, requests open and registers a consumer WRITE after the
+    // owner's. Its ErrorHandler restores the observer on the report; no attempt identity changes then.
+    await scriptControl(page, `native-latch-${change}`);
+    await expect(page.getByTestId("native-openings")).toHaveText("2");
+    await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
+    await expect
+      .poll(() => preparationState(page))
+      .toEqual({
+        native: true,
+        inert: false,
+        opacity: "1 ",
+        pointer: "auto ",
+        privateDeclarations: [],
+      });
+
+    const journal = await page.getByTestId("native-callbacks").innerText();
+    const callbacks = journal.split("|");
+    const interleaving: string[] = [];
+
+    for (const entry of callbacks) {
+      if (!entry.startsWith("toggle:") && !entry.startsWith("focus:")) {
+        interleaving.push(entry);
+      }
+    }
+
+    await info.attach(`V13-latched-${change}-interleaving`, {
+      body: JSON.stringify({ callbacks, interleaving }, null, 2),
+      contentType: "application/json",
+    });
+    // Show in the owner's WRITE, the later consumer WRITE, the failure's hide in READ, the
+    // report, then the retry that synchronization's newly observed identity allows.
+    expect(interleaving).toEqual([
+      "beforetoggle:open:requested=true:native=false",
+      "consumer-write:requested=true:native=true",
+      "beforetoggle:closed:requested=true:native=true",
+      "report:requested=true:native=false",
+      "beforetoggle:open:requested=true:native=false",
+    ]);
+    await drainIssues();
+    expect(runtimeErrors.records.length).toBe(1);
+  });
+}
 
 for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
   test(`V12: ${motion} native exit retention, immediate inert/nonparticipation, scroll cannot strand completion`, async ({
