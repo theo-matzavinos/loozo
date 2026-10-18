@@ -121,8 +121,8 @@ export class PopoverContext {
   readonly #trigger = signal<TriggerPart | null>(null);
   readonly #anchor = signal<IdentityPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
-  readonly #children = new Set<PopoverContext>();
-  readonly #structure = signal(0);
+  // Replaced on every change, never mutated: a branch snapshot compares it by identity.
+  readonly #children = signal<ReadonlySet<PopoverContext>>(new Set());
   readonly #participating = signal(false);
   readonly #ready = signal(false);
   readonly #pulse = signal(0);
@@ -181,8 +181,7 @@ export class PopoverContext {
     this.#scene.register(this);
 
     if (this.parent !== null) {
-      this.parent.#children.add(this);
-      this.parent.#structure.update((value) => value + 1);
+      this.parent.#children.update((children) => new Set(children).add(this));
     }
 
     effect(() => {
@@ -213,8 +212,13 @@ export class PopoverContext {
       this.#scene.unregister(this);
 
       if (this.parent !== null) {
-        this.parent.#children.delete(this);
-        this.parent.#structure.update((value) => value + 1);
+        this.parent.#children.update((children) => {
+          const remaining = new Set(children);
+
+          remaining.delete(this);
+
+          return remaining;
+        });
       }
 
       this.#suppress();
@@ -256,7 +260,6 @@ export class PopoverContext {
       if (slot() === part) {
         this.#suppress();
         slot.set(null);
-        this.#structure.update((value) => value + 1);
         this.#schedule();
       }
     });
@@ -288,7 +291,9 @@ export class PopoverContext {
   captureBranch(): Branch {
     const members: BranchMember[] = [];
     const visit = (owner: PopoverContext) => {
-      for (const child of owner.#children) {
+      const children = owner.#children();
+
+      for (const child of children) {
         visit(child);
       }
 
@@ -297,7 +302,7 @@ export class PopoverContext {
         intent: owner.intent(),
         parts: owner.parts(),
         policy: owner.#policy(),
-        structure: owner.#structure(),
+        children,
         activation: owner.#activation,
         presentationEpoch: owner.#presentationEpoch,
         ready: owner.#ready(),
@@ -315,7 +320,7 @@ export class PopoverContext {
       this.intent() === member.intent &&
       this.parts() === member.parts &&
       this.#policy() === member.policy &&
-      this.#structure() === member.structure &&
+      this.#children() === member.children &&
       this.#activation === member.activation &&
       this.#presentationEpoch === member.presentationEpoch
     );
@@ -356,7 +361,7 @@ export class PopoverContext {
       }
     }
 
-    for (const child of this.#children) {
+    for (const child of this.#children()) {
       if (child.containsPath(path)) {
         return true;
       }
@@ -376,7 +381,7 @@ export class PopoverContext {
       return true;
     }
 
-    for (const child of this.#children) {
+    for (const child of this.#children()) {
       if (child.#containsFocus(focus)) {
         return true;
       }
@@ -411,7 +416,7 @@ export class PopoverContext {
   branchOrder(): number {
     let order = this.order();
 
-    for (const child of this.#children) {
+    for (const child of this.#children()) {
       order = Math.max(order, child.branchOrder());
     }
 
@@ -508,7 +513,7 @@ export class PopoverContext {
           this.restoreFocus(focus);
         }
 
-        for (const child of this.#children) {
+        for (const child of this.#children()) {
           if (this.#destroyed || this.intent() !== intent) {
             this.#interactionClose = false;
             this.#schedule();
@@ -740,7 +745,7 @@ export class PopoverContext {
         this.#setReady(true);
         this.#positionResult = null;
 
-        for (const child of this.#children) {
+        for (const child of this.#children()) {
           child.#requestPosition();
         }
       } else if (activation.revealed && content.presence.phase() === "opening") {
@@ -1052,7 +1057,7 @@ export class PopoverContext {
     this.#participating.set(false);
     this.#setReady(false);
 
-    for (const child of this.#children) {
+    for (const child of this.#children()) {
       child.#suppress();
     }
 
