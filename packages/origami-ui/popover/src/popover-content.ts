@@ -213,7 +213,7 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
   /** @internal Consults current native state, never queued toggle intent. Bubbled descendant events are ignored. */
   protected nativeToggle(event: Event): void {
     if (!this.#destroyed && event.target === this.#element) {
-      this.#context.nativeToggle(this.#element);
+      this.#context.floating.nativeToggle(this.#element);
     }
   }
 }

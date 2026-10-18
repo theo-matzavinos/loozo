@@ -6,7 +6,7 @@ type StyleOverride = {
 };
 
 /** Owner-private specified-value overrides that keep prepared Content transparent and non-interactive. */
-export class PopoverPreparation {
+export class FloatingPreparation {
   readonly #preparationId: string;
   #overrides: StyleOverride[] = [];
 

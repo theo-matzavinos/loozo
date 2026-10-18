@@ -1,11 +1,10 @@
 import { computePosition, flip, offset, platform } from "@floating-ui/dom";
 import type { Placement, Side } from "@floating-ui/dom";
-import type { OrigamiPopoverAlign, OrigamiPopoverSide } from "./popover-content";
 
 export interface PositionConfiguration {
   readonly id: string;
-  readonly side: OrigamiPopoverSide;
-  readonly align: OrigamiPopoverAlign;
+  readonly side: "block-start" | "block-end" | "inline-start" | "inline-end";
+  readonly align: "start" | "center" | "end";
   readonly gap: number;
 }
 
@@ -16,17 +15,19 @@ const opposites: Record<Side, Side> = {
   right: "left",
 };
 
-/** Scalar Anchor axes read in the same READ phase that positions; never a live style declaration. */
+/** Scalar reference axes read in the same READ phase that positions; never a live style declaration. */
 export interface PositionAxes {
   readonly writingMode: string;
   readonly direction: string;
 }
 
+/** `names` labels errors with the owning primitive and its reference, such as "Popover" and "Anchor". */
 export function positionContent(
-  anchor: HTMLElement,
+  reference: HTMLElement,
   content: HTMLElement,
   configuration: PositionConfiguration,
   axes: PositionAxes,
+  names: { readonly label: string; readonly referenceLabel: string },
 ) {
   let blockStart: Side;
   let inlineStart: Side;
@@ -48,7 +49,9 @@ export function positionContent(
 
       break;
     default:
-      throw new Error(`Unsupported Popover Anchor writing mode: ${axes.writingMode}.`);
+      throw new Error(
+        `Unsupported ${names.label} ${names.referenceLabel} writing mode: ${axes.writingMode}.`,
+      );
   }
 
   if (axes.direction === "rtl") {
@@ -80,7 +83,7 @@ export function positionContent(
 
       break;
     default:
-      throw new Error(`Invalid Popover side: ${configuration.side}.`);
+      throw new Error(`Invalid ${names.label} side: ${configuration.side}.`);
   }
 
   let placement: Placement = side;
@@ -102,7 +105,7 @@ export function positionContent(
         alignment = "start";
       }
     } else if (configuration.align !== "start") {
-      throw new Error(`Invalid Popover alignment: ${configuration.align}.`);
+      throw new Error(`Invalid ${names.label} alignment: ${configuration.align}.`);
     }
 
     let oppositeAlignment: "start" | "end" = "start";
@@ -119,7 +122,7 @@ export function positionContent(
     );
   }
 
-  return computePosition(anchor, content, {
+  return computePosition(reference, content, {
     placement,
     strategy: "fixed",
     platform: { ...platform, isRTL: () => false },
