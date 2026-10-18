@@ -574,3 +574,45 @@ test("U5: a nested root has its own State, keys and tab stop", async ({ page }, 
   await expect(part("inner-value")).toHaveText("y");
   await expect(part("outer-value")).toHaveText("a");
 });
+
+test("U8: a ToggleGroup item's state, read through its template reference, follows the group value and the combined disabled state, also in a Toolbar Toggle Group", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const part = (role: string) =>
+    page.locator(`[data-state-case="toggle-group-item"] [data-role="${role}"]`);
+
+  await expect(part("start-pressed")).toHaveText("false");
+  await expect(part("end-pressed")).toHaveText("false");
+  await part("end").click();
+  await expect(part("end-pressed")).toHaveText("true");
+  await expect(part("start-pressed")).toHaveText("false");
+  await part("external").click();
+  await expect(part("start-pressed")).toHaveText("true");
+  await expect(part("end-pressed")).toHaveText("false");
+
+  // The root's disabled reaches every item; the item's own reaches only that item.
+  await expect(part("start-disabled")).toHaveText("false");
+  await part("root-disable").click();
+  await expect(part("start-disabled")).toHaveText("true");
+  await expect(part("end-disabled")).toHaveText("true");
+  await part("root-disable").click();
+  await part("item-disable").click();
+  await expect(part("start-disabled")).toHaveText("true");
+  await expect(part("end-disabled")).toHaveText("false");
+  await expect(part("start")).toBeDisabled();
+  await part("item-disable").click();
+  await expect(part("start-disabled")).toHaveText("false");
+
+  // A Toolbar Toggle Group item exposes the same composed Toggle State.
+  await expect(part("bold-pressed")).toHaveText("false");
+  await part("bold").click();
+  await expect(part("bold-pressed")).toHaveText("true");
+  await expect(part("italic-pressed")).toHaveText("false");
+  await expect(part("bold-disabled")).toHaveText("false");
+  await part("bold-disable").click();
+  await expect(part("bold-disabled")).toHaveText("true");
+  await expect(part("bold")).toBeDisabled();
+  await expect(part("bold-pressed")).toHaveText("true");
+});

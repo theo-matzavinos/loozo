@@ -21,15 +21,17 @@ Give items distinct explicit values when they need independent selection.
 
 ## Replacing Options
 
-Single, Multiple, shared, Trigger and Panel Options can each be replaced. Here the selection lives in an application service:
+Single, Multiple, shared, Item, Trigger and Panel Options can each be replaced. Here the selection lives in an application service:
 
 [src/accordion/settings-sections.ts](../snippets/src/accordion/settings-sections.ts)
 
-`OrigamiAccordionOptions` holds only the shared `disabled`; replace `OrigamiAccordionSingleOptions` or `OrigamiAccordionMultipleOptions` for the selection. Replacing Trigger or Panel Options also sets the composed Collapsible's IDs and associations.
+`OrigamiAccordionOptions` holds only the shared `disabled`; replace `OrigamiAccordionSingleOptions` or `OrigamiAccordionMultipleOptions` for the selection. Replacing Item Options sets the item's value and the composed Collapsible's disabled state and hiding; replacing Trigger or Panel Options also sets the composed Collapsible's IDs and associations.
 
 ## State and attributes
 
 `OrigamiAccordionState` has `itemValues()`, the mounted items' values in DOM order as of the latest insertion or removal (a keyed move that keeps the same items doesn't notify readers), and `disabled()`, the effective root policy.
+
+Each item exposes its composed `OrigamiCollapsibleState` as `state` (`#item="ogAccordionItem"`): `expanded()` follows the selection and `disabled()` is the item's effective disabled state from the root's or its own. Each Panel exposes its composed `OrigamiPresenceState` as `state` (`#panel="ogAccordionPanel"`); gate content on `panel.state.open()` to keep it through the exit animation.
 
 Each item is a Collapsible, so the item element carries the Collapsible root attributes, and the Trigger and Panel carry the Collapsible Trigger and Panel attributes above.
 

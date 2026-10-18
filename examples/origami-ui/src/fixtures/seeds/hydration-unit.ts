@@ -347,6 +347,48 @@ export class AccordionObservation {
       <output data-testid="hydration-share-root-disabled">{{ share.state.disabled() }}</output>
     </div>
 
+    <!-- L7 A7 A8 U8: the state composing directives expose, read through template references. -->
+    <div ogCollapsible [expanded]="initiallyPresent()">
+      <button ogCollapsibleTrigger data-testid="hydration-state-trigger">
+        Server state details
+      </button>
+      <div ogCollapsiblePanel #statePanel="ogCollapsiblePanel" data-testid="hydration-state-panel">
+        @if (statePanel.state.open()) {
+          <p data-testid="hydration-state-panel-child">{{ label() }} retained Panel child</p>
+        }
+      </div>
+    </div>
+    <div ogAccordionSingle [(value)]="stateSelection" [collapsible]="true">
+      <article ogAccordionItem #stateItem="ogAccordionItem" value="billing">
+        <button ogAccordionTrigger data-testid="hydration-state-item-trigger">
+          Server billing
+        </button>
+        <div
+          ogAccordionPanel
+          #stateItemPanel="ogAccordionPanel"
+          data-testid="hydration-state-item-panel"
+        >
+          @if (stateItemPanel.state.open()) {
+            <p data-testid="hydration-state-item-child">{{ label() }} retained Accordion child</p>
+          }
+        </div>
+        <output data-testid="hydration-state-item-expanded">{{
+          stateItem.state.expanded()
+        }}</output>
+      </article>
+    </div>
+    <div ogToggleGroupSingle [(value)]="stateAlignment" aria-label="Server state alignment">
+      <button
+        ogToggleGroupItem
+        #stateStart="ogToggleGroupItem"
+        value="start"
+        data-testid="hydration-state-start"
+      >
+        Start
+      </button>
+    </div>
+    <output data-testid="hydration-state-start-pressed">{{ stateStart.state.pressed() }}</output>
+
     <div
       ogAccordionSingle
       accordionObservation
@@ -497,6 +539,20 @@ export class HydrationUnit {
     return [];
   });
   readonly markOutputs = signal(0);
+  readonly stateSelection = linkedSignal<string | null>(() => {
+    if (this.initiallyPresent()) {
+      return "billing";
+    }
+
+    return null;
+  });
+  readonly stateAlignment = linkedSignal<string | null>(() => {
+    if (this.initiallyPresent()) {
+      return "start";
+    }
+
+    return null;
+  });
   readonly toolbarOrientation = computed<OrigamiToolbarOrientation>(() => {
     if (this.initiallyPresent()) {
       return "horizontal";

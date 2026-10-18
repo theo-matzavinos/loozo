@@ -1178,6 +1178,81 @@ test("V16 H1 H2: a Popover Trigger disabled by its own input keeps its disabled 
   }
 });
 
+/**
+ * Server-rendered content and observations read through composing directives' `state`: open,
+ * expanded and pressed in A and B, closed with nothing gated in C.
+ */
+async function expectServerComposedState(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const present = label !== "C";
+    let children = 0;
+
+    if (present) {
+      children = 1;
+    }
+
+    await expect(unit.getByTestId("hydration-state-panel-child")).toHaveCount(children);
+    await expect(unit.getByTestId("hydration-state-item-child")).toHaveCount(children);
+    await expect(unit.getByTestId("hydration-state-item-expanded")).toHaveText(String(present));
+    await expect(unit.getByTestId("hydration-state-start-pressed")).toHaveText(String(present));
+
+    for (const panel of ["hydration-state-panel", "hydration-state-item-panel"]) {
+      if (present) {
+        await expect(unit.getByTestId(panel)).not.toHaveAttribute("hidden", /.*/);
+      } else {
+        await expect(unit.getByTestId(panel)).toHaveAttribute("hidden", "");
+      }
+    }
+  }
+}
+
+test("L7 A7 A8 U8 H1 H2: content gated on a Panel's state and Item state observations are in server HTML and kept through hydration; they follow interaction once hydrated", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    await expectServerComposedState(page, ["A", "B", "C"]);
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    const b = page.locator('[data-unit="B"]');
+    const c = page.locator('[data-unit="C"]');
+
+    for (const unit of [b, c]) {
+      if (incremental) {
+        await unit.getByTestId("hydrate-unit").click();
+      }
+
+      await expect(unit).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    // Hydration changes no server observation and removes no saved node.
+    await expectServerComposedState(page, ["A", "B", "C"]);
+    await assertReferences(page, info);
+
+    // C, initially closed: interaction opens, expands and presses through the same references.
+    await c.getByTestId("hydration-state-trigger").click();
+    await expect(c.getByTestId("hydration-state-panel-child")).toHaveCount(1);
+    await c.getByTestId("hydration-state-item-trigger").click();
+    await expect(c.getByTestId("hydration-state-item-expanded")).toHaveText("true");
+    await expect(c.getByTestId("hydration-state-item-child")).toHaveCount(1);
+    await c.getByTestId("hydration-state-start").click();
+    await expect(c.getByTestId("hydration-state-start-pressed")).toHaveText("true");
+
+    // B, initially open: collapsing releases the gated children.
+    await b.getByTestId("hydration-state-trigger").click();
+    await expect(b.getByTestId("hydration-state-panel-child")).toHaveCount(0);
+    await b.getByTestId("hydration-state-item-trigger").click();
+    await expect(b.getByTestId("hydration-state-item-expanded")).toHaveText("false");
+    await expect(b.getByTestId("hydration-state-item-child")).toHaveCount(0);
+  } finally {
+    releaseMain();
+  }
+});
+
 /** Server-rendered RadioGroup semantics; C has nothing checked and a disabled first radio. */
 async function expectServerRadioGroups(page: Page, labels: string[]): Promise<void> {
   for (const label of labels) {

@@ -41,7 +41,7 @@ Item Options also drive the composed Toggle, so replacing them alone sets the it
 
 ## State and attributes
 
-`OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Descendants of an item inject the composed `OrigamiToggleState` for its `pressed()` and `disabled()`.
+`OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Each item exposes its composed `OrigamiToggleState` as `state` (`#item="ogToggleGroupItem"`), with `pressed()` and `disabled()`, the item's effective disabled state from the root's or its own; descendants of an item can inject it.
 
 | Element | Attributes                                                                                                                                                                      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,5 +1,6 @@
 import { test, expect } from "./contract-test.js";
 import { bootstrapHeld, fixture, stopRetentionObservation } from "./observation.js";
+import type { Locator } from "playwright/test";
 
 const core = (page: Parameters<typeof fixture>[0], info: Parameters<typeof fixture>[2]) =>
   fixture(page, "core", info);
@@ -967,4 +968,120 @@ test("L4: trusted fragment navigation reveals an enabled until-found Panel in en
   await expect(panel).not.toHaveAttribute("hidden", /.*/);
   await expect(panel).toBeVisible();
   await expect(page.getByTestId("variant-expanded-outputs")).toHaveText(String(outputs + 1));
+});
+
+/** Locates `role` inside the composed-State case marked `name`. */
+function stateCase(page: Parameters<typeof fixture>[0], name: string, role: string) {
+  return page.locator(`[data-state-case="${name}"] [data-role="${role}"]`);
+}
+
+/**
+ * Closes `panel` through `close` and checks that its `state.open()`, read through its template
+ * reference, keeps the `gated` content through a finite exit under no-preference motion and
+ * releases it once the exit settles. Reduced-motion CSS removes the exit animation.
+ */
+async function expectExitRetention(
+  page: Parameters<typeof fixture>[0],
+  info: Parameters<typeof fixture>[2],
+  { panel, gated, open, close }: Record<"panel" | "gated" | "open" | "close", Locator>,
+): Promise<void> {
+  await close.click();
+
+  if (info.project.metadata.motion === "no-preference") {
+    await expect(panel).toHaveAttribute("data-leaving", "");
+    await expect
+      .poll(() => panel.evaluate((node) => node.getAnimations().length))
+      .toBeGreaterThan(0);
+    await expect(panel).not.toHaveAttribute("data-expanded", /.*/);
+    await expect(panel).not.toHaveAttribute("hidden", /.*/);
+    await expect(gated).toHaveCount(1);
+    await expect(open).toHaveText("true");
+  }
+
+  await expect(panel).not.toHaveAttribute("data-leaving", /.*/);
+  await expect(gated).toHaveCount(0);
+  await expect(open).toHaveText("false");
+  await expect(panel).toHaveAttribute("hidden", "");
+}
+
+test("L7: a Collapsible Panel's state, read through its template reference, retains gated content through a finite exit", async ({
+  page,
+}, info) => {
+  await core(page, info);
+
+  const part = (role: string) => stateCase(page, "collapsible-panel", role);
+
+  // Collapsed under an open ancestor Presence: the Panel's own Presence State is closed.
+  await expect(part("open")).toHaveText("false");
+  await expect(part("gated")).toHaveCount(0);
+  await part("trigger").click();
+  await expect(part("open")).toHaveText("true");
+  await expect(part("gated")).toHaveCount(1);
+  await expectExitRetention(page, info, {
+    panel: part("panel"),
+    gated: part("gated"),
+    open: part("open"),
+    close: part("trigger"),
+  });
+  await part("trigger").click();
+  await expect(part("gated")).toHaveCount(1);
+});
+
+test("A7: an Accordion Item's state, read through its template reference, follows the selection and the combined disabled state", async ({
+  page,
+}, info) => {
+  await core(page, info);
+
+  const part = (role: string) => stateCase(page, "accordion", role);
+
+  // Under an expanded, enabled ancestor Collapsible: each item reports its own composed State.
+  await expect(part("billing-expanded")).toHaveText("false");
+  await expect(part("billing-disabled")).toHaveText("false");
+  await expect(part("security-expanded")).toHaveText("false");
+  await part("billing-trigger").click();
+  await expect(part("value")).toHaveText("billing");
+  await expect(part("billing-expanded")).toHaveText("true");
+  await expect(part("security-expanded")).toHaveText("false");
+  await part("security-trigger").click();
+  await expect(part("billing-expanded")).toHaveText("false");
+  await expect(part("security-expanded")).toHaveText("true");
+  await part("external").click();
+  await expect(part("billing-expanded")).toHaveText("true");
+  await expect(part("security-expanded")).toHaveText("false");
+
+  // The root's disabled reaches every item; the item's own reaches only that item.
+  await part("root-disable").click();
+  await expect(part("billing-disabled")).toHaveText("true");
+  await expect(part("security-disabled")).toHaveText("true");
+  await part("root-disable").click();
+  await part("item-disable").click();
+  await expect(part("billing-disabled")).toHaveText("true");
+  await expect(part("security-disabled")).toHaveText("false");
+  await expect(part("billing-trigger")).toBeDisabled();
+  await part("item-disable").click();
+  await expect(part("billing-disabled")).toHaveText("false");
+  await expect(part("billing-trigger")).toBeEnabled();
+});
+
+test("A8: an Accordion Panel's state, read through its template reference, retains gated content through a finite exit", async ({
+  page,
+}, info) => {
+  await core(page, info);
+
+  const part = (role: string) => stateCase(page, "accordion", role);
+
+  // Collapsed under an open ancestor Presence: the Panel's own Presence State is closed.
+  await expect(part("billing-open")).toHaveText("false");
+  await expect(part("billing-gated")).toHaveCount(0);
+  await part("billing-trigger").click();
+  await expect(part("billing-open")).toHaveText("true");
+  await expect(part("billing-gated")).toHaveCount(1);
+  // Selecting another item closes billing's Panel.
+  await expectExitRetention(page, info, {
+    panel: part("billing-panel"),
+    gated: part("billing-gated"),
+    open: part("billing-open"),
+    close: part("security-trigger"),
+  });
+  await expect(part("value")).toHaveText("security");
 });
