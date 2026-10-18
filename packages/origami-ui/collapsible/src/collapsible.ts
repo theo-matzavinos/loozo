@@ -78,14 +78,6 @@ export class CollapsibleContext {
     return null;
   });
 
-  readonly disabledAria = computed(() => {
-    if (this.disabled()) {
-      return "true";
-    }
-
-    return null;
-  });
-
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
@@ -151,7 +143,7 @@ export class OrigamiCollapsibleState {
 
   /** Effective desired expansion, not Presence's exit retention. No writable mutation alias is exposed. */
   readonly expanded: Signal<boolean> = this.#context.expanded;
-  /** Effective disabled policy. External Options/model writes remain authoritative while disabled. */
+  /** Effective root disabled policy, without a Trigger's own. External Options/model writes remain authoritative while disabled. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
 }
 

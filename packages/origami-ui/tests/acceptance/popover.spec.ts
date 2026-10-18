@@ -1738,7 +1738,7 @@ test("V9 R2: authored Content destruction ends child ownership; remount creates 
   ).toBe(false);
 });
 
-for (const eligibility of ["disabled", "trigger-inert", "trigger-mount"]) {
+for (const eligibility of ["disabled", "trigger-disabled", "trigger-inert", "trigger-mount"]) {
   test(`V9: no restoration to ${eligibility} trigger`, async ({ page }, info) => {
     await fixture(page, "popover", info);
     await nativeOpen(page);
@@ -1756,6 +1756,57 @@ for (const eligibility of ["disabled", "trigger-inert", "trigger-mount"]) {
     expect(focused).not.toBe("native-trigger");
   });
 }
+
+test("V16: a Trigger's own disabled blocks only its activation; the root, writes and Escape stay enabled", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+
+  const trigger = page.getByTestId("native-trigger");
+
+  await scriptControl(page, "native-trigger-disabled");
+  await expect(trigger).toHaveJSProperty("disabled", true);
+  await expect(trigger).toHaveAttribute("aria-disabled", "true");
+  await expect(trigger).toHaveAttribute("data-disabled", "");
+  await expect(page.getByTestId("native-root-disabled")).toHaveText("false");
+  await trigger.click({ force: true });
+
+  // Native `disabled` drops the trusted click before any listener runs. A dispatched click
+  // still reaches the listeners, so only the Trigger's own guard keeps it closed.
+  const dispatched = await trigger.evaluate((element) => {
+    let received = 0;
+
+    element.addEventListener("click", () => {
+      received += 1;
+    });
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    return received;
+  });
+
+  expect(dispatched).toBe(1);
+  // A wrong open would render only after the zoneless scheduler's next turn (an animation frame
+  // or a timer), so let both pass.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+  await expect(page.getByTestId("native-intent")).toHaveText("false");
+
+  // Application writes and Escape dismissal are unaffected.
+  await nativeOpen(page);
+  await page.getByTestId("native-first").focus();
+  await page.keyboard.press("Escape");
+  await closed(page);
+
+  await scriptControl(page, "native-trigger-disabled");
+  await expect(trigger).toHaveJSProperty("disabled", false);
+  await expect(trigger).not.toHaveAttribute("aria-disabled", /.*/);
+  await expect(trigger).not.toHaveAttribute("data-disabled", /.*/);
+  await trigger.click();
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  await trigger.click();
+  await closed(page);
+});
 
 for (const action of ["close-focus", "reopen-focus", "destroy-focus", "close-before-reveal"]) {
   test(`V10 V12: ${action} writes actual effective Options during native callback; no stale reveal`, async ({

@@ -148,7 +148,7 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 | `/toolbar`     | `OrigamiToolbar`, `OrigamiToolbarOptions`, `OrigamiToolbarState`, `OrigamiToolbarItem`, `OrigamiToolbarItemOptions`, `OrigamiToolbarToggleGroupSingle`, `OrigamiToolbarToggleGroupMultiple`, `OrigamiToolbarRadioGroup`, type `OrigamiToolbarOrientation` |
 | `/radio-group` | `OrigamiRadioGroup`, `OrigamiRadioGroupOptions`, `OrigamiRadioGroupState`, `OrigamiRadioGroupItem`, `OrigamiRadioGroupItemOptions` |
 
-The inventories include the approved Popover placement exports and four-property Content Options. ID-only Content factories must migrate; Trigger/Anchor Options remain ID-only.
+The inventories include the approved Popover placement exports and four-property Content Options. Collapsible Trigger Options carry `id`, `disabled` and `focusableWhenDisabled`, and Popover Trigger Options carry `id` and `disabled`; Accordion Trigger, Collapsible Panel, Accordion Panel and Popover Anchor Options carry only `id`.
 
 The Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled composition. Preserve whatever export visibility Angular packaging requires; it is not a supported application authoring API. Removing its importability is a deliberate API change made through this contract, not a side effect of a refactor.
 
@@ -179,7 +179,9 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Accordion Single                                                            | shared + `value: WritableSignal<string \| null>`, `collapsible: Signal<boolean>`                                      |
 | Accordion Multiple                                                          | shared + `value: WritableSignal<readonly string[]>`                                                                   |
 | Popover root                                                                | `open: WritableSignal<boolean>`, `disabled: Signal<boolean>`, `dismissible: Signal<boolean>`                          |
-| Each Collapsible/Accordion Trigger or Panel; each Popover Trigger or Anchor | its own Options token with `id: Signal<string>`                                                                       |
+| Collapsible Trigger                                                         | `id: Signal<string>`, `disabled: Signal<boolean>`, `focusableWhenDisabled: Signal<boolean>`                           |
+| Popover Trigger                                                             | `id: Signal<string>`, `disabled: Signal<boolean>`                                                                     |
+| Each Collapsible Panel and Accordion Trigger or Panel; each Popover Anchor  | its own Options token with `id: Signal<string>`                                                                       |
 | Popover Content                                                             | `id: Signal<string>`, `side: Signal<OrigamiPopoverSide>`, `align: Signal<OrigamiPopoverAlign>`, `gap: Signal<number>` |
 | Toggle                                                                      | `pressed: WritableSignal<boolean>`, `disabled: Signal<boolean>`                                                       |
 | Tabs root                                                                   | `value: WritableSignal<string \| null>`, `disabled: Signal<boolean>`, `orientation: Signal<OrigamiTabsOrientation>`, `activation: Signal<OrigamiTabsActivation>` |
@@ -293,13 +295,15 @@ Root configuration: `expanded` boolean model false, `disabled` boolean input fal
 
 One mounted trigger and one mounted panel are supported per Collapsible. Each registers in `ngOnInit` (section 3), so its counterpart's association names it only once its inputs are set, also when the parts are rendered by separate components. Missing counterparts are allowed and remove their association attributes. A second mounted role fails clearly when it registers. Unmount/remount cleanup preserves the surviving and replacement registrations.
 
-Trigger:
+Trigger: `id` input default generated, `disabled` boolean input false, `focusableWhenDisabled` boolean input false.
 
 - Native button semantics, `type="button"`, no custom keyboard reimplementation of Enter/Space.
 - Effective ID from Trigger Options.
 - `aria-expanded` reflects desired expanded state.
 - `aria-controls` identifies only the currently mounted panel.
-- Root disabled state sets native `disabled`, `aria-disabled="true"`, and empty `data-disabled`; inactive attributes are absent where appropriate.
+- The Trigger is disabled while the root's or its own effective disabled is true. Disabled state sets native `disabled`, `aria-disabled="true"`, and empty `data-disabled`; inactive attributes are absent where appropriate.
+- With effective `focusableWhenDisabled`, a disabled Trigger has `aria-disabled="true"` and `data-disabled` but no native `disabled`, so it stays focusable. Its activation is still ignored, but the browser still dispatches its clicks, so the consumer's own `(click)` listeners on the button still run.
+- The Trigger's own disabled doesn't change the root's `data-disabled` or State `disabled`, which report the root's Options only.
 - `data-expanded` reflects desired expanded state.
 - An enabled click toggles expanded; a disabled user action cannot write it.
 
@@ -331,7 +335,7 @@ Single behavior:
 
 - Selecting an unselected enabled item replaces the selected value.
 - An enabled selected item can clear to null only when `collapsible` is true.
-- A selected non-collapsible trigger is `aria-disabled="true"` but remains a focusable, natively enabled button unless root/item disabled state also applies.
+- A selected non-collapsible trigger is locked: its composed Collapsible Trigger's own disabled, with `focusableWhenDisabled` unless root/item disabled state also applies. It has `aria-disabled="true"` and `data-disabled` and ignores activation, but remains a focusable, natively enabled button unless the root or item is disabled. Each disabled attribute has one owner, so re-enabling the root or item while it stays locked keeps `aria-disabled` and `data-disabled`, and unlocking it clears them.
 - External values need not name a currently mounted item. Do not coerce unknown values to null or auto-select a first item.
 
 Multiple behavior:
@@ -344,7 +348,7 @@ Root and item disabled state combine reactively. Trigger and native reveal paths
 
 The item's effective Collapsible expanded signal observes root selection; requests to write it route through the mode's actual behavior and disabled/collapsible policy. Idempotent writes must not cause duplicate model outputs. A synchronous root output listener may change selection; the item's next observation must reflect that actual selection, not an optimistic shadow value.
 
-Trigger/Panel Options replacement flows into the corresponding Collapsible Options. IDs, associations, hiding and Presence behavior inherit Collapsible's contracts. Accordion State reports current mounted item values in Collection order.
+Trigger/Panel Options replacement flows into the corresponding Collapsible Options; the Trigger's lock always comes from its item. IDs, associations, hiding and Presence behavior inherit Collapsible's contracts. Accordion State reports current mounted item values in Collection order.
 
 The consumer supplies headings and optional panel roles. No roving tabindex, arrow-key navigation or focus manager is added; native buttons provide the mandatory activation semantics.
 
@@ -360,7 +364,7 @@ Missing required parts suppress presentation without clearing desired open. Remo
 
 Every part retains its own typed substitutable Options. Shared Trigger/Anchor uses Trigger Options as its effective DOM ID; a standalone Anchor uses its own Options ID. Private positioning identity is independent of these public IDs.
 
-Trigger binds effective ID, `type="button"`, disabled semantics, mounted content `aria-controls`, and actual participation via `aria-expanded`. Enabled click toggles/request-closes; disabling prevents trigger activation but does not override authoritative model writes or automatically disable Escape/outside dismissal.
+Trigger: `id` input default generated, `disabled` boolean input false. It binds effective ID, `type="button"`, disabled semantics, mounted content `aria-controls`, and actual participation via `aria-expanded`. The Trigger is disabled while the root's or its own effective disabled is true: native `disabled`, `aria-disabled="true"` and empty `data-disabled`, absent while enabled. Enabled click toggles/request-closes; disabling prevents trigger activation but does not override authoritative model writes or automatically disable Escape/outside dismissal. The Trigger's own disabled doesn't change root State `disabled`, which reports the root's Options only.
 
 Content retains children through Presence's finite exit. Content State `open()` directly reflects Presence retention, not a separately writable alias. Once dismissal is accepted, exiting content stops participating in interaction and cannot remain a focus target merely because its animation retains it.
 
@@ -556,7 +560,7 @@ Keyboard and focus follow section 13's rules: arrows along the effective orienta
 - A click focuses the item if it is still mounted and enabled after its listeners ran, so it becomes the tab stop and the origin of the next keyboard move even in engines whose click doesn't focus a button. A Toolbar Toggle Group item keeps ToggleGroup's "toggle, then focus" order; a Toolbar Radio Group item keeps RadioGroup's "focus, then check" order.
 - External orientation writes never move focus.
 
-Co-application: `ogToggle` and `ogToolbarItem` may be applied to the same button; it is one Toolbar control and one Toggle. Both have a `disabled` input, so one binding sets both. Another co-applied primitive whose disabled state comes from elsewhere must be kept equal by the consumer.
+Co-application: `ogToggle` and `ogToolbarItem` may be applied to the same button; it is one Toolbar control and one Toggle. So may `ogPopoverTrigger` and `ogToolbarItem`; it is one Toolbar control and the Popover's Trigger. Both directives of each pair have a `disabled` input, so one binding sets both. The consumer keeps the item's `disabled` equal to the Popover root's only when disabling the root rather than its Trigger, as for any other co-applied primitive whose disabled state comes from elsewhere.
 
 Server HTML carries `role="toolbar"`, `aria-orientation`, `data-orientation`, the disabled attributes, Toolbar groups' `aria-pressed` and `aria-checked` and the single `tabindex="0"`, chosen in DOM order across Toolbar group items. Eager and incremental hydration reuse the server root and controls without transient removal, and hydration does not change those attributes. An initiating click replayed after hydration runs the consumer's handler, or presses or checks a Toolbar group item, exactly once. Keyboard interaction before hydration is not promised.
 
@@ -654,13 +658,13 @@ This is the public-contract coverage map. Case definitions and handwritten consu
 | T-Identity    | Native static/bound IDs; reactive association updates; mounted-only links; application isolation; rendered IDs kept through hydration; key validation; browser allocations never collide with dehydrated server IDs |
 | T-Collection  | Addition/removal in DOM order; keyed moves notify no reader; reactive values; nearest-owner isolation; valid SSR ordering                                                   |
 | T-Presence    | Finite completion/cancellation; no/zero/infinite animation; reduced motion; reversal; concurrent hosts; destruction; real write-before-read observation                     |
-| T-Collapsible | Enabled/disabled activation; Presence-retained hiding; native/progressive until-found behavior; role cardinality and remount; parts split across components complete in server HTML |
-| T-Accordion   | Single/multiple contracts; unknown values; immutable array toggles; combined disabled; non-collapsible focusability; factory writable signals; exactly-once outputs/reentry |
-| T-Popover     | Required parts; co-location; nesting/veto; trusted pointer lifetime; topmost Escape; reentry; focus eligibility; exit interaction; layout ownership and tracking; Content in a child component complete in server HTML |
+| T-Collapsible | Enabled/disabled activation, also by the Trigger's own disabled, and a focusable disabled Trigger; Presence-retained hiding; native/progressive until-found behavior; role cardinality and remount; parts split across components complete in server HTML |
+| T-Accordion   | Single/multiple contracts; unknown values; immutable array toggles; combined disabled; non-collapsible focusability and its disabled attributes under every change order; factory writable signals; exactly-once outputs/reentry |
+| T-Popover     | Required parts; co-location; the Trigger's own disabled in server HTML and through hydration; nesting/veto; trusted pointer lifetime; topmost Escape; reentry; focus eligibility; exit interaction; layout ownership and tracking; Content in a child component complete in server HTML |
 | T-Toggle      | Native activation exactly once; form type; always-present `aria-pressed`; disabled blocks only user activation; replacement precedence                                      |
 | T-Tabs        | Click/keyboard selection exactly once; automatic/manual; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; null/unknown/Panel-only/removed/disabled-selected policies; mounted-only associations; Panel tab stop override; SSR tab stop in DOM order; repeated required-input Triggers and later `@for` Panels complete in server HTML |
 | T-ToggleGroup | Single/deselect and multiple activation exactly once; unknown values kept; immutable arrays; Toggle composition driven by upper item Options only; moves never press; orientation and RTL mapping; Home/End/wrap/disabled skipping; single tab stop, click focus and focus repair; `role="group"` without `aria-orientation`; SSR tab stop in DOM order, also with repeated required-input items |
-| T-Toolbar     | `role="toolbar"` with `aria-orientation`; buttons only, native disabled skipped; orientation and RTL mapping; Home/End/wrap; single tab stop across Toolbar groups with no preferred pressed item, re-entry on the first enabled control; Toolbar group orientation overridden; arrow order in DOM order after keyed moves; click focus and focus repair; co-applied Toggle; a standalone group in Popover Content keeps its own tab stop; a Toolbar group outside a Toolbar fails through DI; SSR tab stop in DOM order across a Toolbar group and with repeated required-input items |
+| T-Toolbar     | `role="toolbar"` with `aria-orientation`; buttons only, native disabled skipped; orientation and RTL mapping; Home/End/wrap; single tab stop across Toolbar groups with no preferred pressed item, re-entry on the first enabled control; Toolbar group orientation overridden; arrow order in DOM order after keyed moves; click focus and focus repair; co-applied Toggle and disabled Popover Trigger; a standalone group in Popover Content keeps its own tab stop; a Toolbar group outside a Toolbar fails through DI; SSR tab stop in DOM order across a Toolbar group and with repeated required-input items |
 | T-RadioGroup  | `radiogroup` with `radio` items and always-present `aria-checked`; click/Space/Enter check exactly once, no unchecking, no submit; all-four-arrow moves check exactly once with RTL mapping, Home/End, wrap and disabled skipping; Tab entry on the checked item, otherwise the first enabled; revalidation of a move or click target changed by its focus handlers; focus repair without checking; null/unknown/removed/disabled-checked policies; in a Toolbar Radio Group arrows never check and Space/Enter/click do; a standalone group in Popover Content keeps its own tab stop; replacement precedence; SSR tab stop in DOM order, also with repeated required-input items |
 | T-Hydration   | Development/production serving; eager/deferred node retention; no transient duplication; generated identity; event replay; post-hydration interaction                       |
 | T-Support     | Skipped formal Baseline audit recorded without certification; optional enhancement degradation; explicit Chromium/Firefox/WebKit runtime evidence and stated limits         |

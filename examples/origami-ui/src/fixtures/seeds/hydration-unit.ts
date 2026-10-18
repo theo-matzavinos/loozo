@@ -301,10 +301,10 @@ export class AccordionObservation {
       </div>
     </div>
 
-    <!-- K10: a Popover Trigger co-applied with a Toolbar item, both disabled by one value. -->
+    <!-- K10: a Popover Trigger co-applied with a Toolbar item; one binding disables both. -->
     <button type="button" data-testid="hydration-format-before">Before the format toolbar</button>
     <div ogToolbar aria-label="Server format" data-testid="hydration-format-toolbar">
-      <span ogPopover [disabled]="initiallyPresent()">
+      <span ogPopover>
         <button
           ogPopoverTrigger
           ogPopoverAnchor
@@ -324,6 +324,27 @@ export class AccordionObservation {
         </div>
       </span>
       <button ogToolbarItem data-testid="hydration-format-bold">Bold</button>
+    </div>
+
+    <!-- V16: a Popover Trigger disabled by its own input while the Popover stays enabled. -->
+    <div ogPopover #share="ogPopover">
+      <button
+        ogPopoverTrigger
+        ogPopoverAnchor
+        [disabled]="initiallyPresent()"
+        data-testid="hydration-share"
+      >
+        Share
+      </button>
+      <div
+        ogPopoverContent
+        role="group"
+        aria-label="Server share options"
+        data-testid="hydration-share-content"
+      >
+        Share options
+      </div>
+      <output data-testid="hydration-share-root-disabled">{{ share.state.disabled() }}</output>
     </div>
 
     <div

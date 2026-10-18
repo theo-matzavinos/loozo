@@ -300,6 +300,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         <button type="button" data-testid="native-content-mount" (click)="root.settings.contentMounted.set(!root.settings.contentMounted())">Mount content</button>
         <button type="button" data-testid="native-owner-mount" (click)="root.settings.mounted.set(!root.settings.mounted())">Mount owner's parts</button>
         <button type="button" data-testid="native-disabled" (click)="root.settings.disabled.set(!root.settings.disabled())">Disable trigger</button>
+        <button type="button" data-testid="native-trigger-disabled" (click)="triggerDisabled.set(!triggerDisabled())">Disable the trigger itself</button>
         <button type="button" data-testid="native-trigger-inert" (click)="triggerInert.set(!triggerInert())">Make trigger inert</button>
         <button type="button" data-testid="native-co-locate" (click)="coLocated.set(!coLocated())">Co-locate anchor and trigger</button>
         <button type="button" data-testid="native-latch-configuration" (click)="latchPositionFailure(root.settings, 'configuration')">Open without ResizeObserver; a later WRITE changes the gap</button>
@@ -324,9 +325,9 @@ export class NativeContent implements OrigamiPopoverContentOptions {
             <div class="anchor-region" [style.writing-mode]="writingMode()" [style.direction]="direction()">
               @if (root.settings.triggerMounted()) {
                 @if (coLocated()) {
-                  <button ogPopoverTrigger ogPopoverAnchor id="co-located-trigger" [inert]="triggerInert()" data-testid="native-trigger">Native co-located trigger</button>
+                  <button ogPopoverTrigger ogPopoverAnchor id="co-located-trigger" [inert]="triggerInert()" [disabled]="triggerDisabled()" data-testid="native-trigger">Native co-located trigger</button>
                 } @else {
-                  <button ogPopoverTrigger id="native-trigger-id" [inert]="triggerInert()" data-testid="native-trigger">Native trigger</button>
+                  <button ogPopoverTrigger id="native-trigger-id" [inert]="triggerInert()" [disabled]="triggerDisabled()" data-testid="native-trigger">Native trigger</button>
                 }
               }
               @if (!coLocated() && root.settings.anchorMounted()) {
@@ -376,6 +377,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         </div>
       }
       <output data-testid="native-intent">{{ root.state.open() }}</output>
+      <output data-testid="native-root-disabled">{{ root.state.disabled() }}</output>
       <output data-testid="native-openings">{{ root.settings.openings() }}</output>
       <output data-testid="native-closings">{{ root.settings.closings() }}</output>
       <output data-testid="native-autofocus-count">{{ root.settings.autofocuses() }}</output>
@@ -547,6 +549,7 @@ export class PopoverFixture {
   readonly autofocus = signal(true);
   readonly coLocated = signal(false);
   readonly triggerInert = signal(false);
+  readonly triggerDisabled = signal(false);
   readonly pointerPolicy = signal("normal");
   readonly paint = inject(ConsumerPaint);
   readonly consumerOpacity = this.paint.opacity;

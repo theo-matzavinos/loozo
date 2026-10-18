@@ -15,7 +15,7 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 - Toolbar never activates an item: a click, Enter or Space runs only your button's own listeners.
 - Items are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as items. Other focusable content inside the Toolbar that isn't an item, such as a search field, keeps its own Tab stop and its own arrow keys.
 - A disabled item is natively disabled: arrows skip it and it's never the tab stop. There's no Toolbar-wide `disabled`; disable items, or a group's own `disabled`.
-- `ogToggle` and `ogToolbarItem` can share a button, which is then one Toolbar control; one `[disabled]` binding sets both. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
+- `ogToggle` or `ogPopoverTrigger` can share a button with `ogToolbarItem`, which is then one Toolbar control; one `[disabled]` binding sets both. To disable a Popover root instead of its Trigger, also disable the item. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
 
 ## Keyboard
 

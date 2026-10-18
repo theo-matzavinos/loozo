@@ -992,7 +992,7 @@ test("K6 H1 H2 H3: Toolbar server tab stop across Toolbar groups survives hydrat
   }
 });
 
-/** Server-rendered K10 Toolbar: one value disables the Popover and its Trigger's toolbar item in A and B. */
+/** Server-rendered K10 Toolbar: one binding disables the Popover Trigger and its toolbar item in A and B. */
 async function expectServerFormat(page: Page, labels: string[]): Promise<void> {
   for (const label of labels) {
     const unit = page.locator(`[data-unit="${label}"]`);
@@ -1083,6 +1083,95 @@ test("K10 H1 H2: a disabled Popover Trigger co-applied with a toolbar item is sk
     await format.click();
     await expect.poll(() => nativeOpen(c)).toBe(true);
     await format.click();
+    await expect.poll(() => nativeOpen(c)).toBe(false);
+  } finally {
+    releaseMain();
+  }
+});
+
+/** Server-rendered V16 Popover: the Trigger's own input disables it in A and B; the root stays enabled. */
+async function expectServerShare(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const share = unit.getByTestId("hydration-share");
+
+    await expect(unit.getByTestId("hydration-share-root-disabled")).toHaveText("false");
+
+    if (label === "C") {
+      await expect(share).not.toHaveAttribute("disabled");
+      await expect(share).not.toHaveAttribute("aria-disabled", /.*/);
+      await expect(share).not.toHaveAttribute("data-disabled", /.*/);
+    } else {
+      await expect(share).toHaveAttribute("disabled");
+      await expect(share).toHaveAttribute("aria-disabled", "true");
+      await expect(share).toHaveAttribute("data-disabled", "");
+    }
+  }
+}
+
+test("V16 H1 H2: a Popover Trigger disabled by its own input keeps its disabled attributes in server HTML and once hydrated; the enabled one opens its Popover", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    await expectServerShare(page, ["A", "B", "C"]);
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    const b = page.locator('[data-unit="B"]');
+    const c = page.locator('[data-unit="C"]');
+
+    for (const unit of [b, c]) {
+      if (incremental) {
+        await unit.getByTestId("hydrate-unit").click();
+      }
+
+      await expect(unit).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    // Hydration changes no server attribute.
+    await expectServerShare(page, ["A", "B", "C"]);
+    await assertReferences(page, info);
+
+    function nativeOpen(unit: Locator): Promise<boolean> {
+      return unit
+        .getByTestId("hydration-share-content")
+        .evaluate((node) => node.matches(":popover-open"));
+    }
+
+    // B, disabled: native `disabled` drops the trusted click before any listener runs. A
+    // dispatched click still reaches the listeners, so only the Trigger's own guard keeps it closed.
+    const disabledShare = b.getByTestId("hydration-share");
+
+    await disabledShare.click({ force: true });
+
+    const dispatched = await disabledShare.evaluate((element) => {
+      let received = 0;
+
+      element.addEventListener("click", () => {
+        received += 1;
+      });
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+      return received;
+    });
+
+    expect(dispatched).toBe(1);
+    // A wrong open would render only after the zoneless scheduler's next turn (an animation frame
+    // or a timer), so let both pass.
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+    );
+    expect(await nativeOpen(b)).toBe(false);
+
+    // C, enabled: clicks open and close.
+    const share = c.getByTestId("hydration-share");
+
+    await share.click();
+    await expect.poll(() => nativeOpen(c)).toBe(true);
+    await share.click();
     await expect.poll(() => nativeOpen(c)).toBe(false);
   } finally {
     releaseMain();

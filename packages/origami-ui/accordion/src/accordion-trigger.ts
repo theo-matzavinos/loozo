@@ -38,8 +38,10 @@ export abstract class OrigamiAccordionTriggerOptions {
 
 /**
  * Native type=button Trigger composed through Collapsible. Effective upper ID Options
- * drive the lower bindings and mounted-only association. Selected non-collapsible Single
- * items are aria-disabled but stay natively enabled/focusable unless root/item disabled.
+ * drive the lower bindings and mounted-only association. A selected non-collapsible Single
+ * item's Trigger is locked: the composed Collapsible Trigger's own disabled, so it has
+ * `aria-disabled="true"` and `data-disabled` and ignores activation, but stays natively
+ * enabled and focusable unless its root or item is disabled.
  * Requires a nearest Accordion Item. No custom Enter/Space or arrow-key handler is added.
  */
 @Directive({
@@ -47,22 +49,25 @@ export abstract class OrigamiAccordionTriggerOptions {
   hostDirectives: [OrigamiCollapsibleTrigger],
   providers: [
     OrigamiAccordionTriggerOptions.provideExisting(() => OrigamiAccordionTrigger),
-    OrigamiCollapsibleTriggerOptions.provideFactory(() => inject(OrigamiAccordionTriggerOptions)),
+    OrigamiCollapsibleTriggerOptions.provideFactory(() => {
+      const upper = inject(OrigamiAccordionTriggerOptions);
+      const item = inject(AccordionItemContext);
+
+      return {
+        id: upper.id,
+        disabled: item.locked,
+        // A disabled item or root still disables natively; only locked stays focusable.
+        focusableWhenDisabled: computed(() => !item.disabled()),
+      };
+    }),
   ],
-  host: { "[attr.aria-disabled]": "disabledAria()" },
 })
 export class OrigamiAccordionTrigger implements OrigamiAccordionTriggerOptions {
   /** Own ID input, default opaque generated identity; static/bound IDs remain authoritative unless upper Options are replaced. */
   readonly id = input(injectUniqueId("accordion-trigger"));
 
-  readonly #item = inject(AccordionItemContext);
-
-  /** @internal Combined native-disabled/non-collapsible ARIA policy; lower native disabled binding is unchanged. */
-  protected readonly disabledAria = computed(() => {
-    if (this.#item.disabled() || this.#item.locked()) {
-      return "true";
-    }
-
-    return null;
-  });
+  /** Validates the nearest Accordion Item synchronously, without resolving the composed Options during construction. */
+  constructor() {
+    inject(AccordionItemContext);
+  }
 }

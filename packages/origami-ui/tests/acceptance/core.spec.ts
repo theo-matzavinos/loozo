@@ -4,6 +4,16 @@ import { bootstrapHeld, fixture, stopRetentionObservation } from "./observation.
 const core = (page: Parameters<typeof fixture>[0], info: Parameters<typeof fixture>[2]) =>
   fixture(page, "core", info);
 
+/**
+ * A wrong write would render only after the zoneless scheduler's next turn (an animation frame
+ * or a timer), so let both pass before asserting it never happened.
+ */
+async function settle(page: Parameters<typeof fixture>[0]): Promise<void> {
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+}
+
 test("C1 C2 C3: keyed collection insert/remove read DOM order, a keyed move notifies no reader, reactive values exclude nested owners", async ({
   page,
 }, info) => {
@@ -210,6 +220,77 @@ test("L1: native click/Enter/Space, form type, combined disabled and authoritati
   await expect(page.getByTestId("variant-expanded-outputs")).toHaveText("3");
 });
 
+test("L6: a Trigger's own disabled combines with the root's; focusableWhenDisabled keeps its tab stop and still blocks activation", async ({
+  page,
+}, info) => {
+  await core(page, info);
+
+  const part = (role: string) =>
+    page.locator(`[data-collapsible-case="trigger-disabled"] [data-role="${role}"]`);
+  const trigger = part("trigger");
+  const root = part("root");
+
+  /** `native` is the native `disabled`; `disabled` is the effective disabled state. */
+  async function expectTrigger(native: boolean, disabled: boolean): Promise<void> {
+    await expect(trigger).toHaveJSProperty("disabled", native);
+
+    if (disabled) {
+      await expect(trigger).toHaveAttribute("aria-disabled", "true");
+      await expect(trigger).toHaveAttribute("data-disabled", "");
+    } else {
+      await expect(trigger).not.toHaveAttribute("aria-disabled", /.*/);
+      await expect(trigger).not.toHaveAttribute("data-disabled", /.*/);
+    }
+  }
+
+  await expectTrigger(false, false);
+  await trigger.click();
+  await expect(part("expanded")).toHaveText("true");
+  await expect(part("outputs")).toHaveText("1");
+
+  // The Trigger's own disabled leaves the root, its State and its data-disabled enabled.
+  await part("trigger-disable").click();
+  await expectTrigger(true, true);
+  await expect(root).not.toHaveAttribute("data-disabled", /.*/);
+  await expect(part("state-disabled")).toHaveText("false");
+  await trigger.click({ force: true });
+  await settle(page);
+  await expect(part("expanded")).toHaveText("true");
+
+  // Focusable while disabled: native Enter, Space and click reach the button but don't toggle.
+  await part("focusable").click();
+  await expectTrigger(false, true);
+  await trigger.focus();
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Space");
+  await trigger.click({ force: true });
+  await settle(page);
+  await expect(part("expanded")).toHaveText("true");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(part("outputs")).toHaveText("1");
+
+  // Application writes stay authoritative and emit no output.
+  await part("external").click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(part("outputs")).toHaveText("1");
+
+  // The root's disabled combines with the Trigger's and follows focusableWhenDisabled too.
+  await part("root-disable").click();
+  await part("trigger-disable").click();
+  await expectTrigger(false, true);
+  await expect(root).toHaveAttribute("data-disabled", "");
+  await expect(part("state-disabled")).toHaveText("true");
+  await part("focusable").click();
+  await expectTrigger(true, true);
+  await part("root-disable").click();
+  await expectTrigger(false, false);
+  await expect(root).not.toHaveAttribute("data-disabled", /.*/);
+  await trigger.click();
+  await expect(part("expanded")).toHaveText("true");
+  await expect(part("outputs")).toHaveText("2");
+});
+
 test("L2 I3: authoritative reactive IDs and mounted-only associations survive role replacement", async ({
   page,
 }, info) => {
@@ -358,6 +439,7 @@ test("A1: Single selected non-collapsible button remains focusable; unknown valu
   // ARIA-disabled is intentional; establish native enabledness independently of driver actionability.
   await expect(page.getByTestId("single-billing")).toHaveJSProperty("disabled", false);
   await expect(page.getByTestId("single-billing")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("single-billing")).toHaveAttribute("data-disabled", "");
   await page.getByTestId("single-billing").focus();
   await expect(page.getByTestId("single-billing")).toBeFocused();
 
@@ -411,7 +493,14 @@ test("A1: Single selected non-collapsible button remains focusable; unknown valu
   await expect(page.getByTestId("single-value")).toHaveText("billing");
   await page.getByTestId("single-security").click();
   await expect(page.getByTestId("single-value")).toHaveText("security");
+  // Selection moved, so the lock moved with it.
+  await expect(page.getByTestId("single-billing")).not.toHaveAttribute("aria-disabled", /.*/);
+  await expect(page.getByTestId("single-billing")).not.toHaveAttribute("data-disabled", /.*/);
+  await expect(page.getByTestId("single-security")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("single-security")).toHaveAttribute("data-disabled", "");
   await page.getByTestId("toggle-single-collapsible").click();
+  await expect(page.getByTestId("single-security")).not.toHaveAttribute("aria-disabled", /.*/);
+  await expect(page.getByTestId("single-security")).not.toHaveAttribute("data-disabled", /.*/);
   await page.getByTestId("single-security").click();
   await expect(page.getByTestId("single-value")).toHaveText("");
   await page.getByTestId("set-unknown-single").click();
@@ -716,6 +805,118 @@ test("A5 O1: two generated values survive a keyed reverse, which notifies no ite
   await expect(page.getByTestId("replaced-item-selection")).toHaveText("replacement-two");
   await expect(page.getByTestId("replaced-value-trigger")).toHaveAttribute("aria-expanded", "true");
 });
+
+/** One step of an A6 case: the control it clicks and the resulting state of Trigger A. */
+interface LockedStep {
+  readonly control: "item" | "root" | "collapsible" | "select-a" | "select-b";
+  /** Item A or the root is disabled. */
+  readonly disabled: boolean;
+  /** A is selected. */
+  readonly selected: boolean;
+  /** A is selected and the root is not collapsible. */
+  readonly locked: boolean;
+}
+
+/**
+ * The locked state and the root/item disabled state both reach Trigger A's disabled attributes.
+ * Each case flips one source at a time, so a change of either alone must leave the right values.
+ */
+const lockedCases: readonly {
+  readonly name: string;
+  readonly title: string;
+  readonly disabled: boolean;
+  readonly selected: boolean;
+  readonly steps: readonly LockedStep[];
+}[] = [
+  {
+    name: "item-disabled",
+    title:
+      "its disabled item is enabled, disabled and enabled again, then it is unlocked and locked by collapsible and by selection",
+    disabled: true,
+    selected: true,
+    steps: [
+      { control: "item", disabled: false, selected: true, locked: true },
+      { control: "item", disabled: true, selected: true, locked: true },
+      { control: "item", disabled: false, selected: true, locked: true },
+      { control: "collapsible", disabled: false, selected: true, locked: false },
+      { control: "collapsible", disabled: false, selected: true, locked: true },
+      { control: "select-b", disabled: false, selected: false, locked: false },
+      { control: "select-a", disabled: false, selected: true, locked: true },
+    ],
+  },
+  {
+    name: "root-disabled",
+    title: "its disabled root is enabled, disabled and enabled again",
+    disabled: true,
+    selected: true,
+    steps: [
+      { control: "root", disabled: false, selected: true, locked: true },
+      { control: "root", disabled: true, selected: true, locked: true },
+      { control: "root", disabled: false, selected: true, locked: true },
+    ],
+  },
+  {
+    name: "enabled",
+    title: "its enabled item is disabled and enabled again, then the root becomes collapsible",
+    disabled: false,
+    selected: true,
+    steps: [
+      { control: "item", disabled: true, selected: true, locked: true },
+      { control: "item", disabled: false, selected: true, locked: true },
+      { control: "collapsible", disabled: false, selected: true, locked: false },
+    ],
+  },
+  {
+    name: "unselected",
+    title: "its unselected disabled item is selected externally and then enabled",
+    disabled: true,
+    selected: false,
+    steps: [
+      { control: "select-a", disabled: true, selected: true, locked: true },
+      { control: "item", disabled: false, selected: true, locked: true },
+    ],
+  },
+];
+
+for (const { name, title, disabled, selected, steps } of lockedCases) {
+  test(`A6: a locked Trigger is focusable and aria- and data-disabled, natively disabled only with its item or root, after ${title}`, async ({
+    page,
+  }, info) => {
+    await core(page, info);
+
+    const part = (role: string) =>
+      page.locator(`[data-accordion-case="${name}"] [data-role="${role}"]`);
+    const trigger = part("a");
+
+    /** Native `disabled` follows the item and root; `aria-disabled` and `data-disabled` also follow the lock. */
+    async function expectTrigger(step: Omit<LockedStep, "control">): Promise<void> {
+      await expect(trigger).toHaveAttribute("aria-expanded", String(step.selected));
+      await expect(trigger).toHaveJSProperty("disabled", step.disabled);
+
+      if (step.disabled || step.locked) {
+        await expect(trigger).toHaveAttribute("aria-disabled", "true");
+        await expect(trigger).toHaveAttribute("data-disabled", "");
+      } else {
+        await expect(trigger).not.toHaveAttribute("aria-disabled", /.*/);
+        await expect(trigger).not.toHaveAttribute("data-disabled", /.*/);
+      }
+
+      if (!step.disabled) {
+        await trigger.focus();
+        await expect(trigger).toBeFocused();
+      }
+    }
+
+    await expectTrigger({ disabled, selected, locked: selected });
+
+    for (const step of steps) {
+      await part(step.control).click();
+      await expectTrigger(step);
+    }
+
+    await expect(part("value")).toHaveText("a");
+  });
+}
 
 test("L4: trusted fragment navigation reveals an enabled until-found Panel in engines with beforematch", async ({
   page,

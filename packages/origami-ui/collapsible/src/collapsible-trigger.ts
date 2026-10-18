@@ -1,12 +1,31 @@
-import { DestroyRef, Directive, computed, forwardRef, inject, input } from "@angular/core";
+import {
+  DestroyRef,
+  Directive,
+  booleanAttribute,
+  computed,
+  forwardRef,
+  inject,
+  input,
+} from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { CollapsibleContext } from "./collapsible";
 
-/** Effective Trigger identity; independent of its generated default and reactive when replaced. */
+/** Effective Trigger identity and disabled policy; independent of the direct defaults and reactive when replaced. */
 export abstract class OrigamiCollapsibleTriggerOptions {
   /** Effective DOM ID, authoritative for the mounted Panel's `aria-labelledby`. */
   abstract readonly id: Signal<string>;
+  /**
+   * Blocks this Trigger's user activation, combined with the root's disabled; direct default false.
+   * The root's `data-disabled` and State keep reporting only the root's own disabled policy.
+   */
+  abstract readonly disabled: Signal<boolean>;
+  /**
+   * While the Trigger is disabled, it keeps its tab stop: `aria-disabled="true"` and
+   * `data-disabled` without native `disabled`. Activation stays blocked, but the button's own
+   * `(click)` listeners still run. Direct default false.
+   */
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 
   /**
    * Substitutes the Trigger's entire effective Options.
@@ -23,8 +42,9 @@ export abstract class OrigamiCollapsibleTriggerOptions {
   }
 
   /**
-   * Whole Trigger Options replacement supplying reactive `id`; unused defaults are not merged.
-   * @param factory - Injection-context factory supplying the required `id` signal.
+   * Whole Trigger Options replacement; unused directive defaults are not merged.
+   * @param factory - Injection-context factory supplying `id`, `disabled` and
+   *   `focusableWhenDisabled` signals.
    * @returns A local provider; unused directive defaults are not merged into the result.
    */
   static provideFactory(factory: () => OrigamiCollapsibleTriggerOptions): Provider {
@@ -35,8 +55,10 @@ export abstract class OrigamiCollapsibleTriggerOptions {
 /**
  * Native `type="button"` activation toggles effective expansion exactly once.
  * Enter/Space retain native button semantics; no custom keyboard handler is supplied.
- * Disabled user actions cannot write expansion. IDs and ARIA links follow effective Options;
- * `aria-controls` is absent when no Panel is mounted. Requires a nearest Collapsible owner.
+ * The Trigger is disabled while the root or its own Options are; then user actions cannot write
+ * expansion, and it has native `disabled` unless `focusableWhenDisabled`, `aria-disabled="true"`
+ * and `data-disabled`. IDs and ARIA links follow effective Options; `aria-controls` is absent
+ * when no Panel is mounted. Requires a nearest Collapsible owner.
  */
 @Directive({
   selector: "button[ogCollapsibleTrigger]",
@@ -44,7 +66,7 @@ export abstract class OrigamiCollapsibleTriggerOptions {
   host: {
     type: "button",
     "[id]": "effectiveId()",
-    "[disabled]": "disabled()",
+    "[disabled]": "nativeDisabled()",
     "[attr.aria-expanded]": "expanded()",
     "[attr.aria-controls]": "panelId()",
     "[attr.aria-disabled]": "disabledAria()",
@@ -56,6 +78,10 @@ export abstract class OrigamiCollapsibleTriggerOptions {
 export class OrigamiCollapsibleTrigger implements OrigamiCollapsibleTriggerOptions {
   /** Own ID input, default opaque hydration-stable generated identity. Static/bound IDs drive default Options; replacements supply effective ID instead. */
   readonly id = input(injectUniqueId("collapsible-trigger"));
+  /** Own disabled input, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  readonly disabled = input(false, { transform: booleanAttribute });
+  /** Own input keeping the disabled Trigger focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
 
   readonly #options = injectDeferred(OrigamiCollapsibleTriggerOptions);
   readonly #context = inject(CollapsibleContext);
@@ -64,18 +90,36 @@ export class OrigamiCollapsibleTrigger implements OrigamiCollapsibleTriggerOptio
 
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
-  /** @internal Native disabled host binding. */
-  protected readonly disabled = this.#context.disabled;
+  /** @internal Root or own disabled policy. */
+  protected readonly effectiveDisabled = computed(
+    () => this.#context.disabled() || this.#options().disabled(),
+  );
+  /** @internal Native disabled host binding, absent while a disabled Trigger stays focusable. */
+  protected readonly nativeDisabled = computed(
+    () => this.effectiveDisabled() && !this.#options().focusableWhenDisabled(),
+  );
   /** @internal Desired expanded ARIA observation. */
   protected readonly expanded = this.#context.expanded;
   /** @internal Mounted-only control association. */
   protected readonly panelId = this.#context.panelId;
   /** @internal Disabled ARIA observation. */
-  protected readonly disabledAria = this.#context.disabledAria;
+  protected readonly disabledAria = computed(() => {
+    if (this.effectiveDisabled()) {
+      return "true";
+    }
+
+    return null;
+  });
   /** @internal Desired expanded marker. */
   protected readonly expandedAttribute = this.#context.expandedAttribute;
   /** @internal Disabled marker. */
-  protected readonly disabledAttribute = this.#context.disabledAttribute;
+  protected readonly disabledAttribute = computed(() => {
+    if (this.effectiveDisabled()) {
+      return "";
+    }
+
+    return null;
+  });
 
   /** Resolves the nearest Collapsible synchronously; an orphan fails Angular DI clearly. */
   constructor() {
@@ -89,9 +133,9 @@ export class OrigamiCollapsibleTrigger implements OrigamiCollapsibleTriggerOptio
     this.#context.registerTrigger(this.#options, this.#destroyRef);
   }
 
-  /** @internal Live native activation request, obeying effective disabled Options. */
+  /** @internal Live native activation request, obeying the root's and own effective disabled Options. */
   protected activate(): void {
-    if (!this.#destroyed) {
+    if (!this.#destroyed && !this.effectiveDisabled()) {
       this.#context.toggle();
     }
   }
