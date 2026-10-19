@@ -114,6 +114,8 @@ import { OrigamiToggleGroupSingleOptions, OrigamiToggleGroupMultipleOptions, Ori
 import { OrigamiToolbarOptions, type OrigamiToolbarOrientation } from '@loozo/origami-ui/toolbar';
 import { OrigamiRadioGroupOptions, OrigamiRadioGroupItemOptions } from '@loozo/origami-ui/radio-group';
 import { OrigamiButtonOptions } from '@loozo/origami-ui/button';
+import { OrigamiTooltipOptions, OrigamiTooltipContentOptions, type OrigamiTooltipState, type OrigamiTooltipContentState, type OrigamiTooltipSide, type OrigamiTooltipAlign } from '@loozo/origami-ui/tooltip';
+import * as tooltipEntry from '@loozo/origami-ui/tooltip';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -220,6 +222,28 @@ OrigamiButtonOptions.provideFactory(() => ({focusableWhenDisabled: signal(false)
 OrigamiButtonOptions.provideFactory(() => ({disabled: signal(false)}));
 // @ts-expect-error Button disabled must be a boolean signal
 OrigamiButtonOptions.provideFactory(() => ({disabled: signal('no'), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error Tooltip open must be writable
+OrigamiTooltipOptions.provideFactory(() => ({open: computed(() => false), disabled: signal(false), openDelay: signal(600)}));
+// @ts-expect-error a Tooltip root factory must supply openDelay
+OrigamiTooltipOptions.provideFactory(() => ({open: signal(false), disabled: signal(false)}));
+// @ts-expect-error Tooltip openDelay must be a number signal
+OrigamiTooltipOptions.provideFactory(() => ({open: signal(false), disabled: signal(false), openDelay: signal('600')}));
+// @ts-expect-error Tooltip Content requires the complete four-field signal shape
+OrigamiTooltipContentOptions.provideFactory(() => ({id: signal('hint'), side: signal<OrigamiTooltipSide>('block-start'), align: signal<OrigamiTooltipAlign>('center')}));
+// @ts-expect-error Tooltip Content side is a logical side
+OrigamiTooltipContentOptions.provideFactory(() => ({id: signal('hint'), side: signal('top'), align: signal<OrigamiTooltipAlign>('center'), gap: signal(0)}));
+// @ts-expect-error the Tooltip Trigger has no inputs, so no Options token
+void tooltipEntry.OrigamiTooltipTriggerOptions;
+declare const tooltipState: OrigamiTooltipState;
+declare const tooltipContentState: OrigamiTooltipContentState;
+// @ts-expect-error Tooltip State open is readonly
+tooltipState.open.set(true);
+// @ts-expect-error Tooltip State disabled is readonly
+tooltipState.disabled.set(true);
+// @ts-expect-error Tooltip Content State open is readonly
+tooltipContentState.open.set(false);
+// @ts-expect-error Tooltip Content State has no public Presence phase alias
+void tooltipContentState.phase;
 // @ts-expect-error RadioGroup value must be writable
 OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
 // @ts-expect-error RadioGroup value is a nullable string
@@ -239,6 +263,7 @@ class WrongAccordionItem { readonly value = signal('billing'); readonly disabled
 class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 class WrongButton { readonly disabled = signal(false); readonly focusableWhenDisabled = signal('no'); }
 class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
+class WrongTooltip { readonly open = signal(false); readonly disabled = signal(false); readonly openDelay = signal('fast'); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
 // @ts-expect-error incompatible existing Collapsible root class
@@ -259,6 +284,8 @@ OrigamiToggleGroupItemOptions.provideExisting(() => WrongToggleGroupItem);
 OrigamiButtonOptions.provideExisting(() => WrongButton);
 // @ts-expect-error incompatible existing RadioGroup Item class
 OrigamiRadioGroupItemOptions.provideExisting(() => WrongRadioGroupItem);
+// @ts-expect-error incompatible existing Tooltip root class
+OrigamiTooltipOptions.provideExisting(() => WrongTooltip);
 // Positive: complete factories and abstract existing classes return one ordinary Provider.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -339,6 +366,17 @@ abstract class AbstractRadioGroup {
   abstract readonly value: WritableSignal<string | null>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractTooltip {
+  abstract readonly open: WritableSignal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly openDelay: Signal<number>;
+}
+abstract class AbstractTooltipContent {
+  abstract readonly id: Signal<string>;
+  abstract readonly side: Signal<OrigamiTooltipSide>;
+  abstract readonly align: Signal<OrigamiTooltipAlign>;
+  abstract readonly gap: Signal<number>;
+}
 abstract class AbstractRadioGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
@@ -388,6 +426,10 @@ export const providers: Provider[] = [
   OrigamiRadioGroupOptions.provideExisting(() => AbstractRadioGroup),
   OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiRadioGroupItemOptions.provideExisting(() => AbstractRadioGroupItem),
+  OrigamiTooltipOptions.provideFactory(() => ({open: signal(false), disabled: computed(() => false), openDelay: computed(() => 0)})),
+  OrigamiTooltipOptions.provideExisting(() => AbstractTooltip),
+  OrigamiTooltipContentOptions.provideFactory(() => ({id: signal('hint'), side: signal<OrigamiTooltipSide>('block-end'), align: signal<OrigamiTooltipAlign>('end'), gap: signal(6)})),
+  OrigamiTooltipContentOptions.provideExisting(() => AbstractTooltipContent),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -464,6 +506,21 @@ import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origa
     directives: "OrigamiButton",
     members: `
   readonly saving = signal(false);`,
+  },
+  tooltip: {
+    imports: `import { OrigamiTooltip, OrigamiTooltipTrigger, OrigamiTooltipContent, OrigamiTooltipState, OrigamiTooltipContentState } from "@loozo/origami-ui/tooltip";
+import { OrigamiButton } from "@loozo/origami-ui/button";
+import { OrigamiToggle } from "@loozo/origami-ui/toggle";`,
+    directives:
+      "OrigamiTooltip, OrigamiTooltipTrigger, OrigamiTooltipContent, OrigamiButton, OrigamiToggle",
+    members: `
+  readonly open = signal(false);
+  readonly wrongOpen = signal("open");
+  readonly pressed = signal(false);
+  openOutput(value: boolean): void { void value; }
+  observeTooltip(state: OrigamiTooltipState): void { void state; }
+  observeContent(state: OrigamiTooltipContentState): void { void state; }
+  observeString(value: string): void { void value; }`,
   },
   state: {
     imports: `import { OrigamiPresenceState } from "@loozo/origami-ui/presence";
@@ -726,6 +783,61 @@ const templates = [
     name: "button-positive",
     family: "button",
     template: `<button ogButton [disabled]="saving()" focusableWhenDisabled>Save</button>`,
+  },
+  {
+    name: "tooltip-positive",
+    family: "tooltip",
+    template: `<span ogTooltip #tooltip="ogTooltip" [(open)]="open" disabled [openDelay]="200" (openChange)="openOutput($event)"><button ogButton ogTooltipTrigger [disabled]="true" focusableWhenDisabled aria-label="Save" (click)="observeTooltip(tooltip.state)">S</button><span ogTooltipContent #content="ogTooltipContent" id="hint" side="block-end" align="end" [gap]="6" (click)="observeContent(content.state)">Saves the draft</span></span><span ogTooltip><button ogToggle ogTooltipTrigger [(pressed)]="pressed" aria-label="Bold">B</button><span ogTooltipContent>Bold text</span></span>`,
+  },
+  {
+    name: "tooltip-model",
+    family: "tooltip",
+    template: `<span ogTooltip [(open)]="wrongOpen"></span>`,
+    expected: {
+      code: 2322,
+      span: "open",
+      message: /Type 'string' is not assignable to type 'boolean'/,
+    },
+  },
+  {
+    name: "tooltip-open-delay",
+    family: "tooltip",
+    template: `<span ogTooltip [openDelay]="'fast'"></span>`,
+    expected: {
+      code: 2322,
+      span: "openDelay",
+      message: /Type 'string' is not assignable to type 'number'/,
+    },
+  },
+  {
+    name: "tooltip-side",
+    family: "tooltip",
+    template: `<span ogTooltip><span ogTooltipContent side="top"></span></span>`,
+    expected: {
+      code: 2322,
+      span: "side",
+      message: /Type '"top"' is not assignable to type 'OrigamiTooltipSide'/,
+    },
+  },
+  {
+    name: "tooltip-trigger-input",
+    family: "tooltip",
+    template: `<span ogTooltip><button ogTooltipTrigger [openDelay]="0">T</button></span>`,
+    expected: {
+      code: -998002,
+      span: `[openDelay]="0"`,
+      message: /Can't bind to 'openDelay' since it isn't a known property of 'button'/,
+    },
+  },
+  {
+    name: "tooltip-content-state",
+    family: "tooltip",
+    template: `<span ogTooltip><span ogTooltipContent #content="ogTooltipContent" (click)="observeString(content.state)"></span></span>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message: /'OrigamiTooltipContentState' is not assignable to parameter of type 'string'/,
+    },
   },
   {
     name: "toolbar-orientation",

@@ -62,6 +62,14 @@ import {
   type OrigamiRadioGroupState,
 } from "@loozo/origami-ui/radio-group";
 import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
+import {
+  OrigamiTooltip,
+  OrigamiTooltipContent,
+  OrigamiTooltipContentOptions,
+  OrigamiTooltipContentState,
+  OrigamiTooltipOptions,
+  OrigamiTooltipState,
+} from "@loozo/origami-ui/tooltip";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -330,4 +338,17 @@ export function checkToolbarControls(
   void toggleOptions;
   void toggleState;
   void triggerOptions;
+}
+
+/** Tooltip's root and Content are their own Options and expose the State they provide. */
+export function checkTooltipParts(root: OrigamiTooltip, content: OrigamiTooltipContent): void {
+  const rootOptions: OrigamiTooltipOptions = root;
+  const rootState: OrigamiTooltipState = root.state;
+  const contentOptions: OrigamiTooltipContentOptions = content;
+  const contentState: OrigamiTooltipContentState = content.state;
+
+  void rootOptions;
+  void rootState;
+  void contentOptions;
+  void contentState;
 }

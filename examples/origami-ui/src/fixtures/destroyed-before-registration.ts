@@ -27,8 +27,13 @@ import {
   OrigamiPopoverContent,
   OrigamiPopoverTrigger,
 } from "@loozo/origami-ui/popover";
+import {
+  OrigamiTooltip,
+  OrigamiTooltipContent,
+  OrigamiTooltipTrigger,
+} from "@loozo/origami-ui/tooltip";
 
-// C5: a consumer hook earlier in an embedded view destroys that view before a later Origami
+// C5 N12: a consumer hook earlier in an embedded view destroys that view before a later Origami
 // part's ngOnInit, which Angular still runs. Each root stays outside the destroyed view, and a
 // replacement then mounts under it.
 
@@ -66,6 +71,9 @@ type Part = {
     OrigamiPopoverTrigger,
     OrigamiPopoverAnchor,
     OrigamiPopoverContent,
+    OrigamiTooltip,
+    OrigamiTooltipTrigger,
+    OrigamiTooltipContent,
   ],
   template: `
     <h2>Parts destroyed before they register</h2>
@@ -160,6 +168,34 @@ type Part = {
       </ng-template>
       <ng-container #popoverOutlet />
     </div>
+
+    <span ogTooltip>
+      <button type="button" ogTooltipTrigger data-testid="unregistered-tooltip-trigger">
+        Hint
+      </button>
+      <ng-template #tooltipContentPart let-outlet let-label="label">
+        <i [clearOnInit]="outlet"></i>
+        <span ogTooltipContent [id]="'unregistered-' + label + '-tooltip-content'">
+          {{ label }}
+        </span>
+      </ng-template>
+      <ng-container #tooltipContentOutlet />
+    </span>
+
+    <span ogTooltip>
+      <ng-template #tooltipTriggerPart let-outlet let-label="label">
+        <i [clearOnInit]="outlet"></i>
+        <button
+          type="button"
+          ogTooltipTrigger
+          [attr.data-testid]="'unregistered-tooltip-trigger-' + label"
+        >
+          {{ label }}
+        </button>
+      </ng-template>
+      <ng-container #tooltipTriggerOutlet />
+      <span ogTooltipContent id="unregistered-tooltip-content">Hint</span>
+    </span>
   `,
 })
 export class DestroyedBeforeRegistration {
@@ -173,6 +209,14 @@ export class DestroyedBeforeRegistration {
   readonly collapsibleOutlet = viewChild.required("collapsibleOutlet", { read: ViewContainerRef });
   readonly popoverPart = viewChild.required("popoverPart", { read: TemplateRef });
   readonly popoverOutlet = viewChild.required("popoverOutlet", { read: ViewContainerRef });
+  readonly tooltipContentPart = viewChild.required("tooltipContentPart", { read: TemplateRef });
+  readonly tooltipContentOutlet = viewChild.required("tooltipContentOutlet", {
+    read: ViewContainerRef,
+  });
+  readonly tooltipTriggerPart = viewChild.required("tooltipTriggerPart", { read: TemplateRef });
+  readonly tooltipTriggerOutlet = viewChild.required("tooltipTriggerOutlet", {
+    read: ViewContainerRef,
+  });
 
   /** Each part's view clears its own outlet before the part's `ngOnInit`. */
   mount(): void {
@@ -205,6 +249,8 @@ export class DestroyedBeforeRegistration {
       { template: this.tabsPart(), outlet: this.tabsOutlet() },
       { template: this.collapsiblePart(), outlet: this.collapsibleOutlet() },
       { template: this.popoverPart(), outlet: this.popoverOutlet() },
+      { template: this.tooltipContentPart(), outlet: this.tooltipContentOutlet() },
+      { template: this.tooltipTriggerPart(), outlet: this.tooltipTriggerOutlet() },
     ];
   }
 }

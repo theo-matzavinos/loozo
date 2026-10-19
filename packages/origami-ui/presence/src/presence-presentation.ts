@@ -10,7 +10,7 @@ export interface ɵOrigamiPresenceTransition {
 
 /**
  * @internal Coordination of retained Presence with the native presentation of floating Content,
- * the Content hosts that `ɵOrigamiFloating` presents (Popover Content). Not a supported application
+ * the Content hosts that `ɵOrigamiFloating` presents (Popover, Tooltip). Not a supported application
  * API or general presentation extension point.
  *
  * Provide this class locally on the Content host alongside composed Presence. Capture
@@ -34,7 +34,7 @@ export class ɵOrigamiPresencePresentation {
   /** @internal Captures the current Presence transition, reconciling current Options first. */
   captureTransition(): ɵOrigamiPresenceTransition {
     if (this.#readTransition === null) {
-      throw new Error("Popover presentation has no local Presence owner.");
+      throw new Error("Floating presentation has no local Presence owner.");
     }
 
     return this.#readTransition();

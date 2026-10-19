@@ -275,6 +275,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/toolbar",
     "@loozo/origami-ui/radio-group",
     "@loozo/origami-ui/button",
+    "@loozo/origami-ui/tooltip",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -298,6 +299,8 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.deepEqual(names["@loozo/origami-ui/button"], ["OrigamiButton", "OrigamiButtonOptions"]);
   assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
   assert.equal(names["@loozo/origami-ui/radio-group"].includes("ɵOrigamiRadioGroupRoot"), false);
+  assert.equal(names["@loozo/origami-ui/popover"].includes("ɵOrigamiFloatingScope"), false);
+  assert.equal(names["@loozo/origami-ui/tooltip"].length, 9);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -333,6 +336,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "toolbar:Toolbar",
     "radio-group:RadioGroup",
     "button:Button",
+    "tooltip:Tooltip",
     "utils:Utilities",
   ]);
 
@@ -348,7 +352,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 14 snippets that export one component", async () => {
+test("origami's guide pages run the 15 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -356,7 +360,7 @@ test("origami's guide pages run the 14 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 14);
+  assert.equal(ids.length, 15);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -398,6 +402,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "toggle-group/text-alignment.ts": ["alignment:model:options", "highlight:model:options"],
     "radio-group/shipping-speed.ts": ["speed:model:options", "sameDayAvailable:input:boolean"],
     "button/save-button.ts": ["saving:input:boolean"],
+    "tooltip/copy-link.ts": ["openDelay:input:number", "side:input:options"],
   });
 });
 

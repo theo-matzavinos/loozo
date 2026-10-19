@@ -626,7 +626,7 @@ for (const [mode, label] of [
   });
 }
 
-test("C5: parts whose view is destroyed before they register leave no registration", async ({
+test("C5 N12: parts whose view is destroyed before they register leave no registration", async ({
   page,
 }, info) => {
   await fixture(page, "core", info);
@@ -637,7 +637,12 @@ test("C5: parts whose view is destroyed before they register leave no registrati
   await expect(page.getByTestId("unregistered-tab-gone")).toHaveCount(0);
   await expect(page.getByTestId("unregistered-collapsible-trigger-gone")).toHaveCount(0);
   await expect(page.locator("#unregistered-gone-popover-content")).toHaveCount(0);
+  await expect(page.locator("#unregistered-gone-tooltip-content")).toHaveCount(0);
+  await expect(page.getByTestId("unregistered-tooltip-trigger-gone")).toHaveCount(0);
   await expect(page.getByTestId("unregistered-collection-items")).toHaveText("");
+  await expect(page.getByTestId("unregistered-tooltip-trigger")).not.toHaveAttribute(
+    "aria-describedby",
+  );
 
   await page.getByTestId("unregistered-remount").click();
 
@@ -660,5 +665,14 @@ test("C5: parts whose view is destroyed before they register leave no registrati
   await expect(page.getByTestId("unregistered-popover-trigger")).toHaveAttribute(
     "aria-controls",
     "unregistered-kept-popover-content",
+  );
+  // A replacement Tooltip Content and Trigger register without a duplicate-role error.
+  await expect(page.getByTestId("unregistered-tooltip-trigger")).toHaveAttribute(
+    "aria-describedby",
+    "unregistered-kept-tooltip-content",
+  );
+  await expect(page.getByTestId("unregistered-tooltip-trigger-kept")).toHaveAttribute(
+    "aria-describedby",
+    "unregistered-tooltip-content",
   );
 });

@@ -15,6 +15,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/popover.js").then((module) => module.PopoverFixture),
   },
   {
+    path: "tooltip",
+    loadComponent: () => import("./fixtures/tooltip.js").then((module) => module.TooltipFixture),
+  },
+  {
     path: "hydration",
     loadComponent: () =>
       import("./fixtures/seeds/eager-hydration-consumer.js").then(

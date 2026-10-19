@@ -19,6 +19,11 @@ import {
   OrigamiToolbarToggleGroupMultiple,
   OrigamiToolbarToggleGroupSingle,
 } from "@loozo/origami-ui/toolbar";
+import {
+  OrigamiTooltip,
+  OrigamiTooltipContent,
+  OrigamiTooltipTrigger,
+} from "@loozo/origami-ui/tooltip";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -40,6 +45,9 @@ import {
     OrigamiToolbarRadioGroup,
     OrigamiToggleGroupItem,
     OrigamiRadioGroupItem,
+    OrigamiTooltip,
+    OrigamiTooltipTrigger,
+    OrigamiTooltipContent,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -70,6 +78,12 @@ import {
         <option value="negative-gap">Negative gap</option>
         <option value="nan-gap">NaN gap</option>
         <option value="infinite-gap">Infinite gap</option>
+        <option value="orphan-tooltip-trigger">Orphan tooltip trigger</option>
+        <option value="orphan-tooltip-content">Orphan tooltip content</option>
+        <option value="tooltip-trigger">Duplicate tooltip trigger</option>
+        <option value="tooltip-content">Duplicate tooltip content</option>
+        <option value="tooltip-negative-gap">Negative tooltip gap</option>
+        <option value="tooltip-nan-gap">NaN tooltip gap</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -106,6 +120,22 @@ import {
     @if (mounted() && selected() === "orphan-toolbar-radio-group") {
       <div ogToolbarRadioGroup><button ogRadioGroupItem value="a">Missing Toolbar</button></div>
     }
+    @if (mounted() && selected() === "orphan-tooltip-trigger") {
+      <button ogTooltipTrigger>Orphan tooltip trigger</button>
+    }
+    @if (mounted() && selected() === "orphan-tooltip-content") {
+      <span ogTooltipContent>Orphan tooltip content</span>
+    }
+    <span ogTooltip [open]="mounted()">
+      <button ogTooltipTrigger>First tooltip trigger</button>
+      <span ogTooltipContent [gap]="tooltipGap()">First tooltip content</span>
+      @if (mounted() && selected() === "tooltip-trigger") {
+        <button ogTooltipTrigger>Second tooltip trigger</button>
+      }
+      @if (mounted() && selected() === "tooltip-content") {
+        <span ogTooltipContent>Second tooltip content</span>
+      }
+    </span>
     <section ogCollapsible>
       <button ogCollapsibleTrigger>First trigger</button>
       <div ogCollapsiblePanel>First panel</div>
@@ -135,6 +165,7 @@ export class ErrorFixture {
   readonly selected = signal("none");
   readonly mounted = signal(false);
   readonly gap = signal(0);
+  readonly tooltipGap = signal(0);
 
   choose(event: Event): void {
     if (!(event.target instanceof HTMLSelectElement)) {
@@ -143,6 +174,7 @@ export class ErrorFixture {
 
     this.selected.set(event.target.value);
     this.gap.set(0);
+    this.tooltipGap.set(0);
   }
 
   mount(): void {
@@ -158,6 +190,14 @@ export class ErrorFixture {
 
     if (selected === "infinite-gap") {
       this.gap.set(Number.POSITIVE_INFINITY);
+    }
+
+    if (selected === "tooltip-negative-gap") {
+      this.tooltipGap.set(-1);
+    }
+
+    if (selected === "tooltip-nan-gap") {
+      this.tooltipGap.set(Number.NaN);
     }
 
     this.mounted.set(true);

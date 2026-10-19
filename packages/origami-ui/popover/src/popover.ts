@@ -276,7 +276,7 @@ export class OrigamiPopoverState {
  * No focus trap, scroll lock, menu semantics or focus-departure close is supplied.
  *
  * Escape targets the most recently successfully native-activated participating Origami
- * Popover. Already-prevented or composing key events are ignored; a dismissal veto consumes
+ * Popover or Tooltip. Already-prevented or composing key events are ignored; a dismissal veto consumes
  * the request without falling through to an ancestor or another root. Coordinate updates
  * and reopening a retained exit before native hide do not change that promotion order.
  *
