@@ -161,6 +161,8 @@ The Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled comp
 
 The Collection entrypoint also exposes `ɵOrigamiRovingFocusContext` and `ɵOrigamiRovingFocusOptions`, package-private ordered-focus infrastructure for Origami's composite widgets, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private single/multiple selection write rules Accordion, ToggleGroup and RadioGroup share (section 20). The ToggleGroup and RadioGroup entrypoints expose `ɵOrigamiToggleGroupRoot` and `ɵOrigamiRadioGroupRoot`, the internal roots their standalone and Toolbar groups compose, and the Toolbar entrypoint exposes `ɵOrigamiToolbarControl`, the internal roving control its item, Toggle and Popover Trigger compose. None of them is an application API.
 
+The Popover entrypoint also exposes `ɵOrigamiFloating`, the package-private native manual top-layer presentation of Popover Content; `ɵOrigamiLayer`, the package-private Escape and outside-pointer participation of each Popover root; and their host and part types `ɵOrigamiFloatingHost`, `ɵOrigamiFloatingParts`, `ɵOrigamiFloatingContent`, `ɵOrigamiIntent` and `ɵOrigamiLayerHost`. They are the pieces Popover is built from, and they live behind the Popover entrypoint because secondary entrypoints share code only through entrypoints. None of them is an application API.
+
 Built packaging must support genuine Angular AOT consumers, strict templates and TypeScript package resolution, with shared token identities across entrypoints. No fake Angular decorators or shimmed framework runtime.
 
 ### Public API TSDoc — mandatory [D]
@@ -274,7 +276,7 @@ Host attributes are independently observable, empty when active and absent other
 - `data-present` during open.
 - `data-leaving` during closing.
 
-No generic `data-state` replacement is introduced. The attributes above describe immediate direct-Presence/Collapsible timing. The approved Popover-only presentation adapter permits a preparatory `opening` interval before `data-entering`; entering attributes and completion discovery wait for its matching coordinate/reveal commit. Visible exit discovery follows its own leaving WRITE without a new geometry prerequisite; nonvisual close settles without reveal/discovery. See section 11 and the approved design.
+No generic `data-state` replacement is introduced. The attributes above describe immediate direct-Presence/Collapsible timing. The approved floating presentation adapter (Popover Content) permits a preparatory `opening` interval before `data-entering`; entering attributes and completion discovery wait for its matching coordinate/reveal commit. Visible exit discovery follows its own leaving WRITE without a new geometry prerequisite; nonvisual close settles without reveal/discovery. See section 11 and the approved design.
 
 ### Animation completion
 
@@ -379,7 +381,7 @@ Content retains children through Presence's finite exit. Content State `open()` 
 
 ### Dismissal and nesting
 
-- Escape targets the topmost participating Origami Popover. Already-consumed and composing key events are ignored. A veto consumes that request; it must not fall through to another root or ancestor.
+- Escape targets the topmost participating Origami layer (`ɵOrigamiLayer`, section 4), which each Popover root composes. Already-consumed and composing key events are ignored. A veto consumes that request; it must not fall through to another root or ancestor.
 - An outside-pointer dismissal requires a trusted primary-button gesture whose down and matching up are outside the affected branch. A drag starting inside and ending outside does not dismiss. Prevented down or up events and mismatched pointer/button invalidate the gesture. Cancellation or lost capture before the matching pointerup invalidates acquisition; cancellation or capture loss after that pointerup does not veto the completed gesture. Dismissal is deferred until the pointerup dispatch has finished so later listeners can prevent that up event, and the affected branch must still be current when dismissal runs.
 - A nested descendant counts as inside its ancestor for outside detection.
 - A user dismissal request closes an affected branch only if every requested-open member permits it. The root's own trigger may bypass its own dismissible flag, but cannot bypass a protected descendant.

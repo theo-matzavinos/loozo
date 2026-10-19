@@ -115,18 +115,16 @@ Origami owns the `popover="manual"` attribute through ordinary attribute APIs, n
 Root/parts and resolved Options
               │
               ▼
-       Popover Context
-       ├─ requested state, parts and logical parent
-       ├─ branch dismissal and focus ownership
-       ├─ Presence intent/retention
-       ├─ guarded native manual activation/deactivation
-       └─ private positioning adapter
-            ├─ computePosition + offset + flip
-            ├─ autoUpdate subscriptions
-            └─ guarded coordinate commits
-
-Angular continues owning Content and its child views throughout.
+       Popover Context ─ requested state, parts, focus ownership
+       ├─ floating presentation (ɵOrigamiFloating)
+       │    ├─ Presence intent/retention, guarded native manual activation/deactivation
+       │    ├─ presentation nesting
+       │    └─ private positioning adapter (computePosition + offset + flip, autoUpdate, guarded commits)
+       └─ dismissal layer (ɵOrigamiLayer, registered with ɵOrigamiLayers)
+            └─ branch nesting, dismissal, topmost order
 ```
+
+The floating presentation and the dismissal layer are package-private pieces, each with its own parent relation; a nested Popover's pieces nest under its parent Popover's. Angular continues owning Content and its child views throughout.
 
 Use only the DOM package, not Floating UI's React interaction/portal components. Official npm registry metadata confirms `@floating-ui/dom@1.8.0` is published, depending on `@floating-ui/core: ^1.8.0` and `@floating-ui/utils: ^0.2.12`; those base versions also match the inspected source package metadata. Pin and verify the genuine installed dependency closure in the lockfile. No formal Baseline compliance claim is made. Source research does not qualify runtime behavior; the browser acceptance suite does.
 
@@ -160,7 +158,7 @@ SSR emits `popover="manual"`, but cannot serialize an open top-layer state: the 
 
 During hydration, reuse that exact host and applicable children in the same parent. Do not remove an initially-present subtree just because a new browser Context has not initialized its presentation work yet. Deferred siblings stay untouched until their own owners hydrate. No `ngSkipHydration`, client-only replacement or movement to body.
 
-Use a small **package-internal Presence presentation/completion adapter**, with the immediate/default adapter for direct Presence and Collapsible and a positioning-aware adapter only for Popover. This is concrete coordination for asynchronous geometry, not a supported public extension hook or generic renderer framework. If cross-entrypoint compilation requires a `ɵ` support export, document it as internal and keep it out of supported application authoring API.
+Use a small **package-internal Presence presentation/completion adapter**, with the immediate/default adapter for direct Presence and Collapsible and a positioning-aware adapter for floating Content (Popover Content, which `ɵOrigamiFloating` presents). This is concrete coordination for asynchronous geometry, not a supported public extension hook or generic renderer framework. If cross-entrypoint compilation requires a `ɵ` support export, document it as internal and keep it out of supported application authoring API.
 
 The approved source-level protocol is:
 
@@ -178,7 +176,7 @@ The native host remains `:popover-open` during a visible retained exit even thou
 
 ### Focus and event ownership
 
-Retain the specified topmost Escape, atomic branch veto, trusted outside-pointer lifetime, reentrant outputs and conditional focus-restoration contracts. **Topmost means the most recently successfully native-activated participating Origami Popover**, not requested-open order or a global ordering with unrelated native surfaces. This matches newly promoted Origami hosts' native order. Coordinate updates do not reorder either. Reopening a still-promoted exit before native hide starts preserves its existing order; once hiding has started, reconciliation may need a genuine fresh promotion with a new order. Continue using actual composed event paths plus logical child ownership; top-layer painting does not change DOM ancestry.
+Retain the specified topmost Escape, atomic branch veto, trusted outside-pointer lifetime, reentrant outputs and conditional focus-restoration contracts. **Topmost means the most recently successfully native-activated participating Origami layer** (`ɵOrigamiLayer`, one per Popover root), not requested-open order or a global ordering with unrelated native surfaces. This matches newly promoted Origami hosts' native order. Coordinate updates do not reorder either. Reopening a still-promoted exit before native hide starts preserves its existing order; once hiding has started, reconciliation may need a genuine fresh promotion with a new order. Continue using actual composed event paths plus logical child ownership; top-layer painting does not change DOM ancestry.
 
 Use authored document order for Tab/Shift+Tab. With adjacent Trigger/Content, the next eligible content control follows the Trigger naturally. With separated topology, consumers arrange intervening focusable elements according to intended navigation order. Zero-argument `showPopover()` creates no source association; ARIA links do not create one either. Do not add `popovertarget`, `{ source }`, a Tab bridge or roving tabindex to regain it indirectly.
 
