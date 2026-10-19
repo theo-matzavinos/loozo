@@ -20,8 +20,7 @@ import type { ɵOrigamiIntent } from "./floating";
 import type { OrigamiPopoverAnchorOptions } from "./popover-anchor";
 import type { OrigamiPopoverContentOptions } from "./popover-content";
 import type { OrigamiPopoverTriggerOptions } from "./popover-trigger";
-import { PopoverParticipants } from "./popover-participants";
-import type { Branch, BranchMember } from "./popover-participants";
+import { ɵOrigamiLayer } from "./layer";
 
 /** Whole, substitutable root configuration, resolved after construction. */
 export abstract class OrigamiPopoverOptions {
@@ -58,7 +57,7 @@ export abstract class OrigamiPopoverOptions {
   }
 }
 
-export type Policy = { readonly disabled: boolean; readonly dismissible: boolean };
+type Policy = { readonly disabled: boolean; readonly dismissible: boolean };
 type IdentityPart = {
   readonly element: HTMLElement;
   readonly options: () => { readonly id: Signal<string> };
@@ -73,7 +72,7 @@ type ContentPart = {
   readonly presence: OrigamiPresenceState;
   readonly presentation: ɵOrigamiPresencePresentation;
 };
-export type Parts = {
+type Parts = {
   readonly trigger: TriggerPart | null;
   readonly anchor: IdentityPart | null;
   readonly content: ContentPart | null;
@@ -82,15 +81,12 @@ export type Parts = {
 /** @internal Nearest logical Popover owner. Not exported as an application authoring API. */
 @Service({ autoProvided: false })
 export class PopoverContext {
-  readonly parent = inject(PopoverContext, { optional: true, skipSelf: true });
-  readonly #scene = inject(PopoverParticipants);
+  readonly #parent = inject(PopoverContext, { optional: true, skipSelf: true });
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #options = injectDeferred(OrigamiPopoverOptions);
   readonly #trigger = signal<TriggerPart | null>(null);
   readonly #anchor = signal<IdentityPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
-  // Branch children. Replaced on every change, never mutated: a branch snapshot compares it by identity.
-  readonly #children = signal<ReadonlySet<PopoverContext>>(new Set());
   #destroyed = false;
 
   // Object identity detects invalidated/recomputed effective signal decisions, including
@@ -123,42 +119,52 @@ export class PopoverContext {
         complete: parts.trigger !== null && parts.anchor !== null && parts.content !== null,
       };
     }),
-    parent: this.parent?.floating ?? null,
-    nextOrder: () => this.#scene.nextOrder(),
+    parent: this.#parent?.floating ?? null,
+    nextOrder: () => this.layer.nextOrder(),
     closed: (previous, interaction) => {
-      const focus = this.#scene.document.activeElement;
-      const restore = previous?.open === true && !interaction && this.#containsFocus(focus);
+      const focus = this.layer.document.activeElement;
+      const restore = previous?.open === true && !interaction && this.layer.containsFocus(focus);
 
       // Restore only the owning closing trigger, never each suppressed descendant.
       if (restore && !this.#server) {
-        this.restoreFocus(focus);
+        this.#restoreFocus(focus);
       }
     },
+  });
+  /** Escape order and outside-pointer dismissal; a nested Popover joins its parent Popover's branch. */
+  readonly layer: ɵOrigamiLayer = new ɵOrigamiLayer({
+    intent: this.intent,
+    // Its identity changes exactly when parts or policy does: a captured branch must still match both.
+    revision: computed(() => ({ parts: this.parts(), policy: this.#policy() })),
+    dismissible: this.dismissible,
+    parent: this.#parent?.layer ?? null,
+    floating: this.floating,
+    containsTarget: (target) => {
+      for (const part of [this.#trigger(), this.#anchor(), this.#content()]) {
+        if (part !== null && (target === part.element || part.element.contains(target))) {
+          return true;
+        }
+      }
+
+      return false;
+    },
+    containsFocus: (focus) => {
+      const content = this.#content();
+
+      return content !== null && content.element.contains(focus);
+    },
+    closeFromInteraction: () => {
+      this.floating.closeFromInteraction(() => this.#options().open.set(false));
+    },
+    restoreFocus: (expectedFocus) => this.#restoreFocus(expectedFocus),
   });
   readonly participating = this.floating.participating;
   readonly contentId = computed(() => this.#content()?.options().id() ?? null);
 
   constructor() {
-    this.#scene.register(this);
-
-    if (this.parent !== null) {
-      this.parent.#children.update((children) => new Set(children).add(this));
-    }
-
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
-      this.#scene.unregister(this);
-
-      if (this.parent !== null) {
-        this.parent.#children.update((children) => {
-          const remaining = new Set(children);
-
-          remaining.delete(this);
-
-          return remaining;
-        });
-      }
-
+      this.layer.destroy();
       this.floating.destroy();
     });
   }
@@ -219,114 +225,14 @@ export class PopoverContext {
     }
 
     if (this.desired()) {
-      this.#scene.dismiss(this.captureBranch(), "trigger", true);
+      this.layer.dismiss("trigger", true);
     } else {
       this.#options().open.set(true);
       this.floating.synchronize();
     }
   }
 
-  captureBranch(): Branch {
-    const members: BranchMember[] = [];
-    const visit = (owner: PopoverContext) => {
-      const children = owner.#children();
-
-      for (const child of children) {
-        visit(child);
-      }
-
-      members.push({
-        context: owner,
-        intent: owner.intent(),
-        parts: owner.parts(),
-        policy: owner.#policy(),
-        children,
-        activation: owner.floating.activation(),
-        presentationEpoch: owner.floating.epoch(),
-        ready: owner.floating.ready(),
-      });
-    };
-
-    visit(this);
-
-    return { owner: this, members };
-  }
-
-  matches(member: BranchMember): boolean {
-    return (
-      !this.#destroyed &&
-      this.intent() === member.intent &&
-      this.parts() === member.parts &&
-      this.#policy() === member.policy &&
-      this.#children() === member.children &&
-      this.floating.activation() === member.activation &&
-      this.floating.epoch() === member.presentationEpoch
-    );
-  }
-
-  acceptCloseEpoch(member: BranchMember): boolean {
-    let expectedEpoch = member.presentationEpoch;
-
-    if (member.ready) {
-      expectedEpoch += 1;
-    }
-
-    if (this.floating.epoch() !== expectedEpoch) {
-      return false;
-    }
-
-    member.presentationEpoch = expectedEpoch;
-
-    return true;
-  }
-
-  closeFromInteraction(): void {
-    this.floating.closeFromInteraction(() => this.#options().open.set(false));
-  }
-
-  containsPath(path: EventTarget[]): boolean {
-    for (const part of [this.#trigger(), this.#anchor(), this.#content()]) {
-      if (part === null) {
-        continue;
-      }
-
-      for (const target of path) {
-        if (target instanceof Node && (target === part.element || part.element.contains(target))) {
-          return true;
-        }
-      }
-    }
-
-    for (const child of this.#children()) {
-      if (child.containsPath(path)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  #containsFocus(focus: Element | null): boolean {
-    if (focus === null) {
-      return false;
-    }
-
-    const content = this.#content();
-
-    if (content !== null && content.element.contains(focus)) {
-      return true;
-    }
-
-    for (const child of this.#children()) {
-      if (child.#containsFocus(focus)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  restoreFocus(expectedFocus: Element | null): void {
+  #restoreFocus(expectedFocus: Element | null): void {
     const trigger = this.#trigger();
 
     if (
@@ -337,30 +243,12 @@ export class PopoverContext {
       !trigger.element.isConnected ||
       trigger.element.matches(":disabled") ||
       trigger.element.closest("[inert]") !== null ||
-      this.#scene.document.activeElement !== expectedFocus
+      this.layer.document.activeElement !== expectedFocus
     ) {
       return;
     }
 
     trigger.element.focus();
-  }
-
-  order(): number {
-    return this.floating.order();
-  }
-
-  branchOrder(): number {
-    let order = this.order();
-
-    for (const child of this.#children()) {
-      order = Math.max(order, child.branchOrder());
-    }
-
-    return order;
-  }
-
-  isParticipating(): boolean {
-    return this.floating.isParticipating();
   }
 }
 
