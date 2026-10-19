@@ -55,6 +55,12 @@ for (const [variant, caseId, context] of [
   ["negative-gap", "V3", /gap/i],
   ["nan-gap", "V3", /gap/i],
   ["infinite-gap", "V3", /gap/i],
+  ["orphan-tooltip-trigger", "N12", /NG0201:[\s\S]*TooltipContext/],
+  ["orphan-tooltip-content", "N12", /NG0201:[\s\S]*TooltipContext/],
+  ["tooltip-trigger", "N1", /Tooltip supports only one mounted trigger/],
+  ["tooltip-content", "N1", /Tooltip supports only one mounted content/],
+  ["tooltip-negative-gap", "N10", /Tooltip gap must be finite and nonnegative/],
+  ["tooltip-nan-gap", "N10", /Tooltip gap must be finite and nonnegative/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,
@@ -87,6 +93,8 @@ for (const [variant, caseId, context] of [
         "orphan-toolbar-toggle-group-single",
         "orphan-toolbar-toggle-group-multiple",
         "orphan-toolbar-radio-group",
+        "orphan-tooltip-trigger",
+        "orphan-tooltip-content",
       ].includes(variant);
 
     if (nativeProductionProvider) {

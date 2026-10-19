@@ -95,6 +95,17 @@ export const inventory = {
     "OrigamiRadioGroupItemOptions",
   ],
   button: ["OrigamiButton", "OrigamiButtonOptions"],
+  tooltip: [
+    "OrigamiTooltip",
+    "OrigamiTooltipOptions",
+    "OrigamiTooltipState",
+    "OrigamiTooltipTrigger",
+    "OrigamiTooltipContent",
+    "OrigamiTooltipContentOptions",
+    "OrigamiTooltipContentState",
+    "OrigamiTooltipSide",
+    "OrigamiTooltipAlign",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -107,4 +118,6 @@ export const typeOnly = new Set([
   "OrigamiTabsActivation",
   "OrigamiToggleGroupOrientation",
   "OrigamiToolbarOrientation",
+  "OrigamiTooltipSide",
+  "OrigamiTooltipAlign",
 ]);

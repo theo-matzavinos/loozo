@@ -1,6 +1,7 @@
 import {
   ChangeDetectorRef,
   ErrorHandler,
+  InjectionToken,
   PLATFORM_ID,
   afterEveryRender,
   computed,
@@ -40,7 +41,7 @@ export type ɵOrigamiFloatingContent = {
 
 /** @internal The registered parts a floating presentation needs, compared by identity. */
 export type ɵOrigamiFloatingParts = {
-  /** Positioning reference: Popover's Anchor. */
+  /** Positioning reference: Popover's Anchor, Tooltip's Trigger. */
   readonly reference: HTMLElement | null;
   readonly content: ɵOrigamiFloatingContent | null;
   /** Every part the owner requires is registered (Popover also requires its Trigger). */
@@ -49,7 +50,7 @@ export type ɵOrigamiFloatingParts = {
 
 /** @internal What an owner supplies. Signals are read lazily, after construction. */
 export interface ɵOrigamiFloatingHost {
-  /** Names the primitive and its reference in errors, such as "Popover" and "Anchor". */
+  /** Names the primitive and its reference in errors: "Popover" and "Anchor", "Tooltip" and "Trigger". */
   readonly label: string;
   readonly referenceLabel: string;
   readonly intent: Signal<ɵOrigamiIntent>;
@@ -66,6 +67,14 @@ export interface ɵOrigamiFloatingHost {
    */
   closed(previous: ɵOrigamiIntent | null, interaction: boolean): void;
 }
+
+/**
+ * @internal The floating presentation of the Content an owner sits inside. Popover Content
+ * provides it as its owner's `ɵOrigamiFloating`, so a Tooltip whose root is inside that Content
+ * names it as its presentation parent at construction and presents only while that Popover does.
+ * Popover never reads it: a nested Popover takes its parent from the parent `PopoverContext`.
+ */
+export const ɵOrigamiFloatingScope = new InjectionToken<ɵOrigamiFloating>("ɵOrigamiFloatingScope");
 
 type Attempt = {
   readonly intent: ɵOrigamiIntent;

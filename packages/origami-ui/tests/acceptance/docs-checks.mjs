@@ -51,6 +51,7 @@ for (const directory of [
   "toolbar/src",
   "radio-group/src",
   "button/src",
+  "tooltip/src",
 ]) {
   await collect(directory);
 }
@@ -141,6 +142,13 @@ const directiveDefaults = {
   "OrigamiRadioGroupItem.focusableWhenDisabled": ["false", /\bfalse\b/i],
   "OrigamiButton.disabled": ["false", /\bfalse\b/i],
   "OrigamiButton.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiTooltip.open": ["false", /\bfalse\b/i],
+  "OrigamiTooltip.disabled": ["false", /\bfalse\b/i],
+  "OrigamiTooltip.openDelay": ["600 ms", /\b600\b/],
+  "OrigamiTooltipContent.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiTooltipContent.side": ["block-start", /block.?start/i],
+  "OrigamiTooltipContent.align": ["center", /\bcenter\b/i],
+  "OrigamiTooltipContent.gap": ["0 CSS px", /\b0\b|\bzero\b/i],
 };
 const subjects = [];
 const failures = [];

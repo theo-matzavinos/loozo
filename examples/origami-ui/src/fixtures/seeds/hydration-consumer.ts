@@ -6,6 +6,7 @@ import {
   withNoIncrementalHydration,
 } from "@angular/platform-browser";
 import { HydrationUnit } from "./hydration-unit.js";
+import { HoverTooltip } from "../hover-tooltip.js";
 
 /** Use the same selected hydration configuration in genuine client and server bootstraps. */
 export const incrementalHydrationConfig: ApplicationConfig = {
@@ -19,7 +20,7 @@ export const eagerHydrationConfig: ApplicationConfig = {
 
 @Component({
   selector: "acceptance-incremental-hydration",
-  imports: [HydrationUnit],
+  imports: [HydrationUnit, HoverTooltip],
   template: `
     <h1>Incremental hydration</h1>
     <p>Hydrate B before A. C must remain dehydrated while its server identities stay unique.</p>
@@ -37,6 +38,12 @@ export const eagerHydrationConfig: ApplicationConfig = {
       <acceptance-hydration-unit label="C" [initiallyPresent]="false" />
     } @placeholder {
       <p>Block C placeholder for client-only navigation</p>
+    }
+    <!-- N14: hover before hydration isn't replayed, so the hover that hydrates this block doesn't open its Tooltip. -->
+    @defer (hydrate on hover) {
+      <acceptance-hover-tooltip />
+    } @placeholder {
+      <p>Hover block placeholder for client-only navigation</p>
     }
   `,
   styles: [

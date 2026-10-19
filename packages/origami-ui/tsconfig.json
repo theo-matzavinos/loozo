@@ -25,7 +25,8 @@
       "@loozo/origami-ui/tabs": ["./tabs/src/public-api.ts"],
       "@loozo/origami-ui/toggle-group": ["./toggle-group/src/public-api.ts"],
       "@loozo/origami-ui/toolbar": ["./toolbar/src/public-api.ts"],
-      "@loozo/origami-ui/radio-group": ["./radio-group/src/public-api.ts"]
+      "@loozo/origami-ui/radio-group": ["./radio-group/src/public-api.ts"],
+      "@loozo/origami-ui/tooltip": ["./tooltip/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -46,6 +47,7 @@
     "tabs/src/**/*.ts",
     "toggle-group/src/**/*.ts",
     "toolbar/src/**/*.ts",
-    "radio-group/src/**/*.ts"
+    "radio-group/src/**/*.ts",
+    "tooltip/src/**/*.ts"
   ]
 }

@@ -18,6 +18,11 @@ export const routes: Routes = [
       import("./fixtures/popover-deferred.js").then((module) => module.PopoverDeferred),
   },
   {
+    path: "tooltip",
+    loadComponent: () =>
+      import("./fixtures/tooltip-deferred.js").then((module) => module.TooltipDeferred),
+  },
+  {
     path: "hydration",
     loadComponent: () =>
       import("./fixtures/seeds/hydration-consumer.js").then(

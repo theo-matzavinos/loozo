@@ -51,6 +51,11 @@ import {
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
 import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
+import {
+  OrigamiTooltip,
+  OrigamiTooltipContent,
+  OrigamiTooltipTrigger,
+} from "@loozo/origami-ui/tooltip";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 import { RepeatedRoving } from "../repeated-roving.js";
 import { SplitParts } from "../split-parts.js";
@@ -100,6 +105,9 @@ export class AccordionObservation {
     OrigamiToolbarToggleGroupMultiple,
     OrigamiRadioGroup,
     OrigamiRadioGroupItem,
+    OrigamiTooltip,
+    OrigamiTooltipTrigger,
+    OrigamiTooltipContent,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -113,6 +121,27 @@ export class AccordionObservation {
       Hydrate this block
     </button>
     <output data-testid="interaction-count">{{ interactionCount() }}</output>
+
+    <!-- N14: a Tooltip, open only in B. Its Content sits beside the Trigger, over nothing,
+         and nothing that opens later in the unit covers the Trigger. -->
+    <div>
+      <button type="button" data-testid="hydration-tooltip-before">Before the Tooltip</button>
+      <span ogTooltip [(open)]="tooltipOpen" [openDelay]="150">
+        <button
+          type="button"
+          ogTooltipTrigger
+          aria-label="Theme"
+          data-testid="hydration-tooltip-trigger"
+        >
+          T
+        </button>
+        <span ogTooltipContent side="inline-end" [gap]="8" data-testid="hydration-tooltip-content">
+          Switch between light and dark
+        </span>
+      </span>
+    </div>
+    <button type="button" data-testid="hydration-tooltip-after">After the Tooltip</button>
+    <output data-testid="hydration-tooltip-intent">{{ tooltipOpen() }}</output>
 
     <div ogPresence #presence="ogPresence" [(present)]="present" data-testid="hydration-presence">
       @if (presence.state.open()) {
@@ -644,6 +673,7 @@ export class HydrationUnit {
   readonly lockedSpeed = signal<string | null>("first");
   readonly toolbarRadio = signal<string | null>("center");
   readonly popoverOutputs = signal(0);
+  readonly tooltipOpen = linkedSignal(() => this.label() === "B");
   readonly increment = (value: number): number => value + 1;
 
   constructor() {

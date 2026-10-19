@@ -1705,3 +1705,664 @@ test("H4: nested real owner/part boundaries attach ancestor first, retain SSR no
     lazy.release();
   }
 });
+
+function tooltipNative(unit: Locator): Promise<boolean> {
+  return unit
+    .getByTestId("hydration-tooltip-content")
+    .evaluate((node) => node.matches(":popover-open"));
+}
+
+/** N14: server-rendered Tooltips, closed in A and C and open in B. */
+async function expectServerTooltips(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const trigger = unit.getByTestId("hydration-tooltip-trigger");
+    const content = unit.getByTestId("hydration-tooltip-content");
+    const id = await content.getAttribute("id");
+
+    expect(id).toMatch(/.+/);
+    await expect(trigger).toHaveAttribute("aria-describedby", id ?? "");
+    await expect(content).toHaveAttribute("role", "tooltip");
+    await expect(content).toHaveAttribute("popover", "manual");
+    await expect(content).toHaveText("Switch between light and dark");
+
+    if (label === "B") {
+      await expect(content).toHaveAttribute("data-present", "");
+    } else {
+      await expect(content).not.toHaveAttribute("data-present", /.*/);
+    }
+  }
+}
+
+test("N14 H1 H2: Tooltip description, role, ID and text are in server HTML and kept through hydration; initially-open B activates without an entrance; a replayed keyboard focus on a still-focused Trigger opens it", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerTooltips(page, ["A", "B", "C"]);
+
+    for (const label of ["A", "B", "C"]) {
+      const content = page
+        .locator(`[data-unit="${label}"]`)
+        .getByTestId("hydration-tooltip-content");
+
+      // Server HTML: inert, and the native host starts closed even when open.
+      await expect(content).toHaveAttribute("inert", "");
+      expect(await tooltipNative(page.locator(`[data-unit="${label}"]`))).toBe(false);
+    }
+
+    const a = page.locator('[data-unit="A"]');
+    const b = page.locator('[data-unit="B"]');
+    const trigger = a.getByTestId("hydration-tooltip-trigger");
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      // The Tab keydown starts A's hydration; its genuine deferred dependency is held, so the
+      // Trigger's focus must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      await a.getByTestId("hydration-tooltip-before").focus();
+      await page.keyboard.press("Tab");
+      await expect(trigger).toBeFocused();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(a).toHaveAttribute("data-client-render-seen", "false");
+      await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("false");
+      lazy.release();
+      await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    } else {
+      // Before bootstrap: the early event contract captures the focus for replay.
+      await a.getByTestId("hydration-tooltip-before").focus();
+      await page.keyboard.press("Tab");
+      await expect(trigger).toBeFocused();
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    // The replayed focus of the still-focused Trigger opened A.
+    await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("true");
+    await expect.poll(() => tooltipNative(a)).toBe(true);
+    await expect(trigger).toBeFocused();
+
+    if (incremental) {
+      // B hydrates on a trusted click, an outside gesture for A's Tooltip, which it closes.
+      await b.getByTestId("hydrate-unit").click();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("false");
+      await expect(page.locator('[data-unit="C"]')).toHaveAttribute(
+        "data-client-render-seen",
+        "false",
+      );
+    }
+
+    // B activates natively after its own hydration, settled open, without an entrance.
+    await expect.poll(() => tooltipNative(b)).toBe(true);
+    await expect(b.getByTestId("hydration-tooltip-content")).not.toHaveAttribute("inert");
+    await expect(b.getByTestId("hydration-tooltip-content")).toHaveAttribute("data-present", "");
+    await expect(b.getByTestId("hydration-tooltip-content")).not.toHaveAttribute(
+      "data-entering",
+      /.*/,
+    );
+    await expectServerTooltips(page, ["B", "C"]);
+    await assertReferences(page, info);
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
+test("N14 H2: a Trigger focused then blurred before hydration stays closed after its focus and blur are replayed", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const a = page.locator('[data-unit="A"]');
+    const after = a.getByTestId("hydration-tooltip-after");
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      await a.getByTestId("hydration-tooltip-before").focus();
+      await page.keyboard.press("Tab");
+      await expect(a.getByTestId("hydration-tooltip-trigger")).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(after).toBeFocused();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      lazy.release();
+    } else {
+      await a.getByTestId("hydration-tooltip-before").focus();
+      await page.keyboard.press("Tab");
+      await expect(a.getByTestId("hydration-tooltip-trigger")).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(after).toBeFocused();
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("false");
+    expect(await tooltipNative(a)).toBe(false);
+    await expect(after).toBeFocused();
+    await assertReferences(page, info);
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
+test("N14 H2: hover before hydration isn't replayed, including the hover that hydrates a hover-triggered block; the next enter opens after the delay", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    let trigger: Locator;
+    let intent: Locator;
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      const block = page.locator("acceptance-hover-tooltip");
+
+      trigger = block.getByTestId("hover-hydration-trigger");
+      intent = block.getByTestId("hover-hydration-intent");
+      await trigger.scrollIntoViewIfNeeded();
+
+      const bounds = await trigger.boundingBox();
+
+      if (bounds === null) {
+        throw new Error("Expected the server-rendered Trigger");
+      }
+
+      await expect(block).not.toHaveAttribute("data-client-render-seen", "true");
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      await expect(block).toHaveAttribute("data-client-render-seen", "true");
+    } else {
+      const a = page.locator('[data-unit="A"]');
+
+      trigger = a.getByTestId("hydration-tooltip-trigger");
+      intent = a.getByTestId("hydration-tooltip-intent");
+      await trigger.scrollIntoViewIfNeeded();
+
+      const bounds = await trigger.boundingBox();
+
+      if (bounds === null) {
+        throw new Error("Expected the server-rendered Trigger");
+      }
+
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    // The pointer stays still: no enter is replayed, so nothing opens.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 400)));
+    await expect(intent).toHaveText("false");
+
+    // The next enter opens it after its delay.
+    const bounds = await trigger.boundingBox();
+
+    if (bounds === null) {
+      throw new Error("Expected the hydrated Trigger");
+    }
+
+    await page.mouse.move(2, 2);
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await expect(intent).toHaveText("true");
+  } finally {
+    releaseMain();
+  }
+});
+
+test("N14 H2 H3: a click replayed after hydration doesn't open the Tooltip with its replayed focus, and a later keyboard focus opens it", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const a = page.locator('[data-unit="A"]');
+    const trigger = a.getByTestId("hydration-tooltip-trigger");
+
+    await trigger.scrollIntoViewIfNeeded();
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      // The click starts A's hydration with its dependency held: press and click are replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      await trigger.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(a).toHaveAttribute("data-client-render-seen", "false");
+      lazy.release();
+    } else {
+      await trigger.click();
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("false");
+    await a.getByTestId("hydration-tooltip-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(trigger).toBeFocused();
+    await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("true");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
+for (const held of [false, true]) {
+  const title = held
+    ? "N14 H2 H3: a mouse press held across hydration: its replayed focus doesn't open the Tooltip, and a later keyboard focus does"
+    : "N14 H2 H3: a mouse press released outside the Trigger before hydration, with no Trigger click: its replayed focus doesn't open the Tooltip, and a later keyboard focus does";
+
+  test(title, async ({ page }, info) => {
+    const incremental = info.project.metadata.hydration === "incremental";
+    const releaseMain = await bootstrapHeld(page, "/hydration", info);
+    let releaseLazy = () => {};
+
+    try {
+      const a = page.locator('[data-unit="A"]');
+      const trigger = a.getByTestId("hydration-tooltip-trigger");
+      const intent = a.getByTestId("hydration-tooltip-intent");
+
+      await trigger.scrollIntoViewIfNeeded();
+
+      const bounds = await trigger.boundingBox();
+
+      if (bounds === null) {
+        throw new Error("Expected the server-rendered Trigger");
+      }
+
+      let resume = releaseMain;
+
+      if (incremental) {
+        releaseMain();
+        await shell(page, info.project.metadata.runtime);
+
+        // A click beside the Trigger starts A's hydration with its dependency held, so the press
+        // is replayed.
+        const lazy = await holdDependency(page, "data-client-render-seen");
+
+        releaseLazy = lazy.release;
+        resume = lazy.release;
+        await a.getByTestId("hydration-tooltip-before").click();
+        await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+        await expect(a).toHaveAttribute("data-client-render-seen", "false");
+      }
+
+      // The press focuses the Trigger; it is released outside, so no click reaches the Trigger.
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(2, 2, { steps: 4 });
+
+      if (!held) {
+        await page.mouse.up();
+      }
+
+      await expect(trigger).toBeFocused();
+      resume();
+
+      if (!incremental) {
+        await shell(page, info.project.metadata.runtime);
+      }
+
+      await expect(a).toHaveAttribute("data-client-render-seen", "true");
+      await expect(intent).toHaveText("false");
+
+      if (held) {
+        await page.mouse.up();
+      }
+
+      // Keyboard only: Tab away and back. Forward first: WebKit's Shift+Tab doesn't leave a
+      // button the mouse focused.
+      await page.keyboard.press("Tab");
+      await expect(a.getByTestId("hydration-tooltip-after")).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(trigger).toBeFocused();
+      await expect(intent).toHaveText("true");
+    } finally {
+      releaseMain();
+      releaseLazy();
+    }
+  });
+}
+
+for (const focusedFirst of [false, true]) {
+  const title = focusedFirst
+    ? "N14 H2 H3: a mouse press on the keyboard-focused Trigger, released outside, then Tab away and Shift+Tab back, all before hydration: the replayed keyboard focus opens the Tooltip"
+    : "N14 H2 H3: a mouse press released outside the Trigger, then Tab away and Shift+Tab back, all before hydration: the replayed keyboard focus opens the Tooltip";
+
+  test(title, async ({ page }, info) => {
+    const incremental = info.project.metadata.hydration === "incremental";
+    const releaseMain = await bootstrapHeld(page, "/hydration", info);
+    let releaseLazy = () => {};
+
+    try {
+      const a = page.locator('[data-unit="A"]');
+      const trigger = a.getByTestId("hydration-tooltip-trigger");
+
+      await trigger.scrollIntoViewIfNeeded();
+
+      const bounds = await trigger.boundingBox();
+
+      if (bounds === null) {
+        throw new Error("Expected the server-rendered Trigger");
+      }
+
+      let resume = releaseMain;
+
+      if (incremental) {
+        releaseMain();
+        await shell(page, info.project.metadata.runtime);
+
+        // A click beside the Trigger starts A's hydration with its dependency held, so every
+        // event below is replayed.
+        const lazy = await holdDependency(page, "data-client-render-seen");
+
+        releaseLazy = lazy.release;
+        resume = lazy.release;
+        await a.getByTestId("hydration-tooltip-before").click();
+        await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+        await expect(a).toHaveAttribute("data-client-render-seen", "false");
+      }
+
+      // Pressing an already-focused Trigger sends a mousedown without a focus; only the replayed
+      // blur that follows ends it, and that blur is stale.
+      if (focusedFirst) {
+        await a.getByTestId("hydration-tooltip-before").focus();
+        await page.keyboard.press("Tab");
+        await expect(trigger).toBeFocused();
+      }
+
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(2, 2, { steps: 4 });
+      await page.mouse.up();
+      await expect(trigger).toBeFocused();
+
+      // Keyboard only, before hydration. Forward first: WebKit's Shift+Tab doesn't leave a button
+      // the mouse focused.
+      await page.keyboard.press("Tab");
+      await expect(a.getByTestId("hydration-tooltip-after")).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(trigger).toBeFocused();
+      await expect(a).toHaveAttribute("data-client-render-seen", "false");
+      resume();
+
+      if (!incremental) {
+        await shell(page, info.project.metadata.runtime);
+      }
+
+      await expect(a).toHaveAttribute("data-client-render-seen", "true");
+      await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("true");
+      await expect.poll(() => tooltipNative(a)).toBe(true);
+      await expect(trigger).toBeFocused();
+    } finally {
+      releaseMain();
+      releaseLazy();
+    }
+  });
+}
+
+test("N14 H2 H3: a touch drag on a touch-action: none Trigger, then Tab onto it, all before hydration: the replayed keyboard focus opens the Tooltip", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const a = page.locator('[data-unit="A"]');
+    const trigger = a.getByTestId("hydration-tooltip-trigger");
+
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.evaluate((node) => {
+      node.style.touchAction = "none";
+    });
+
+    const bounds = await trigger.boundingBox();
+
+    if (bounds === null) {
+      throw new Error("Expected the server-rendered Trigger");
+    }
+
+    let resume = releaseMain;
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      // A click beside the Trigger starts A's hydration with its dependency held, so every event
+      // below is replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      resume = lazy.release;
+      await a.getByTestId("hydration-tooltip-before").click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(a).toHaveAttribute("data-client-render-seen", "false");
+    }
+
+    // No pointercancel (nothing to pan) and no tap: a touch pointerup on the Trigger without a
+    // mousedown, focus or click.
+    if (info.project.use.browserName === "chromium") {
+      const session = await page.context().newCDPSession(page);
+      const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+
+      await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+
+      for (let step = 1; step <= 5; step++) {
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: point.x + step * 40, y: point.y }],
+        });
+      }
+
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    } else {
+      info.annotations.push({
+        type: "handler-check",
+        description:
+          "Playwright has no dragged trusted touch in Firefox or WebKit; the drag's touch pointerdown and pointerup are synthetic",
+      });
+      await trigger.evaluate((node) => {
+        for (const type of ["pointerdown", "pointerup"]) {
+          node.dispatchEvent(
+            new PointerEvent(type, {
+              pointerType: "touch",
+              pointerId: 7,
+              isPrimary: true,
+              bubbles: true,
+            }),
+          );
+        }
+      });
+    }
+
+    await expect(trigger).not.toBeFocused();
+    await a.getByTestId("hydration-tooltip-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(trigger).toBeFocused();
+    await expect(a).toHaveAttribute("data-client-render-seen", "false");
+    resume();
+
+    if (!incremental) {
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("true");
+    await expect.poll(() => tooltipNative(a)).toBe(true);
+    await expect(trigger).toBeFocused();
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
+test("N14 H2 H3: a mouse press and click that focus nothing, as on a Safari button, then Tab onto the Trigger, all before hydration: the replayed keyboard focus opens the Tooltip", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const a = page.locator('[data-unit="A"]');
+    const trigger = a.getByTestId("hydration-tooltip-trigger");
+    let resume = releaseMain;
+
+    await trigger.scrollIntoViewIfNeeded();
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      // A click beside the Trigger starts A's hydration with its dependency held, so every event
+      // below is replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      resume = lazy.release;
+      await a.getByTestId("hydration-tooltip-before").click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(a).toHaveAttribute("data-client-render-seen", "false");
+    }
+
+    // Replay delivers the press, its click and the later keyboard focus in one synchronous pass,
+    // so only the click ends the press before that focus.
+    info.annotations.push({
+      type: "handler-check",
+      description:
+        "the press is a synthetic mousedown and click that focus nothing; every engine Playwright drives focuses a clicked button",
+    });
+    await trigger.evaluate((node) => {
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await expect(trigger).not.toBeFocused();
+    await a.getByTestId("hydration-tooltip-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(trigger).toBeFocused();
+    await expect(a).toHaveAttribute("data-client-render-seen", "false");
+    resume();
+
+    if (!incremental) {
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    await expect(a.getByTestId("hydration-tooltip-intent")).toHaveText("true");
+    await expect.poll(() => tooltipNative(a)).toBe(true);
+    await expect(trigger).toBeFocused();
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
+test("N14 H2 H3: a touch press canceled before hydration only closes, so a later keyboard focus opens the Tooltip", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const a = page.locator('[data-unit="A"]');
+    const trigger = a.getByTestId("hydration-tooltip-trigger");
+    const intent = a.getByTestId("hydration-tooltip-intent");
+
+    await trigger.scrollIntoViewIfNeeded();
+
+    const bounds = await trigger.boundingBox();
+
+    if (bounds === null) {
+      throw new Error("Expected the server-rendered Trigger");
+    }
+
+    let resume = releaseMain;
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      // A click beside the Trigger starts A's hydration with its dependency held, so the press
+      // is replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      resume = lazy.release;
+      await a.getByTestId("hydration-tooltip-before").click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(a).toHaveAttribute("data-client-render-seen", "false");
+    }
+
+    // The touch sends no mousedown and never focuses the Trigger.
+    if (info.project.use.browserName === "chromium") {
+      const session = await page.context().newCDPSession(page);
+      const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+
+      await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+      await session.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    } else {
+      info.annotations.push({
+        type: "handler-check",
+        description:
+          "Playwright has no held or canceled trusted touch in Firefox or WebKit; the touch pointerdown and pointercancel are synthetic",
+      });
+      await trigger.evaluate((node) => {
+        for (const type of ["pointerdown", "pointercancel"]) {
+          node.dispatchEvent(
+            new PointerEvent(type, {
+              pointerType: "touch",
+              pointerId: 7,
+              isPrimary: true,
+              bubbles: true,
+            }),
+          );
+        }
+      });
+    }
+
+    resume();
+
+    if (!incremental) {
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    await expect(a).toHaveAttribute("data-client-render-seen", "true");
+    await expect(intent).toHaveText("false");
+    await a.getByTestId("hydration-tooltip-before").focus();
+    await page.keyboard.press("Tab");
+    await expect(trigger).toBeFocused();
+    await expect(intent).toHaveText("true");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
