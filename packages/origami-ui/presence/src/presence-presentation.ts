@@ -9,8 +9,9 @@ export interface ɵOrigamiPresenceTransition {
 }
 
 /**
- * @internal Popover-only coordination of retained Presence with native presentation.
- * Not a supported application API or general presentation extension point.
+ * @internal Coordination of retained Presence with the native presentation of floating Content,
+ * the Content hosts that `ɵOrigamiFloating` presents (Popover Content). Not a supported application
+ * API or general presentation extension point.
  *
  * Provide this class locally on the Content host alongside composed Presence. Capture
  * a transition after host bindings/children have rendered. Permit its entering attribute

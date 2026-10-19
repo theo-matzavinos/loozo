@@ -1,6 +1,6 @@
 # Popover design map
 
-Ownership and read timing for Popover and the two package-private pieces `PopoverContext` composes: the floating presentation (`ɵOrigamiFloating`) and the dismissal layer (`ɵOrigamiLayer`, `ɵOrigamiLayers`). Usage is in the [README](README.md); the contract is SPEC section 10 and [SPEC-POPOVER.md](../SPEC-POPOVER.md). The pieces' machines run in effects, render hooks and events, never in a part's host bindings, and aren't mapped here.
+Ownership and read timing for Popover and the two package-private pieces `PopoverContext` composes: the floating presentation (`ɵOrigamiFloating`) and the dismissal layer (`ɵOrigamiLayer`, `ɵOrigamiLayers`). `/popover` exports `ɵOrigamiFloating` and `ɵOrigamiLayer` as `ɵ` internals. Usage is in the [README](README.md); the contract is SPEC section 10 and [SPEC-POPOVER.md](../SPEC-POPOVER.md). The pieces' machines run in effects, render hooks and events, never in a part's host bindings, and aren't mapped here.
 
 ## Popover
 
