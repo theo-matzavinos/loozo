@@ -18,7 +18,7 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 Install both packages:
 
 ```sh
-pnpm add @loozo/angular-launch @loozo/angular-router@0.0.4
+pnpm add @loozo/angular-launch @loozo/angular-router@0.0.5
 ```
 
 ## How it fits together

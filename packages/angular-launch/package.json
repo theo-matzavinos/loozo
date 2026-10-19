@@ -1,6 +1,6 @@
 {
   "name": "@loozo/angular-launch",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Typed queries, mutations and declared errors on Angular's native router, HTTP and SSR pipeline.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
@@ -62,7 +62,7 @@
   "peerDependencies": {
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0",
-    "@loozo/angular-router": "0.0.4",
+    "@loozo/angular-router": "0.0.5",
     "rxjs": "^7.8.2"
   }
 }
