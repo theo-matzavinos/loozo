@@ -1916,7 +1916,8 @@ test("N14 H2: hover before hydration isn't replayed, including the hover that hy
     await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 400)));
     await expect(intent).toHaveText("false");
 
-    // The next enter opens it after its delay.
+    // The next enter opens it after its 150 ms delay: the client's delay group starts cold, also
+    // with B's Tooltip open from the server, so the server wrote no group state.
     const bounds = await trigger.boundingBox();
 
     if (bounds === null) {
@@ -1924,8 +1925,31 @@ test("N14 H2: hover before hydration isn't replayed, including the hover that hy
     }
 
     await page.mouse.move(2, 2);
+
+    const handle = await intent.elementHandle();
+    const elapsed = trigger.evaluate(
+      (node, output) =>
+        new Promise<number>((resolve) => {
+          let enteredAt = Number.NaN;
+
+          node.addEventListener("pointerenter", () => {
+            enteredAt = performance.now();
+          });
+          new MutationObserver((_, observer) => {
+            if (output.textContent === "true") {
+              observer.disconnect();
+              resolve(performance.now() - enteredAt);
+            }
+          }).observe(output, { childList: true, characterData: true, subtree: true });
+        }),
+      handle,
+    );
+
+    // The listener and observer are installed before the pointer moves: this round trip follows.
+    await trigger.evaluate(() => undefined);
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
     await expect(intent).toHaveText("true");
+    expect(await elapsed).toBeGreaterThanOrEqual(150 - 2);
   } finally {
     releaseMain();
   }

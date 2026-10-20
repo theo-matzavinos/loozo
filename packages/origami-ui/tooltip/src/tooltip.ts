@@ -35,9 +35,9 @@ export abstract class OrigamiTooltipOptions {
    */
   abstract readonly disabled: Signal<boolean>;
   /**
-   * Hover delay in milliseconds before opening, direct default 600. Keyboard focus opens at
-   * once. Read when a hover open is scheduled; a non-finite or negative effective value throws
-   * `RangeError` then rather than clamping.
+   * Hover delay in milliseconds before opening, direct default 600, skipped while the delay
+   * group is warm. Keyboard focus opens at once. Read when a hover open is scheduled; a
+   * non-finite or negative effective value throws `RangeError` then rather than clamping.
    */
   abstract readonly openDelay: Signal<number>;
 
@@ -108,7 +108,7 @@ export class TooltipContext {
     }),
     parent: inject(ɵOrigamiFloatingScope, { optional: true }),
     nextOrder: () => this.layer.nextOrder(),
-    closed: () => this.interaction.closed(),
+    closed: (previous) => this.interaction.closed(previous),
   });
   /** Escape order and outside-pointer dismissal as a one-member branch: never a Popover's member. */
   readonly layer: ɵOrigamiLayer = new ɵOrigamiLayer({
@@ -143,6 +143,7 @@ export class TooltipContext {
   constructor() {
     // The parts are destroyed with the root, and their removal ends any pending intent work.
     inject(DestroyRef).onDestroy(() => {
+      this.interaction.destroyed();
       this.layer.destroy();
       this.floating.destroy();
     });
@@ -236,6 +237,13 @@ export class OrigamiTooltipState {
  * (`pointerdown` or `click` on the Trigger, including Enter and Space on a button), Escape or an
  * outside gesture closes it. There is no auto-hide timeout.
  *
+ * Tooltips in one Angular application form one delay group, with no configuration. While a
+ * Tooltip that hover or focus opened is open, and for 300 ms after it closes or is destroyed,
+ * hover opens another at once. Opening one by hover or focus closes the other one that hover or
+ * focus opened. While one Tooltip's pointer crosses its grace area, another Trigger's hover open
+ * waits and happens only if the pointer leaves the area over that Trigger. Application writes
+ * neither join nor are affected by the group.
+ *
  * Escape closes the most recently natively activated participating Popover or Tooltip, consumes
  * the event and never moves focus. A trusted outside primary gesture closes it; its Trigger and
  * Content count as inside. A Tooltip never joins, vetoes or invalidates a Popover's dismissal
@@ -243,10 +251,10 @@ export class OrigamiTooltipState {
  * revealed and is hidden at once, keeping its intent, while that Popover is closed, suppressed or
  * destroyed.
  *
- * SSR emits the Trigger's description and Content with its text and `inert`, without timers or
- * geometry; an initially-open Tooltip activates after its own hydration without an entrance
- * replay. Hover before hydration isn't replayed; a replayed `focus` opens only if the Trigger is
- * still focused and `:focus-visible`.
+ * SSR emits the Trigger's description and Content with its text and `inert`, without timers,
+ * geometry or group state; an initially-open Tooltip activates after its own hydration without
+ * an entrance replay. Hover before hydration isn't replayed; a replayed `focus` opens only if the
+ * Trigger is still focused and `:focus-visible`.
  *
  * @example
  * ```html
