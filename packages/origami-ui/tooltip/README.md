@@ -23,7 +23,7 @@ The Trigger's `aria-describedby` names Content whether it's open or closed, so a
 
 ## Opening and closing
 
-- **Hover** with a mouse or pen opens it after `openDelay`; leaving first cancels it. Touch never opens a Tooltip.
+- **Hover** with a mouse or pen opens it after `openDelay`, or at once just after another Tooltip (see [Several Tooltips](#several-tooltips)); leaving first cancels it. Touch never opens a Tooltip.
 - **Keyboard focus** opens it at once and holds it open. A Trigger focused by a click or tap doesn't open it, and neither does a `disabled` root or a Trigger that is natively disabled.
 - **Activation** closes it at once: `pointerdown` or `click` on the Trigger, including Enter and Space on a button. It opens again only after the pointer leaves and re-enters, or focus leaves and comes back.
 - **Escape** closes it without moving focus, and **a click outside** its Trigger and Content closes it, as for Popover.
@@ -34,6 +34,17 @@ The Trigger's `aria-describedby` names Content whether it's open or closed, so a
 There's no auto-hide timeout.
 
 Clicking the `<label>` of an `<input>` Trigger focuses the input without pressing it, and browsers differ in the order. In Chrome and Firefox the focus comes before the label's click, so the Tooltip opens and closes in the same moment and never appears. In Safari the click comes first, so the Tooltip opens as it does for keyboard focus and stays open until the input loses focus.
+
+## Several Tooltips
+
+All Tooltips in an application work as one group, so moving along a row of controls doesn't wait at each one:
+
+- While a Tooltip that hover or focus opened is showing, and for 300 ms after it closes, hovering another Trigger opens its Tooltip at once instead of after `openDelay`.
+- Only one Tooltip opened by hover or focus shows at a time: opening another closes it, also when keyboard focus moves to the next Trigger.
+- While the pointer crosses toward a Tooltip's Content over another Trigger, that Trigger's Tooltip waits. It opens if the pointer leaves the area while still on that Trigger, and doesn't if the crossing ends any other way, such as reaching the Content or that Tooltip closing.
+- Tooltips you open yourself, by setting `open`, aren't part of the group: they don't close others, and hovering another Trigger doesn't close them.
+
+The group has no settings.
 
 ## Disabled controls
 
@@ -74,4 +85,4 @@ What holds for every primitive is in [Server rendering and hydration](../README.
 
 ## Limitations
 
-No interactive content (HoverCard), long press, close delay or close on scroll. Only one Tooltip's text describes a Trigger. Positioning has Popover's limits.
+No interactive content (HoverCard), long press, close delay, close on scroll or configurable delay group. Only one Tooltip's text describes a Trigger. Positioning has Popover's limits.

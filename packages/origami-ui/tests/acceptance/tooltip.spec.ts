@@ -1,5 +1,5 @@
 import { test, expect, type ErrorRecord } from "./contract-test.js";
-import type { Locator, Page } from "playwright/test";
+import type { Locator, Page, TestInfo } from "playwright/test";
 import { fixture } from "./observation.js";
 import { expectPreferred } from "./geometry.js";
 
@@ -49,6 +49,14 @@ async function expectHidden(content: Locator): Promise<void> {
 /** A page-side wait, for claims that something does not happen within `ms`; not evidence of a positive. */
 async function elapse(page: Page, ms: number): Promise<void> {
   await page.evaluate((ms) => new Promise((resolve) => setTimeout(resolve, ms)), ms);
+}
+
+/**
+ * Waits out the delay group's 300 ms warm window after a hover- or focus-opened Tooltip closed, so
+ * the next hover open waits for its delay.
+ */
+async function cool(page: Page): Promise<void> {
+  await elapse(page, 350);
 }
 
 /** A wrong write would render only after the zoneless scheduler's next turn. */
@@ -296,6 +304,7 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
   // Leaving closes the hover-opened Tooltip.
   await away(page);
   await expect(intent).toHaveText("false");
+  await cool(page);
 
   // Entering and leaving before the delay cancels it.
   await page.mouse.move(point.x, point.y);
@@ -783,6 +792,7 @@ test("N3 N12: removing Content, the Trigger or the root ends a transit; removing
   // A pending open doesn't survive its Trigger, even when a replacement Trigger mounts.
   await script(page, "removal-slow");
   await away(page);
+  await cool(page);
 
   const point = center(await box(page.getByTestId("removal-trigger")));
 
@@ -879,6 +889,207 @@ test("N3: a flipped placement near the viewport edge keeps the grace area; a lea
     .toBe(2);
   await page.mouse.move(point.x, graceBox.y - 1);
   await expect(page.getByTestId("grace-intent")).toHaveText("false");
+});
+
+test("N3: a leave between Content's native show and its reveal closes at once, also toward where Content is about to be", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="grace"]'));
+  await away(page);
+
+  const trigger = page.getByTestId("grace-trigger");
+
+  info.annotations.push({
+    type: "handler-check",
+    description:
+      "the enter, leave and move are synthetic, so the leave lands after Content's native show and before its reveal",
+  });
+
+  // `openDelay` 0 opens inside the enter. The leave comes once Content is natively open and
+  // participating but not yet placed, and the move goes inside the hull its unplaced rect would give.
+  const leave = await trigger.evaluate(
+    (node) =>
+      new Promise<{ placed: boolean; offTrigger: boolean }>((resolve) => {
+        const content = document.querySelector<HTMLElement>('[data-testid="grace-content"]')!;
+        const rect = node.getBoundingClientRect();
+        const exit = { x: rect.left + rect.width / 2, y: rect.top };
+        const observer = new MutationObserver(() => {
+          if (!content.matches(":popover-open")) {
+            return;
+          }
+
+          observer.disconnect();
+
+          const unplaced = content.getBoundingClientRect();
+          // Halfway from the middle of the padded exit points to the unplaced Content's center.
+          const toward = {
+            x: (exit.x + (unplaced.left + unplaced.right) / 2) / 2,
+            y: (exit.y + 5 + (unplaced.top + unplaced.bottom) / 2) / 2,
+          };
+          const offTrigger = !(
+            toward.x >= rect.left &&
+            toward.x <= rect.right &&
+            toward.y >= rect.top &&
+            toward.y <= rect.bottom
+          );
+
+          node.dispatchEvent(
+            new PointerEvent("pointerleave", {
+              pointerType: "mouse",
+              clientX: exit.x,
+              clientY: exit.y,
+            }),
+          );
+          document.dispatchEvent(
+            new PointerEvent("pointermove", {
+              pointerType: "mouse",
+              clientX: toward.x,
+              clientY: toward.y,
+              bubbles: true,
+            }),
+          );
+          resolve({ placed: content.style.getPropertyValue("left") !== "", offTrigger });
+        });
+
+        observer.observe(content, { attributes: true });
+        node.dispatchEvent(
+          new PointerEvent("pointerenter", {
+            pointerType: "mouse",
+            clientX: exit.x,
+            clientY: exit.y + 1,
+          }),
+        );
+      }),
+  );
+
+  // The leave came before the reveal, and the move point lies outside the Trigger.
+  expect(leave).toEqual({ placed: false, offTrigger: true });
+  await settle(page);
+  await expect(page.getByTestId("grace-intent")).toHaveText("false");
+  await expect(page.getByTestId("grace-changes")).toHaveText("2");
+  await expectHidden(page.getByTestId("grace-content"));
+});
+
+test("N3: reopened during a retained visible exit, a leave toward the still-visible Content at the first moment it participates again keeps the Tooltip open; with reduced motion the leave hides Content at once", async ({
+  page,
+}, info) => {
+  const finite = info.project.metadata.motion === "no-preference";
+
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="lifecycle"]'));
+  await away(page);
+
+  const trigger = page.getByTestId("life-trigger");
+  const content = page.getByTestId("life-content");
+  const intent = page.getByTestId("life-intent");
+  const point = center(await box(trigger));
+
+  // Hover-opened and revealed, then left: the finite exit, paused, keeps Content visible.
+  await page.mouse.move(point.x, point.y);
+  await expectShown(content);
+  await expect
+    .poll(async () => await content.evaluate((node) => getComputedStyle(node).opacity))
+    .toBe("1");
+  await away(page);
+  await expect(intent).toHaveText("false");
+
+  // Reduced motion retains no visible exit, so there is nothing to reopen into.
+  if (!finite) {
+    await expectHidden(content);
+    await expect(content).not.toHaveAttribute("data-leaving");
+
+    return;
+  }
+
+  await expect(content).toHaveAttribute("data-leaving", "");
+  await content.evaluate((node) => {
+    for (const animation of node.getAnimations()) {
+      animation.pause();
+    }
+  });
+  expect(await native(content)).toBe(true);
+
+  info.annotations.push({
+    type: "handler-check",
+    description:
+      "the enter, leave and move are synthetic, so the leave lands at the first moment after the reopen that Content participates again",
+  });
+
+  // `openDelay` 0 reopens inside the enter, reusing the visible host. The leave comes in the first
+  // observer callback after Content is no longer inert, and the move goes halfway toward Content.
+  const leave = await trigger.evaluate(
+    (node) =>
+      new Promise<{ entering: boolean; offTrigger: boolean }>((resolve) => {
+        const content = document.querySelector<HTMLElement>('[data-testid="life-content"]')!;
+        const rect = node.getBoundingClientRect();
+        const exit = { x: rect.left + rect.width / 2, y: rect.top };
+        const observer = new MutationObserver(() => {
+          if (content.inert) {
+            return;
+          }
+
+          observer.disconnect();
+
+          const visible = content.getBoundingClientRect();
+          const toward = {
+            x: (exit.x + (visible.left + visible.right) / 2) / 2,
+            y: (exit.y + 5 + (visible.top + visible.bottom) / 2) / 2,
+          };
+          const offTrigger = !(
+            toward.x >= rect.left &&
+            toward.x <= rect.right &&
+            toward.y >= rect.top &&
+            toward.y <= rect.bottom
+          );
+
+          node.dispatchEvent(
+            new PointerEvent("pointerleave", {
+              pointerType: "mouse",
+              clientX: exit.x,
+              clientY: exit.y,
+            }),
+          );
+          document.dispatchEvent(
+            new PointerEvent("pointermove", {
+              pointerType: "mouse",
+              clientX: toward.x,
+              clientY: toward.y,
+              bubbles: true,
+            }),
+          );
+          resolve({ entering: content.hasAttribute("data-entering"), offTrigger });
+        });
+
+        observer.observe(content, { attributes: true });
+        node.dispatchEvent(
+          new PointerEvent("pointerenter", {
+            pointerType: "mouse",
+            clientX: exit.x,
+            clientY: exit.y + 1,
+          }),
+        );
+      }),
+  );
+
+  expect(leave.offTrigger).toBe(true);
+  info.annotations.push({
+    type: "reversal",
+    description: `data-entering at the leave: ${leave.entering}`,
+  });
+  await content.evaluate((node) => {
+    for (const animation of node.getAnimations()) {
+      animation.play();
+    }
+  });
+  await settle(page);
+  await elapse(page, 100);
+  await expect(intent).toHaveText("true");
+  await expectShown(content);
+
+  // The real pointer's next move, outside the area, ends the transit and closes it.
+  await page.mouse.move(3, 3);
+  await expect(intent).toHaveText("false");
 });
 
 test("N4: keyboard focus opens at once and holds it open; pointer focus never opens; blur closes unless hovered; restored focus after keyboard use opens; opening never moves focus", async ({
@@ -1965,4 +2176,856 @@ test("N12: replacement root and Content Options win without fabricated outputs; 
   await expect(page.getByTestId("inner-probe")).toHaveAttribute("data-open", "false");
   await expect(page.getByTestId("inner-intent")).toHaveText("false");
   expect(await native(page.getByTestId("nested-inner-content"))).toBe(false);
+});
+
+type GroupName = "a" | "b" | "c";
+
+/**
+ * An N13 journal from entry `from` on: each Trigger enter and open change, with its dispatching
+ * event. The group-join case keeps its own, in `join-journal`.
+ */
+async function groupJournal(
+  page: Page,
+  from = 0,
+  output = "group-journal",
+): Promise<JournalEntry[]> {
+  const text = await page.getByTestId(output).textContent();
+  const entries: JournalEntry[] = JSON.parse(text ?? "[]");
+
+  return entries.slice(from);
+}
+
+async function groupMark(page: Page, output = "group-journal"): Promise<number> {
+  return (await groupJournal(page, 0, output)).length;
+}
+
+function groupKinds(entries: readonly JournalEntry[]): string[] {
+  const kinds: string[] = [];
+
+  for (const entry of entries) {
+    kinds.push(entry.kind);
+  }
+
+  return kinds;
+}
+
+function groupEntry(entries: readonly JournalEntry[], kind: string): JournalEntry {
+  const entry = entries.find((candidate) => candidate.kind === kind);
+
+  if (entry === undefined) {
+    throw new Error(`Expected a ${kind} journal entry in ${JSON.stringify(groupKinds(entries))}`);
+  }
+
+  return entry;
+}
+
+/** Opened inside an event dispatch, not by the 200 ms timer. */
+function expectOpenedAtOnce(entries: readonly JournalEntry[], name: string): void {
+  expect(groupEntry(entries, `${name}:true`).event).not.toBe("none");
+}
+
+/** Opened by the timer, at least the 200 ms delay after its enter. */
+function expectOpenedAfterDelay(entries: readonly JournalEntry[], name: string): void {
+  const enter = groupEntry(entries, `${name}:enter`);
+  const opened = groupEntry(entries, `${name}:true`);
+
+  expect(opened.event).toBe("none");
+  expect(opened.at - enter.at).toBeGreaterThanOrEqual(200 - 2);
+}
+
+function groupTrigger(page: Page, name: GroupName): Locator {
+  return page.getByTestId(`group-${name}-trigger`);
+}
+
+function groupIntent(page: Page, name: GroupName): Locator {
+  return page.getByTestId(`group-${name}-intent`);
+}
+
+/** Hover-opens a group Tooltip and waits for its reveal, so a leave toward Content starts a transit. */
+async function groupHoverOpen(page: Page, name: GroupName): Promise<void> {
+  const point = center(await box(groupTrigger(page, name)));
+  const content = page.getByTestId(`group-${name}-content`);
+
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, name)).toHaveText("true");
+  await expectShown(content);
+  await expect
+    .poll(async () => await content.evaluate((node) => getComputedStyle(node).opacity))
+    .toBe("1");
+}
+
+test("N13: a hover or focus open closes the other intent-opened Tooltip; the group is warm while one is open and for 300 ms after it closes, also by Escape; application writes neither join nor are affected", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await away(page);
+
+  // Cold: B opens after its delay. Straight onto C, away from B's Content: C opens at once and B
+  // closes, one change each. (A's Content reaches over B, so a move from A onto B is a transit.)
+  let mark = await groupMark(page);
+
+  await groupHoverOpen(page, "b");
+
+  let point = center(await box(groupTrigger(page, "c")));
+
+  await page.mouse.move(point.x, point.y, { steps: 10 });
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  await expect(groupIntent(page, "b")).toHaveText("false");
+
+  let entries = await groupJournal(page, mark);
+
+  expectOpenedAfterDelay(entries, "b");
+  expectOpenedAtOnce(entries, "c");
+  expect(groupKinds(entries).filter((kind) => kind === "b:false")).toHaveLength(1);
+  expect(groupKinds(entries).filter((kind) => kind === "c:true")).toHaveLength(1);
+
+  // C closes by leaving; B, entered within 300 ms, opens at once.
+  await away(page);
+  await expect(groupIntent(page, "c")).toHaveText("false");
+  mark = await groupMark(page);
+  point = center(await box(groupTrigger(page, "b")));
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  expectOpenedAtOnce(await groupJournal(page, mark), "b");
+
+  // After 300 ms, B opens after its delay again.
+  await away(page);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  await cool(page);
+  mark = await groupMark(page);
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  expectOpenedAfterDelay(await groupJournal(page, mark), "b");
+  await away(page);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+
+  // Focus counts: Tab onto B closes hover-opened A, which the pointer still holds against a blur.
+  // B stays current past the window: hovering C opens it at once and closes B.
+  await cool(page);
+  await groupHoverOpen(page, "a");
+  await tabTo(page, groupTrigger(page, "a"), groupTrigger(page, "b"));
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  await cool(page);
+  mark = await groupMark(page);
+  point = center(await box(groupTrigger(page, "c")));
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  expectOpenedAtOnce(await groupJournal(page, mark), "c");
+  await page.getByTestId("group-a-redecide").focus();
+  await away(page);
+  await expect(groupIntent(page, "c")).toHaveText("false");
+
+  // An application-opened C isn't a member: A's hover open, after its delay, leaves it open.
+  await cool(page);
+  await script(page, "group-c-toggle");
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  mark = await groupMark(page);
+  await groupHoverOpen(page, "a");
+  expectOpenedAfterDelay(await groupJournal(page, mark), "a");
+  await expect(groupIntent(page, "c")).toHaveText("true");
+
+  // Escape closes A, the most recently shown, and warms the group: B opens at once.
+  await page.keyboard.press("Escape");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  mark = await groupMark(page);
+  point = center(await box(groupTrigger(page, "b")));
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  expectOpenedAtOnce(await groupJournal(page, mark), "b");
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  await away(page);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  await script(page, "group-c-toggle");
+  await expect(groupIntent(page, "c")).toHaveText("false");
+
+  // An application decision replacing A's hover open ends its membership: the leave doesn't close
+  // A, B opens after its delay and B's hover open doesn't close A.
+  await cool(page);
+  await groupHoverOpen(page, "a");
+  await script(page, "group-a-redecide");
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  mark = await groupMark(page);
+  await page.mouse.move(point.x, point.y, { steps: 10 });
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  expectOpenedAfterDelay(await groupJournal(page, mark), "b");
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  await away(page);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  await script(page, "group-a-close");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+
+  // Its later close by the application doesn't warm the group either.
+  await cool(page);
+  await groupHoverOpen(page, "a");
+  await script(page, "group-a-redecide");
+  await script(page, "group-a-close");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  mark = await groupMark(page);
+  await page.mouse.move(point.x, point.y, { steps: 10 });
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  expectOpenedAfterDelay(await groupJournal(page, mark), "b");
+});
+
+test("N13: a focus open of a Tooltip whose open an application decision replaced and the application then closed opens and stays open", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await away(page);
+
+  // A focus open makes A current. The application replaces that open and then closes A; nothing
+  // reads the group between them, and the observed close drops A before focus reopens it.
+  await tabTo(page, page.getByTestId("group-a-redecide"), groupTrigger(page, "a"));
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  await script(page, "group-a-redecide");
+  await script(page, "group-a-close");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  await expectHidden(page.getByTestId("group-a-content"));
+  await page.getByTestId("group-a-redecide").focus();
+
+  const mark = await groupMark(page);
+
+  await page.keyboard.press("Tab");
+  await expect(groupTrigger(page, "a")).toBeFocused();
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  await expectShown(page.getByTestId("group-a-content"));
+  await elapse(page, 300);
+  await settle(page);
+  expect(groupKinds(await groupJournal(page, mark))).toEqual(["a:true"]);
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  await expectShown(page.getByTestId("group-a-content"));
+});
+
+test("N13: an application close of the current Tooltip that runs before another Trigger's enter reads the group, unobserved yet, warms it", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await away(page);
+
+  // Focus holds A open and current with no transit. A capture listener on an ancestor of B's
+  // Trigger closes A by the application inside B's enter, before B's Trigger reads the group.
+  await tabTo(page, page.getByTestId("group-a-redecide"), groupTrigger(page, "a"));
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  await groupTrigger(page, "b").evaluate((trigger) => {
+    trigger.parentElement?.parentElement?.addEventListener(
+      "pointerenter",
+      (event) => {
+        const close = document.querySelector('[data-testid="group-a-close-now"]');
+
+        if (event.target !== trigger || !(close instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        close.click();
+      },
+      { capture: true },
+    );
+  });
+
+  const mark = await groupMark(page);
+  const point = center(await box(groupTrigger(page, "b")));
+
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+
+  const entries = await groupJournal(page, mark);
+
+  expect(groupKinds(entries).sort()).toEqual(["a:false", "b:enter", "b:true"]);
+  expectOpenedAtOnce(entries, "b");
+});
+
+/**
+ * Cold, hover-opens A, leaves it through its top edge near B and moves into the part of B that
+ * rises above A: inside A's grace area, toward A's Content, so B's enter waits.
+ */
+async function groupOverB(page: Page): Promise<{ a: Box; b: Box; point: Point }> {
+  await away(page);
+  await cool(page);
+  await groupHoverOpen(page, "a");
+
+  const a = await box(groupTrigger(page, "a"));
+  const b = await box(groupTrigger(page, "b"));
+  const x = a.x + a.width - 8;
+  const y = a.y - 5;
+
+  expect(b.y).toBeLessThan(y - 3);
+  await page.mouse.move(x, a.y + 6);
+  await page.mouse.move(x, y, { steps: 4 });
+
+  const point = { x: b.x + 6, y };
+
+  await page.mouse.move(point.x, point.y, { steps: 6 });
+
+  return { a, b, point };
+}
+
+test("N13: while A's grace transit is active B's enter waits: landing on A's Content never opens B; leaving the area over B closes A and opens B at once; pressing B drops the wait", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await away(page);
+
+  // During the transit B doesn't open, even after its delay; landing on A's Content keeps A.
+  let mark = await groupMark(page);
+  let over = await groupOverB(page);
+
+  await elapse(page, 300);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  expect(groupKinds(await groupJournal(page, mark))).toContain("b:enter");
+
+  const content = await box(page.getByTestId("group-a-content"));
+
+  await page.mouse.move(over.point.x, content.y + content.height - 4, { steps: 4 });
+  await elapse(page, 300);
+  await expect(groupIntent(page, "a")).toHaveText("true");
+  await expect(groupIntent(page, "b")).toHaveText("false");
+
+  // Leaving the area while over B opens B at once, which then closes A.
+  over = await groupOverB(page);
+  await elapse(page, 300);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  mark = await groupMark(page);
+  await page.mouse.move(over.point.x, over.b.y + over.b.height - 4);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+
+  let entries = await groupJournal(page, mark);
+
+  expect(groupKinds(entries)).toEqual(["b:true", "a:false"]);
+  expect(groupEntry(entries, "b:true").event).toBe("pointermove");
+
+  // Pressing B while it waits is an activation: it drops the wait, so the outside press that closes
+  // A doesn't open B.
+  over = await groupOverB(page);
+  mark = await groupMark(page);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  await elapse(page, 300);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  entries = await groupJournal(page, mark);
+  expect(groupKinds(entries)).toEqual(["a:false"]);
+});
+
+test("N13: a transit that ends other than by leaving the area drops B's waiting open: a focus open that closes A, Escape on A, destroying A with its Trigger in a child view", async ({
+  page,
+}, info) => {
+  const warnings: string[] = [];
+
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await away(page);
+
+  // Tab onto the waiting B, the pointer still on it: A closes once and B opens and is the group's
+  // current, so after the window hovering C opens it at once and closes B.
+  await groupOverB(page);
+
+  let mark = await groupMark(page);
+
+  await tabTo(page, groupTrigger(page, "a"), groupTrigger(page, "b"));
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  await cool(page);
+  expect(groupKinds(await groupJournal(page, mark))).toEqual(["b:true", "a:false"]);
+  mark = await groupMark(page);
+
+  const point = center(await box(groupTrigger(page, "c")));
+
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  expectOpenedAtOnce(await groupJournal(page, mark), "c");
+  await page.getByTestId("group-a-redecide").focus();
+  await away(page);
+  await expect(groupIntent(page, "c")).toHaveText("false");
+
+  // Focus landing on C while B waits: C opens, then closes A, and B doesn't open.
+  await groupOverB(page);
+  mark = await groupMark(page);
+  await page.getByTestId("group-a-mount").focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(groupTrigger(page, "c")).toBeFocused();
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  await elapse(page, 300);
+  expect(groupKinds(await groupJournal(page, mark))).toEqual(["c:true", "a:false"]);
+  await page.getByTestId("group-a-redecide").focus();
+  await expect(groupIntent(page, "c")).toHaveText("false");
+
+  // Escape on A while B waits: B doesn't open.
+  await groupOverB(page);
+  mark = await groupMark(page);
+  await page.keyboard.press("Escape");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  await elapse(page, 300);
+  expect(groupKinds(await groupJournal(page, mark))).toEqual(["a:false"]);
+
+  // Destroying A while B waits: A's Trigger, in a child view, is removed before its root leaves
+  // the group. A gets no change and B doesn't open.
+  await groupOverB(page);
+  mark = await groupMark(page);
+  await script(page, "group-a-mount");
+  await expect(groupTrigger(page, "a")).toHaveCount(0);
+  await settle(page);
+  await elapse(page, 300);
+  expect(await groupJournal(page, mark)).toEqual([]);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+  expect(warnings).toEqual([]);
+});
+
+test("N13: when the waiting Tooltip's open output, resumed by leaving the area, destroys the transit's Tooltip, nothing is written to the destroyed one and nothing warns", async ({
+  page,
+}, info) => {
+  const warnings: string[] = [];
+
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await script(page, "group-b-destroys-a");
+
+  // B waits for A's transit. Leaving the area over B opens B at once, and B's open output destroys
+  // A before A's own move handler, which resumed B, returns: A doesn't close itself afterwards.
+  const over = await groupOverB(page);
+
+  await elapse(page, 300);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+
+  const mark = await groupMark(page);
+
+  await page.mouse.move(over.point.x, over.b.y + over.b.height - 4);
+  await expect(groupTrigger(page, "a")).toHaveCount(0);
+  await settle(page);
+
+  // A's removal reflows the row, so B may then be left and close; only its open is asserted.
+  const entries = await groupJournal(page, mark);
+
+  expect(groupEntry(entries, "b:true").event).toBe("pointermove");
+
+  for (const kind of groupKinds(entries)) {
+    expect(kind).not.toMatch(/^a:/);
+  }
+
+  expect(warnings).toEqual([]);
+});
+
+/** The teardown journal without Z's entries: the consumer's enter listener may run after the Trigger's. */
+function teardownKinds(entries: readonly JournalEntry[]): string[] {
+  const kinds: string[] = [];
+
+  for (const kind of groupKinds(entries)) {
+    if (!kind.startsWith("z:")) {
+      kinds.push(kind);
+    }
+  }
+
+  return kinds;
+}
+
+/** Hovers Z, at once after X's (or `closed`'s) close, and expects it to open inside the warm window. */
+async function expectTeardownWarm(page: Page, mark: number, closed = "x:false"): Promise<void> {
+  const point = center(await box(page.getByTestId("teardown-z-trigger")));
+
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("teardown-z-content"));
+
+  const entries = await groupJournal(page, mark, "teardown-journal");
+  const close = groupEntry(entries, closed);
+  const enter = groupEntry(entries, "z:enter");
+
+  expect(enter.at - close.at).toBeLessThan(300);
+  expectOpenedAtOnce(entries, "z");
+}
+
+test("N13: when the previous Tooltip's close output destroys another Tooltip, nothing is written after its destruction, nothing warns and X's close warms the group", async ({
+  page,
+  browserName,
+}, info) => {
+  const warnings: string[] = [];
+
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group-teardown"]'));
+  await away(page);
+  await script(page, "teardown-y-mount");
+
+  const x = page.getByTestId("teardown-x-trigger");
+  const y = page.getByTestId("teardown-y-trigger");
+  let point = center(await box(x));
+
+  // The pointer holds X against its blur. Y's focus open writes first and then closes X, whose
+  // close output destroys Y. Y, current then, starts the warm window: Z opens at once. Chromium
+  // blurs Y's focused Trigger as it removes it, before Y's destroy hooks, which closes Y first.
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("teardown-x-content"));
+
+  let mark = await groupMark(page, "teardown-journal");
+
+  await x.focus();
+  await page.keyboard.press("Tab");
+  await expect(y).toHaveCount(0);
+  await expectTeardownWarm(page, mark);
+
+  const removed: string[] = ["y:true", "x:false"];
+
+  if (browserName === "chromium") {
+    removed.push("y:false");
+  }
+
+  expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(removed);
+  await expectHidden(page.getByTestId("teardown-x-content"));
+  await away(page);
+  await expectHidden(page.getByTestId("teardown-z-content"));
+
+  // Escape closes X, whose close output destroys the closed Y: X, still current while it closes,
+  // warms the group.
+  await cool(page);
+  await script(page, "teardown-y-mount");
+  await stage(page.locator('[data-tooltip-case="group-teardown"]'));
+  point = center(await box(x));
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("teardown-x-content"));
+  mark = await groupMark(page, "teardown-journal");
+  await page.keyboard.press("Escape");
+  await expect(y).toHaveCount(0);
+  await expectTeardownWarm(page, mark);
+  expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(["x:false"]);
+  await settle(page);
+  expect(warnings).toEqual([]);
+});
+
+test("N13: when the current Tooltip's own close output destroys it, by leaving or by Escape, the group warms; destroying an application-reopened former current doesn't", async ({
+  page,
+}, info) => {
+  const warnings: string[] = [];
+
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group-teardown"]'));
+  await away(page);
+
+  const s = page.getByTestId("teardown-s-trigger");
+
+  /** Mounts S and hover-opens it (`openDelay` 0), so it is the group's current. */
+  async function hoverS(): Promise<void> {
+    await script(page, "teardown-s-mount");
+
+    const point = center(await box(s));
+
+    await page.mouse.move(point.x, point.y);
+    await expectShown(page.getByTestId("teardown-s-content"));
+  }
+
+  // S closes by leaving, and that close's output destroys S: Z opens at once.
+  await hoverS();
+
+  let mark = await groupMark(page, "teardown-journal");
+
+  await away(page);
+  await expect(s).toHaveCount(0);
+  await expectTeardownWarm(page, mark, "s:false");
+  expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(["s:false"]);
+  await away(page);
+  await expectHidden(page.getByTestId("teardown-z-content"));
+
+  // The same with Escape.
+  await cool(page);
+  await hoverS();
+  mark = await groupMark(page, "teardown-journal");
+  await page.keyboard.press("Escape");
+  await expect(s).toHaveCount(0);
+  await expectTeardownWarm(page, mark, "s:false");
+  expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(["s:false"]);
+  await away(page);
+  await expectHidden(page.getByTestId("teardown-z-content"));
+
+  // An application decision replaces S's hover open, so leaving doesn't close S. Destroying the
+  // still-open S doesn't warm the group: Z waits for its delay.
+  await cool(page);
+  await hoverS();
+  await script(page, "teardown-s-redecide");
+  await away(page);
+  await elapse(page, 100);
+  await expectShown(page.getByTestId("teardown-s-content"));
+  mark = await groupMark(page, "teardown-journal");
+  await script(page, "teardown-s-unmount");
+  await expect(s).toHaveCount(0);
+
+  const point = center(await box(page.getByTestId("teardown-z-trigger")));
+
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("teardown-z-content"));
+
+  const entries = await groupJournal(page, mark, "teardown-journal");
+
+  expectOpenedAfterDelay(entries, "z");
+  expect(teardownKinds(entries)).toEqual([]);
+  await settle(page);
+  expect(warnings).toEqual([]);
+});
+
+test("N13: when the previous Tooltip's close output removes only the opening Tooltip's Trigger, that Tooltip follows the Trigger-removal rules, and a replacement Trigger opens nothing", async ({
+  page,
+  browserName,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group-teardown"]'));
+  await away(page);
+  await script(page, "teardown-w-mount");
+
+  const x = page.getByTestId("teardown-x-trigger");
+  const point = center(await box(x));
+
+  // W's focus open writes before it closes X; X's close output then removes W's Trigger, which
+  // ends W's focus without closing it. Chromium blurs the focused Trigger as it removes it, and
+  // that blur closes the focus-opened W.
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("teardown-x-content"));
+
+  let mark = await groupMark(page, "teardown-journal");
+
+  await x.focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("teardown-w-trigger")).toHaveCount(0);
+  await expectHidden(page.getByTestId("teardown-x-content"));
+  await expectHidden(page.getByTestId("teardown-w-content"));
+  await settle(page);
+
+  const blurred = browserName === "chromium";
+  const removed: string[] = ["w:true", "x:false"];
+
+  if (blurred) {
+    removed.push("w:false");
+  }
+
+  expect(groupKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(removed);
+  await expect(page.getByTestId("teardown-w-intent")).toHaveText(String(!blurred));
+
+  // The replacement Trigger completes the parts with no change: a still-open W presents, a
+  // closed one stays closed.
+  mark = await groupMark(page, "teardown-journal");
+  await script(page, "teardown-w-mount");
+  await expect(page.getByTestId("teardown-w-trigger")).toHaveCount(1);
+
+  if (blurred) {
+    await elapse(page, 300);
+    await expectHidden(page.getByTestId("teardown-w-content"));
+  } else {
+    await expectShown(page.getByTestId("teardown-w-content"));
+  }
+
+  await settle(page);
+  expect(await groupJournal(page, mark, "teardown-journal")).toEqual([]);
+  await expect(page.getByTestId("teardown-w-intent")).toHaveText(String(!blurred));
+});
+
+test("N13: an output handler that focus-opens another Tooltip leaves exactly one intent-opened Tooltip open", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group-reentry"]'));
+  await away(page);
+
+  // P's open output focuses Q's input: Q opens inside P's write, then P joins the group and
+  // closes Q. P stays the one open.
+  let mark = await groupMark(page);
+  let point = center(await box(page.getByTestId("reentry-p-trigger")));
+
+  await page.mouse.move(point.x, point.y);
+  await expect(page.getByTestId("reentry-q-trigger")).toBeFocused();
+  await expectShown(page.getByTestId("reentry-p-content"));
+  await settle(page);
+  expect(groupKinds(await groupJournal(page, mark))).toEqual(["p:true", "q:true", "q:false"]);
+  await expect(page.getByTestId("reentry-p-intent")).toHaveText("true");
+  await expect(page.getByTestId("reentry-q-intent")).toHaveText("false");
+  await expectHidden(page.getByTestId("reentry-q-content"));
+
+  // P's close output focuses Q instead. O's hover open closes P, whose close output focus-opens Q:
+  // Q, the newer current, closes O, and O's own open doesn't take current back.
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group-reentry"]'));
+  await away(page);
+  await script(page, "reentry-focus-on-close");
+  point = center(await box(page.getByTestId("reentry-p-trigger")));
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("reentry-p-content"));
+  mark = await groupMark(page);
+  point = center(await box(page.getByTestId("reentry-o-trigger")));
+  await page.mouse.move(point.x, point.y);
+  await expect(page.getByTestId("reentry-q-trigger")).toBeFocused();
+  await expect(page.getByTestId("reentry-q-intent")).toHaveText("true");
+  await settle(page);
+  expect(groupKinds(await groupJournal(page, mark))).toEqual([
+    "o:true",
+    "p:false",
+    "q:true",
+    "o:false",
+  ]);
+  await expect(page.getByTestId("reentry-o-intent")).toHaveText("false");
+  await expect(page.getByTestId("reentry-p-intent")).toHaveText("false");
+  await expectShown(page.getByTestId("reentry-q-content"));
+  await expectHidden(page.getByTestId("reentry-o-content"));
+});
+
+test("N13: destroying the current Tooltip starts the warm window and writes nothing to it, throws or warns nothing; after the window the group is cold", async ({
+  page,
+}, info) => {
+  const warnings: string[] = [];
+
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group"]'));
+  await away(page);
+
+  // A is current by hover; its removal reflows the row, leaving no Trigger under the pointer. (A
+  // focused Trigger isn't used: Chromium blurs it on removal, which closes A first.) Within the
+  // window, B opens at once.
+  await groupHoverOpen(page, "a");
+
+  let mark = await groupMark(page);
+
+  await script(page, "group-a-mount");
+  await expect(groupTrigger(page, "a")).toHaveCount(0);
+  await settle(page);
+  expect(await groupJournal(page, mark)).toEqual([]);
+
+  let point = center(await box(groupTrigger(page, "b")));
+
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+
+  let entries = await groupJournal(page, mark);
+
+  expectOpenedAtOnce(entries, "b");
+  // Nothing was written to the destroyed A. The consumer's enter listener may run after the Trigger's.
+  expect(groupKinds(entries).sort()).toEqual(["b:enter", "b:true"]);
+  await away(page);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+
+  // After the window, B waits for its delay.
+  await script(page, "group-a-mount");
+  await cool(page);
+  await groupHoverOpen(page, "a");
+  await script(page, "group-a-mount");
+  await expect(groupTrigger(page, "a")).toHaveCount(0);
+  await cool(page);
+  mark = await groupMark(page);
+  point = center(await box(groupTrigger(page, "b")));
+  await page.mouse.move(point.x, point.y);
+  await expect(groupIntent(page, "b")).toHaveText("true");
+  expectOpenedAfterDelay(await groupJournal(page, mark), "b");
+  expect(warnings).toEqual([]);
+});
+
+/** The group-join case with K hover-opened: the pointer holds it, and it is the group's current. */
+async function joinHoldK(page: Page, info: TestInfo): Promise<void> {
+  await fixture(page, "tooltip", info);
+  await stage(page.locator('[data-tooltip-case="group-join"]'));
+  await away(page);
+
+  const point = center(await box(page.getByTestId("join-k-trigger")));
+
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("join-k-content"));
+}
+
+test("N13: a Tooltip whose own open output destroys it doesn't join the group: the current Tooltip stays open and current, nothing is written after the destruction, nothing warns", async ({
+  page,
+}, info) => {
+  const warnings: string[] = [];
+
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await joinHoldK(page, info);
+  await script(page, "join-v-mount");
+
+  // Tab onto V: V writes its open, and that output destroys V. V doesn't join, so it doesn't close
+  // K, which the pointer still holds against its blur.
+  let mark = await groupMark(page, "join-journal");
+
+  await page.getByTestId("join-k-trigger").focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("join-v-trigger")).toHaveCount(0);
+  await settle(page);
+  expect(groupKinds(await groupJournal(page, mark, "join-journal"))).toEqual(["v:true"]);
+  await expectShown(page.getByTestId("join-k-content"));
+
+  // K is still current, so the group is warm: T opens at once, and K closes once. Opening T writes
+  // nothing to the destroyed V.
+  mark = await groupMark(page, "join-journal");
+
+  const point = center(await box(page.getByTestId("join-t-trigger")));
+
+  await page.mouse.move(point.x, point.y, { steps: 10 });
+  await expectShown(page.getByTestId("join-t-content"));
+  await expectHidden(page.getByTestId("join-k-content"));
+  await settle(page);
+
+  const entries = await groupJournal(page, mark, "join-journal");
+
+  expectOpenedAtOnce(entries, "t");
+  expect(groupKinds(entries).sort()).toEqual(["k:false", "t:enter", "t:true"]);
+  expect(warnings).toEqual([]);
+});
+
+test("N13: a Tooltip whose own open output closes it again doesn't join the group: it doesn't close the current Tooltip or keep the group warm", async ({
+  page,
+}, info) => {
+  await joinHoldK(page, info);
+
+  // Tab onto U: U writes its open, and that output writes it closed. U doesn't join, so K, which
+  // the pointer still holds against its blur, stays open.
+  let mark = await groupMark(page, "join-journal");
+
+  await page.getByTestId("join-k-trigger").focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("join-u-trigger")).toBeFocused();
+  await settle(page);
+  expect(groupKinds(await groupJournal(page, mark, "join-journal"))).toEqual(["u:true", "u:false"]);
+  await expectHidden(page.getByTestId("join-u-content"));
+  await expectShown(page.getByTestId("join-k-content"));
+
+  // K closes by leaving and warms the group for 300 ms; after that U, still focused, keeps nothing
+  // warm, so T opens after its delay.
+  await page.mouse.move(2, 2, { steps: 10 });
+  await expectHidden(page.getByTestId("join-k-content"));
+  await cool(page);
+  mark = await groupMark(page, "join-journal");
+
+  const point = center(await box(page.getByTestId("join-t-trigger")));
+
+  await page.mouse.move(point.x, point.y);
+  await expectShown(page.getByTestId("join-t-content"));
+  expectOpenedAfterDelay(await groupJournal(page, mark, "join-journal"), "t");
+  await expect(page.getByTestId("join-u-trigger")).toBeFocused();
 });

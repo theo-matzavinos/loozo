@@ -1,4 +1,15 @@
-import { Component, Directive, Service, inject, signal } from "@angular/core";
+import {
+  ChangeDetectorRef,
+  Component,
+  Directive,
+  ElementRef,
+  Service,
+  TemplateRef,
+  ViewContainerRef,
+  inject,
+  signal,
+  viewChild,
+} from "@angular/core";
 import {
   OrigamiTooltip,
   OrigamiTooltipContent,
@@ -29,7 +40,7 @@ import {
   TooltipText,
 } from "./tooltip-parts.js";
 
-// Tooltip cases N1–N12. Each case is identified by `data-tooltip-case`; controls the tests use
+// Tooltip cases N1–N13. Each case is identified by `data-tooltip-case`; controls the tests use
 // as script actions are buttons, so a script click is never a trusted pointer gesture.
 
 type JournalEntry = { readonly kind: string; readonly at: number; readonly event: string };
@@ -921,6 +932,276 @@ export class FactoryPlacement {}
       </button>
       <output data-testid="inner-intent">{{ innerOpen() }}</output>
     </section>
+
+    <section data-tooltip-case="group" class="stage">
+      <h2>N13 delay group</h2>
+      <div>
+        @if (groupAMounted()) {
+          <!-- Before A, so the three Triggers stay adjacent. -->
+          <button type="button" data-testid="group-a-redecide" (click)="redecide(groupA)">
+            Close and reopen A in one task
+          </button>
+          <!-- Hidden, so the Triggers don't move: a script click closes A's own root at once. -->
+          <button
+            type="button"
+            hidden
+            data-testid="group-a-close-now"
+            (click)="groupA.open.set(false)"
+          >
+            Close A in this task
+          </button>
+          <span
+            ogTooltip
+            #groupA="ogTooltip"
+            [openDelay]="200"
+            [(open)]="groupAOpen"
+            (openChange)="groupRecord('a:' + $event)"
+          >
+            <!-- A child view of A's root: destroying A removes its Trigger before the root. -->
+            @if (true) {
+              <button
+                type="button"
+                ogTooltipTrigger
+                class="trigger wide"
+                data-testid="group-a-trigger"
+                (pointerenter)="groupRecord('a:enter')"
+              >
+                A
+              </button>
+            }
+            <!-- Reaches over B, whose Trigger rises above A's, so a path to it can cross B. -->
+            <span
+              ogTooltipContent
+              class="tooltip roomy"
+              align="start"
+              [gap]="12"
+              data-testid="group-a-content"
+              >Group hint A, wide enough to reach over B and C</span
+            >
+          </span>
+        }
+        <span ogTooltip [openDelay]="200" [(open)]="groupBOpen" (openChange)="groupBChange($event)">
+          <button
+            type="button"
+            ogTooltipTrigger
+            class="trigger wide tall"
+            data-testid="group-b-trigger"
+            (pointerenter)="groupRecord('b:enter')"
+          >
+            B
+          </button>
+          <span ogTooltipContent class="tooltip roomy" [gap]="12" data-testid="group-b-content"
+            >Group hint B</span
+          >
+        </span>
+        <span
+          ogTooltip
+          [openDelay]="200"
+          [(open)]="groupCOpen"
+          (openChange)="groupRecord('c:' + $event)"
+        >
+          <button
+            type="button"
+            ogTooltipTrigger
+            class="trigger wide"
+            data-testid="group-c-trigger"
+            (pointerenter)="groupRecord('c:enter')"
+          >
+            C
+          </button>
+          <span ogTooltipContent class="tooltip roomy" [gap]="12" data-testid="group-c-content"
+            >Group hint C</span
+          >
+        </span>
+      </div>
+      <button
+        type="button"
+        data-testid="group-a-mount"
+        (click)="groupAMounted.set(!groupAMounted())"
+      >
+        Mount or unmount A
+      </button>
+      <button type="button" data-testid="group-a-close" (click)="groupAOpen.set(false)">
+        Close A
+      </button>
+      <button type="button" data-testid="group-c-toggle" (click)="groupCOpen.set(!groupCOpen())">
+        Open or close C
+      </button>
+      <button type="button" data-testid="group-b-destroys-a" (click)="groupBDestroysA.set(true)">
+        Destroy A in B's open output
+      </button>
+      <output data-testid="group-a-intent">{{ groupAOpen() }}</output>
+      <output data-testid="group-b-intent">{{ groupBOpen() }}</output>
+      <output data-testid="group-c-intent">{{ groupCOpen() }}</output>
+      <output data-testid="group-journal">{{ groupJournalText() }}</output>
+    </section>
+
+    <section data-tooltip-case="group-teardown" class="stage">
+      <h2>N13 delay group: a close output that destroys the opening Tooltip</h2>
+      <span ogTooltip [openDelay]="0" (openChange)="teardownChange($event)">
+        <button type="button" ogTooltipTrigger class="trigger" data-testid="teardown-x-trigger">
+          X
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="teardown-x-content"
+          >Teardown hint X</span
+        >
+      </span>
+      <ng-template #teardownSlot />
+      <ng-template #teardownY>
+        <span ogTooltip (openChange)="teardownRecord('y:' + $event)">
+          <button type="button" ogTooltipTrigger class="trigger" data-testid="teardown-y-trigger">
+            Y
+          </button>
+          <span ogTooltipContent class="tooltip" data-testid="teardown-y-content"
+            >Teardown hint Y</span
+          >
+        </span>
+      </ng-template>
+      <!-- X's close output removes only W's Trigger; W's root and Content stay. -->
+      <span ogTooltip [(open)]="teardownWOpen" (openChange)="teardownRecord('w:' + $event)">
+        <ng-template #teardownWSlot />
+        <ng-template #teardownWTrigger>
+          <button type="button" ogTooltipTrigger class="trigger" data-testid="teardown-w-trigger">
+            W
+          </button>
+        </ng-template>
+        <span ogTooltipContent class="tooltip" data-testid="teardown-w-content"
+          >Teardown hint W</span
+        >
+      </span>
+      <span ogTooltip [openDelay]="200" (openChange)="teardownRecord('z:' + $event)">
+        <button
+          type="button"
+          ogTooltipTrigger
+          class="trigger"
+          data-testid="teardown-z-trigger"
+          (pointerenter)="teardownRecord('z:enter')"
+        >
+          Z
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="teardown-z-content"
+          >Teardown hint Z</span
+        >
+      </span>
+      <!-- After Z, so mounting or destroying S never moves Z. -->
+      <ng-template #teardownSSlot />
+      <ng-template #teardownS>
+        <span
+          ogTooltip
+          #teardownSRoot="ogTooltip"
+          [openDelay]="0"
+          (openChange)="teardownSelf($event)"
+        >
+          <button type="button" ogTooltipTrigger class="trigger" data-testid="teardown-s-trigger">
+            S
+          </button>
+          <span ogTooltipContent class="tooltip" data-testid="teardown-s-content"
+            >Teardown hint S</span
+          >
+        </span>
+        <button
+          type="button"
+          data-testid="teardown-s-redecide"
+          (click)="redecideTeardownS(teardownSRoot)"
+        >
+          Close and reopen S in one task
+        </button>
+      </ng-template>
+      <button type="button" data-testid="teardown-y-mount" (click)="mountTeardownY()">
+        Mount Y
+      </button>
+      <button type="button" data-testid="teardown-w-mount" (click)="mountTeardownW()">
+        Mount W's Trigger
+      </button>
+      <button type="button" data-testid="teardown-s-mount" (click)="mountTeardownS()">
+        Mount S
+      </button>
+      <button type="button" data-testid="teardown-s-unmount" (click)="unmountTeardownS()">
+        Destroy S
+      </button>
+      <output data-testid="teardown-w-intent">{{ teardownWOpen() }}</output>
+      <!-- After the Triggers, so its growth never moves them under the pointer. -->
+      <output data-testid="teardown-journal">{{ teardownJournalText() }}</output>
+    </section>
+
+    <section data-tooltip-case="group-reentry" class="stage">
+      <h2>N13 delay group: an output that focuses another Trigger</h2>
+      <span ogTooltip [openDelay]="0" [(open)]="reentryPOpen" (openChange)="reentryChange($event)">
+        <button type="button" ogTooltipTrigger class="trigger" data-testid="reentry-p-trigger">
+          P
+        </button>
+        <!-- Away from O, so moving onto O leaves P's grace area at once. -->
+        <span ogTooltipContent class="tooltip" side="inline-start" data-testid="reentry-p-content"
+          >P</span
+        >
+      </span>
+      <span
+        ogTooltip
+        [openDelay]="0"
+        [(open)]="reentryOOpen"
+        (openChange)="groupRecord('o:' + $event)"
+      >
+        <button type="button" ogTooltipTrigger class="trigger" data-testid="reentry-o-trigger">
+          O
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="reentry-o-content">O</span>
+      </span>
+      <span ogTooltip [(open)]="reentryQOpen" (openChange)="groupRecord('q:' + $event)">
+        <input #reentryQ ogTooltipTrigger aria-label="Q" data-testid="reentry-q-trigger" />
+        <span ogTooltipContent class="tooltip" data-testid="reentry-q-content">Q</span>
+      </span>
+      <button
+        type="button"
+        data-testid="reentry-focus-on-close"
+        (click)="reentryFocusOnOpen.set(false)"
+      >
+        Focus Q on P's close instead
+      </button>
+      <output data-testid="reentry-p-intent">{{ reentryPOpen() }}</output>
+      <output data-testid="reentry-o-intent">{{ reentryOOpen() }}</output>
+      <output data-testid="reentry-q-intent">{{ reentryQOpen() }}</output>
+    </section>
+
+    <section data-tooltip-case="group-join" class="stage">
+      <h2>N13 delay group: an open output that destroys or closes its own Tooltip</h2>
+      <!-- Before K, so moving from K onto T crosses neither V nor U. -->
+      <span ogTooltip [openDelay]="200" (openChange)="joinRecord('t:' + $event)">
+        <button
+          type="button"
+          ogTooltipTrigger
+          class="trigger"
+          data-testid="join-t-trigger"
+          (pointerenter)="joinRecord('t:enter')"
+        >
+          T
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="join-t-content">Join hint T</span>
+      </span>
+      <span ogTooltip [openDelay]="0" (openChange)="joinRecord('k:' + $event)">
+        <button type="button" ogTooltipTrigger class="trigger" data-testid="join-k-trigger">
+          K
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="join-k-content">Join hint K</span>
+      </span>
+      <ng-template #joinSlot />
+      <ng-template #joinV>
+        <span ogTooltip (openChange)="joinDestroy($event)">
+          <button type="button" ogTooltipTrigger class="trigger" data-testid="join-v-trigger">
+            V
+          </button>
+          <span ogTooltipContent class="tooltip" data-testid="join-v-content">Join hint V</span>
+        </span>
+      </ng-template>
+      <span ogTooltip #joinU="ogTooltip" (openChange)="joinVeto(joinU, $event)">
+        <button type="button" ogTooltipTrigger class="trigger" data-testid="join-u-trigger">
+          U
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="join-u-content">Join hint U</span>
+      </span>
+      <button type="button" data-testid="join-v-mount" (click)="mountJoinV()">Mount V</button>
+      <!-- After the Triggers, so its growth never moves them under the pointer. -->
+      <output data-testid="join-journal">{{ joinJournalText() }}</output>
+    </section>
   `,
   styles: `
     :host {
@@ -941,6 +1222,9 @@ export class FactoryPlacement {}
     }
     .wide {
       padding: 10px 24px;
+    }
+    .tall {
+      padding-block: 20px;
     }
     .tooltip {
       box-sizing: border-box;
@@ -1084,6 +1368,34 @@ export class TooltipFixture {
   readonly outerOpen = signal(false);
   readonly innerOpen = signal(false);
 
+  readonly groupAMounted = signal(true);
+  readonly groupAOpen = signal(false);
+  readonly groupBOpen = signal(false);
+  readonly groupCOpen = signal(false);
+  readonly groupJournal = signal<readonly JournalEntry[]>([]);
+  readonly groupBDestroysA = signal(false);
+  readonly #changeDetector = inject(ChangeDetectorRef);
+
+  readonly teardownSlot = viewChild.required("teardownSlot", { read: ViewContainerRef });
+  readonly teardownY = viewChild.required<TemplateRef<unknown>>("teardownY");
+  readonly teardownWOpen = signal(false);
+  readonly teardownWSlot = viewChild.required("teardownWSlot", { read: ViewContainerRef });
+  readonly teardownWTrigger = viewChild.required<TemplateRef<unknown>>("teardownWTrigger");
+  readonly teardownSSlot = viewChild.required("teardownSSlot", { read: ViewContainerRef });
+  readonly teardownS = viewChild.required<TemplateRef<unknown>>("teardownS");
+  #teardownSRedeciding = false;
+  readonly teardownJournal = signal<readonly JournalEntry[]>([]);
+
+  readonly reentryPOpen = signal(false);
+  readonly reentryOOpen = signal(false);
+  readonly reentryQOpen = signal(false);
+  readonly reentryFocusOnOpen = signal(true);
+  readonly reentryQ = viewChild.required<ElementRef<HTMLInputElement>>("reentryQ");
+
+  readonly joinSlot = viewChild.required("joinSlot", { read: ViewContainerRef });
+  readonly joinV = viewChild.required<TemplateRef<unknown>>("joinV");
+  readonly joinJournal = signal<readonly JournalEntry[]>([]);
+
   readonly journalText = (): string => JSON.stringify(this.journal());
 
   /** The time and the dispatching event of each hover entry and open change. */
@@ -1095,6 +1407,138 @@ export class TooltipFixture {
     };
 
     this.journal.update((entries) => [...entries, entry]);
+  }
+
+  readonly groupJournalText = (): string => JSON.stringify(this.groupJournal());
+
+  /** N13: like `record`, for the delay group's three Tooltips. */
+  groupRecord(kind: string): void {
+    const entry: JournalEntry = {
+      kind,
+      at: performance.now(),
+      event: window.event?.type ?? "none",
+    };
+
+    this.groupJournal.update((entries) => [...entries, entry]);
+  }
+
+  /** N13: B's open output destroys A's view synchronously, once enabled. */
+  groupBChange(open: boolean): void {
+    this.groupRecord(`b:${open}`);
+
+    if (open && this.groupBDestroysA()) {
+      this.groupAMounted.set(false);
+      this.#changeDetector.detectChanges();
+    }
+  }
+
+  readonly teardownJournalText = (): string => JSON.stringify(this.teardownJournal());
+
+  /** N13: like `groupRecord`, for the Tooltips whose outputs destroy another one's parts. */
+  teardownRecord(kind: string): void {
+    const entry: JournalEntry = {
+      kind,
+      at: performance.now(),
+      event: window.event?.type ?? "none",
+    };
+
+    this.teardownJournal.update((entries) => [...entries, entry]);
+  }
+
+  mountTeardownY(): void {
+    this.teardownSlot().clear();
+    this.teardownSlot().createEmbeddedView(this.teardownY());
+  }
+
+  /** A replacement for the Trigger X's close removed. */
+  mountTeardownW(): void {
+    this.teardownWSlot().clear();
+    this.teardownWSlot().createEmbeddedView(this.teardownWTrigger());
+  }
+
+  /** N13: X's close output destroys Y's view and W's Trigger synchronously. */
+  teardownChange(open: boolean): void {
+    this.teardownRecord(`x:${open}`);
+
+    if (!open) {
+      this.teardownSlot().clear();
+      this.teardownWSlot().clear();
+    }
+  }
+
+  mountTeardownS(): void {
+    this.teardownSSlot().clear();
+    this.teardownSSlot().createEmbeddedView(this.teardownS());
+  }
+
+  unmountTeardownS(): void {
+    this.teardownSSlot().clear();
+  }
+
+  /** N13: S's close output destroys S's own view synchronously, except inside its redecision. */
+  teardownSelf(open: boolean): void {
+    this.teardownRecord(`s:${open}`);
+
+    if (!open && !this.#teardownSRedeciding) {
+      this.teardownSSlot().clear();
+    }
+  }
+
+  redecideTeardownS(tooltip: OrigamiTooltip): void {
+    this.#teardownSRedeciding = true;
+    this.redecide(tooltip);
+    this.#teardownSRedeciding = false;
+  }
+
+  /** N13: P's `openChange` focuses Q's `<input>` Trigger synchronously, on its open or its close. */
+  reentryChange(open: boolean): void {
+    this.groupRecord(`p:${open}`);
+
+    if (open === this.reentryFocusOnOpen()) {
+      this.reentryQ().nativeElement.focus();
+    }
+  }
+
+  readonly joinJournalText = (): string => JSON.stringify(this.joinJournal());
+
+  /** N13: like `groupRecord`, for the Tooltips whose open output destroys or closes them. */
+  joinRecord(kind: string): void {
+    const entry: JournalEntry = {
+      kind,
+      at: performance.now(),
+      event: window.event?.type ?? "none",
+    };
+
+    this.joinJournal.update((entries) => [...entries, entry]);
+  }
+
+  mountJoinV(): void {
+    this.joinSlot().clear();
+    this.joinSlot().createEmbeddedView(this.joinV());
+  }
+
+  /** N13: V's open output destroys V's root synchronously. */
+  joinDestroy(open: boolean): void {
+    this.joinRecord(`v:${open}`);
+
+    if (open) {
+      this.joinSlot().clear();
+    }
+  }
+
+  /** N13: U's open output writes U closed again, through its model, in the same task. */
+  joinVeto(tooltip: OrigamiTooltip, open: boolean): void {
+    this.joinRecord(`u:${open}`);
+
+    if (open) {
+      tooltip.open.set(false);
+    }
+  }
+
+  /** An application decision that replaces the effective intent before any close is observed. */
+  redecide(tooltip: OrigamiTooltip): void {
+    tooltip.open.set(false);
+    tooltip.open.set(true);
   }
 
   choose(event: Event, target: { set(value: string): void }): void {
