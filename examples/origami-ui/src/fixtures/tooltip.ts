@@ -1038,6 +1038,21 @@ export class FactoryPlacement {}
 
     <section data-tooltip-case="group-teardown" class="stage">
       <h2>N13 delay group: a close output that destroys the opening Tooltip</h2>
+      <!-- First, so destroying Y, W's Trigger or S never moves Z. -->
+      <span ogTooltip [openDelay]="200" (openChange)="teardownRecord('z:' + $event)">
+        <button
+          type="button"
+          ogTooltipTrigger
+          class="trigger"
+          data-testid="teardown-z-trigger"
+          (pointerenter)="teardownRecord('z:enter')"
+        >
+          Z
+        </button>
+        <span ogTooltipContent class="tooltip" data-testid="teardown-z-content"
+          >Teardown hint Z</span
+        >
+      </span>
       <span ogTooltip [openDelay]="0" (openChange)="teardownChange($event)">
         <button type="button" ogTooltipTrigger class="trigger" data-testid="teardown-x-trigger">
           X
@@ -1069,21 +1084,6 @@ export class FactoryPlacement {}
           >Teardown hint W</span
         >
       </span>
-      <span ogTooltip [openDelay]="200" (openChange)="teardownRecord('z:' + $event)">
-        <button
-          type="button"
-          ogTooltipTrigger
-          class="trigger"
-          data-testid="teardown-z-trigger"
-          (pointerenter)="teardownRecord('z:enter')"
-        >
-          Z
-        </button>
-        <span ogTooltipContent class="tooltip" data-testid="teardown-z-content"
-          >Teardown hint Z</span
-        >
-      </span>
-      <!-- After Z, so mounting or destroying S never moves Z. -->
       <ng-template #teardownSSlot />
       <ng-template #teardownS>
         <span
@@ -1398,11 +1398,14 @@ export class TooltipFixture {
 
   readonly journalText = (): string => JSON.stringify(this.journal());
 
-  /** The time and the dispatching event of each hover entry and open change. */
+  /**
+   * Each hover entry and open change with its dispatching event, timed by that event, or by now for
+   * a timer: a listener running after the Trigger's would otherwise shorten the measured delay.
+   */
   record(kind: string): void {
     const entry: JournalEntry = {
       kind,
-      at: performance.now(),
+      at: window.event?.timeStamp ?? performance.now(),
       event: window.event?.type ?? "none",
     };
 
@@ -1415,7 +1418,7 @@ export class TooltipFixture {
   groupRecord(kind: string): void {
     const entry: JournalEntry = {
       kind,
-      at: performance.now(),
+      at: window.event?.timeStamp ?? performance.now(),
       event: window.event?.type ?? "none",
     };
 
@@ -1438,7 +1441,7 @@ export class TooltipFixture {
   teardownRecord(kind: string): void {
     const entry: JournalEntry = {
       kind,
-      at: performance.now(),
+      at: window.event?.timeStamp ?? performance.now(),
       event: window.event?.type ?? "none",
     };
 
@@ -1505,7 +1508,7 @@ export class TooltipFixture {
   joinRecord(kind: string): void {
     const entry: JournalEntry = {
       kind,
-      at: performance.now(),
+      at: window.event?.timeStamp ?? performance.now(),
       event: window.event?.type ?? "none",
     };
 

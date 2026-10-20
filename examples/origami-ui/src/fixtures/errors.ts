@@ -1,4 +1,4 @@
-import { Component, signal } from "@angular/core";
+import { Component, afterNextRender, signal } from "@angular/core";
 import { OrigamiCollection, OrigamiCollectionItem } from "@loozo/origami-ui/collection";
 import { OrigamiAccordionItem, OrigamiAccordionPanel } from "@loozo/origami-ui/accordion";
 import {
@@ -28,6 +28,8 @@ import {
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
   selector: "acceptance-error-fixture",
+  // The lazy route hydrates after the shell attaches; the select's change before that isn't replayed.
+  host: { "[attr.data-client-render-seen]": "clientRenderSeen()" },
   imports: [
     OrigamiCollection,
     OrigamiCollectionItem,
@@ -162,10 +164,15 @@ import {
   `,
 })
 export class ErrorFixture {
+  readonly clientRenderSeen = signal(false);
   readonly selected = signal("none");
   readonly mounted = signal(false);
   readonly gap = signal(0);
   readonly tooltipGap = signal(0);
+
+  constructor() {
+    afterNextRender({ write: () => this.clientRenderSeen.set(true) });
+  }
 
   choose(event: Event): void {
     if (!(event.target instanceof HTMLSelectElement)) {

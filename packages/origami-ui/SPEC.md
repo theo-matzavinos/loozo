@@ -738,7 +738,7 @@ Use supported Angular APIs. No contract requiring application code to consume pr
 
 ## 20. Acceptance structure [T]
 
-This is the public-contract coverage map. Case definitions and handwritten consumers live in [acceptance](acceptance/README.md); [tests/acceptance](tests/acceptance/README.md) executes them against the packed package. 0.0.1 passed the full gate at `6f898e7` (2,928/2,928 across Chromium/Firefox/WebKit × development/production × eager/incremental hydration).
+This is the public-contract coverage map. Case definitions and handwritten consumers live in [acceptance](acceptance/README.md); [tests/acceptance](tests/acceptance/README.md) executes them against the packed package. 0.0.1 passed the full gate at `6f898e7` (2,928/2,928 across Chromium/Firefox/WebKit × development/production × eager/incremental hydration). Releases qualify on the full `test:full` matrix: all 24 projects, three engines × development/production × eager/incremental hydration × both motion preferences. Commits run the commit tier, which runs each runtime, hydration and motion axis only where it reaches the library; it is not release evidence.
 
 | Group         | Observable proof                                                                                                                                                            |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

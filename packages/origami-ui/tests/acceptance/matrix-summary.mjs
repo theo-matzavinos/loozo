@@ -22,6 +22,10 @@ for (const group of groups) {
 
 const summaryFile = ".acceptance-evidence/product/matrix-summary.json";
 const reset = process.argv[2] === "--reset";
+// The commit tier (playwright.config.ts) certifies its own selection; only `release` is release evidence.
+const tier = process.env.ORIGAMI_TIER ?? "release";
+
+assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit or release");
 
 assert.ok(
   process.argv.length === 2 || (reset && process.argv.length === 3),
@@ -49,6 +53,11 @@ const expectedProjects = [];
 for (const browser of ["chromium", "firefox", "webkit"]) {
   for (const group of groups) {
     for (const motion of ["no-preference", "reduce"]) {
+      // The commit tier runs reduced motion only in development-eager.
+      if (tier === "commit" && group !== "development-eager" && motion === "reduce") {
+        continue;
+      }
+
       expectedProjects.push(`${browser}-${group}-${motion}`);
     }
   }
@@ -241,6 +250,7 @@ if (existsSync(".acceptance-evidence/browser-readiness.json")) {
 }
 
 const summary = {
+  tier,
   commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   uncommitted: execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" })
     .split("\n")
@@ -266,6 +276,10 @@ let revision = `commit ${summary.commit}`;
 
 if (summary.uncommitted.length > 0) {
   revision += " with uncommitted changes (not release evidence)";
+}
+
+if (tier === "commit") {
+  revision += ", commit tier (not release evidence)";
 }
 
 console.log(
