@@ -1,25 +1,41 @@
 import { Component, DestroyRef, afterNextRender, inject, signal } from "@angular/core";
 import { OrigamiToggle } from "@loozo/origami-ui/toggle";
+import {
+  OrigamiTooltip,
+  OrigamiTooltipContent,
+  OrigamiTooltipTrigger,
+} from "@loozo/origami-ui/tooltip";
 
 const storageKey = "loozo-docs-theme";
 
 /**
  * Switches between light and dark and remembers the choice. index.html applies a stored choice
- * before the first paint; without one, CSS follows prefers-color-scheme.
+ * before the first paint; without one, CSS follows prefers-color-scheme. The button is icon-only:
+ * its name comes from aria-label, and the Tooltip adds a description instead of repeating it.
  */
 @Component({
   selector: "docs-theme-toggle",
-  imports: [OrigamiToggle],
+  imports: [OrigamiToggle, OrigamiTooltip, OrigamiTooltipTrigger, OrigamiTooltipContent],
   template: `
-    <button
-      ogToggle
-      class="theme-toggle"
-      [pressed]="dark()"
-      [disabled]="!known()"
-      (pressedChange)="choose($event)"
-    >
-      Dark theme
-    </button>
+    <span ogTooltip>
+      <button
+        ogToggle
+        ogTooltipTrigger
+        class="theme-toggle"
+        aria-label="Dark theme"
+        [pressed]="dark()"
+        [disabled]="!known()"
+        (pressedChange)="choose($event)"
+      >
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="16" height="16">
+          <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="M8 1.75a6.25 6.25 0 0 1 0 12.5Z" fill="currentColor" />
+        </svg>
+      </button>
+      <span ogTooltipContent class="tooltip" side="block-end" align="end" [gap]="6"
+        >Switch between light and dark</span
+      >
+    </span>
   `,
 })
 export class ThemeToggle {

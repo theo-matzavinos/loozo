@@ -258,6 +258,45 @@ h4 {
   border-color: var(--link);
 }
 
+/* Icon-only: a square button around the icon. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem;
+}
+
+.theme-toggle:disabled {
+  cursor: default;
+}
+
+.tooltip {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.tooltip[data-entering] {
+  animation: tooltip-fade 100ms ease-out;
+}
+
+@keyframes tooltip-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip[data-entering] {
+    animation: none;
+  }
+}
+
 .page {
   max-width: 48rem;
   margin: 0 auto;
