@@ -8,6 +8,7 @@ import {
   linkedSignal,
   signal,
 } from "@angular/core";
+import { FormField, form, required } from "@angular/forms/signals";
 import { OrigamiPresence } from "@loozo/origami-ui/presence";
 import {
   OrigamiCollapsible,
@@ -56,7 +57,15 @@ import {
   OrigamiTooltipContent,
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
+import {
+  OrigamiField,
+  OrigamiFieldControl,
+  OrigamiFieldDescription,
+  OrigamiFieldError,
+  OrigamiFieldLabel,
+} from "@loozo/origami-ui/field";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
+import { BoundFieldLabel, HintedFieldControl } from "../field.js";
 import { RepeatedRoving } from "../repeated-roving.js";
 import { SplitParts } from "../split-parts.js";
 
@@ -108,6 +117,14 @@ export class AccordionObservation {
     OrigamiTooltip,
     OrigamiTooltipTrigger,
     OrigamiTooltipContent,
+    FormField,
+    OrigamiField,
+    OrigamiFieldLabel,
+    OrigamiFieldControl,
+    OrigamiFieldDescription,
+    OrigamiFieldError,
+    BoundFieldLabel,
+    HintedFieldControl,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -166,6 +183,29 @@ export class AccordionObservation {
       Toggle server pressed
     </button>
     <output data-testid="pressed-output-count">{{ pressedOutputs() }}</output>
+
+    <!-- M6: a Field bound to Signal Forms whose error B shows from the start (touched in
+         ngOnInit), a Field whose Label comes after its control, and composed parts outside a
+         Field whose static host attributes stay. -->
+    <div ogField #contactField="ogField" data-testid="hydration-field">
+      <label ogFieldLabel data-testid="hydration-field-label">Email</label>
+      <input
+        ogFieldControl
+        type="email"
+        data-testid="hydration-field-control"
+        [formField]="contact.email"
+      />
+      <p ogFieldDescription data-testid="hydration-field-description">We never share it.</p>
+      @if (contactField.state.errorsShown()) {
+        <p ogFieldError data-testid="hydration-field-error">Enter your email.</p>
+      }
+    </div>
+    <div ogField data-testid="hydration-field-after">
+      <input ogFieldControl type="checkbox" data-testid="hydration-field-after-control" />
+      <label ogFieldLabel data-testid="hydration-field-after-label">Remember me</label>
+    </div>
+    <label boundFieldLabel data-testid="hydration-field-composed-label">Composed</label>
+    <input hintedFieldControl data-testid="hydration-field-composed-control" />
 
     <div
       ogTabs
@@ -674,6 +714,10 @@ export class HydrationUnit {
   readonly toolbarRadio = signal<string | null>("center");
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
+  readonly contactModel = signal({ email: "" });
+  readonly contact = form(this.contactModel, (path) => {
+    required(path.email);
+  });
   readonly increment = (value: number): number => value + 1;
 
   constructor() {
@@ -683,5 +727,12 @@ export class HydrationUnit {
         this.clientRenderSeen.set(true);
       },
     });
+  }
+
+  /** B renders its Field error from the start, on the server and the client alike. */
+  ngOnInit(): void {
+    if (this.label() === "B") {
+      this.contact.email().markAsTouched();
+    }
   }
 }

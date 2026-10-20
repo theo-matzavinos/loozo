@@ -106,6 +106,18 @@ export const inventory = {
     "OrigamiTooltipSide",
     "OrigamiTooltipAlign",
   ],
+  field: [
+    "OrigamiField",
+    "OrigamiFieldState",
+    "OrigamiFieldLabel",
+    "OrigamiFieldLabelOptions",
+    "OrigamiFieldControl",
+    "OrigamiFieldControlOptions",
+    "OrigamiFieldDescription",
+    "OrigamiFieldDescriptionOptions",
+    "OrigamiFieldError",
+    "OrigamiFieldErrorOptions",
+  ],
 };
 
 export const typeOnly = new Set([

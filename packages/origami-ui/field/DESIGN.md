@@ -1,0 +1,31 @@
+# Field design map
+
+Ownership and read timing. Usage is in the [README](README.md); the contract is SPEC section 19.
+
+## Ownership
+
+| Fact                                                             | Owner                                                                                                                                       | Readers                                                                                                   |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Value, validation, touched, disabled, readonly, required, errors | Angular's `FieldState`, bound by the `[formField]` on the control's own element                                                             | the control's `ɵOrigamiFieldMembership` (`FORM_FIELD`, self); the Field through the registration          |
+| The control: ID, labelable, form state reader                    | `FieldContext`'s control slot, set by the control's registration in `ngOnInit`; a second one is reported through `ErrorHandler` and ignored | Label `for`; root State and data attributes; the control's own ARIA (only while it is the registered one) |
+| Control ID                                                       | `OrigamiFieldControlOptions` (or an Origami control's own Options)                                                                          | the control's `id`; Labels through the control slot                                                       |
+| Label ID                                                         | `OrigamiFieldLabelOptions`                                                                                                                  | the Label's `id`                                                                                          |
+| Description and Error IDs                                        | each part's Options; `FieldContext` lists, set by each part's registration in `ngOnInit`, an Error's only while mounted                     | the control's `aria-describedby`: Descriptions, then Errors, each in registration order                   |
+| `errorsShown`                                                    | `FieldContext`: `invalid() && touched()`                                                                                                    | root State, `data-invalid`; the control's `aria-invalid`                                                  |
+| Static `for` and ARIA attributes                                 | the element, read at construction: Angular writes template and composing directives' `host` attributes before it creates directives         | the Label and the control outside a Field, or a control the Field ignored                                 |
+
+## Read timing
+
+| Read                                               | Reader                                                | Phase        | Platform | If the owner isn't initialized                                                                                                              |
+| -------------------------------------------------- | ----------------------------------------------------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Registered control `id()`                          | Label `[attr.for]`                                    | render       | both     | A control in a later sibling view or component isn't registered yet: no `for`, filled in when it registers. Server HTML is complete.        |
+| Registered Description and Error `id()`s           | the registered control's `[attr.aria-describedby]`    | render       | both     | As above: an unregistered part is absent; an Error under `@if` leaves when it unmounts.                                                     |
+| The control's `formState()` (`FORM_FIELD.state()`) | root `data-*` and State; the control's `aria-invalid` | render       | both     | Read only once the control has registered, in `ngOnInit`, after Angular set `[formField]` on the same element; before that, false and `[]`. |
+| The Field's slot (`control()`)                     | the control's ARIA, through its membership            | render       | both     | Before its own registration a control isn't the member: it renders its static attributes.                                                   |
+| Own Options `id`                                   | each part's `[id]`                                    | render       | both     | Safe: its own.                                                                                                                              |
+| Static attributes                                  | Label, control                                        | construction | both     | Safe: the element's own.                                                                                                                    |
+
+## Refresh dependencies
+
+- A Label's `for` and the control's `aria-describedby` depend on the render that follows each registration. A part registered in a later sibling view or a child component marks the readers' host bindings dirty, and Angular refreshes them in the same change detection, on the server too, so server HTML is complete.
+- The Field's State and data attributes and the control's form ARIA depend on the render that follows a Signal Forms change (blur, `submit()`, a rule): they read `FieldState` signals.

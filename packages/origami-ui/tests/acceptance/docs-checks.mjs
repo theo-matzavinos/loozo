@@ -52,6 +52,7 @@ for (const directory of [
   "radio-group/src",
   "button/src",
   "tooltip/src",
+  "field/src",
 ]) {
   await collect(directory);
 }
@@ -149,6 +150,10 @@ const directiveDefaults = {
   "OrigamiTooltipContent.side": ["block-start", /block.?start/i],
   "OrigamiTooltipContent.align": ["center", /\bcenter\b/i],
   "OrigamiTooltipContent.gap": ["0 CSS px", /\b0\b|\bzero\b/i],
+  "OrigamiFieldLabel.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiFieldControl.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiFieldDescription.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiFieldError.id": ["opaque generated hosted ID", /generat/i],
 };
 const subjects = [];
 const failures = [];

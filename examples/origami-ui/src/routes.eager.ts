@@ -19,6 +19,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/tooltip.js").then((module) => module.TooltipFixture),
   },
   {
+    path: "field",
+    loadComponent: () => import("./fixtures/field.js").then((module) => module.FieldFixture),
+  },
+  {
     path: "hydration",
     loadComponent: () =>
       import("./fixtures/seeds/eager-hydration-consumer.js").then(

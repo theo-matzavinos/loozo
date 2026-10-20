@@ -23,6 +23,11 @@ export const routes: Routes = [
       import("./fixtures/tooltip-deferred.js").then((module) => module.TooltipDeferred),
   },
   {
+    path: "field",
+    loadComponent: () =>
+      import("./fixtures/field-deferred.js").then((module) => module.FieldDeferred),
+  },
+  {
     path: "hydration",
     loadComponent: () =>
       import("./fixtures/seeds/hydration-consumer.js").then(
