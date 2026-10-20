@@ -1330,71 +1330,6 @@ test("V6: genuine completed HTML drag preserves intent; only a subsequent valid 
   }
 });
 
-test("V6: actual pointer-capture loss invalidates a trusted gesture; mismatched/cancel handler checks distinct", async ({
-  page,
-}, info) => {
-  await fixture(page, "popover", info);
-  await nativeOpen(page);
-  await page.getByTestId("pointer-policy").selectOption("capture");
-
-  const outside = await page.getByTestId("pointer-outside").boundingBox();
-
-  if (!outside) {
-    throw new Error("Outside capture target is missing");
-  }
-
-  await page.mouse.move(outside.x + 4, outside.y + 4);
-  await page.mouse.down();
-  await page.mouse.move(outside.x + 6, outside.y + 6);
-
-  const pointer = await page.evaluate(() => {
-    const events = window.acceptanceObservation.trust;
-
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      if (events[index].type === "pointerdown") {
-        return events[index].pointerId;
-      }
-    }
-
-    return undefined;
-  });
-
-  expect(pointer).toBeDefined();
-  await page.getByTestId("pointer-outside").evaluate((node, pointerId) => {
-    if (!(node instanceof HTMLElement) || pointerId === undefined) {
-      throw new Error("Missing pointer capture target/id");
-    }
-
-    node.releasePointerCapture(pointerId);
-  }, pointer);
-  await page.mouse.move(outside.x + 8, outside.y + 8);
-  await page.mouse.up();
-
-  const captureLoss = await page.evaluate(() =>
-    window.acceptanceObservation.trust.filter((event) => event.type === "lostpointercapture"),
-  );
-
-  expect(captureLoss.some((event) => event.trusted)).toBe(true);
-  await expect(page.getByTestId("native-intent")).toHaveText("true");
-  // Browser-driver APIs do not supply cross-engine trusted pointercancel/wrong-pointer injection.
-  // These dispatches test handler rejection, not a trusted-gesture certification.
-  await page.evaluate(() => {
-    document.dispatchEvent(
-      new PointerEvent("pointerdown", { pointerId: 10, button: 0, bubbles: true }),
-    );
-    document.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 10, bubbles: true }));
-    document.dispatchEvent(
-      new PointerEvent("pointerup", { pointerId: 11, button: 0, bubbles: true }),
-    );
-  });
-  await expect(page.getByTestId("native-intent")).toHaveText("true");
-  info.annotations.push({
-    type: "coverage-limit",
-    description:
-      "Trusted mismatched-pointer/device gestures remain unproven; synthetic rejection is not trusted evidence. Genuine lost capture remains required in every engine; drag-generated pointercancel is independently asserted when the actual native control emits it (required in Chromium/Firefox).",
-  });
-});
-
 /** Two task turns and a frame: later than the package's post-dispatch outside task. */
 async function afterPointerTasks(page: Page): Promise<void> {
   await page.evaluate(
@@ -1613,6 +1548,11 @@ test("V6: outside completion at the matching pointerup; capture loss before it i
   await expect(page.getByTestId("native-intent")).toHaveText("false");
   await expect(page.getByTestId("native-journal")).toHaveText(`${journalReopened}|parent:false`);
   await closed(page);
+  info.annotations.push({
+    type: "coverage-limit",
+    description:
+      "Trusted mismatched-pointer and pointercancel gestures remain unproven: browser drivers can't inject them across engines, and an untrusted pointerdown can't acquire a gesture. Genuine lost capture remains required in every engine; drag-generated pointercancel is independently asserted when the actual native control emits it (required in Chromium/Firefox).",
+  });
 });
 
 test("V8: synchronous effective Options setter reopening survives remaining branch dismissal", async ({

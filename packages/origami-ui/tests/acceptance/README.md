@@ -10,7 +10,7 @@ The consumer's authored sources are the workspace example [`examples/origami-ui`
 | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `examples/origami-ui/` → `.scratch/consumer/`                                                                               | The one Angular SSR consumer: lazy fixture routes (`src/fixtures/*`), eager/incremental hydration configurations and the SSR-only fixtures (`server-*.ts`) that only the Node checks compile |
 | `playwright.config.ts`                                                                                                      | The one browser configuration: the 24 product projects and, with `ORIGAMI_SUITE=calibration`, the observer calibration                                                                       |
-| `{core,composition,popover,toggle,tabs,toggle-group,toolbar,radio-group,button,tooltip,hydration,errors,lifetimes}.spec.ts` | Product cases, 246 per project                                                                                                                                                               |
+| `{core,composition,popover,toggle,tabs,toggle-group,toolbar,radio-group,button,tooltip,hydration,errors,lifetimes}.spec.ts` | Product cases, 245 per project                                                                                                                                                               |
 | `contract-test.ts`, `observation.ts`, `geometry.ts`                                                                         | Central runtime-error capture, SSR/hydration retention observer, independent geometry oracle                                                                                                 |
 | `observer-calibration.test.ts`                                                                                              | Native calibration of `observation.ts`; no product imports or servers                                                                                                                        |
 | `prepare-consumer.mjs`, `consumer-install.mjs`                                                                              | Pack the build; stage the example; warm-refresh the installed APF or install the consumer from clean                                                                                         |
@@ -21,6 +21,8 @@ The consumer's authored sources are the workspace example [`examples/origami-ui`
 | `bundle-checks.mjs`, `bundle-context-audit.mjs`, `bundle-context-calibration.mjs`                                           | P1 bundle identity over the four AOT outputs, and its graph calibration                                                                                                                      |
 | `browser-readiness.mjs`, `webkit-launch.ts`, `setup-webkit.py`, `webkit-packages.json`                                      | Engine launch check and the optional private WebKit library setup                                                                                                                            |
 | `matrix-summary.mjs`                                                                                                        | Completeness check and release record for the full product matrix                                                                                                                            |
+| `skip-checks.mjs`                                                                                                           | Source check that no spec outside `hydration.spec.ts` skips, focuses or expects failure                                                                                                      |
+| `warm-servers.mjs`                                                                                                          | Global setup: one sequential request per fixture route on every started server before the parallel workers begin                                                                             |
 | `source-identity.mjs`, `source-freshness.mjs`                                                                               | Optional forensic hooks (`ORIGAMI_FORENSIC=1`)                                                                                                                                               |
 
 ## Prerequisites
@@ -57,12 +59,13 @@ On small hosts, set `NG_BUILD_MAX_WORKERS=2` for builds; servers started for one
 
 The package's `test`, which the repository root `pnpm test` also runs:
 
-1. `acceptance:sync`: build the library, stage the example into the scratch consumer and refresh only the installed APF from the new tarball. Without a verified installation, it runs the clean strict installation instead.
-2. `typecheck`: the library sources and the runner sources.
-3. `snippets:check`: the README's code examples in `snippets/`, against the built package.
-4. `acceptance:typecheck`: the staged consumer, against the installed package.
-5. `acceptance:types`: P2.
-6. `acceptance:node`: utility and SSR checks.
+1. `acceptance:skips`: no `skip`, `fixme`, `fail` or `only` call in a spec other than `hydration.spec.ts`, the only file whose skips `matrix-summary.mjs` can accept. It fails in seconds what the matrix summary would reject only after the matrix.
+2. `acceptance:sync`: build the library, stage the example into the scratch consumer and refresh only the installed APF from the new tarball. Without a verified installation, it runs the clean strict installation instead.
+3. `typecheck`: the library sources and the runner sources.
+4. `snippets:check`: the README's code examples in `snippets/`, against the built package.
+5. `acceptance:typecheck`: the staged consumer, against the installed package.
+6. `acceptance:types`: P2.
+7. `acceptance:node`: utility and SSR checks.
 
 ## Fast loop: `pnpm run test:fast`
 
@@ -93,25 +96,37 @@ ORIGAMI_MATRIX_TARGET=development-incremental pnpm run acceptance:test --project
 
 It skips every static and calibration step, so it is iteration feedback only.
 
+## Commit gate: `pnpm run test:commit`
+
+`test:full` with `ORIGAMI_TIER=commit`: the same static steps, then each matrix axis only where it reaches the library.
+
+| Group                                                                   | `no-preference`                                                          | `reduce`                                                                                  |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `development-eager`                                                     | every case                                                               | the Presence specs: `core`, `composition`, `popover`, `tooltip`, `lifetimes`, `hydration` |
+| `development-incremental`, `production-eager`, `production-incremental` | `hydration.spec.ts`, `errors.spec.ts` and every case with an `H` case ID | not run                                                                                   |
+
+All three engines run every selected cell. Reduced motion changes only Presence and its composers, because consumer CSS removes the animations Presence would wait for. Incremental hydration changes how a fixture is created, which the hydration cases check primitive by primitive. Production changes the build, the server and the shape of Angular's DI errors, which the hydration and error cases cover. `matrix-summary.mjs` certifies the tier's own selection and records `"tier": "commit"`. A commit-tier summary is not release evidence.
+
 ## Release gate: `pnpm run test:full`
 
-1. `acceptance:prepare`: build the library, stage the example and run a clean, strict npm installation (`--strict-peer-deps`, no legacy/force resolution, no lifecycle scripts) of the whole pinned closure, then verify it.
-2. `typecheck`, `snippets:check` (the README's code examples, against the built package) and `acceptance:typecheck`.
-3. `acceptance:check`: P1 package inventory and bytes, P2 types, D1 docs, Node checks.
-4. `acceptance:aot`: the four genuine AOT/SSR builds (development/production × eager/incremental).
-5. `acceptance:bundles`: P1 bundle identity over those builds, from each build's separate browser and server metafiles (`browser-stats.json`, `server-stats.json`).
-6. `acceptance:browser-readiness`: all three engines.
-7. `acceptance:observer-calibration`: all three engines.
-8. `acceptance:matrix`: the 24 product projects as four sequential runtime-hydration groups, one server and one worker each, serving the production outputs from step 4 (`ORIGAMI_PREBUILT=1`). Then `matrix-summary.mjs`.
+1. `acceptance:skips`: the source skip check.
+2. `acceptance:prepare`: build the library, stage the example and run a clean, strict npm installation (`--strict-peer-deps`, no legacy/force resolution, no lifecycle scripts) of the whole pinned closure, then verify it.
+3. `typecheck`, `snippets:check` (the README's code examples, against the built package) and `acceptance:typecheck`.
+4. `acceptance:check`: P1 package inventory and bytes, P2 types, D1 docs, Node checks.
+5. `acceptance:aot`: the four genuine AOT/SSR builds (development/production × eager/incremental).
+6. `acceptance:bundles`: P1 bundle identity over those builds, from each build's separate browser and server metafiles (`browser-stats.json`, `server-stats.json`).
+7. `acceptance:browser-readiness`: all three engines.
+8. `acceptance:observer-calibration`: all three engines.
+9. `acceptance:matrix`: the 24 product projects as four sequential runtime-hydration groups, one server each, with test files spread over workers on half the logical cores, serving the production outputs from step 5 (`ORIGAMI_PREBUILT=1`). Then `matrix-summary.mjs`.
 
 Both `test:full` and `acceptance:matrix` start with `matrix-summary.mjs --reset`. It refuses an inherited `ORIGAMI_SUITE`, `ORIGAMI_BROWSER` or `ORIGAMI_MATRIX_TARGET`, so calibration and the matrix always cover every engine and group, and it deletes the group results and summary from earlier runs. The summary takes no arguments; pnpm appends extra `test:full` arguments to it, so they fail the gate instead of focusing it.
 
-It stops at the first failing step. Use `NG_BUILD_MAX_WORKERS=2 pnpm run test:full` on small hosts. The full matrix takes roughly 50 minutes on the reference host.
+It stops at the first failing step. Use `NG_BUILD_MAX_WORKERS=2 pnpm run test:full` on small hosts. Every product run warms its servers first (`warm-servers.mjs`): under concurrent first requests, a cold development server can render a deferred route without its content. On the reference host (16 logical cores), `test:full` takes about 40 minutes and `test:commit` about 15.
 
 `matrix-summary.mjs` lists the complete product inventory from the configuration and requires that:
 
 - each of the four group results was written after the reset;
-- every discovered row in all 24 projects was executed exactly once;
+- every discovered row in the tier's projects (all 24 for `test:full`, 15 for `test:commit`) was executed exactly once;
 - every row passed or is a known hydration applicability skip: one of the listed `hydration.spec.ts` tests (by title), skipped by an authored `test.skip(condition, reason)` in a project whose `hydration` metadata it does not apply to. Any other skip fails, so a new applicability skip must be added to that list;
 - there were no unexpected, flaky or interrupted results and no top-level errors.
 
@@ -134,7 +149,7 @@ ORIGAMI_MATRIX_TARGET=development-incremental pnpm run acceptance:test \
 ORIGAMI_SUITE=calibration ORIGAMI_BROWSER=firefox pnpm run acceptance:observer-calibration
 ```
 
-Always set `ORIGAMI_MATRIX_TARGET` for focused product runs. `--project`/`--grep` alone do not select a server, so every group's server would start. Plain `acceptance:test` without a target starts all four servers at once; use it only on a host that can afford that. Focused runs are diagnostics, never qualification.
+Always set `ORIGAMI_MATRIX_TARGET` for focused product runs. `--project`/`--grep` alone do not select a server, so every group's server would start. Plain `acceptance:test` without a target starts all four servers at once; use it only on a host that can afford that. Add `--workers=1` to run tests one at a time, for example to rule out load-dependent timing. Focused runs are diagnostics, never qualification.
 
 | Variable                   | Effect                                                                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -142,6 +157,7 @@ Always set `ORIGAMI_MATRIX_TARGET` for focused product runs. `--project`/`--grep
 | `ORIGAMI_MATRIX_TARGET`    | `development-eager`, `development-incremental`, `production-eager` or `production-incremental`: one server and its six projects                                           |
 | `ORIGAMI_BROWSER`          | `chromium`, `firefox` or `webkit`: restrict projects; other engines' setup is not evaluated                                                                               |
 | `ORIGAMI_PREBUILT=1`       | Production servers serve existing `.scratch/consumer/dist/consumer-{eager,incremental}` instead of building first; only `test:full` sets it, right after `acceptance:aot` |
+| `ORIGAMI_TIER`             | `release` (default) or `commit`: the commit gate's selection (see [Commit gate](#commit-gate-pnpm-run-testcommit))                                                        |
 | `ORIGAMI_FORENSIC=1`       | Record whole-source/dependency fingerprints before and after a run and fail if they differ                                                                                |
 | `ORIGAMI_WEBKIT_DEPS_ROOT` | Private WebKit libraries; when set, a missing or stale setup is an error                                                                                                  |
 
@@ -166,7 +182,7 @@ Copy a run elsewhere to keep it.
 
 Release qualification is:
 
-- `test:full` green from a clean checkout of an identified commit (`uncommitted` empty in `matrix-summary.json`);
+- `test:full` green from a clean checkout of an identified commit (`tier` `release` and `uncommitted` empty in `matrix-summary.json`);
 - that summary plus the four group results and the readiness, package, type and bundle receipts in `.acceptance-evidence/`;
 - the D1 whole-subject semantic review, below.
 

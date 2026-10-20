@@ -110,7 +110,8 @@ pnpm run typecheck   # library and acceptance runner sources
 pnpm test            # browser-free checks against the packed build; also run by the root pnpm test
 pnpm run test:fast   # test, then every product case in one Chromium project (about three minutes)
 pnpm run test:focus popover   # sync, then the same Chromium project filtered by file or -g title
-pnpm run test:full   # the release gate: 24 projects across three engines (about 50 minutes)
+pnpm run test:commit # the commit gate: each matrix axis only where it reaches the library (about 15 minutes)
+pnpm run test:full   # the release gate: 24 projects across three engines (about 40 minutes)
 ```
 
 Acceptance tests the packed build installed into a scratch copy of the example application. On a fresh checkout, the first `test` (or `test:fast`, `test:focus`) runs the clean strict installation itself; after changing the example's `package.json` or the library's dependencies, run `pnpm run acceptance:prepare`. Set `NG_BUILD_MAX_WORKERS=2` on small hosts. WebKit may need private libraries.

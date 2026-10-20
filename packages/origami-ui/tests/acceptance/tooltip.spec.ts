@@ -306,10 +306,14 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
   await expect(intent).toHaveText("false");
   await cool(page);
 
+  // The steps before a delay expires take a few round trips, which a loaded host can stretch past
+  // 200 ms: give them the 1000 ms delay.
+  await script(page, "hover-delay-slow");
+
   // Entering and leaving before the delay cancels it.
   await page.mouse.move(point.x, point.y);
   await away(page);
-  await elapse(page, 400);
+  await elapse(page, 1300);
   journal = await hoverJournal(page);
   expect(journal.map((entry) => entry.kind)).toEqual([
     "enter",
@@ -322,7 +326,7 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
   // A pending open that expires while the root is disabled does nothing.
   await page.mouse.move(point.x, point.y);
   await script(page, "hover-disable");
-  await elapse(page, 400);
+  await elapse(page, 1300);
   await expect(intent).toHaveText("false");
 
   // Disabled and enabled again before a pending open expires: the open happens at expiry.
@@ -335,9 +339,8 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
   await away(page);
   await expect(intent).toHaveText("false");
 
-  // An observed close cancels a pending open: the application opens it during a slow delay and
+  // An observed close cancels a pending open: the application opens it during the slow delay and
   // Escape closes it before the delay expires.
-  await script(page, "hover-delay-slow");
   await page.mouse.move(point.x, point.y);
   await script(page, "hover-open");
   await expectShown(content);
@@ -991,6 +994,27 @@ test("N3: reopened during a retained visible exit, a leave toward the still-visi
   await expect
     .poll(async () => await content.evaluate((node) => getComputedStyle(node).opacity))
     .toBe("1");
+
+  // Pause the 300 ms exit in the page as it starts: on a loaded host, the round trips before a
+  // later pause can outlast it.
+  if (finite) {
+    await content.evaluate((node) => {
+      const observer = new MutationObserver(() => {
+        if (!node.hasAttribute("data-leaving")) {
+          return;
+        }
+
+        observer.disconnect();
+
+        for (const animation of node.getAnimations()) {
+          animation.pause();
+        }
+      });
+
+      observer.observe(node, { attributes: true, attributeFilter: ["data-leaving"] });
+    });
+  }
+
   await away(page);
   await expect(intent).toHaveText("false");
 
@@ -1003,11 +1027,6 @@ test("N3: reopened during a retained visible exit, a leave toward the still-visi
   }
 
   await expect(content).toHaveAttribute("data-leaving", "");
-  await content.evaluate((node) => {
-    for (const animation of node.getAnimations()) {
-      animation.pause();
-    }
-  });
   expect(await native(content)).toBe(true);
 
   info.annotations.push({
@@ -2637,10 +2656,20 @@ function teardownKinds(entries: readonly JournalEntry[]): string[] {
   return kinds;
 }
 
-/** Hovers Z, at once after X's (or `closed`'s) close, and expects it to open inside the warm window. */
-async function expectTeardownWarm(page: Page, mark: number, closed = "x:false"): Promise<void> {
+/**
+ * Closes X (or `closed`) with `act`, hovers Z right after it and expects Z to open inside the
+ * warm window. Z comes first in its section, so it's measured beforehand, and nothing else runs
+ * between the close and the hover.
+ */
+async function expectTeardownWarm(
+  page: Page,
+  mark: number,
+  act: () => Promise<void>,
+  closed = "x:false",
+): Promise<void> {
   const point = center(await box(page.getByTestId("teardown-z-trigger")));
 
+  await act();
   await page.mouse.move(point.x, point.y);
   await expectShown(page.getByTestId("teardown-z-content"));
 
@@ -2681,9 +2710,10 @@ test("N13: when the previous Tooltip's close output destroys another Tooltip, no
   let mark = await groupMark(page, "teardown-journal");
 
   await x.focus();
-  await page.keyboard.press("Tab");
+  await expectTeardownWarm(page, mark, async () => {
+    await page.keyboard.press("Tab");
+  });
   await expect(y).toHaveCount(0);
-  await expectTeardownWarm(page, mark);
 
   const removed: string[] = ["y:true", "x:false"];
 
@@ -2705,9 +2735,10 @@ test("N13: when the previous Tooltip's close output destroys another Tooltip, no
   await page.mouse.move(point.x, point.y);
   await expectShown(page.getByTestId("teardown-x-content"));
   mark = await groupMark(page, "teardown-journal");
-  await page.keyboard.press("Escape");
+  await expectTeardownWarm(page, mark, async () => {
+    await page.keyboard.press("Escape");
+  });
   await expect(y).toHaveCount(0);
-  await expectTeardownWarm(page, mark);
   expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(["x:false"]);
   await settle(page);
   expect(warnings).toEqual([]);
@@ -2744,9 +2775,8 @@ test("N13: when the current Tooltip's own close output destroys it, by leaving o
 
   let mark = await groupMark(page, "teardown-journal");
 
-  await away(page);
+  await expectTeardownWarm(page, mark, async () => await away(page), "s:false");
   await expect(s).toHaveCount(0);
-  await expectTeardownWarm(page, mark, "s:false");
   expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(["s:false"]);
   await away(page);
   await expectHidden(page.getByTestId("teardown-z-content"));
@@ -2755,9 +2785,15 @@ test("N13: when the current Tooltip's own close output destroys it, by leaving o
   await cool(page);
   await hoverS();
   mark = await groupMark(page, "teardown-journal");
-  await page.keyboard.press("Escape");
+  await expectTeardownWarm(
+    page,
+    mark,
+    async () => {
+      await page.keyboard.press("Escape");
+    },
+    "s:false",
+  );
   await expect(s).toHaveCount(0);
-  await expectTeardownWarm(page, mark, "s:false");
   expect(teardownKinds(await groupJournal(page, mark, "teardown-journal"))).toEqual(["s:false"]);
   await away(page);
   await expectHidden(page.getByTestId("teardown-z-content"));

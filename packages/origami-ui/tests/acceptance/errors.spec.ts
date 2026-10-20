@@ -72,6 +72,11 @@ for (const [variant, caseId, context] of [
 
     release();
     await expect(page.locator("setup-readiness")).toHaveAttribute("data-shell-attached", "true");
+    // The fixture's own listeners are live only once it has rendered on the client.
+    await expect(page.locator("acceptance-error-fixture")).toHaveAttribute(
+      "data-client-render-seen",
+      "true",
+    );
     await stopRetentionObservation(page);
     await drainIssues();
     expect(issues).toEqual([]);

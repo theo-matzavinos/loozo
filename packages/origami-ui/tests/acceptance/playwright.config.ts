@@ -10,6 +10,7 @@ type BrowserName = "chromium" | "firefox" | "webkit";
 const suite = process.env.ORIGAMI_SUITE ?? "product";
 const target = process.env.ORIGAMI_MATRIX_TARGET;
 const selectedBrowser = process.env.ORIGAMI_BROWSER;
+const tier = process.env.ORIGAMI_TIER ?? "release";
 const browserNames: BrowserName[] = ["chromium", "firefox", "webkit"];
 
 assert.ok(
@@ -20,6 +21,13 @@ assert.ok(
   selectedBrowser === undefined || browserNames.some((name) => name === selectedBrowser),
   "ORIGAMI_BROWSER must name chromium, firefox or webkit",
 );
+assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit or release");
+
+// The commit tier runs each axis only where it reaches the library. A project's `grep` also sees
+// the file name. Reduced motion changes only Presence and its composers; production and incremental
+// hydration change only creation through hydration and Angular's production errors.
+const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
+const hydrationAndErrorCases = /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b/;
 
 let browsers = browserNames;
 
@@ -108,10 +116,12 @@ const evidenceDirectory = resolve(".acceptance-evidence", suite, scope);
 // Read by the optional forensic hooks in the main process.
 process.env.ORIGAMI_EVIDENCE_DIR = evidenceDirectory;
 
-let forensic: Pick<PlaywrightTestConfig, "globalSetup" | "globalTeardown"> = {};
+let forensicSetup: string[] = [];
+let forensicTeardown: string[] = [];
 
 if (process.env.ORIGAMI_FORENSIC === "1") {
-  forensic = { globalSetup: "./source-identity.mjs", globalTeardown: "./source-freshness.mjs" };
+  forensicSetup = ["./source-identity.mjs"];
+  forensicTeardown = ["./source-freshness.mjs"];
 }
 
 const reporter: PlaywrightTestConfig["reporter"] = [
@@ -135,7 +145,8 @@ function calibration(): PlaywrightTestConfig {
     testMatch: "observer-calibration.test.ts",
     outputDir: resolve(evidenceDirectory, "browser-results"),
     reporter,
-    ...forensic,
+    globalSetup: forensicSetup,
+    globalTeardown: forensicTeardown,
     timeout: 20_000,
     retries: 0,
     workers: 1,
@@ -158,7 +169,7 @@ function product(): PlaywrightTestConfig {
         const server = servers[group]!;
 
         for (const motion of ["no-preference", "reduce"] as const) {
-          projects.push({
+          const project: Project = {
             name: `${browserName}-${runtime}-${hydration}-${motion}`,
             metadata: { runtime, hydration, motion },
             use: {
@@ -167,7 +178,19 @@ function product(): PlaywrightTestConfig {
               reducedMotion: motion,
               launchOptions: launchOptions(browserName),
             },
-          });
+          };
+
+          if (tier === "commit" && group !== "development-eager") {
+            if (motion === "reduce") {
+              continue;
+            }
+
+            project.grep = hydrationAndErrorCases;
+          } else if (tier === "commit" && motion === "reduce") {
+            project.grep = presenceSpecs;
+          }
+
+          projects.push(project);
         }
       }
     }
@@ -186,12 +209,15 @@ function product(): PlaywrightTestConfig {
     testMatch: "*.spec.ts",
     outputDir: resolve(evidenceDirectory, "browser-results"),
     reporter,
-    metadata: { suite, matrixTarget: target ?? "all", browser: selectedBrowser ?? "all" },
-    ...forensic,
+    metadata: { suite, tier, matrixTarget: target ?? "all", browser: selectedBrowser ?? "all" },
+    // After the servers start: any forensic fingerprint, then one sequential request per fixture route.
+    globalSetup: [...forensicSetup, "./warm-servers.mjs"],
+    globalTeardown: forensicTeardown,
     timeout: 45_000,
     expect: { timeout: 12_000 },
     retries: 0,
-    workers: 1,
+    // Test files run in parallel, each file's tests in order; `--workers=1` serializes a diagnostic run.
+    workers: "50%",
     use: {
       viewport: { width: 1200, height: 1000 },
       trace: "retain-on-failure",
