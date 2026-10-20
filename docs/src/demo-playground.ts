@@ -13,6 +13,7 @@ import {
   type Type,
   type WritableSignal,
 } from "@angular/core";
+import { OrigamiField, OrigamiFieldControl, OrigamiFieldLabel } from "@loozo/origami-ui/field";
 import type { DemoControl } from "../generated/content/model.generated.js";
 
 /**
@@ -37,7 +38,7 @@ export class DemoInstance implements OnInit {
 /** A running snippet with a control for each input and model of its component. */
 @Component({
   selector: "docs-demo-playground",
-  imports: [DemoInstance],
+  imports: [DemoInstance, OrigamiField, OrigamiFieldLabel, OrigamiFieldControl],
   template: `
     <div class="docs-demo-output" role="group" aria-label="Running example">
       <ng-container [docsDemoInstance]="component()" [docsDemoBindings]="bindings()" />
@@ -58,36 +59,48 @@ export class DemoInstance implements OnInit {
             </label>
           }
           @case ("number") {
-            <label>
-              <code>{{ entry.name }}</code>
+            <div ogField class="docs-demo-field">
+              <label ogFieldLabel
+                ><code>{{ entry.name }}</code></label
+              >
               <input
+                ogFieldControl
                 #field
                 type="number"
                 [value]="entry.value()"
                 (input)="setNumber(entry.value, field.valueAsNumber)"
               />
-            </label>
+            </div>
           }
           @case ("string") {
-            <label>
-              <code>{{ entry.name }}</code>
+            <div ogField class="docs-demo-field">
+              <label ogFieldLabel
+                ><code>{{ entry.name }}</code></label
+              >
               <input
+                ogFieldControl
                 #field
                 type="text"
                 [value]="entry.value()"
                 (input)="entry.value.set(field.value)"
               />
-            </label>
+            </div>
           }
           @case ("options") {
-            <label>
-              <code>{{ entry.name }}</code>
-              <select #select (change)="entry.value.set(entry.options[select.selectedIndex])">
+            <div ogField class="docs-demo-field">
+              <label ogFieldLabel
+                ><code>{{ entry.name }}</code></label
+              >
+              <select
+                ogFieldControl
+                #select
+                (change)="entry.value.set(entry.options[select.selectedIndex])"
+              >
                 @for (option of entry.options; track $index) {
                   <option [selected]="option === entry.value()">{{ option ?? "none" }}</option>
                 }
               </select>
-            </label>
+            </div>
           }
           @case ("fixed") {
             <p>

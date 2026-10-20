@@ -176,7 +176,8 @@ docs-demo-playground {
   font-weight: 600;
 }
 
-.docs-demo-controls label {
+.docs-demo-controls label,
+.docs-demo-field {
   display: inline-flex;
   gap: 0.4rem;
   align-items: center;

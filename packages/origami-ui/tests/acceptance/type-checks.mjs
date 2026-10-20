@@ -116,6 +116,8 @@ import { OrigamiRadioGroupOptions, OrigamiRadioGroupItemOptions } from '@loozo/o
 import { OrigamiButtonOptions } from '@loozo/origami-ui/button';
 import { OrigamiTooltipOptions, OrigamiTooltipContentOptions, type OrigamiTooltipState, type OrigamiTooltipContentState, type OrigamiTooltipSide, type OrigamiTooltipAlign } from '@loozo/origami-ui/tooltip';
 import * as tooltipEntry from '@loozo/origami-ui/tooltip';
+import { OrigamiFieldLabelOptions, OrigamiFieldControlOptions, OrigamiFieldDescriptionOptions, OrigamiFieldErrorOptions, type OrigamiFieldState } from '@loozo/origami-ui/field';
+import * as fieldEntry from '@loozo/origami-ui/field';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -244,6 +246,21 @@ tooltipState.disabled.set(true);
 tooltipContentState.open.set(false);
 // @ts-expect-error Tooltip Content State has no public Presence phase alias
 void tooltipContentState.phase;
+declare const fieldState: OrigamiFieldState;
+// @ts-expect-error Field State errorsShown is readonly
+fieldState.errorsShown.set(true);
+// @ts-expect-error Field State invalid is readonly
+fieldState.invalid.set(true);
+// @ts-expect-error Field State errors is a readonly array
+fieldState.errors().push({kind: 'required'});
+// @ts-expect-error Field State has no readonly signal
+void fieldState.readonly;
+// @ts-expect-error the Field root has no inputs, so no Options token
+void fieldEntry.OrigamiFieldOptions;
+// @ts-expect-error a Field Label id must be a string signal
+OrigamiFieldLabelOptions.provideFactory(() => ({id: signal(1)}));
+// @ts-expect-error a Field Control factory must supply id
+OrigamiFieldControlOptions.provideFactory(() => ({}));
 // @ts-expect-error RadioGroup value must be writable
 OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
 // @ts-expect-error RadioGroup value is a nullable string
@@ -286,6 +303,10 @@ OrigamiButtonOptions.provideExisting(() => WrongButton);
 OrigamiRadioGroupItemOptions.provideExisting(() => WrongRadioGroupItem);
 // @ts-expect-error incompatible existing Tooltip root class
 OrigamiTooltipOptions.provideExisting(() => WrongTooltip);
+// @ts-expect-error incompatible existing Field Description class
+OrigamiFieldDescriptionOptions.provideExisting(() => WrongIdentity);
+// @ts-expect-error incompatible existing Field Error class
+OrigamiFieldErrorOptions.provideExisting(() => WrongIdentity);
 // Positive: complete factories and abstract existing classes return one ordinary Provider.
 abstract class AbstractCollapsible {
   abstract readonly expanded: WritableSignal<boolean>;
@@ -430,6 +451,14 @@ export const providers: Provider[] = [
   OrigamiTooltipOptions.provideExisting(() => AbstractTooltip),
   OrigamiTooltipContentOptions.provideFactory(() => ({id: signal('hint'), side: signal<OrigamiTooltipSide>('block-end'), align: signal<OrigamiTooltipAlign>('end'), gap: signal(6)})),
   OrigamiTooltipContentOptions.provideExisting(() => AbstractTooltipContent),
+  OrigamiFieldLabelOptions.provideFactory(() => ({id: computed(() => 'email-label')})),
+  OrigamiFieldLabelOptions.provideExisting(() => AbstractIdentity),
+  OrigamiFieldControlOptions.provideFactory(() => ({id: signal('email')})),
+  OrigamiFieldControlOptions.provideExisting(() => AbstractIdentity),
+  OrigamiFieldDescriptionOptions.provideFactory(() => ({id: signal('email-hint')})),
+  OrigamiFieldDescriptionOptions.provideExisting(() => AbstractIdentity),
+  OrigamiFieldErrorOptions.provideFactory(() => ({id: signal('email-error')})),
+  OrigamiFieldErrorOptions.provideExisting(() => AbstractIdentity),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -535,6 +564,17 @@ import { OrigamiToggleGroupSingle, OrigamiToggleGroupItem } from "@loozo/origami
   observePresence(state: OrigamiPresenceState): void { void state; }
   observeToggle(state: OrigamiToggleState): void { void state; }
   observeBoolean(value: boolean): void { void value; }`,
+  },
+  field: {
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiField, OrigamiFieldLabel, OrigamiFieldControl, OrigamiFieldDescription, OrigamiFieldError, OrigamiFieldState } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiField, OrigamiFieldLabel, OrigamiFieldControl, OrigamiFieldDescription, OrigamiFieldError",
+    members: `
+  readonly model = signal({ email: "" });
+  readonly form = form(this.model, (path) => { required(path.email); });
+  observeField(state: OrigamiFieldState): void { void state; }
+  observeString(value: string): void { void value; }`,
   },
   "radio-group": {
     imports: `import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
@@ -882,6 +922,41 @@ const templates = [
       code: -998002,
       span: `[orientation]="'vertical'"`,
       message: /Can't bind to 'orientation' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "field-positive",
+    family: "field",
+    template: `<div ogField #field="ogField" (click)="observeField(field.state)"><label ogFieldLabel id="email-label">Email</label><input ogFieldControl id="email" type="email" [formField]="form.email" /><p ogFieldDescription [id]="'email-hint'">Hint</p>@if (field.state.errorsShown()) {<p ogFieldError>{{ field.state.errors()[0]?.message }}</p>}</div>`,
+  },
+  {
+    name: "field-control-id",
+    family: "field",
+    template: `<div ogField><input ogFieldControl [id]="4" [formField]="form.email" /></div>`,
+    expected: {
+      code: 2322,
+      span: "id",
+      message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "field-root-input",
+    family: "field",
+    template: `<div ogField [disabled]="true"></div>`,
+    expected: {
+      code: -998002,
+      span: `[disabled]="true"`,
+      message: /Can't bind to 'disabled' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "field-state",
+    family: "field",
+    template: `<div ogField #field="ogField" (click)="observeString(field.state)"></div>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message: /'OrigamiFieldState' is not assignable to parameter of type 'string'/,
     },
   },
   {

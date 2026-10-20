@@ -70,6 +70,18 @@ import {
   OrigamiTooltipOptions,
   OrigamiTooltipState,
 } from "@loozo/origami-ui/tooltip";
+import {
+  OrigamiField,
+  OrigamiFieldControl,
+  OrigamiFieldControlOptions,
+  OrigamiFieldDescription,
+  OrigamiFieldDescriptionOptions,
+  OrigamiFieldError,
+  OrigamiFieldErrorOptions,
+  OrigamiFieldLabel,
+  OrigamiFieldLabelOptions,
+  OrigamiFieldState,
+} from "@loozo/origami-ui/field";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -351,4 +363,25 @@ export function checkTooltipParts(root: OrigamiTooltip, content: OrigamiTooltipC
   void rootState;
   void contentOptions;
   void contentState;
+}
+
+/** Field's root exposes the State it provides; each part is its own Options. */
+export function checkFieldParts(
+  root: OrigamiField,
+  label: OrigamiFieldLabel,
+  control: OrigamiFieldControl,
+  description: OrigamiFieldDescription,
+  error: OrigamiFieldError,
+): void {
+  const rootState: OrigamiFieldState = root.state;
+  const labelOptions: OrigamiFieldLabelOptions = label;
+  const controlOptions: OrigamiFieldControlOptions = control;
+  const descriptionOptions: OrigamiFieldDescriptionOptions = description;
+  const errorOptions: OrigamiFieldErrorOptions = error;
+
+  void rootState;
+  void labelOptions;
+  void controlOptions;
+  void descriptionOptions;
+  void errorOptions;
 }

@@ -1600,6 +1600,137 @@ test("Q6 H1 H2 H3: RadioGroup server checked state and DOM-order tab stops survi
   }
 });
 
+type FieldIds = {
+  control: string | null;
+  label: string | null;
+  description: string | null;
+  error: string | null;
+  afterControl: string | null;
+  afterLabel: string | null;
+};
+
+/** Field associations as rendered: B shows its error from the start. */
+async function expectServerFields(page: Page, labels: string[]): Promise<Map<string, FieldIds>> {
+  const ids = new Map<string, FieldIds>();
+
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const field = unit.getByTestId("hydration-field");
+    const control = unit.getByTestId("hydration-field-control");
+    const error = unit.getByTestId("hydration-field-error");
+    const afterControl = unit.getByTestId("hydration-field-after-control");
+    const unitIds: FieldIds = {
+      control: await control.getAttribute("id"),
+      label: await unit.getByTestId("hydration-field-label").getAttribute("id"),
+      description: await unit.getByTestId("hydration-field-description").getAttribute("id"),
+      error: null,
+      afterControl: await afterControl.getAttribute("id"),
+      afterLabel: await unit.getByTestId("hydration-field-after-label").getAttribute("id"),
+    };
+
+    for (const id of [
+      unitIds.control,
+      unitIds.label,
+      unitIds.description,
+      unitIds.afterControl,
+      unitIds.afterLabel,
+    ]) {
+      expect(id).toMatch(/\S/);
+    }
+
+    await expect(unit.getByTestId("hydration-field-label")).toHaveAttribute(
+      "for",
+      unitIds.control ?? "",
+    );
+    await expect(unit.getByTestId("hydration-field-after-label")).toHaveAttribute(
+      "for",
+      unitIds.afterControl ?? "",
+    );
+    await expect(afterControl).not.toHaveAttribute("aria-describedby", /.*/);
+    await expect(field).toHaveAttribute("data-required", "");
+    await expect(control).toHaveAttribute("required", "");
+    await expect(control).not.toHaveAttribute("aria-required", /.*/);
+    // Outside a Field, composed parts keep their own host's static attributes.
+    await expect(unit.getByTestId("hydration-field-composed-label")).toHaveAttribute(
+      "for",
+      "composed-for",
+    );
+    await expect(unit.getByTestId("hydration-field-composed-control")).toHaveAttribute(
+      "aria-describedby",
+      "composed-static",
+    );
+
+    if (label === "B") {
+      unitIds.error = await error.getAttribute("id");
+      expect(unitIds.error).toMatch(/\S/);
+      await expect(field).toHaveAttribute("data-invalid", "");
+      await expect(control).toHaveAttribute("aria-invalid", "true");
+      await expect(control).toHaveAttribute(
+        "aria-describedby",
+        `${unitIds.description} ${unitIds.error}`,
+      );
+    } else {
+      await expect(error).toHaveCount(0);
+      await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+      await expect(control).not.toHaveAttribute("aria-invalid", /.*/);
+      await expect(control).toHaveAttribute("aria-describedby", unitIds.description ?? "");
+    }
+
+    ids.set(label, unitIds);
+  }
+
+  return ids;
+}
+
+test("M6 H1 H2: Field IDs, for and aria-describedby are in server HTML, Label before and after the control, with an error shown from the start, and composed parts outside a Field keep their static host attributes; hydration adopts them and the Field follows the form once hydrated", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    const server = await expectServerFields(page, ["A", "B", "C"]);
+    const b = page.locator('[data-unit="B"]');
+
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    if (incremental) {
+      await b.getByTestId("hydrate-unit").click();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+    } else {
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    // Hydration adopts the server IDs and associations.
+    expect(await expectServerFields(page, ["A", "B", "C"])).toEqual(server);
+    await assertReferences(page, info);
+
+    const control = b.getByTestId("hydration-field-control");
+    const ids = server.get("B");
+
+    await control.fill("me@example.com");
+    await expect(b.getByTestId("hydration-field-error")).toHaveCount(0);
+    await expect(b.getByTestId("hydration-field")).not.toHaveAttribute("data-invalid", /.*/);
+    await expect(control).not.toHaveAttribute("aria-invalid", /.*/);
+    await expect(control).toHaveAttribute("aria-describedby", ids?.description ?? "");
+    await control.fill("");
+    await expect(b.getByTestId("hydration-field-error")).toHaveCount(1);
+    await expect(control).toHaveAttribute("aria-invalid", "true");
+    await expect(control).toHaveAccessibleName("Email");
+    await expect(control).toHaveAccessibleDescription("We never share it. Enter your email.");
+  } finally {
+    releaseMain();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {
