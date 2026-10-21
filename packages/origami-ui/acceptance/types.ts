@@ -82,6 +82,13 @@ import {
   OrigamiFieldLabelOptions,
   OrigamiFieldState,
 } from "@loozo/origami-ui/field";
+import type { FormCheckboxControl } from "@angular/forms/signals";
+import {
+  OrigamiCheckbox,
+  OrigamiCheckboxOptions,
+  OrigamiCheckboxState,
+} from "@loozo/origami-ui/checkbox";
+import { OrigamiSwitch, OrigamiSwitchOptions, OrigamiSwitchState } from "@loozo/origami-ui/switch";
 
 type ExpectNever<T extends never> = T;
 export type NoRootValueExports = ExpectNever<keyof typeof OrigamiRoot>;
@@ -384,4 +391,21 @@ export function checkFieldParts(
   void controlOptions;
   void descriptionOptions;
   void errorOptions;
+}
+
+/** Checkbox and Switch are their own Options, expose their State and are Signal Forms checkbox controls. */
+export function checkBooleanControls(checkbox: OrigamiCheckbox, toggle: OrigamiSwitch): void {
+  const checkboxState: OrigamiCheckboxState = checkbox.state;
+  const checkboxOptions: OrigamiCheckboxOptions = checkbox;
+  const checkboxControl: FormCheckboxControl = checkbox;
+  const switchState: OrigamiSwitchState = toggle.state;
+  const switchOptions: OrigamiSwitchOptions = toggle;
+  const switchControl: FormCheckboxControl = toggle;
+
+  void checkboxState;
+  void checkboxOptions;
+  void checkboxControl;
+  void switchState;
+  void switchOptions;
+  void switchControl;
 }

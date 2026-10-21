@@ -50,7 +50,8 @@ export abstract class OrigamiButtonOptions {
  * checks the disabled state itself.
  *
  * Every Origami button part composes it and is its sole owner: Toggle, ToggleGroup items, the
- * Collapsible, Accordion, Popover and Tabs Triggers, RadioGroup items and the Toolbar's controls.
+ * Collapsible, Accordion, Popover and Tabs Triggers, RadioGroup items, Checkbox, Switch and the
+ * Toolbar's controls.
  * Use `ogButton` only on a plain button: applying it next to one of them, or two of them to one
  * element, is unsupported. Angular silently shares one Button between them and only one part's
  * Options reach it. Use the Toolbar's variants, such as `ogToolbarToggle`, for a

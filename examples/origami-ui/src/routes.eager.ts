@@ -23,6 +23,19 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/field.js").then((module) => module.FieldFixture),
   },
   {
+    path: "checkbox",
+    loadComponent: () => import("./fixtures/checkbox.js").then((module) => module.CheckboxFixture),
+  },
+  {
+    path: "switch",
+    loadComponent: () => import("./fixtures/switch.js").then((module) => module.SwitchFixture),
+  },
+  {
+    path: "described-by",
+    loadComponent: () =>
+      import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),
+  },
+  {
     path: "hydration",
     loadComponent: () =>
       import("./fixtures/seeds/eager-hydration-consumer.js").then(

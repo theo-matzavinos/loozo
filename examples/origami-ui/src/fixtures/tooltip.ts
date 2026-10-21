@@ -108,7 +108,7 @@ export class FactoryPlacement {}
           <acceptance-tooltip-text [contentId]="describeId()" />
         }
       </span>
-      <span id="static-note">Static note the Trigger no longer names</span>
+      <span id="static-note">Static note named only without Content</span>
       <span ogTooltip [openDelay]="0">
         <button type="button" ogTooltipTrigger class="trigger" data-testid="role-trigger">
           Role

@@ -1,6 +1,6 @@
 import { DestroyRef, Directive, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { ɵOrigamiFieldMembership } from "./field-membership";
 
 /** Effective Control identity, named by its Field's Labels. */
@@ -33,11 +33,12 @@ export abstract class OrigamiFieldControlOptions {
 /**
  * Makes a native `<input>`, `<select>` or `<textarea>` the control of its nearest Field. It binds
  * its effective `id`, which the Field's Labels name with `for`, and `aria-describedby`, naming
- * the Field's Descriptions and then its mounted Errors. With `[formField]` on the same element it
+ * the Field's Descriptions and then its mounted Errors, merged with the IDs of a co-applied
+ * `ogTooltipTrigger` in the order they initialize. With `[formField]` on the same element it
  * also binds `aria-invalid="true"` while the Field shows errors, absent otherwise; it binds no
  * `aria-required` or `aria-readonly`, since `[formField]` sets the native `required` and
- * `readonly`. Inside a Field it owns `aria-describedby` and `aria-invalid`: a static
- * `aria-describedby` is replaced, so add hints with `ogFieldDescription`.
+ * `readonly`. Inside a Field it owns `aria-invalid`; a static `aria-describedby` is kept only
+ * while nothing names an ID, so add hints with `ogFieldDescription`.
  *
  * It isn't a Signal Forms control itself: it declares no value, touch or form-state inputs, so
  * `[formField]` keeps Angular's native handling of the element, its value, `touched` on blur and
@@ -53,10 +54,10 @@ export abstract class OrigamiFieldControlOptions {
  */
 @Directive({
   selector: "[ogFieldControl]",
+  hostDirectives: [ɵOrigamiDescribedBy],
   providers: [OrigamiFieldControlOptions.provideExisting(() => OrigamiFieldControl)],
   host: {
     "[id]": "effectiveId()",
-    "[attr.aria-describedby]": "describedBy()",
     "[attr.aria-invalid]": "invalid()",
   },
 })
@@ -72,8 +73,6 @@ export class OrigamiFieldControl implements OrigamiFieldControlOptions {
 
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
-  /** @internal The Field's Descriptions, then its mounted Errors. */
-  protected readonly describedBy = this.#membership.describedBy;
   /** @internal Errors-shown state. */
   protected readonly invalid = this.#membership.invalid;
 

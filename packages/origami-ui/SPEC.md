@@ -1,16 +1,16 @@
 # @loozo/origami-ui — product contract
 
-**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Toggle (section 12), Tabs (section 13), ToggleGroup (section 14), Toolbar (section 15), RadioGroup (section 16), Button (section 17), Tooltip (section 18) and Field (section 19) were added after 0.0.1 and are unreleased. Formal Baseline audit skipped; no Baseline certification claim.**
+**Status: 0.0.1 published to npm on 2026-10-15, qualified on Angular 22.2.2 in Chromium, Firefox and WebKit. Toggle (section 12), Tabs (section 13), ToggleGroup (section 14), Toolbar (section 15), RadioGroup (section 16), Button (section 17), Tooltip (section 18), Field (section 19), Checkbox (section 20) and Switch (section 21) were added after 0.0.1 and are unreleased. Formal Baseline audit skipped; no Baseline certification claim.**
 
 This is the normative contract for the public API, behavior, composition architecture and acceptance requirements of `@loozo/origami-ui`; Popover's presentation design is specified in [SPEC-POPOVER.md](SPEC-POPOVER.md). A change to any of them updates this contract in the same change. How the package was rebuilt and moved into loozo is recorded in [PROVENANCE.md](PROVENANCE.md). No formal Baseline qualification claim is made; full browser/runtime proof is mandatory.
 
 ## 1. Product scope
 
-An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion, Popover, Toggle, Tabs, single/multiple ToggleGroup, Toolbar, RadioGroup, Button, Tooltip and Field, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
+An Angular headless primitive library containing Collection, Presence, Collapsible, single/multiple Accordion, Popover, Toggle, Tabs, single/multiple ToggleGroup, Toolbar, RadioGroup, Button, Tooltip, Field, Checkbox and Switch, with public utilities for deferred injection and generated identity. It is proved through handwritten consumers using public package imports, including consumer-owned directives composed through `hostDirectives`.
 
 Decisions:
 
-- The catalogue grows one consumer-backed primitive at a time, as section 22 describes.
+- The catalogue grows one consumer-backed primitive at a time, as section 24 describes.
 - TSDoc across the whole public API surface is a hard, release-blocking requirement, including public members and provider helpers.
 - Public API names, selectors, entrypoints, inputs, outputs and composition contracts are the ones this contract specifies; changing one updates this contract.
 - Chromium, Firefox and WebKit runtime qualification is mandatory. The formal Baseline audit was explicitly skipped on 2026-10-11 and is not a release gate; no Baseline widely-available certification claim is made.
@@ -100,6 +100,8 @@ Locally provided injectable classes use Angular `@Service({ autoProvided: false 
 
 Context exposes each event it exposes as an `Observable`, emitting synchronously where the event happens, so subscribers run under the same guards. State re-exposes it as a readonly `Observable`. The directive re-exposes it as an output with `outputFromObservable`.
 
+A Signal Forms `touch` output (sections 20 and 21) follows this rule except that State doesn't re-expose it: it is Angular's form notification, not observable State.
+
 This applies to exposed events only. Internal coordination between package-private parts may use plain calls, or RxJS where it helps.
 
 Two-way state isn't an event. A directive `model()` maps to a `WritableSignal` on its Options, and the model's change output is exempt from this rule.
@@ -119,7 +121,7 @@ Unregistering a part removes only its own registration. A stale animation, point
 Accordion root ──► Collection
 Accordion item ──► Collection Item + Collapsible
 Accordion trigger / panel ──► Collapsible trigger / panel
-Collapsible trigger, Popover trigger, Tabs trigger, RadioGroup item, Toggle ──► Button
+Collapsible trigger, Popover trigger, Tabs trigger, RadioGroup item, Toggle, Checkbox, Switch ──► Button
 Tabs root ──► package-private roving focus
 ToggleGroup Single / Multiple ──► ToggleGroup root (+ package-private roving focus)
 ToggleGroup item ──► Toggle
@@ -135,10 +137,11 @@ Popover root ──► package-private floating presentation + dismissal layer
 Popover content ──► Presence
 Tooltip root ──► package-private floating presentation + dismissal layer (shared with Popover)
 Tooltip content ──► Presence
-Field Control ──► package-private Field membership
+Field Control, Checkbox, Switch ──► package-private Field membership + shared description
+Tooltip trigger ──► package-private shared description
 ```
 
-Single/multiple selection are concrete behavior variants, not an extensible public strategy framework. Accordion, ToggleGroup and RadioGroup share package-private single/multiple write rules; each widget states its own policy around them, such as Accordion's lock on a non-collapsible selection or RadioGroup's missing deselection. The roving widgets don't compose Collection: the package-private roving focus keeps its own items. A Toolbar group (section 15) provides no roving focus of its own, so its items register with the Toolbar's. There is no public generic overlay stack, state engine or registration framework; Popover and Tooltip share package-private floating and layer pieces (section 4). A form control joins the nearest Field (section 19) through the package-private Field membership, which registers it and reads the Signal Forms state of its own element's `[formField]`.
+Single/multiple selection are concrete behavior variants, not an extensible public strategy framework. Accordion, ToggleGroup and RadioGroup share package-private single/multiple write rules; each widget states its own policy around them, such as Accordion's lock on a non-collapsible selection or RadioGroup's missing deselection. The roving widgets don't compose Collection: the package-private roving focus keeps its own items. A Toolbar group (section 15) provides no roving focus of its own, so its items register with the Toolbar's. There is no public generic overlay stack, state engine or registration framework; Popover and Tooltip share package-private floating and layer pieces (section 4). A form control joins the nearest Field (section 19) through the package-private Field membership, which registers it and reads the Signal Forms state of its own element's `[formField]`. Every directive that names IDs in its element's `aria-describedby`, a Field control and the Tooltip Trigger, composes the package-private shared description (section 4) instead of binding the attribute itself: Angular creates one instance of a host directive per element however many matched directives compose it, so co-applied describers share one binding, and each registers its IDs with it.
 
 ## 4. Public package and type surface [E]
 
@@ -160,16 +163,20 @@ The root import remains valid and empty. Behavior is imported from secondary ent
 | `/button`      | `OrigamiButton`, `OrigamiButtonOptions` |
 | `/tooltip`     | `OrigamiTooltip`, `OrigamiTooltipOptions`, `OrigamiTooltipState`, `OrigamiTooltipTrigger`, `OrigamiTooltipContent`, `OrigamiTooltipContentOptions`, `OrigamiTooltipContentState`, type `OrigamiTooltipSide`, type `OrigamiTooltipAlign` |
 | `/field`       | `OrigamiField`, `OrigamiFieldState`, `OrigamiFieldLabel`, `OrigamiFieldLabelOptions`, `OrigamiFieldControl`, `OrigamiFieldControlOptions`, `OrigamiFieldDescription`, `OrigamiFieldDescriptionOptions`, `OrigamiFieldError`, `OrigamiFieldErrorOptions` |
+| `/checkbox`    | `OrigamiCheckbox`, `OrigamiCheckboxOptions`, `OrigamiCheckboxState` |
+| `/switch`      | `OrigamiSwitch`, `OrigamiSwitchOptions`, `OrigamiSwitchState` |
 
 The inventories include the approved Popover placement exports and four-property Content Options. Collapsible and Popover Trigger Options carry `id`, `disabled` and `focusableWhenDisabled`, and Accordion Trigger Options carry `id` and `focusableWhenDisabled`; Collapsible Panel, Accordion Panel and Popover Anchor Options carry only `id`. The Toolbar's item and controls have no Options token of their own: `OrigamiToolbarItem` uses `OrigamiButtonOptions`, `OrigamiToolbarToggle` `OrigamiToggleOptions` and `OrigamiToolbarPopoverTrigger` `OrigamiPopoverTriggerOptions`.
 
 The Accordion entrypoint also exposes `ɵOrigamiAccordionRoot` for compiled composition. Preserve whatever export visibility Angular packaging requires; it is not a supported application authoring API. Removing its importability is a deliberate API change made through this contract, not a side effect of a refactor.
 
-The Collection entrypoint also exposes `ɵOrigamiRovingFocusContext` and `ɵOrigamiRovingFocusOptions`, package-private ordered-focus infrastructure for Origami's composite widgets, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private single/multiple selection write rules Accordion, ToggleGroup and RadioGroup share (section 22). The ToggleGroup and RadioGroup entrypoints expose `ɵOrigamiToggleGroupRoot` and `ɵOrigamiRadioGroupRoot`, the internal roots their standalone and Toolbar groups compose, and the Toolbar entrypoint exposes `ɵOrigamiToolbarControl`, the internal roving control its item, Toggle and Popover Trigger compose. None of them is an application API.
+The Collection entrypoint also exposes `ɵOrigamiRovingFocusContext` and `ɵOrigamiRovingFocusOptions`, package-private ordered-focus infrastructure for Origami's composite widgets, and `ɵrequestSingleSelection` and `ɵrequestMultipleSelection`, the package-private single/multiple selection write rules Accordion, ToggleGroup and RadioGroup share (section 24). The ToggleGroup and RadioGroup entrypoints expose `ɵOrigamiToggleGroupRoot` and `ɵOrigamiRadioGroupRoot`, the internal roots their standalone and Toolbar groups compose, and the Toolbar entrypoint exposes `ɵOrigamiToolbarControl`, the internal roving control its item, Toggle and Popover Trigger compose. None of them is an application API.
 
 The Popover entrypoint also exposes `ɵOrigamiFloating`, the package-private native manual top-layer presentation that Popover and Tooltip Content use; `ɵOrigamiLayer`, the package-private Escape and outside-pointer participation of each Popover and Tooltip root; `ɵOrigamiFloatingScope`, which Popover Content provides so a Tooltip inside it presents only while that Popover does (section 18); and their host and part types `ɵOrigamiFloatingHost`, `ɵOrigamiFloatingParts`, `ɵOrigamiFloatingContent`, `ɵOrigamiIntent` and `ɵOrigamiLayerHost`. They are the pieces Popover and Tooltip are built from, and they live behind the Popover entrypoint because secondary entrypoints share code only through entrypoints. None of them is an application API.
 
-The Field entrypoint also exposes `ɵOrigamiFieldMembership`, the package-private registration of a form control with its nearest Field and the reader of its own element's Signal Forms state, which `ogFieldControl` and Origami's form controls use (section 19). It is not an application API.
+The Field entrypoint also exposes `ɵOrigamiFieldMembership`, the package-private registration of a form control with its nearest Field and the reader of its own element's Signal Forms state, which `ogFieldControl`, Checkbox and Switch use (sections 19 to 21). It is not an application API.
+
+The Utilities entrypoint also exposes `ɵOrigamiDescribedBy`, the package-private shared description: a selector-less directive composed only through `hostDirectives`, its element's single `aria-describedby` binding. Each describer registers reactive IDs from its `ngOnInit`, removed when it is destroyed. The attribute names every registration's IDs in registration order, which is the order the describers initialize: Angular's directive order on the element, set by the consumer's `imports` order or `hostDirectives` order. While no registration names an ID it is the element's static `aria-describedby`, read when the element is created; otherwise it is absent. Under hydration the element is the server's and already carries this binding's output, so once the registrations' IDs, joined with a space, ever equal a value read at creation exactly, that value is the server's output, not a static value: from then on there is no static fallback. Until then it stays the fallback, so while no registration names an ID the attribute keeps that value, which is the server HTML. Describers register in different refresh passes, one in a child component's view after the element's host bindings, so the IDs may first name only part of the server's list. Two edges follow: a static value equal to exactly the IDs Origami names at any time is treated as absent, and describers that changed while the element was still dehydrated in a separate `@defer` boundary (section 22, associations across a hydrate boundary) leave the server's IDs as the static value. The Tooltip Trigger registers its mounted Content's ID, and a Field control the Field's Descriptions, then its mounted Errors, while it is the Field's control (sections 18 to 21). It is not an application API.
 
 `@angular/forms` `~22.2.2` is a required peer dependency, like `@angular/common` and `@angular/core`.
 
@@ -218,6 +225,7 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Tooltip root                                                                | `open: WritableSignal<boolean>`, `disabled: Signal<boolean>`, `openDelay: Signal<number>`                             |
 | Tooltip Content                                                             | `id: Signal<string>`, `side: Signal<OrigamiTooltipSide>`, `align: Signal<OrigamiTooltipAlign>`, `gap: Signal<number>` |
 | Each Field Label, Control, Description and Error                            | its own Options token with `id: Signal<string>`                                                                       |
+| Checkbox; Switch, each its own token                                        | `checked: WritableSignal<boolean>`, `disabled: Signal<boolean>`, `focusableWhenDisabled: Signal<boolean>`, `id: Signal<string>` |
 
 | State           | Readonly signals                                                                       |
 | --------------- | -------------------------------------------------------------------------------------- |
@@ -235,6 +243,7 @@ Acceptance reviews the complete public export/member inventory against authored 
 | Tooltip         | `open: Signal<boolean>`, `disabled: Signal<boolean>`                                   |
 | Tooltip Content | `open: Signal<boolean>`; no public Presence phase alias                                |
 | Field           | `invalid: Signal<boolean>`, `touched: Signal<boolean>`, `disabled: Signal<boolean>`, `required: Signal<boolean>`, `errors: Signal<readonly ValidationError[]>`, `errorsShown: Signal<boolean>` |
+| Checkbox; Switch | `checked: Signal<boolean>`, `disabled: Signal<boolean>`; no form state and no `touch`  |
 
 Popover Content inputs default to `side: 'block-end'`, `align: 'start'`, `gap: 0` CSS px. Side is `'block-start' | 'block-end' | 'inline-start' | 'inline-end'`; align is `'start' | 'center' | 'end'`. Gap must be finite and nonnegative. All four Content Options properties are required; defaults on an unused directive do not repair an incomplete replacement.
 
@@ -445,7 +454,7 @@ The approved details include:
 
 **Recorded support evidence, not a release gate:** inspected basic Popover attribute/show/hide/open-selector/event metadata has low date 2024-04-16, reaching the 30-month boundary on **2026-10-16**. On **2026-10-11**, that evidence did not establish widely-available eligibility, and loozo explicitly decided to skip the Baseline audit. No formal Baseline certification is claimed. The later-dated reflected `HTMLElement.popover` property remains excluded; use ordinary attribute APIs. The decision adds no presentation fallback or waiver of required runtime behavior.
 
-No source inspection, skipped audit or design approval substitutes for the required browser proof in section 20.
+No source inspection, skipped audit or design approval substitutes for the required browser proof in section 22.
 
 ## 12. Toggle [G]
 
@@ -650,7 +659,7 @@ Host semantics:
 - While disabled, `aria-disabled="true"`, empty `data-disabled` and native `disabled`. With `focusableWhenDisabled`, a disabled Button has `aria-disabled="true"` and `data-disabled` but no native `disabled`, so it keeps its place in the Tab order. The attributes are absent while enabled, whatever `focusableWhenDisabled` says.
 - A natively disabled button receives no trusted clicks. A focusable disabled one does: the browser still dispatches its clicks, Enter and Space, so the consumer's own `(click)` listeners on it still run and check the disabled state themselves.
 
-Every Origami button part composes Button through `hostDirectives` and is the sole owner of its type and disabled attributes: Toggle, ToggleGroup items (through Toggle), the Collapsible Trigger, the Accordion Trigger (through the Collapsible Trigger), the Popover Trigger, the Tabs Trigger, RadioGroup items and the Toolbar's controls. Each part supplies Button's Options from its own effective disabled state, its root's or its own, and its own `focusableWhenDisabled` Option and input; Button's own inputs are not exposed through the part. Each part keeps its own activation guard, so a focusable disabled part ignores activation: it doesn't press, expand, open, select or check. Focus is never restored to a disabled Popover Trigger, focusable or not.
+Every Origami button part composes Button through `hostDirectives` and is the sole owner of its type and disabled attributes: Toggle, ToggleGroup items (through Toggle), the Collapsible Trigger, the Accordion Trigger (through the Collapsible Trigger), the Popover Trigger, the Tabs Trigger, RadioGroup items, Checkbox, Switch and the Toolbar's controls. Each part supplies Button's Options from its own effective disabled state, its root's or its own, and its own `focusableWhenDisabled` Option and input; Button's own inputs are not exposed through the part. Each part keeps its own activation guard, so a focusable disabled part ignores activation: it doesn't press, expand, open, select, check or switch. Focus is never restored to a disabled Popover Trigger, focusable or not.
 
 In the roving widgets (Tabs, ToggleGroup, Toolbar, RadioGroup), a focusable disabled item stays in the arrow sequence and is the tab stop while focused, or when no item is enabled; a disabled item is never preferred. A move onto it focuses it without selecting or checking it, a click focuses it in every engine and activates nothing, and a focused item that becomes disabled but stays focusable keeps focus (section 13).
 
@@ -677,7 +686,7 @@ Trigger and Content register in `ngOnInit` (section 3). One mounted Trigger and 
 Host semantics:
 
 - Root: none.
-- Trigger: `aria-describedby` names the registered Content's effective ID, open or closed, and is absent without registered Content. It replaces a consumer's static `aria-describedby`. The Trigger binds no `type`, `role`, `disabled` or `tabindex`, so it may be co-applied with any button primitive, which keeps its own disabled state.
+- Trigger: `aria-describedby` names the registered Content's effective ID, open or closed, through the shared description (section 4). It merges with the IDs of describers co-applied on the same element, a Field control's (sections 19 to 21), in the order they initialize. While nothing names an ID, such as without registered Content, the consumer's static `aria-describedby` is kept; otherwise it is replaced. The Trigger binds no `type`, `role`, `disabled` or `tabindex`, so it may be co-applied with any button primitive, which keeps its own disabled state.
 - Content: static `role="tooltip"`, which a consumer's static `role` overrides; effective `id`; `popover="manual"`; `position: fixed`, `right` and `bottom` `auto`, `margin: 0`; `inert` while not participating; Presence's attributes. Origami never gates Content's children. Closed Content is natively hidden and `inert`, and the Trigger's accessible description still resolves from it.
 
 Intent. Each root has at most one pending open; every write goes through the effective `open` Option. Opening by intent is blocked while the root is disabled, while the Trigger matches `:disabled` and without a registered Trigger.
@@ -703,7 +712,7 @@ SSR emits the root, the Trigger's `aria-describedby` and Content with `popover="
 
 The consumer makes the Trigger focusable and gives it its accessible name (`aria-label` or visually hidden text); the Tooltip is its description. The consumer keeps Content outside the Trigger and non-interactive (no focusable descendants or `autofocus`), doesn't gate Content's text, and owns appearance, motion and reduced motion. Scope a custom `display` to `:popover-open` and use `gap`, not margins. To explain an unavailable action, use a focusable disabled button (`ogButton` with `focusableWhenDisabled`, section 17); a natively disabled Trigger never opens.
 
-Exclusions: no HoverCard or interactive content; no velocity-based pointer polygon or close delay; no `popover="hint"` or `interestfor`; no touch long press; no label relation; no Trigger `disabled` input; no merging into the Trigger's `aria-describedby`; no root host attributes; no close on scroll; no configurable or scoped delay group; no public layer, floating or group API.
+Exclusions: no HoverCard or interactive content; no velocity-based pointer polygon or close delay; no `popover="hint"` or `interestfor`; no touch long press; no label relation; no Trigger `disabled` input; no merging with a static `aria-describedby` (kept only while no describer names an ID); no root host attributes; no close on scroll; no configurable or scoped delay group; no public layer, floating or group API.
 
 ## 19. Field [M]
 
@@ -711,21 +720,21 @@ Selectors/export names:
 
 - `[ogField]`, `exportAs: 'ogField'`: the owner.
 - `[ogFieldLabel]`.
-- `[ogFieldControl]`: a native `<input>`, `<select>` or `<textarea>`.
+- `[ogFieldControl]`: a native `<input>`, `<select>` or `<textarea>`. Checkbox and Switch are controls without it.
 - `[ogFieldDescription]`.
 - `[ogFieldError]`.
 
 Configuration: the root has no inputs and no Options; it exposes readonly State, and descendants inject it. Label, Control, Description and Error each have an `id` input defaulting to a generated ID, through their own Options token. Field is the label, description and error wiring around one form control, and it reads that control's Angular Signal Forms state; it owns no value and no validation.
 
-A form control registers with the nearest Field in `ngOnInit` (section 3), publishing its effective ID, whether a `<label for>` can name it, and a reader of the Signal Forms `FieldState` its own element's `[formField]` binds (`FORM_FIELD`, same element, optional). `ogFieldControl` is that control for a native element; Origami's own form controls register the same way without it, through the package-private `ɵOrigamiFieldMembership`. Descriptions and Errors register in `ngOnInit`, and an Error only while it is mounted. One control per Field: a second control's registration is reported through Angular's `ErrorHandler` and ignored. Parts and controls join the nearest Field, so a Field inside another is independent. Outside any Field, parts bind only their `id` and keep the consumer's static `for` and ARIA attributes, whether the template or a composing directive's `host` writes them.
+A form control registers with the nearest Field in `ngOnInit` (section 3), publishing its effective ID, whether a `<label for>` can name it, and a reader of the Signal Forms `FieldState` its own element's `[formField]` binds (`FORM_FIELD`, same element, optional). `ogFieldControl` is that control for a native element; Origami's own form controls, Checkbox (section 20) and Switch (section 21), register the same way without it, through the package-private `ɵOrigamiFieldMembership`, and their sections state their ARIA. Descriptions and Errors register in `ngOnInit`, and an Error only while it is mounted. One control per Field: a second control's registration is reported through Angular's `ErrorHandler` and ignored. Parts and controls join the nearest Field, so a Field inside another is independent. Outside any Field, parts bind only their `id` and keep the consumer's static `for` and ARIA attributes, whether the template or a composing directive's `host` writes them.
 
-State: `invalid`, `touched`, `disabled` and `required` are the bound field's `FieldState` signals, `errors` is its own `FieldState.errors()` as the base `ValidationError` type, and `errorsShown` is `invalid() && touched()`. While no control is registered, or the control has no `[formField]`, every signal is false and `errors` is empty. A blur touches a native control through Angular's own handling, and `submit()` touches every field, so either shows errors. Disabled and readonly fields aren't validated by Signal Forms, so they show none.
+State: `invalid`, `touched`, `disabled` and `required` are the bound field's `FieldState` signals, `errors` is its own `FieldState.errors()` as the base `ValidationError` type, and `errorsShown` is `invalid() && touched()`. While no control is registered, or the control has no `[formField]`, every signal is false and `errors` is empty. A blur touches a native control through Angular's own handling and a Checkbox or Switch through its `touch` output, and `submit()` touches every field, so either shows errors. Disabled and readonly fields aren't validated by Signal Forms, so they show none.
 
 Host semantics:
 
 - Root: no role. Empty `data-invalid` while `errorsShown`, `data-disabled` while disabled and `data-required` while required; absent otherwise.
 - Label: effective `id`; `for` names the registered control's ID while the control can be named by a label, and is absent otherwise; a static `for` is replaced inside a Field. The Label may come before or after the control, and several Labels may name one control.
-- Control: effective `id`; `aria-describedby` names the registered Descriptions' IDs, then the mounted Errors' IDs, each in registration order, and is absent when there are none; `aria-invalid="true"` while `errorsShown`, absent otherwise. It binds no `aria-required` or `aria-readonly`: `[formField]` sets the native `required` and `readonly`, which ARIA in HTML says not to repeat. Inside a Field it owns `aria-describedby` and `aria-invalid`: a static `aria-describedby` is replaced. A second, ignored control keeps its static attributes.
+- `ogFieldControl`: effective `id`; `aria-describedby` names the registered Descriptions' IDs, then the mounted Errors' IDs, each in registration order, through the shared description (section 4); `aria-invalid="true"` while `errorsShown`, absent otherwise. It binds no `aria-required` or `aria-readonly`: `[formField]` sets the native `required` and `readonly`, which ARIA in HTML says not to repeat. Inside a Field it owns `aria-invalid`. Its `aria-describedby` merges with the IDs of a co-applied Tooltip Trigger (section 18), in the order the two initialize; a static `aria-describedby` is kept only while neither names an ID, and replaced otherwise. A second, ignored control keeps its static attributes.
 - Description and Error: effective `id`.
 
 `ogFieldControl` isn't a Signal Forms custom control: it declares no `value` or `checked` model, no `touch` output and no form-state input, so `[formField]` keeps Angular's native handling of the element: its value, touched on blur, and native `disabled`, `required` and `readonly`. Field adds no `ControlValueAccessor`.
@@ -734,9 +743,51 @@ Server HTML carries every part's ID, the Label's `for`, the control's `aria-desc
 
 The consumer supplies the label and message text, renders each Error under `@if (field.state.errorsShown())`, owns styling and validation rules, and uses its own `<fieldset>` and `<legend>` for a set of Fields.
 
-Exclusions: no Fieldset or Legend part, required marker, message text or `hidden()` handling (the consumer's `@if`); no `aria-errormessage`; no merging into a static `aria-describedby` inside a Field; no form value, validation or submission of its own; no `ControlValueAccessor` or reactive forms.
+Exclusions: no Fieldset or Legend part, required marker, message text or `hidden()` handling (the consumer's `@if`); no `aria-errormessage`; no merging with a static `aria-describedby` (kept only while no describer names an ID); no form value, validation or submission of its own; no `ControlValueAccessor` or reactive forms.
 
-## 20. Browser, SSR and hydration qualification [H]
+## 20. Checkbox [J]
+
+Selector/export name:
+
+- `button[ogCheckbox]`, `exportAs: 'ogCheckbox'`; composes Button (section 17).
+
+Configuration: `checked` boolean model false, `disabled` boolean input false, `focusableWhenDisabled` boolean input false and `id` input defaulting to a generated ID, through `OrigamiCheckboxOptions`. The directive exposes readonly State and a `touch` output. Checkbox is a two-state checkbox; it has no mixed value.
+
+Host semantics:
+
+- Static `role="checkbox"`, effective `id`, `aria-checked` always present, `"true"` or `"false"`, reflecting effective checked state, and empty `data-checked` while checked, absent otherwise.
+- The composed Button binds `type="button"` and, from the Checkbox's effective `disabled` and `focusableWhenDisabled`, `aria-disabled="true"`, empty `data-disabled` and native `disabled` unless `focusableWhenDisabled` while disabled; they are absent while enabled.
+- A click or Space, through native button activation, writes the negation of the effective checked state to the effective Options exactly once. Enter's activation is prevented on `keydown`, as the ARIA checkbox pattern says, so Enter writes nothing. A user activation, also through a label click, is dropped while effectively disabled, focusable or not, and while the `[formField]` on the same element is readonly; external Options, model and form writes remain authoritative. A focusable disabled Checkbox's own `(click)` listeners still run.
+
+Signal Forms: Checkbox implements `FormCheckboxControl`. `[formField]` finds it by its `checked` model, binds that model, writes its `disabled` input from the field's `disabled()` rules and listens to its `touch` output, which it emits on every blur. It declares no other form-state input: it reads the bound field's `readonly()`, `required()` and errors through the `FORM_FIELD` on its own element (same element, optional) with the package-private Field membership (section 19). `focusBoundControl()` focuses the button through Forms' default host focus; it has no `focus` or `reset` method. A consumer directive or component that applies the Checkbox through `hostDirectives` and exposes `checked` and `checkedChange` is the control `[formField]` finds; it also exposes `disabled` and `touch` for the form's disabled rules and touched state to reach the Checkbox, which still reads `FORM_FIELD` on the element. A replacement Options owns the value instead of the model `[formField]` binds, so `[formField]` on an element whose Checkbox has replacement Options and no consumer `checked` model is unsupported; this is documented, not guarded.
+
+Field: the Checkbox registers with its nearest Field in `ngOnInit` as its labelable control, without `ogFieldControl` (section 19). The Field's Labels name its `id` with `for`, before or after it, which gives the Checkbox its accessible name, and a label click activates the button. Inside a Field its `aria-describedby` names the Field's Descriptions, then its mounted Errors, through the shared description (section 4), merged with the IDs of a co-applied Tooltip Trigger (section 18) in the order the two initialize; a static `aria-describedby` is kept only while neither names an ID. It owns `aria-invalid="true"` while the Field shows errors and `aria-required="true"` and `aria-readonly="true"` while the bound field is required or readonly; each is absent otherwise, and a static value is replaced. Outside a Field, and as a second control the Field ignores, it binds only its `id` and keeps those static attributes, whether the template or a composing directive's `host` writes them.
+
+Each Checkbox element owns its own Context and State; descendants of the button observe that State. State `checked` and `disabled` are the effective Options' values: the form's disabled rules reach `disabled` through the input, form readonly isn't State, and State doesn't re-expose `touch` (section 3, Events).
+
+Server HTML carries `role`, `id`, `aria-checked`, `data-checked`, the disabled attributes, the Label's `for` and the Checkbox's `aria-describedby`, `aria-invalid` and `aria-required`. Eager and incremental hydration reuse the server button and keep its ID, and hydration changes none of those attributes; an initiating click replayed after hydration writes the model exactly once.
+
+The consumer supplies the accessible name (a Field Label, `aria-label` or `aria-labelledby`), the indicator inside the button, styling and side effects.
+
+Exclusions: no mixed state, checkbox group, hidden `<input>`, `name`, native form submission or reset, and no `:checked` or `:invalid` (style from `data-checked` and the Field's `data-invalid`); no `invalid`, `required`, `readonly` or `errors` input; not an `<input type="checkbox">`.
+
+## 21. Switch [W]
+
+Selector/export name:
+
+- `button[ogSwitch]`, `exportAs: 'ogSwitch'`; composes Button (section 17).
+
+Configuration: Checkbox's (section 20) through its own `OrigamiSwitchOptions` and `OrigamiSwitchState`: `checked` boolean model false (on is `true`), `disabled` and `focusableWhenDisabled` boolean inputs false and `id` input defaulting to a generated ID, readonly State and a `touch` output.
+
+Switch follows section 20 in every other respect (Button composition, guarded activation, Signal Forms, Field membership and ARIA, State, server HTML and hydration, consumer responsibilities), with these differences:
+
+- Static `role="switch"`; `aria-checked` is `"true"` while on and `"false"` while off, and `data-checked` is empty while on.
+- A click, Enter or Space, through native button activation, flips the effective checked state exactly once: the ARIA switch pattern allows Enter, so Switch doesn't prevent it.
+- Use it for a setting that takes effect at once; a choice the user confirms later is a Checkbox.
+
+Exclusions: section 20's, without the checkbox group; not an `<input type="checkbox" switch>`.
+
+## 22. Browser, SSR and hydration qualification [H]
 
 ### Browser support policy
 
@@ -773,11 +824,11 @@ Use real authored `@defer` hydration boundaries, not merely enable hydration pro
 - Deferred block destruction/remount and pending Presence completion: no writes to dead or replacement owners.
 - Production-runtime parity with eager cases, across all three required engines.
 
-Associations across a hydrate boundary: parts associate through registrations made when they initialize, so while one of a primitive's associated parts is still dehydrated, the attributes that name it from the other side (`for`, `aria-controls`, `aria-labelledby`, `aria-describedby`) are absent, and they return when it hydrates. Ownership and retained intent survive the split (H4); the associations don't. Keeping associated parts inside one hydrate boundary keeps them from the server HTML on.
+Associations across a hydrate boundary: parts associate through registrations made when they initialize, so while one of a primitive's associated parts is still dehydrated, the attributes that name it from the other side (`for`, `aria-controls`, `aria-labelledby`) are absent, and they return when it hydrates. `aria-describedby` follows the shared description (section 4) instead: while a hydrated describer names an ID, the attribute names only the hydrated describers' IDs, so a dehydrated describer's ID is absent until it hydrates; while none names one, the element keeps the server's value, the dehydrated describer's ID included; and if the describers changed during the split, so that their IDs never equal the server's value, it stays as the static value. Ownership and retained intent survive the split (H4); the associations don't. Keeping associated parts inside one hydrate boundary keeps them from the server HTML on.
 
 Use supported Angular APIs. No contract requiring application code to consume private Angular hydration metadata is introduced. The selected Angular version's actual replay/lifecycle behavior must be inspected before specifying exact event coverage.
 
-## 21. Acceptance structure [T]
+## 23. Acceptance structure [T]
 
 This is the public-contract coverage map. Case definitions and handwritten consumers live in [acceptance](acceptance/README.md); [tests/acceptance](tests/acceptance/README.md) executes them against the packed package. 0.0.1 passed the full gate at `6f898e7` (2,928/2,928 across Chromium/Firefox/WebKit × development/production × eager/incremental hydration). Releases qualify on the full `test:full` matrix: all 24 projects, three engines × development/production × eager/incremental hydration × both motion preferences. Commits run the commit tier, which runs each runtime, hydration and motion axis only where it reaches the library; it is not release evidence.
 
@@ -798,8 +849,10 @@ This is the public-contract coverage map. Case definitions and handwritten consu
 | T-Toolbar     | `role="toolbar"` with `aria-orientation`; buttons only, native disabled skipped; orientation and RTL mapping; Home/End/wrap; single tab stop across Toolbar groups with no preferred pressed item, re-entry on the first enabled control; Toolbar group orientation overridden; arrow order in DOM order after keyed moves; click focus and focus repair; a Toolbar Toggle, and a Toolbar Popover Trigger disabled by its own input or its Popover; a standalone group in Popover Content keeps its own tab stop; a Toolbar group outside a Toolbar fails through DI; SSR tab stop in DOM order across a Toolbar group and with repeated required-input items, and with a Toolbar Toggle and Popover Trigger |
 | T-RadioGroup  | `radiogroup` with `radio` items and always-present `aria-checked`; click/Space/Enter check exactly once, no unchecking, no submit; all-four-arrow moves check exactly once with RTL mapping, Home/End, wrap and disabled skipping; Tab entry on the checked item, otherwise the first enabled; revalidation of a move or click target changed by its focus handlers; focus repair without checking; null/unknown/removed/disabled-checked policies; in a Toolbar Radio Group arrows never check and Space/Enter/click do; a standalone group in Popover Content keeps its own tab stop; replacement precedence; SSR tab stop in DOM order, also with repeated required-input items |
 | T-Button      | `type="button"` and the disabled attributes with and without `focusableWhenDisabled`; a focusable disabled Button's own click listener runs; replacement precedence; every button part's `focusableWhenDisabled` with its activation guard exercised by a trusted click; arrows reach focusable disabled items without selecting or checking, the tab-stop order, focus kept when an item becomes disabled but focusable; SSR attributes kept through hydration |
-| T-Tooltip     | `role="tooltip"` manual Content with a mounted-only description resolving while closed and inert; hover delay, grace area across the gap in every placement, Content hover; keyboard focus opens at once, pointer focus doesn't; touch never opens; activation, Escape and outside close; leave and blur close only intent-opened Tooltips; a natively disabled Trigger never opens; co-applied button primitives keep their own disabled; delay group warm window, single-open and transit deferral; Escape order with Popover in both orders; outside dismissal without vetoing a Popover; presentation inside Popover Content; placement and positioning failure; motion, retained exit, canceled show; replacement precedence; SSR description and text, initially-open resumption, focus replay, unreplayed hover |
-| T-Field       | `for` before and after the control; `aria-describedby` from Descriptions then mounted Errors in registration order, an Error leaving and re-entering as it unmounts and mounts; a static `aria-describedby` replaced inside a Field and kept outside, static `for` and `aria-describedby` kept outside from the template or a composing directive's `host`; nearest-Field nesting; a second control reported through `ErrorHandler` and ignored; Signal Forms errors shown after blur and `submit()`, `required`, `readonly` and `disabled` rules on native controls with Angular's native handling intact and no duplicated `aria-required` or `aria-readonly`; part Options replacement; SSR IDs and associations, including an error shown from the start, adopted by hydration |
+| T-Tooltip     | `role="tooltip"` manual Content with a mounted-only description resolving while closed and inert; hover delay, grace area across the gap in every placement, Content hover; keyboard focus opens at once, pointer focus doesn't; touch never opens; activation, Escape and outside close; leave and blur close only intent-opened Tooltips; a natively disabled Trigger never opens; co-applied button primitives keep their own disabled; a co-applied Field control's description merged in both directive orders and through `hostDirectives`, the static value kept without Content and, with none authored, the attribute absent after hydration once Content unmounts, also for Content registering after the Trigger's first render, alone or after a co-applied Field control's Error; delay group warm window, single-open and transit deferral; Escape order with Popover in both orders; outside dismissal without vetoing a Popover; presentation inside Popover Content; placement and positioning failure; motion, retained exit, canceled show; replacement precedence; SSR description and text, initially-open resumption, focus replay, unreplayed hover |
+| T-Field       | `for` before and after the control; `aria-describedby` from Descriptions then mounted Errors in registration order, an Error leaving and re-entering as it unmounts and mounts; a static `aria-describedby` replaced while the Field names an ID and kept outside; a co-applied Tooltip Trigger's ID merged in registration order in both directive orders, from server HTML on; static `for` and `aria-describedby` kept outside from the template or a composing directive's `host`; nearest-Field nesting; a second control reported through `ErrorHandler` and ignored; Signal Forms errors shown after blur and `submit()`, `required`, `readonly` and `disabled` rules on native controls with Angular's native handling intact and no duplicated `aria-required` or `aria-readonly`; part Options replacement; SSR IDs and associations, including an error shown from the start, adopted by hydration, and without a static `aria-describedby` absent after hydration once the last Error unmounts, also when a co-applied Tooltip's Content in a child component registers after an Error in the control's own view |
+| T-Checkbox    | `role="checkbox"` with always-present `aria-checked`; click and Space flip once, Enter doesn't; two-way `[(checked)]` standalone; disabled and focusable disabled; external writes authoritative while disabled; name from a Field Label before and after it in three engines, label click toggles; `[formField]` initial value, user and model writes, touch on blur, required errors after blur and `submit()`, `reset()`, `focusBoundControl()`, readonly blocks user writes, disabled rule; a consumer component composing it through `hostDirectives` found by `[formField]` with `FORM_FIELD` read; factory and existing Options replacement; a co-applied Tooltip Trigger's ID merged with the Field's in both directive orders, from server HTML on, and without a static `aria-describedby` absent after hydration once the last describer leaves, also with the Content in a child component; SSR attributes and IDs adopted by hydration, a replayed click writes once |
+| T-Switch      | T-Checkbox's coverage with `role="switch"`, and Enter flips once |
 | T-Hydration   | Development/production serving; eager/deferred node retention; no transient duplication; generated identity; event replay; post-hydration interaction                       |
 | T-Support     | Skipped formal Baseline audit recorded without certification; optional enhancement degradation; explicit Chromium/Firefox/WebKit runtime evidence and stated limits         |
 
@@ -807,9 +860,9 @@ Acceptance tests use public imports and genuine dependency behavior, not private
 
 A change to a requirement updates its cases and assertions in the same change. Test cases may not invent semantics this contract leaves unresolved. No full router-style evaluator framework is assumed necessary.
 
-## 22. Scope, growth and exclusions [X]
+## 24. Scope, growth and exclusions [X]
 
-The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 24).
+The catalogue grows one consumer-backed primitive at a time. A concrete consumer need justifies a primitive; its frequency in other libraries does not. Each new primitive adds its own section to this contract, with acceptance cases and gate coverage, before or with its implementation (section 26).
 
 - Shared interaction infrastructure stays package-private: ordered focus/roving navigation, typeahead, active-descendant, layer/dismiss participation, hover/focus intent and modal containment.
 - Form-control primitives integrate with Angular Signal Forms. There is no `ControlValueAccessor` layer.
@@ -832,7 +885,7 @@ Intentional agreed changes from the archive, recorded from the rebuild:
 
 Changing shipped behavior or public API is a deliberate change to this contract: the contract changes with it, and no guarantee is weakened silently.
 
-## 23. Extraction source and dependency research
+## 25. Extraction source and dependency research
 
 Extraction source: `loozo` branch `archive/pre-router-rebuild`, exact commit `363af0c3f1c3edefbf4e9f72269e0a0b4a8ad9f7`.
 
@@ -849,9 +902,9 @@ Authoritative dependency/support research:
 - Floating UI source at `dc62df23d72ad96d456c007d48d4541786fcd7eb`: DOM positioning, flip/update behavior and native top-layer offset-parent/clipping handling. The approved hybrid depends on genuine `@floating-ui/dom@1.8.0`; its installed DOM/core/utils closure is 1.8.0/1.8.0/0.2.12. Installation does not qualify Origami behavior.
 - WHATWG HTML source at `ba3400bb4f3d86477a5c8cfc07ff91fc0caaf21c`: manual mode, native focusing/show/hide checks, coalesced toggle tasks and closed-Popover default rendering. The basic attribute/API capability subset is distinct from the later reflected property and source option.
 
-A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 20.
+A filesystem-read-only inspector independently identified the Baseline conflict, until-found gap, construction-order identity risk and deferred Presence proof gap. Main disposition: support conflicts accepted as evidenced; hydration risks accepted as required proof/design questions, **not reproduced defects**. User decisions resolve the first three policy boundaries as recorded in section 1. Popover's hybrid design/API/lifecycle is approved as recorded in section 11; the formal Baseline audit was explicitly skipped. Runtime qualification follows section 22.
 
-## 24. Adding a primitive
+## 26. Adding a primitive
 
 A new primitive ships with:
 
@@ -859,9 +912,9 @@ A new primitive ships with:
 - Options → private Context → readonly State composition per section 3, including typed Options substitution and `hostDirectives` composition: an Options token for every application-applied directive with an input or model (section 3, Configuration), and an `exportAs` and readonly `state` on every application-applied directive that provides or composes a State (section 3, Context and State); internal `ɵ` composition directives are exempt.
 - Complete public TSDoc per section 4.
 - A `<primitive>/README.md` with its usage, linked from the package README's entry-point table.
-- SSR plus eager and incremental hydration per section 20.
+- SSR plus eager and incremental hydration per section 22.
 - Chromium, Firefox and WebKit qualification in development and production.
-- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 21's coverage map and assertions in the acceptance gate.
+- Acceptance cases in [acceptance/CASES.md](acceptance/CASES.md), a group in section 23's coverage map and assertions in the acceptance gate.
 - A design map in `<primitive>/DESIGN.md`, approved by loozo before implementation and checked against the code before sign-off. It records ownership and read timing only:
   - who owns each fact the primitive depends on, and who reads it;
   - for every read of state another part owns: the reader, the lifecycle phase (construction, render, after render, event), the platform, and what the reader gets if the owner's inputs aren't set yet;

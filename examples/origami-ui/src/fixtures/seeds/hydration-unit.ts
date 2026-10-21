@@ -64,6 +64,8 @@ import {
   OrigamiFieldError,
   OrigamiFieldLabel,
 } from "@loozo/origami-ui/field";
+import { OrigamiCheckbox } from "@loozo/origami-ui/checkbox";
+import { OrigamiSwitch } from "@loozo/origami-ui/switch";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
 import { BoundFieldLabel, HintedFieldControl } from "../field.js";
 import { RepeatedRoving } from "../repeated-roving.js";
@@ -125,6 +127,8 @@ export class AccordionObservation {
     OrigamiFieldError,
     BoundFieldLabel,
     HintedFieldControl,
+    OrigamiCheckbox,
+    OrigamiSwitch,
   ],
   host: {
     "[attr.data-unit]": "label()",
@@ -206,6 +210,21 @@ export class AccordionObservation {
     </div>
     <label boundFieldLabel data-testid="hydration-field-composed-label">Composed</label>
     <input hintedFieldControl data-testid="hydration-field-composed-control" />
+
+    <!-- J6 W6: a Checkbox with its Label before it and a Switch with its Label after it, each in
+         a Field and bound to Signal Forms. -->
+    <div ogField data-testid="hydration-checkbox-field">
+      <label ogFieldLabel data-testid="hydration-checkbox-label">Accept the terms</label>
+      <button ogCheckbox data-testid="hydration-checkbox" [formField]="contact.terms"></button>
+      <p ogFieldDescription data-testid="hydration-checkbox-description">Required to continue.</p>
+    </div>
+    <output data-testid="hydration-checkbox-value">{{ contactModel().terms }}</output>
+    <div ogField data-testid="hydration-switch-field">
+      <button ogSwitch data-testid="hydration-switch" [formField]="contact.notify"></button>
+      <label ogFieldLabel data-testid="hydration-switch-label">Order notifications</label>
+      <p ogFieldDescription data-testid="hydration-switch-description">About your orders.</p>
+    </div>
+    <output data-testid="hydration-switch-value">{{ contactModel().notify }}</output>
 
     <div
       ogTabs
@@ -714,9 +733,10 @@ export class HydrationUnit {
   readonly toolbarRadio = signal<string | null>("center");
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
-  readonly contactModel = signal({ email: "" });
+  readonly contactModel = signal({ email: "", terms: false, notify: true });
   readonly contact = form(this.contactModel, (path) => {
     required(path.email);
+    required(path.terms);
   });
   readonly increment = (value: number): number => value + 1;
 

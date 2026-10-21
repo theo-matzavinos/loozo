@@ -32,7 +32,7 @@ A Toolbar item uses Button's Options too.
 
 ## One button primitive per element
 
-Toggle, ToggleGroup items, the Collapsible, Accordion, Popover and Tabs Triggers, RadioGroup items and the Toolbar's controls all compose Button, so don't apply two of them, or `ogButton` and one of them, to the same element: Angular silently shares one Button between them and only one part's disabled state reaches it. For a Toolbar control that is also a Toggle or a Popover Trigger, use [`ogToolbarToggle` or `ogToolbarPopoverTrigger`](../toolbar/README.md).
+Toggle, ToggleGroup items, the Collapsible, Accordion, Popover and Tabs Triggers, RadioGroup items, Checkbox, Switch and the Toolbar's controls all compose Button, so don't apply two of them, or `ogButton` and one of them, to the same element: Angular silently shares one Button between them and only one part's disabled state reaches it. For a Toolbar control that is also a Toggle or a Popover Trigger, use [`ogToolbarToggle` or `ogToolbarPopoverTrigger`](../toolbar/README.md).
 
 ## Server rendering and hydration
 
