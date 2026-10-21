@@ -139,8 +139,8 @@ export function checkReadonlyState(
   popover.dismissible.set(false);
   // @ts-expect-error Content retention is not writable.
   content.open.set(false);
-  // @ts-expect-error Toggle pressed observation is not writable.
-  toggle.pressed.set(true);
+  // @ts-expect-error Toggle checked observation is not writable.
+  toggle.checked.set(true);
   // @ts-expect-error Toggle disabled observation is not writable.
   toggle.disabled.update((value) => !value);
   // @ts-expect-error Tabs selection observation is not writable.
@@ -236,9 +236,10 @@ export function checkProviderShapes(): void {
     gap: signal(8),
   }));
   OrigamiToggleOptions.provideFactory(() => ({
-    pressed: signal(false),
+    checked: signal(false),
     disabled: signal(false),
     focusableWhenDisabled: signal(false),
+    id: signal("complete-toggle"),
   }));
   OrigamiTabsOptions.provideFactory(() => ({
     value: signal<string | null>(null),
@@ -271,6 +272,7 @@ export function checkProviderShapes(): void {
     value: signal("bold"),
     disabled: signal(false),
     focusableWhenDisabled: signal(false),
+    id: signal("complete-toggle-group-item"),
   }));
   OrigamiToolbarOptions.provideFactory(() => ({
     orientation: signal<OrigamiToolbarOrientation>("vertical"),

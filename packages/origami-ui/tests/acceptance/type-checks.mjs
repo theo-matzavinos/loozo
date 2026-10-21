@@ -186,14 +186,18 @@ OrigamiCollapsiblePanelOptions.provideFactory(() => ({}));
 OrigamiAccordionSingleOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false)}));
 // @ts-expect-error Popover open must be a boolean signal
 OrigamiPopoverOptions.provideFactory(() => ({open: signal('wrong'), disabled: signal(false), dismissible: signal(true)}));
-// @ts-expect-error Toggle pressed must be writable
-OrigamiToggleOptions.provideFactory(() => ({pressed: computed(() => false), disabled: signal(false), focusableWhenDisabled: signal(false)}));
-// @ts-expect-error Toggle pressed must be a boolean signal
-OrigamiToggleOptions.provideFactory(() => ({pressed: signal('pressed'), disabled: signal(false), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error Toggle checked must be writable
+OrigamiToggleOptions.provideFactory(() => ({checked: computed(() => false), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('bold')}));
+// @ts-expect-error Toggle checked must be a boolean signal
+OrigamiToggleOptions.provideFactory(() => ({checked: signal('pressed'), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('bold')}));
 // @ts-expect-error a Toggle factory must supply disabled
-OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), focusableWhenDisabled: signal(false)}));
+OrigamiToggleOptions.provideFactory(() => ({checked: signal(false), focusableWhenDisabled: signal(false), id: signal('bold')}));
 // @ts-expect-error a Toggle factory must supply focusableWhenDisabled
-OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: signal(false)}));
+OrigamiToggleOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), id: signal('bold')}));
+// @ts-expect-error a Toggle factory must supply id
+OrigamiToggleOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error Toggle Options have no pressed alias
+OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('bold')}));
 // @ts-expect-error Tabs value must be writable
 OrigamiTabsOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false), orientation: signal<OrigamiTabsOrientation>('horizontal'), activation: signal<OrigamiTabsActivation>('automatic')}));
 // @ts-expect-error Tabs orientation is horizontal or vertical
@@ -215,9 +219,11 @@ OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | nu
 // @ts-expect-error ToggleGroup Multiple value must be writable
 OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')}));
 // @ts-expect-error a ToggleGroup Item factory must supply disabled
-OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), focusableWhenDisabled: signal(false)}));
+OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), focusableWhenDisabled: signal(false), id: signal('bold')}));
 // @ts-expect-error a ToggleGroup Item factory must supply focusableWhenDisabled
-OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: signal(false)}));
+OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: signal(false), id: signal('bold')}));
+// @ts-expect-error a ToggleGroup Item factory must supply id
+OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: signal(false), focusableWhenDisabled: signal(false)}));
 // @ts-expect-error Toolbar orientation is horizontal or vertical
 OrigamiToolbarOptions.provideFactory(() => ({orientation: signal('diagonal')}));
 // @ts-expect-error a Button factory must supply disabled
@@ -294,10 +300,10 @@ OrigamiRadioGroupItemOptions.provideFactory(() => ({value: signal('express'), di
 class WrongPresent { readonly present = signal(1); }
 class WrongRoot { readonly expanded = signal(1); readonly disabled = signal(false); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
 class WrongIdentity { readonly id = signal(7); }
-class WrongToggle { readonly pressed = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
+class WrongToggle { readonly checked = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); readonly id = signal('bold'); }
 class WrongTabsTrigger { readonly value = signal(1); readonly id = signal('tab'); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 class WrongAccordionItem { readonly value = signal('billing'); readonly disabled = signal('no'); readonly hiding = signal<OrigamiCollapsibleHiding>('hidden'); }
-class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
+class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); readonly id = signal('bold'); }
 class WrongButton { readonly disabled = signal(false); readonly focusableWhenDisabled = signal('no'); }
 class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 class WrongBooleanControl { readonly checked = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); readonly id = signal('terms'); }
@@ -376,9 +382,10 @@ abstract class AbstractPopover {
   abstract readonly dismissible: Signal<boolean>;
 }
 abstract class AbstractToggle {
-  abstract readonly pressed: WritableSignal<boolean>;
+  abstract readonly checked: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
   abstract readonly focusableWhenDisabled: Signal<boolean>;
+  abstract readonly id: Signal<string>;
 }
 abstract class AbstractTabs {
   abstract readonly value: WritableSignal<string | null>;
@@ -400,6 +407,7 @@ abstract class AbstractToggleGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
   abstract readonly focusableWhenDisabled: Signal<boolean>;
+  abstract readonly id: Signal<string>;
 }
 abstract class AbstractToolbar {
   abstract readonly orientation: Signal<OrigamiToolbarOrientation>;
@@ -458,7 +466,7 @@ export const providers: Provider[] = [
   OrigamiPopoverTriggerOptions.provideFactory(() => ({id: signal('trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(true)})),
   OrigamiPopoverTriggerOptions.provideExisting(() => AbstractPopoverTrigger),
   OrigamiPopoverAnchorOptions.provideFactory(() => ({id: signal('anchor')})),
-  OrigamiToggleOptions.provideFactory(() => ({pressed: signal(false), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
+  OrigamiToggleOptions.provideFactory(() => ({checked: signal(false), disabled: computed(() => false), focusableWhenDisabled: signal(false), id: computed(() => 'bold')})),
   OrigamiToggleOptions.provideExisting(() => AbstractToggle),
   OrigamiTabsOptions.provideFactory(() => ({value: signal<string | null>('billing'), disabled: computed(() => false), orientation: signal<OrigamiTabsOrientation>('vertical'), activation: signal<OrigamiTabsActivation>('manual')})),
   OrigamiTabsOptions.provideExisting(() => AbstractTabs),
@@ -468,7 +476,7 @@ export const providers: Provider[] = [
   OrigamiToggleGroupSingleOptions.provideFactory(() => ({value: signal<string | null>('start'), disabled: computed(() => false), orientation: signal<OrigamiToggleGroupOrientation>('vertical'), deselectable: signal(true)})),
   OrigamiToggleGroupSingleOptions.provideExisting(() => AbstractToggleGroupSingle),
   OrigamiToggleGroupMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>(['bold']), disabled: signal(false), orientation: signal<OrigamiToggleGroupOrientation>('horizontal')})),
-  OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
+  OrigamiToggleGroupItemOptions.provideFactory(() => ({value: signal('bold'), disabled: computed(() => false), focusableWhenDisabled: signal(false), id: computed(() => 'bold')})),
   OrigamiToggleGroupItemOptions.provideExisting(() => AbstractToggleGroupItem),
   OrigamiToolbarOptions.provideFactory(() => ({orientation: signal<OrigamiToolbarOrientation>('vertical')})),
   OrigamiToolbarOptions.provideExisting(() => AbstractToolbar),
@@ -524,13 +532,19 @@ import { OrigamiCollapsible, OrigamiCollapsibleTrigger } from "@loozo/origami-ui
   wrongOutput(value: string): void { void value; }`,
   },
   toggle: {
-    imports: `import { OrigamiToggle } from "@loozo/origami-ui/toggle";`,
-    directives: "OrigamiToggle",
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiToggle, OrigamiToggleState } from "@loozo/origami-ui/toggle";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives: "FormField, OrigamiToggle, OrigamiField, OrigamiFieldLabel",
     members: `
-  readonly pressed = signal(false);
-  readonly wrongPressed = signal("pressed");
-  pressedOutput(value: boolean): void { void value; }
-  wrongOutput(value: string): void { void value; }`,
+  readonly checked = signal(false);
+  readonly wrongChecked = signal("pressed");
+  readonly model = signal({ bold: false });
+  readonly form = form(this.model, (path) => { required(path.bold); });
+  checkedOutput(value: boolean): void { void value; }
+  touched(): void {}
+  wrongOutput(value: string): void { void value; }
+  observeToggle(state: OrigamiToggleState): void { void state; }`,
   },
   tabs: {
     imports: `import { OrigamiTabs, OrigamiTabsList, OrigamiTabsTrigger, OrigamiTabsPanel } from "@loozo/origami-ui/tabs";`,
@@ -559,8 +573,8 @@ import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origa
     directives:
       "OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger, OrigamiPopover, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
     members: `
-  readonly pressed = signal(false);
-  readonly wrongPressed = signal("pressed");
+  readonly checked = signal(false);
+  readonly wrongChecked = signal("pressed");
   readonly marks = signal<readonly string[]>([]);
   observeToggle(state: OrigamiToggleState): void { void state; }
   observeString(value: string): void { void value; }`,
@@ -580,7 +594,7 @@ import { OrigamiToggle } from "@loozo/origami-ui/toggle";`,
     members: `
   readonly open = signal(false);
   readonly wrongOpen = signal("open");
-  readonly pressed = signal(false);
+  readonly checked = signal(false);
   openOutput(value: boolean): void { void value; }
   observeTooltip(state: OrigamiTooltipState): void { void state; }
   observeContent(state: OrigamiTooltipContentState): void { void state; }
@@ -724,22 +738,42 @@ const templates = [
   {
     name: "toggle-positive",
     family: "toggle",
-    template: `<button ogToggle [(pressed)]="pressed" disabled (pressedChange)="pressedOutput($event)">Valid</button>`,
+    template: `<button ogToggle #bold="ogToggle" [(checked)]="checked" disabled focusableWhenDisabled id="bold" (checkedChange)="checkedOutput($event)" (touch)="touched()" (click)="observeToggle(bold.state)">Valid</button><div ogField><label ogFieldLabel>Bold</label><button ogToggle [formField]="form.bold">B</button></div>`,
   },
   {
     name: "toggle-model",
     family: "toggle",
-    template: `<button ogToggle [(pressed)]="wrongPressed">Wrong model</button>`,
+    template: `<button ogToggle [(checked)]="wrongChecked">Wrong model</button>`,
     expected: {
       code: 2322,
-      span: "pressed",
+      span: "checked",
       message: /Type 'string' is not assignable to type 'boolean'/,
+    },
+  },
+  {
+    name: "toggle-pressed-removed",
+    family: "toggle",
+    template: `<button ogToggle [pressed]="true">Removed model</button>`,
+    expected: {
+      code: -998002,
+      span: `[pressed]="true"`,
+      message: /Can't bind to 'pressed' since it isn't a known property of 'button'/,
+    },
+  },
+  {
+    name: "toggle-form-state-input",
+    family: "toggle",
+    template: `<button ogToggle [required]="true">Bold</button>`,
+    expected: {
+      code: -998002,
+      span: `[required]="true"`,
+      message: /Can't bind to 'required' since it isn't a known property of 'button'/,
     },
   },
   {
     name: "toggle-output",
     family: "toggle",
-    template: `<button ogToggle (pressedChange)="wrongOutput($event)">Wrong output</button>`,
+    template: `<button ogToggle (checkedChange)="wrongOutput($event)">Wrong output</button>`,
     expected: {
       code: 2345,
       span: "$event",
@@ -794,7 +828,7 @@ const templates = [
   {
     name: "toggle-group-positive",
     family: "toggle-group",
-    template: `<div ogToggleGroupSingle [(value)]="alignment" orientation="vertical" deselectable disabled (valueChange)="alignmentOutput($event)"><button ogToggleGroupItem value="start" disabled>Start</button></div><div ogToggleGroupMultiple [(value)]="marks" (valueChange)="marksOutput($event)"><button ogToggleGroupItem value="bold">Bold</button></div>`,
+    template: `<div ogToggleGroupSingle [(value)]="alignment" orientation="vertical" deselectable disabled (valueChange)="alignmentOutput($event)"><button ogToggleGroupItem value="start" disabled>Start</button></div><div ogToggleGroupMultiple [(value)]="marks" (valueChange)="marksOutput($event)"><button ogToggleGroupItem value="bold" id="bold">Bold</button><button ogToggleGroupItem value="italic" [id]="'italic'">Italic</button></div>`,
   },
   {
     name: "toggle-group-single-model",
@@ -840,15 +874,15 @@ const templates = [
   {
     name: "toolbar-positive",
     family: "toolbar",
-    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled focusableWhenDisabled>Undo</button><button ogToolbarToggle #spelling="ogToolbarToggle" [(pressed)]="pressed" [disabled]="false" focusableWhenDisabled (click)="observeToggle(spelling.state)">Spell check</button><span ogPopover><button ogToolbarPopoverTrigger id="insert" disabled focusableWhenDisabled>Insert</button></span><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold" focusableWhenDisabled>Bold</button></div></div>`,
+    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled focusableWhenDisabled>Undo</button><button ogToolbarToggle #spelling="ogToolbarToggle" [(checked)]="checked" [disabled]="false" focusableWhenDisabled id="spelling" (click)="observeToggle(spelling.state)">Spell check</button><span ogPopover><button ogToolbarPopoverTrigger id="insert" disabled focusableWhenDisabled>Insert</button></span><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold" focusableWhenDisabled>Bold</button></div></div>`,
   },
   {
     name: "toolbar-toggle-model",
     family: "toolbar",
-    template: `<div ogToolbar aria-label="Editing"><button ogToolbarToggle [(pressed)]="wrongPressed">Spell check</button></div>`,
+    template: `<div ogToolbar aria-label="Editing"><button ogToolbarToggle [(checked)]="wrongChecked">Spell check</button></div>`,
     expected: {
       code: 2322,
-      span: "pressed",
+      span: "checked",
       message: /Type 'string' is not assignable to type 'boolean'/,
     },
   },
@@ -880,7 +914,7 @@ const templates = [
   {
     name: "tooltip-positive",
     family: "tooltip",
-    template: `<span ogTooltip #tooltip="ogTooltip" [(open)]="open" disabled [openDelay]="200" (openChange)="openOutput($event)"><button ogButton ogTooltipTrigger [disabled]="true" focusableWhenDisabled aria-label="Save" (click)="observeTooltip(tooltip.state)">S</button><span ogTooltipContent #content="ogTooltipContent" id="hint" side="block-end" align="end" [gap]="6" (click)="observeContent(content.state)">Saves the draft</span></span><span ogTooltip><button ogToggle ogTooltipTrigger [(pressed)]="pressed" aria-label="Bold">B</button><span ogTooltipContent>Bold text</span></span>`,
+    template: `<span ogTooltip #tooltip="ogTooltip" [(open)]="open" disabled [openDelay]="200" (openChange)="openOutput($event)"><button ogButton ogTooltipTrigger [disabled]="true" focusableWhenDisabled aria-label="Save" (click)="observeTooltip(tooltip.state)">S</button><span ogTooltipContent #content="ogTooltipContent" id="hint" side="block-end" align="end" [gap]="6" (click)="observeContent(content.state)">Saves the draft</span></span><span ogTooltip><button ogToggle ogTooltipTrigger [(checked)]="checked" aria-label="Bold">B</button><span ogTooltipContent>Bold text</span></span>`,
   },
   {
     name: "tooltip-model",
@@ -1070,7 +1104,7 @@ const templates = [
   {
     name: "state-positive",
     family: "state",
-    template: `<section ogAccordionSingle><article ogAccordionItem #item="ogAccordionItem" (click)="observeCollapsible(item.state); observeBoolean(item.state.expanded()); observeBoolean(item.state.disabled())"><div ogAccordionPanel #panel="ogAccordionPanel" (click)="observePresence(panel.state); observeBoolean(panel.state.open())"></div></article></section><section ogCollapsible><div ogCollapsiblePanel #collapsiblePanel="ogCollapsiblePanel" (click)="observePresence(collapsiblePanel.state); observeBoolean(collapsiblePanel.state.open())"></div></section><div ogToggleGroupSingle><button ogToggleGroupItem #toggleItem="ogToggleGroupItem" (click)="observeToggle(toggleItem.state); observeBoolean(toggleItem.state.pressed()); observeBoolean(toggleItem.state.disabled())">Bold</button></div>`,
+    template: `<section ogAccordionSingle><article ogAccordionItem #item="ogAccordionItem" (click)="observeCollapsible(item.state); observeBoolean(item.state.expanded()); observeBoolean(item.state.disabled())"><div ogAccordionPanel #panel="ogAccordionPanel" (click)="observePresence(panel.state); observeBoolean(panel.state.open())"></div></article></section><section ogCollapsible><div ogCollapsiblePanel #collapsiblePanel="ogCollapsiblePanel" (click)="observePresence(collapsiblePanel.state); observeBoolean(collapsiblePanel.state.open())"></div></section><div ogToggleGroupSingle><button ogToggleGroupItem #toggleItem="ogToggleGroupItem" (click)="observeToggle(toggleItem.state); observeBoolean(toggleItem.state.checked()); observeBoolean(toggleItem.state.disabled())">Bold</button></div>`,
   },
   {
     name: "accordion-item-state",

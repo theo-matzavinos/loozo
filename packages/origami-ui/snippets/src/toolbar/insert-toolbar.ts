@@ -27,7 +27,7 @@ import {
   template: `
     <div ogToolbar aria-label="Insert">
       <button ogToolbarItem (click)="insertLink()">Link</button>
-      <button ogToolbarToggle [(pressed)]="spellcheck">Spell check</button>
+      <button ogToolbarToggle [(checked)]="spellcheck">Spell check</button>
       <span ogPopover [disabled]="readOnly()">
         <button ogToolbarPopoverTrigger ogPopoverAnchor>Symbol</button>
         <div ogPopoverContent role="group" aria-label="Symbols">…</div>

@@ -6,9 +6,9 @@ import { fixture } from "./observation.js";
  * A Tooltip Trigger co-applied with a Field control shares one `aria-describedby` with it. The
  * `described-by` fixture renders every control in two directive orders: `tooltip-first` imports
  * the Tooltip first, so its Trigger registers first; `control-first` imports the control first.
- * Tooltip (N) and Field-side (M, J, W) cases share these bodies.
+ * Tooltip (N) and Field-side (M, J, W, G) cases share these bodies.
  */
-export type DescribedControl = "checkbox" | "switch" | "input";
+export type DescribedControl = "checkbox" | "switch" | "toggle" | "input";
 
 const orders = ["tooltip-first", "control-first"] as const;
 
@@ -17,12 +17,14 @@ type Order = (typeof orders)[number];
 const tipText: Record<DescribedControl, string> = {
   checkbox: "Checkbox tip",
   switch: "Switch tip",
+  toggle: "Toggle tip",
   input: "Input tip",
 };
 
 const descriptionText: Record<DescribedControl, string> = {
   checkbox: "Checkbox description",
   switch: "Switch description",
+  toggle: "Toggle description",
   input: "Input description",
 };
 

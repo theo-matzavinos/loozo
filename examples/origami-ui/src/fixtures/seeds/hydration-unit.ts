@@ -180,8 +180,8 @@ export class AccordionObservation {
 
     <button
       ogToggle
-      [(pressed)]="pressed"
-      (pressedChange)="pressedOutputs.update(increment)"
+      [(checked)]="pressed"
+      (checkedChange)="pressedOutputs.update(increment)"
       data-testid="hydration-toggle"
     >
       Toggle server pressed
@@ -225,6 +225,14 @@ export class AccordionObservation {
       <p ogFieldDescription data-testid="hydration-switch-description">About your orders.</p>
     </div>
     <output data-testid="hydration-switch-value">{{ contactModel().notify }}</output>
+
+    <!-- G8: a Toggle in a Field, bound to Signal Forms, with its Label before it. -->
+    <div ogField data-testid="hydration-toggle-field">
+      <label ogFieldLabel data-testid="hydration-toggle-label">Bold headings</label>
+      <button ogToggle data-testid="hydration-field-toggle" [formField]="contact.bold">B</button>
+      <p ogFieldDescription data-testid="hydration-toggle-description">Headings need emphasis.</p>
+    </div>
+    <output data-testid="hydration-toggle-value">{{ contactModel().bold }}</output>
 
     <div
       ogTabs
@@ -288,7 +296,14 @@ export class AccordionObservation {
       >
         Start
       </button>
-      <button ogToggleGroupItem value="end" data-testid="hydration-align-end">End</button>
+      <button
+        ogToggleGroupItem
+        value="end"
+        [id]="'hydration-align-end-' + label()"
+        data-testid="hydration-align-end"
+      >
+        End
+      </button>
     </div>
     <div
       ogToggleGroupMultiple
@@ -446,8 +461,8 @@ export class AccordionObservation {
       <button
         ogToolbarToggle
         #spellingToggle="ogToolbarToggle"
-        [(pressed)]="spelling"
-        (pressedChange)="spellingOutputs.update(increment)"
+        [(checked)]="spelling"
+        (checkedChange)="spellingOutputs.update(increment)"
         data-testid="hydration-variants-spelling"
       >
         Spelling
@@ -467,7 +482,7 @@ export class AccordionObservation {
       </span>
     </div>
     <output data-testid="hydration-variants-spelling-state">{{
-      spellingToggle.state.pressed()
+      spellingToggle.state.checked()
     }}</output>
     <output data-testid="hydration-variants-spelling-outputs">{{ spellingOutputs() }}</output>
     <output data-testid="hydration-variants-insert-open">{{ insertOpen() }}</output>
@@ -533,7 +548,7 @@ export class AccordionObservation {
         Start
       </button>
     </div>
-    <output data-testid="hydration-state-start-pressed">{{ stateStart.state.pressed() }}</output>
+    <output data-testid="hydration-state-start-pressed">{{ stateStart.state.checked() }}</output>
 
     <div
       ogAccordionSingle
@@ -733,10 +748,11 @@ export class HydrationUnit {
   readonly toolbarRadio = signal<string | null>("center");
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
-  readonly contactModel = signal({ email: "", terms: false, notify: true });
+  readonly contactModel = signal({ email: "", terms: false, notify: true, bold: false });
   readonly contact = form(this.contactModel, (path) => {
     required(path.email);
     required(path.terms);
+    required(path.bold);
   });
   readonly increment = (value: number): number => value + 1;
 

@@ -144,7 +144,7 @@ export class ExistingButton implements OrigamiButtonOptions {
         ogToggle
         disabled
         focusableWhenDisabled
-        [(pressed)]="partPressed"
+        [(checked)]="partPressed"
         data-role="toggle"
         (click)="count('toggle')"
       >
@@ -247,7 +247,7 @@ export class ExistingButton implements OrigamiButtonOptions {
           ogToolbarToggle
           disabled
           focusableWhenDisabled
-          [(pressed)]="partSpelling"
+          [(checked)]="partSpelling"
           data-role="toolbar-toggle"
           (click)="count('toolbar-toggle')"
         >
@@ -355,7 +355,7 @@ export class ExistingButton implements OrigamiButtonOptions {
           ogToolbarToggle
           disabled
           focusableWhenDisabled
-          [(pressed)]="endpointBold"
+          [(checked)]="endpointBold"
           data-role="toolbar-first"
         >
           Bold

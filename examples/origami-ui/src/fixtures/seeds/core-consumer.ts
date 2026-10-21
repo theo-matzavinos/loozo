@@ -218,15 +218,15 @@ export class CollectionObservation {
         <button
           ogToggle
           #toggle="ogToggle"
-          [(pressed)]="pressed"
+          [(checked)]="pressed"
           [disabled]="toggleDisabled()"
-          (pressedChange)="pressedOutputs.update(increment)"
+          (checkedChange)="pressedOutputs.update(increment)"
           data-testid="toggle"
         >
           Bold
         </button>
       </form>
-      <output data-testid="toggle-state">{{ toggle.state.pressed() }}</output>
+      <output data-testid="toggle-state">{{ toggle.state.checked() }}</output>
       <output data-testid="pressed-outputs">{{ pressedOutputs() }}</output>
       <output data-testid="toggle-submits">{{ toggleSubmits() }}</output>
     </section>

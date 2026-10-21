@@ -31,6 +31,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/switch.js").then((module) => module.SwitchFixture),
   },
   {
+    path: "toggle",
+    loadComponent: () => import("./fixtures/toggle.js").then((module) => module.ToggleFixture),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),

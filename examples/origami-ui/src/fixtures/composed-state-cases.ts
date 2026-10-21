@@ -130,9 +130,9 @@ import { OrigamiToolbar, OrigamiToolbarToggleGroupMultiple } from "@loozo/origam
         </button>
         <button ogToggleGroupItem #end="ogToggleGroupItem" value="end" data-role="end">End</button>
       </div>
-      <output data-role="start-pressed">{{ start.state.pressed() }}</output>
+      <output data-role="start-pressed">{{ start.state.checked() }}</output>
       <output data-role="start-disabled">{{ start.state.disabled() }}</output>
-      <output data-role="end-pressed">{{ end.state.pressed() }}</output>
+      <output data-role="end-pressed">{{ end.state.checked() }}</output>
       <output data-role="end-disabled">{{ end.state.disabled() }}</output>
       <button
         type="button"
@@ -164,9 +164,9 @@ import { OrigamiToolbar, OrigamiToolbarToggleGroupMultiple } from "@loozo/origam
           </button>
         </div>
       </div>
-      <output data-role="bold-pressed">{{ bold.state.pressed() }}</output>
+      <output data-role="bold-pressed">{{ bold.state.checked() }}</output>
       <output data-role="bold-disabled">{{ bold.state.disabled() }}</output>
-      <output data-role="italic-pressed">{{ italic.state.pressed() }}</output>
+      <output data-role="italic-pressed">{{ italic.state.checked() }}</output>
       <button type="button" data-role="bold-disable" (click)="boldDisabled.set(!boldDisabled())">
         Toggle bold disabled
       </button>

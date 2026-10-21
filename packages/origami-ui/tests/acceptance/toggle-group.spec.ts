@@ -438,16 +438,16 @@ test("U5: replaced root and item Options drive behavior, roving order and the co
   // Domain-derived item Options drive the composed Toggle.
   await expect(item("center")).toBeDisabled();
   await expect(item("center")).toHaveAttribute("aria-disabled", "true");
-  await expect(observer("start")).toHaveAttribute("data-observed-pressed", "true");
-  await expect(observer("end")).toHaveAttribute("data-observed-pressed", "false");
+  await expect(observer("start")).toHaveAttribute("data-observed-checked", "true");
+  await expect(observer("end")).toHaveAttribute("data-observed-checked", "false");
   await expect(groupObserver).toHaveAttribute("data-observed-orientation", "vertical");
   await expect(groupObserver).toHaveAttribute("data-observed-disabled", "false");
   await expect(page.getByTestId("factory-alignment-shared")).toHaveText("true");
 
   await item("end").click();
   await expect(value).toHaveText("end");
-  await expect(observer("end")).toHaveAttribute("data-observed-pressed", "true");
-  await expect(observer("start")).toHaveAttribute("data-observed-pressed", "false");
+  await expect(observer("end")).toHaveAttribute("data-observed-checked", "true");
+  await expect(observer("start")).toHaveAttribute("data-observed-checked", "false");
   // The factory's deselectable policy applies.
   await item("end").click();
   await expect(value).toHaveText("");
@@ -494,7 +494,7 @@ test("U5: replaced root and item Options drive behavior, roving order and the co
   // External writes to the factory signals apply and fabricate no output.
   await page.getByTestId("factory-alignment-select").click();
   await expect(item("end")).toHaveAttribute("aria-pressed", "true");
-  await expect(observer("end")).toHaveAttribute("data-observed-pressed", "true");
+  await expect(observer("end")).toHaveAttribute("data-observed-checked", "true");
   await expect(unused).toHaveText("0");
 });
 

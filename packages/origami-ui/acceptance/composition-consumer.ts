@@ -119,9 +119,10 @@ export class ConsumerAccordionTrigger implements OrigamiAccordionTriggerOptions 
 
 @Service({ autoProvided: false })
 export class ToggleSettings {
-  readonly pressed = signal(false);
+  readonly checked = signal(false);
   readonly disabled = signal(false);
   readonly focusableWhenDisabled = signal(false);
+  readonly id = signal("factory-toggle");
 }
 
 /** Writable factory Options win over the unused lower model, whose output stays silent. */
@@ -131,8 +132,8 @@ export class ToggleSettings {
   hostDirectives: [
     {
       directive: OrigamiToggle,
-      inputs: ["pressed: lowerPressed"],
-      outputs: ["pressedChange: lowerPressedChange"],
+      inputs: ["checked: lowerPressed"],
+      outputs: ["checkedChange: lowerPressedChange"],
     },
   ],
   providers: [OrigamiToggleOptions.provideFactory(() => inject(ToggleSettings))],
@@ -149,15 +150,16 @@ export class FactoryToggle {
   providers: [OrigamiToggleOptions.provideExisting(() => ConsumerToggle)],
 })
 export class ConsumerToggle implements OrigamiToggleOptions {
-  readonly pressed = model(true);
+  readonly checked = model(true);
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly focusableWhenDisabled = signal(false);
+  readonly id = signal("consumer-toggle");
 }
 
 /** A descendant observes its nearest Toggle's State. */
 @Directive({
   selector: "[toggleObservation]",
-  host: { "[attr.data-observed-pressed]": "state.pressed()" },
+  host: { "[attr.data-observed-checked]": "state.checked()" },
 })
 export class ToggleObservation {
   readonly state = inject(OrigamiToggleState);
@@ -267,6 +269,7 @@ export class ConsumerAlignment implements OrigamiToggleGroupItemOptions {
   readonly value = computed(() => this.alignment().id);
   readonly disabled = computed(() => !this.alignment().available);
   readonly focusableWhenDisabled = signal(false);
+  readonly id = input(injectUniqueId("consumer-alignment"));
 }
 
 /** A descendant observes its nearest ToggleGroup State. */
@@ -562,7 +565,7 @@ export class UtilityObservation {
 
     <section>
       <h2>Toggle composition</h2>
-      <button type="button" data-testid="factory-press" (click)="toggleSettings.pressed.set(true)">
+      <button type="button" data-testid="factory-press" (click)="toggleSettings.checked.set(true)">
         Write factory pressed
       </button>
       <button
@@ -581,13 +584,13 @@ export class UtilityObservation {
       >
         <span toggleObservation data-testid="factory-toggle-observer">Factory-backed</span>
       </button>
-      <output data-testid="factory-toggle-state">{{ factoryToggle.state.pressed() }}</output>
+      <output data-testid="factory-toggle-state">{{ factoryToggle.state.checked() }}</output>
       <output data-testid="unused-toggle-outputs">{{ unusedToggleOutputs() }}</output>
       <button
         consumerToggle
-        [(pressed)]="consumerPressed"
+        [(checked)]="consumerPressed"
         [disabled]="consumerDisabled()"
-        (pressedChange)="consumerToggleOutputs.update(increment)"
+        (checkedChange)="consumerToggleOutputs.update(increment)"
         data-testid="consumer-toggle"
       >
         <span toggleObservation data-testid="consumer-toggle-observer">Existing Options</span>
@@ -752,9 +755,9 @@ export class UtilityObservation {
         <span editorSeparator data-testid="editor-separator"></span>
         <button
           ogToolbarToggle
-          [(pressed)]="spellcheck"
+          [(checked)]="spellcheck"
           [disabled]="editorLayout.readOnly()"
-          (pressedChange)="spellcheckOutputs.update(increment)"
+          (checkedChange)="spellcheckOutputs.update(increment)"
           data-testid="editor-spellcheck"
         >
           Spell check

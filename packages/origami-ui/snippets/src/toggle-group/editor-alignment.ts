@@ -6,6 +6,7 @@ import {
   OrigamiToggleGroupItemOptions,
   type OrigamiToggleGroupOrientation,
 } from "@loozo/origami-ui/toggle-group";
+import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 @Service()
 export class EditorSettings {
@@ -46,4 +47,5 @@ export class AlignmentOption implements OrigamiToggleGroupItemOptions {
   readonly value = computed(() => this.alignment().id);
   readonly disabled = computed(() => !this.alignment().available);
   readonly focusableWhenDisabled = signal(false);
+  readonly id = input(injectUniqueId("alignment"));
 }

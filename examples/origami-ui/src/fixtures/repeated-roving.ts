@@ -47,6 +47,7 @@ export class RepeatedMark implements OrigamiToggleGroupItemOptions {
   readonly value = input.required<string>();
   readonly disabled = input(false);
   readonly focusableWhenDisabled = signal(false);
+  readonly id = input(injectUniqueId("repeated-mark"));
 }
 
 /** Replacement Toolbar item (Button) Options whose disabled state is a required input. */

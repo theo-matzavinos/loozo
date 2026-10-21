@@ -4,19 +4,20 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 
 [src/toolbar/formatting-toolbar.ts](../snippets/src/toolbar/formatting-toolbar.ts "both")
 
-| Directive                      | Configuration                                                                                                               |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `ogToolbar`                    | `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                                      |
-| `ogToolbarItem`                | as [`ogButton`](../button/README.md): `disabled`, `focusableWhenDisabled` (both default `false`); must be a `<button>`      |
-| `ogToolbarToggle`              | as [`ogToggle`](../toggle/README.md): `pressed` model, `disabled`, `focusableWhenDisabled`; must be a `<button>`            |
-| `ogToolbarPopoverTrigger`      | as [`ogPopoverTrigger`](../popover/README.md): `id`, `disabled`, `focusableWhenDisabled`; must be a `<button>` in a Popover |
-| `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect                                          |
-| `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect                                        |
-| `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md)                                                                               |
+| Directive                      | Configuration                                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ogToolbar`                    | `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                                                     |
+| `ogToolbarItem`                | as [`ogButton`](../button/README.md): `disabled`, `focusableWhenDisabled` (both default `false`); must be a `<button>`                     |
+| `ogToolbarToggle`              | as [`ogToggle`](../toggle/README.md): `checked` model, `disabled`, `focusableWhenDisabled`, `id`; must be a `<button>`; not a form control |
+| `ogToolbarPopoverTrigger`      | as [`ogPopoverTrigger`](../popover/README.md): `id`, `disabled`, `focusableWhenDisabled`; must be a `<button>` in a Popover                |
+| `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect                                                         |
+| `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect                                                       |
+| `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md)                                                                                              |
 
 - Toolbar never activates a control: a click, Enter or Space runs only your button's own listeners, and a Toolbar Toggle's or Toolbar Popover Trigger's own behavior.
 - Controls are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as controls. Other focusable content inside the Toolbar that isn't a control, such as a search field, keeps its own Tab stop and its own arrow keys.
 - A disabled control is natively disabled: arrows skip it and it's never the tab stop. With `focusableWhenDisabled` it stays in the arrow sequence instead and keeps focus, and your own `(click)` listeners on it still run (see [Button](../button/README.md#focusable-when-disabled)). There's no Toolbar-wide `disabled`; disable controls, or a group's own `disabled`.
+- A Toolbar Toggle isn't a form control: it never joins a [Field](../field/README.md), and `[formField]` on it is unsupported. Signal Forms would bind its `checked` model, but the Toolbar Toggle emits no `touch`, so the field would never be marked touched. Bind `[(checked)]` instead.
 - Each control is one directive. Don't combine `ogToolbarItem` with `ogToggle`, `ogPopoverTrigger` or another button primitive on one button: use `ogToolbarToggle` or `ogToolbarPopoverTrigger`. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
 
 ## Keyboard

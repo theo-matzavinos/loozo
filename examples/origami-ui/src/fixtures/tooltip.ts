@@ -461,7 +461,7 @@ export class FactoryPlacement {}
           ogTooltipTrigger
           class="trigger"
           [disabled]="coDisabled()"
-          [(pressed)]="coPressed"
+          [(checked)]="coPressed"
           data-testid="co-toggle"
         >
           Bold
@@ -491,7 +491,7 @@ export class FactoryPlacement {}
             ogTooltipTrigger
             class="trigger"
             [disabled]="coDisabled()"
-            [(pressed)]="coToolbarPressed"
+            [(checked)]="coToolbarPressed"
             data-testid="co-toolbar-toggle"
           >
             Italic
