@@ -28,6 +28,21 @@ export const routes: Routes = [
       import("./fixtures/field-deferred.js").then((module) => module.FieldDeferred),
   },
   {
+    path: "checkbox",
+    loadComponent: () =>
+      import("./fixtures/checkbox-deferred.js").then((module) => module.CheckboxDeferred),
+  },
+  {
+    path: "switch",
+    loadComponent: () =>
+      import("./fixtures/switch-deferred.js").then((module) => module.SwitchDeferred),
+  },
+  {
+    path: "described-by",
+    loadComponent: () =>
+      import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),
+  },
+  {
     path: "hydration",
     loadComponent: () =>
       import("./fixtures/seeds/hydration-consumer.js").then(

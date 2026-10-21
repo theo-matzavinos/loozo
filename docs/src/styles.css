@@ -183,6 +183,34 @@ docs-demo-playground {
   align-items: center;
 }
 
+/* An ogCheckbox button drawn as a checkbox: a box that fills and shows a check mark. */
+.docs-demo-checkbox {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1rem;
+  block-size: 1rem;
+  padding: 0;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  background: var(--background);
+  color: var(--background);
+}
+
+.docs-demo-checkbox[data-checked] {
+  border-color: var(--link);
+  background: var(--link);
+}
+
+.docs-demo-checkbox[data-checked]::after {
+  content: "";
+  inline-size: 0.3rem;
+  block-size: 0.55rem;
+  margin-block-start: -0.1rem;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  rotate: 45deg;
+}
+
 .docs-demo-controls input[type="number"] {
   inline-size: 6rem;
 }

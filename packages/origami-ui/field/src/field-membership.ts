@@ -2,6 +2,7 @@ import { ElementRef, computed, inject } from "@angular/core";
 import type { DestroyRef } from "@angular/core";
 import { FORM_FIELD } from "@angular/forms/signals";
 import type { FieldState } from "@angular/forms/signals";
+import { ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { FieldContext } from "./field";
 import type { FieldControlRegistration } from "./field";
 
@@ -12,7 +13,6 @@ import type { FieldControlRegistration } from "./field";
  * the template's, missing those of a directive that composes the control through `hostDirectives`.
  */
 function staticAttributes(): {
-  readonly describedBy: string | null;
   readonly invalid: string | null;
   readonly required: string | null;
   readonly readonly: string | null;
@@ -20,7 +20,6 @@ function staticAttributes(): {
   const element = inject<ElementRef<Element>>(ElementRef).nativeElement;
 
   return {
-    describedBy: element.getAttribute("aria-describedby"),
     invalid: element.getAttribute("aria-invalid"),
     required: element.getAttribute("aria-required"),
     readonly: element.getAttribute("aria-readonly"),
@@ -40,7 +39,10 @@ function flag(value: boolean): "true" | null {
  * Origami form control. Not an application authoring API.
  *
  * Construct it in the control's injection context, with the control's effective ID; call
- * `register` from the control's `ngOnInit`. It reads the `[formField]` on the control's own
+ * `register` from the control's `ngOnInit`. The control composes `ɵOrigamiDescribedBy` through
+ * `hostDirectives` and binds no `aria-describedby` itself: `register` adds the Field's
+ * Descriptions, then its mounted Errors, to the element's shared description while the control
+ * is the Field's control, and nothing otherwise. It reads the `[formField]` on the control's own
  * element (`FORM_FIELD`, self, optional) lazily, so its readers run after Angular has set that
  * binding. Outside a Field, and for a second control the Field ignored, each attribute is the
  * control's own static one, so a standalone control keeps what the consumer wrote.
@@ -51,15 +53,8 @@ export class ɵOrigamiFieldMembership {
   readonly #registration: FieldControlRegistration;
   readonly #member = computed(() => this.#field?.control() === this.#registration);
   readonly #static = staticAttributes();
+  readonly #describedBy = inject(ɵOrigamiDescribedBy, { self: true });
 
-  /** `aria-describedby`: the Field's Descriptions, then its mounted Errors. */
-  readonly describedBy = computed(() => {
-    if (!this.#member() || this.#field === null) {
-      return this.#static.describedBy;
-    }
-
-    return this.#field.describedBy();
-  });
   /** `aria-invalid`: `"true"` while the Field shows its errors. */
   readonly invalid = computed(() => {
     if (!this.#member() || this.#field === null) {
@@ -98,8 +93,19 @@ export class ɵOrigamiFieldMembership {
     return this.#binding?.state() ?? null;
   }
 
-  /** Registers the control with its nearest Field, if any; call from the control's `ngOnInit`. */
+  /**
+   * Registers the control with its nearest Field, if any, and the Field's Descriptions, then its
+   * mounted Errors, as the element's description while it is the Field's control; call from the
+   * control's `ngOnInit`.
+   */
   register(destroyRef: DestroyRef): void {
     this.#field?.registerControl(this.#registration, destroyRef);
+    this.#describedBy.register(() => {
+      if (!this.#member() || this.#field === null) {
+        return [];
+      }
+
+      return this.#field.describedBy();
+    }, destroyRef);
   }
 }

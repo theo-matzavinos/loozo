@@ -700,10 +700,26 @@ export async function bootstrapHeld(
   return release;
 }
 
-export async function fixture(page: Page, name: string, testInfo: TestInfo): Promise<void> {
+/**
+ * Opens a fixture route and attaches it. `server` runs against the server-rendered HTML, before
+ * the application bootstraps.
+ */
+export async function fixture(
+  page: Page,
+  name: string,
+  testInfo: TestInfo,
+  server?: () => Promise<void>,
+): Promise<void> {
   const release = await bootstrapHeld(page, `/${name}`, testInfo);
 
-  release();
+  try {
+    if (server !== undefined) {
+      await server();
+    }
+  } finally {
+    release();
+  }
+
   await expect(page.locator("setup-readiness")).toHaveAttribute("data-shell-attached", "true");
   await expect(page.locator("setup-readiness")).toHaveAttribute(
     "data-runtime",

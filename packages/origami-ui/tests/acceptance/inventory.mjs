@@ -118,6 +118,8 @@ export const inventory = {
     "OrigamiFieldError",
     "OrigamiFieldErrorOptions",
   ],
+  checkbox: ["OrigamiCheckbox", "OrigamiCheckboxOptions", "OrigamiCheckboxState"],
+  switch: ["OrigamiSwitch", "OrigamiSwitchOptions", "OrigamiSwitchState"],
 };
 
 export const typeOnly = new Set([

@@ -1,5 +1,10 @@
 import { test, expect } from "./contract-test.js";
 import { fixture } from "./observation.js";
+import {
+  fieldWithTooltipCase,
+  mixedViewsCase,
+  withoutStaticCase,
+} from "./co-applied-description.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -292,4 +297,31 @@ test("M5: factory and existing part Options replace the exposed own IDs and driv
   await expect(label).toHaveAttribute("for", "replaced-control-2");
   await expect(description).toHaveAttribute("id", "replaced-description-2");
   await expect(control).toHaveAttribute("aria-describedby", "replaced-description-2");
+});
+
+test("M7: an ogFieldControl co-applied with a Tooltip Trigger inside a Field has one aria-describedby naming the Field's IDs and the Content's in registration order, from server HTML on, in both directive orders; each side's change keeps the other's IDs", async ({
+  page,
+}, info) => {
+  await fieldWithTooltipCase(page, info, "input");
+});
+
+test("M8: without a static aria-describedby, an ogFieldControl whose Field's only describer is an Error shown in server HTML names it; after hydration, clearing the Error removes the attribute, showing it restores its ID, and clearing it again removes it", async ({
+  page,
+}, info) => {
+  await withoutStaticCase(
+    page,
+    info,
+    [{ testId: "bare-field-input", id: "bare-field-input-error" }],
+    "toggle-bare-error",
+  );
+});
+
+test("M9: without a static aria-describedby, an ogFieldControl co-applied with a Tooltip Trigger names its Content in a child component and its Field's Error in its own view in server HTML and after hydration, although hydration first names only the Error; unmounting the Content leaves the Error's ID, clearing the Error removes the attribute, remounting the Content restores its ID, and unmounting it again removes the attribute", async ({
+  page,
+}, info) => {
+  await mixedViewsCase(page, info, {
+    testId: "mixed-input",
+    tipId: "mixed-input-tip",
+    errorId: "mixed-input-error",
+  });
 });

@@ -13,6 +13,7 @@ import {
   type Type,
   type WritableSignal,
 } from "@angular/core";
+import { OrigamiCheckbox } from "@loozo/origami-ui/checkbox";
 import { OrigamiField, OrigamiFieldControl, OrigamiFieldLabel } from "@loozo/origami-ui/field";
 import type { DemoControl } from "../generated/content/model.generated.js";
 
@@ -38,7 +39,7 @@ export class DemoInstance implements OnInit {
 /** A running snippet with a control for each input and model of its component. */
 @Component({
   selector: "docs-demo-playground",
-  imports: [DemoInstance, OrigamiField, OrigamiFieldLabel, OrigamiFieldControl],
+  imports: [DemoInstance, OrigamiField, OrigamiFieldLabel, OrigamiFieldControl, OrigamiCheckbox],
   template: `
     <div class="docs-demo-output" role="group" aria-label="Running example">
       <ng-container [docsDemoInstance]="component()" [docsDemoBindings]="bindings()" />
@@ -48,15 +49,17 @@ export class DemoInstance implements OnInit {
       @for (entry of entries(); track entry.name) {
         @switch (entry.kind) {
           @case ("boolean") {
-            <label>
-              <input
-                #checkbox
-                type="checkbox"
+            <div ogField class="docs-demo-field">
+              <button
+                ogCheckbox
+                class="docs-demo-checkbox"
                 [checked]="entry.value()"
-                (change)="entry.value.set(checkbox.checked)"
-              />
-              <code>{{ entry.name }}</code>
-            </label>
+                (checkedChange)="entry.value.set($event)"
+              ></button>
+              <label ogFieldLabel
+                ><code>{{ entry.name }}</code></label
+              >
+            </div>
           }
           @case ("number") {
             <div ogField class="docs-demo-field">

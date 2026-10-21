@@ -9,3 +9,10 @@
 - `injectDeferred(token)` captures the current injector in an injection context and returns a function that resolves `token` from it later, outside the injection context. Nothing is resolved at capture time.
 
 Keys match `/^[a-z][a-z0-9-]*$/`; anything else throws a `TypeError`. All three throw when called outside an injection context.
+
+The entry point also exports `ɵOrigamiDescribedBy`, the package-private owner of an element's `aria-describedby` that Origami's Tooltip Trigger and Field controls share. It isn't an application API.
+
+While none of them names an ID, the element keeps your static `aria-describedby`. A hydrated element already carries the server's IDs, so once the IDs Origami names equal exactly that value, it counts as the server's output, not yours: once the last ID goes, the attribute is removed instead of falling back to it. Hydration may first name only some of those IDs, such as a Field Error's before the ID of Tooltip Content in a child component; the value stays until they all are. Two edges follow:
+
+- A static `aria-describedby` equal to exactly the IDs Origami names at any time is treated as absent. Don't repeat Origami's IDs in it.
+- If the describers change while the control is still dehydrated in a separate `@defer` boundary, the server's IDs stay as the static value. Keep associated parts inside one boundary, as the [package README](../README.md) already advises.

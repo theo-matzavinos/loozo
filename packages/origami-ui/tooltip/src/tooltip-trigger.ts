@@ -1,10 +1,13 @@
 import { DestroyRef, Directive, ElementRef, inject } from "@angular/core";
+import { ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { TooltipContext } from "./tooltip";
 
 /**
  * The element the Tooltip describes: `aria-describedby` names the registered Content's effective
- * ID, open or closed, and is absent without registered Content. It replaces a static
- * `aria-describedby` instead of merging with it. The Trigger has no inputs and no Options.
+ * ID, open or closed. It merges with the IDs of Origami directives co-applied on the same element,
+ * such as a Field's Descriptions and Errors on a Checkbox, in the order they initialize. While
+ * nothing names an ID, such as without registered Content, the element keeps its static
+ * `aria-describedby`. The Trigger has no inputs and no Options.
  *
  * Make it focusable and give it its accessible name (`aria-label` or visually hidden text); the
  * Tooltip is its description. It binds no `type`, `role`, `disabled` or `tabindex`, so it may be
@@ -19,8 +22,8 @@ import { TooltipContext } from "./tooltip";
  */
 @Directive({
   selector: "[ogTooltipTrigger]",
+  hostDirectives: [ɵOrigamiDescribedBy],
   host: {
-    "[attr.aria-describedby]": "contentId()",
     "(pointerenter)": "pointerEnter($event)",
     "(pointerleave)": "pointerLeave($event)",
     "(pointerdown)": "activate()",
@@ -34,12 +37,23 @@ export class OrigamiTooltipTrigger {
   readonly #context = inject(TooltipContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
-  /** @internal Mounted-only Content description, open or closed. */
-  protected readonly contentId = this.#context.contentId;
+  readonly #describedBy = inject(ɵOrigamiDescribedBy, { self: true });
 
-  /** @internal Registers this Trigger once it is initialized; a second mounted Trigger fails clearly. */
+  /**
+   * @internal Registers this Trigger once it is initialized, and its mounted Content's ID, open
+   * or closed, as the element's description; a second mounted Trigger fails clearly.
+   */
   ngOnInit(): void {
     this.#context.registerTrigger({ element: this.#element }, this.#destroyRef);
+    this.#describedBy.register(() => {
+      const contentId = this.#context.contentId();
+
+      if (contentId === null) {
+        return [];
+      }
+
+      return [contentId];
+    }, this.#destroyRef);
   }
 
   /** @internal Mouse or pen hover schedules opening; touch is ignored. */

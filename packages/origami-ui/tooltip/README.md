@@ -14,7 +14,7 @@ One Trigger and one Content are supported per Tooltip. Content can be rendered b
 
 ## A description, not a name
 
-The Trigger's `aria-describedby` names Content whether it's open or closed, so a screen reader announces the text when the Trigger gets focus, without waiting for it to appear. It replaces a static `aria-describedby` on the Trigger; it doesn't merge with it.
+The Trigger's `aria-describedby` names Content whether it's open or closed, so a screen reader announces the text when the Trigger gets focus, without waiting for it to appear. On a Field control, such as a Checkbox, it shares the attribute with the Field's Descriptions and Errors: the Trigger's and the control's IDs are merged, in the order Angular initializes the two directives, which follows your `imports` or `hostDirectives` order. While nothing names an ID, such as without mounted Content, your static `aria-describedby` is kept; otherwise it's replaced. Without one, the attribute is removed, also after hydration; see [Utilities](../utils/README.md) for the static value's two hydration edges.
 
 - Give the Trigger its own accessible name, with `aria-label` or visually hidden text. For an icon button, make the Tooltip supplementary ("Copies the address of this page") rather than repeating the name ("Copy link"), which screen readers would announce twice.
 - Make the Trigger focusable. A `<button>` is.
@@ -74,7 +74,7 @@ Content is positioned like [Popover Content](../popover/README.md#positioning), 
 
 | Element | Attributes                                                                                                                                                                                           |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger | `aria-describedby` (only while Content is mounted)                                                                                                                                                   |
+| Trigger | `aria-describedby` (while Content is mounted)                                                                                                                                                        |
 | Content | `role="tooltip"` (your static `role` wins), `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), Presence's `data-entering`, `data-present` and `data-leaving` |
 
 ## Server rendering and hydration

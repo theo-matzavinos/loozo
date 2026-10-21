@@ -1731,6 +1731,132 @@ test("M6 H1 H2: Field IDs, for and aria-describedby are in server HTML, Label be
   }
 });
 
+type BooleanFieldIds = { checkbox: string | null; switch: string | null };
+
+/** Checkbox and Switch Fields as rendered: role, state, IDs, `for` and `aria-describedby`. */
+async function expectServerBooleanFields(
+  page: Page,
+  labels: string[],
+): Promise<Map<string, BooleanFieldIds>> {
+  const ids = new Map<string, BooleanFieldIds>();
+
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const checkbox = unit.getByTestId("hydration-checkbox");
+    const toggle = unit.getByTestId("hydration-switch");
+    const unitIds: BooleanFieldIds = {
+      checkbox: await checkbox.getAttribute("id"),
+      switch: await toggle.getAttribute("id"),
+    };
+
+    expect(unitIds.checkbox).toMatch(/\S/);
+    expect(unitIds.switch).toMatch(/\S/);
+    await expect(checkbox).toHaveAttribute("role", "checkbox");
+    await expect(checkbox).toHaveAttribute("type", "button");
+    await expect(checkbox).toHaveAttribute("aria-checked", "false");
+    await expect(checkbox).toHaveAttribute("aria-required", "true");
+    await expect(unit.getByTestId("hydration-checkbox-label")).toHaveAttribute(
+      "for",
+      unitIds.checkbox ?? "",
+    );
+    await expect(checkbox).toHaveAttribute(
+      "aria-describedby",
+      (await unit.getByTestId("hydration-checkbox-description").getAttribute("id")) ?? "",
+    );
+    await expect(toggle).toHaveAttribute("role", "switch");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(toggle).toHaveAttribute("data-checked", "");
+    await expect(toggle).not.toHaveAttribute("aria-required", /.*/);
+    await expect(unit.getByTestId("hydration-switch-label")).toHaveAttribute(
+      "for",
+      unitIds.switch ?? "",
+    );
+    await expect(toggle).toHaveAttribute(
+      "aria-describedby",
+      (await unit.getByTestId("hydration-switch-description").getAttribute("id")) ?? "",
+    );
+    ids.set(label, unitIds);
+  }
+
+  return ids;
+}
+
+test("J6 W6 H1 H2 H3: Checkbox and Switch role, aria-checked, IDs, the Label's for and aria-describedby are in server HTML and adopted by hydration; a click after attachment or replay writes the form model once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const server = await expectServerBooleanFields(page, ["A", "B", "C"]);
+    const b = page.locator('[data-unit="B"]');
+    const checkbox = b.getByTestId("hydration-checkbox");
+    const value = b.getByTestId("hydration-checkbox-value");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await checkbox.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(value).toHaveText("false");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      await checkbox.click();
+    }
+
+    await expect(value).toHaveText("true");
+    await expect(checkbox).toHaveAttribute("aria-checked", "true");
+    await assertReferences(page, info);
+
+    // Hydration adopted the server IDs; B's own change aside, every association is unchanged.
+    expect(server.get("B")).toEqual({
+      checkbox: await checkbox.getAttribute("id"),
+      switch: await b.getByTestId("hydration-switch").getAttribute("id"),
+    });
+    await expectServerBooleanFields(page, ["A", "C"]);
+    await expect(page.getByRole("checkbox", { name: "Accept the terms" })).toHaveCount(3);
+
+    const toggle = b.getByTestId("hydration-switch");
+
+    await toggle.click();
+    await expect(b.getByTestId("hydration-switch-value")).toHaveText("false");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toHaveAccessibleName("Order notifications");
+    await expect(toggle).toHaveAccessibleDescription("About your orders.");
+    await checkbox.click();
+    await expect(value).toHaveText("false");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {

@@ -2,6 +2,11 @@ import { test, expect, type ErrorRecord } from "./contract-test.js";
 import type { Locator, Page, TestInfo } from "playwright/test";
 import { fixture } from "./observation.js";
 import { expectPreferred } from "./geometry.js";
+import {
+  sharedOwnerCase,
+  tooltipOutsideFieldCase,
+  withoutStaticCase,
+} from "./co-applied-description.js";
 
 declare global {
   interface Window {
@@ -208,7 +213,7 @@ function consoleMessage(record: ErrorRecord, message: string): boolean {
   return false;
 }
 
-test("N1: the Trigger is described by mounted Content, open or closed, replacing its static value; closed inert Content still describes it", async ({
+test("N1: the Trigger is described by mounted Content, open or closed, replacing its static value, which returns without Content; closed inert Content still describes it", async ({
   page,
   browserName,
 }, info) => {
@@ -257,8 +262,9 @@ test("N1: the Trigger is described by mounted Content, open or closed, replacing
   await expect(trigger).toHaveAttribute("aria-describedby", "describe-content-b");
   await script(page, "describe-mount");
   await expect(content).toHaveCount(0);
-  await expect(trigger).not.toHaveAttribute("aria-describedby");
-  await expect(trigger).toHaveAccessibleDescription("");
+  // Without Content nothing names an ID: the static value returns.
+  await expect(trigger).toHaveAttribute("aria-describedby", "static-note");
+  await expect(trigger).toHaveAccessibleDescription("Static note named only without Content");
   await script(page, "describe-mount");
   await expect(trigger).toHaveAttribute("aria-describedby", "describe-content-b");
   await expect(trigger).toHaveAccessibleDescription(description);
@@ -3064,4 +3070,41 @@ test("N13: a Tooltip whose own open output closes it again doesn't join the grou
   await expectShown(page.getByTestId("join-t-content"));
   expectOpenedAfterDelay(await groupJournal(page, mark, "join-journal"), "t");
   await expect(page.getByTestId("join-u-trigger")).toBeFocused();
+});
+
+test("N15: a Tooltip Trigger co-applied with a Checkbox, a Switch or an ogFieldControl outside a Field is described by its Content from server HTML on, in both directive orders, and keeps its static aria-describedby without Content", async ({
+  page,
+}, info) => {
+  await tooltipOutsideFieldCase(page, info);
+});
+
+test("N16: a Field control and a Tooltip Trigger on one element share one description owner, in both directive orders and through a consumer's hostDirectives: each side's change keeps the other's IDs", async ({
+  page,
+}, info) => {
+  await sharedOwnerCase(page, info);
+});
+
+test("N17: without a static aria-describedby, a Trigger alone and one co-applied with a Checkbox are described by Content mounted in server HTML; after hydration, unmounting the Content removes the attribute, remounting restores its ID, and unmounting again removes it", async ({
+  page,
+}, info) => {
+  await withoutStaticCase(
+    page,
+    info,
+    [
+      { testId: "bare-trigger", id: "bare-trigger-tip" },
+      { testId: "bare-checkbox", id: "bare-checkbox-tip" },
+    ],
+    "toggle-bare-content",
+  );
+});
+
+test("N18: N17 with Content in a child component's view, which registers after the Trigger's aria-describedby was first evaluated", async ({
+  page,
+}, info) => {
+  await withoutStaticCase(
+    page,
+    info,
+    [{ testId: "late-trigger", id: "late-trigger-tip" }],
+    "toggle-bare-content",
+  );
 });

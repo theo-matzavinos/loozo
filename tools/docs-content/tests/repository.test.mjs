@@ -277,6 +277,8 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/button",
     "@loozo/origami-ui/tooltip",
     "@loozo/origami-ui/field",
+    "@loozo/origami-ui/checkbox",
+    "@loozo/origami-ui/switch",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -304,6 +306,16 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/tooltip"].length, 9);
   assert.equal(names["@loozo/origami-ui/field"].length, 10);
   assert.equal(names["@loozo/origami-ui/field"].includes("ɵOrigamiFieldMembership"), false);
+  assert.deepEqual(names["@loozo/origami-ui/checkbox"], [
+    "OrigamiCheckbox",
+    "OrigamiCheckboxOptions",
+    "OrigamiCheckboxState",
+  ]);
+  assert.deepEqual(names["@loozo/origami-ui/switch"], [
+    "OrigamiSwitch",
+    "OrigamiSwitchOptions",
+    "OrigamiSwitchState",
+  ]);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -341,6 +353,8 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "button:Button",
     "tooltip:Tooltip",
     "field:Field",
+    "checkbox:Checkbox",
+    "switch:Switch",
     "utils:Utilities",
   ]);
 
@@ -356,7 +370,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 16 snippets that export one component", async () => {
+test("origami's guide pages run the 18 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -364,7 +378,7 @@ test("origami's guide pages run the 16 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 16);
+  assert.equal(ids.length, 18);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -407,6 +421,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "radio-group/shipping-speed.ts": ["speed:model:options", "sameDayAvailable:input:boolean"],
     "button/save-button.ts": ["saving:input:boolean"],
     "tooltip/copy-link.ts": ["openDelay:input:number", "side:input:options"],
+    "switch/notifications.ts": ["enabled:model:boolean", "disabled:input:boolean"],
   });
 });
 

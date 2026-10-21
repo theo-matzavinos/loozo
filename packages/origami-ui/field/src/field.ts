@@ -53,8 +53,8 @@ export class FieldContext {
 
     return control.id();
   });
-  /** Registered Description IDs, then registered Error IDs, each in registration order; null when none. */
-  readonly describedBy = computed(() => {
+  /** Registered Description IDs, then registered Error IDs, each in registration order. */
+  readonly describedBy = computed<readonly string[]>(() => {
     const ids: string[] = [];
 
     for (const part of this.#descriptions()) {
@@ -65,11 +65,7 @@ export class FieldContext {
       ids.push(part.id());
     }
 
-    if (ids.length === 0) {
-      return null;
-    }
-
-    return ids.join(" ");
+    return ids;
   });
 
   readonly invalid = computed(() => this.#formState()?.invalid() ?? false);
