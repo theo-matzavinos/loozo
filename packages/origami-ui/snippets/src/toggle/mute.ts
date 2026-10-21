@@ -4,7 +4,7 @@ import { OrigamiToggle } from "@loozo/origami-ui/toggle";
 @Component({
   selector: "app-mute",
   imports: [OrigamiToggle],
-  template: `<button ogToggle class="mute" [(pressed)]="muted" [disabled]="disabled()">
+  template: `<button ogToggle class="mute" [(checked)]="muted" [disabled]="disabled()">
     Mute
   </button>`,
   styles: `

@@ -1,1 +1,6 @@
-export { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "./toggle";
+export {
+  OrigamiToggle,
+  OrigamiToggleOptions,
+  OrigamiToggleState,
+  ɵOrigamiToggleNotFormControl,
+} from "./toggle";

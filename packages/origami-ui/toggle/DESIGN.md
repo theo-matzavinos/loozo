@@ -1,0 +1,33 @@
+# Toggle design map
+
+Ownership and read timing. Usage is in the [README](README.md); the contract is SPEC section 12.
+
+## Ownership
+
+| Fact                                                        | Owner                                                                                                                                                                                          | Readers                                                                                                  |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Checked                                                     | the effective `OrigamiToggleOptions.checked`: the directive's own model by default, which `[formField]` binds, or a replacement (a ToggleGroup Item's group request, a Toolbar Toggle's model) | the host bindings, State; written by the Toggle's guarded activation and by its owner                    |
+| Disabled, focusable when disabled                           | the effective Options; `[formField]` writes the own `disabled` input from the field's `disabled()` rules                                                                                       | the guard, State, the composed `ogButton`'s Options factory                                              |
+| ID                                                          | the effective Options `id` (a ToggleGroup Item supplies its own Options `id`)                                                                                                                  | the host `id`; the Field's Labels through the registration                                               |
+| Value, touched, readonly, required, validation, errors      | Angular's `FieldState`, bound by the `[formField]` on the same element                                                                                                                         | the Toggle's `ɵOrigamiFieldMembership` (`FORM_FIELD`, self): the readonly guard and the Field            |
+| Form control or widget part                                 | the composing widget, which provides `ɵOrigamiToggleNotFormControl` on the element (ToggleGroup Item, Toolbar Toggle)                                                                          | the Toggle's registration: a widget part registers nothing                                               |
+| Field membership: ID, labelable, form state reader          | the nearest `ogField`'s control slot, set by the Toggle's registration in `ngOnInit`                                                                                                           | the Field's Labels, State and data attributes                                                            |
+| Description and Error IDs                                   | the nearest Field                                                                                                                                                                              | the Toggle's membership, which registers them with `ɵOrigamiDescribedBy` while it is the Field's control |
+| `aria-describedby`                                          | `ɵOrigamiDescribedBy` (`/utils`), one per element, composed by the Toggle and by a co-applied Tooltip Trigger: every registration's IDs in registration order, else the element's static value | the element                                                                                              |
+| Touch notification                                          | the private Context's Observable, emitted on blur                                                                                                                                              | the `touch` output, which `[formField]` listens to                                                       |
+| `type`, native `disabled`, `aria-disabled`, `data-disabled` | the composed `ogButton`                                                                                                                                                                        | the DOM                                                                                                  |
+
+## Read timing
+
+| Read                                         | Reader                                          | Phase        | Platform | If the owner isn't initialized                                                                                    |
+| -------------------------------------------- | ----------------------------------------------- | ------------ | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| Own Options (`checked`, `disabled`, `id`, …) | host bindings, State, `ogButton`'s Options      | render       | both     | Safe: its own, read through `injectDeferred` after construction.                                                  |
+| Own Options `id`                             | the Field registration, through the Labels      | render       | both     | Registered in `ngOnInit`, after Angular set the inputs, so a Label never sees the default in place of a bound ID. |
+| `ɵOrigamiToggleNotFormControl`               | the Context                                     | construction | both     | Safe: a provider on the same element, read `self` and optional.                                                   |
+| `FORM_FIELD.state()`                         | the Field, through the membership               | render       | both     | Angular sets `[formField]` on the same element before the Toggle's first host-binding update; without it, absent. |
+| `FORM_FIELD.state().readonly()`              | the activation guard                            | event        | browser  | Safe: read at click time.                                                                                         |
+| The Field's slot, Description/Error IDs      | the Toggle's `ɵOrigamiDescribedBy` registration | render       | both     | Before its own registration it isn't the member: the element keeps its static `aria-describedby`.                 |
+
+## Refresh dependencies
+
+- The Field's Labels, State and data attributes depend on the render that follows the Toggle's registration, as for any Field control (see the [Field design map](../field/DESIGN.md)); on the server too, so server HTML is complete.

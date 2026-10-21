@@ -12,7 +12,7 @@ Field wires a form control to its label, hints and error messages, and shows its
 | `ogFieldDescription` | `id` (default generated) | any element with a hint                        |
 | `ogFieldError`       | `id` (default generated) | any element with a message, under `@if`        |
 
-Origami's own form controls, [Checkbox](../checkbox/README.md) and [Switch](../switch/README.md), join a Field on their own: don't add `ogFieldControl` to them. Their READMEs list the attributes they bind.
+Origami's own form controls, [Checkbox](../checkbox/README.md), [Switch](../switch/README.md) and [Toggle](../toggle/README.md), join a Field on their own: don't add `ogFieldControl` to them. Their READMEs list the attributes they bind; a Toggle binds no `aria-invalid`, `aria-required` or `aria-readonly`, which ARIA doesn't support on a button. ToggleGroup items and Toolbar Toggles aren't form controls and don't join a Field.
 
 Parts join the nearest `ogField`, so a Field inside another one is independent. A Field has one control; a second one is reported through Angular's `ErrorHandler` and ignored. Labels, Descriptions and Errors can be anywhere inside the Field, before or after the control, and in their own components.
 

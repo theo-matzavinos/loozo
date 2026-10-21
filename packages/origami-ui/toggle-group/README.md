@@ -10,7 +10,7 @@ ToggleGroup is a set of pressed buttons with one tab stop and arrow-key navigati
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogToggleGroupSingle`   | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `deselectable` (default `false`) |
 | `ogToggleGroupMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                  |
-| `ogToggleGroupItem`     | `value` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`                           |
+| `ogToggleGroupItem`     | `value` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`), `id` (default generated); must be a `<button>` |
 
 Give each item an explicit `value`; values should be distinct within one group. Don't also put `ogToggle` on an item: the item already composes Toggle.
 
@@ -37,22 +37,22 @@ Single, Multiple and the item each have their own Options. Here the alignment li
 
 [src/toggle-group/editor-alignment.ts](../snippets/src/toggle-group/editor-alignment.ts)
 
-Item Options also drive the composed Toggle, so replacing them alone sets the item's pressed, disabled and focusable state. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
+Item Options also drive the composed Toggle, so replacing them alone sets the item's checked (pressed), disabled and focusable state and its `id`; a replacement supplies `id` too, here an input defaulting to a generated ID. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
 
 ## State and attributes
 
-`OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Each item exposes its composed `OrigamiToggleState` as `state` (`#item="ogToggleGroupItem"`), with `pressed()` and `disabled()`, the item's effective disabled state from the root's or its own; descendants of an item can inject it.
+`OrigamiToggleGroupState` has `disabled()` and `orientation()`, the effective values from the root Options; both modes expose it as `state`. It has no value, because the value's type differs by mode and you already own it. Each item exposes its composed `OrigamiToggleState` as `state` (`#item="ogToggleGroupItem"`), with `checked()` and `disabled()`, the item's effective disabled state from the root's or its own; descendants of an item can inject it.
 
-| Element | Attributes                                                                                                                                                                                                       |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `role="group"`, `data-orientation`, `data-disabled`                                                                                                                                                              |
-| Item    | `type="button"`, `aria-pressed` (`"true"` or `"false"`), `tabindex`, `data-pressed` while pressed; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
+| Element | Attributes                                                                                                                                                                                                             |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `role="group"`, `data-orientation`, `data-disabled`                                                                                                                                                                    |
+| Item    | `type="button"`, `id`, `aria-pressed` (`"true"` or `"false"`), `tabindex`, `data-pressed` while pressed; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
 
 ## Accessibility
 
 - You supply the group's accessible name with `aria-label` or `aria-labelledby`, and each item's. Keep an item's name the same in both states, because `aria-pressed` already announces the state.
 - Both modes are a `group` of `aria-pressed` buttons, not a radio group: there's no `aria-orientation` (ARIA doesn't allow it on `group`) and focus never presses. For radio semantics, where arrow keys check, use [RadioGroup](../radio-group/README.md). A static `role` you write on the root replaces `group`.
-- There's no typeahead, `aria-activedescendant`, mixed state or form value. A group inside a non-item descendant of another group is independent of it.
+- There's no typeahead, `aria-activedescendant`, mixed state or form value. An item isn't a form control: inside a [Field](../field/README.md) it doesn't join it, and it keeps your static `aria-describedby`. A group inside a non-item descendant of another group is independent of it.
 
 ## Inside a Toolbar
 
@@ -60,6 +60,6 @@ Item Options also drive the composed Toggle, so replacing them alone sets the it
 
 ## Server rendering and hydration
 
-ToggleGroup's `role="group"`, `aria-pressed`, disabled attributes and single `tabindex="0"` are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration presses once.
+ToggleGroup's `role="group"`, item `id`s, `aria-pressed`, disabled attributes and single `tabindex="0"` are in the server HTML, and hydration doesn't change them. A click replayed after incremental hydration presses once.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).

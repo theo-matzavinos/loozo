@@ -38,6 +38,11 @@ export const routes: Routes = [
       import("./fixtures/switch-deferred.js").then((module) => module.SwitchDeferred),
   },
   {
+    path: "toggle",
+    loadComponent: () =>
+      import("./fixtures/toggle-deferred.js").then((module) => module.ToggleDeferred),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),

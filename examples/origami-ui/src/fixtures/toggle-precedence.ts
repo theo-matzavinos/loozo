@@ -1,5 +1,6 @@
 import { Component, Directive, Service, inject, signal } from "@angular/core";
 import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/origami-ui/toggle";
+import { injectUniqueId } from "@loozo/origami-ui/utils";
 
 // G2 precedence: whole replacement Toggle Options win over the composed Toggle's own inputs,
 // bound through the consumer's exposed host-directive inputs. Both cases share one template; only
@@ -7,16 +8,17 @@ import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/
 
 @Service({ autoProvided: false })
 export class TogglePrecedenceSettings {
-  readonly pressed = signal(true);
+  readonly checked = signal(true);
   readonly disabled = signal(false);
   readonly focusableWhenDisabled = signal(false);
+  readonly id = signal(injectUniqueId("precedence-toggle"));
 }
 
 @Directive({
   selector: "button[precedenceFactoryToggle]",
   exportAs: "precedenceFactoryToggle",
   hostDirectives: [
-    { directive: OrigamiToggle, inputs: ["pressed", "disabled"], outputs: ["pressedChange"] },
+    { directive: OrigamiToggle, inputs: ["checked", "disabled"], outputs: ["checkedChange"] },
   ],
   providers: [OrigamiToggleOptions.provideFactory(() => inject(TogglePrecedenceSettings))],
 })
@@ -28,15 +30,16 @@ export class PrecedenceFactoryToggle {
   selector: "button[precedenceExistingToggle]",
   exportAs: "precedenceExistingToggle",
   hostDirectives: [
-    { directive: OrigamiToggle, inputs: ["pressed", "disabled"], outputs: ["pressedChange"] },
+    { directive: OrigamiToggle, inputs: ["checked", "disabled"], outputs: ["checkedChange"] },
   ],
   providers: [OrigamiToggleOptions.provideExisting(() => PrecedenceExistingToggle)],
 })
 export class PrecedenceExistingToggle implements OrigamiToggleOptions {
   readonly #settings = inject(TogglePrecedenceSettings);
-  readonly pressed = this.#settings.pressed;
+  readonly checked = this.#settings.checked;
   readonly disabled = this.#settings.disabled;
   readonly focusableWhenDisabled = this.#settings.focusableWhenDisabled;
+  readonly id = this.#settings.id;
   readonly state = inject(OrigamiToggleState);
 }
 
@@ -50,16 +53,16 @@ export class ToggleProbe {
 function toggleTemplate(prefix: "precedenceFactoryToggle" | "precedenceExistingToggle"): string {
   return `
   <button ${prefix} #consumer="${prefix}"
-    [pressed]="false" [disabled]="true" data-role="toggle" (pressedChange)="outputs.update(increment)">
+    [checked]="false" [disabled]="true" data-role="toggle" (checkedChange)="outputs.update(increment)">
     <span toggleProbe #probe="toggleProbe">Bold</span>
   </button>
   <button ogToggle #independent="ogToggle" data-role="independent-toggle">Independent</button>
-  <output data-role="pressed">{{ consumer.state.pressed() }}</output>
+  <output data-role="checked">{{ consumer.state.checked() }}</output>
   <output data-role="disabled">{{ consumer.state.disabled() }}</output>
   <output data-role="shared">{{ consumer.state === probe.state }}</output>
   <output data-role="independent">{{ consumer.state !== independent.state }}</output>
   <button type="button" data-role="disable" (click)="settings.disabled.set(!settings.disabled())">Disable</button>
-  <button type="button" data-role="external" (click)="settings.pressed.set(!settings.pressed())">External intent</button>
+  <button type="button" data-role="external" (click)="settings.checked.set(!settings.checked())">External intent</button>
   <output data-role="outputs">{{ outputs() }}</output>
 `;
 }

@@ -23,9 +23,9 @@ const storageKey = "loozo-docs-theme";
         ogTooltipTrigger
         class="theme-toggle"
         aria-label="Dark theme"
-        [pressed]="dark()"
+        [checked]="dark()"
         [disabled]="!known()"
-        (pressedChange)="choose($event)"
+        (checkedChange)="choose($event)"
       >
         <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="16" height="16">
           <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5" />

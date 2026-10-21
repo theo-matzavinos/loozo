@@ -8,6 +8,7 @@ import {
   OrigamiFieldLabel,
 } from "@loozo/origami-ui/field";
 import { OrigamiSwitch } from "@loozo/origami-ui/switch";
+import { OrigamiToggle } from "@loozo/origami-ui/toggle";
 import {
   OrigamiTooltip,
   OrigamiTooltipContent,
@@ -102,6 +103,26 @@ const coApplied = `
   </div>
   <div ogField>
     <span ogTooltip [openDelay]="0">
+      <button
+        ogTooltipTrigger
+        ogToggle
+        data-testid="field-toggle"
+        aria-describedby="static-note"
+      >
+        B
+      </button>
+      @if (contentMounted()) {
+        <span ogTooltipContent [id]="order + '-field-toggle-tip'">Toggle tip</span>
+      }
+    </span>
+    <label ogFieldLabel>Field toggle</label>
+    <p ogFieldDescription [id]="order + '-field-toggle-description'">Toggle description</p>
+    @if (errorMounted()) {
+      <p ogFieldError [id]="order + '-field-toggle-error'">Toggle error</p>
+    }
+  </div>
+  <div ogField>
+    <span ogTooltip [openDelay]="0">
       <input
         ogTooltipTrigger
         ogFieldControl
@@ -141,6 +162,7 @@ abstract class CoApplied {
     OrigamiTooltipContent,
     OrigamiCheckbox,
     OrigamiSwitch,
+    OrigamiToggle,
     OrigamiField,
     OrigamiFieldControl,
     OrigamiFieldLabel,
@@ -160,6 +182,7 @@ export class TooltipFirst extends CoApplied {
   imports: [
     OrigamiCheckbox,
     OrigamiSwitch,
+    OrigamiToggle,
     OrigamiField,
     OrigamiFieldControl,
     OrigamiFieldLabel,

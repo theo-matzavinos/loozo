@@ -772,6 +772,8 @@ async function expectServerToggleGroups(page: Page, labels: string[]): Promise<v
       await expect(item).toHaveAttribute("type", "button");
     }
 
+    await expect(end).toHaveAttribute("id", `hydration-align-end-${label}`);
+    await expect(start).toHaveAttribute("id", /^og-toggle-group-item-s\d+$/);
     await expect(end).toHaveAttribute("aria-pressed", "false");
     await expect(underline).toHaveAttribute("aria-pressed", "false");
     await expect(underline).not.toHaveAttribute("data-pressed", /.*/);
@@ -802,7 +804,7 @@ async function expectServerToggleGroups(page: Page, labels: string[]): Promise<v
   }
 }
 
-test("U6 H1 H2 H3: ToggleGroup server pressed state and DOM-order tab stop survive hydration; a click after attachment or replay presses once", async ({
+test("U6 H1 H2 H3: ToggleGroup server pressed state, item IDs and DOM-order tab stop survive hydration; a click after attachment or replay presses once", async ({
   page,
 }, info) => {
   const incremental = info.project.metadata.hydration === "incremental";
@@ -814,6 +816,8 @@ test("U6 H1 H2 H3: ToggleGroup server pressed state and DOM-order tab stop survi
 
     const b = page.locator('[data-unit="B"]');
     const underline = b.getByTestId("hydration-mark-underline");
+    const start = b.getByTestId("hydration-align-start");
+    const serverStartId = await start.getAttribute("id");
 
     if (incremental) {
       // Holds B's genuine deferred dependency so the initiating click must be replayed.
@@ -861,6 +865,12 @@ test("U6 H1 H2 H3: ToggleGroup server pressed state and DOM-order tab stop survi
     await expect(b.getByTestId("hydration-mark-bold")).toHaveAttribute("aria-pressed", "true");
     await expect(b.getByTestId("hydration-mark-italic")).toHaveAttribute("aria-pressed", "true");
     await assertReferences(page, info);
+    // Hydration adopted the generated item ID and kept the bound one.
+    await expect(start).toHaveAttribute("id", serverStartId ?? "");
+    await expect(b.getByTestId("hydration-align-end")).toHaveAttribute(
+      "id",
+      "hydration-align-end-B",
+    );
     await b.getByTestId("hydration-mark-bold").click();
     await expect(b.getByTestId("mark-output-count")).toHaveText("2");
     await expect(b.getByTestId("hydration-mark-bold")).toHaveAttribute("aria-pressed", "false");
@@ -1851,6 +1861,106 @@ test("J6 W6 H1 H2 H3: Checkbox and Switch role, aria-checked, IDs, the Label's f
     await expect(toggle).toHaveAccessibleDescription("About your orders.");
     await checkbox.click();
     await expect(value).toHaveText("false");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
+/** Toggle Fields as rendered: `aria-pressed`, ID, the Label's `for` and `aria-describedby`. */
+async function expectServerToggleFields(
+  page: Page,
+  labels: string[],
+): Promise<Map<string, string | null>> {
+  const ids = new Map<string, string | null>();
+
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const toggle = unit.getByTestId("hydration-field-toggle");
+    const id = await toggle.getAttribute("id");
+
+    expect(id).toMatch(/\S/);
+    await expect(toggle).toHaveAttribute("type", "button");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(unit.getByTestId("hydration-toggle-label")).toHaveAttribute("for", id ?? "");
+    await expect(toggle).toHaveAttribute(
+      "aria-describedby",
+      (await unit.getByTestId("hydration-toggle-description").getAttribute("id")) ?? "",
+    );
+    await expect(unit.getByTestId("hydration-toggle-field")).toHaveAttribute("data-required", "");
+
+    // ARIA doesn't support these on a button; the Field's data attributes carry them.
+    for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+      await expect(toggle).not.toHaveAttribute(attribute, /.*/);
+    }
+
+    ids.set(label, id);
+  }
+
+  return ids;
+}
+
+test("G8 H1 H2 H3: a Toggle's ID, the Label's for and its aria-describedby inside a Field are in server HTML and adopted by hydration; a click after attachment or replay writes the form model once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const server = await expectServerToggleFields(page, ["A", "B", "C"]);
+    const b = page.locator('[data-unit="B"]');
+    const toggle = b.getByTestId("hydration-field-toggle");
+    const value = b.getByTestId("hydration-toggle-value");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await toggle.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(value).toHaveText("false");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      await toggle.click();
+    }
+
+    await expect(value).toHaveText("true");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await assertReferences(page, info);
+
+    // Hydration adopted the server IDs; the other units are unchanged.
+    expect(server.get("B")).toEqual(await toggle.getAttribute("id"));
+    await expectServerToggleFields(page, ["A", "C"]);
+    await expect(toggle).toHaveAccessibleName("Bold headings");
+    await expect(toggle).toHaveAccessibleDescription("Headings need emphasis.");
+    await toggle.click();
+    await expect(value).toHaveText("false");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
   } finally {
     releaseMain();
     releaseLazy();

@@ -120,8 +120,8 @@ export class AccordionObservation {
 
     <button
       ogToggle
-      [(pressed)]="pressed"
-      (pressedChange)="pressedOutputs.update(increment)"
+      [(checked)]="pressed"
+      (checkedChange)="pressedOutputs.update(increment)"
       data-testid="hydration-toggle"
     >
       Toggle server pressed

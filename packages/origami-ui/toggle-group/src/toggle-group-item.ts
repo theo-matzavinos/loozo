@@ -12,15 +12,20 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
-import { OrigamiToggle, OrigamiToggleOptions, OrigamiToggleState } from "@loozo/origami-ui/toggle";
-import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
+import {
+  OrigamiToggle,
+  OrigamiToggleOptions,
+  OrigamiToggleState,
+  ɵOrigamiToggleNotFormControl,
+} from "@loozo/origami-ui/toggle";
+import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
 import { ToggleGroupContext } from "./toggle-group";
 
 /**
  * Effective item configuration. It also drives the composed Toggle, so replacing only these
- * Options sets the item's pressed, disabled and focusable state without lower Options. Other items read it
- * only once the item has registered with the roving focus in `ngOnInit`, after Angular set its
- * inputs, so replacement Options may use required inputs.
+ * Options sets the item's checked (pressed), disabled, focusable state and ID without lower Options.
+ * Other items read it only once the item has registered with the roving focus in `ngOnInit`,
+ * after Angular set its inputs, so replacement Options may use required inputs.
  */
 export abstract class OrigamiToggleGroupItemOptions {
   /** The value this item presses in its group. */
@@ -37,6 +42,8 @@ export abstract class OrigamiToggleGroupItemOptions {
    * Default false.
    */
   abstract readonly focusableWhenDisabled: Signal<boolean>;
+  /** The item's ID, which the composed Toggle binds as the button's host `id`. */
+  abstract readonly id: Signal<string>;
 
   /**
    * Replaces item Options with an existing compatible concrete or abstract provider.
@@ -52,8 +59,8 @@ export abstract class OrigamiToggleGroupItemOptions {
 
   /**
    * Replaces all item Options with a structurally compatible result.
-   * @param factory - Executes in Angular injection context; supply value, disabled and
-   *   focusableWhenDisabled.
+   * @param factory - Executes in Angular injection context; supply value, disabled,
+   *   focusableWhenDisabled and id.
    * @returns A local provider; unused directive defaults are not merged into the result.
    */
   static provideFactory(factory: () => OrigamiToggleGroupItemOptions): Provider {
@@ -70,14 +77,15 @@ class ToggleGroupItemContext {
   readonly value = computed(() => this.#item().value());
   readonly disabled = computed(() => this.#root.disabled() || this.#item().disabled());
   readonly focusableWhenDisabled = computed(() => this.#item().focusableWhenDisabled());
-  // Toggle writes become group requests; a rejected request writes nothing, so pressed state never runs ahead of the group.
-  readonly pressed = linkedSignal(() => this.#root.selected(this.#item().value()), {
-    set: (pressed) => {
+  // Toggle writes become group requests; a rejected request writes nothing, so checked state never runs ahead of the group.
+  readonly checked = linkedSignal(() => this.#root.selected(this.#item().value()), {
+    set: (checked) => {
       if (!this.#destroyed && !this.disabled()) {
-        this.#root.request(this.#item().value(), pressed);
+        this.#root.request(this.#item().value(), checked);
       }
     },
   });
+  readonly id = computed(() => this.#item().id());
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -92,8 +100,10 @@ class ToggleGroupItemContext {
  * composed `ogButton` `type="button"`, native `disabled`, `aria-disabled` and `data-disabled`, all
  * driven by the group. Do not also apply `ogToggle` or another button primitive. Click, Enter or Space requests a press
  * once under the root's policy; a rejected request writes nothing and leaves `aria-pressed`
- * unchanged. After Toggle's request, a click focuses the item if it is still mounted and enabled,
- * so it becomes the roving position in every engine; that focus never presses. Arrow keys along
+ * unchanged. The item is not a form control: it never joins an `ogField` and keeps a static
+ * `aria-describedby`. Toggle binds the item's effective `id`. After Toggle's request, a click
+ * focuses the item if it is still mounted and enabled, so it becomes the roving position in every
+ * engine; that focus never presses. Arrow keys along
  * the effective orientation (horizontal arrows follow reading direction), Home and End move focus
  * among enabled items in DOM order, wrapping at the ends, and never press. One item is the tab
  * stop (`tabindex="0"`): the focused one, else the first enabled pressed one, else the first
@@ -117,11 +127,13 @@ class ToggleGroupItemContext {
       const item = inject(ToggleGroupItemContext);
 
       return {
-        pressed: item.pressed,
+        checked: item.checked,
         disabled: item.disabled,
         focusableWhenDisabled: item.focusableWhenDisabled,
+        id: item.id,
       };
     }),
+    { provide: ɵOrigamiToggleNotFormControl, useValue: true },
   ],
   host: {
     "[attr.tabindex]": "tabIndex()",
@@ -141,8 +153,10 @@ export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
   readonly disabled = input(false, { transform: booleanAttribute });
   /** Own input keeping the disabled item focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
   readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
+  /** Own ID input, default a generated opaque hosted identity, stable across hydration. Static/bound IDs drive default Options; replacements supply the effective ID. */
+  readonly id = input(injectUniqueId("toggle-group-item"));
   /**
-   * This item's readonly observation, from its composed Toggle: `pressed` follows the group's
+   * This item's readonly observation, from its composed Toggle: `checked` follows the group's
    * value, and `disabled` is the item's effective disabled state, the root's or its own.
    */
   readonly state = inject(OrigamiToggleState);
