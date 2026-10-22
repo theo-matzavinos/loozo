@@ -2,7 +2,8 @@ import { InjectionToken } from "@angular/core";
 
 /**
  * @internal A native presentation as its dismissal layer and its presentation children read it.
- * `ɵOrigamiFloating` implements it for Popover and Tooltip Content.
+ * `ɵOrigamiFloating` implements it for Popover and Tooltip Content, and Dialog Content's modal
+ * session for Dialog.
  */
 export interface ɵOrigamiPresentation {
   /** Stacking order of the current activation, -1 without one. */
@@ -52,10 +53,11 @@ export interface ɵOrigamiPresentationChild {
 }
 
 /**
- * @internal The presentation of the Content an owner sits inside. Popover Content provides its
- * owner's, so a Tooltip whose root is inside that Content names it as its presentation parent at
- * construction and presents only while that Popover does. Popover never reads it: a nested
- * Popover takes its parent from the parent `PopoverContext`.
+ * @internal The presentation of the Popover Content an owner sits inside, by DI. Popover Content
+ * provides its owner's, so a Tooltip whose root is inside that Content presents only while that
+ * Popover does. Popover never reads it: a nested Popover takes its parent from the parent
+ * `PopoverContext`. Without either, a Popover or Tooltip presents under its modal scope's
+ * presentation (`ɵOrigamiLayer.scope()`), a Dialog's modal session, found from the DOM.
  */
 export const ɵOrigamiPresentationScope = new InjectionToken<ɵOrigamiPresentation>(
   "ɵOrigamiPresentationScope",

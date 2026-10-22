@@ -120,6 +120,7 @@ import { OrigamiFieldLabelOptions, OrigamiFieldControlOptions, OrigamiFieldDescr
 import * as fieldEntry from '@loozo/origami-ui/field';
 import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origami-ui/checkbox';
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
+import { OrigamiDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, type OrigamiDialogState, type OrigamiDialogContentState } from '@loozo/origami-ui/dialog';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -287,6 +288,22 @@ declare const switchState: OrigamiSwitchState;
 switchState.disabled.set(true);
 // @ts-expect-error Switch State has no touch event
 void switchState.touch;
+// @ts-expect-error Dialog open must be writable
+OrigamiDialogOptions.provideFactory(() => ({open: computed(() => false), dismissible: signal(true)}));
+// @ts-expect-error a Dialog factory must supply dismissible
+OrigamiDialogOptions.provideFactory(() => ({open: signal(false)}));
+// @ts-expect-error Dialog Content returnFocus is an element or null
+OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters'), returnFocus: signal('trigger')}));
+// @ts-expect-error a Dialog Content factory must supply returnFocus
+OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters')}));
+// @ts-expect-error a Dialog Close factory must supply focusableWhenDisabled
+OrigamiDialogCloseOptions.provideFactory(() => ({disabled: signal(false)}));
+declare const dialogState: OrigamiDialogState;
+// @ts-expect-error Dialog State open is readonly
+dialogState.open.set(true);
+declare const dialogContentState: OrigamiDialogContentState;
+// @ts-expect-error Dialog Content State has no public Presence phase alias
+void dialogContentState.phase;
 // @ts-expect-error RadioGroup value must be writable
 OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
 // @ts-expect-error RadioGroup value is a nullable string
@@ -334,6 +351,10 @@ OrigamiTooltipOptions.provideExisting(() => WrongTooltip);
 OrigamiCheckboxOptions.provideExisting(() => WrongBooleanControl);
 // @ts-expect-error incompatible existing Switch class
 OrigamiSwitchOptions.provideExisting(() => WrongBooleanControl);
+// @ts-expect-error incompatible existing Dialog Title class
+OrigamiDialogTitleOptions.provideExisting(() => WrongIdentity);
+// @ts-expect-error incompatible existing Dialog Trigger class
+OrigamiDialogTriggerOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Field Description class
 OrigamiFieldDescriptionOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Field Error class
@@ -502,6 +523,15 @@ export const providers: Provider[] = [
   OrigamiCheckboxOptions.provideExisting(() => AbstractBooleanControl),
   OrigamiSwitchOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(true), id: computed(() => 'notify')})),
   OrigamiSwitchOptions.provideExisting(() => AbstractBooleanControl),
+  OrigamiDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => true)})),
+  OrigamiDialogTriggerOptions.provideFactory(() => ({id: signal('filters-trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
+  OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters'), returnFocus: signal<HTMLElement | null>(null)})),
+  OrigamiDialogTitleOptions.provideFactory(() => ({id: signal('filters-title')})),
+  OrigamiDialogTitleOptions.provideExisting(() => AbstractIdentity),
+  OrigamiDialogDescriptionOptions.provideFactory(() => ({id: computed(() => 'filters-description')})),
+  OrigamiDialogDescriptionOptions.provideExisting(() => AbstractIdentity),
+  OrigamiDialogCloseOptions.provideFactory(() => ({disabled: signal(false), focusableWhenDisabled: signal(true)})),
+  OrigamiDialogCloseOptions.provideExisting(() => AbstractButton),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -647,6 +677,18 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   wrongOutput(value: string): void { void value; }
   observeCheckbox(state: OrigamiCheckboxState): void { void state; }
   observeSwitch(state: OrigamiSwitchState): void { void state; }
+  observeString(value: string): void { void value; }`,
+  },
+  dialog: {
+    imports: `import { OrigamiDialog, OrigamiDialogTrigger, OrigamiDialogContent, OrigamiDialogTitle, OrigamiDialogDescription, OrigamiDialogClose, OrigamiDialogState, OrigamiDialogContentState } from "@loozo/origami-ui/dialog";`,
+    directives:
+      "OrigamiDialog, OrigamiDialogTrigger, OrigamiDialogContent, OrigamiDialogTitle, OrigamiDialogDescription, OrigamiDialogClose",
+    members: `
+  readonly open = signal(false);
+  readonly wrongOpen = signal("yes");
+  openOutput(value: boolean): void { void value; }
+  observeDialog(state: OrigamiDialogState): void { void state; }
+  observeContent(state: OrigamiDialogContentState): void { void state; }
   observeString(value: string): void { void value; }`,
   },
   "radio-group": {
@@ -1146,6 +1188,41 @@ const templates = [
       code: -998002,
       span: `[checked]="true"`,
       message: /Can't bind to 'checked' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "dialog-positive",
+    family: "dialog",
+    template: `<div ogDialog #dialog="ogDialog" [(open)]="open" dismissible (openChange)="openOutput($event)"><button ogDialogTrigger id="filters-trigger" disabled focusableWhenDisabled>Filters</button><dialog ogDialogContent #content="ogDialogContent" [returnFocus]="null" (close)="observeDialog(dialog.state); observeContent(content.state)"><h2 ogDialogTitle id="filters-title">Filters</h2><p ogDialogDescription>Narrow the list.</p><button ogDialogClose disabled focusableWhenDisabled>Done</button></dialog></div>`,
+  },
+  {
+    name: "dialog-model",
+    family: "dialog",
+    template: `<div ogDialog [(open)]="wrongOpen"></div>`,
+    expected: {
+      code: 2322,
+      span: "open",
+      message: /Type 'string' is not assignable to type 'boolean'/,
+    },
+  },
+  {
+    name: "dialog-content-state",
+    family: "dialog",
+    template: `<div ogDialog><dialog ogDialogContent #content="ogDialogContent" (close)="observeString(content.state)"></dialog></div>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message: /'OrigamiDialogContentState' is not assignable to parameter of type 'string'/,
+    },
+  },
+  {
+    name: "dialog-content-host",
+    family: "dialog",
+    template: `<div ogDialog><div ogDialogContent [returnFocus]="null"></div></div>`,
+    expected: {
+      code: -998002,
+      span: `[returnFocus]="null"`,
+      message: /Can't bind to 'returnFocus' since it isn't a known property of 'div'/,
     },
   },
   {

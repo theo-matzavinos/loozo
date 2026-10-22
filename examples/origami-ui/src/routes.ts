@@ -48,6 +48,16 @@ export const routes: Routes = [
       import("./fixtures/group-field-deferred.js").then((module) => module.GroupFieldDeferred),
   },
   {
+    path: "dialog",
+    loadComponent: () =>
+      import("./fixtures/dialog-deferred.js").then((module) => module.DialogDeferred),
+  },
+  {
+    path: "dialog-open",
+    loadComponent: () =>
+      import("./fixtures/dialog-open-deferred.js").then((module) => module.DialogOpenDeferred),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),

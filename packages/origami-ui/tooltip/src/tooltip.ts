@@ -77,6 +77,7 @@ type Parts = { readonly trigger: TriggerPart | null; readonly content: ContentPa
 @Service({ autoProvided: false })
 export class TooltipContext {
   readonly #options = injectDeferred(OrigamiTooltipOptions);
+  readonly #popoverPresentation = inject(ɵOrigamiPresentationScope, { optional: true });
   readonly #trigger = signal<TriggerPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
 
@@ -90,7 +91,8 @@ export class TooltipContext {
   }));
   /**
    * Native presentation of Content against the Trigger. Inside Popover Content it presents only
-   * while that Popover does; elsewhere it has no presentation parent.
+   * while that Popover does; otherwise only while its modal scope does, the Dialog whose
+   * `<dialog>` contains its parts; elsewhere it has no presentation parent.
    */
   readonly floating: ɵOrigamiFloating = new ɵOrigamiFloating({
     label: "Tooltip",
@@ -106,7 +108,7 @@ export class TooltipContext {
         complete: parts.trigger !== null && parts.content !== null,
       };
     }),
-    parent: inject(ɵOrigamiPresentationScope, { optional: true }),
+    parent: () => this.#popoverPresentation ?? this.layer.scope()?.presentation ?? null,
     nextOrder: () => this.layer.nextOrder(),
     closed: (previous) => this.interaction.closed(previous),
   });
@@ -116,6 +118,8 @@ export class TooltipContext {
     revision: this.parts,
     dismissible: computed(() => true),
     parent: null,
+    modal: null,
+    joinsModalBranch: false,
     presentation: this.floating,
     containsTarget: (target) => {
       for (const part of [this.#trigger(), this.#content()]) {
@@ -128,6 +132,17 @@ export class TooltipContext {
     },
     // Content is non-interactive and a Tooltip has no branch descendants.
     containsFocus: () => false,
+    elements: () => {
+      const elements: HTMLElement[] = [];
+
+      for (const part of [this.#trigger(), this.#content()]) {
+        if (part !== null) {
+          elements.push(part.element);
+        }
+      }
+
+      return elements;
+    },
     closeFromInteraction: () => {
       this.floating.closeFromInteraction(() => this.#options().open.set(false));
     },

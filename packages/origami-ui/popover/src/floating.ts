@@ -57,8 +57,12 @@ export interface ɵOrigamiFloatingHost {
   readonly intent: Signal<ɵOrigamiIntent>;
   /** A new object exactly when a part changes; an activation belongs to the parts it started with. */
   readonly parts: Signal<ɵOrigamiFloatingParts>;
-  /** Presentation parent: presents only after it reveals; suppressed while it can't present. */
-  readonly parent: ɵOrigamiPresentation | null;
+  /**
+   * Resolves the presentation parent: it presents only after the parent reveals, and is suppressed
+   * while the parent can't present. Called each time the presentation synchronizes (effects, after
+   * render, events), never during render; the result stands until the next synchronization.
+   */
+  parent(): ɵOrigamiPresentation | null;
   /** Allocates the stacking order at a successful native activation. */
   nextOrder(): number;
   /**
@@ -98,7 +102,8 @@ type PositionResult = PositionSnapshot & { readonly x: number; readonly y: numbe
  */
 export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresentationChild {
   readonly #host: ɵOrigamiFloatingHost;
-  readonly #parent: ɵOrigamiPresentation | null;
+  // The parent last resolved, whose child this is. Render reads only this, never the resolver.
+  readonly #parent = signal<ɵOrigamiPresentation | null>(null);
   readonly #changeDetector = inject(ChangeDetectorRef);
   readonly #errorHandler = inject(ErrorHandler);
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
@@ -148,14 +153,9 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
 
   constructor(host: ɵOrigamiFloatingHost) {
     this.#host = host;
-    this.#parent = host.parent;
     this.#preparation = new FloatingPreparation(
       injectUniqueValue(`${host.label.toLowerCase()}-preparation`),
     );
-
-    if (this.#parent !== null) {
-      this.#parent.addChild(this);
-    }
 
     effect(() => {
       this.#pulse();
@@ -163,9 +163,11 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
       this.#host.parts();
       this.#configuration();
 
-      if (this.#parent !== null) {
-        this.#parent.ready();
-        this.#parent.requested();
+      const parent = this.#parent();
+
+      if (parent !== null) {
+        parent.ready();
+        parent.requested();
       }
 
       this.#content()?.presence.phase();
@@ -184,11 +186,7 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
   /** Called last in the owner's teardown: leaves the parent and hides without exit retention. */
   destroy(): void {
     this.#destroyed = true;
-
-    if (this.#parent !== null) {
-      this.#parent.removeChild(this);
-    }
-
+    untracked(this.#parent)?.removeChild(this);
     this.suppress();
   }
 
@@ -286,18 +284,21 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
   }
 
   #ancestorsRequested(): boolean {
-    return this.#parent === null || this.#parent.requested();
+    const parent = this.#parent();
+
+    return parent === null || parent.requested();
   }
 
   /** Requested, its parts complete and its parent ready and presenting. */
   canPresent(): boolean {
     const parts = this.#host.parts();
+    const parent = this.#parent();
 
     return (
       !this.#destroyed &&
       this.#desired() &&
       parts.complete &&
-      (this.#parent === null || (this.#parent.ready() && this.#parent.canPresent()))
+      (parent === null || (parent.ready() && parent.canPresent()))
     );
   }
 
@@ -305,6 +306,8 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
     if (this.#destroyed) {
       return;
     }
+
+    this.#resolveParent();
 
     const intent = this.#host.intent();
     const previous = this.#seenIntent;
@@ -347,16 +350,29 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
     }
 
     const missing = !this.#host.parts().complete;
+    const parent = this.#parent();
     const parentSuppressed =
-      this.#parent !== null &&
-      !this.#parent.canPresent() &&
-      (this.#desired() || !this.#parent.retainingExit());
+      parent !== null && !parent.canPresent() && (this.#desired() || !parent.retainingExit());
     const activation = this.#activation;
     const replaced = activation !== null && !this.#ownsActivation(activation);
 
     if (!this.#server && (missing || parentSuppressed || replaced)) {
       this.suppress();
     }
+  }
+
+  /** Becomes the child of the parent the host resolves now, leaving the previous one. */
+  #resolveParent(): void {
+    const parent = this.#host.parent();
+    const previous = untracked(this.#parent);
+
+    if (parent === previous) {
+      return;
+    }
+
+    previous?.removeChild(this);
+    parent?.addChild(this);
+    this.#parent.set(parent);
   }
 
   retainingExit(): boolean {
@@ -416,11 +432,13 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
   }
 
   #parentRevision(): number {
-    if (this.#parent === null) {
+    const parent = this.#parent();
+
+    if (parent === null) {
       return 0;
     }
 
-    return this.#parent.epoch();
+    return parent.epoch();
   }
 
   #grantParticipation(activation: Activation): void {

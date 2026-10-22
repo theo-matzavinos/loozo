@@ -120,6 +120,22 @@ export const inventory = {
   ],
   checkbox: ["OrigamiCheckbox", "OrigamiCheckboxOptions", "OrigamiCheckboxState"],
   switch: ["OrigamiSwitch", "OrigamiSwitchOptions", "OrigamiSwitchState"],
+  dialog: [
+    "OrigamiDialog",
+    "OrigamiDialogOptions",
+    "OrigamiDialogState",
+    "OrigamiDialogTrigger",
+    "OrigamiDialogTriggerOptions",
+    "OrigamiDialogContent",
+    "OrigamiDialogContentOptions",
+    "OrigamiDialogContentState",
+    "OrigamiDialogTitle",
+    "OrigamiDialogTitleOptions",
+    "OrigamiDialogDescription",
+    "OrigamiDialogDescriptionOptions",
+    "OrigamiDialogClose",
+    "OrigamiDialogCloseOptions",
+  ],
 };
 
 export const typeOnly = new Set([

@@ -13,14 +13,31 @@ export interface ɵOrigamiLayerHost {
   readonly revision: Signal<object>;
   /** User-dismissal permission, captured in a branch snapshot for the veto preflight. */
   readonly dismissible: Signal<boolean>;
-  /** Dismissal-branch parent; a nested descendant counts as inside it. */
+  /** Dismissal-branch parent by DI, the parent Popover's; a nested descendant counts as inside it. */
   readonly parent: ɵOrigamiLayer | null;
+  /**
+   * A modal owner's (Dialog Content's) `<dialog>`, null for a non-modal one. It registers as a
+   * modal scope at construction. A modal owner defers an outside gesture to its branch: while a
+   * branch descendant participates, the gesture dismisses only those and leaves it open. While it
+   * is the newest participating modal owner, Escape and close requests consider only the layers
+   * inside it.
+   */
+  readonly modal: Element | null;
+  /**
+   * Whether, without a `parent`, this layer joins the branch of its modal scope (`scope()`): it
+   * counts as inside that Dialog, closes before it when its branch is dismissed, and the Dialog
+   * defers a backdrop gesture to it while it participates. A Popover joins; a Tooltip and a
+   * Dialog don't.
+   */
+  readonly joinsModalBranch: boolean;
   /** The owner's presentation: participation, order, activation, epoch and readiness. */
   readonly presentation: ɵOrigamiPresentation;
-  /** Whether a composed-path node is inside one of this owner's own parts. */
-  containsTarget(target: Node): boolean;
+  /** Whether a composed-path node of the pointer `event` is inside one of this owner's own parts. */
+  containsTarget(target: Node, event: PointerEvent): boolean;
   /** Whether focus is inside this owner's own Content. */
   containsFocus(focus: Element): boolean;
+  /** This owner's registered part elements; its modal scope must contain every one of them. */
+  elements(): readonly Element[];
   /** Writes intent closed for an accepted user dismissal. */
   closeFromInteraction(): void;
   /** Restores focus after an accepted Escape or Trigger dismissal of the branch this owner owns. */
@@ -49,15 +66,20 @@ export class ɵOrigamiLayer {
   readonly parent: ɵOrigamiLayer | null;
   /** The application document `ɵOrigamiLayers` listens on and snapshots focus from. */
   readonly document: Document;
+  /** The owner's presentation, which a layer whose modal scope this is presents under. */
+  readonly presentation: ɵOrigamiPresentation;
   readonly #host: ɵOrigamiLayerHost;
   readonly #layers = inject(ɵOrigamiLayers);
-  // Branch children. Replaced on every change, never mutated: a branch snapshot compares it by identity.
+  // Branch children by DI. Replaced on every change, never mutated: a branch snapshot compares it by identity.
   readonly #children = signal<ReadonlySet<ɵOrigamiLayer>>(new Set());
+  // A modal owner's computed branch members, replaced only when they change, for the same comparison.
+  #members: ReadonlySet<ɵOrigamiLayer> = new Set();
   #destroyed = false;
 
   constructor(host: ɵOrigamiLayerHost) {
     this.#host = host;
     this.parent = host.parent;
+    this.presentation = host.presentation;
     this.document = this.#layers.document;
     this.#layers.register(this);
 
@@ -96,10 +118,19 @@ export class ɵOrigamiLayer {
     this.#layers.dismiss(this.captureBranch(), reason, bypassOwner);
   }
 
+  /**
+   * Escape's rule, the same one the document Escape handler applies: dismisses the branch of the
+   * application's most recently ordered participating layer, unless a requested-open member
+   * vetoes it. For a close request Escape doesn't dispatch, such as Dialog's native `cancel`.
+   */
+  dismissTopmost(): void {
+    this.#layers.dismissTopmost();
+  }
+
   captureBranch(): Branch {
     const members: BranchMember[] = [];
     const visit = (layer: ɵOrigamiLayer) => {
-      const children = layer.#children();
+      const children = layer.#branchChildren();
 
       for (const child of children) {
         visit(child);
@@ -127,7 +158,7 @@ export class ɵOrigamiLayer {
       !this.#destroyed &&
       this.#host.intent() === member.intent &&
       this.#host.revision() === member.revision &&
-      this.#children() === member.children &&
+      this.#branchChildren() === member.children &&
       this.#host.presentation.activation() === member.activation &&
       this.#host.presentation.epoch() === member.presentationEpoch
     );
@@ -157,20 +188,39 @@ export class ɵOrigamiLayer {
     this.#host.restoreFocus(expectedFocus);
   }
 
-  containsPath(path: EventTarget[]): boolean {
+  containsPath(path: EventTarget[], event: PointerEvent): boolean {
     for (const target of path) {
-      if (target instanceof Node && this.#host.containsTarget(target)) {
+      if (target instanceof Node && this.#host.containsTarget(target, event)) {
         return true;
       }
     }
 
-    for (const child of this.#children()) {
-      if (child.containsPath(path)) {
+    for (const child of this.#branchChildren()) {
+      if (child.containsPath(path, event)) {
         return true;
       }
     }
 
     return false;
+  }
+
+  /** A modal owner leaves an outside gesture to a participating branch descendant. */
+  defersOutside(): boolean {
+    if (this.#host.modal === null) {
+      return false;
+    }
+
+    const participating = (layer: ɵOrigamiLayer): boolean => {
+      for (const child of layer.#branchChildren()) {
+        if (child.isParticipating() || participating(child)) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    return participating(this);
   }
 
   /** Whether focus is inside this owner's Content or a branch descendant's. */
@@ -183,7 +233,7 @@ export class ɵOrigamiLayer {
       return true;
     }
 
-    for (const child of this.#children()) {
+    for (const child of this.#branchChildren()) {
       if (child.containsFocus(focus)) {
         return true;
       }
@@ -199,7 +249,7 @@ export class ɵOrigamiLayer {
   branchOrder(): number {
     let order = this.order();
 
-    for (const child of this.#children()) {
+    for (const child of this.#branchChildren()) {
       order = Math.max(order, child.branchOrder());
     }
 
@@ -209,6 +259,117 @@ export class ɵOrigamiLayer {
   isParticipating(): boolean {
     return this.#host.presentation.isParticipating();
   }
+
+  isModal(): boolean {
+    return this.#host.modal !== null;
+  }
+
+  /**
+   * Whether this owner has a registered part and every one is inside the `<dialog>` of `modal`, a
+   * modal owner, or is it, in the flat tree (`ɵflatTreeContains`).
+   */
+  isInside(modal: ɵOrigamiLayer): boolean {
+    const dialog = modal.#host.modal;
+
+    if (dialog === null) {
+      return false;
+    }
+
+    const elements = this.#host.elements();
+
+    if (elements.length === 0) {
+      return false;
+    }
+
+    for (const element of elements) {
+      if (!ɵflatTreeContains(dialog, element)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * The modal scope: the innermost registered modal owner, other than this one, whose `<dialog>`
+   * contains every part of this owner in the flat tree, or null. Computed from the DOM at each
+   * call, so read it when synchronizing or handling an event, never during render. Always null on
+   * the server.
+   */
+  scope(): ɵOrigamiLayer | null {
+    return this.#layers.scopeOf(this);
+  }
+
+  /** The DI parent, or for a layer that joins modal branches without one, its modal scope. */
+  branchParent(): ɵOrigamiLayer | null {
+    if (this.parent !== null || !this.#host.joinsModalBranch) {
+      return this.parent;
+    }
+
+    return this.scope();
+  }
+
+  /** DI children, or for a modal owner the layers whose branch parent it is now. */
+  #branchChildren(): ReadonlySet<ɵOrigamiLayer> {
+    if (this.#host.modal === null) {
+      return this.#children();
+    }
+
+    const members = this.#layers.membersOf(this);
+    let changed = members.size !== this.#members.size;
+
+    for (const member of members) {
+      if (!this.#members.has(member)) {
+        changed = true;
+
+        break;
+      }
+    }
+
+    if (changed) {
+      this.#members = members;
+    }
+
+    return this.#members;
+  }
+}
+
+/**
+ * @internal Whether `node` is `ancestor` or one of its flat-tree descendants. The walk follows the
+ * CSS flat-tree construction up from `node`: a slotted node goes to its assigned slot, a shadow
+ * root to its host, and every other node to its parent, except that a shadow host's light-DOM
+ * child no slot takes and a slot's fallback content while nodes are assigned to that slot aren't
+ * in the flat tree, so the answer is false. Native modal inertness exempts only a `<dialog>`'s
+ * flat-tree descendants, so a part in a component's shadow root inside it, or a light-DOM part
+ * slotted into a shadow root's `<dialog>`, is inside it, and a part whose ancestor lost its slot
+ * isn't.
+ */
+export function ɵflatTreeContains(ancestor: Node, node: Node): boolean {
+  for (let current: Node | null = node; current !== null;) {
+    if (current === ancestor) {
+      return true;
+    }
+
+    const slot: HTMLSlotElement | null = (current as Partial<Slottable>).assignedSlot ?? null;
+
+    if (slot !== null) {
+      current = slot;
+      continue;
+    }
+
+    const parent: ParentNode | null = current.parentNode;
+
+    if (
+      (parent instanceof Element && parent.shadowRoot !== null) ||
+      (parent instanceof HTMLSlotElement && parent.assignedNodes().length > 0)
+    ) {
+      return false;
+    }
+
+    current = parent instanceof ShadowRoot ? parent.host : parent;
+  }
+
+  return false;
 }
 
 /** @internal Application-local event ownership, not a public overlay stack or global document singleton. */
@@ -217,6 +378,8 @@ export class ɵOrigamiLayers {
   readonly document = inject(DOCUMENT);
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #layers = new Set<ɵOrigamiLayer>();
+  // The modal scopes: every registered modal owner, open or not.
+  readonly #modals = new Set<ɵOrigamiLayer>();
   readonly #pendingTasks = new Set<ReturnType<typeof setTimeout>>();
   #nextOrder = 0;
   #gesture: Gesture | null = null;
@@ -231,15 +394,7 @@ export class ɵOrigamiLayers {
         return;
       }
 
-      let topmost: ɵOrigamiLayer | null = null;
-      let order = -1;
-
-      for (const layer of this.#layers) {
-        if (layer.isParticipating() && layer.order() > order) {
-          topmost = layer;
-          order = layer.order();
-        }
-      }
+      const topmost = this.#topmost();
 
       if (topmost !== null) {
         // A veto consumes the request as well; there is no ancestor fallthrough.
@@ -258,15 +413,22 @@ export class ɵOrigamiLayers {
       const candidates = new Set<ɵOrigamiLayer>();
 
       for (const layer of this.#layers) {
-        if (layer.isParticipating() && !layer.containsPath(path)) {
+        if (layer.isParticipating() && !layer.containsPath(path, event)) {
           candidates.add(layer);
+        }
+      }
+
+      // Decided before coverage, so the deferring owner's descendants form their own branches.
+      for (const layer of [...candidates]) {
+        if (layer.defersOutside()) {
+          candidates.delete(layer);
         }
       }
 
       const branches: Branch[] = [];
 
       for (const layer of candidates) {
-        let ancestor = layer.parent;
+        let ancestor = layer.branchParent();
         let covered = false;
 
         while (ancestor !== null) {
@@ -276,7 +438,7 @@ export class ɵOrigamiLayers {
             break;
           }
 
-          ancestor = ancestor.parent;
+          ancestor = ancestor.branchParent();
         }
 
         if (!covered) {
@@ -320,7 +482,7 @@ export class ɵOrigamiLayers {
           if (
             this.#fresh(branch) &&
             branch.owner.isParticipating() &&
-            !branch.owner.containsPath(path)
+            !branch.owner.containsPath(path, event)
           ) {
             this.dismiss(branch, "outside", false);
           }
@@ -386,16 +548,86 @@ export class ɵOrigamiLayers {
 
   register(layer: ɵOrigamiLayer): void {
     this.#layers.add(layer);
+
+    if (layer.isModal()) {
+      this.#modals.add(layer);
+    }
   }
 
   unregister(layer: ɵOrigamiLayer): void {
     this.#layers.delete(layer);
+    this.#modals.delete(layer);
+  }
+
+  /** See `ɵOrigamiLayer.scope`. */
+  scopeOf(layer: ɵOrigamiLayer): ɵOrigamiLayer | null {
+    if (this.#server) {
+      return null;
+    }
+
+    let scope: ɵOrigamiLayer | null = null;
+
+    // The modals containing a layer are flat-tree ancestors of one another: keep the innermost.
+    for (const modal of this.#modals) {
+      if (modal !== layer && layer.isInside(modal) && (scope === null || modal.isInside(scope))) {
+        scope = modal;
+      }
+    }
+
+    return scope;
+  }
+
+  /** A new set of the registered layers whose branch parent is `modal` now. */
+  membersOf(modal: ɵOrigamiLayer): Set<ɵOrigamiLayer> {
+    const members = new Set<ɵOrigamiLayer>();
+
+    for (const layer of this.#layers) {
+      if (layer.branchParent() === modal) {
+        members.add(layer);
+      }
+    }
+
+    return members;
   }
 
   nextOrder(): number {
     this.#nextOrder += 1;
 
     return this.#nextOrder;
+  }
+
+  /** Escape's rule outside a keydown: see `ɵOrigamiLayer.dismissTopmost`. */
+  dismissTopmost(): void {
+    const topmost = this.#topmost();
+
+    if (topmost !== null) {
+      this.dismiss(topmost.captureBranch(), "escape", false);
+    }
+  }
+
+  /**
+   * Escape's target: the most recently ordered participating layer, a Popover, Tooltip or Dialog.
+   * While a modal Dialog participates, only the newest one and the layers inside it are eligible,
+   * as the rest of the page is inert under it, even a layer opened later.
+   */
+  #topmost(): ɵOrigamiLayer | null {
+    const modal = this.#newest((layer) => layer.isModal());
+
+    return this.#newest((layer) => modal === null || layer.isInside(modal));
+  }
+
+  #newest(eligible: (layer: ɵOrigamiLayer) => boolean): ɵOrigamiLayer | null {
+    let topmost: ɵOrigamiLayer | null = null;
+    let order = -1;
+
+    for (const layer of this.#layers) {
+      if (layer.isParticipating() && eligible(layer) && layer.order() > order) {
+        topmost = layer;
+        order = layer.order();
+      }
+    }
+
+    return topmost;
   }
 
   #fresh(branch: Branch): boolean {
@@ -409,7 +641,9 @@ export class ɵOrigamiLayers {
   }
 
   dismiss(branch: Branch, reason: "escape" | "outside" | "trigger", bypassOwner: boolean): void {
-    if (!this.#fresh(branch)) {
+    // A closed owner that still participates, a modal running its exit, consumes the request
+    // without acting on it: its suppressed members keep their requested state.
+    if (!this.#fresh(branch) || !branch.owner.intent().open) {
       return;
     }
 

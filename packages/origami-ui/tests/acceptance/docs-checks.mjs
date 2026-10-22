@@ -55,6 +55,7 @@ for (const directory of [
   "field/src",
   "checkbox/src",
   "switch/src",
+  "dialog/src",
 ]) {
   await collect(directory);
 }
@@ -167,6 +168,17 @@ const directiveDefaults = {
   "OrigamiSwitch.disabled": ["false", /\bfalse\b/i],
   "OrigamiSwitch.focusableWhenDisabled": ["false", /\bfalse\b/i],
   "OrigamiSwitch.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDialog.open": ["false", /\bfalse\b/i],
+  "OrigamiDialog.dismissible": ["true", /\btrue\b/i],
+  "OrigamiDialogTrigger.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDialogTrigger.disabled": ["false", /\bfalse\b/i],
+  "OrigamiDialogTrigger.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiDialogContent.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDialogContent.returnFocus": ["null", /\bnull\b/i],
+  "OrigamiDialogTitle.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDialogDescription.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDialogClose.disabled": ["false", /\bfalse\b/i],
+  "OrigamiDialogClose.focusableWhenDisabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];
