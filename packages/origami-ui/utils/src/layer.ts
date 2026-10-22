@@ -1,7 +1,10 @@
 import { DestroyRef, DOCUMENT, PLATFORM_ID, Service, inject, signal } from "@angular/core";
 import type { Signal } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
-import type { ɵOrigamiFloating, ɵOrigamiIntent } from "./floating";
+import type { ɵOrigamiPresentation } from "./presentation";
+
+/** @internal Identity-compared requested intent; a new object for each effective decision. */
+export type ɵOrigamiIntent = { readonly open: boolean };
 
 /** @internal What an owner supplies to its dismissal layer. Signals are read lazily, after construction. */
 export interface ɵOrigamiLayerHost {
@@ -12,13 +15,13 @@ export interface ɵOrigamiLayerHost {
   readonly dismissible: Signal<boolean>;
   /** Dismissal-branch parent; a nested descendant counts as inside it. */
   readonly parent: ɵOrigamiLayer | null;
-  /** The owner's floating presentation: participation, order, activation, epoch and readiness. */
-  readonly floating: ɵOrigamiFloating;
+  /** The owner's presentation: participation, order, activation, epoch and readiness. */
+  readonly presentation: ɵOrigamiPresentation;
   /** Whether a composed-path node is inside one of this owner's own parts. */
   containsTarget(target: Node): boolean;
   /** Whether focus is inside this owner's own Content. */
   containsFocus(focus: Element): boolean;
-  /** Writes intent closed for an accepted user dismissal, through `floating.closeFromInteraction`. */
+  /** Writes intent closed for an accepted user dismissal. */
   closeFromInteraction(): void;
   /** Restores focus after an accepted Escape or Trigger dismissal of the branch this owner owns. */
   restoreFocus(expectedFocus: Element | null): void;
@@ -39,8 +42,8 @@ type Gesture = { readonly event: PointerEvent; readonly branches: Branch[]; canc
 
 /**
  * @internal One owner's participation in Escape order and outside-pointer dismissal. An owner
- * constructs it in its injection context after its floating piece and calls `destroy()` from its
- * own teardown, before the floating piece's.
+ * constructs it in its injection context after its presentation and calls `destroy()` from its
+ * own teardown, before the presentation's.
  */
 export class ɵOrigamiLayer {
   readonly parent: ɵOrigamiLayer | null;
@@ -83,7 +86,7 @@ export class ɵOrigamiLayer {
     return this.#host.intent();
   }
 
-  /** Allocates the stacking order for the owner's floating piece. */
+  /** Allocates the stacking order for the owner's presentation. */
   nextOrder(): number {
     return this.#layers.nextOrder();
   }
@@ -108,9 +111,9 @@ export class ɵOrigamiLayer {
         revision: layer.#host.revision(),
         dismissible: layer.#host.dismissible(),
         children,
-        activation: layer.#host.floating.activation(),
-        presentationEpoch: layer.#host.floating.epoch(),
-        ready: layer.#host.floating.ready(),
+        activation: layer.#host.presentation.activation(),
+        presentationEpoch: layer.#host.presentation.epoch(),
+        ready: layer.#host.presentation.ready(),
       });
     };
 
@@ -125,8 +128,8 @@ export class ɵOrigamiLayer {
       this.#host.intent() === member.intent &&
       this.#host.revision() === member.revision &&
       this.#children() === member.children &&
-      this.#host.floating.activation() === member.activation &&
-      this.#host.floating.epoch() === member.presentationEpoch
+      this.#host.presentation.activation() === member.activation &&
+      this.#host.presentation.epoch() === member.presentationEpoch
     );
   }
 
@@ -137,7 +140,7 @@ export class ɵOrigamiLayer {
       expectedEpoch += 1;
     }
 
-    if (this.#host.floating.epoch() !== expectedEpoch) {
+    if (this.#host.presentation.epoch() !== expectedEpoch) {
       return false;
     }
 
@@ -190,7 +193,7 @@ export class ɵOrigamiLayer {
   }
 
   order(): number {
-    return this.#host.floating.order();
+    return this.#host.presentation.order();
   }
 
   branchOrder(): number {
@@ -204,7 +207,7 @@ export class ɵOrigamiLayer {
   }
 
   isParticipating(): boolean {
-    return this.#host.floating.isParticipating();
+    return this.#host.presentation.isParticipating();
   }
 }
 

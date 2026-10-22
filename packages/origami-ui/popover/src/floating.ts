@@ -1,7 +1,6 @@
 import {
   ChangeDetectorRef,
   ErrorHandler,
-  InjectionToken,
   PLATFORM_ID,
   afterEveryRender,
   computed,
@@ -19,12 +18,14 @@ import type {
   ɵOrigamiPresenceTransition,
 } from "@loozo/origami-ui/presence";
 import { injectUniqueValue } from "@loozo/origami-ui/utils";
+import type {
+  ɵOrigamiIntent,
+  ɵOrigamiPresentation,
+  ɵOrigamiPresentationChild,
+} from "@loozo/origami-ui/utils";
 import { positionContent } from "./floating-position";
 import type { PositionAxes, PositionConfiguration } from "./floating-position";
 import { FloatingPreparation } from "./floating-preparation";
-
-/** @internal Identity-compared requested intent; a new object for each effective decision. */
-export type ɵOrigamiIntent = { readonly open: boolean };
 
 /** @internal What a Content part registers: its element, placement Options, Presence and adapter. */
 export type ɵOrigamiFloatingContent = {
@@ -57,7 +58,7 @@ export interface ɵOrigamiFloatingHost {
   /** A new object exactly when a part changes; an activation belongs to the parts it started with. */
   readonly parts: Signal<ɵOrigamiFloatingParts>;
   /** Presentation parent: presents only after it reveals; suppressed while it can't present. */
-  readonly parent: ɵOrigamiFloating | null;
+  readonly parent: ɵOrigamiPresentation | null;
   /** Allocates the stacking order at a successful native activation. */
   nextOrder(): number;
   /**
@@ -67,14 +68,6 @@ export interface ɵOrigamiFloatingHost {
    */
   closed(previous: ɵOrigamiIntent | null, interaction: boolean): void;
 }
-
-/**
- * @internal The floating presentation of the Content an owner sits inside. Popover Content
- * provides it as its owner's `ɵOrigamiFloating`, so a Tooltip whose root is inside that Content
- * names it as its presentation parent at construction and presents only while that Popover does.
- * Popover never reads it: a nested Popover takes its parent from the parent `PopoverContext`.
- */
-export const ɵOrigamiFloatingScope = new InjectionToken<ɵOrigamiFloating>("ɵOrigamiFloatingScope");
 
 type Attempt = {
   readonly intent: ɵOrigamiIntent;
@@ -103,15 +96,15 @@ type PositionResult = PositionSnapshot & { readonly x: number; readonly y: numbe
  * owner's reference. An owner constructs it in its injection context and calls `destroy()` from
  * its own teardown.
  */
-export class ɵOrigamiFloating {
+export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresentationChild {
   readonly #host: ɵOrigamiFloatingHost;
-  readonly #parent: ɵOrigamiFloating | null;
+  readonly #parent: ɵOrigamiPresentation | null;
   readonly #changeDetector = inject(ChangeDetectorRef);
   readonly #errorHandler = inject(ErrorHandler);
   readonly #server = isPlatformServer(inject(PLATFORM_ID));
   readonly #preparation: FloatingPreparation;
   // Replaced on every change, never mutated: a close suppresses the children it started with.
-  readonly #children = signal<ReadonlySet<ɵOrigamiFloating>>(new Set());
+  readonly #children = signal<ReadonlySet<ɵOrigamiPresentationChild>>(new Set());
   readonly #participating = signal(false);
   readonly #ready = signal(false);
   readonly #pulse = signal(0);
@@ -161,7 +154,7 @@ export class ɵOrigamiFloating {
     );
 
     if (this.#parent !== null) {
-      this.#parent.#children.update((children) => new Set(children).add(this));
+      this.#parent.addChild(this);
     }
 
     effect(() => {
@@ -171,8 +164,8 @@ export class ɵOrigamiFloating {
       this.#configuration();
 
       if (this.#parent !== null) {
-        this.#parent.#ready();
-        this.#parent.#desired();
+        this.#parent.ready();
+        this.#parent.requested();
       }
 
       this.#content()?.presence.phase();
@@ -193,13 +186,7 @@ export class ɵOrigamiFloating {
     this.#destroyed = true;
 
     if (this.#parent !== null) {
-      this.#parent.#children.update((children) => {
-        const remaining = new Set(children);
-
-        remaining.delete(this);
-
-        return remaining;
-      });
+      this.#parent.removeChild(this);
     }
 
     this.suppress();
@@ -230,7 +217,37 @@ export class ɵOrigamiFloating {
     return this.#ready();
   }
 
-  /** Synchronizes first; grants participation to an activation still inside `showPopover()`. */
+  desired(): boolean {
+    return this.#desired();
+  }
+
+  requested(): boolean {
+    return !this.#destroyed && this.#desired() && this.#ancestorsRequested();
+  }
+
+  /** A revealed parent can move this activation's reference: position again. */
+  parentRevealed(): void {
+    this.#requestPosition();
+  }
+
+  addChild(child: ɵOrigamiPresentationChild): void {
+    this.#children.update((children) => new Set(children).add(child));
+  }
+
+  removeChild(child: ɵOrigamiPresentationChild): void {
+    this.#children.update((children) => {
+      const remaining = new Set(children);
+
+      remaining.delete(child);
+
+      return remaining;
+    });
+  }
+
+  /**
+   * Shown and accepted as current, intent open and every presentation ancestor requested.
+   * Synchronizes first; grants participation to an activation still inside `showPopover()`.
+   */
   isParticipating(): boolean {
     this.synchronize();
 
@@ -238,7 +255,7 @@ export class ɵOrigamiFloating {
 
     if (
       activation === null ||
-      !this.#canPresent() ||
+      !this.canPresent() ||
       !activation.content.element.matches(":popover-open")
     ) {
       return false;
@@ -269,27 +286,18 @@ export class ɵOrigamiFloating {
   }
 
   #ancestorsRequested(): boolean {
-    let ancestor = this.#parent;
-
-    while (ancestor !== null) {
-      if (ancestor.#destroyed || !ancestor.#desired()) {
-        return false;
-      }
-
-      ancestor = ancestor.#parent;
-    }
-
-    return true;
+    return this.#parent === null || this.#parent.requested();
   }
 
-  #canPresent(): boolean {
+  /** Requested, its parts complete and its parent ready and presenting. */
+  canPresent(): boolean {
     const parts = this.#host.parts();
 
     return (
       !this.#destroyed &&
       this.#desired() &&
       parts.complete &&
-      (this.#parent === null || (this.#parent.#ready() && this.#parent.#canPresent()))
+      (this.#parent === null || (this.#parent.ready() && this.#parent.canPresent()))
     );
   }
 
@@ -320,7 +328,7 @@ export class ɵOrigamiFloating {
             return;
           }
 
-          if (child.#desired()) {
+          if (child.desired()) {
             child.suppress();
           }
         }
@@ -341,8 +349,8 @@ export class ɵOrigamiFloating {
     const missing = !this.#host.parts().complete;
     const parentSuppressed =
       this.#parent !== null &&
-      !this.#parent.#canPresent() &&
-      (this.#desired() || !this.#parent.#retainingExit());
+      !this.#parent.canPresent() &&
+      (this.#desired() || !this.#parent.retainingExit());
     const activation = this.#activation;
     const replaced = activation !== null && !this.#ownsActivation(activation);
 
@@ -351,7 +359,7 @@ export class ɵOrigamiFloating {
     }
   }
 
-  #retainingExit(): boolean {
+  retainingExit(): boolean {
     const activation = this.#activation;
 
     return (
@@ -382,7 +390,7 @@ export class ɵOrigamiFloating {
 
   #attemptMatches(attempt: Attempt): boolean {
     return (
-      this.#canPresent() &&
+      this.canPresent() &&
       this.#host.intent() === attempt.intent &&
       this.#host.parts() === attempt.parts &&
       this.#configuration() === attempt.configuration &&
@@ -412,7 +420,7 @@ export class ɵOrigamiFloating {
       return 0;
     }
 
-    return this.#parent.#presentationEpoch;
+    return this.#parent.epoch();
   }
 
   #grantParticipation(activation: Activation): void {
@@ -437,7 +445,7 @@ export class ɵOrigamiFloating {
       return;
     }
 
-    if (this.#canPresent()) {
+    if (this.canPresent()) {
       const configuration = this.#configuration()!;
       const attempt: Attempt = {
         intent: this.#host.intent(),
@@ -502,7 +510,7 @@ export class ɵOrigamiFloating {
           !content.element.matches(":popover-open")
         ) {
           if (this.#activation === activation) {
-            if (!this.#desired() || !this.#canPresent() || !this.#ownsActivation(activation)) {
+            if (!this.#desired() || !this.canPresent() || !this.#ownsActivation(activation)) {
               this.#hide(activation);
             } else if (!content.element.matches(":popover-open")) {
               this.#releaseActivation();
@@ -546,7 +554,7 @@ export class ɵOrigamiFloating {
         this.#positionResult = null;
 
         for (const child of this.#children()) {
-          child.#requestPosition();
+          child.parentRevealed();
         }
       } else if (activation.revealed && content.presence.phase() === "opening") {
         // A retained-exit reversal already has valid coordinates. It still needs
@@ -772,7 +780,7 @@ export class ɵOrigamiFloating {
       return false;
     }
 
-    if (this.#canPresent()) {
+    if (this.canPresent()) {
       return true;
     }
 

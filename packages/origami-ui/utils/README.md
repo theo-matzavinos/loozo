@@ -10,7 +10,7 @@
 
 Keys match `/^[a-z][a-z0-9-]*$/`; anything else throws a `TypeError`. All three throw when called outside an injection context.
 
-The entry point also exports `ɵOrigamiDescribedBy`, the package-private owner of an element's `aria-describedby` that Origami's Tooltip Trigger and Field controls share. It isn't an application API.
+The entry point also exports `ɵOrigamiDescribedBy`, the package-private owner of an element's `aria-describedby` that Origami's Tooltip Trigger and Field controls share, and `ɵOrigamiLayer` and `ɵOrigamiPresentationScope` with their contract types, the package-private Escape and outside-pointer dismissal and presentation nesting that Popover and Tooltip share. None of them is an application API.
 
 While none of them names an ID, the element keeps your static `aria-describedby`. A hydrated element already carries the server's IDs, so once the IDs Origami names equal exactly that value, it counts as the server's output, not yours: once the last ID goes, the attribute is removed instead of falling back to it. Hydration may first name only some of those IDs, such as a Field Error's before the ID of Tooltip Content in a child component; the value stays until they all are. Two edges follow:
 
