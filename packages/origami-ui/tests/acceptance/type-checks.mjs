@@ -556,11 +556,17 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   wrongOutput(value: number): void { void value; }`,
   },
   "toggle-group": {
-    imports: `import { OrigamiToggleGroupSingle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";`,
-    directives: "OrigamiToggleGroupSingle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiToggleGroupSingle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiToggleGroupSingle, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem, OrigamiField, OrigamiFieldLabel",
     members: `
   readonly alignment = signal<string | null>(null);
   readonly marks = signal<readonly string[]>([]);
+  readonly model = signal<{ alignment: string | null; marks: string[]; frozen: readonly string[] }>({ alignment: null, marks: [], frozen: [] });
+  readonly form = form(this.model, (path) => { required(path.alignment); });
+  touched(): void {}
   alignmentOutput(value: string | null): void { void value; }
   marksOutput(value: readonly string[]): void { void value; }
   wrongOutput(value: number): void { void value; }`,
@@ -644,11 +650,17 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   observeString(value: string): void { void value; }`,
   },
   "radio-group": {
-    imports: `import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
-import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";`,
-    directives: "OrigamiRadioGroup, OrigamiRadioGroupItem, OrigamiToolbar, OrigamiToolbarItem",
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
+import { OrigamiToolbar, OrigamiToolbarItem } from "@loozo/origami-ui/toolbar";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiRadioGroup, OrigamiRadioGroupItem, OrigamiToolbar, OrigamiToolbarItem, OrigamiField, OrigamiFieldLabel",
     members: `
   readonly speed = signal<string | null>(null);
+  readonly model = signal<{ speed: string | null }>({ speed: null });
+  readonly form = form(this.model, (path) => { required(path.speed); });
+  touched(): void {}
   readonly wrongSpeed = signal(1);
   speedOutput(value: string | null): void { void value; }
   wrongOutput(value: number): void { void value; }`,
@@ -831,6 +843,31 @@ const templates = [
     template: `<div ogToggleGroupSingle [(value)]="alignment" orientation="vertical" deselectable disabled (valueChange)="alignmentOutput($event)"><button ogToggleGroupItem value="start" disabled>Start</button></div><div ogToggleGroupMultiple [(value)]="marks" (valueChange)="marksOutput($event)"><button ogToggleGroupItem value="bold" id="bold">Bold</button><button ogToggleGroupItem value="italic" [id]="'italic'">Italic</button></div>`,
   },
   {
+    name: "toggle-group-form-positive",
+    family: "toggle-group",
+    template: `<div ogField><span ogFieldLabel>Alignment</span><div ogToggleGroupSingle #alignmentGroup="ogToggleGroupSingle" [formField]="form.alignment" (touch)="touched()" (click)="alignmentGroup.focus({ preventScroll: true })"><button ogToggleGroupItem value="start">Start</button></div></div><div ogField><span ogFieldLabel>Marks</span><div ogToggleGroupMultiple #marksGroup="ogToggleGroupMultiple" [formField]="form.marks" (touch)="touched()" (click)="marksGroup.focus()"><button ogToggleGroupItem value="bold">Bold</button></div></div><div ogToggleGroupMultiple [formField]="form.frozen"></div>`,
+  },
+  {
+    name: "toggle-group-form-model",
+    family: "toggle-group",
+    template: `<div ogToggleGroupSingle [formField]="form.marks"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /Type 'string\[\]' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "toggle-group-form-state-input",
+    family: "toggle-group",
+    template: `<div ogToggleGroupMultiple [required]="true"></div>`,
+    expected: {
+      code: -998002,
+      span: `[required]="true"`,
+      message: /Can't bind to 'required' since it isn't a known property of 'div'/,
+    },
+  },
+  {
     name: "toggle-group-single-model",
     family: "toggle-group",
     template: `<div ogToggleGroupSingle [(value)]="marks"></div>`,
@@ -979,7 +1016,17 @@ const templates = [
   {
     name: "radio-group-positive",
     family: "radio-group",
-    template: `<div ogRadioGroup [(value)]="speed" disabled aria-label="Speed" (valueChange)="speedOutput($event)"><button ogRadioGroupItem value="standard" disabled>Standard</button></div><div ogToolbar aria-label="Text"><button ogToolbarItem>Copy</button><div ogRadioGroup [(value)]="speed" aria-label="Alignment"><button ogRadioGroupItem value="left">Left</button></div></div>`,
+    template: `<div ogRadioGroup [(value)]="speed" disabled aria-label="Speed" (valueChange)="speedOutput($event)"><button ogRadioGroupItem value="standard" disabled>Standard</button></div><div ogToolbar aria-label="Text"><button ogToolbarItem>Copy</button><div ogRadioGroup [(value)]="speed" aria-label="Alignment"><button ogRadioGroupItem value="left">Left</button></div></div><div ogField><span ogFieldLabel>Speed</span><div ogRadioGroup #speedGroup="ogRadioGroup" [formField]="form.speed" (touch)="touched()" (click)="speedGroup.focus()"><button ogRadioGroupItem value="standard">Standard</button></div></div>`,
+  },
+  {
+    name: "radio-group-form-state-input",
+    family: "radio-group",
+    template: `<div ogRadioGroup [invalid]="true"></div>`,
+    expected: {
+      code: -998002,
+      span: `[invalid]="true"`,
+      message: /Can't bind to 'invalid' since it isn't a known property of 'div'/,
+    },
   },
   {
     name: "radio-group-model",

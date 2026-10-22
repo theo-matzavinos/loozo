@@ -1,5 +1,7 @@
 import {
+  DestroyRef,
   Directive,
+  ElementRef,
   booleanAttribute,
   computed,
   forwardRef,
@@ -8,12 +10,19 @@ import {
   model,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
-import { ɵrequestMultipleSelection } from "@loozo/origami-ui/collection";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { outputFromObservable } from "@angular/core/rxjs-interop";
+import type { FormValueControl } from "@angular/forms/signals";
+import {
+  ɵOrigamiRovingFocusContext,
+  ɵrequestMultipleSelection,
+} from "@loozo/origami-ui/collection";
+import { ɵOrigamiFieldMembership } from "@loozo/origami-ui/field";
+import { injectDeferred, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import {
   OrigamiToggleGroupState,
   ownRovingFocus,
   ɵOrigamiToggleGroupRoot,
+  ToggleGroupContext,
   ToggleGroupRootOptions,
 } from "./toggle-group";
 import type { OrigamiToggleGroupOrientation } from "./toggle-group";
@@ -107,6 +116,18 @@ export abstract class OrigamiToggleGroupMultipleOptions {
  * accessible name, item labels and styling. Inside an `ogToolbar` it keeps its own tab stop; to
  * share the Toolbar's, use `OrigamiToolbarToggleGroupMultiple` from `@loozo/origami-ui/toolbar`.
  *
+ * It is an Angular Signal Forms value control: `[formField]` binds its `value` model, writes its
+ * `disabled` input and listens to `touch`, which it emits when focus leaves the group, not while
+ * focus moves between its items; `focusBoundControl()` calls `focus()`, which focuses the item
+ * holding the tab stop. User activation is dropped while disabled and while the `[formField]` on
+ * the root is readonly; focus still moves. It joins its nearest `ogField` on its own, without
+ * `ogFieldControl`: inside a Field its `aria-labelledby` names the Field's Labels, replacing a
+ * static value, and is absent while there is none, and its `aria-describedby` names the Field's
+ * Descriptions, then its mounted Errors. It binds no `aria-invalid`, `aria-required` or
+ * `aria-readonly`, which ARIA doesn't support on `group`; the Field's data attributes and State
+ * carry them. It registers once Angular has set its inputs. Outside a Field, and as a second
+ * control the Field ignores, it keeps a static `aria-labelledby` and `aria-describedby`.
+ *
  * @example
  * ```html
  * <div ogToggleGroupMultiple [(value)]="marks" aria-label="Text formatting">
@@ -118,22 +139,76 @@ export abstract class OrigamiToggleGroupMultipleOptions {
 @Directive({
   selector: "[ogToggleGroupMultiple]",
   exportAs: "ogToggleGroupMultiple",
-  hostDirectives: [ɵOrigamiToggleGroupRoot],
+  hostDirectives: [ɵOrigamiToggleGroupRoot, ɵOrigamiDescribedBy],
   providers: [
     OrigamiToggleGroupMultipleOptions.ɵprovideRoot(() => OrigamiToggleGroupMultiple),
     ownRovingFocus,
   ],
+  host: {
+    "[attr.aria-labelledby]": "ariaLabelledBy()",
+    "(focusout)": "focusLeft($event)",
+  },
 })
-export class OrigamiToggleGroupMultiple implements OrigamiToggleGroupMultipleOptions {
+export class OrigamiToggleGroupMultiple
+  implements OrigamiToggleGroupMultipleOptions, FormValueControl<readonly string[]>
+{
   /**
    * Own readonly-array model, default empty; `valueChange` emits user activations written to
-   * this model. Replaced Options supply the effective value instead and do not fabricate this output.
+   * this model, and `[formField]` binds it. Replaced Options supply the effective value instead
+   * and do not fabricate this output.
    */
   readonly value = model<readonly string[]>([]);
-  /** Own disabled input, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  /**
+   * Own disabled input, default false with boolean-attribute coercion; `[formField]` writes it
+   * from the field's `disabled()` rules. Replaced Options supply effective policy instead.
+   */
   readonly disabled = input(false, { transform: booleanAttribute });
   /** Own orientation input, default `horizontal`; replaced Options supply effective orientation instead. */
   readonly orientation = input<OrigamiToggleGroupOrientation>("horizontal");
   /** This root's readonly effective Options observation, shared with its descendants. */
   readonly state = inject(OrigamiToggleGroupState);
+
+  readonly #context = inject(ToggleGroupContext);
+  readonly #focus = inject(ɵOrigamiRovingFocusContext, { self: true });
+  readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
+  readonly #membership = new ɵOrigamiFieldMembership(() => this.#element.id, {
+    labelable: false,
+  });
+
+  /**
+   * Emits when focus leaves the group; `[formField]` marks its field touched. On engines where a
+   * click doesn't focus a button (macOS Safari; macOS Firefox by default), clicking from one item
+   * to another moves focus to nothing first, so it emits.
+   */
+  readonly touch = outputFromObservable(this.#context.touches);
+
+  /** @internal The Field's Label IDs inside a Field; otherwise the static value. */
+  protected readonly ariaLabelledBy = this.#membership.labelledBy;
+
+  /** @internal Joins the nearest Field once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#membership.register(this.#destroyRef);
+  }
+
+  /**
+   * Focuses the item holding the group's tab stop: the focused item, else the first pressed one in
+   * DOM order, else the first enabled one. Does nothing while no item can take focus. Signal Forms'
+   * `focusBoundControl()` calls it.
+   * @param options - Passed to the item's native `focus()`.
+   */
+  focus(options?: FocusOptions): void {
+    this.#focus.tabStop()?.focus(options);
+  }
+
+  /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */
+  protected focusLeft(event: FocusEvent): void {
+    const next = event.relatedTarget;
+
+    if (next instanceof Node && this.#element.contains(next)) {
+      return;
+    }
+
+    this.#context.left();
+  }
 }

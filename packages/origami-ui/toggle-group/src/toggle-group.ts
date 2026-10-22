@@ -1,10 +1,12 @@
 import { DestroyRef, Directive, Service, computed, inject } from "@angular/core";
 import type { Provider, Signal } from "@angular/core";
+import { FORM_FIELD } from "@angular/forms/signals";
 import {
   ɵOrigamiRovingFocusContext,
   ɵOrigamiRovingFocusOptions,
 } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
+import { Subject } from "rxjs";
 
 /** Toggle Group axis: `horizontal` uses ArrowLeft/ArrowRight (reading-direction aware), `vertical` uses ArrowUp/ArrowDown. */
 export type OrigamiToggleGroupOrientation = "horizontal" | "vertical";
@@ -33,11 +35,15 @@ export abstract class ToggleGroupRootOptions {
 @Service({ autoProvided: false })
 export class ToggleGroupContext {
   readonly #options = injectDeferred(ToggleGroupRootOptions);
+  readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
+  readonly #touches = new Subject<void>();
   #destroyed = false;
 
   readonly disabled = computed(() => this.#options().disabled());
   readonly orientation = computed(() => this.#options().orientation());
   readonly values = computed(() => this.#options().values());
+  /** Emits synchronously when focus leaves the root's element; only the Single and Multiple roots report it. */
+  readonly touches = this.#touches.asObservable();
 
   readonly disabledAttribute = computed(() => {
     if (this.disabled()) {
@@ -57,11 +63,21 @@ export class ToggleGroupContext {
     return this.values().includes(value);
   }
 
-  /** A user press request; the caller has already applied its own disabled policy. */
+  /**
+   * A user press request; the caller has already applied its own disabled policy. Dropped while
+   * disabled or while the `[formField]` on the root's element is readonly.
+   */
   request(value: string, pressed: boolean): void {
-    if (!this.#destroyed && !this.disabled()) {
+    const formReadonly = this.#binding?.state().readonly() ?? false;
+
+    if (!this.#destroyed && !this.disabled() && !formReadonly) {
       this.#options().request(value, pressed);
     }
+  }
+
+  /** Focus left the root's element. */
+  left(): void {
+    this.#touches.next();
   }
 }
 

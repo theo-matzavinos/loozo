@@ -1967,6 +1967,140 @@ test("G8 H1 H2 H3: a Toggle's ID, the Label's for and its aria-describedby insid
   }
 });
 
+type GroupFieldIds = { radio: string | null; radioLabel: string | null; marksLabel: string | null };
+
+/** Each unit's RadioGroup and ToggleGroup Multiple are named by their Field Labels and described by its Description. */
+async function expectServerGroupFields(
+  page: Page,
+  labels: string[],
+): Promise<Map<string, GroupFieldIds>> {
+  const ids = new Map<string, GroupFieldIds>();
+
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const radio = unit.getByTestId("hydration-field-radio");
+    const marks = unit.getByTestId("hydration-field-marks");
+    const radioLabel = unit.getByTestId("hydration-radio-label");
+    const marksLabel = unit.getByTestId("hydration-marks-label");
+    const radioLabelId = await radioLabel.getAttribute("id");
+    const marksLabelId = await marksLabel.getAttribute("id");
+
+    expect(radioLabelId).toMatch(/\S/);
+    expect(marksLabelId).toMatch(/\S/);
+    // A group isn't labelable: no for, the group names the Label instead.
+    await expect(radioLabel).not.toHaveAttribute("for", /.*/);
+    await expect(marksLabel).not.toHaveAttribute("for", /.*/);
+    await expect(radio).toHaveAttribute("role", "radiogroup");
+    await expect(radio).toHaveAttribute("aria-labelledby", radioLabelId ?? "");
+    await expect(radio).toHaveAttribute(
+      "aria-describedby",
+      (await unit.getByTestId("hydration-radio-description").getAttribute("id")) ?? "",
+    );
+    await expect(radio).toHaveAttribute("aria-required", "true");
+    await expect(radio).not.toHaveAttribute("aria-invalid", /.*/);
+    await expect(radio).not.toHaveAttribute("aria-readonly", /.*/);
+    await expect(unit.getByTestId("hydration-radio-field")).toHaveAttribute("data-required", "");
+    await expect(marks).toHaveAttribute("role", "group");
+    await expect(marks).toHaveAttribute("aria-labelledby", marksLabelId ?? "");
+    await expect(marks).toHaveAttribute(
+      "aria-describedby",
+      (await unit.getByTestId("hydration-marks-description").getAttribute("id")) ?? "",
+    );
+
+    // ARIA doesn't support these on a group; the Field's data attributes carry them.
+    for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+      await expect(marks).not.toHaveAttribute(attribute, /.*/);
+    }
+
+    ids.set(label, {
+      radio: await radio.getAttribute("id"),
+      radioLabel: radioLabelId,
+      marksLabel: marksLabelId,
+    });
+  }
+
+  return ids;
+}
+
+test("Q11 U12 H1 H2 H3: a RadioGroup's and a ToggleGroup's aria-labelledby and aria-describedby inside a Field are in server HTML and adopted by hydration; a click after attachment or replay writes the form model once", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    const server = await expectServerGroupFields(page, ["A", "B", "C"]);
+    const b = page.locator('[data-unit="B"]');
+    const radio = b.getByTestId("hydration-field-radio");
+    const courier = b.getByTestId("hydration-delivery-courier");
+    const value = b.getByTestId("hydration-delivery-value");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await courier.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(value).toHaveText("");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      await courier.click();
+    }
+
+    await expect(value).toHaveText("courier");
+    await expect(courier).toHaveAttribute("aria-checked", "true");
+    await assertReferences(page, info);
+
+    // Hydration adopted the server IDs; the other units are unchanged.
+    expect(server.get("B")).toEqual({
+      radio: await radio.getAttribute("id"),
+      radioLabel: await b.getByTestId("hydration-radio-label").getAttribute("id"),
+      marksLabel: await b.getByTestId("hydration-marks-label").getAttribute("id"),
+    });
+    await expectServerGroupFields(page, ["A", "C"]);
+    await expect(radio).toHaveAccessibleName("Delivery");
+    await expect(radio).toHaveAccessibleDescription("Pickup is free.");
+    await expect(b.getByRole("radiogroup", { name: "Delivery" })).toHaveAttribute(
+      "data-testid",
+      "hydration-field-radio",
+    );
+    await expect(b.getByRole("group", { name: "Title marks" })).toHaveAttribute(
+      "data-testid",
+      "hydration-field-marks",
+    );
+    await b.getByTestId("hydration-field-mark-bold").click();
+    await expect(b.getByTestId("hydration-marks-value")).toHaveText("bold");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("H4: nested real owner/part boundaries attach ancestor first, retain SSR nodes, suppress and remount", async ({
   page,
 }, info) => {

@@ -35,6 +35,11 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/toggle.js").then((module) => module.ToggleFixture),
   },
   {
+    path: "group-field",
+    loadComponent: () =>
+      import("./fixtures/group-field.js").then((module) => module.GroupFieldFixture),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),

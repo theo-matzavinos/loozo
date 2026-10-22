@@ -13,6 +13,7 @@ import type { FieldControlRegistration } from "./field";
  * the template's, missing those of a directive that composes the control through `hostDirectives`.
  */
 function staticAttributes(): {
+  readonly labelledBy: string | null;
   readonly invalid: string | null;
   readonly required: string | null;
   readonly readonly: string | null;
@@ -20,6 +21,7 @@ function staticAttributes(): {
   const element = inject<ElementRef<Element>>(ElementRef).nativeElement;
 
   return {
+    labelledBy: element.getAttribute("aria-labelledby"),
     invalid: element.getAttribute("aria-invalid"),
     required: element.getAttribute("aria-required"),
     readonly: element.getAttribute("aria-readonly"),
@@ -55,6 +57,23 @@ export class ɵOrigamiFieldMembership {
   readonly #static = staticAttributes();
   readonly #describedBy = inject(ɵOrigamiDescribedBy, { self: true });
 
+  /**
+   * `aria-labelledby`: the Field's Label IDs, in registration order, absent while there is none;
+   * for a group control, which a `<label for>` can't name. It replaces a static value.
+   */
+  readonly labelledBy = computed(() => {
+    if (!this.#member() || this.#field === null) {
+      return this.#static.labelledBy;
+    }
+
+    const ids = this.#field.labelledBy();
+
+    if (ids.length === 0) {
+      return null;
+    }
+
+    return ids.join(" ");
+  });
   /** `aria-invalid`: `"true"` while the Field shows its errors. */
   readonly invalid = computed(() => {
     if (!this.#member() || this.#field === null) {
@@ -81,8 +100,10 @@ export class ɵOrigamiFieldMembership {
   });
 
   /**
-   * @param id - The control's effective DOM ID, read only after its `ngOnInit`.
-   * @param options - `labelable`: whether a `<label for>` can name the control.
+   * @param id - The control's effective DOM ID, read only after its `ngOnInit` and only while
+   *   `labelable`.
+   * @param options - `labelable`: whether a `<label for>` can name the control; false for a group,
+   *   which binds `labelledBy` instead.
    */
   constructor(id: () => string, { labelable }: { readonly labelable: boolean }) {
     this.#registration = { id, labelable, formState: () => this.formState() };

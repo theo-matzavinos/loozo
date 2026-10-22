@@ -12,7 +12,7 @@ import type { FieldState, ValidationError } from "@angular/forms/signals";
 
 /** @internal What a form control publishes to its Field when it registers. */
 export type FieldControlRegistration = {
-  /** The control's effective DOM ID. */
+  /** The control's effective DOM ID; read only while `labelable`. */
   readonly id: () => string;
   /** Whether a `<label for>` can name the control: true for native controls and buttons, false for groups. */
   readonly labelable: boolean;
@@ -37,6 +37,7 @@ function marker(value: boolean): "" | null {
 export class FieldContext {
   readonly #errorHandler = inject(ErrorHandler);
   readonly #control = signal<FieldControlRegistration | null>(null);
+  readonly #labels = signal<readonly PartRegistration[]>([]);
   readonly #descriptions = signal<readonly PartRegistration[]>([]);
   readonly #errors = signal<readonly PartRegistration[]>([]);
   readonly #formState = computed(() => this.#control()?.formState() ?? null);
@@ -52,6 +53,16 @@ export class FieldContext {
     }
 
     return control.id();
+  });
+  /** Registered Label IDs in registration order; a group control's `aria-labelledby` names them. */
+  readonly labelledBy = computed<readonly string[]>(() => {
+    const ids: string[] = [];
+
+    for (const part of this.#labels()) {
+      ids.push(part.id());
+    }
+
+    return ids;
   });
   /** Registered Description IDs, then registered Error IDs, each in registration order. */
   readonly describedBy = computed<readonly string[]>(() => {
@@ -102,6 +113,11 @@ export class FieldContext {
         this.#control.set(null);
       }
     });
+  }
+
+  /** Registers a Label from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
+  registerLabel(part: PartRegistration, destroyRef: DestroyRef): void {
+    this.#register(this.#labels, part, destroyRef);
   }
 
   /** Registers a Description from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
@@ -170,8 +186,9 @@ export class OrigamiFieldState {
 
 /**
  * Groups one form control with its labels, descriptions and errors and wires them together:
- * `ogFieldLabel`'s `for` names the control, and the control's `aria-describedby` names every
- * `ogFieldDescription`, then every mounted `ogFieldError`. It exposes the Signal Forms state of
+ * `ogFieldLabel`'s `for` names the control (a group control, which a label can't name, takes
+ * every Label's ID in `aria-labelledby` instead), and the control's `aria-describedby` names
+ * every `ogFieldDescription`, then every mounted `ogFieldError`. It exposes the Signal Forms state of
  * its control's `[formField]` as `state`, with `errorsShown` for gating error messages.
  *
  * The root has no inputs, no Options and no role; for a set of Fields use your own

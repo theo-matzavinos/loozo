@@ -616,3 +616,217 @@ test("U8: a ToggleGroup item's state, read through its template reference, follo
   await expect(part("bold")).toBeDisabled();
   await expect(part("bold-pressed")).toHaveText("true");
 });
+
+/** ARIA deprecates aria-invalid on group and doesn't support the others there; the Field carries them. */
+async function expectNoGroupFormAria(group: Locator): Promise<void> {
+  for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+    await expect(group).not.toHaveAttribute(attribute, /.*/);
+  }
+}
+
+test("U9: with [formField] Single and Multiple roots show the initial value, write user changes, follow model writes, emit touch only when focus leaves the group, show errors through the Field after blur and submit(), reset, focusBoundControl() focuses the tab stop, readonly() drops clicks and keys while focus still moves, and disabled() disables every item; they bind no aria-invalid, aria-required or aria-readonly", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const field = page.getByTestId("layout-field");
+  const layout = page.getByTestId("layout");
+  const grid = page.getByTestId("layout-grid");
+  const list = page.getByTestId("layout-list");
+  const value = page.getByTestId("layout-value");
+  const touched = page.getByTestId("layout-touched");
+  const labelId = await field.locator("[ogFieldLabel]").getAttribute("id");
+
+  expect(labelId).toMatch(/\S/);
+  await expect(grid).toHaveAttribute("aria-pressed", "true");
+  await expect(field).toHaveAttribute("data-required", "");
+  await expect(layout).toHaveAttribute("aria-labelledby", labelId ?? "");
+  await expect(layout).not.toHaveAttribute("aria-describedby", /.*/);
+  await expect(page.getByRole("group", { name: "Layout" })).toHaveAttribute(
+    "data-testid",
+    "layout",
+  );
+  await expectNoGroupFormAria(layout);
+
+  // User changes write the model; focus moving between items never touches.
+  await list.click();
+  await expect(value).toHaveText("list");
+  await expect(list).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("ArrowLeft");
+  await expect(grid).toBeFocused();
+  await grid.click();
+  await expect(value).toHaveText("grid");
+  await expect(touched).toHaveText("false");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("write-layout")).toBeFocused();
+  await expect(touched).toHaveText("true");
+
+  // A programmatic write reaches the items; the touched, now invalid field shows errors.
+  await page.getByTestId("write-layout").click();
+  await expect(value).toHaveText("");
+  await expect(grid).toHaveAttribute("aria-pressed", "false");
+  await expect(field).toHaveAttribute("data-invalid", "");
+  await expect(layout).toHaveAttribute("aria-describedby", "layout-error");
+  await expect(layout).toHaveAccessibleDescription("Choose a layout.");
+  await expectNoGroupFormAria(layout);
+
+  // focusBoundControl() focuses the tab stop: nothing pressed, so the first enabled item.
+  await page.getByTestId("focus-layout").click();
+  await expect(grid).toBeFocused();
+  await page.getByTestId("reset-layout").click();
+  await expect(touched).toHaveText("false");
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+
+  // readonly(): clicks and keys write nothing; focus still moves.
+  await page.getByTestId("freeze-layout").click();
+  await list.click();
+  await expect(list).toBeFocused();
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowLeft");
+  await expect(grid).toBeFocused();
+  await page.keyboard.press("Space");
+  await settle(page);
+  await expect(value).toHaveText("");
+  await expect(grid).toHaveAttribute("aria-pressed", "false");
+  await expect(list).toHaveAttribute("aria-pressed", "false");
+  await expectNoGroupFormAria(layout);
+  await page.getByTestId("freeze-layout").click();
+  await list.click();
+  await expect(value).toHaveText("list");
+
+  // disabled(): every item natively disabled, and the Field's data-disabled.
+  await page.getByTestId("lock-layout").click();
+  await expect(grid).toBeDisabled();
+  await expect(list).toBeDisabled();
+  await expect(layout).toHaveAttribute("data-disabled", "");
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-layout").click();
+  await expect(list).toBeEnabled();
+
+  // Multiple, bound to a string[] model.
+  const extrasField = page.getByTestId("extras-field");
+  const extras = page.getByTestId("extras");
+  const wrap = page.getByTestId("extras-wrap");
+  const note = page.getByTestId("extras-note");
+  const extrasValue = page.getByTestId("extras-value");
+  const extrasTouched = page.getByTestId("extras-touched");
+
+  await expect(extrasValue).toHaveText("");
+  await expect(extras).toHaveAttribute("aria-describedby", "extras-description");
+  await expect(page.getByRole("group", { name: "Extras" })).toHaveAttribute(
+    "data-testid",
+    "extras",
+  );
+  await page.getByTestId("submit-order").click();
+  await expect(extrasTouched).toHaveText("true");
+  await expect(extrasField).toHaveAttribute("data-invalid", "");
+  await expect(extras).toHaveAttribute("aria-describedby", "extras-description extras-error");
+  await expectNoGroupFormAria(extras);
+  await page.getByTestId("reset-extras").click();
+  await expect(extrasTouched).toHaveText("false");
+
+  await wrap.click();
+  await note.click();
+  await expect(extrasValue).toHaveText("wrap,note");
+  await page.keyboard.press("ArrowLeft");
+  await expect(wrap).toBeFocused();
+  await wrap.click();
+  await expect(extrasValue).toHaveText("note");
+  await expect(extrasTouched).toHaveText("false");
+  await page.getByTestId("after").click();
+  await expect(extrasTouched).toHaveText("true");
+
+  // A programmatic write replaces the selection.
+  await page.getByTestId("write-extras").click();
+  await expect(extrasValue).toHaveText("wrap");
+  await expect(wrap).toHaveAttribute("aria-pressed", "true");
+  await expect(note).toHaveAttribute("aria-pressed", "false");
+  await page.getByTestId("focus-extras").click();
+  await expect(wrap).toBeFocused();
+
+  await page.getByTestId("freeze-extras").click();
+  await note.click();
+  await wrap.click();
+  await settle(page);
+  await expect(extrasValue).toHaveText("wrap");
+  await expect(note).toHaveAttribute("aria-pressed", "false");
+  await page.getByTestId("freeze-extras").click();
+  await note.click();
+  await expect(extrasValue).toHaveText("wrap,note");
+
+  await page.getByTestId("lock-extras").click();
+  await expect(wrap).toBeDisabled();
+  await expect(extrasField).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-extras").click();
+  await expect(wrap).toBeEnabled();
+});
+
+test("U10: inside a Field a ToggleGroup's aria-labelledby names its Label after it and its aria-describedby the Description; the Label gets no for; a standalone group keeps its static aria-labelledby and aria-describedby", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const align = page.getByTestId("align");
+
+  await expect(align).toHaveAttribute("aria-labelledby", "align-label");
+  await expect(align).toHaveAttribute("aria-describedby", "align-description");
+  await expect(page.locator("#align-label")).not.toHaveAttribute("for", /.*/);
+  await expect(page.getByRole("group", { name: "Alignment" })).toHaveAttribute(
+    "data-testid",
+    "align",
+  );
+  await expect(align).toHaveAccessibleDescription("Applies to the title.");
+  await expectNoGroupFormAria(align);
+  await page.getByTestId("align-end").click();
+  await expect(page.getByTestId("align-end")).toHaveAttribute("aria-pressed", "true");
+
+  const standalone = page.getByTestId("standalone-toggle-group");
+
+  await expect(standalone).toHaveAttribute("aria-labelledby", "standalone-heading");
+  await expect(standalone).toHaveAttribute("aria-describedby", "standalone-hint");
+  await expectNoGroupFormAria(standalone);
+});
+
+test("U11: a consumer component composing a ToggleGroup root through hostDirectives with exposed value, valueChange, disabled and touch is the control [formField] finds, and the root reads FORM_FIELD on its element", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const field = page.getByTestId("topics-field");
+  const topics = page.getByTestId("topics");
+  const news = page.getByTestId("topic-news");
+  const sports = page.getByTestId("topic-sports");
+  const value = page.getByTestId("topics-value");
+  const touched = page.getByTestId("topics-touched");
+
+  await expect(topics).toHaveAttribute("role", "group");
+  await expect(topics).toHaveAttribute("aria-labelledby", "topics-label");
+  await expect(page.getByRole("group", { name: "Topics" })).toHaveAttribute(
+    "data-testid",
+    "topics",
+  );
+
+  await news.click();
+  await expect(value).toHaveText("news");
+  await page.keyboard.press("ArrowRight");
+  await expect(sports).toBeFocused();
+  await expect(touched).toHaveText("false");
+  await page.getByTestId("before").click();
+  await expect(touched).toHaveText("true");
+
+  await page.getByTestId("freeze-topics").click();
+  await sports.click();
+  await settle(page);
+  await expect(value).toHaveText("news");
+  await expect(sports).toHaveAttribute("aria-pressed", "false");
+  await page.getByTestId("freeze-topics").click();
+  await sports.click();
+  await expect(value).toHaveText("news,sports");
+
+  await page.getByTestId("lock-topics").click();
+  await expect(news).toBeDisabled();
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-topics").click();
+  await expect(news).toBeEnabled();
+});

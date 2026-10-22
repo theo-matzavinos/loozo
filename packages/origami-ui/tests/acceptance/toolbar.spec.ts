@@ -567,3 +567,26 @@ test("K10: a Toolbar Popover Trigger disabled by its own input or its Popover is
   await expect(trigger).toHaveJSProperty("disabled", false);
   await expectTabStop(toolbar, trigger);
 });
+
+test("K11: a Toolbar Radio Group inside a Field never joins it: the Label names nothing, the group keeps its static aria-labelledby and gets no aria-describedby", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const group = page.getByTestId("toolbar-radio");
+
+  await expect(page.getByTestId("toolbar-label")).not.toHaveAttribute("for", /.*/);
+  await expect(group).toHaveAttribute("aria-labelledby", "toolbar-static");
+  await expect(group).not.toHaveAttribute("aria-describedby", /.*/);
+
+  for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+    await expect(group).not.toHaveAttribute(attribute, /.*/);
+  }
+
+  for (const attribute of ["data-invalid", "data-disabled", "data-required"]) {
+    await expect(page.getByTestId("toolbar-field")).not.toHaveAttribute(attribute, /.*/);
+  }
+
+  await page.getByTestId("toolbar-left").click();
+  await expect(page.getByTestId("toolbar-left")).toHaveAttribute("aria-checked", "true");
+});
