@@ -12,6 +12,10 @@ import { ToolbarContext } from "./toolbar";
  * of `OrigamiToggleGroupSingle`. Its `ogToggleGroupItem` items join the nearest Toolbar's roving
  * focus: they share the Toolbar's one tab stop and arrow sequence, navigate along the Toolbar's
  * orientation (its own `orientation` has no effect) and are never preferred; moves never press.
+ *
+ * It is not a form control: it never joins an `ogField` and has no `touch` output or `focus()`
+ * method. `[formField]` on it is unsupported: Signal Forms finds its `value` model and binds it,
+ * but the field is never marked touched and `focusBoundControl()` focuses nothing.
  * Requires a nearest Toolbar; outside one it fails through Angular DI.
  *
  * @example

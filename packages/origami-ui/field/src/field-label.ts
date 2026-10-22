@@ -1,4 +1,12 @@
-import { Directive, ElementRef, computed, forwardRef, inject, input } from "@angular/core";
+import {
+  DestroyRef,
+  Directive,
+  ElementRef,
+  computed,
+  forwardRef,
+  inject,
+  input,
+} from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { FieldContext } from "./field";
@@ -33,9 +41,12 @@ export abstract class OrigamiFieldLabelOptions {
 /**
  * The visible label of its nearest Field's control. On a `<label>`, `for` names the registered
  * control's ID, so clicking the label focuses or activates the control and the control takes its
- * accessible name from it; `for` is absent while no control is registered, and a static `for` is
- * replaced. It may come before or after the control. Several Labels may name one control.
- * It binds its effective `id`. Outside a Field it binds only its `id` and keeps a static `for`.
+ * accessible name from it; `for` is absent while no control is registered or the control is a
+ * group, which a label can't name, and a static `for` is replaced. A group control, such as
+ * `ogRadioGroup`, names every Label's ID in its `aria-labelledby` instead, so use any element,
+ * such as a `<span>`, for its Label. It may come before or after the control. Several Labels may
+ * name one control. It binds its effective `id` and registers it with its Field once Angular has
+ * set its inputs. Outside a Field it binds only its `id` and keeps a static `for`.
  *
  * @example
  * ```html
@@ -61,6 +72,8 @@ export class OrigamiFieldLabel implements OrigamiFieldLabelOptions {
 
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
+  readonly #destroyRef = inject(DestroyRef);
+
   /** @internal The registered control's ID while a label can name it; outside a Field, the static `for`. */
   protected readonly controlId = computed(() => {
     if (this.#field === null) {
@@ -69,4 +82,9 @@ export class OrigamiFieldLabel implements OrigamiFieldLabelOptions {
 
     return this.#field.labelFor();
   });
+
+  /** @internal Registers this Label's ID with its Field once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#field?.registerLabel({ id: () => this.#options().id() }, this.#destroyRef);
+  }
 }

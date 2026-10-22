@@ -325,3 +325,66 @@ test("M9: without a static aria-describedby, an ogFieldControl co-applied with a
     errorId: "mixed-input-error",
   });
 });
+
+test("M10: Labels register their IDs with their Field: a group control's aria-labelledby names every Label in registration order and follows a Label unmounting and remounting; a native control keeps for and gets no aria-labelledby; an ignored second group is reported and keeps its static aria-labelledby and aria-describedby", async ({
+  page,
+  runtimeErrors,
+  drainIssues,
+}, info) => {
+  const message = "Field supports only one control.";
+
+  runtimeErrors.expectExactly([
+    {
+      description: "one duplicate-control Error reported through ErrorHandler",
+      matches: (record) => {
+        if (record.source !== "console") {
+          return false;
+        }
+
+        for (const argument of record.arguments ?? []) {
+          if (isRecord(argument) && argument.message === message) {
+            return true;
+          }
+        }
+
+        return false;
+      },
+    },
+  ]);
+  await fixture(page, "group-field", info);
+
+  const delivery = page.getByTestId("delivery");
+
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label delivery-label-2");
+  await page.getByTestId("toggle-second-label").click();
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label");
+  await page.getByTestId("toggle-second-label").click();
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label delivery-label-2");
+
+  // A native control is named through for by every Label; Label registration adds no ARIA to it.
+  const nickname = page.getByTestId("nickname");
+
+  await expect(page.getByTestId("nickname-label")).toHaveAttribute("for", "nickname");
+  await expect(page.getByTestId("nickname-hint-label")).toHaveAttribute("for", "nickname");
+  await expect(nickname).not.toHaveAttribute("aria-labelledby", /.*/);
+
+  await drainIssues();
+  expect(runtimeErrors.records).toEqual([]);
+  await page.getByTestId("mount-duplicate-group").click();
+
+  const duplicate = page.getByTestId("duplicate-group");
+
+  await expect(duplicate).toHaveCount(1);
+  await expect
+    .poll(async () => {
+      await drainIssues();
+
+      return runtimeErrors.records.length;
+    })
+    .toBe(1);
+  // Ignored: it keeps its static attributes; the first group keeps the Field.
+  await expect(duplicate).toHaveAttribute("aria-labelledby", "delivery-static");
+  await expect(duplicate).toHaveAttribute("aria-describedby", "delivery-static");
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label delivery-label-2");
+  await expect(delivery).toHaveAttribute("aria-describedby", "delivery-description");
+});

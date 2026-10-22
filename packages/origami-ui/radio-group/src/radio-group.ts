@@ -1,6 +1,7 @@
 import {
   DestroyRef,
   Directive,
+  ElementRef,
   Service,
   booleanAttribute,
   computed,
@@ -10,12 +11,17 @@ import {
   model,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
+import { outputFromObservable } from "@angular/core/rxjs-interop";
+import { FORM_FIELD } from "@angular/forms/signals";
+import type { FormValueControl } from "@angular/forms/signals";
 import {
   ɵOrigamiRovingFocusContext,
   ɵOrigamiRovingFocusOptions,
   ɵrequestSingleSelection,
 } from "@loozo/origami-ui/collection";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { ɵOrigamiFieldMembership } from "@loozo/origami-ui/field";
+import { injectDeferred, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
+import { Subject } from "rxjs";
 
 /** Effective root configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiRadioGroupOptions {
@@ -56,10 +62,14 @@ export abstract class OrigamiRadioGroupOptions {
 @Service({ autoProvided: false })
 export class RadioGroupContext {
   readonly #options = injectDeferred(OrigamiRadioGroupOptions);
+  readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
+  readonly #touches = new Subject<void>();
   #destroyed = false;
 
   readonly value = computed(() => this.#options().value());
   readonly disabled = computed(() => this.#options().disabled());
+  /** Emits synchronously when focus leaves the root's element; only `OrigamiRadioGroup` reports it. */
+  readonly touches = this.#touches.asObservable();
 
   readonly disabledAttribute = computed(() => {
     if (this.disabled()) {
@@ -81,11 +91,22 @@ export class RadioGroupContext {
     );
   }
 
-  /** A user check request; the caller has already applied its own disabled policy. There is no user unchecking. */
+  /**
+   * A user check request; the caller has already applied its own disabled policy. Dropped while
+   * disabled or while the `[formField]` on the root's element is readonly. There is no user
+   * unchecking.
+   */
   select(value: string): void {
-    if (!this.#destroyed && !this.disabled()) {
+    const formReadonly = this.#binding?.state().readonly() ?? false;
+
+    if (!this.#destroyed && !this.disabled() && !formReadonly) {
       ɵrequestSingleSelection(this.#options().value, value, true, false);
     }
+  }
+
+  /** Focus left the root's element. */
+  left(): void {
+    this.#touches.next();
   }
 }
 
@@ -123,12 +144,22 @@ export class ɵOrigamiRadioGroupRoot {
  * uncheck one. Its items share one tab stop, held by the focused item, else the checked one,
  * else the first, and all four arrow keys move along rendered DOM order. While the value is null
  * or no mounted item has it, nothing is checked; the model is never written without user action.
- * Static `role="radiogroup"` (a consumer's static `role` overrides it); `data-disabled` reflects
- * effective Options. It has no orientation. It binds no `aria-orientation`, `aria-required` or
- * `aria-disabled`; consumers may write them statically, and own the accessible name, item
- * labels, layout and styling. Inside an `ogToolbar` it keeps its own tab stop; to share the
- * Toolbar's, use `OrigamiToolbarRadioGroup` from `@loozo/origami-ui/toolbar`. It is not a form
- * control: no `name`, form value, `required` or validity.
+ * User selection is dropped while disabled and while the `[formField]` on the root is readonly;
+ * focus still moves. Static `role="radiogroup"` (a consumer's static `role` overrides it);
+ * `data-disabled` reflects effective Options. It has no orientation and binds no
+ * `aria-orientation` or `aria-disabled`; consumers may write them statically, and own the
+ * accessible name, item labels, layout and styling. Inside an `ogToolbar` it keeps its own tab
+ * stop; to share the Toolbar's, use `OrigamiToolbarRadioGroup` from `@loozo/origami-ui/toolbar`.
+ *
+ * It is an Angular Signal Forms value control: `[formField]` binds its `value` model, writes its
+ * `disabled` input and listens to `touch`, which it emits when focus leaves the group, not while
+ * focus moves between its items; `focusBoundControl()` calls `focus()`, which focuses the item
+ * holding the tab stop. It joins its nearest `ogField` on its own, without `ogFieldControl`:
+ * inside a Field its `aria-labelledby` names the Field's Labels, replacing a static value, and is
+ * absent while there is none; its `aria-describedby` names the Field's Descriptions, then its
+ * mounted Errors; and `aria-invalid`, `aria-required` and `aria-readonly` follow the Field. It
+ * registers once Angular has set its inputs. Outside a Field, and as a second control the Field
+ * ignores, it keeps those attributes' static values. It has no `name` or native form value.
  *
  * @example
  * ```html
@@ -141,7 +172,7 @@ export class ɵOrigamiRadioGroupRoot {
 @Directive({
   selector: "[ogRadioGroup]",
   exportAs: "ogRadioGroup",
-  hostDirectives: [ɵOrigamiRadioGroupRoot],
+  hostDirectives: [ɵOrigamiRadioGroupRoot, ɵOrigamiDescribedBy],
   providers: [
     OrigamiRadioGroupOptions.provideExisting(() => OrigamiRadioGroup),
     ɵOrigamiRovingFocusContext,
@@ -162,15 +193,78 @@ export class ɵOrigamiRadioGroupRoot {
       };
     }),
   ],
+  host: {
+    "[attr.aria-labelledby]": "ariaLabelledBy()",
+    "[attr.aria-invalid]": "ariaInvalid()",
+    "[attr.aria-required]": "ariaRequired()",
+    "[attr.aria-readonly]": "ariaReadonly()",
+    "(focusout)": "focusLeft($event)",
+  },
 })
-export class OrigamiRadioGroup implements OrigamiRadioGroupOptions {
+export class OrigamiRadioGroup
+  implements OrigamiRadioGroupOptions, FormValueControl<string | null>
+{
   /**
    * Own checked-value model, default null; `valueChange` emits user selections written to this
-   * model. Replaced Options supply the effective value instead and do not fabricate this output.
+   * model, and `[formField]` binds it. Replaced Options supply the effective value instead and do
+   * not fabricate this output.
    */
   readonly value = model<string | null>(null);
-  /** Own disabled input, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  /**
+   * Own disabled input, default false with boolean-attribute coercion; `[formField]` writes it
+   * from the field's `disabled()` rules. Replaced Options supply effective policy instead.
+   */
   readonly disabled = input(false, { transform: booleanAttribute });
   /** This root's readonly effective Options observation, shared with its descendants. */
   readonly state = inject(OrigamiRadioGroupState);
+
+  readonly #context = inject(RadioGroupContext);
+  readonly #focus = inject(ɵOrigamiRovingFocusContext, { self: true });
+  readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
+  readonly #membership = new ɵOrigamiFieldMembership(() => this.#element.id, {
+    labelable: false,
+  });
+
+  /**
+   * Emits when focus leaves the group; `[formField]` marks its field touched. On engines where a
+   * click doesn't focus a button (macOS Safari; macOS Firefox by default), clicking from one item
+   * to another moves focus to nothing first, so it emits.
+   */
+  readonly touch = outputFromObservable(this.#context.touches);
+
+  /** @internal The Field's Label IDs inside a Field; otherwise the static value. */
+  protected readonly ariaLabelledBy = this.#membership.labelledBy;
+  /** @internal The Field's shown errors inside a Field; otherwise the static value. */
+  protected readonly ariaInvalid = this.#membership.invalid;
+  /** @internal The bound field's `required()` inside a Field; otherwise the static value. */
+  protected readonly ariaRequired = this.#membership.required;
+  /** @internal The bound field's `readonly()` inside a Field; otherwise the static value. */
+  protected readonly ariaReadonly = this.#membership.readonly;
+
+  /** @internal Joins the nearest Field once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#membership.register(this.#destroyRef);
+  }
+
+  /**
+   * Focuses the item holding the group's tab stop: the focused item, else the checked one, else
+   * the first enabled one. Does nothing while no item can take focus. Signal Forms'
+   * `focusBoundControl()` calls it.
+   * @param options - Passed to the item's native `focus()`.
+   */
+  focus(options?: FocusOptions): void {
+    this.#focus.tabStop()?.focus(options);
+  }
+
+  /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */
+  protected focusLeft(event: FocusEvent): void {
+    const next = event.relatedTarget;
+
+    if (next instanceof Node && this.#element.contains(next)) {
+      return;
+    }
+
+    this.#context.left();
+  }
 }

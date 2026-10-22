@@ -43,6 +43,11 @@ export const routes: Routes = [
       import("./fixtures/toggle-deferred.js").then((module) => module.ToggleDeferred),
   },
   {
+    path: "group-field",
+    loadComponent: () =>
+      import("./fixtures/group-field-deferred.js").then((module) => module.GroupFieldDeferred),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),

@@ -234,6 +234,30 @@ export class AccordionObservation {
     </div>
     <output data-testid="hydration-toggle-value">{{ contactModel().bold }}</output>
 
+    <!-- Q11 U12: groups in Fields, bound to Signal Forms, labelled by a Label before and after. -->
+    <div ogField data-testid="hydration-radio-field">
+      <span ogFieldLabel data-testid="hydration-radio-label">Delivery</span>
+      <div ogRadioGroup data-testid="hydration-field-radio" [formField]="contact.delivery">
+        <button ogRadioGroupItem value="pickup" data-testid="hydration-delivery-pickup">
+          Pickup
+        </button>
+        <button ogRadioGroupItem value="courier" data-testid="hydration-delivery-courier">
+          Courier
+        </button>
+      </div>
+      <p ogFieldDescription data-testid="hydration-radio-description">Pickup is free.</p>
+    </div>
+    <output data-testid="hydration-delivery-value">{{ contactModel().delivery }}</output>
+    <div ogField data-testid="hydration-marks-field">
+      <div ogToggleGroupMultiple data-testid="hydration-field-marks" [formField]="contact.marks">
+        <button ogToggleGroupItem value="bold" data-testid="hydration-field-mark-bold">Bold</button>
+        <button ogToggleGroupItem value="italic">Italic</button>
+      </div>
+      <span ogFieldLabel data-testid="hydration-marks-label">Title marks</span>
+      <p ogFieldDescription data-testid="hydration-marks-description">Applied to the title.</p>
+    </div>
+    <output data-testid="hydration-marks-value">{{ contactModel().marks.join(",") }}</output>
+
     <div
       ogTabs
       [(value)]="tab"
@@ -748,11 +772,19 @@ export class HydrationUnit {
   readonly toolbarRadio = signal<string | null>("center");
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
-  readonly contactModel = signal({ email: "", terms: false, notify: true, bold: false });
+  readonly contactModel = signal<{
+    email: string;
+    terms: boolean;
+    notify: boolean;
+    bold: boolean;
+    delivery: string | null;
+    marks: string[];
+  }>({ email: "", terms: false, notify: true, bold: false, delivery: null, marks: [] });
   readonly contact = form(this.contactModel, (path) => {
     required(path.email);
     required(path.terms);
     required(path.bold);
+    required(path.delivery);
   });
   readonly increment = (value: number): number => value + 1;
 

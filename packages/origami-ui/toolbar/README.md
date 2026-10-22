@@ -10,9 +10,9 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 | `ogToolbarItem`                | as [`ogButton`](../button/README.md): `disabled`, `focusableWhenDisabled` (both default `false`); must be a `<button>`                     |
 | `ogToolbarToggle`              | as [`ogToggle`](../toggle/README.md): `checked` model, `disabled`, `focusableWhenDisabled`, `id`; must be a `<button>`; not a form control |
 | `ogToolbarPopoverTrigger`      | as [`ogPopoverTrigger`](../popover/README.md): `id`, `disabled`, `focusableWhenDisabled`; must be a `<button>` in a Popover                |
-| `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect                                                         |
-| `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect                                                       |
-| `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md)                                                                                              |
+| `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect; not a form control                                     |
+| `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect; not a form control                                   |
+| `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md); not a form control                                                                          |
 
 - Toolbar never activates a control: a click, Enter or Space runs only your button's own listeners, and a Toolbar Toggle's or Toolbar Popover Trigger's own behavior.
 - Controls are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as controls. Other focusable content inside the Toolbar that isn't a control, such as a search field, keeps its own Tab stop and its own arrow keys.
@@ -40,7 +40,7 @@ Only one control is in the Tab order (`tabindex="0"`): the focused one while foc
 
 ## Toolbar groups
 
-`ogToolbarToggleGroupSingle`, `ogToolbarToggleGroupMultiple` and `ogToolbarRadioGroup` are ToggleGroup and RadioGroup roots for use inside a Toolbar, as in the [APG toolbar example](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/examples/toolbar/). Each has the inputs, Options, State, attributes and press or check rules of `ogToggleGroupSingle`, `ogToggleGroupMultiple` or `ogRadioGroup`, and takes `ogToggleGroupItem` or `ogRadioGroupItem` items, but has no tab stop of its own: its items share the Toolbar's tab stop and arrow-key order with the Toolbar's other controls, in DOM order.
+`ogToolbarToggleGroupSingle`, `ogToolbarToggleGroupMultiple` and `ogToolbarRadioGroup` are ToggleGroup and RadioGroup roots for use inside a Toolbar, as in the [APG toolbar example](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/examples/toolbar/). Each has the inputs, Options, State, attributes outside a Field and press or check rules of `ogToggleGroupSingle`, `ogToggleGroupMultiple` or `ogRadioGroup`, and takes `ogToggleGroupItem` or `ogRadioGroupItem` items, but has no tab stop of its own: its items share the Toolbar's tab stop and arrow-key order with the Toolbar's other controls, in DOM order.
 
 [src/toolbar/alignment-toolbar.ts](../snippets/src/toolbar/alignment-toolbar.ts "both")
 
@@ -49,6 +49,7 @@ Only one control is in the Tab order (`tabindex="0"`): the focused one while foc
 - A Toolbar Toggle Group's own `orientation` has no effect; its `data-orientation` and State report the Toolbar's. The group keeps its role, name, value and pressed or checked state.
 - A Toolbar group finds its Toolbar through Angular DI, so outside one it fails with a missing-provider error. That includes a group projected through `<ng-content>` into a component whose own template holds the `ogToolbar`; put the Toolbar on the projecting component's host with `hostDirectives` instead.
 - A plain `ogToggleGroupSingle`, `ogToggleGroupMultiple` or `ogRadioGroup` inside a Toolbar, for example in a Popover's Content, keeps its own tab stop.
+- A Toolbar group isn't a form control: it has no `touch` output or `focus()` method, never joins a [Field](../field/README.md) and keeps your static `aria-labelledby` and `aria-describedby`. `[formField]` on it is unsupported: Signal Forms would bind its `value` model, but the field would never be marked touched and `focusBoundControl()` would focus nothing. Bind `[(value)]` instead.
 
 ## Replacing Options
 

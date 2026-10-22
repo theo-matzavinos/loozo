@@ -676,3 +676,237 @@ test("Q5: replaced root and item Options drive behavior with no fallback; descen
   await expect(page.getByTestId("nested-radio-inner-value")).toHaveText("y");
   await expect(page.getByTestId("nested-radio-outer-value")).toHaveText("b");
 });
+
+test("Q8: with [formField] the group shows the initial value, writes user changes, follows model writes, emits touch only when focus leaves the group, shows required errors through the Field after blur and submit(), resets, focusBoundControl() focuses the tab stop, readonly() drops clicks, keys and arrow selection while focus still moves, and disabled() disables every item; aria-invalid, aria-required and aria-readonly follow the Field", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const field = page.getByTestId("speed-field");
+  const group = page.getByTestId("speed");
+  const standard = page.getByTestId("speed-standard");
+  const express = page.getByTestId("speed-express");
+  const sameDay = page.getByTestId("speed-same-day");
+  const value = page.getByTestId("speed-value");
+  const touched = page.getByTestId("speed-touched");
+
+  // Initial value null checks nothing; required reaches the Field and aria-required.
+  await expect(value).toHaveText("");
+  await expect(group.locator('[aria-checked="true"]')).toHaveCount(0);
+  await expect(field).toHaveAttribute("data-required", "");
+  await expect(group).toHaveAttribute("aria-required", "true");
+  await expect(group).not.toHaveAttribute("aria-invalid", /.*/);
+  await expect(group).not.toHaveAttribute("aria-readonly", /.*/);
+  await expect(group).toHaveAttribute("aria-labelledby", "speed-label");
+  await expect(group).toHaveAttribute("aria-describedby", "speed-description");
+  await expect(page.getByRole("radiogroup", { name: "Shipping speed" })).toHaveAttribute(
+    "data-testid",
+    "speed",
+  );
+  await expect(group).toHaveAccessibleDescription("Express ships today.");
+
+  // User changes write the model; focus moving between items never touches.
+  await express.click();
+  await expect(value).toHaveText("express");
+  await expect(express).toHaveAttribute("aria-checked", "true");
+  await expect(touched).toHaveText("false");
+  await page.keyboard.press("ArrowDown");
+  await expect(sameDay).toBeFocused();
+  await expect(value).toHaveText("same-day");
+  await standard.click();
+  await expect(value).toHaveText("standard");
+  await page.keyboard.press("End");
+  await expect(value).toHaveText("same-day");
+  await expect(touched).toHaveText("false");
+
+  // Focus leaving the group touches.
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("write-speed")).toBeFocused();
+  await expect(touched).toHaveText("true");
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+
+  // A programmatic write reaches the items; the touched, now invalid field shows errors.
+  await page.getByTestId("clear-speed").click();
+  await expect(value).toHaveText("");
+  await expect(group.locator('[aria-checked="true"]')).toHaveCount(0);
+  await expect(field).toHaveAttribute("data-invalid", "");
+  await expect(group).toHaveAttribute("aria-invalid", "true");
+  await expect(group).toHaveAttribute("aria-describedby", "speed-description speed-error");
+  await expect(group).toHaveAccessibleDescription("Express ships today. Choose a shipping speed.");
+  await page.getByTestId("write-speed").click();
+  await expect(value).toHaveText("same-day");
+  await expect(sameDay).toHaveAttribute("aria-checked", "true");
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+  await expect(group).not.toHaveAttribute("aria-invalid", /.*/);
+  await expect(group).toHaveAttribute("aria-describedby", "speed-description");
+
+  // reset() untouches; the value stays.
+  await page.getByTestId("reset-speed").click();
+  await expect(touched).toHaveText("false");
+  await expect(value).toHaveText("same-day");
+
+  // submit() touches everything and shows the errors without running the action.
+  await page.getByTestId("clear-speed").click();
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+  await page.getByTestId("submit-order").click();
+  await expect(touched).toHaveText("true");
+  await expect(field).toHaveAttribute("data-invalid", "");
+  await expect(group).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByTestId("submits")).toHaveText("0");
+
+  // focusBoundControl() focuses the tab stop: the checked item, else the first enabled one.
+  await page.getByTestId("focus-speed").click();
+  await expect(standard).toBeFocused();
+  await page.getByTestId("write-speed").click();
+  await page.getByTestId("focus-speed").click();
+  await expect(sameDay).toBeFocused();
+
+  // readonly(): clicks, keys and arrow selection write nothing; focus still moves.
+  await page.getByTestId("freeze-speed").click();
+  await expect(group).toHaveAttribute("aria-readonly", "true");
+  await expect(express).toBeEnabled();
+  await express.click();
+  await expect(express).toBeFocused();
+  await expect(value).toHaveText("same-day");
+  await page.keyboard.press("ArrowUp");
+  await expect(standard).toBeFocused();
+  await expect(value).toHaveText("same-day");
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Home");
+  await settle(page);
+  await expect(value).toHaveText("same-day");
+  await expect(standard).toHaveAttribute("aria-checked", "false");
+  await expect(sameDay).toHaveAttribute("aria-checked", "true");
+  await page.getByTestId("freeze-speed").click();
+  await expect(group).not.toHaveAttribute("aria-readonly", /.*/);
+  await express.click();
+  await expect(value).toHaveText("express");
+
+  // disabled(): every item natively disabled, and the root's and the Field's data-disabled.
+  await page.getByTestId("lock-speed").click();
+
+  for (const item of [standard, express, sameDay]) {
+    await expect(item).toBeDisabled();
+  }
+
+  await expect(group).toHaveAttribute("data-disabled", "");
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-speed").click();
+  await expect(express).toBeEnabled();
+  await expect(field).not.toHaveAttribute("data-disabled", /.*/);
+});
+
+test("Q9: inside a Field the group's aria-labelledby names every Label, before and after it, replacing a static value, and its aria-describedby the Description; Labels get no for; without a Label it has no aria-labelledby; a standalone group keeps its static attributes and emits touch only when focus leaves it", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const delivery = page.getByTestId("delivery");
+
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label delivery-label-2");
+  await expect(delivery).toHaveAttribute("aria-describedby", "delivery-description");
+  await expect(page.getByTestId("delivery-label")).not.toHaveAttribute("for", /.*/);
+  await expect(page.getByTestId("delivery-label-2")).not.toHaveAttribute("for", /.*/);
+  await expect(page.getByRole("radiogroup", { name: "Delivery (choose one)" })).toHaveAttribute(
+    "data-testid",
+    "delivery",
+  );
+  await expect(delivery).toHaveAccessibleDescription("Pickup is free.");
+
+  // Without [formField] the Field has no form state to expose.
+  for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+    await expect(delivery).not.toHaveAttribute(attribute, /.*/);
+  }
+
+  await page.getByTestId("toggle-second-label").click();
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label");
+  await expect(page.getByRole("radiogroup", { name: "Delivery", exact: true })).toHaveAttribute(
+    "data-testid",
+    "delivery",
+  );
+  await page.getByTestId("toggle-second-label").click();
+  await expect(delivery).toHaveAttribute("aria-labelledby", "delivery-label delivery-label-2");
+  await page.getByTestId("delivery-courier").click();
+  await expect(page.getByTestId("delivery-courier")).toHaveAttribute("aria-checked", "true");
+
+  // A Field without a Label replaces the static value with nothing.
+  await expect(page.getByTestId("unlabelled")).not.toHaveAttribute("aria-labelledby", /.*/);
+
+  // Standalone: unchanged static attributes; touch only when focus leaves the group.
+  const standalone = page.getByTestId("standalone-radio");
+  const touches = page.getByTestId("standalone-touches");
+
+  await expect(standalone).toHaveAttribute("aria-labelledby", "standalone-heading");
+  await expect(standalone).toHaveAttribute("aria-describedby", "standalone-hint");
+  await expect(page.getByRole("radiogroup", { name: "Standalone size" })).toHaveAttribute(
+    "data-testid",
+    "standalone-radio",
+  );
+
+  for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+    await expect(standalone).not.toHaveAttribute(attribute, /.*/);
+  }
+
+  await page.getByTestId("size-s").click();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByTestId("size-m")).toBeFocused();
+  await page.getByTestId("size-s").click();
+  await expect(touches).toHaveText("0");
+  await page.getByTestId("before").click();
+  await expect(touches).toHaveText("1");
+});
+
+test("Q10: a consumer component composing the RadioGroup through hostDirectives with exposed value, valueChange, disabled and touch is the control [formField] finds; the group reads FORM_FIELD on its element, and focusBoundControl() reaches the tab stop through the component's own focus()", async ({
+  page,
+}, info) => {
+  await fixture(page, "group-field", info);
+
+  const field = page.getByTestId("plan-field");
+  const plan = page.getByTestId("plan");
+  const monthly = page.getByTestId("plan-monthly");
+  const yearly = page.getByTestId("plan-yearly");
+  const value = page.getByTestId("plan-value");
+  const touched = page.getByTestId("plan-touched");
+
+  await expect(plan).toHaveAttribute("role", "radiogroup");
+  await expect(field).toHaveAttribute("data-required", "");
+  await expect(plan).toHaveAttribute("aria-required", "true");
+  await expect(plan).toHaveAttribute("aria-labelledby", "plan-label");
+  await expect(page.getByRole("radiogroup", { name: "Billing plan" })).toHaveAttribute(
+    "data-testid",
+    "plan",
+  );
+
+  await monthly.click();
+  await expect(value).toHaveText("monthly");
+  await page.keyboard.press("ArrowDown");
+  await expect(value).toHaveText("yearly");
+  await expect(touched).toHaveText("false");
+  await page.getByTestId("before").click();
+  await expect(touched).toHaveText("true");
+
+  // A programmatic write changes the checked item.
+  await page.getByTestId("write-plan").click();
+  await expect(value).toHaveText("monthly");
+  await expect(monthly).toHaveAttribute("aria-checked", "true");
+  await expect(yearly).toHaveAttribute("aria-checked", "false");
+  await page.getByTestId("focus-plan").click();
+  await expect(monthly).toBeFocused();
+
+  // The group reads the readonly rule from FORM_FIELD on its own element.
+  await page.getByTestId("freeze-plan").click();
+  await expect(plan).toHaveAttribute("aria-readonly", "true");
+  await yearly.click();
+  await settle(page);
+  await expect(value).toHaveText("monthly");
+  await expect(yearly).toHaveAttribute("aria-checked", "false");
+  await page.getByTestId("freeze-plan").click();
+
+  await page.getByTestId("lock-plan").click();
+  await expect(monthly).toBeDisabled();
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-plan").click();
+  await yearly.click();
+  await expect(value).toHaveText("yearly");
+});
