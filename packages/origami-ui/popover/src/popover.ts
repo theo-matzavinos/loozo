@@ -103,7 +103,10 @@ export class PopoverContext {
     anchor: this.#anchor(),
     content: this.#content(),
   }));
-  /** Native presentation of Content against the Anchor, nested under the parent Popover's. */
+  /**
+   * Native presentation of Content against the Anchor, nested under the parent Popover's, or
+   * without one under its modal scope's, the Dialog whose `<dialog>` contains its parts.
+   */
   readonly floating: ɵOrigamiFloating = new ɵOrigamiFloating({
     label: "Popover",
     referenceLabel: "Anchor",
@@ -118,7 +121,7 @@ export class PopoverContext {
         complete: parts.trigger !== null && parts.anchor !== null && parts.content !== null,
       };
     }),
-    parent: this.#parent?.floating ?? null,
+    parent: () => this.#parent?.floating ?? this.layer.scope()?.presentation ?? null,
     nextOrder: () => this.layer.nextOrder(),
     closed: (previous, interaction) => {
       const focus = this.layer.document.activeElement;
@@ -130,13 +133,18 @@ export class PopoverContext {
       }
     },
   });
-  /** Escape order and outside-pointer dismissal; a nested Popover joins its parent Popover's branch. */
+  /**
+   * Escape order and outside-pointer dismissal; a nested Popover joins its parent Popover's branch,
+   * and without one its modal scope's.
+   */
   readonly layer: ɵOrigamiLayer = new ɵOrigamiLayer({
     intent: this.intent,
     // Its identity changes exactly when parts or policy does: a captured branch must still match both.
     revision: computed(() => ({ parts: this.parts(), policy: this.#policy() })),
     dismissible: this.dismissible,
     parent: this.#parent?.layer ?? null,
+    modal: null,
+    joinsModalBranch: true,
     presentation: this.floating,
     containsTarget: (target) => {
       for (const part of [this.#trigger(), this.#anchor(), this.#content()]) {
@@ -151,6 +159,17 @@ export class PopoverContext {
       const content = this.#content();
 
       return content !== null && content.element.contains(focus);
+    },
+    elements: () => {
+      const elements: HTMLElement[] = [];
+
+      for (const part of [this.#trigger(), this.#anchor(), this.#content()]) {
+        if (part !== null) {
+          elements.push(part.element);
+        }
+      }
+
+      return elements;
     },
     closeFromInteraction: () => {
       this.floating.closeFromInteraction(() => this.#options().open.set(false));

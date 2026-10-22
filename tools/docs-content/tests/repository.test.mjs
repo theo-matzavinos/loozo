@@ -279,6 +279,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/field",
     "@loozo/origami-ui/checkbox",
     "@loozo/origami-ui/switch",
+    "@loozo/origami-ui/dialog",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -316,6 +317,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "OrigamiSwitchOptions",
     "OrigamiSwitchState",
   ]);
+  assert.equal(names["@loozo/origami-ui/dialog"].length, 14);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -355,6 +357,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "field:Field",
     "checkbox:Checkbox",
     "switch:Switch",
+    "dialog:Dialog",
     "utils:Utilities",
   ]);
 
@@ -370,7 +373,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 18 snippets that export one component", async () => {
+test("origami's guide pages run the 19 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -378,7 +381,7 @@ test("origami's guide pages run the 18 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 18);
+  assert.equal(ids.length, 19);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];

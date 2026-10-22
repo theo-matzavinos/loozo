@@ -40,6 +40,15 @@ export const routes: Routes = [
       import("./fixtures/group-field.js").then((module) => module.GroupFieldFixture),
   },
   {
+    path: "dialog",
+    loadComponent: () => import("./fixtures/dialog.js").then((module) => module.DialogFixture),
+  },
+  {
+    path: "dialog-open",
+    loadComponent: () =>
+      import("./fixtures/dialog-open.js").then((module) => module.DialogOpenFixture),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),

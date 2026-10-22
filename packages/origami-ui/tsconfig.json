@@ -29,7 +29,8 @@
       "@loozo/origami-ui/tooltip": ["./tooltip/src/public-api.ts"],
       "@loozo/origami-ui/field": ["./field/src/public-api.ts"],
       "@loozo/origami-ui/checkbox": ["./checkbox/src/public-api.ts"],
-      "@loozo/origami-ui/switch": ["./switch/src/public-api.ts"]
+      "@loozo/origami-ui/switch": ["./switch/src/public-api.ts"],
+      "@loozo/origami-ui/dialog": ["./dialog/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -54,6 +55,7 @@
     "tooltip/src/**/*.ts",
     "field/src/**/*.ts",
     "checkbox/src/**/*.ts",
-    "switch/src/**/*.ts"
+    "switch/src/**/*.ts",
+    "dialog/src/**/*.ts"
   ]
 }
