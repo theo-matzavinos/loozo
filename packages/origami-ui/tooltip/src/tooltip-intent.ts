@@ -1,5 +1,5 @@
 import { inject } from "@angular/core";
-import type { ɵOrigamiIntent } from "@loozo/origami-ui/popover";
+import type { ɵOrigamiIntent } from "@loozo/origami-ui/utils";
 import type { TooltipContext } from "./tooltip";
 import { TooltipGroup } from "./tooltip-group";
 import { graceArea, insideGraceArea } from "./tooltip-grace";

@@ -302,7 +302,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.deepEqual(names["@loozo/origami-ui/button"], ["OrigamiButton", "OrigamiButtonOptions"]);
   assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
   assert.equal(names["@loozo/origami-ui/radio-group"].includes("ɵOrigamiRadioGroupRoot"), false);
-  assert.equal(names["@loozo/origami-ui/popover"].includes("ɵOrigamiFloatingScope"), false);
+  assert.equal(names["@loozo/origami-ui/popover"].includes("ɵOrigamiFloating"), false);
   assert.equal(names["@loozo/origami-ui/tooltip"].length, 9);
   assert.equal(names["@loozo/origami-ui/field"].length, 10);
   assert.equal(names["@loozo/origami-ui/field"].includes("ɵOrigamiFieldMembership"), false);

@@ -11,13 +11,13 @@ import {
   signal,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
-import { ɵOrigamiFloating, ɵOrigamiFloatingScope, ɵOrigamiLayer } from "@loozo/origami-ui/popover";
-import type { ɵOrigamiIntent } from "@loozo/origami-ui/popover";
+import { ɵOrigamiFloating } from "@loozo/origami-ui/popover";
 import type {
   OrigamiPresenceState,
   ɵOrigamiPresencePresentation,
 } from "@loozo/origami-ui/presence";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { injectDeferred, ɵOrigamiLayer, ɵOrigamiPresentationScope } from "@loozo/origami-ui/utils";
+import type { ɵOrigamiIntent } from "@loozo/origami-ui/utils";
 import type { OrigamiTooltipContentOptions } from "./tooltip-content";
 import { TooltipIntent } from "./tooltip-intent";
 
@@ -106,7 +106,7 @@ export class TooltipContext {
         complete: parts.trigger !== null && parts.content !== null,
       };
     }),
-    parent: inject(ɵOrigamiFloatingScope, { optional: true }),
+    parent: inject(ɵOrigamiPresentationScope, { optional: true }),
     nextOrder: () => this.layer.nextOrder(),
     closed: (previous) => this.interaction.closed(previous),
   });
@@ -116,7 +116,7 @@ export class TooltipContext {
     revision: this.parts,
     dismissible: computed(() => true),
     parent: null,
-    floating: this.floating,
+    presentation: this.floating,
     containsTarget: (target) => {
       for (const part of [this.#trigger(), this.#content()]) {
         if (part !== null && (target === part.element || part.element.contains(target))) {

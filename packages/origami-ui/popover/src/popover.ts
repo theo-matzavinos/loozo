@@ -14,13 +14,12 @@ import {
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
 import { OrigamiPresenceState, ɵOrigamiPresencePresentation } from "@loozo/origami-ui/presence";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { injectDeferred, ɵOrigamiLayer } from "@loozo/origami-ui/utils";
+import type { ɵOrigamiIntent } from "@loozo/origami-ui/utils";
 import { ɵOrigamiFloating } from "./floating";
-import type { ɵOrigamiIntent } from "./floating";
 import type { OrigamiPopoverAnchorOptions } from "./popover-anchor";
 import type { OrigamiPopoverContentOptions } from "./popover-content";
 import type { OrigamiPopoverTriggerOptions } from "./popover-trigger";
-import { ɵOrigamiLayer } from "./layer";
 
 /** Whole, substitutable root configuration, resolved after construction. */
 export abstract class OrigamiPopoverOptions {
@@ -138,7 +137,7 @@ export class PopoverContext {
     revision: computed(() => ({ parts: this.parts(), policy: this.#policy() })),
     dismissible: this.dismissible,
     parent: this.#parent?.layer ?? null,
-    floating: this.floating,
+    presentation: this.floating,
     containsTarget: (target) => {
       for (const part of [this.#trigger(), this.#anchor(), this.#content()]) {
         if (part !== null && (target === part.element || part.element.contains(target))) {

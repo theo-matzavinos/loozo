@@ -1,6 +1,6 @@
 # Utilities design map
 
-Ownership and read timing for `injectUniqueId`, `injectUniqueValue`, `injectDeferred` and the package-private `ɵOrigamiDescribedBy`. Usage is in the [README](README.md); the contract is SPEC section 5.
+Ownership and read timing for `injectUniqueId`, `injectUniqueValue`, `injectDeferred` and the package-private `ɵOrigamiDescribedBy`, then for the package-private dismissal layer and presentation contract that Popover and Tooltip share. Usage is in the [README](README.md); the contracts are SPEC sections 4 and 5, and for the layer SPEC sections 10 and 18 and [SPEC-POPOVER.md](../SPEC-POPOVER.md). The layer's machine runs in document events and tasks, never in a part's host bindings.
 
 ## Ownership
 
@@ -27,3 +27,56 @@ Ownership and read timing for `injectUniqueId`, `injectUniqueValue`, `injectDefe
 | Each registration's IDs       | `ɵOrigamiDescribedBy`'s `[attr.aria-describedby]` | render                               | both     | A describer registers in its `ngOnInit`, so its IDs follow those of describers that initialized before it, in Angular's directive order on the element; before any registration names an ID, the static value.                                                                                                                                                                                                                                                                                                                                                                                        |
 
 The allocators make no render-time reads, and nothing self-corrects.
+
+## Dismissal layer (`ɵOrigamiLayer`, `ɵOrigamiLayers`)
+
+`ɵOrigamiLayer` is one per owner (Popover root, Tooltip root), constructed by the owner after its presentation and destroyed first in its teardown. `ɵOrigamiLayers` is the application `@Service` with the document listeners: Escape, the outside-pointer gesture, the order counter, veto preflight and descendant-first dismissal.
+
+### Ownership
+
+| Fact                                               | Owner                                                                                                                                   | Readers                                                                                                            |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Registered layers                                  | `ɵOrigamiLayers`, written at a layer's construction and destruction                                                                     | the Escape topmost search, gesture candidates                                                                      |
+| Stacking order counter                             | `ɵOrigamiLayers`                                                                                                                        | the owner's presentation, through the layer's `nextOrder` (Popover and Tooltip: their floating host's `nextOrder`) |
+| Branch parent                                      | the owner, at construction: the parent Popover's layer; none for a Tooltip                                                              | the coverage walk                                                                                                  |
+| Branch children                                    | the parent layer: an immutable `Set` replaced on add and remove, captured by identity                                                   | branch capture and freshness, `containsPath`, `containsFocus`, `branchOrder`                                       |
+| Owner revision                                     | the owner, as the host's `revision` (Popover: parts and policy, one object whose identity changes when either does; Tooltip: its parts) | branch freshness                                                                                                   |
+| Dismissible                                        | the owner, as the host's `dismissible` (Tooltip: always true)                                                                           | the veto preflight, captured in the snapshot                                                                       |
+| Own-part containment, Content focus                | the owner, as the host's `containsTarget` and `containsFocus`                                                                           | `containsPath` (the outside gesture), `containsFocus` (the floating host's `closed` hook)                          |
+| Participation, order, activation, epoch, readiness | the owner's presentation, as the host's `presentation` (Popover and Tooltip: their `ɵOrigamiFloating`)                                  | Escape, the gesture, branch snapshot, close epoch                                                                  |
+| Interaction close, focus restoration               | the owner, as the host's `closeFromInteraction` and `restoreFocus` (Tooltip: restores nothing)                                          | `ɵOrigamiLayers.dismiss`, descendants before ancestor                                                              |
+| Dismissal document                                 | `ɵOrigamiLayers`: the application `DOCUMENT`, exposed on each layer as `document`                                                       | the document listeners, `dismiss`; the owner's `closed` hook and restoration, through its layer                    |
+| Acquired gesture                                   | `ɵOrigamiLayers`, from a trusted primary `pointerdown` until its `pointerup` task, cancel or drag                                       | the `pointerup` task                                                                                               |
+
+### Read timing
+
+| Read                                                                                | Reader                                                                  | Phase               | Platform                     | If the owner isn't initialized           |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------- | ---------------------------- | ---------------------------------------- |
+| Presentation `isParticipating()`, `order()`                                         | Escape, `pointerdown`, the `pointerup` task                             | event, task         | browser                      | Not activated: not a candidate.          |
+| Host `intent`, `revision`, `dismissible`; presentation activation, epoch, readiness | `captureBranch`, `matches`, `dismiss`                                   | event, task         | browser                      | Safe: captured and compared by identity. |
+| Host `containsTarget`                                                               | `containsPath`                                                          | event, task         | browser                      | Missing parts contain nothing.           |
+| Host `containsFocus`                                                                | `containsFocus`, from the floating host's `closed` hook                 | effect, event       | both                         | No Content: contains nothing.            |
+| The dismissal document's `activeElement`                                            | `dismiss`; the owner's `closed` hook and restoration, through its layer | effect, event, task | both; restoration in browser | Safe: live.                              |
+
+No render-time reads and no self-correction.
+
+## Presentation contract (`ɵOrigamiPresentation`, `ɵOrigamiPresentationChild`, `ɵOrigamiPresentationScope`)
+
+`ɵOrigamiPresentation` is what a dismissal layer and a nested presentation read from a presentation; `ɵOrigamiPresentationChild` is what a presentation reads from the nested presentations it keeps. `ɵOrigamiFloating` (mapped in [popover/DESIGN.md](../popover/DESIGN.md)) implements both. The contract owns no state: each member reads the implementing presentation's own.
+
+### Ownership
+
+| Fact                                                                                         | Owner                                                                                                                                    | Readers                                                                                                                                   |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Participation, order, activation, epoch, readiness                                           | the implementing presentation                                                                                                            | its owner's layer; a nested presentation (readiness, epoch)                                                                               |
+| Requested (intent open, not destroyed, every ancestor requested), can present, retained exit | the implementing presentation                                                                                                            | a nested presentation's gating, suppression and attempts                                                                                  |
+| Presentation children                                                                        | the parent presentation, an immutable `Set` replaced on `addChild` and `removeChild`, called from a child's construction and destruction | the parent's close and suppression (`desired`, `suppress`) and reveal commit (`parentRevealed`)                                           |
+| The enclosing presentation                                                                   | `ɵOrigamiPresentationScope`, provided by Popover Content as its owner's `ɵOrigamiFloating`                                               | a Tooltip root inside that Content, at construction; no Popover part (a nested Popover takes its parent from the parent `PopoverContext`) |
+
+### Read timing
+
+| Read                                                                | Reader                          | Phase                                | Platform | If the owner isn't initialized                                                                             |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `ɵOrigamiPresentationScope`                                         | a Tooltip root's floating piece | construction                         | both     | Optional: null outside Popover Content. The provider resolves its owner's presentation, constructed first. |
+| Parent `ready`, `requested`, `canPresent`, `retainingExit`, `epoch` | a nested presentation           | effect, after render, event          | browser  | Safe: the parent is constructed first.                                                                     |
+| Child `desired`; `suppress`, `parentRevealed` calls                 | the parent presentation         | effect, after render, event, destroy | browser  | Safe: a child joins at construction and leaves at destruction.                                             |

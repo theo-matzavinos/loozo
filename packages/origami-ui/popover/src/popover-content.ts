@@ -15,8 +15,7 @@ import {
   OrigamiPresenceState,
   ɵOrigamiPresencePresentation,
 } from "@loozo/origami-ui/presence";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
-import { ɵOrigamiFloatingScope } from "./floating";
+import { injectDeferred, injectUniqueId, ɵOrigamiPresentationScope } from "@loozo/origami-ui/utils";
 import { PopoverContext } from "./popover";
 
 /** Logical main-side placement, resolved from the Anchor's writing mode and direction. */
@@ -146,7 +145,7 @@ export class OrigamiPopoverContentState {
     OrigamiPopoverContentState,
     OrigamiPopoverContentOptions.provideExisting(() => OrigamiPopoverContent),
     OrigamiPresenceOptions.provideFactory(() => ({ present: inject(PopoverContext).desired })),
-    { provide: ɵOrigamiFloatingScope, useFactory: () => inject(PopoverContext).floating },
+    { provide: ɵOrigamiPresentationScope, useFactory: () => inject(PopoverContext).floating },
   ],
   host: {
     "[id]": "effectiveId()",

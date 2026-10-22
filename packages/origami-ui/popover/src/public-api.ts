@@ -8,12 +8,9 @@ export {
   type OrigamiPopoverSide,
   type OrigamiPopoverAlign,
 } from "./popover-content";
-export { ɵOrigamiFloating, ɵOrigamiFloatingScope } from "./floating";
+export { ɵOrigamiFloating } from "./floating";
 export type {
   ɵOrigamiFloatingContent,
   ɵOrigamiFloatingHost,
   ɵOrigamiFloatingParts,
-  ɵOrigamiIntent,
 } from "./floating";
-export { ɵOrigamiLayer } from "./layer";
-export type { ɵOrigamiLayerHost } from "./layer";

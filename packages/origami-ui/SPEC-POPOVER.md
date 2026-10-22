@@ -120,11 +120,11 @@ Root/parts and resolved Options
        │    ├─ Presence intent/retention, guarded native manual activation/deactivation
        │    ├─ presentation nesting
        │    └─ private positioning adapter (computePosition + offset + flip, autoUpdate, guarded commits)
-       └─ dismissal layer (ɵOrigamiLayer, registered with ɵOrigamiLayers; shared with Tooltip)
+       └─ dismissal layer (ɵOrigamiLayer from Utilities, registered with ɵOrigamiLayers; shared with Tooltip)
             └─ branch nesting, dismissal, topmost order
 ```
 
-The floating presentation and the dismissal layer are package-private pieces, each with its own parent relation; a nested Popover's pieces nest under its parent Popover's. Popover Content provides `ɵOrigamiFloatingScope`, its owner's floating presentation, for a Tooltip inside it, whose floating presentation nests under it while its dismissal layer stays outside the Popover's branch; Popover itself never reads it. Angular continues owning Content and its child views throughout.
+The floating presentation and the dismissal layer are package-private pieces, each with its own parent relation; a nested Popover's pieces nest under its parent Popover's. The layer and a nested presentation read a presentation only through the `ɵOrigamiPresentation` contract in Utilities, which the floating presentation implements. Popover Content provides `ɵOrigamiPresentationScope`, its owner's floating presentation, for a Tooltip inside it, whose floating presentation nests under it while its dismissal layer stays outside the Popover's branch; Popover itself never reads it. Angular continues owning Content and its child views throughout.
 
 Use only the DOM package, not Floating UI's React interaction/portal components. Official npm registry metadata confirms `@floating-ui/dom@1.8.0` is published, depending on `@floating-ui/core: ^1.8.0` and `@floating-ui/utils: ^0.2.12`; those base versions also match the inspected source package metadata. Pin and verify the genuine installed dependency closure in the lockfile. No formal Baseline compliance claim is made. Source research does not qualify runtime behavior; the browser acceptance suite does.
 
