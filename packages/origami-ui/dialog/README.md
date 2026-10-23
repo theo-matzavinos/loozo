@@ -14,7 +14,7 @@ Dialog is a modal dialog on the browser's native `<dialog>`: Content is shown wi
 | `ogDialogDescription` | `id` (default generated)                                                                                                                                            |
 | `ogDialogClose`       | `disabled`, `focusableWhenDisabled` (both default `false`); must be a `<button>`                                                                                    |
 
-The Trigger is optional: any control that writes `open` opens the Dialog, such as an ordinary `ogButton` with `(click)="filtersOpen.set(true)"`. One Trigger and one Content are supported per Dialog; Titles, Descriptions and Close buttons can repeat. The root may sit on the `<dialog>` itself (`<dialog ogDialog ogDialogContent>`), and a component can be the root through `hostDirectives: [OrigamiDialog]` and close itself with `inject(OrigamiDialog).open.set(false)`.
+The Trigger is optional: any control that writes `open` opens the Dialog, such as an ordinary `ogButton` with `(click)="filtersOpen.set(true)"`. One Trigger and one Content are supported per Dialog; Titles, Descriptions and Close buttons can repeat. The root may sit on the `<dialog>` itself (`<dialog ogDialog ogDialogContent>`), and a component can be the root through `hostDirectives: [OrigamiDialog]` and close itself with `inject(OrigamiDialog).open.set(false)`. Such a component can also be [opened from code](#opening-from-code).
 
 ```html
 <button ogButton (click)="filtersOpen.set(true)">Filters</button>
@@ -53,12 +53,29 @@ Cancel is an `ogDialogClose`: give it `autofocus`, so the safe choice has focus 
 
 `OrigamiAlertDialog` has its own Options, `OrigamiAlertDialogOptions` (`open`, `dismissible`), and exposes the Dialog root's State as its `state`. A component can be the root through `hostDirectives: [OrigamiAlertDialog]` and expose its `open`, `openChange` and `dismissible`.
 
+## Opening from code
+
+To open a dialog from a handler, such as a search dialog a page opens with its current criteria, write the dialog as an application component that is the Dialog root through `hostDirectives` (or the AlertDialog root), and open it with an opener:
+
+[src/dialog/invoice-search.ts](../snippets/src/dialog/invoice-search.ts "both")
+
+- **The opener.** Call `injectOrigamiDialogOpener(Component)` once in an injection context, such as a field initializer; the component or service that calls it owns it. Its `open()` can run anywhere later. Each call mounts a new instance of the component and returns an `OrigamiDialogRef`.
+- **Bindings.** `open()` takes a record of the component's signal inputs, models and outputs, by property name and typed from their declarations: an input takes a getter or a signal, which keeps it live; a model takes a getter, bound one-way, or a `WritableSignal`, bound two-way; an output takes a listener. Plain fields and decorator `@Input()`s and `@Output()`s can't be bound. The type can't tell required inputs apart, so leaving one out throws Angular's NG0950 when the component reads it. Inputs aren't set while the component is constructed, so seed state from them with `linkedSignal` or `computed`, not in a field initializer.
+- **Where it lives.** The component's host is appended to the document body, and the component injects from the opener's owner, so it sees the providers the page sees. Theme variables set on `<html>` reach it; ones set on an element inside the page don't.
+- **Opening and closing.** Its top-level Dialog root opens once the component first renders. It closes like any Dialog, from inside (a Close button, a write to its root's `open`, Escape, the backdrop) or from outside with `ref.close()`. After the exit animation the component is destroyed and its host removed, then `ref.closed` resolves; await it to learn the dialog is gone. Data leaves through outputs: there's no close result. A `close()` before the first render tears it down without showing it.
+- **Navigation and teardown.** A URL change through Angular's `Location`, as the router navigates or on the back button, closes every dialog the opener has open, with their exit. When the owner is destroyed, its dialogs are torn down at once, without an exit, newest first, and focus returns as after any close.
+- **Server rendering.** `open()` throws on the server, so call it from browser events. A dialog that must be in the server's HTML is a template Dialog.
+
+A component opened from code can open another one with its own opener, such as an alert dialog confirming a discard: the newer one stacks above it. If the outer one ends while the newer one is still open, because its owner is destroyed or `ref.close()` finishes its exit, the newer one is torn down first, without an exit, and focus returns to where it was before the outer one opened.
+
 ## Focus
 
 When the dialog closes, the browser returns focus to what had it before it opened. Then:
 
-- `returnFocus`, if set and it can take focus, gets focus instead. Use it when the opener is gone, such as the delete button of a row the dialog deleted. A disconnected, disabled or inert element can't, and neither can one behind another dialog that's still open.
-- Otherwise, if focus was lost, the Trigger gets it if it can take focus and isn't disabled. Focus is lost when it ended up on the page body, for example because Safari doesn't focus a clicked button, or when the browser had nothing to restore and left it inside the closed dialog, also inside a shadow root.
+- `returnFocus`, if set and it can take focus, gets focus instead. Use it when the opener is gone, such as the delete button of a row the dialog deleted. A disconnected, disabled or inert element can't.
+- Otherwise, if focus was lost, the first of these that can take focus gets it: what had focus before this dialog opened, then, down the stack of dialogs it was opened over, each one's `returnFocus` and what had focus before it opened, and last the Trigger, unless it's disabled. Focus is lost when it ended up on the page body, for example because Safari doesn't focus a clicked button or the element is gone, or when the browser had nothing to restore and left it inside the closed dialog, also inside a shadow root.
+
+Stacked dialogs can close in any order. A dialog that closes while one opened after it is still open moves no focus, since the page is inert under the newer one; it keeps its `returnFocus` and its place in the stack. When the newer one closes, focus returns down the stack past it, for example to the page button that opened the first dialog when navigation closes both and the first one's shorter exit ends first.
 
 If Content is removed while modal, for example by a list refresh that removes the row hosting it, the dialog closes at once without an exit, and focus is returned the same way. `open` keeps its value.
 
@@ -163,4 +180,4 @@ The server renders Content without `open`, so it's hidden, with its IDs, names a
 
 ## Not included
 
-No non-modal dialog (use a [Popover](../popover/README.md)), `position` option or Sheet primitive, overlay part, portal, initial-focus option, close result, alert dialog Action part, drawer or swipe to dismiss.
+No non-modal dialog (use a [Popover](../popover/README.md)), `position` option or Sheet primitive, overlay part, portal or container option, initial-focus option, close result or data token for dialogs opened from code, alert dialog Action part, drawer or swipe to dismiss.

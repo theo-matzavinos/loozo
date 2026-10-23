@@ -9,3 +9,5 @@ export {
 export { OrigamiDialogTitle, OrigamiDialogTitleOptions } from "./dialog-title";
 export { OrigamiDialogDescription, OrigamiDialogDescriptionOptions } from "./dialog-description";
 export { OrigamiDialogClose, OrigamiDialogCloseOptions } from "./dialog-close";
+export { OrigamiDialogRef, injectOrigamiDialogOpener } from "./dialog-opener";
+export type { OrigamiDialogBindings, OrigamiDialogOpener } from "./dialog-opener";

@@ -101,7 +101,7 @@ async function verifyExpectedErrors(file, source) {
 const negativeEvidence = await verifyExpectedErrors(filename, original);
 const providerFile = path.join(directory, "provider-types.ts");
 const providerSource = `
-import { computed, signal, type Provider, type Signal, type WritableSignal } from '@angular/core';
+import { booleanAttribute, computed, input, model, output, signal, type Provider, type Signal, type WritableSignal } from '@angular/core';
 import { injectDeferred } from '@loozo/origami-ui/utils';
 import { OrigamiPresenceOptions } from '@loozo/origami-ui/presence';
 import { OrigamiCollectionItemOptions } from '@loozo/origami-ui/collection';
@@ -120,7 +120,7 @@ import { OrigamiFieldLabelOptions, OrigamiFieldControlOptions, OrigamiFieldDescr
 import * as fieldEntry from '@loozo/origami-ui/field';
 import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origami-ui/checkbox';
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
-import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, type OrigamiDialogState, type OrigamiDialogContentState } from '@loozo/origami-ui/dialog';
+import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -302,6 +302,41 @@ OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters'), return
 OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters')}));
 // @ts-expect-error a Dialog Close factory must supply focusableWhenDisabled
 OrigamiDialogCloseOptions.provideFactory(() => ({disabled: signal(false)}));
+type OpenedCriteria = { query: string };
+class OpenedDialog {
+  readonly criteria = input.required<OpenedCriteria>();
+  readonly limit = input(10);
+  readonly dense = input(false, { transform: booleanAttribute });
+  readonly page = model(0);
+  readonly size = input.required<number>({ alias: 'pageSize' });
+  readonly search = output<OpenedCriteria>();
+  readonly cleared = output<void>();
+  readonly plain = 5;
+  readonly derived = signal(1);
+}
+export const openedBindings: OrigamiDialogBindings<OpenedDialog> = { criteria: () => ({query: ''}), limit: signal(3), dense: () => 'true', page: signal(1), size: () => 25, search: (criteria) => void criteria.query.toUpperCase(), cleared: () => undefined };
+export const oneWayPage: OrigamiDialogBindings<OpenedDialog> = { page: () => 3 };
+export const requiredLeftOut: OrigamiDialogBindings<OpenedDialog> = {};
+export function openOpened(): OrigamiDialogRef { return injectOrigamiDialogOpener(OpenedDialog).open({ criteria: () => ({query: 'INV-1'}), size: () => 25 }); }
+export async function awaitOpened(ref: OrigamiDialogRef): Promise<void> { ref.close(); const done: Promise<void> = ref.closed; await done; }
+declare const openedOpener: OrigamiDialogOpener<OpenedDialog>;
+// @ts-expect-error a bound input's getter returns the input's type
+export const wrongInputValue: OrigamiDialogBindings<OpenedDialog> = { criteria: () => 42 };
+// @ts-expect-error a model's writable signal has the model's type
+export const wrongModelSignal: OrigamiDialogBindings<OpenedDialog> = { page: signal('first') };
+// @ts-expect-error an output listener takes the output's payload type
+export const wrongPayload: OrigamiDialogBindings<OpenedDialog> = { search: (criteria: number) => void criteria };
+// @ts-expect-error a plain field is not bindable
+export const plainNotBindable: OrigamiDialogBindings<OpenedDialog> = { plain: () => 5 };
+// @ts-expect-error a plain signal is not an input
+export const signalNotBindable: OrigamiDialogBindings<OpenedDialog> = { derived: () => 1 };
+// @ts-expect-error an aliased input binds by property name, not by alias
+export const aliasNotKey: OrigamiDialogBindings<OpenedDialog> = { pageSize: () => 25 };
+// @ts-expect-error open() checks the record against the component
+openedOpener.open({ limit: () => 'ten' });
+declare const openedRef: OrigamiDialogRef;
+// @ts-expect-error closed is readonly
+openedRef.closed = Promise.resolve();
 declare const dialogState: OrigamiDialogState;
 // @ts-expect-error Dialog State open is readonly
 dialogState.open.set(true);

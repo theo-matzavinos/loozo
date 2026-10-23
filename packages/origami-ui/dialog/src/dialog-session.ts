@@ -21,31 +21,20 @@ import type {
 } from "@loozo/origami-ui/utils";
 import { DialogContext } from "./dialog";
 import { OrigamiDialogContentOptions } from "./dialog-content";
-import { ModalSessions } from "./modal-sessions";
-import type { ModalDialog } from "./modal-sessions";
+import { ModalSessions, deepActiveElement } from "./modal-sessions";
+import type { ModalDialog, ModalReturn } from "./modal-sessions";
 
 /** One `showModal()` until its native close; compared by identity. */
 type Session = { readonly order: number };
 
 /**
  * Focuses `element` and reports whether it took focus. Not predicted: a disconnected, disabled
- * or inert element, including one blocked by another modal dialog, simply doesn't take it.
+ * or inert element, including one blocked by a modal dialog, simply doesn't take it.
  */
-function focus(element: HTMLElement): boolean {
+function focus(element: HTMLElement | SVGElement): boolean {
   element.focus();
 
   return element.matches(":focus");
-}
-
-/** The focused element itself, inside any open shadow roots, where `activeElement` is their host. */
-function deepActiveElement(document: Document): Element | null {
-  let active = document.activeElement;
-
-  while (active?.shadowRoot?.activeElement) {
-    active = active.shadowRoot.activeElement;
-  }
-
-  return active;
 }
 
 /**
@@ -75,7 +64,11 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
   #destroyed = false;
 
   /** What Content registers with the root; only the registered Content opens. */
-  readonly part = { options: this.#options };
+  readonly part = {
+    options: this.#options,
+    active: () => this.#session !== null,
+    end: () => this.endNow(),
+  };
   /** Escape order and outside-pointer dismissal; a Popover inside, its member, joins this branch. */
   readonly layer: ɵOrigamiLayer = new ɵOrigamiLayer({
     intent: this.#context.intent,
@@ -323,11 +316,11 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
   /** The exit has finished: close natively, which restores focus, then apply the return target. */
   #close(session: Session): void {
     const returnFocus = this.#options().returnFocus();
+    const ended = this.#end(session);
 
-    this.#end(session);
     this.#reportOpenNested();
     this.#element.close();
-    this.#returnFocus(returnFocus);
+    this.#returnFocus(ended, returnFocus);
   }
 
   /**
@@ -337,25 +330,34 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
    */
   #closedNatively(session: Session): void {
     const returnFocus = this.#options().returnFocus();
+    const ended = this.#end(session);
 
-    this.#end(session);
     this.#reportOpenNested();
     this.#context.setOpen(false);
     this.synchronize();
     this.#changeDetector.markForCheck();
-    this.#returnFocus(returnFocus);
+    this.#returnFocus(ended, returnFocus);
   }
 
-  /** Before its own native close, so a nested exit outlasting this one leaves no modal behind. */
-  #end(session: Session): void {
+  /**
+   * Before its own native close, so a nested exit outlasting this one leaves no modal behind. Dialogs
+   * opened from code inside its opened component end first, so neither return target is inert.
+   * Returns its return record, for the focus return that follows the native close.
+   */
+  #end(session: Session): ModalReturn {
+    this.#context.disposeOwnedMounts();
     this.#session = null;
     this.#setReady(false);
-    this.#sessions.release(session);
+
+    const ended = this.#sessions.release(session);
+
     this.#presentation.reset();
 
     for (const nested of this.#sessions.nestedIn(this.layer)) {
       nested.endExit();
     }
+
+    return ended;
   }
 
   /**
@@ -373,6 +375,17 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
     this.#reportOpenNested();
     this.#element.close();
     this.#changeDetector.markForCheck();
+  }
+
+  /**
+   * Its opened component is about to be torn down without an exit, as when its opener's owner is
+   * destroyed: the session ends now, while the `<dialog>` is still connected, so the native close
+   * restores focus as after an exit.
+   */
+  endNow(): void {
+    if (!this.#destroyed) {
+      this.#endWithoutExit();
+    }
   }
 
   /**
@@ -397,13 +410,21 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
   }
 
   /**
-   * `returnFocus` if it takes focus; otherwise the browser's restore stands, and the Trigger gets
-   * focus only if it was lost: on the body, or still inside the closed dialog when the browser had
-   * nothing to restore. Inside it in the flat tree, so also in a shadow root inside it, or slotted
-   * into it when it is in one.
+   * After the native close of the session `ended` is the record of. While a newer session still
+   * blocks the page nothing moves, and the chain keeps `returnFocus`. Otherwise `returnFocus` if it
+   * takes focus; else the browser's restore stands unless focus was lost: on the body, or still
+   * inside the closed dialog. Inside it in the flat tree, so also in a shadow root inside it, or
+   * slotted into it when it is in one. Then the first of the chain's targets that takes focus
+   * (`ModalSessions.returnTargets`); last the Trigger.
    */
-  #returnFocus(target: HTMLElement | null): void {
-    if (target !== null && focus(target)) {
+  #returnFocus(ended: ModalReturn, returnFocus: HTMLElement | null): void {
+    const targets = this.#sessions.returnTargets(ended, returnFocus);
+
+    if (targets === null) {
+      return;
+    }
+
+    if (returnFocus !== null && focus(returnFocus)) {
       return;
     }
 
@@ -412,6 +433,12 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
 
     if (active !== null && active !== document.body && !ɵflatTreeContains(this.#element, active)) {
       return;
+    }
+
+    for (const target of targets) {
+      if (focus(target)) {
+        return;
+      }
     }
 
     const trigger = this.#context.trigger();
@@ -467,21 +494,26 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
     this.#setReady(false);
     this.#sessions.unregister(this);
 
+    this.#endWithoutExit();
+    this.layer.destroy();
+  }
+
+  /** Ends an active session without an exit, then returns focus. */
+  #endWithoutExit(): void {
     const session = this.#session;
 
-    if (session !== null) {
-      const returnFocus = this.#options().returnFocus();
-
-      this.#end(session);
-
-      // Still connected, so the native close restores focus; removal itself restores nothing.
-      if (this.#element.isConnected && this.#element.open) {
-        this.#element.close();
-      }
-
-      this.#returnFocus(returnFocus);
+    if (session === null) {
+      return;
     }
 
-    this.layer.destroy();
+    const returnFocus = this.#options().returnFocus();
+    const ended = this.#end(session);
+
+    // Still connected, so the native close restores focus; removal itself restores nothing.
+    if (this.#element.isConnected && this.#element.open) {
+      this.#element.close();
+    }
+
+    this.#returnFocus(ended, returnFocus);
   }
 }

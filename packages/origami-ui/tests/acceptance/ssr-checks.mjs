@@ -11,7 +11,13 @@ import { performCompilation, readConfiguration } from "@angular/compiler-cli";
 // change detection: every render is driven only by Angular and PendingTasks.
 const sourceRoot = path.resolve(".scratch/consumer/src");
 const outDir = path.resolve(".scratch/consumer/.runtime/acceptance-ssr");
-const fixtures = ["server-order", "server-errors", "server-identity", "server-roving"];
+const fixtures = [
+  "server-order",
+  "server-errors",
+  "server-identity",
+  "server-roving",
+  "server-opener",
+];
 const configuration = readConfiguration(path.resolve(".scratch/consumer/tsconfig.app.json"));
 
 await rm(outDir, { recursive: true, force: true });
@@ -314,3 +320,17 @@ assert.equal(
 console.log(
   "S8 U7 K8 Q7: repeated required-input items rendered one server tab stop per widget, on the third; S9 L5 V15: later parts' associations are complete in server HTML.",
 );
+
+// Y21: the dialog opener's open() throws during a server render, before creating anything: the
+// component is never constructed, so its host isn't in the serialized document.
+const { ServerOpenerConsumer } = await fixture("server-opener");
+const opener = await render(ServerOpenerConsumer, "server-opener-app", []);
+
+assert.deepEqual(opener.errors, []);
+assert.match(
+  opener.html,
+  /data-testid="server-opener-error"[^>]*>The dialog opener can't open ServerOpenedDialog on the server\./,
+);
+assert.doesNotMatch(opener.html, /<server-opened-dialog\b/);
+assert.doesNotMatch(opener.html, /<dialog\b/);
+console.log("Y21: the dialog opener threw on the server before mounting anything.");

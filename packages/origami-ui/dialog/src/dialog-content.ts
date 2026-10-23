@@ -28,9 +28,12 @@ export abstract class OrigamiDialogContentOptions {
   /**
    * Where focus goes once the dialog has closed, default null. Read when the native session
    * ends; used only if focusing it then succeeds, so not when it's disabled, disconnected or
-   * inert, including blocked by another modal dialog. Otherwise the
-   * browser returns focus to what had it before the dialog opened, and if that left focus on the
-   * document body or inside the closed dialog, an eligible Trigger gets it.
+   * inert. While a dialog opened after this one is still open, nothing moves focus: this value is
+   * kept and tried when focus returns down the stack past this dialog. Otherwise the browser
+   * returns focus to what had it before the dialog opened, and if that left focus on the document
+   * body or inside the closed dialog, the first that takes focus gets it: what had focus before
+   * this dialog opened, then down the stack of dialogs it was opened over, then an eligible
+   * Trigger.
    */
   abstract readonly returnFocus: Signal<HTMLElement | null>;
 
