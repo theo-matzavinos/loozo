@@ -1,6 +1,7 @@
 // Test-only native entry. No extra UI or production browser globals.
 import { bootstrapApplication } from "@angular/platform-browser";
 import { runInInjectionContext } from "@angular/core";
+import { Router } from "@angular/router";
 import { App } from "./app";
 import { config } from "./config";
 import { injectRpc } from "./routes/+authenticated/todos/rpc.generated";
@@ -11,10 +12,13 @@ declare global {
   var __launchCancelled: Promise<string> | undefined;
   var __launchFrameworkError: (() => Promise<string>) | undefined;
   var __launchCompleteMissing: ((id: string) => Promise<{ code: string; id: string }>) | undefined;
+  var __launchNavigate: ((url: string) => Promise<boolean>) | undefined;
 }
 
 const app = await bootstrapApplication(App, config);
 const rpc = runInInjectionContext(app.injector, injectRpc);
+
+globalThis.__launchNavigate = (url) => app.injector.get(Router).navigateByUrl(url);
 
 globalThis.__launchFrameworkError = async () => {
   try {

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import { mkdir, writeFile, readFile, readdir, stat, rm, rename, symlink } from "node:fs/promises";
 import { resolve, dirname, relative } from "node:path";
-import { generate } from "../dist/generation/index.js";
+import { generate, createGenerationSession } from "../dist/generation/index.js";
 import { generate as generateRouter } from "../../angular-router/node/src/generation/generate.js";
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
@@ -1252,4 +1252,169 @@ export default defineRpc('todos', {
     await generate(root, { ...options, check: true });
     assert.deepEqual(await snapshot(root), accepted);
   }
+});
+
+test("tanstackQuery adds injectQueries() and Queries; off is byte-identical to today", async () => {
+  const root = await fixture();
+
+  await put(
+    root,
+    "src/schema.ts",
+    `import type { Schema } from '@loozo/angular-launch/server';
+export const schema: Schema<string, {length:number}> = {'~standard': {version:1,vendor:'test',validate: async value => {
+if (typeof value !== 'string') { return {issues:[{message:'string required'}]}; }
+return {value: {length: value.length}};
+}}};`,
+  );
+  await put(
+    root,
+    "src/routes/left/rpc.ts",
+    `import { defineRpc, mutation, query } from '@loozo/angular-launch/server'; import {schema} from '../../schema';
+export default defineRpc('todos', {
+list: query({handler: async ({context}) => ({value: context.value})}),
+length: query({input:schema, handler: ({input}) => ({length:input.length})}),
+write: mutation({input:schema, handler: ({input}) => input.length}),
+clear: mutation({handler: () => null}),
+});`,
+  );
+  await generate(root, options);
+
+  const off = await snapshot(root);
+  const left = off["src/routes/left/rpc.generated.ts"].bytes;
+
+  assert.equal(
+    left,
+    [
+      "// @loozo/angular-launch: owned rpc.generated.ts",
+      "import { injectClient } from '@loozo/angular-launch/_generated';",
+      "import type { Client } from '@loozo/angular-launch';",
+      'import type group0 from "../+auth/rpc.js";',
+      'import type group1 from "./rpc.js";',
+      'export type Rpc = { readonly "session": Client<typeof group0>; readonly "todos": Client<typeof group1> };',
+      'export function injectRpc(): Rpc { return injectClient({"session":{"methods":[{"name":"current","input":false,"kind":"query","errors":[]}]},"todos":{"methods":[{"name":"list","input":false,"kind":"query","errors":[]},{"name":"length","input":true,"kind":"query","errors":[]},{"name":"write","input":true,"kind":"mutation","errors":[]},{"name":"clear","input":false,"kind":"mutation","errors":[]}]}} as const) as Rpc; }',
+      "",
+    ].join("\n"),
+  );
+  await generate(root, { ...options, tanstackQuery: false });
+
+  const explicitlyOff = await snapshot(root);
+
+  assert.deepEqual(explicitlyOff, off);
+
+  await generate(root, { ...options, tanstackQuery: true });
+
+  const on = await snapshot(root);
+  const lines = left.split("\n");
+
+  lines.splice(
+    3,
+    0,
+    "import { createQueries } from '@loozo/angular-launch/_tanstack-query';",
+    "import type { RpcQueries } from '@loozo/angular-launch/tanstack-query';",
+  );
+  lines.splice(
+    -1,
+    0,
+    'export type Queries = { readonly "session": RpcQueries<typeof group0>; readonly "todos": RpcQueries<typeof group1> };',
+    'export function injectQueries(): Queries { return createQueries(injectRpc(), {"session":{"current":{"kind":"query","input":false}},"todos":{"list":{"kind":"query","input":false},"length":{"kind":"query","input":true},"write":{"kind":"mutation","input":true},"clear":{"kind":"mutation","input":false}}} as const) as Queries; }',
+  );
+  assert.equal(on["src/routes/left/rpc.generated.ts"].bytes, lines.join("\n"));
+  assert.match(on["src/routes/rpc.generated.ts"].bytes, /export type Queries = {  };/);
+
+  for (const [file, { bytes }] of Object.entries(on)) {
+    if (!file.endsWith("rpc.generated.ts")) {
+      assert.equal(bytes, off[file].bytes, file);
+    }
+  }
+
+  await assert.rejects(generate(root, { ...options, check: true }), /Generated artifacts changed/);
+
+  // Generation type-checks direct importers of generated files, so these are the public type tests.
+  await put(
+    root,
+    "src/queries.ts",
+    `import { injectMutation, injectQuery, QueryClient, skipToken } from '@tanstack/angular-query';
+import { injectQueries } from './routes/left/rpc.generated';
+import { injectQueries as injectRoot } from './routes/rpc.generated';
+const queries = injectQueries();
+const client = new QueryClient();
+const group: readonly ['launch', 'todos'] = queries.todos.$key();
+const session: readonly ['launch', 'session'] = queries.session.$key();
+const procedure: readonly ['launch', 'todos', 'length'] = queries.todos.length.key();
+const inputKey: readonly ['launch', 'todos', 'length', string] = queries.todos.length.key('hello');
+const mutationKey: readonly ['launch', 'todos', 'write'] = queries.todos.write.key();
+// Bound first, so the declared types don't drive inference.
+const listedData = client.getQueryData(queries.todos.list.queryOptions().queryKey);
+const listed: {value:number} | undefined = listedData;
+const listedByKeyData = client.getQueryData(queries.todos.list.key());
+const listedByKey: {value:number} | undefined = listedByKeyData;
+const byInputData = client.getQueryData(queries.todos.length.key('hello'));
+const byInput: {length:number} | undefined = byInputData;
+const byOptionsData = client.getQueryData(queries.todos.length.queryOptions('hello').queryKey);
+const byOptions: {length:number} | undefined = byOptionsData;
+// @ts-expect-error keys are tagged with the output type
+const wrong: string | undefined = listedByKeyData;
+const state = client.getQueryState(queries.todos.list.key());
+// @ts-expect-error errors are unknown until narrowed with isError
+const error: Error | null | undefined = state?.error;
+declare const maybe: string | undefined;
+const skippedData = client.getQueryData(queries.todos.length.queryOptions(maybe ?? skipToken).queryKey);
+const skipped: {length:number} | undefined = skippedData;
+queries.todos.length.queryOptions(skipToken, { staleTime: 0 });
+queries.session.current.queryOptions({ staleTime: 0, refetchOnMount: 'always', retry: false });
+// @ts-expect-error caller input is a string
+queries.todos.length.queryOptions({length: 1});
+// @ts-expect-error input queries need their input
+queries.todos.length.queryOptions();
+// @ts-expect-error no-input queries take overrides only
+queries.todos.list.queryOptions('hello');
+// @ts-expect-error queries have no mutation options
+queries.todos.list.mutationOptions();
+// @ts-expect-error mutations have no query options
+queries.todos.write.queryOptions('hello');
+// @ts-expect-error the key is generated
+queries.todos.list.queryOptions({ queryKey: ['other'] });
+// @ts-expect-error the query function is generated
+queries.todos.list.queryOptions({ queryFn: async () => ({value: 1}) });
+// @ts-expect-error the mutation key is generated
+queries.todos.write.mutationOptions({ mutationKey: ['other'] });
+// @ts-expect-error the mutation function is generated
+queries.todos.write.mutationOptions({ mutationFn: async () => 1 });
+// @ts-expect-error no descendant group
+injectRoot().todos;
+export function page() {
+  const list = injectQuery(() => queries.todos.list.queryOptions());
+  const value: {value:number} | undefined = list.data();
+  const selected = injectQuery(() => queries.todos.list.queryOptions({ select: (data) => data.value }));
+  const count: number | undefined = selected.data();
+  const write = injectMutation(() => queries.todos.write.mutationOptions({ onSuccess: (length: number, title: string) => { void length; void title; } }));
+  write.mutate('title');
+  // @ts-expect-error variables are the caller input
+  write.mutate(1);
+  const clear = injectMutation(() => queries.todos.clear.mutationOptions());
+  clear.mutate();
+  const result: null | undefined = clear.data();
+  return { value, count, result };
+}
+void group; void session; void procedure; void inputKey; void mutationKey; void listed; void listedByKey; void byInput; void byOptions; void wrong; void error; void skipped;`,
+  );
+  await generate(root, { ...options, tanstackQuery: true });
+  await generate(root, { ...options, tanstackQuery: true, check: true });
+
+  const session = createGenerationSession(root, { ...options, tanstackQuery: true });
+
+  try {
+    await session.generate({ check: true });
+  } finally {
+    await session.dispose();
+  }
+
+  await put(
+    root,
+    "src/queries.ts",
+    `import { injectQueries } from './routes/left/rpc.generated';
+// @ts-expect-error a stale expectation fails generation
+injectQueries().todos.list.queryOptions();`,
+  );
+  await assert.rejects(generate(root, { ...options, tanstackQuery: true }), /TS2578/);
 });
