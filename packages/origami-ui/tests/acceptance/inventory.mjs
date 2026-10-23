@@ -124,6 +124,8 @@ export const inventory = {
     "OrigamiDialog",
     "OrigamiDialogOptions",
     "OrigamiDialogState",
+    "OrigamiAlertDialog",
+    "OrigamiAlertDialogOptions",
     "OrigamiDialogTrigger",
     "OrigamiDialogTriggerOptions",
     "OrigamiDialogContent",

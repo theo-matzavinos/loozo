@@ -56,8 +56,8 @@ export abstract class OrigamiDialogOptions {
 export type DialogRole = "dialog" | "alertdialog";
 
 /**
- * Package-private role of the root on the same element. Nothing provides it yet, so a Dialog is a
- * `dialog`; an alert dialog variant provides `"alertdialog"` next to the root it composes.
+ * Package-private role of the root on the same element: `OrigamiAlertDialog` provides
+ * `"alertdialog"` next to the root it composes; without it, a Dialog is a `dialog`.
  */
 export const ɵOrigamiDialogRole = new InjectionToken<DialogRole>("ɵOrigamiDialogRole");
 
@@ -197,7 +197,8 @@ export class OrigamiDialogState {
  * open when the outer natively closes is reported through `ErrorHandler`, since the browser keeps
  * it modal but unrendered.
  * The root may share the `<dialog>` element with Content, and a component can be the root through
- * `hostDirectives`. Consumers own the trigger, markup, names, styling and animation.
+ * `hostDirectives`. Consumers own the trigger, markup, names, styling and animation. For a
+ * dialog that asks for a decision, use `OrigamiAlertDialog`, which composes this root.
  *
  * Every close request goes through `open`: a Trigger opens it, a Close button, a model write and
  * an accepted user dismissal (Escape, the back gesture or `requestClose()`, a backdrop click)

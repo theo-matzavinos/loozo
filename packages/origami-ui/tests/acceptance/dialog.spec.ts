@@ -1541,3 +1541,170 @@ test("Y15: a Tooltip and a Popover projected through <ng-content> into a wrapper
   await expectClosed(inner);
   await expect(page.getByTestId("projected-inner-state")).toHaveText("false");
 });
+
+test("Y16: an AlertDialog renders role=alertdialog, also on the server; a backdrop click never dismisses it, only a Popover open inside; Escape and requestClose() do unless dismissible is false; Close always closes; autofocus on Close wins initial focus", async ({
+  page,
+}, info) => {
+  const content = page.getByTestId("alert-content");
+
+  await fixture(page, "alert-dialog", info, async () => {
+    for (const id of ["alert-content", "delete-content", "factory-content", "hosted-content"]) {
+      await expect(page.getByTestId(id)).toHaveAttribute("role", "alertdialog");
+      await expect(page.getByTestId(id)).not.toHaveAttribute("open");
+    }
+  });
+
+  await expect(content).toHaveAttribute("role", "alertdialog");
+  await expect(page.getByTestId("alert-state")).toHaveText("false true");
+  expect(await modal(content)).toBe(false);
+
+  await pressOpen(page, "alert-trigger");
+  await expectModal(content);
+  await expect(page.getByTestId("alert-outputs")).toHaveText("1");
+  await expect(page.getByTestId("alert-state")).toHaveText("true true");
+  // autofocus wins over the earlier first focusable button.
+  await expect(page.getByTestId("alert-cancel")).toBeFocused();
+  expect(await blocked(page.getByTestId("open-alert"))).toBe(true);
+  await expect(
+    page.getByRole("alertdialog", { name: "Discard changes?" }),
+  ).toHaveAccessibleDescription("Your edits will be lost.");
+
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(content)).toBe(true);
+  await expect(page.getByTestId("alert-open")).toHaveText("true");
+  await expect(page.getByTestId("alert-outputs")).toHaveText("1");
+
+  await page.keyboard.press("Escape");
+  await expectClosed(content);
+  await expect(page.getByTestId("alert-open")).toHaveText("false");
+  await expect(page.getByTestId("alert-outputs")).toHaveText("2");
+  await expect(page.getByTestId("alert-cancels")).toHaveText("0");
+  await expect(page.getByTestId("alert-trigger")).toBeFocused();
+
+  await script(page, "open-alert");
+  await expectModal(content);
+  await page.getByTestId("alert-request-close").click();
+  await expectClosed(content);
+  await expect(page.getByTestId("alert-cancels")).toHaveText("1");
+
+  // Not dismissible: Escape, a close request and the backdrop leave it open; Close still closes.
+  await script(page, "open-alert");
+  await expectModal(content);
+  await page.getByTestId("alert-dismissible").click();
+  await expect(page.getByTestId("alert-state")).toHaveText("true false");
+  await page.keyboard.press("Escape");
+  await page.getByTestId("alert-request-close").click();
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(content)).toBe(true);
+  await expect(page.getByTestId("alert-open")).toHaveText("true");
+  await page.getByTestId("alert-cancel").click();
+  await expectClosed(content);
+  await expect(page.getByTestId("alert-open")).toHaveText("false");
+
+  // A Popover inside still closes on the backdrop; the AlertDialog doesn't.
+  const popover = page.getByTestId("alert-popover-content");
+  const shown = () => popover.evaluate((node) => node.matches(":popover-open"));
+
+  await script(page, "open-alert");
+  await expectModal(content);
+  await page.getByTestId("alert-dismissible").click();
+  await expect(page.getByTestId("alert-state")).toHaveText("true true");
+  await page.getByTestId("alert-open-popover").click();
+  await expect.poll(shown).toBe(true);
+  await clickBackdrop(page);
+  await expect.poll(shown).toBe(false);
+  expect(await modal(content)).toBe(true);
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(content)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expectClosed(content);
+});
+
+test("Y17: a delete confirmation: Delete only reports the confirmation and the AlertDialog stays open; while pending both buttons are disabled and Escape and the backdrop do nothing; after a failure it shows the error and stays open; the parent closes it on success; Cancel closes it", async ({
+  page,
+}, info) => {
+  await fixture(page, "alert-dialog", info);
+
+  const content = page.getByTestId("delete-content");
+  const cancel = page.getByTestId("delete-cancel");
+  const action = page.getByTestId("delete-action");
+  const state = page.getByTestId("delete-state");
+
+  await script(page, "open-delete");
+  await expectModal(content);
+  await expect(cancel).toBeFocused();
+  await expect(state).toHaveText("true false 0");
+
+  await action.click();
+  await expect(state).toHaveText("true true 1");
+  await expect(cancel).toHaveAttribute("disabled", "");
+  await expect(action).toHaveAttribute("disabled", "");
+  await page.keyboard.press("Escape");
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(content)).toBe(true);
+  await expect(state).toHaveText("true true 1");
+
+  // The page's own controls are inert, so the request settles from a script.
+  await script(page, "fail-delete");
+  await expect(page.getByTestId("delete-error")).toHaveText("Couldn't delete the invoice.");
+  await expect(state).toHaveText("true false 1");
+  await expect(action).not.toHaveAttribute("disabled");
+  expect(await modal(content)).toBe(true);
+
+  await action.click();
+  await expect(state).toHaveText("true true 2");
+  await expect(page.getByTestId("delete-error")).toHaveCount(0);
+  await script(page, "succeed-delete");
+  await expectClosed(content);
+  await expect(state).toHaveText("false false 2");
+
+  await script(page, "open-delete");
+  await expectModal(content);
+  await cancel.click();
+  await expectClosed(content);
+  await expect(state).toHaveText("false false 2");
+});
+
+test("Y18: replaced AlertDialog Options drive it over contradicting own inputs without emitting the unused model's output; a component that is the AlertDialog root through hostDirectives exposes open and closes itself", async ({
+  page,
+}, info) => {
+  await fixture(page, "alert-dialog", info);
+
+  const factory = page.getByTestId("factory-content");
+
+  await settle(page);
+  expect(await modal(factory)).toBe(false);
+  await expect(factory).toHaveAttribute("role", "alertdialog");
+  await script(page, "open-factory");
+  await expectModal(factory);
+  await page.keyboard.press("Escape");
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(factory)).toBe(true);
+  await page.getByTestId("factory-close").click();
+  await expectClosed(factory);
+  await expect(page.getByTestId("factory-state")).toHaveText("false 0");
+
+  const hosted = page.getByTestId("hosted-content");
+
+  await expect(hosted).toHaveAttribute("role", "alertdialog");
+  await script(page, "open-hosted");
+  await expectModal(hosted);
+  await expect(page.getByTestId("hosted-state")).toHaveText("true");
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(hosted)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expectClosed(hosted);
+  await expect(page.getByTestId("hosted-open")).toHaveText("false");
+
+  await script(page, "open-hosted");
+  await expectModal(hosted);
+  await page.getByTestId("hosted-discard").click();
+  await expectClosed(hosted);
+  await expect(page.getByTestId("hosted-open")).toHaveText("false");
+});

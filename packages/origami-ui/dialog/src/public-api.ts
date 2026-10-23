@@ -1,4 +1,5 @@
 export { OrigamiDialog, OrigamiDialogOptions, OrigamiDialogState } from "./dialog";
+export { OrigamiAlertDialog, OrigamiAlertDialogOptions } from "./alert-dialog";
 export { OrigamiDialogTrigger, OrigamiDialogTriggerOptions } from "./dialog-trigger";
 export {
   OrigamiDialogContent,

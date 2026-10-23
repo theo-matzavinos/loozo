@@ -431,9 +431,13 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
   /**
    * Only the dialog the page is blocked by has an outside: its own backdrop, a hit on the
    * `<dialog>` element outside its border box. Everything else is inside, including a newer
-   * modal stacked above it.
+   * modal stacked above it. An alert dialog has no outside: its backdrop never dismisses it.
    */
   #contains(target: Node, event: PointerEvent): boolean {
+    if (this.#context.role === "alertdialog") {
+      return true;
+    }
+
     const session = this.#session;
 
     if (session !== null && !this.#sessions.isTopmost(session)) {
