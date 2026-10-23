@@ -170,6 +170,8 @@ const directiveDefaults = {
   "OrigamiSwitch.id": ["opaque generated hosted ID", /generat/i],
   "OrigamiDialog.open": ["false", /\bfalse\b/i],
   "OrigamiDialog.dismissible": ["true", /\btrue\b/i],
+  "OrigamiAlertDialog.open": ["false", /\bfalse\b/i],
+  "OrigamiAlertDialog.dismissible": ["true", /\btrue\b/i],
   "OrigamiDialogTrigger.id": ["opaque generated hosted ID", /generat/i],
   "OrigamiDialogTrigger.disabled": ["false", /\bfalse\b/i],
   "OrigamiDialogTrigger.focusableWhenDisabled": ["false", /\bfalse\b/i],

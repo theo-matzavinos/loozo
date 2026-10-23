@@ -7,6 +7,7 @@ Dialog is a modal dialog on the browser's native `<dialog>`: Content is shown wi
 | Part                  | Configuration                                                                                                                                                       |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogDialog`            | `open` model (default `false`), `dismissible` (default `true`)                                                                                                      |
+| `ogAlertDialog`       | the same as `ogDialog`, for an [alert dialog](#alert-dialogs); use one root or the other                                                                            |
 | `ogDialogTrigger`     | `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`; optional |
 | `ogDialogContent`     | `id` (default generated), `returnFocus` (default `null`); must be a `<dialog>`                                                                                      |
 | `ogDialogTitle`       | `id` (default generated)                                                                                                                                            |
@@ -33,11 +34,24 @@ The Trigger is optional: any control that writes `open` opens the Dialog, such a
 - **Opening.** Once `open` is true and Content is connected, Origami calls `showModal()` after Angular renders. Never author or bind the `open` attribute: it makes a `<dialog>` non-modal. The browser picks initial focus: an `autofocus` element, else the first focusable one, else the dialog. Put `autofocus` on the safe choice, such as Cancel, and use `[autofocus]` for a dynamic one.
 - **Closing.** Close buttons, writes to `open` and accepted dismissals all set `open` to false. Content then runs its exit animation while the dialog **stays modal**: the page stays inert and focus stays inside until the animation ends, then `close()` runs. Reopening during the exit keeps the same dialog open. Open Popovers and Tooltips inside are hidden as soon as the close starts; one that was already closing finishes its own exit, and is gone by the time the dialog closes.
 - **Escape** closes whatever Origami showed last inside the Dialog: a Popover or Tooltip inside, also projected or slotted into the `<dialog>` or in a component's shadow root inside it (see [Nesting](#nesting)), closes first, the next Escape closes the Dialog. A Popover or Tooltip outside it, even one your code opens later, is inert like the rest of the page and never takes it. The browser's close requests (the back gesture, `requestClose()`) are handled exactly the same way, Tooltips included. The exception is `requestClose()` on a Dialog with another Dialog open above it: it closes the Dialog you called it on, with any Popover inside, and leaves the newer one open.
-- **Backdrop.** A click on the backdrop closes the Dialog, but not a drag that starts inside it. If a Popover inside is open, the click closes only that Popover. Origami handles this itself in every browser and doesn't set `closedby`.
+- **Backdrop.** A click on the backdrop closes the Dialog, but not a drag that starts inside it. If a Popover inside is open, the click closes only that Popover. An [alert dialog](#alert-dialogs) never closes on a backdrop click. Origami handles this itself in every browser and doesn't set `closedby`.
 - **`dismissible`** set to false blocks Escape, close requests and backdrop clicks. Close buttons and writes to `open` still close it. Use it, for example, while a request is pending.
 - **Closes Origami doesn't start**, such as a `<form method="dialog">` submit or calling `close()` on the element, write `open` false at once, without the exit animation. Content State `open` turns false and gated children leave without waiting for Content's animations, even mid-exit.
 
 During the exit the dialog still takes Escape, close requests and backdrop clicks without acting on them, so nothing behind it reacts, and the Popovers and Tooltips hidden inside keep their `open`.
+
+## Alert dialogs
+
+An alert dialog interrupts to ask for a decision, such as confirming a delete. Use `ogAlertDialog` as the root instead of `ogDialog`, with the same parts. It works like a Dialog, except:
+
+- Content gets `role="alertdialog"`, also in the server's HTML.
+- A backdrop click never closes it, so a stray click can't count as an answer. An open Popover inside still closes on it. Escape and the browser's close requests still close it unless `dismissible` is false.
+
+Cancel is an `ogDialogClose`: give it `autofocus`, so the safe choice has focus when the dialog opens. The Action is your own button. It doesn't close the dialog, so you can keep the dialog open while the request runs and show what went wrong if it fails, then close it by writing `open` once the request succeeds. Disable both buttons and set `dismissible` to false while the request is pending:
+
+[src/dialog/delete-invoice.ts](../snippets/src/dialog/delete-invoice.ts "both")
+
+`OrigamiAlertDialog` has its own Options, `OrigamiAlertDialogOptions` (`open`, `dismissible`), and exposes the Dialog root's State as its `state`. A component can be the root through `hostDirectives: [OrigamiAlertDialog]` and expose its `open`, `openChange` and `dismissible`.
 
 ## Focus
 
@@ -130,18 +144,18 @@ A sheet is a Dialog styled against an edge, with no option of its own. Remove th
 
 ## Replacing Options
 
-Every part has its own Options: `OrigamiDialogOptions` (`open`, `dismissible`), `OrigamiDialogTriggerOptions` (`id`, `disabled`, `focusableWhenDisabled`), `OrigamiDialogContentOptions` (`id`, `returnFocus`), `OrigamiDialogTitleOptions` and `OrigamiDialogDescriptionOptions` (`id`), and `OrigamiDialogCloseOptions` (`disabled`, `focusableWhenDisabled`). A replacement must supply every property. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
+Every part has its own Options: `OrigamiDialogOptions` (`open`, `dismissible`), `OrigamiAlertDialogOptions` with the same properties for `ogAlertDialog`, `OrigamiDialogTriggerOptions` (`id`, `disabled`, `focusableWhenDisabled`), `OrigamiDialogContentOptions` (`id`, `returnFocus`), `OrigamiDialogTitleOptions` and `OrigamiDialogDescriptionOptions` (`id`), and `OrigamiDialogCloseOptions` (`disabled`, `focusableWhenDisabled`). A replacement must supply every property. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
 
 ## State and attributes
 
-`OrigamiDialogState` has `open()`, the requested state, which turns false as soon as a close starts, and `dismissible()`. `OrigamiDialogContentState.open()` is Presence's: true through the exit, so gate children on it to keep them while the dialog animates out.
+`OrigamiDialogState` has `open()`, the requested state, which turns false as soon as a close starts, and `dismissible()`; `ogAlertDialog` exposes it too. `OrigamiDialogContentState.open()` is Presence's: true through the exit, so gate children on it to keep them while the dialog animates out.
 
-| Element            | Attributes                                                                                                                                               |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger            | `type="button"`, `id`, `aria-expanded` (the requested state), `aria-controls` (while Content is mounted), the disabled attributes                        |
-| Content            | `id`, `aria-labelledby` (Titles), `aria-describedby` (Descriptions), Presence's attributes; the browser adds `open` while modal; no `role` or `tabindex` |
-| Title, Description | `id`                                                                                                                                                     |
-| Close              | `type="button"`, the disabled attributes                                                                                                                 |
+| Element            | Attributes                                                                                                                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger            | `type="button"`, `id`, `aria-expanded` (the requested state), `aria-controls` (while Content is mounted), the disabled attributes                                                                               |
+| Content            | `id`, `aria-labelledby` (Titles), `aria-describedby` (Descriptions), Presence's attributes; the browser adds `open` while modal; `role="alertdialog"` under `ogAlertDialog`, otherwise no `role`; no `tabindex` |
+| Title, Description | `id`                                                                                                                                                                                                            |
+| Close              | `type="button"`, the disabled attributes                                                                                                                                                                        |
 
 ## Server rendering and hydration
 
@@ -149,4 +163,4 @@ The server renders Content without `open`, so it's hidden, with its IDs, names a
 
 ## Not included
 
-No non-modal dialog (use a [Popover](../popover/README.md)), `position` option or Sheet primitive, overlay part, portal, initial-focus option, close result, drawer or swipe to dismiss.
+No non-modal dialog (use a [Popover](../popover/README.md)), `position` option or Sheet primitive, overlay part, portal, initial-focus option, close result, alert dialog Action part, drawer or swipe to dismiss.

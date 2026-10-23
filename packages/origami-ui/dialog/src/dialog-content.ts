@@ -93,7 +93,8 @@ type Snapshot = "pending" | "server";
  *   Popover or Tooltip inside closes first and one outside, inert, never takes it. A cancelable native close request (`cancel`: the back gesture,
  *   `requestClose()`) is prevented and handled like Escape; on a dialog under a newer one it
  *   closes this dialog's own Popovers and itself, not the newer one. A click on the backdrop
- *   dismisses it, unless a Popover inside is open: then only that Popover closes. During the
+ *   dismisses it, unless a Popover inside is open: then only that Popover closes; an alert
+ *   dialog's backdrop closes only such a Popover, never the dialog. During the
  *   exit the dialog still consumes Escape, close requests and backdrop clicks without acting on
  *   them. The root's `dismissible` vetoes all of them. `closedby` isn't used. Inside means inside
  *   the `<dialog>` in the flat tree, read from the DOM: also projected through a wrapper's
@@ -107,7 +108,7 @@ type Snapshot = "pending" | "server";
  * - **Names.** `aria-labelledby` names the registered Titles, in registration order; with none, a
  *   static `aria-labelledby` is kept. Descriptions inside Content are added to
  *   `aria-describedby`, shared with other describers on the element. The role is the native
- *   dialog's.
+ *   dialog's; under an `OrigamiAlertDialog` root, `role="alertdialog"`.
  *
  * SSR renders Content without `open`, so it's hidden; after eager or incremental hydration a
  * requested-open dialog opens modally, without replaying an entrance. Presence waits only for

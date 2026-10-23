@@ -120,7 +120,7 @@ import { OrigamiFieldLabelOptions, OrigamiFieldControlOptions, OrigamiFieldDescr
 import * as fieldEntry from '@loozo/origami-ui/field';
 import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origami-ui/checkbox';
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
-import { OrigamiDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, type OrigamiDialogState, type OrigamiDialogContentState } from '@loozo/origami-ui/dialog';
+import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, type OrigamiDialogState, type OrigamiDialogContentState } from '@loozo/origami-ui/dialog';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -292,6 +292,10 @@ void switchState.touch;
 OrigamiDialogOptions.provideFactory(() => ({open: computed(() => false), dismissible: signal(true)}));
 // @ts-expect-error a Dialog factory must supply dismissible
 OrigamiDialogOptions.provideFactory(() => ({open: signal(false)}));
+// @ts-expect-error AlertDialog open must be writable
+OrigamiAlertDialogOptions.provideFactory(() => ({open: computed(() => false), dismissible: signal(true)}));
+// @ts-expect-error an AlertDialog factory must supply dismissible
+OrigamiAlertDialogOptions.provideFactory(() => ({open: signal(false)}));
 // @ts-expect-error Dialog Content returnFocus is an element or null
 OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters'), returnFocus: signal('trigger')}));
 // @ts-expect-error a Dialog Content factory must supply returnFocus
@@ -351,6 +355,8 @@ OrigamiTooltipOptions.provideExisting(() => WrongTooltip);
 OrigamiCheckboxOptions.provideExisting(() => WrongBooleanControl);
 // @ts-expect-error incompatible existing Switch class
 OrigamiSwitchOptions.provideExisting(() => WrongBooleanControl);
+// @ts-expect-error incompatible existing AlertDialog class
+OrigamiAlertDialogOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Dialog Title class
 OrigamiDialogTitleOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Dialog Trigger class
@@ -524,6 +530,7 @@ export const providers: Provider[] = [
   OrigamiSwitchOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(true), id: computed(() => 'notify')})),
   OrigamiSwitchOptions.provideExisting(() => AbstractBooleanControl),
   OrigamiDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => true)})),
+  OrigamiAlertDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => false)})),
   OrigamiDialogTriggerOptions.provideFactory(() => ({id: signal('filters-trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiDialogContentOptions.provideFactory(() => ({id: signal('filters'), returnFocus: signal<HTMLElement | null>(null)})),
   OrigamiDialogTitleOptions.provideFactory(() => ({id: signal('filters-title')})),
@@ -680,9 +687,9 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   observeString(value: string): void { void value; }`,
   },
   dialog: {
-    imports: `import { OrigamiDialog, OrigamiDialogTrigger, OrigamiDialogContent, OrigamiDialogTitle, OrigamiDialogDescription, OrigamiDialogClose, OrigamiDialogState, OrigamiDialogContentState } from "@loozo/origami-ui/dialog";`,
+    imports: `import { OrigamiDialog, OrigamiAlertDialog, OrigamiDialogTrigger, OrigamiDialogContent, OrigamiDialogTitle, OrigamiDialogDescription, OrigamiDialogClose, OrigamiDialogState, OrigamiDialogContentState } from "@loozo/origami-ui/dialog";`,
     directives:
-      "OrigamiDialog, OrigamiDialogTrigger, OrigamiDialogContent, OrigamiDialogTitle, OrigamiDialogDescription, OrigamiDialogClose",
+      "OrigamiDialog, OrigamiAlertDialog, OrigamiDialogTrigger, OrigamiDialogContent, OrigamiDialogTitle, OrigamiDialogDescription, OrigamiDialogClose",
     members: `
   readonly open = signal(false);
   readonly wrongOpen = signal("yes");
@@ -1194,6 +1201,21 @@ const templates = [
     name: "dialog-positive",
     family: "dialog",
     template: `<div ogDialog #dialog="ogDialog" [(open)]="open" dismissible (openChange)="openOutput($event)"><button ogDialogTrigger id="filters-trigger" disabled focusableWhenDisabled>Filters</button><dialog ogDialogContent #content="ogDialogContent" [returnFocus]="null" (close)="observeDialog(dialog.state); observeContent(content.state)"><h2 ogDialogTitle id="filters-title">Filters</h2><p ogDialogDescription>Narrow the list.</p><button ogDialogClose disabled focusableWhenDisabled>Done</button></dialog></div>`,
+  },
+  {
+    name: "alert-dialog-positive",
+    family: "dialog",
+    template: `<div ogAlertDialog #alert="ogAlertDialog" [(open)]="open" [dismissible]="false" (openChange)="openOutput($event)"><dialog ogDialogContent (close)="observeDialog(alert.state)"><h2 ogDialogTitle>Delete invoice?</h2><button ogDialogClose autofocus>Cancel</button></dialog></div>`,
+  },
+  {
+    name: "alert-dialog-model",
+    family: "dialog",
+    template: `<div ogAlertDialog [(open)]="wrongOpen"></div>`,
+    expected: {
+      code: 2322,
+      span: "open",
+      message: /Type 'string' is not assignable to type 'boolean'/,
+    },
   },
   {
     name: "dialog-model",
