@@ -137,6 +137,10 @@ export const inventory = {
     "OrigamiDialogDescriptionOptions",
     "OrigamiDialogClose",
     "OrigamiDialogCloseOptions",
+    "injectOrigamiDialogOpener",
+    "OrigamiDialogOpener",
+    "OrigamiDialogRef",
+    "OrigamiDialogBindings",
   ],
 };
 
@@ -152,4 +156,6 @@ export const typeOnly = new Set([
   "OrigamiToolbarOrientation",
   "OrigamiTooltipSide",
   "OrigamiTooltipAlign",
+  "OrigamiDialogOpener",
+  "OrigamiDialogBindings",
 ]);

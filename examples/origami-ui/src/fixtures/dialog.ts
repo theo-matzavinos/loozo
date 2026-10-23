@@ -29,7 +29,7 @@ import {
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
 
-// Dialog cases Y1–Y15; AlertDialog's are in alert-dialog.ts. Controls the tests use as script actions are buttons; a dialog's own
+// Dialog cases Y1–Y15; AlertDialog's are in alert-dialog.ts, the opener's in dialog-opener.ts. Controls the tests use as script actions are buttons; a dialog's own
 // controls sit inside it, since the rest of the page is inert while it's modal.
 
 function increment(value: number): number {

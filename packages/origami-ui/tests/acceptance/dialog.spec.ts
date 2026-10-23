@@ -730,7 +730,8 @@ test("Y7: focus returns to returnFocus when it takes focus, otherwise natively, 
   await page.getByTestId("focus-return-none").click();
   await page.getByTestId("focus-unmount").click();
   await expect(content).toHaveCount(0);
-  await expect(trigger).toBeFocused();
+  // Removed, the dialog restores nothing natively: what had focus when it opened gets it.
+  await expect(next).toBeFocused();
   await script(page, "remount-focus");
   await expectModal(content);
   await page.keyboard.press("Escape");
@@ -1707,4 +1708,563 @@ test("Y18: replaced AlertDialog Options drive it over contradicting own inputs w
   await page.getByTestId("hosted-discard").click();
   await expectClosed(hosted);
   await expect(page.getByTestId("hosted-open")).toHaveText("false");
+});
+
+/** How many hosts of `selector` the document body has as children: mounted opener components. */
+function mounted(page: Page, selector: string): Promise<number> {
+  return page.evaluate(
+    (selector) => document.body.querySelectorAll(`:scope > ${selector}`).length,
+    selector,
+  );
+}
+
+/** Starts counting `open` attributes added to any `<dialog>` in the document. */
+async function countOpens(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = window as unknown as { acceptanceOpens: number };
+
+    target.acceptanceOpens = 0;
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.target instanceof HTMLDialogElement && record.target.open) {
+          target.acceptanceOpens += 1;
+        }
+      }
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["open"] });
+  });
+}
+
+function opens(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { acceptanceOpens: number }).acceptanceOpens);
+}
+
+type ExitReads = { modal: string; host: string; text: string };
+
+type ExitSnapshot = { modal: boolean; mounted: number; text: string | null };
+
+/**
+ * Waits for `content` to get `data-leaving` and, in that animation frame, reads whether the element
+ * with test ID `modal` is `:modal`, how many `host` elements the body has as children and the text
+ * of the element with test ID `text`: one snapshot while the exit runs, however short it is. Call it
+ * before the action that closes.
+ */
+function duringExit(content: Locator, reads: ExitReads): Promise<ExitSnapshot> {
+  // Not async: the evaluation is dispatched before any later action, such as the closing click.
+  return content.evaluate(
+    (dialog, { modal, host, text }) =>
+      new Promise<ExitSnapshot>((resolve, reject) => {
+        const deadline = performance.now() + 5000;
+
+        function frame(): void {
+          if (performance.now() > deadline) {
+            reject(new Error("The exit did not start within 5 s"));
+
+            return;
+          }
+
+          if (!dialog.hasAttribute("data-leaving")) {
+            requestAnimationFrame(frame);
+
+            return;
+          }
+
+          const document = dialog.ownerDocument;
+          const target = document.querySelector(`[data-testid="${modal}"]`);
+
+          if (target === null) {
+            reject(new Error(`Expected an element with test ID ${modal}`));
+
+            return;
+          }
+
+          resolve({
+            modal: target.matches(":modal"),
+            mounted: document.body.querySelectorAll(`:scope > ${host}`).length,
+            text: document.querySelector(`[data-testid="${text}"]`)?.textContent ?? null,
+          });
+        }
+
+        requestAnimationFrame(frame);
+      }),
+    reads,
+  );
+}
+
+test("Y19: a component opened from code binds a required, a defaulted signal-valued, a transformed and an aliased input, a model one- and two-way and an output; inputs stay live without Zone.js; it opens modally and closes itself through its own root; closed resolves after the exit, with its host removed and the component destroyed, and again when awaited later", async ({
+  page,
+}, info) => {
+  await fixture(page, "dialog-opener", info);
+
+  const content = page.getByTestId("search-content");
+  const bindings = page.getByTestId("search-bindings");
+  const state = page.getByTestId("search-state");
+  const closes = page.getByTestId("search-closes");
+
+  expect(await mounted(page, "opener-search-dialog")).toBe(0);
+  await script(page, "open-search");
+  await expectModal(content);
+  expect(await mounted(page, "opener-search-dialog")).toBe(1);
+  expect(await blocked(page.getByTestId("open-search"))).toBe(true);
+  expect(await rootOverflow(page)).toBe("hidden");
+  await expect(page.getByRole("dialog", { name: "Search invoices" })).toBeVisible();
+  await expect(page.getByTestId("search-query")).toHaveValue("INV-1");
+  await expect(bindings).toHaveText("INV-1 10 true 2 25");
+
+  // Two-way model: the component's write reaches the page, and the page's reaches the component.
+  await page.getByTestId("search-next-page").click();
+  await expect(bindings).toHaveText("INV-1 10 true 3 25");
+  await expect(state).toHaveText("INV-1 3 10 0");
+  await script(page, "bump");
+  await expect(bindings).toHaveText("INV-1 11 true 4 25");
+  await expect(state).toHaveText("INV-1 4 11 0");
+
+  // The output fires while open; the component closes itself through its own root.
+  await page.getByTestId("search-query").fill("INV-2");
+
+  const submitted = duringExit(content, {
+    modal: "search-content",
+    host: "opener-search-dialog",
+    text: "search-closes",
+  });
+
+  await page.getByTestId("search-submit").click();
+  await expect(state).toHaveText("INV-2 4 11 1");
+
+  const submitExit = await submitted;
+
+  expect(submitExit).toEqual({ modal: true, mounted: 1, text: "0 0 0" });
+  await expect.poll(() => mounted(page, "opener-search-dialog")).toBe(0);
+  await expect(closes).toHaveText("1 1 0");
+  expect(await rootOverflow(page)).toBe("");
+  await script(page, "await-again");
+  await expect(closes).toHaveText("1 1 1");
+
+  // One-way model: the component's writes stay its own; the page's still arrive.
+  await script(page, "open-search-one-way");
+  await expectModal(content);
+  await expect(bindings).toHaveText("INV-2 11 true 4 25");
+  await page.getByTestId("search-next-page").click();
+  await page.getByTestId("search-next-page").click();
+  await expect(bindings).toHaveText("INV-2 11 true 6 25");
+  await expect(state).toHaveText("INV-2 4 11 1");
+  await script(page, "bump");
+  await expect(bindings).toHaveText("INV-2 12 true 5 25");
+  await expect(state).toHaveText("INV-2 5 12 1");
+  await script(page, "check-retained");
+  await expect(page.getByTestId("retained")).toHaveText("retained");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => mounted(page, "opener-search-dialog")).toBe(0);
+  await expect(closes).toHaveText("2 2 1");
+  await expect(state).toHaveText("INV-2 5 12 1");
+
+  // The page's kept reference to the closed dialog no longer holds anything of its component.
+  await script(page, "check-retained");
+  await expect(page.getByTestId("retained")).toHaveText("released");
+});
+
+test("Y20: a component opened from code closes, and is torn down, by the reference's close() after an exit, Escape, a backdrop click, Close, a native close without an exit and navigation through Location with an exit; close() before its first render never shows it; its opener's owner destroyed while it's open or during the exit tears it down at once, resolves closed and returns focus to the launch button, also with a second one open from the same opener, torn down first, or a confirmation from the owner's other opener, disposed after the older dialog; a query-only navigation closing two whose older one's shorter exit ends first returns focus to its launch button", async ({
+  page,
+}, info) => {
+  await fixture(page, "dialog-opener", info);
+
+  const content = page.getByTestId("search-content");
+  const closes = page.getByTestId("search-closes");
+  const search = () => mounted(page, "opener-search-dialog");
+
+  const exitReads = {
+    modal: "search-content",
+    host: "opener-search-dialog",
+    text: "search-closes",
+  };
+
+  await script(page, "open-search");
+  await expectModal(content);
+
+  const closing = duringExit(content, exitReads);
+
+  await script(page, "close-search");
+
+  const closeExit = await closing;
+
+  expect(closeExit).toEqual({ modal: true, mounted: 1, text: "0 0 0" });
+  await expect.poll(search).toBe(0);
+  await expect(closes).toHaveText("1 1 0");
+  // Idempotent after teardown.
+  await script(page, "close-search");
+  await settle(page);
+  await expect(closes).toHaveText("1 1 0");
+
+  await script(page, "open-search");
+  await expectModal(content);
+  await page.keyboard.press("Escape");
+  await expect.poll(search).toBe(0);
+  await expect(closes).toHaveText("2 2 0");
+
+  await script(page, "open-search");
+  await expectModal(content);
+  await clickBackdrop(page);
+  await expect.poll(search).toBe(0);
+  await expect(closes).toHaveText("3 3 0");
+
+  await script(page, "open-search");
+  await expectModal(content);
+  await page.getByTestId("search-close").click();
+  await expect.poll(search).toBe(0);
+  await expect(closes).toHaveText("4 4 0");
+
+  await script(page, "open-search");
+  await expectModal(content);
+  await page.getByTestId("search-native-close").click();
+  await expect.poll(search).toBe(0);
+  await expect(closes).toHaveText("5 5 0");
+
+  await script(page, "open-search");
+  await expectModal(content);
+
+  const navigating = duringExit(content, exitReads);
+
+  await script(page, "navigate");
+
+  const navigationExit = await navigating;
+
+  expect(navigationExit).toEqual({ modal: true, mounted: 1, text: "5 5 0" });
+  await expect.poll(search).toBe(0);
+  await expect(closes).toHaveText("6 6 0");
+  expect(new URL(page.url()).search).toBe("?navigated");
+
+  await countOpens(page);
+  await script(page, "open-and-close");
+  await expect(closes).toHaveText("7 7 0");
+  expect(await search()).toBe(0);
+  expect(await opens(page)).toBe(0);
+
+  const slow = page.getByTestId("slow-content");
+  const launch = page.getByTestId("owner-open");
+
+  // Destroyed while open: the native close still restores focus to the surviving launch button.
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await script(page, "destroy-owner");
+  await expect.poll(() => mounted(page, "opener-slow-dialog")).toBe(0);
+  await expect(page.getByTestId("owner-state")).toHaveText("false 1");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  await script(page, "restore-owner");
+  await expect(page.getByTestId("owner-state")).toHaveText("true 1");
+
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await script(page, "owner-close");
+  // Removed in the page task that sees the exit running, so the removal is always during it.
+  await slow.evaluate(
+    (dialog) =>
+      new Promise<void>((resolve, reject) => {
+        const deadline = performance.now() + 5000;
+
+        function frame(): void {
+          if (performance.now() > deadline) {
+            reject(new Error("The exit did not start within 5 s"));
+
+            return;
+          }
+
+          if (!dialog.hasAttribute("data-leaving")) {
+            requestAnimationFrame(frame);
+
+            return;
+          }
+
+          const destroy = dialog.ownerDocument.querySelector('[data-testid="destroy-owner"]');
+
+          if (!(destroy instanceof HTMLButtonElement)) {
+            reject(new Error("Expected the destroy-owner button"));
+
+            return;
+          }
+
+          destroy.click();
+          resolve();
+        }
+
+        requestAnimationFrame(frame);
+      }),
+  );
+  // At once: well within the 1500 ms exit.
+  await expect.poll(() => mounted(page, "opener-slow-dialog"), { timeout: 1000 }).toBe(0);
+  await expect(page.getByTestId("owner-state")).toHaveText("false 2");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  expect(await blocked(page.getByTestId("open-search"))).toBe(false);
+  await script(page, "restore-owner");
+  await expect(page.getByTestId("owner-state")).toHaveText("true 2");
+
+  // Two from the same opener, the second launched from inside the first: newest first.
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await page.getByTestId("slow-related").focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow.nth(1));
+  await script(page, "destroy-owner");
+  await expect.poll(() => mounted(page, "opener-slow-dialog")).toBe(0);
+  await expect(page.getByTestId("owner-state")).toHaveText("false 4");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  await script(page, "restore-owner");
+  await expect(page.getByTestId("owner-state")).toHaveText("true 4");
+
+  // Two openers on one owner: its destruction disposes the older dialog first, under the newer.
+  const confirm = page.getByTestId("confirm-content");
+
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await page.getByTestId("slow-ask-owner").focus();
+  await page.keyboard.press("Enter");
+  await expectModal(confirm);
+  await script(page, "destroy-owner");
+  await expect.poll(() => mounted(page, "opener-slow-dialog")).toBe(0);
+  expect(await mounted(page, "opener-confirm")).toBe(0);
+  await expect(page.getByTestId("owner-state")).toHaveText("false 5");
+  await expect(page.getByTestId("owner-confirm-closes")).toHaveText("1");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  await script(page, "restore-owner");
+  await expect(page.getByTestId("owner-state")).toHaveText("true 5");
+
+  // A query-only navigation closes both; the older one's 100 ms exit ends first, under the newer's.
+  const quick = page.getByTestId("owner-open-quick");
+
+  await quick.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await page.getByTestId("slow-related").focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow.nth(1));
+  await page.getByTestId("slow-filter").nth(1).focus();
+
+  // The frame the older host is removed in: the one left is the newer, modal through its exit.
+  const olderGone = page.evaluate(
+    () =>
+      new Promise<{ exit: string; leaving: boolean; modal: boolean }>((resolve, reject) => {
+        const deadline = performance.now() + 5000;
+
+        function frame(): void {
+          if (performance.now() > deadline) {
+            reject(new Error("The older host was not removed within 5 s"));
+
+            return;
+          }
+
+          const hosts = document.body.querySelectorAll(":scope > opener-slow-dialog");
+
+          if (hosts.length !== 1) {
+            requestAnimationFrame(frame);
+
+            return;
+          }
+
+          const dialog = hosts[0].querySelector("dialog");
+
+          if (!(dialog instanceof HTMLDialogElement)) {
+            reject(new Error("Expected the newer dialog's <dialog>"));
+
+            return;
+          }
+
+          resolve({
+            exit: dialog.style.animationDuration,
+            leaving: dialog.hasAttribute("data-leaving"),
+            modal: dialog.matches(":modal"),
+          });
+        }
+
+        requestAnimationFrame(frame);
+      }),
+  );
+
+  await page.keyboard.press("Enter");
+
+  const newer = await olderGone;
+
+  expect(newer).toEqual({ exit: "1000ms", leaving: true, modal: true });
+  await expect.poll(() => mounted(page, "opener-slow-dialog"), { timeout: 3000 }).toBe(0);
+  await expect(page.getByTestId("owner-state")).toHaveText("true 7");
+  await expect(quick).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  expect(new URL(page.url()).search).toBe("?filtered");
+});
+
+test("Y21: a dialog opened from code opens another from code, an application component that is an AlertDialog root: it stacks above and is a body child; a backdrop click leaves both open, Escape closes only it, its output reaches the outer dialog; a template Dialog inside the opened one opens and closes as a nested root; open() on the server throws before mounting anything", async ({
+  page,
+}, info) => {
+  await fixture(page, "dialog-opener", info);
+
+  const content = page.getByTestId("search-content");
+  const confirm = page.getByTestId("confirm-content");
+  const discards = page.getByTestId("search-discards");
+
+  await script(page, "open-search");
+  await expectModal(content);
+  await page.getByTestId("search-discard").click();
+  await expectModal(confirm);
+  expect(await mounted(page, "opener-confirm")).toBe(1);
+  await expect(confirm).toHaveAttribute("role", "alertdialog");
+  await expect(page.getByTestId("confirm-keep")).toBeFocused();
+  expect(await modal(content)).toBe(true);
+  expect(await blocked(page.getByTestId("search-next-page"))).toBe(true);
+
+  await clickBackdrop(page);
+  await elapse(page, 100);
+  expect(await modal(confirm)).toBe(true);
+  expect(await modal(content)).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect.poll(() => mounted(page, "opener-confirm")).toBe(0);
+  expect(await modal(content)).toBe(true);
+  await expect(discards).toHaveText("0");
+
+  await page.getByTestId("search-discard").click();
+  await expectModal(confirm);
+  await page.getByTestId("confirm-discard").click();
+  await expect.poll(() => mounted(page, "opener-confirm")).toBe(0);
+  await expect(discards).toHaveText("1");
+  expect(await modal(content)).toBe(true);
+
+  // A template Dialog inside the opened one is nested, not a second top-level root.
+  const help = page.getByTestId("help-content");
+
+  await page.getByTestId("search-help").click();
+  await expectModal(help);
+  await page.getByTestId("help-close").click();
+  await expectClosed(help);
+  expect(await modal(content)).toBe(true);
+
+  await page.getByTestId("search-close").click();
+  await expect.poll(() => mounted(page, "opener-search-dialog")).toBe(0);
+  await expect(page.getByTestId("search-closes")).toHaveText("1 1 0");
+  expect(await rootOverflow(page)).toBe("");
+});
+
+test("Y22: open() called from an effect, inside a reactive context, mounts and opens the dialog under zoneless change detection; it closes and is torn down, and closed resolves", async ({
+  page,
+}, info) => {
+  await fixture(page, "dialog-opener", info);
+
+  const content = page.getByTestId("search-content");
+
+  await script(page, "open-by-effect");
+  await expectModal(content);
+  expect(await mounted(page, "opener-search-dialog")).toBe(1);
+  await expect(page.getByTestId("search-bindings")).toHaveText("INV-1 10 false 0 25");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => mounted(page, "opener-search-dialog")).toBe(0);
+  await expect(page.getByTestId("effect-closes")).toHaveText("1");
+  await expect(page.getByTestId("search-closes")).toHaveText("0 1 0");
+  expect(await rootOverflow(page)).toBe("");
+});
+
+test("Y23: a component opened from code whose Dialog root is a template element under @if: hiding the branch while open ends the dialog, removes the host and resolves closed, and close() afterwards does nothing; reopened, it closes from outside", async ({
+  page,
+}, info) => {
+  await fixture(page, "dialog-opener", info);
+
+  const content = page.getByTestId("conditional-content");
+  const closes = page.getByTestId("conditional-closes");
+  const editor = () => mounted(page, "opener-conditional-dialog");
+
+  await script(page, "open-conditional");
+  await expectModal(content);
+  expect(await editor()).toBe(1);
+  await page.getByTestId("conditional-hide").click();
+  await expect.poll(editor).toBe(0);
+  await expect(closes).toHaveText("1");
+  expect(await rootOverflow(page)).toBe("");
+  expect(await blocked(page.getByTestId("open-conditional"))).toBe(false);
+  await script(page, "close-conditional");
+  await settle(page);
+  await expect(closes).toHaveText("1");
+
+  await script(page, "open-conditional");
+  await expectModal(content);
+  await script(page, "close-conditional");
+  await expect.poll(editor).toBe(0);
+  await expect(closes).toHaveText("2");
+});
+
+test("Y24: a dialog opened from code ends after the dialog its component's own opener has open above it, so focus returns to the page: when the outer opener's owner is destroyed and when the outer reference's close() completes, and when application code closes the outer natively, both hosts are removed, both closed resolve, overflow is restored and the launch button has focus", async ({
+  page,
+}, info) => {
+  await fixture(page, "dialog-opener", info);
+
+  const slow = page.getByTestId("slow-content");
+  const confirm = page.getByTestId("confirm-content");
+  const launch = page.getByTestId("owner-open");
+  const state = page.getByTestId("owner-state");
+  const confirmCloses = page.getByTestId("owner-confirm-closes");
+
+  // The outer opener's owner destroyed while both are open.
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await page.getByTestId("slow-confirm").click();
+  await expectModal(confirm);
+  await script(page, "destroy-owner");
+  await expect.poll(() => mounted(page, "opener-slow-dialog")).toBe(0);
+  expect(await mounted(page, "opener-confirm")).toBe(0);
+  await expect(state).toHaveText("false 1");
+  await expect(confirmCloses).toHaveText("1");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  await script(page, "restore-owner");
+  await expect(state).toHaveText("true 1");
+
+  // The outer closed from outside: its exit runs under the confirmation, then both end.
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await page.getByTestId("slow-confirm").click();
+  await expectModal(confirm);
+  const outerClosing = duringExit(slow, {
+    modal: "confirm-content",
+    host: "opener-confirm",
+    text: "owner-confirm-closes",
+  });
+
+  await script(page, "owner-close");
+
+  const outerExit = await outerClosing;
+
+  expect(outerExit).toEqual({ modal: true, mounted: 1, text: "1" });
+  await expect.poll(() => mounted(page, "opener-slow-dialog")).toBe(0);
+  expect(await mounted(page, "opener-confirm")).toBe(0);
+  await expect(state).toHaveText("true 2");
+  await expect(confirmCloses).toHaveText("2");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  expect(await blocked(page.getByTestId("open-search"))).toBe(false);
+
+  // Application code closes the outer natively under the confirmation: no exit, the same end.
+  await launch.focus();
+  await page.keyboard.press("Enter");
+  await expectModal(slow);
+  await page.getByTestId("slow-confirm").focus();
+  await page.keyboard.press("Enter");
+  await expectModal(confirm);
+  await slow.evaluate((node) => {
+    if (!(node instanceof HTMLDialogElement)) {
+      throw new Error("Expected the slow dialog's <dialog>");
+    }
+
+    node.close();
+  });
+  await expect.poll(() => mounted(page, "opener-slow-dialog")).toBe(0);
+  expect(await mounted(page, "opener-confirm")).toBe(0);
+  await expect(state).toHaveText("true 3");
+  await expect(confirmCloses).toHaveText("3");
+  await expect(launch).toBeFocused();
+  expect(await rootOverflow(page)).toBe("");
+  expect(await blocked(page.getByTestId("open-search"))).toBe(false);
 });

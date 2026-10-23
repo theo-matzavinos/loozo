@@ -14,6 +14,7 @@ import {
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import type { ɵOrigamiIntent } from "@loozo/origami-ui/utils";
+import { DialogMount } from "./dialog-opener";
 import type { OrigamiDialogTriggerOptions } from "./dialog-trigger";
 
 /** Whole, substitutable root configuration, resolved after construction. */
@@ -66,7 +67,13 @@ type TriggerPart = {
   readonly element: HTMLElement;
   readonly options: () => OrigamiDialogTriggerOptions;
 };
-type ContentPart = { readonly options: () => { readonly id: Signal<string> } };
+type ContentPart = {
+  readonly options: () => { readonly id: Signal<string> };
+  /** Whether its native modal session is active, from `showModal()` through the exit to `close()`. */
+  readonly active: () => boolean;
+  /** Ends its native modal session now, without an exit, while the `<dialog>` is still connected. */
+  readonly end: () => void;
+};
 type IdPart = { readonly id: () => string };
 
 /** @internal Nearest Dialog owner. Not exported as an application authoring API. */
@@ -76,6 +83,8 @@ export class DialogContext {
   readonly #trigger = signal<TriggerPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
   readonly #titles = signal<readonly IdPart[]>([]);
+  // The nearest root above masks an opened component's mount, so only a top-level root sees it.
+  readonly #mount = inject(DialogMount, { optional: true, skipSelf: true });
   #destroyed = false;
 
   /** Effective role; only a variant on the root's own element sets it. */
@@ -110,6 +119,36 @@ export class DialogContext {
     if (!this.#destroyed) {
       this.#options().open.set(open);
     }
+  }
+
+  /**
+   * From the root's `ngOnInit`: the top-level root of a component opened with
+   * `injectOrigamiDialogOpener` claims its mount and requests open; a second one fails.
+   * Destroying the root ends the opened dialog: its component is torn down.
+   */
+  claimMount(destroyRef: DestroyRef): void {
+    if (this.#mount === null || destroyRef.destroyed) {
+      return;
+    }
+
+    this.#mount.claim(
+      {
+        close: () => this.setOpen(false),
+        closed: () => !this.desired() && !(this.#content()?.active() ?? false),
+        endSession: () => this.#content()?.end(),
+      },
+      destroyRef,
+    );
+    this.setOpen(true);
+  }
+
+  /**
+   * Before its Content's native session ends: as the top-level root of a component opened from
+   * code, disposes the dialogs that openers inside that component opened, so each returns focus
+   * first, while its return target is still connected and not inert under them.
+   */
+  disposeOwnedMounts(): void {
+    this.#mount?.disposeOwned();
   }
 
   /** Registers the Trigger from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
@@ -197,8 +236,9 @@ export class OrigamiDialogState {
  * open when the outer natively closes is reported through `ErrorHandler`, since the browser keeps
  * it modal but unrendered.
  * The root may share the `<dialog>` element with Content, and a component can be the root through
- * `hostDirectives`. Consumers own the trigger, markup, names, styling and animation. For a
- * dialog that asks for a decision, use `OrigamiAlertDialog`, which composes this root.
+ * `hostDirectives`, and such a component can be opened from code with
+ * `injectOrigamiDialogOpener`. Consumers own the trigger, markup, names, styling and animation.
+ * For a dialog that asks for a decision, use `OrigamiAlertDialog`, which composes this root.
  *
  * Every close request goes through `open`: a Trigger opens it, a Close button, a model write and
  * an accepted user dismissal (Escape, the back gesture or `requestClose()`, a backdrop click)
@@ -222,6 +262,8 @@ export class OrigamiDialogState {
     DialogContext,
     OrigamiDialogState,
     OrigamiDialogOptions.provideExisting(() => OrigamiDialog),
+    // Roots inside this one aren't top-level: they never claim an opened component's mount.
+    { provide: DialogMount, useValue: null },
   ],
 })
 export class OrigamiDialog implements OrigamiDialogOptions {
@@ -235,4 +277,12 @@ export class OrigamiDialog implements OrigamiDialogOptions {
   readonly dismissible = input(true, { transform: booleanAttribute });
   /** Local readonly facade of effective root Options. */
   readonly state = inject(OrigamiDialogState);
+
+  readonly #context = inject(DialogContext);
+  readonly #destroyRef = inject(DestroyRef);
+
+  /** @internal As the top-level root of a component opened from code, claims its mount and opens. */
+  ngOnInit(): void {
+    this.#context.claimMount(this.#destroyRef);
+  }
 }
