@@ -1,4 +1,4 @@
-import { computePosition, flip, offset, platform } from "@floating-ui/dom";
+import { computePosition, flip, offset, platform, size } from "@floating-ui/dom";
 import type { Placement, Side } from "@floating-ui/dom";
 
 export interface PositionConfiguration {
@@ -21,13 +21,26 @@ export interface PositionAxes {
   readonly direction: string;
 }
 
-/** `names` labels errors with the owning primitive and its reference, such as "Popover" and "Anchor". */
+/** The `size` middleware's measurements for the placement `flip` chose, in CSS pixels. */
+export interface PositionSize {
+  /** The reference's border-box width. */
+  readonly anchorWidth: number;
+  /** The height Content can take on its placed side without overflowing the viewport, never negative. */
+  readonly availableHeight: number;
+}
+
+/**
+ * `names` labels errors with the owning primitive and its reference, such as "Popover" and "Anchor".
+ * `measured` runs inside the calculation, so a Content resize it causes is measured again before
+ * the coordinates resolve.
+ */
 export function positionContent(
   reference: HTMLElement,
   content: HTMLElement,
   configuration: PositionConfiguration,
   axes: PositionAxes,
   names: { readonly label: string; readonly referenceLabel: string },
+  measured: (size: PositionSize) => void,
 ) {
   let blockStart: Side;
   let inlineStart: Side;
@@ -136,6 +149,17 @@ export function positionContent(
         fallbackStrategy: "bestFit",
         boundary: "clippingAncestors",
         rootBoundary: "viewport",
+      }),
+      // After flip, so it measures the placement flip chose.
+      size({
+        boundary: "clippingAncestors",
+        rootBoundary: "viewport",
+        apply: ({ rects, availableHeight }) => {
+          measured({
+            anchorWidth: rects.reference.width,
+            availableHeight: Math.max(0, availableHeight),
+          });
+        },
       }),
     ],
   });

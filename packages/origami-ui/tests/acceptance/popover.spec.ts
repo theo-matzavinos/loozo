@@ -842,6 +842,151 @@ for (const layout of ["bottom", "right", "corner", "oversized"]) {
   });
 }
 
+/** Content's size properties against independent DOM edges: the Anchor's width and the space on the placed side, gap 8. */
+async function sizePropertyDeltas(page: Page, placed: "below" | "above") {
+  const result = await geometry(page);
+  const properties = await page.getByTestId("native-content").evaluate((node) => {
+    if (!(node instanceof HTMLElement)) {
+      throw new Error("Expected the native Content host");
+    }
+
+    return {
+      anchorWidth: node.style.getPropertyValue("--og-anchor-width"),
+      availableHeight: node.style.getPropertyValue("--og-available-height"),
+    };
+  });
+  const pixels = (value: string) => {
+    if (!/^\d+(\.\d+)?px$/.test(value)) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    return Number.parseFloat(value);
+  };
+  let edge = result.content.top - (result.anchor.bottom + 8);
+  let availableHeight = result.viewport.height - result.anchor.bottom - 8;
+
+  if (placed === "above") {
+    edge = result.anchor.top - 8 - result.content.bottom;
+    availableHeight = result.anchor.top - 8;
+  }
+
+  return {
+    edge: Math.abs(edge),
+    anchorWidth: Math.abs(pixels(properties.anchorWidth) - result.anchor.width),
+    availableHeight: Math.abs(pixels(properties.availableHeight) - availableHeight),
+  };
+}
+
+test("V17: Content exposes the Anchor's width and the height available below it, and above it after a flip", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await page.getByTestId("native-motion").selectOption("none");
+  // Nothing is written before the first position calculation.
+  await expect(page.getByTestId("native-content")).not.toHaveAttribute("style", /--og-/);
+
+  for (const [layout, placed] of [
+    ["center", "below"],
+    ["bottom", "above"],
+  ] as const) {
+    await page.getByTestId("native-layout").selectOption(layout);
+    await nativeOpen(page);
+    await expect
+      .poll(async () => Math.max(...Object.values(await sizePropertyDeltas(page, placed))), {
+        message: `Placed ${placed}: edge, --og-anchor-width and --og-available-height; tolerance 1 CSS px`,
+      })
+      .toBeLessThanOrEqual(1);
+    await info.attach(`placed-${placed}`, {
+      body: JSON.stringify(
+        { deltas: await sizePropertyDeltas(page, placed), geometry: await geometry(page) },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    await scriptControl(page, "native-close");
+    await closed(page);
+  }
+});
+
+test("V18: Content capped by --og-available-height is first revealed above its Anchor at its capped size", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await page.getByTestId("native-motion").selectOption("none");
+  await page.getByTestId("native-layout").selectOption("bottom");
+  // A consumer cap on Content taller than either side. Before the first calculation the property
+  // is unset, so the cap is `none` and the first measurement sees the uncapped height.
+  await page.addStyleTag({
+    content:
+      '[data-testid="native-content"] { block-size: 2000px !important; max-block-size: var(--og-available-height); }',
+  });
+
+  const reveal = await page.getByTestId("native-content").evaluateHandle((content) => {
+    const anchor = document.querySelector('[data-testid="native-anchor"]');
+
+    if (!(content instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+      throw new Error("Expected the native Content and separate Anchor");
+    }
+
+    const frame = () => {
+      const box = content.getBoundingClientRect();
+
+      return {
+        top: box.top,
+        bottom: box.bottom,
+        height: box.height,
+        anchorTop: anchor.getBoundingClientRect().top,
+        availableHeight: content.style.getPropertyValue("--og-available-height"),
+      };
+    };
+    const state: { first: ReturnType<typeof frame> | null; frame: typeof frame } = {
+      first: null,
+      frame,
+    };
+    // The first style change that leaves Content natively open and no longer transparent.
+    const observer = new MutationObserver(() => {
+      if (content.matches(":popover-open") && getComputedStyle(content).opacity !== "0") {
+        state.first = frame();
+        observer.disconnect();
+      }
+    });
+
+    observer.observe(content, { attributes: true, attributeFilter: ["style"] });
+
+    return state;
+  });
+
+  await nativeOpen(page);
+  await expect.poll(() => reveal.evaluate(({ first }) => first !== null)).toBe(true);
+  await afterPointerTasks(page);
+
+  const { first, settled } = await reveal.evaluate(({ first, frame }) => ({
+    first,
+    settled: frame(),
+  }));
+
+  await info.attach("V18-first-reveal", {
+    body: JSON.stringify({ first, settled }, null, 2),
+    contentType: "application/json",
+  });
+
+  if (first === null) {
+    throw new Error("Missing the first revealed frame");
+  }
+
+  // Flipped above with gap 8, capped to exactly the space above: no gap, overlap or overflow.
+  expect(
+    Math.abs(Number.parseFloat(first.availableHeight) - (first.anchorTop - 8)),
+  ).toBeLessThanOrEqual(1);
+  expect(Math.abs(first.height - Number.parseFloat(first.availableHeight))).toBeLessThanOrEqual(1);
+  expect(Math.abs(first.anchorTop - 8 - first.bottom)).toBeLessThanOrEqual(1);
+  expect(first.top).toBeGreaterThanOrEqual(-1);
+  // The first revealed box is already the settled one.
+  expect(Math.abs(settled.top - first.top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(settled.bottom - first.bottom)).toBeLessThanOrEqual(1);
+});
+
 test("V5 V7: topmost branch veto consumes Escape and protected descendant prevents partial writes", async ({
   page,
 }, info) => {
@@ -1950,7 +2095,12 @@ async function preparationState(page: Page) {
     const privateDeclarations: string[] = [];
 
     for (const property of node.style) {
-      if (property.startsWith("--")) {
+      // The size properties are public (V17); any other custom property is the preparation's.
+      if (
+        property.startsWith("--") &&
+        property !== "--og-anchor-width" &&
+        property !== "--og-available-height"
+      ) {
         privateDeclarations.push(property);
       }
     }
@@ -2508,15 +2658,51 @@ test("V13: a calculation superseded before it resolves is never committed for th
       return { left, top, right, bottom };
     };
     const records: { content: ReturnType<typeof box>; anchor: ReturnType<typeof box> }[] = [];
+    let coordinates = "";
+    // A commit writes the coordinates; the size properties (V17) are written during a calculation.
     const record = () => {
-      records.push({ content: box(content), anchor: box(anchor) });
+      const next = `${content.style.left}/${content.style.top}`;
+
+      if (next !== coordinates) {
+        coordinates = next;
+        records.push({ content: box(content), anchor: box(anchor) });
+      }
     };
-    const observer = new MutationObserver(record);
+    // Every style attribute Content had, including states a later write replaced before this
+    // observer ran: each mutation's old value, then the current one.
+    const styles: string[] = [];
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        styles.push(mutation.oldValue ?? "");
+      }
+
+      record();
+    });
 
     record();
-    observer.observe(content, { attributes: true, attributeFilter: ["style"] });
+    observer.observe(content, {
+      attributes: true,
+      attributeFilter: ["style"],
+      attributeOldValue: true,
+    });
 
-    return { records, stop: () => observer.disconnect() };
+    return {
+      records,
+      stop: () => {
+        observer.disconnect();
+        styles.push(content.getAttribute("style") ?? "");
+
+        const probe = document.createElement("div");
+        const heights: string[] = [];
+
+        for (const style of styles) {
+          probe.setAttribute("style", style);
+          heights.push(probe.style.getPropertyValue("--og-available-height"));
+        }
+
+        return heights;
+      },
+    };
   });
 
   // Near the viewport's block end, vertical-rl's first fitting candidate is its third, so the older
@@ -2542,14 +2728,15 @@ test("V13: a calculation superseded before it resolves is never committed for th
     .toBe(12);
   await afterPointerTasks(page);
 
-  const records = await commits.evaluate(({ records, stop }) => {
-    stop();
+  const { records, heights } = await commits.evaluate(({ records, stop }) => {
+    const heights = stop();
 
-    return records.slice(1);
+    return { records: records.slice(1), heights };
   });
+  const anchorTop = records[records.length - 1].anchor.top;
 
   await info.attach("V13-superseded-calculation-commits", {
-    body: JSON.stringify(records, null, 2),
+    body: JSON.stringify({ records, heights, anchorTop }, null, 2),
     contentType: "application/json",
   });
 
@@ -2557,6 +2744,20 @@ test("V13: a calculation superseded before it resolves is never committed for th
   for (const commit of records) {
     expect(commit.content.bottom).toBeLessThanOrEqual(commit.anchor.top);
   }
+
+  // The size properties too: Content keeps the opened calculation's available height until the
+  // newer one replaces it with the space above the Anchor, gap 12. The superseded calculation's
+  // measurement never appears, not even transiently.
+  const opened = heights[0];
+  const current = heights[heights.length - 1];
+  const changed = heights.indexOf(current);
+
+  expect(Math.abs(Number.parseFloat(current) - (anchorTop - 12))).toBeLessThanOrEqual(1);
+  expect(current).not.toBe(opened);
+  expect(heights).toEqual([
+    ...Array<string>(changed).fill(opened),
+    ...Array<string>(heights.length - changed).fill(current),
+  ]);
 });
 
 test("V11 H1: canceled initial SSR-open activation keeps settled retained phase and exact server children", async ({

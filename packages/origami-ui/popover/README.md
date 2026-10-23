@@ -25,7 +25,7 @@ Content gets `popover="manual"` and is shown with `showPopover()`, so it paints 
 
 Origami owns the `popover` attribute and the native show/hide calls; don't drive them yourself. It also sets `position: fixed`, `top`/`left` coordinates, resets `right`, `bottom` and `margin`, and suppresses paint and pointer events briefly while it measures. Everything else about the Content's box is yours:
 
-- Give Content stable, measurable dimensions. Origami doesn't size it or keep oversized content inside the viewport.
+- Give Content stable, measurable dimensions. Origami doesn't size it or keep oversized content inside the viewport, but it gives you [the measurements to do it](#sizing-to-the-anchor).
 - Scope any custom `display` to `:popover-open`, so the browser's closed Popover stays hidden.
 - Use `gap` for distance from the Anchor, not margins.
 - `transform` is free for your animations; positioning doesn't use it. `z-index` doesn't reorder top-layer elements.
@@ -43,6 +43,25 @@ Origami owns the `popover` attribute and the native show/hide calls; don't drive
 When the requested placement overflows, Floating UI tries the opposite side, then the opposite alignment, then both (`"center"` has no opposite alignment). If none fits, it prefers a candidate that fits along the main axis with the least cross-axis overflow, and otherwise the one with the least overflow. That isn't a guarantee that Content fits on every edge, or that it moves back to the requested placement. `gap` must be finite and nonnegative; reading any other effective value throws a `RangeError` rather than clamping it. That's a configuration error, separate from the positioning failure below. All three settings are reactive.
 
 While Content is shown, including during its exit animation while the Anchor is still available, its position follows document and nested scrolling, viewport resizes, Anchor and Content resizes and observed Anchor movement. Tracking stops once Content is fully closed, suppressed or destroyed. It doesn't follow an ancestor that resizes without any of those, or an Anchor moved by a transform animation. A nested Popover is positioned only after its parent has been positioned and revealed.
+
+## Sizing to the Anchor
+
+Each time Content is positioned, Origami sets two custom properties inline on it, in CSS pixels:
+
+- `--og-anchor-width`: the Anchor's border-box width.
+- `--og-available-height`: the height Content can take without overflowing the viewport where it was placed, after any flip. Placed above or below, that's from the gap to the viewport's edge; placed beside, from its aligned edge, or both ways from its center when centered. Never negative.
+
+They size nothing on their own. Use them to match the Anchor's width or to cap the height and scroll:
+
+```css
+.options:popover-open {
+  min-inline-size: var(--og-anchor-width);
+  max-block-size: min(20rem, var(--og-available-height));
+  overflow-y: auto;
+}
+```
+
+Origami measures Content again after they resize it, so the placement uses the final size. They're absent until Content is first positioned, only the browser sets them, and they keep their last values while Content is closed. Both are physical, so in a vertical writing mode they're still a width and a height.
 
 ## Dismissal and focus
 
