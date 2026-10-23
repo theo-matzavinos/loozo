@@ -140,7 +140,7 @@ try {
 }
 ```
 
-TypeScript has no checked exception parameter on `Promise<T>`; this design exposes error metadata/type guards rather than claiming automatic catch typing. Network failures, local cancellation and local encoding failures remain distinct from server business failures. A later TanStack integration can consume operation kinds, identity, results and error metadata; that adapter is not in initial scope.
+TypeScript has no checked exception parameter on `Promise<T>`; this design exposes error metadata/type guards rather than claiming automatic catch typing. Network failures, local cancellation and local encoding failures remain distinct from server business failures. The optional TanStack Query integration below consumes operation kinds, identity, results and error metadata without changing this client.
 
 ## Generated client
 
@@ -191,6 +191,42 @@ Initial RPC is live-request-only. Native SSR and CSR are supported; ordinary sta
 
 The native proof exposed that Angular 22.1.5 can log a resolver error, return no rendered page and still report a successful prerender build. The approved mitigation is a render-local fault record: record unsupported-context invocation, await native ApplicationRef.whenStable() in the server bootstrap, destroy the application and rethrow the fault. This uses public APIs without patching Angular internals. The corrected native build exits nonzero for prerender RPC; an ordinary static page still prerenders successfully. This guard addresses unsupported-context faults, not every possible caught error in arbitrary application code.
 
+## TanStack Query integration
+
+Optional, behind the generation option `tanstackQuery` (default `false`). Off, generated output is byte-identical to output without the option. The supported adapter is `@tanstack/angular-query` `^5.0.0-rc.5`, an optional peer dependency; the root entry point and `_generated` never import it.
+
+Entry points:
+
+- `@loozo/angular-launch/tanstack-query` (public): `provideLaunchQueries(): EnvironmentProviders` and `type RpcQueries<typeof group>`.
+- `@loozo/angular-launch/_tanstack-query` (generated code only, not API): `createQueries(rpc, metadata)`.
+
+With the option on, each `rpc.generated.ts` also exports `type Queries = { readonly <namespace>: RpcQueries<typeof group> }` and `injectQueries(): Queries`, which calls `createQueries(injectRpc(), …)` with literal `{ kind, input }` metadata per procedure. `injectQueries()` runs in an injection context, injects TanStack's `QueryClient` and throws, on every platform, when `provideLaunchQueries()` is missing. The core client is unchanged.
+
+Surface per group: `$key()`. Per query procedure: `queryOptions(input | skipToken, overrides?)` with input, `queryOptions(overrides?)` without, and `key(input?)`. Per mutation procedure: `mutationOptions(overrides?)` and `key()`. Query and mutation options exist only on their own kind. `$` can't occur in Launch identifiers, so `$key` can't collide.
+
+```text
+$key()            ["launch", namespace]
+key()             ["launch", namespace, procedure]
+key(input)        ["launch", namespace, procedure, input]   input as the caller passed it
+queryOptions(…)   the full key, DataTag'd with the procedure's awaited output; skipToken: no input
+mutationOptions   mutationKey = key()
+```
+
+Generated options:
+
+- `queryFn: ({ signal }) => callable(input?, { signal, transferCache: false })`, respecting no-input arity; `skipToken` input gives `queryFn: skipToken`. `mutationFn` calls `callable(input)` or `callable()`; variables are the caller input, or `void`.
+- `retry: (failures, error) => !(error instanceof RpcError) && <QueryClient default retry for the query's key>`, resolved per call in query-core's merge order (`getDefaultOptions().queries`, then `getQueryDefaults(queryKey)`). A boolean default applies as is, a number retries while `failures < n`, a function is called with `(failures, error)`, and `undefined` retries while `failures < 3`. So the server keeps the adapter's `retry: false` and an `RpcError` never retries.
+- `refetchOnMount: (query) => hydrating ? false : <QueryClient default for the query's key, else true>`.
+- Overrides replace any default but can't replace the key or the query or mutation function (omitted in the types; applied last at runtime). TError is `unknown`: callers narrow with the callable's `isError`, and the rejection is the callable's own.
+
+Hydration is TanStack's: it dehydrates successful queries into `TransferState` during server rendering and hydrates its browser client before components run. Generated query calls opt out of Angular's HTTP transfer cache, so payloads appear once; direct calls keep the transfer cache. Errors aren't dehydrated: a query that fails during server rendering runs again in the browser.
+
+`provideLaunchQueries()` owns one hydration window per application. It is open in the browser from bootstrap and closed on the server. An `APP_BOOTSTRAP_LISTENER` awaits `ApplicationRef.whenStable()` and then closes it, the hook Angular's HTTP transfer cache uses. The wait must not start from a provider factory, an environment initializer or lazily on first injection: those resolve before bootstrap registers pending work, so the window closes before the first page mounts and every load refetches. With the window, `staleTime: 0` renders server data first with no load-time RPC, and queries mounted after stability follow the client's defaults. The window also opens in a browser app without server rendering: an empty query loads regardless, but one with `initialData` or a pre-seeded cache entry doesn't refetch on mount until first stability.
+
+The `QueryClient` is TanStack's, created per injector by `provideTanStackQuery`'s factory, so each server render has its own cache. Launch owns no client.
+
+Excluded: infinite queries, optimistic-update helpers, automatic invalidation, error dehydration, persistence, `@tanstack/angular-query-experimental`, mutation cancellation and `@defer`-specific handling.
+
 ## Build integration
 
 Launch owns one coordinated generation lifecycle, then delegates to official Angular builders/dev-server. It needs a narrow Node-only router discovery/planning seam, not a second runtime graph, generic plugin framework or competing watchers.
@@ -213,11 +249,12 @@ Verification results for the original proof remain in its README and task-owned 
 
 - `packages/angular-launch`: genuine `defineContext`, `defineRpc`, `query`, `mutation`, inferred JSON-safe clients, async Standard Schema validation for inputs and declared error data, explicit guards, fixed framework errors, strict wire encoding and native HttpClient transport.
 - `examples/angular-launch`: authored todo reads/writes with producer-generated context registration, route-local facades and server metadata. Native SSR queries dispatch locally with one live request context; hydration reuses the original DOM/transfer response; subsequent reads and browser writes use HTTP.
-- Labelled native add form trims titles to 1–200 characters. Complete idempotently sets owned rows true, returning declared `NOT_FOUND` for absent/foreign IDs without modifying either user's rows. The private in-memory store persists across browser refresh only, not server restart. Pending controls/status, readable completion and error feedback preserve failed input; successful writes explicitly read again. No optimistic writes or automatic invalidation.
+- Labelled native add form trims titles to 1–200 characters. Complete idempotently sets owned rows true, returning declared `NOT_FOUND` for absent/foreign IDs without modifying either user's rows. The private in-memory store persists across browser refresh only, not server restart. Pending controls/status, readable completion and error feedback preserve failed input; successful writes explicitly invalidate the todos group, which reads the list again. No optimistic writes or automatic invalidation.
 - Final strict semantic/provenance checks cover both genuine factory kinds and declared error schemas before any cold/update/check publication. Semantic checking covers generation's own domain: generated outputs, discovered route/Launch declarations and application TypeScript files that directly import a generated output (static import, `export … from`, `import()`, `import()` type or `import =`). Other application files and dependencies get no semantic diagnostics here (the application's own build reports them); source syntax, module-reference and provenance checks still run before publication. Effective TS 6 `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` and `useUnknownInCatchVariables` must be on, with `noCheck` off. Explicit/inherited false overrides are rejected even with `strict:true`; TS 6 defaults and explicit per-flag true overrides are accepted without rewriting consumer configs or the router seam. Literal error maps cannot contain duplicate/reserved/invalid codes, invalid fields or nonconcrete schemas. Actual registered kind supplies browser metadata and rendering denial, not authored kind fields.
 - Generated app identity plus a private per-request token bind scope to native Angular `REQUEST`, including proxy-sanitization clones and separate entry/render bundles. Server wiring must use `angular.handle(scope.request, scope)`. This catches pairing mistakes, not incorrect authentication or arbitrary server code.
 - One genuine default context across application TypeScript roots; local/ancestor RPC availability follows real route ancestry. Names are ASCII identifiers; `__proto__` is reserved. Explicit schema expressions cannot contain absent/nullish branches.
-- Unsupported generated RPC prerender fails the native build; static no-RPC prerender succeeds. With no native request, unmarked foreign HTTP delegates normally; arbitrary unmarked absolute own-origin RPC cannot universally be classified.
+- Optional TanStack Query integration (`tanstackQuery` generation option, `@loozo/angular-launch/tanstack-query`): the example's todos page reads through `injectQuery` and writes through `injectMutation` with group invalidation; native SSR dehydrates the query once, hydration with `staleTime: 0` makes no RPC, and a failed SSR query loads in the browser.
+- Unsupported generated RPC prerender fails the native build, including for a page whose only RPC is an `injectQuery`; static no-RPC prerender succeeds. With no native request, unmarked foreign HTTP delegates normally; arbitrary unmarked absolute own-origin RPC cannot universally be classified.
 
 The qualified consumer uses ordinary `provideRouter` with hydration. A fresh native Angular 22.1.5 source/function probe confirmed that **blocking initial navigation plus a root RPC resolver** can invoke RPC during route discovery without live context and fail. Ordinary root discovery did not invoke the resolver. Broader blocking-navigation support is parked, not claimed.
 

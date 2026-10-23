@@ -36,6 +36,14 @@
       "types": "./dist/generation/index.d.ts",
       "node": "./dist/generation/index.js"
     },
+    "./tanstack-query": {
+      "types": "./dist/tanstack-query/index.d.ts",
+      "default": "./dist/tanstack-query/index.js"
+    },
+    "./_tanstack-query": {
+      "types": "./dist/tanstack-query/generated.d.ts",
+      "default": "./dist/tanstack-query/generated.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -43,7 +51,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json && node ../../scripts/finish-package.mjs .",
+    "build": "rm -rf dist && tsc -p tsconfig.json && node ../../scripts/finish-package.mjs . && cp tanstack-query/README.md dist/tanstack-query/README.md",
     "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test tests/*.test.mjs"
@@ -56,6 +64,7 @@
     "@angular/compiler": "22.2.2",
     "@angular/core": "22.2.2",
     "@loozo/angular-router": "workspace:*",
+    "@tanstack/angular-query": "5.0.0-rc.5",
     "@types/node": "24.13.3",
     "playwright": "1.63.0"
   },
@@ -63,6 +72,12 @@
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0",
     "@loozo/angular-router": "0.0.5",
+    "@tanstack/angular-query": "^5.0.0-rc.5",
     "rxjs": "^7.8.2"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/angular-query": {
+      "optional": true
+    }
   }
 }

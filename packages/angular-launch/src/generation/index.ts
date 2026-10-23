@@ -33,6 +33,13 @@ export interface GenerationOptions {
   /** Where the application-wide generated files go, relative to the workspace. */
   outDirectory: string;
   /**
+   * Also writes `injectQueries()` and `type Queries` into each `rpc.generated.ts`: TanStack
+   * Query options and keys for the same groups as `injectRpc()`. Requires
+   * `@tanstack/angular-query` in the application and `provideLaunchQueries()` from
+   * `@loozo/angular-launch/tanstack-query` in its providers. Defaults to `false`.
+   */
+  tanstackQuery?: boolean;
+  /**
    * Verifies the generated files without writing them, failing when any is changed,
    * missing or stale. Defaults to `false`.
    */
@@ -325,6 +332,7 @@ function emitLaunch(
   context: LaunchDeclaration,
   groups: RpcGroup[],
   appId: string,
+  tanstackQuery: boolean,
 ): PayloadImport[] {
   const payloads: PayloadImport[] = [];
 
@@ -395,7 +403,16 @@ function emitLaunch(
       `import { injectClient } from '@loozo/angular-launch/_generated';`,
       `import type { Client } from '@loozo/angular-launch';`,
     ];
+
+    if (tanstackQuery) {
+      lines.push(
+        `import { createQueries } from '@loozo/angular-launch/_tanstack-query';`,
+        `import type { RpcQueries } from '@loozo/angular-launch/tanstack-query';`,
+      );
+    }
+
     const metadata: Record<string, unknown> = Object.create(null);
+    const queriesMetadata: Record<string, Record<string, unknown>> = Object.create(null);
 
     for (let index = 0; index < available.length; index += 1) {
       const group = available[index];
@@ -409,13 +426,26 @@ function emitLaunch(
           errors,
         })),
       };
+      queriesMetadata[group.namespace] = Object.create(null);
+
+      for (const { name, kind, input } of group.methods) {
+        queriesMetadata[group.namespace][name] = { kind, input };
+      }
     }
 
     lines.push(
       `export type Rpc = { ${available.map((group, index) => `readonly ${JSON.stringify(group.namespace)}: Client<typeof group${index}>`).join("; ")} };`,
       `export function injectRpc(): Rpc { return injectClient(${JSON.stringify(metadata)} as const) as Rpc; }`,
-      "",
     );
+
+    if (tanstackQuery) {
+      lines.push(
+        `export type Queries = { ${available.map((group, index) => `readonly ${JSON.stringify(group.namespace)}: RpcQueries<typeof group${index}>`).join("; ")} };`,
+        `export function injectQueries(): Queries { return createQueries(injectRpc(), ${JSON.stringify(queriesMetadata)} as const) as Queries; }`,
+      );
+    }
+
+    lines.push("");
     add(desired, file, lines.join("\n"));
   }
 
@@ -844,7 +874,14 @@ async function runGeneration(
     .update("\0")
     .update(context.call.getSourceFile().text)
     .digest("hex");
-  const payloads = emitLaunch(sources, desired, context, groups, appId);
+  const payloads = emitLaunch(
+    sources,
+    desired,
+    context,
+    groups,
+    appId,
+    options.tanstackQuery === true,
+  );
 
   await auditPath(sources.output);
 
@@ -951,10 +988,10 @@ export function generate(
  */
 export function createGenerationSession(
   workspace: string,
-  { tsconfig, scanDirectories, outDirectory }: Omit<GenerationOptions, "check">,
+  { tsconfig, scanDirectories, outDirectory, tanstackQuery }: Omit<GenerationOptions, "check">,
 ): GenerationSession {
   const application = resolve(workspace);
-  const fixed = { tsconfig, scanDirectories: [...scanDirectories], outDirectory };
+  const fixed = { tsconfig, scanDirectories: [...scanDirectories], outDirectory, tanstackQuery };
   const compiler: GenerationCompilerState = {
     discovery: new CompilerState(),
     overlay: new CompilerState(),

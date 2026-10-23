@@ -1,15 +1,15 @@
-import { Component, inject, signal } from "@angular/core";
-import { ActivatedRoute } from "@angular/router";
-import { injectRpc } from "./rpc.generated";
-import type group from "./rpc";
-import type { Client } from "@loozo/angular-launch";
+import { Component, computed, inject, signal } from "@angular/core";
+import { injectMutation, injectQuery, QueryClient } from "@tanstack/angular-query";
+import { injectQueries, injectRpc } from "./rpc.generated";
 
-type Snapshot = Awaited<ReturnType<Client<typeof group>["list"]>>;
 @Component({
   selector: "launch-todos",
   template: `
     <h1>Personal todos</h1>
-    <p id="identity">{{ model().user }} · request {{ model().requestId }}</p>
+    @let model = todos.data();
+    @if (model) {
+      <p id="identity">{{ model.user }} · request {{ model.requestId }}</p>
+    }
     <form (submit)="add($event)">
       <label for="todo-title">New todo</label>
       <div class="todo-entry">
@@ -27,34 +27,63 @@ type Snapshot = Awaited<ReturnType<Client<typeof group>["list"]>>;
         <button type="submit" id="add" [disabled]="pending()">Add</button>
       </div>
     </form>
-    <ul id="todo-list">
-      @for (todo of model().todos; track todo.id) {
-        <li [attr.data-todo-id]="todo.id">
-          <span>{{ todo.title }}</span>
-          @if (todo.completed) {
-            <span class="completed">Completed</span>
-          } @else {
-            <button
-              type="button"
-              [disabled]="pending()"
-              [attr.aria-label]="'Complete ' + todo.title"
-              (click)="complete(todo.id)"
-            >
-              Complete
-            </button>
-          }
-        </li>
-      }
-    </ul>
+    @if (model) {
+      <ul id="todo-list">
+        @for (todo of model.todos; track todo.id) {
+          <li [attr.data-todo-id]="todo.id">
+            <span>{{ todo.title }}</span>
+            @if (todo.completed) {
+              <span class="completed">Completed</span>
+            } @else {
+              <button
+                type="button"
+                [disabled]="pending()"
+                [attr.aria-label]="'Complete ' + todo.title"
+                (click)="complete(todo.id)"
+              >
+                Complete
+              </button>
+            }
+          </li>
+        }
+      </ul>
+    } @else if (todos.isError()) {
+      <p id="list-error">Could not load todos. Refresh to try again.</p>
+    } @else {
+      <p id="list-pending">Loading todos…</p>
+    }
     <button type="button" id="refresh" [disabled]="pending()" (click)="refresh()">Refresh</button>
     <p id="status" role="status" aria-live="polite">{{ status() }}</p>
   `,
 })
 export default class Todos {
   readonly #rpc = injectRpc();
-  readonly model = signal<Snapshot>(inject(ActivatedRoute).snapshot.data["todos"]);
+  readonly #queries = injectQueries();
+  readonly #client = inject(QueryClient);
+  readonly todos = injectQuery(() => this.#queries.todos.list.queryOptions());
+  // Returning the invalidation keeps the mutation pending until the list is read again.
+  // throwOnError fails the mutation when that read fails, so the page doesn't report
+  // success next to a stale list.
+  readonly #add = injectMutation(() =>
+    this.#queries.todos.add.mutationOptions({
+      onSuccess: () => {
+        // The write succeeded: clear the title even if the list can't be read again.
+        this.title.set("");
+
+        return this.#invalidateTodos();
+      },
+    }),
+  );
+  readonly #complete = injectMutation(() =>
+    this.#queries.todos.complete.mutationOptions({
+      onSuccess: () => this.#invalidateTodos(),
+    }),
+  );
+  readonly #refreshing = signal(false);
+  readonly pending = computed(
+    () => this.#add.isPending() || this.#complete.isPending() || this.#refreshing(),
+  );
   readonly title = signal("");
-  readonly pending = signal(false);
   readonly status = signal("ready");
 
   editTitle(event: Event): void {
@@ -70,13 +99,10 @@ export default class Todos {
       return;
     }
 
-    this.pending.set(true);
     this.status.set("Adding todo…");
 
     try {
-      await this.#rpc.todos.add({ title: this.title() });
-      this.title.set("");
-      this.model.set(await this.#rpc.todos.list());
+      await this.#add.mutateAsync({ title: this.title() });
       this.status.set("Todo added");
     } catch (error) {
       if (this.#rpc.todos.add.isError(error) && error.code === "INVALID_INPUT") {
@@ -84,8 +110,6 @@ export default class Todos {
       } else {
         this.status.set("Could not add todo. Refresh to check before retrying.");
       }
-    } finally {
-      this.pending.set(false);
     }
   }
 
@@ -94,12 +118,10 @@ export default class Todos {
       return;
     }
 
-    this.pending.set(true);
     this.status.set("Completing todo…");
 
     try {
-      await this.#rpc.todos.complete({ id });
-      this.model.set(await this.#rpc.todos.list());
+      await this.#complete.mutateAsync({ id });
       this.status.set("Todo completed");
     } catch (error) {
       if (this.#rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
@@ -107,9 +129,14 @@ export default class Todos {
       } else {
         this.status.set("Could not complete todo. Refresh to check before retrying.");
       }
-    } finally {
-      this.pending.set(false);
     }
+  }
+
+  #invalidateTodos(): Promise<void> {
+    return this.#client.invalidateQueries(
+      { queryKey: this.#queries.todos.$key() },
+      { throwOnError: true },
+    );
   }
 
   async refresh(): Promise<void> {
@@ -117,16 +144,19 @@ export default class Todos {
       return;
     }
 
-    this.pending.set(true);
+    this.#refreshing.set(true);
     this.status.set("Refreshing…");
 
-    try {
-      this.model.set(await this.#rpc.todos.list());
-      this.status.set("refreshed");
-    } catch {
+    const result = await this.todos.refetch();
+
+    this.#refreshing.set(false);
+
+    if (result.isError) {
       this.status.set("Could not refresh. Try again.");
-    } finally {
-      this.pending.set(false);
+
+      return;
     }
+
+    this.status.set("refreshed");
   }
 }

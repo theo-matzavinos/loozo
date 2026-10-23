@@ -5,7 +5,6 @@ import { injectRpc } from "./rpc.generated";
 export default defineRoute("todos", {
   parent,
   resolve: {
-    todos: () => injectRpc().todos.list(),
     session: () => injectRpc().session.current(),
   },
 });

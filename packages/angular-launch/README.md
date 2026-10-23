@@ -6,7 +6,7 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, guards and declared errors. There's no builder or watch mode yet, and no subscriptions, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, guards and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys. There's no builder or watch mode yet, and no subscriptions, optimistic updates, automatic invalidation or storage adapters.
 
 ## Requirements
 
@@ -14,6 +14,7 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
+- Optionally, `@tanstack/angular-query` `^5.0.0-rc.5` for the [TanStack Query integration](tanstack-query/README.md).
 
 Install both packages:
 
@@ -359,7 +360,6 @@ import { injectRpc } from "./rpc.generated";
 export default defineRoute("todos", {
   parent,
   resolve: {
-    todos: () => injectRpc().todos.list(),
     session: () => injectRpc().session.current(),
   },
 });
@@ -367,9 +367,13 @@ export default defineRoute("todos", {
 
 `Client<typeof group>` from `@loozo/angular-launch` gives you the client type for a group, for example to type a result: `Awaited<ReturnType<Client<typeof group>["list"]>>`. Import the group with `import type` so server code stays out of the browser bundle.
 
+### With TanStack Query
+
+With the `tanstackQuery` generation option, each `rpc.generated.ts` also exports `injectQueries()`: typed query and mutation options and keys for the same groups, for `@tanstack/angular-query`. See the [TanStack Query guide](tanstack-query/README.md) for setup, keys, invalidation and hydration.
+
 ## Server rendering and hydration
 
-During server rendering, calls run directly on the server with the context created for that page request. Queries are stored in Angular's HTTP transfer cache, so hydration reuses the responses instead of calling the server again. After the app is stable, calls are ordinary HTTP requests, each with a fresh context. Opt a query out with `{ transferCache: false }`.
+During server rendering, calls run directly on the server with the context created for that page request. Queries are stored in Angular's HTTP transfer cache, so hydration reuses the responses instead of calling the server again. After the app is stable, calls are ordinary HTTP requests, each with a fresh context. Opt a query out with `{ transferCache: false }`. Queries run through [TanStack Query](tanstack-query/README.md) opt out and are transferred by TanStack instead.
 
 The reuse has limits, all of them Angular's transfer cache behaving as designed:
 
@@ -466,22 +470,23 @@ Export the handler as `reqHandler`; Angular's dev server and build don't look fo
 generate(workspace: string, options: GenerationOptions, stopped?: () => boolean): Promise<void>;
 ```
 
-| Option            | Type       | Description                                                                   |
-| ----------------- | ---------- | ----------------------------------------------------------------------------- |
-| `tsconfig`        | `string`   | Your app tsconfig, relative to `workspace`                                    |
-| `scanDirectories` | `string[]` | Exactly one route directory, relative to the tsconfig's directory             |
-| `outDirectory`    | `string`   | Where the app-wide generated files go, relative to `workspace`                |
-| `check`           | `boolean`  | Verify generated files without writing them; fails if anything is out of date |
+| Option            | Type       | Description                                                                     |
+| ----------------- | ---------- | ------------------------------------------------------------------------------- |
+| `tsconfig`        | `string`   | Your app tsconfig, relative to `workspace`                                      |
+| `scanDirectories` | `string[]` | Exactly one route directory, relative to the tsconfig's directory               |
+| `outDirectory`    | `string`   | Where the app-wide generated files go, relative to `workspace`                  |
+| `tanstackQuery`   | `boolean`  | Also generate `injectQueries()`; see [TanStack Query](tanstack-query/README.md) |
+| `check`           | `boolean`  | Verify generated files without writing them; fails if anything is out of date   |
 
 `workspace` is the absolute path of the application directory (the one with its `package.json`). The tsconfig, scan directory and output directory must all be inside it. `stopped` lets a caller cancel: if it returns `true` before writing starts, nothing is written.
 
 Generation reads your source without running it. It writes the router's files plus:
 
-| File                                    | Contents                                                                         |
-| --------------------------------------- | -------------------------------------------------------------------------------- |
-| `rpc.generated.ts` beside each route    | `injectRpc()` with the route's own and ancestor groups; none for redirect routes |
-| `<outDirectory>/context.generated.d.ts` | Registers your context type                                                      |
-| `<outDirectory>/server.generated.ts`    | `createContext`, `handleRequest`, `provideServer`, the registry                  |
+| File                                    | Contents                                                                                                                      |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `rpc.generated.ts` beside each route    | `injectRpc()` with the route's own and ancestor groups, plus `injectQueries()` with `tanstackQuery`; none for redirect routes |
+| `<outDirectory>/context.generated.d.ts` | Registers your context type                                                                                                   |
+| `<outDirectory>/server.generated.ts`    | `createContext`, `handleRequest`, `provideServer`, the registry                                                               |
 
 Each file starts with an ownership marker comment. Generation only replaces or removes files with those exact names and markers, fails rather than overwrite an unmarked file or a symlink in their place, and removes stale ones. Unchanged files aren't rewritten. Everything is validated before anything is written, so a run that fails validation changes nothing. Files are then written one at a time, with no rollback: a write error partway through, such as an unwritable file, or an interrupted run can leave some files updated and others not. The next successful run repairs them.
 
@@ -523,7 +528,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 ## Limitations
 
 - No Angular builder or watch mode for Launch yet; run generation yourself before `ng build` or `ng serve`.
-- No subscriptions, optimistic updates, automatic invalidation, or query cache beyond hydration.
+- No subscriptions, optimistic updates or automatic invalidation. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CSRF, CORS or caching policy. You provide those.
 - Server work isn't cancelled when the client aborts, and nothing is rolled back.
@@ -531,6 +536,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Further reading
 
+- [TanStack Query](tanstack-query/README.md): the optional query and mutation integration
 - [`specs/angular-launch.md`](../../specs/angular-launch.md): design and full contract
 - [`examples/angular-launch`](../../examples/angular-launch/): the todos app. Its cookie identity and in-memory database are test fixtures, not security or deployment guidance.
 - [`@loozo/angular-router`](../angular-router/README.md): routes, codecs and navigation

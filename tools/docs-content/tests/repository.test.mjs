@@ -248,7 +248,12 @@ test("launch's ./server entry point extracts", () => {
 
   assert.deepEqual(
     launch.entryPoints.map((candidate) => candidate.importPath),
-    ["@loozo/angular-launch", "@loozo/angular-launch/server", "@loozo/angular-launch/generation"],
+    [
+      "@loozo/angular-launch",
+      "@loozo/angular-launch/server",
+      "@loozo/angular-launch/generation",
+      "@loozo/angular-launch/tanstack-query",
+    ],
   );
 });
 

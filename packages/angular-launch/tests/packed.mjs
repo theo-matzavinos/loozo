@@ -182,6 +182,8 @@ const entry=new URL(router.exports['./_generation'].types,'file://'+require.reso
 assert.ok((await readFile(entry,'utf8')).includes('prepareLaunchRoutes'));
 assert.equal(typeof prepareLaunchRoutes,'function');assert.equal(typeof createValidationProgram,'function');assert.equal(typeof injectClient,'function');assert.equal(new RpcError('FORBIDDEN',403).code,'FORBIDDEN');
 assert.deepEqual(Object.keys(client).sort(),['RpcError','frameworkFailures']);
+// The optional peer isn't installed here: the root and generated entries must not need it.
+assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
 assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','mutation','query']);
 assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleRpc','provideLaunchServer']);
 const binding={id:'packed-test-app',context:defineContext(()=>({value:1}))};
@@ -388,6 +390,134 @@ await run(
   "types-declarations",
 );
 
+// A consumer with the optional TanStack peer: the subpaths resolve, generation with
+// tanstackQuery type-checks, and the generated factories type-check under both resolutions.
+const queriesConsumer = join(evidence, "consumer-tanstack-query");
+
+await mkdir(join(queriesConsumer, "src/routes"), { recursive: true });
+
+const consumerManifest = await readFile(join(consumer, "package.json"), "utf8");
+const queriesManifest = JSON.parse(consumerManifest);
+
+queriesManifest.name = "packed-launch-tanstack-query-consumer";
+queriesManifest.dependencies["@tanstack/angular-query"] = "5.0.0-rc.5";
+await writeFile(join(queriesConsumer, "package.json"), JSON.stringify(queriesManifest, null, 2));
+
+for (const file of [
+  "pnpm-workspace.yaml",
+  "tsconfig.json",
+  "tsconfig.nodenext.json",
+  "src/context.ts",
+  "src/routes/route.ts",
+  "src/routes/page.ts",
+  "src/routes/rpc.ts",
+]) {
+  await writeFile(join(queriesConsumer, file), await readFile(join(consumer, file), "utf8"));
+}
+
+await run(
+  "pnpm",
+  [
+    "install",
+    "--store-dir",
+    join(evidence, "pnpm-store"),
+    "--state-dir",
+    join(evidence, "pnpm-state"),
+    "--reporter",
+    "append-only",
+    "--ignore-scripts",
+  ],
+  queriesConsumer,
+  "install-tanstack-query",
+);
+await writeFile(
+  join(queriesConsumer, "src/consumer.ts"),
+  `import { injectMutation, injectQuery, QueryClient } from '@tanstack/angular-query';
+import { provideLaunchQueries, type RpcQueries } from '@loozo/angular-launch/tanstack-query';
+import type { EnvironmentProviders } from '@angular/core';
+import { injectQueries, type Queries } from './routes/rpc.generated.js';
+import type group from './routes/rpc.js';
+const providers: EnvironmentProviders = provideLaunchQueries();
+const queries: Queries = injectQueries();
+const typed: RpcQueries<typeof group> = queries.packed;
+const key: readonly ['launch', 'packed', 'read'] = queries.packed.read.key();
+const data = new QueryClient().getQueryData(queries.packed.read.queryOptions().queryKey);
+const value: number | undefined = data;
+// @ts-expect-error queries have no mutation options
+queries.packed.read.mutationOptions();
+export function page() {
+  const read = injectQuery(() => queries.packed.read.queryOptions({ staleTime: 0 }));
+  const write = injectMutation(() => queries.packed.write.mutationOptions());
+  write.mutate();
+  return read.data();
+}
+void providers; void typed; void key; void value;`,
+);
+await writeFile(
+  join(queriesConsumer, "verify.mjs"),
+  `import '@angular/compiler';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {existsSync} from 'node:fs';
+import {readFile} from 'node:fs/promises';
+import {dirname,join,relative,resolve} from 'node:path';
+import {generate} from '@loozo/angular-launch/generation';
+import * as queries from '@loozo/angular-launch/tanstack-query';
+import * as generatedQueries from '@loozo/angular-launch/_tanstack-query';
+const require=createRequire(import.meta.url);
+for (const name of ['@loozo/angular-launch/tanstack-query','@loozo/angular-launch/_tanstack-query','@tanstack/angular-query']) {
+  assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
+}
+assert.deepEqual(Object.keys(queries).sort(),['provideLaunchQueries']);
+assert.deepEqual(Object.keys(generatedQueries).sort(),['createQueries']);
+const launchManifest=await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8');
+const launch=JSON.parse(launchManifest);
+assert.equal(launch.peerDependencies['@tanstack/angular-query'],'^5.0.0-rc.5');
+assert.deepEqual(launch.peerDependenciesMeta,{'@tanstack/angular-query':{optional:true}});
+// The entry's guide ships, and its relative links resolve inside the installed package.
+const installed=dirname(require.resolve('@loozo/angular-launch/package.json'));
+const guideFile=join(installed,'tanstack-query','README.md');
+const guide=await readFile(guideFile,'utf8');
+assert.ok(guide.startsWith('# TanStack Query\\n'));
+const guideLinks=[];
+for (const match of guide.matchAll(/\\]\\(([^)\\s]+)\\)/g)) {
+  const href=match[1];
+  if (/^[a-z][a-z\\d+.-]*:/i.test(href)||href.startsWith('#')) {continue;}
+  guideLinks.push(href);
+  const [path,fragment]=href.split('#');
+  const target=resolve(dirname(guideFile),path);
+  assert.ok(!relative(installed,target).startsWith('..'),href);
+  assert.ok(existsSync(target),href);
+  if (fragment!==undefined) {
+    const linked=await readFile(target,'utf8');
+    const headings=[];
+    for (const heading of linked.matchAll(/^#+ (.+)$/gm)) {
+      headings.push(heading[1].toLowerCase().replace(/[^a-z0-9 -]/g,'').replaceAll(' ','-'));
+    }
+    assert.ok(headings.includes(fragment),href);
+  }
+}
+assert.ok(guideLinks.length>0);
+await generate(import.meta.dirname,{tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated',tanstackQuery:true});
+const generated=await readFile(import.meta.dirname+'/src/routes/rpc.generated.ts','utf8');
+assert.ok(generated.includes("from '@loozo/angular-launch/_tanstack-query';"));
+assert.ok(generated.includes('export function injectQueries(): Queries'));
+console.log('Packed TanStack Query subpaths and generation: PASS');`,
+);
+await run("node", ["verify.mjs"], queriesConsumer, "tanstack-query-exports-and-generation");
+await run(
+  "pnpm",
+  ["exec", "tsc", "-p", "tsconfig.json"],
+  queriesConsumer,
+  "tanstack-query-types-bundler",
+);
+await run(
+  "pnpm",
+  ["exec", "tsc", "-p", "tsconfig.nodenext.json"],
+  queriesConsumer,
+  "tanstack-query-types-nodenext",
+);
+
 const lock = await readFile(join(consumer, "pnpm-lock.yaml"), "utf8");
 
 assert.ok(lock.includes("22.2.2") && lock.includes("6.0.3") && lock.includes("7.8.2"));
@@ -411,6 +541,9 @@ await writeFile(
         "public and internal entry export lists",
         "HTTP transformed declared-error payloads and bound request scope",
         "strict Bundler native routes and strict NodeNext exports/generated mutation/error consumer",
+        "root and generated entries without the optional TanStack peer",
+        "TanStack Query subpaths, generation and generated factory types with the peer installed",
+        "the TanStack Query guide ships with relative links that resolve inside the package",
       ],
     },
     null,

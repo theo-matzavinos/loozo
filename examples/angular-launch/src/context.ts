@@ -3,7 +3,8 @@ import { db, stats, serverOnlySentinel } from "./database.server";
 
 // Test-only cookie identity. Not authentication or deployment guidance.
 export default defineContext(async (request: Request) => {
-  const match = /(?:^|;\s*)proof-user=(alice|bob)(?:;|$)/.exec(request.headers.get("cookie") ?? "");
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = /(?:^|;\s*)proof-user=(alice|bob)(?:;|$)/.exec(cookie);
   let user: { id: string } | null = null;
 
   if (match) {
@@ -12,6 +13,8 @@ export default defineContext(async (request: Request) => {
 
   stats.contexts += 1;
 
+  const rpc = new URL(request.url).pathname.startsWith("/_rpc/");
+
   return {
     request,
     user,
@@ -19,7 +22,8 @@ export default defineContext(async (request: Request) => {
     db,
     stats,
     serverOnlySentinel,
-    delayed: request.headers.get("cookie")?.includes("proof-delay=1") === true,
-    failing: request.headers.get("cookie")?.includes("proof-failure=1") === true,
+    delayed: cookie.includes("proof-delay=1"),
+    // proof-ssr-failure fails only server rendering, so the browser's own call succeeds.
+    failing: cookie.includes("proof-failure=1") || (cookie.includes("proof-ssr-failure=1") && !rpc),
   };
 });
