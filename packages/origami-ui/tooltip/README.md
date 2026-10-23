@@ -66,7 +66,7 @@ The root and Content each have their own Options; the Trigger has none. A Conten
 
 ## Positioning
 
-Content is positioned like [Popover Content](../popover/README.md#positioning), with the **Trigger** as its reference: `side` and `align` are logical and resolved from the Trigger's writing mode and direction, the default places it above the Trigger and centered, and it flips when it doesn't fit. Origami sets the same `popover="manual"`, `position: fixed` and coordinates, so scope a custom `display` to `:popover-open` and use `gap`, not margins. A [positioning failure](../popover/README.md#positioning-failure) hides it and is reported the same way.
+Content is positioned like [Popover Content](../popover/README.md#positioning), with the **Trigger** as its reference: `side` and `align` are logical and resolved from the Trigger's writing mode and direction, the default places it above the Trigger and centered, and it flips when it doesn't fit. Origami sets the same `popover="manual"`, `position: fixed` and coordinates, so scope a custom `display` to `:popover-open` and use `gap`, not margins. Content gets the same [`--og-anchor-width` and `--og-available-height`](../popover/README.md#sizing-to-the-anchor), measured against the Trigger. A [positioning failure](../popover/README.md#positioning-failure) hides it and is reported the same way.
 
 ## State and attributes
 
