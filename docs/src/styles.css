@@ -215,6 +215,73 @@ docs-demo-playground {
   inline-size: 6rem;
 }
 
+/* An ogSelect Trigger drawn like the neighboring native inputs: their system colors and Chromium's
+   input border, with a chevron for the list. */
+.docs-demo-select {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 1px 0.4rem;
+  border: 1px solid light-dark(#767676, #858585);
+  border-radius: 2px;
+  background: Field;
+  color: FieldText;
+  font: inherit;
+  line-height: 1.25;
+}
+
+.docs-demo-select::after {
+  content: "";
+  inline-size: 0.35rem;
+  block-size: 0.35rem;
+  margin-block-start: -0.2rem;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  rotate: 45deg;
+}
+
+.docs-demo-select-list {
+  min-inline-size: var(--og-anchor-width);
+  max-block-size: min(15rem, var(--og-available-height));
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.docs-demo-select-list:popover-open {
+  display: grid;
+}
+
+/* Room at the start for the selected option's check mark, which the empty alt text hides from its name. */
+.docs-demo-select-list [ogSelectOption] {
+  position: relative;
+  padding: 0.2rem 0.5rem 0.2rem 1.4rem;
+  border-radius: 3px;
+  cursor: default;
+}
+
+/* The transparent outline marks the active option in forced colors, which drop the background. */
+.docs-demo-select-list [ogSelectOption][data-active] {
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  background: var(--accent-surface);
+}
+
+.docs-demo-select-list [ogSelectOption][data-selected] {
+  font-weight: 600;
+}
+
+.docs-demo-select-list [ogSelectOption][data-selected]::before {
+  content: "✓" / "";
+  position: absolute;
+  inset-inline-start: 0.45rem;
+}
+
 .docs-demo-controls p {
   margin: 0;
 }
