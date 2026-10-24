@@ -15,6 +15,12 @@ import {
 } from "@angular/core";
 import { OrigamiCheckbox } from "@loozo/origami-ui/checkbox";
 import { OrigamiField, OrigamiFieldControl, OrigamiFieldLabel } from "@loozo/origami-ui/field";
+import {
+  OrigamiSelect,
+  OrigamiSelectContent,
+  OrigamiSelectOption,
+  OrigamiSelectTrigger,
+} from "@loozo/origami-ui/select";
 import type { DemoControl } from "../generated/content/model.generated.js";
 
 /**
@@ -39,7 +45,17 @@ export class DemoInstance implements OnInit {
 /** A running snippet with a control for each input and model of its component. */
 @Component({
   selector: "docs-demo-playground",
-  imports: [DemoInstance, OrigamiField, OrigamiFieldLabel, OrigamiFieldControl, OrigamiCheckbox],
+  imports: [
+    DemoInstance,
+    OrigamiField,
+    OrigamiFieldLabel,
+    OrigamiFieldControl,
+    OrigamiCheckbox,
+    OrigamiSelect,
+    OrigamiSelectTrigger,
+    OrigamiSelectContent,
+    OrigamiSelectOption,
+  ],
   template: `
     <div class="docs-demo-output" role="group" aria-label="Running example">
       <ng-container [docsDemoInstance]="component()" [docsDemoBindings]="bindings()" />
@@ -91,18 +107,23 @@ export class DemoInstance implements OnInit {
           }
           @case ("options") {
             <div ogField class="docs-demo-field">
-              <label ogFieldLabel
-                ><code>{{ entry.name }}</code></label
+              <span ogFieldLabel
+                ><code>{{ entry.name }}</code></span
               >
-              <select
-                ogFieldControl
-                #select
-                (change)="entry.value.set(entry.options[select.selectedIndex])"
+              <div
+                ogSelect
+                [value]="entry.options.indexOf(entry.value())"
+                (valueChange)="choose(entry.value, entry.options, $event)"
               >
-                @for (option of entry.options; track $index) {
-                  <option [selected]="option === entry.value()">{{ option ?? "none" }}</option>
-                }
-              </select>
+                <button ogSelectTrigger class="docs-demo-select">
+                  {{ entry.value() ?? "none" }}
+                </button>
+                <div ogSelectContent class="docs-demo-select-list" [gap]="4">
+                  @for (option of entry.options; track $index) {
+                    <div ogSelectOption [value]="$index">{{ option ?? "none" }}</div>
+                  }
+                </div>
+              </div>
             </div>
           }
           @case ("fixed") {
@@ -161,6 +182,21 @@ export class DemoPlayground {
 
     return bindings;
   });
+
+  /**
+   * The options can include null, which a Select value can't tell from "nothing selected", so the
+   * Select is keyed by index. Only a choice writes it, so a null index never arrives; the check
+   * narrows the type.
+   */
+  choose(
+    value: WritableSignal<string | null>,
+    options: readonly (string | null)[],
+    index: number | null,
+  ) {
+    if (index !== null) {
+      value.set(options[index]);
+    }
+  }
 
   /** An empty or partial number field has no value; the input keeps its last one. */
   setNumber(value: WritableSignal<number>, number: number) {
