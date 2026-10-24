@@ -121,6 +121,8 @@ import * as fieldEntry from '@loozo/origami-ui/field';
 import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origami-ui/checkbox';
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
+import { OrigamiSelectOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
+import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
 void contentState.phase;
@@ -343,6 +345,29 @@ dialogState.open.set(true);
 declare const dialogContentState: OrigamiDialogContentState;
 // @ts-expect-error Dialog Content State has no public Presence phase alias
 void dialogContentState.phase;
+// @ts-expect-error Select value must be writable
+OrigamiSelectOptions.provideFactory(() => ({value: computed<number | null>(() => null), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error Select value is a nullable string, number or boolean
+OrigamiSelectOptions.provideFactory(() => ({value: signal<{id: number} | null>(null), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error a Select factory must supply open
+OrigamiSelectOptions.provideFactory(() => ({value: signal<number | null>(null), disabled: signal(false)}));
+// @ts-expect-error a Select Option factory must supply label
+OrigamiSelectOptionOptions.provideFactory(() => ({value: signal(1), disabled: signal(false), id: signal('one')}));
+// @ts-expect-error a Select Content factory must supply gap
+OrigamiSelectContentOptions.provideFactory(() => ({id: signal('list'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start')}));
+declare const selectState: OrigamiSelectState<number>;
+// @ts-expect-error Select State value is readonly
+selectState.value.set(1);
+// @ts-expect-error a number Select's value isn't a string
+const selectString: string | null = selectState.value();
+void selectString;
+const selectRecord: OrigamiSelectOptionRecord<number> | null = selectState.selectedOption();
+// @ts-expect-error a number Select's record value isn't a string
+const selectRecordValue: string | undefined = selectRecord?.value;
+void selectRecordValue;
+declare const selectOptionState: OrigamiSelectOptionState;
+// @ts-expect-error Select Option State is readonly
+selectOptionState.selected.set(true);
 // @ts-expect-error RadioGroup value must be writable
 OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
 // @ts-expect-error RadioGroup value is a nullable string
@@ -392,6 +417,8 @@ OrigamiCheckboxOptions.provideExisting(() => WrongBooleanControl);
 OrigamiSwitchOptions.provideExisting(() => WrongBooleanControl);
 // @ts-expect-error incompatible existing AlertDialog class
 OrigamiAlertDialogOptions.provideExisting(() => WrongIdentity);
+// @ts-expect-error incompatible existing Select Trigger class
+OrigamiSelectTriggerOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Dialog Title class
 OrigamiDialogTitleOptions.provideExisting(() => WrongIdentity);
 // @ts-expect-error incompatible existing Dialog Trigger class
@@ -499,6 +526,17 @@ abstract class AbstractBooleanControl {
   abstract readonly focusableWhenDisabled: Signal<boolean>;
   abstract readonly id: Signal<string>;
 }
+abstract class AbstractSelect {
+  abstract readonly value: WritableSignal<boolean | null>;
+  abstract readonly open: WritableSignal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+}
+abstract class AbstractSelectOption {
+  abstract readonly value: Signal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly label: Signal<string | null>;
+  abstract readonly id: Signal<string>;
+}
 abstract class AbstractRadioGroupItem {
   abstract readonly value: Signal<string>;
   abstract readonly disabled: Signal<boolean>;
@@ -564,6 +602,14 @@ export const providers: Provider[] = [
   OrigamiCheckboxOptions.provideExisting(() => AbstractBooleanControl),
   OrigamiSwitchOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(true), id: computed(() => 'notify')})),
   OrigamiSwitchOptions.provideExisting(() => AbstractBooleanControl),
+  OrigamiSelectOptions.provideFactory(() => ({value: signal<number | null>(null), open: signal(false), disabled: computed(() => false)})),
+  OrigamiSelectOptions.provideFactory(() => ({value: signal<string | null>('s'), open: signal(false), disabled: signal(false)})),
+  OrigamiSelectOptions.provideExisting(() => AbstractSelect),
+  OrigamiSelectTriggerOptions.provideFactory(() => ({id: signal('country'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
+  OrigamiSelectTriggerOptions.provideExisting(() => AbstractPopoverTrigger),
+  OrigamiSelectContentOptions.provideFactory(() => ({id: signal('countries'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start'), gap: signal(4)})),
+  OrigamiSelectOptionOptions.provideFactory(() => ({value: signal(1), disabled: signal(false), label: signal<string | null>('One'), id: signal('one')})),
+  OrigamiSelectOptionOptions.provideExisting(() => AbstractSelectOption),
   OrigamiDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => true)})),
   OrigamiAlertDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => false)})),
   OrigamiDialogTriggerOptions.provideFactory(() => ({id: signal('filters-trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
@@ -732,6 +778,22 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   observeDialog(state: OrigamiDialogState): void { void state; }
   observeContent(state: OrigamiDialogContentState): void { void state; }
   observeString(value: string): void { void value; }`,
+  },
+  select: {
+    imports: `import { OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from "@loozo/origami-ui/select";`,
+    directives: "OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption",
+    members: `
+  readonly count = signal<number | null>(null);
+  readonly agree = signal<boolean | null>(null);
+  readonly size = signal<string | null>("m");
+  readonly shape = signal<{ id: number } | null>(null);
+  readonly open = signal(false);
+  countOutput(value: number | null): void { void value; }
+  agreeOutput(value: boolean | null): void { void value; }
+  stringOutput(value: string | null): void { void value; }
+  observeRecord(value: OrigamiSelectOptionRecord<number> | null): void { void value; }
+  observeOption(state: OrigamiSelectOptionState): void { void state; }
+  observeBoolean(value: boolean): void { void value; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -1280,6 +1342,51 @@ const templates = [
       code: -998002,
       span: `[returnFocus]="null"`,
       message: /Can't bind to 'returnFocus' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "select-positive",
+    family: "select",
+    template: `<div ogSelect #select="ogSelect" [(value)]="count" (valueChange)="countOutput($event)" [(open)]="open"><button ogSelectTrigger id="count" disabled focusableWhenDisabled (click)="countOutput(select.state.value()); observeRecord(select.state.selectedOption()); observeBoolean(select.state.open())">Count</button><div ogSelectContent side="block-start" align="end" [gap]="4"><div ogSelectOption #one="ogSelectOption" [value]="1" label="One" disabled (click)="observeOption(one.state)">One</div><div ogSelectOption value="1">String one</div></div></div><div ogSelect [(value)]="agree" (valueChange)="agreeOutput($event)"><div ogSelectOption [value]="true">Yes</div></div><div ogSelect [value]="size()" (valueChange)="size.set($event)"><div ogSelectOption value="m">M</div></div>`,
+  },
+  {
+    name: "select-output",
+    family: "select",
+    template: `<div ogSelect [(value)]="count" (valueChange)="stringOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "select-state-value",
+    family: "select",
+    template: `<div ogSelect #select="ogSelect" [(value)]="count"><button ogSelectTrigger (click)="stringOutput(select.state.value())"></button></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "select-object-value",
+    family: "select",
+    template: `<div ogSelect [(value)]="shape"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /not assignable to type 'string \| number \| boolean \| null'/s,
+    },
+  },
+  {
+    name: "select-option-value",
+    family: "select",
+    template: `<div ogSelect><div ogSelectOption>Missing</div></div>`,
+    expected: {
+      code: -998008,
+      span: "div",
+      message: /Required input 'value' from directive OrigamiSelectOption must be specified/,
     },
   },
   {

@@ -56,6 +56,7 @@ for (const directory of [
   "checkbox/src",
   "switch/src",
   "dialog/src",
+  "select/src",
 ]) {
   await collect(directory);
 }
@@ -181,6 +182,20 @@ const directiveDefaults = {
   "OrigamiDialogDescription.id": ["opaque generated hosted ID", /generat/i],
   "OrigamiDialogClose.disabled": ["false", /\bfalse\b/i],
   "OrigamiDialogClose.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiSelect.value": ["null", /\bnull\b/i],
+  "OrigamiSelect.open": ["false", /\bfalse\b/i],
+  "OrigamiSelect.disabled": ["false", /\bfalse\b/i],
+  "OrigamiSelectTrigger.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiSelectTrigger.disabled": ["false", /\bfalse\b/i],
+  "OrigamiSelectTrigger.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiSelectContent.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiSelectContent.side": ["block-end", /block-end/],
+  "OrigamiSelectContent.align": ["start", /\bstart\b/],
+  "OrigamiSelectContent.gap": ["0", /\b0\b/],
+  "OrigamiSelectOption.value": ["required", /required/i],
+  "OrigamiSelectOption.disabled": ["false", /\bfalse\b/i],
+  "OrigamiSelectOption.label": ["null", /\bnull\b/i],
+  "OrigamiSelectOption.id": ["opaque generated hosted ID", /generat/i],
 };
 const subjects = [];
 const failures = [];

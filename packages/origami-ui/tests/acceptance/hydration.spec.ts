@@ -1610,6 +1610,109 @@ test("Q6 H1 H2 H3: RadioGroup server checked state and DOM-order tab stops survi
   }
 });
 
+/** Select server state: closed, labelled by the consumer from the selected option, no active descendant. */
+async function expectServerSelects(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const trigger = unit.getByTestId("hydration-select-trigger");
+    const content = unit.getByTestId("hydration-select-content");
+    const mint = unit.getByTestId("hydration-flavor-mint");
+    const selected = label !== "C";
+
+    await expect(trigger).toHaveAttribute("role", "combobox");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(trigger).toHaveAttribute(
+      "aria-controls",
+      (await content.getAttribute("id")) ?? "",
+    );
+    await expect(trigger).not.toHaveAttribute("aria-activedescendant", /.*/);
+    await expect(content).toHaveAttribute("role", "listbox");
+    await expect(content).toHaveAttribute("popover", "manual");
+    await expect(content).toHaveAttribute("inert", "");
+    await expect(mint).toHaveAttribute("aria-selected", String(selected));
+
+    if (selected) {
+      await expect(trigger).toHaveText("Mint");
+      await expect(trigger).not.toHaveAttribute("data-placeholder", /.*/);
+    } else {
+      await expect(trigger).toHaveText("Choose a flavor");
+      await expect(trigger).toHaveAttribute("data-placeholder", "");
+    }
+  }
+}
+
+test("Z8 H1 H2 H3: a Select's server HTML is closed with the consumer's label and no active descendant, and hydration keeps it; a Trigger click after attachment or replay opens it once on the selected option", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerSelects(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const trigger = b.getByTestId("hydration-select-trigger");
+    const content = b.getByTestId("hydration-select-content");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await trigger.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("flavor-open-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerSelects(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerSelects(page, ["A", "B", "C"]);
+      await trigger.click();
+    }
+
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(trigger).toHaveAttribute(
+      "aria-activedescendant",
+      (await b.getByTestId("hydration-flavor-mint").getAttribute("id")) ?? "",
+    );
+    await expect(b.getByTestId("flavor-open-count")).toHaveText("1");
+    await assertReferences(page, info);
+    await b.getByTestId("hydration-flavor-vanilla").click();
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+    await expect(trigger).toHaveText("Vanilla");
+    await expect(b.getByTestId("flavor-open-count")).toHaveText("2");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 type FieldIds = {
   control: string | null;
   label: string | null;
