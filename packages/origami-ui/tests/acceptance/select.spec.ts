@@ -734,6 +734,362 @@ test("Z8: server HTML is closed, with the consumer's label from the selected opt
   await expect(page.getByTestId("deferred-outputs")).toHaveText("0");
 });
 
+test("Z9: with [formField] on the root the Select writes and follows the model, Field Labels name the Trigger and the listbox, its Description then Error describe the Trigger, only focus leaving the Trigger touches, focusBoundControl() focuses the Trigger, readonly() opens and browses but never writes, and required, errors and disabled() reach the Trigger", async ({
+  page,
+}, info) => {
+  const field = page.getByTestId("priority-field");
+  const trigger = page.getByTestId("priority-trigger");
+  const content = page.getByTestId("priority-content");
+  const option = (n: number) => page.getByTestId(`priority-${n}`);
+  const value = page.getByTestId("priority-value");
+  const touched = page.getByTestId("priority-touched");
+  const labels = "priority-label priority-label-2";
+
+  await fixture(page, "select", info, async () => {
+    await expect(trigger).toHaveAttribute("aria-labelledby", labels);
+    await expect(content).toHaveAttribute("aria-labelledby", labels);
+    await expect(trigger).toHaveAttribute("aria-describedby", "priority-description");
+    await expect(trigger).toHaveAttribute("aria-required", "true");
+    await expect(trigger).not.toHaveAttribute("aria-invalid", /.*/);
+    await expect(trigger).not.toHaveAttribute("aria-readonly", /.*/);
+    await expect(trigger).toHaveAttribute("data-placeholder", "");
+    await expect(field).toHaveAttribute("data-required", "");
+  });
+
+  // Initially null: nothing selected; the Labels name the Trigger, the Description describes it.
+  await expect(value).toHaveText("null");
+  await expect(trigger).toHaveText("Choose");
+  await expect(content.locator('[aria-selected="true"]')).toHaveCount(0);
+  await expect(trigger).toHaveAttribute("aria-labelledby", labels);
+  await expect(content).toHaveAttribute("aria-labelledby", labels);
+  await expect(trigger).toHaveAttribute("aria-required", "true");
+  await expect(page.getByRole("combobox", { name: "Priority (1 to 3)" })).toHaveAttribute(
+    "data-testid",
+    "priority-trigger",
+  );
+  await expect(trigger).toHaveAccessibleDescription("How urgent is it?");
+
+  for (const label of ["priority-label", "priority-label-2"]) {
+    await expect(page.getByTestId(label)).not.toHaveAttribute("for", /.*/);
+  }
+
+  // A Label click does nothing.
+  await page.getByTestId("priority-label").click();
+  await frames(page);
+  await expectClosed(trigger, content);
+  await expect(trigger).not.toBeFocused();
+
+  // Opening, browsing, choosing and Escape keep focus on the Trigger, so none of them touches.
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expect(page.getByRole("listbox", { name: "Priority (1 to 3)" })).toHaveAttribute(
+    "data-testid",
+    "priority-content",
+  );
+  await expect(content).toHaveAccessibleName("Priority (1 to 3)");
+  await expectActive(trigger, option(1), content);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("number:2");
+  await expect(trigger).toHaveText("Medium");
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(trigger, content);
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await option(3).click();
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("number:3");
+  await expect(trigger).toBeFocused();
+  await frames(page);
+  await expect(touched).toHaveText("false");
+
+  // Focus leaving the Trigger touches.
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("priority-after")).toBeFocused();
+  await expect(touched).toHaveText("true");
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+
+  // A model write reaches the Select; the touched, now invalid field shows its error.
+  await page.getByTestId("clear-priority").click();
+  await expect(value).toHaveText("null");
+  await expect(trigger).toHaveAttribute("data-placeholder", "");
+  await expect(content.locator('[aria-selected="true"]')).toHaveCount(0);
+  await expect(field).toHaveAttribute("data-invalid", "");
+  await expect(trigger).toHaveAttribute("aria-invalid", "true");
+  await expect(trigger).toHaveAttribute("aria-describedby", "priority-description priority-error");
+  await expect(trigger).toHaveAccessibleDescription("How urgent is it? Choose a priority.");
+  await page.getByTestId("write-priority").click();
+  await expect(value).toHaveText("number:3");
+  await expect(option(3)).toHaveAttribute("aria-selected", "true");
+  await expect(trigger).toHaveText("High");
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+  await expect(trigger).not.toHaveAttribute("aria-invalid", /.*/);
+  await expect(trigger).toHaveAttribute("aria-describedby", "priority-description");
+
+  // reset() untouches and keeps the value.
+  await page.getByTestId("reset-priority").click();
+  await expect(touched).toHaveText("false");
+  await expect(value).toHaveText("number:3");
+
+  // submit() touches and shows the error without running the action.
+  await page.getByTestId("clear-priority").click();
+  await expect(field).not.toHaveAttribute("data-invalid", /.*/);
+  await page.getByTestId("submit-todo").click();
+  await expect(touched).toHaveText("true");
+  await expect(field).toHaveAttribute("data-invalid", "");
+  await expect(trigger).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByTestId("todo-submits")).toHaveText("0");
+
+  // focusBoundControl() focuses the Trigger without opening the list.
+  await page.getByTestId("focus-priority").click();
+  await expect(trigger).toBeFocused();
+  await frames(page);
+  await expectClosed(trigger, content);
+
+  // readonly(): the list opens and the active option moves, but nothing is written.
+  await page.getByTestId("write-priority").click();
+  await page.getByTestId("freeze-priority").click();
+  await expect(trigger).toHaveAttribute("aria-readonly", "true");
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option(3), content);
+  await page.keyboard.press("ArrowUp");
+  await expectActive(trigger, option(2), content);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(value).toHaveText("number:3");
+  await page.keyboard.press("l");
+  await expectActive(trigger, option(1), content);
+  await option(1).click();
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(value).toHaveText("number:3");
+  await expect(option(3)).toHaveAttribute("aria-selected", "true");
+  await expect(option(1)).toHaveAttribute("aria-selected", "false");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await page.getByTestId("freeze-priority").click();
+  await expect(trigger).not.toHaveAttribute("aria-readonly", /.*/);
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await option(1).click();
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("number:1");
+
+  // disabled(): the Trigger is natively disabled, and the Field has data-disabled.
+  await page.getByTestId("lock-priority").click();
+  await expect(trigger).toBeDisabled();
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-priority").click();
+  await expect(trigger).toBeEnabled();
+  await expect(field).not.toHaveAttribute("data-disabled", /.*/);
+});
+
+test("Z9: without a form the Field's Label still names the Trigger and the listbox, replacing static values, and its Description joins a co-applied Tooltip's description; a standalone Select keeps its static attributes, names its listbox by the Trigger's aria-labelledby, else keeps Content's own, and emits touch only when focus leaves the Trigger", async ({
+  page,
+}, info) => {
+  const sort = page.getByTestId("sort-trigger");
+  const sortContent = page.getByTestId("sort-content");
+  const flavour = page.getByTestId("flavour-trigger");
+  const flavourContent = page.getByTestId("flavour-content");
+
+  await fixture(page, "select", info, async () => {
+    await expect(sortContent).toHaveAttribute("aria-labelledby", "sort-label");
+    await expect(flavourContent).toHaveAttribute("aria-labelledby", "flavour-heading");
+  });
+
+  await expect(sort).toHaveAttribute("aria-labelledby", "sort-label");
+  await expect(sortContent).toHaveAttribute("aria-labelledby", "sort-label");
+  await expect(sort).toHaveAttribute("aria-describedby", "sort-description sort-tip");
+  await expect(page.getByTestId("sort-label")).not.toHaveAttribute("for", /.*/);
+  await expect(page.getByRole("combobox", { name: "Sort order" })).toHaveAttribute(
+    "data-testid",
+    "sort-trigger",
+  );
+
+  // Without [formField] there is no form state to expose.
+  for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+    await expect(sort).not.toHaveAttribute(attribute, /.*/);
+  }
+
+  await sort.click();
+  await expectOpen(sort, sortContent);
+  await expect(page.getByRole("listbox", { name: "Sort order" })).toHaveAttribute(
+    "data-testid",
+    "sort-content",
+  );
+  await expect(sortContent).toHaveAccessibleName("Sort order");
+  await page.getByTestId("sort-field-oldest").click();
+  await expectClosed(sort, sortContent);
+  await expect(sort).toHaveText("oldest");
+
+  // Standalone: static attributes kept; the listbox takes the Trigger's static aria-labelledby.
+  const colour = page.getByTestId("colour-trigger");
+  const colourContent = page.getByTestId("colour-content");
+  const touches = page.getByTestId("colour-touches");
+
+  await expect(colour).toHaveAttribute("aria-labelledby", "standalone-heading");
+  await expect(colour).toHaveAttribute("aria-describedby", "standalone-hint");
+  await expect(colourContent).toHaveAttribute("aria-labelledby", "standalone-heading");
+  await expect(page.getByRole("combobox", { name: "Standalone colour" })).toHaveAttribute(
+    "data-testid",
+    "colour-trigger",
+  );
+  await expect(colour).toHaveAccessibleDescription("Colours may vary.");
+
+  for (const attribute of ["aria-invalid", "aria-required", "aria-readonly"]) {
+    await expect(colour).not.toHaveAttribute(attribute, /.*/);
+  }
+
+  await colour.click();
+  await expectOpen(colour, colourContent);
+  await expect(colourContent).toHaveAccessibleName("Standalone colour");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expectClosed(colour, colourContent);
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(colour, colourContent);
+  await page.keyboard.press("Escape");
+  await expectClosed(colour, colourContent);
+  await colour.click();
+  await expectOpen(colour, colourContent);
+  await page.getByTestId("colour-red").click();
+  await expectClosed(colour, colourContent);
+  await expect(colour).toHaveText("red");
+  await expect(page.getByTestId("colour-outputs")).toHaveText("2");
+  await frames(page);
+  await expect(touches).toHaveText("0");
+  await page.getByTestId("colour-after").click();
+  await expect(touches).toHaveText("1");
+
+  // A Trigger named by aria-label alone leaves Content's own static aria-labelledby in place.
+  await expect(flavour).toHaveAccessibleName("Flavour");
+  await expect(flavour).not.toHaveAttribute("aria-labelledby", /.*/);
+  await expect(flavourContent).toHaveAttribute("aria-labelledby", "flavour-heading");
+  await flavour.click();
+  await expectOpen(flavour, flavourContent);
+  await expect(flavourContent).toHaveAccessibleName("Flavours");
+  await page.getByTestId("flavour-lemon").click();
+  await expectClosed(flavour, flavourContent);
+  await expect(flavour).toHaveText("lemon");
+  await expect(flavourContent).toHaveAttribute("aria-labelledby", "flavour-heading");
+});
+
+test("Z9: a consumer component composing the Select through hostDirectives with exposed value, valueChange, disabled and touch is the control [formField] finds; the Select reads FORM_FIELD on its element, and focusBoundControl() reaches the Trigger through the component's own focus()", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const field = page.getByTestId("status-field");
+  const trigger = page.getByTestId("status-trigger");
+  const content = page.getByTestId("status-content");
+  const value = page.getByTestId("status-value");
+  const touched = page.getByTestId("status-touched");
+
+  await expect(field).toHaveAttribute("data-required", "");
+  await expect(trigger).toHaveAttribute("aria-required", "true");
+  await expect(trigger).toHaveAttribute("aria-labelledby", "status-label");
+  await expect(page.getByRole("combobox", { name: "Status" })).toHaveAttribute(
+    "data-testid",
+    "status-trigger",
+  );
+
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await page.getByTestId("status-open").click();
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("string:open");
+  await expect(touched).toHaveText("false");
+  await page.getByTestId("status-after").click();
+  await expect(touched).toHaveText("true");
+
+  // A programmatic write changes the selected option.
+  await page.getByTestId("write-status").click();
+  await expect(value).toHaveText("string:closed");
+  await expect(page.getByTestId("status-closed")).toHaveAttribute("aria-selected", "true");
+  await expect(trigger).toHaveText("Closed");
+  await page.getByTestId("focus-status").click();
+  await expect(trigger).toBeFocused();
+
+  // The Select reads the readonly rule from FORM_FIELD on its own element.
+  await page.getByTestId("freeze-status").click();
+  await expect(trigger).toHaveAttribute("aria-readonly", "true");
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await page.getByTestId("status-open").click();
+  await frames(page);
+  await expect(value).toHaveText("string:closed");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await page.getByTestId("freeze-status").click();
+
+  await page.getByTestId("lock-status").click();
+  await expect(trigger).toBeDisabled();
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-status").click();
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await page.getByTestId("status-open").click();
+  await expect(value).toHaveText("string:open");
+});
+
+test("Z9: with the root, its [formField], the Field and Content mounted, a Trigger mounted later, removed and replaced is the one focusBoundControl() focuses and whose Labels name the listbox; without one, focusing does nothing and the listbox has no aria-labelledby", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const first = page.getByTestId("size-first");
+  const second = page.getByTestId("size-second");
+  const content = page.getByTestId("size-content");
+  const focus = page.getByTestId("focus-size");
+
+  // No Trigger yet: focusing does nothing, and nothing names the listbox.
+  await expect(first).toHaveCount(0);
+  await expect(content).not.toHaveAttribute("aria-labelledby", /.*/);
+  await focus.click();
+  await expect(focus).toBeFocused();
+
+  // A Trigger mounted in a later view registers: the Field's Label replaces its static value
+  // and names the listbox, focusBoundControl() focuses it, and it chooses.
+  await page.getByTestId("mount-first-size").click();
+  await expect(first).toHaveAttribute("aria-labelledby", "size-label");
+  await expect(content).toHaveAttribute("aria-labelledby", "size-label");
+  await focus.click();
+  await expect(first).toBeFocused();
+  await frames(page);
+  await expectClosed(first, content);
+  await first.click();
+  await expectOpen(first, content);
+  await page.getByTestId("size-large").click();
+  await expectClosed(first, content);
+  await expect(page.getByTestId("size-value")).toHaveText("string:large");
+
+  // Removed: the registration goes with it, including the static value it would fall back to.
+  await page.getByTestId("remove-size").click();
+  await expect(first).toHaveCount(0);
+  await expect(content).not.toHaveAttribute("aria-labelledby", /.*/);
+  await focus.click();
+  await expect(focus).toBeFocused();
+
+  // Another Trigger, then a direct replacement: each time the current one registers.
+  await page.getByTestId("mount-second-size").click();
+  await expect(second).toHaveAttribute("aria-labelledby", "size-label");
+  await expect(content).toHaveAttribute("aria-labelledby", "size-label");
+  await focus.click();
+  await expect(second).toBeFocused();
+  await page.getByTestId("mount-first-size").click();
+  await expect(second).toHaveCount(0);
+  await expect(content).toHaveAttribute("aria-labelledby", "size-label");
+  await focus.click();
+  await expect(first).toBeFocused();
+  await expect(first).toHaveText("large");
+});
+
 test("Z10: number and boolean values select and write with their own types; a string option value never matches a number", async ({
   page,
 }, info) => {

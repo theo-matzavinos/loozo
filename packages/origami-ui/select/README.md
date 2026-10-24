@@ -1,6 +1,6 @@
 # Select
 
-Select is a single-choice list that opens from a button, such as a country or a status: the [select-only combobox](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/examples/combobox-select-only/) pattern. Focus stays on the button while the keys, the pointer and typeahead move a highlight through the options; choosing one writes the value and closes the list. The list is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one.
+Select is a single-choice list that opens from a button, such as a country or a status: the [select-only combobox](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/examples/combobox-select-only/) pattern. Focus stays on the button while the keys, the pointer and typeahead move a highlight through the options; choosing one writes the value and closes the list. The list is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control, and it joins a [Field](../field/README.md) on its own.
 
 [src/select/country.ts](../snippets/src/select/country.ts "playground")
 
@@ -16,6 +16,31 @@ Put the Trigger and Content inside the root, and the options inside Content. The
 - The value is yours. Only choosing an option writes it: a click, or Enter or Space on the highlighted option. Escape, Tab and a click outside close without writing. `null` or a value no option has selects nothing and is kept, and removing the selected option doesn't change the value.
 - `open` is the requested state of the list. Opening and dismissal write it, and you can write it yourself; a list opened that way has no highlighted option until a key moves one.
 - `disabled` natively disables the Trigger, so the list can't open, and an open list closes when the Select becomes disabled. Your own writes still apply.
+
+## Forms and Fields
+
+```html
+<div ogField #field="ogField">
+  <span ogFieldLabel>Priority</span>
+  <div ogSelect #priority="ogSelect" [formField]="todo.priority">
+    <button ogSelectTrigger>{{ priority.state.selectedOption()?.label ?? "Choose" }}</button>
+    <div ogSelectContent>
+      <div ogSelectOption [value]="1" label="Low">Low</div>
+      <div ogSelectOption [value]="2" label="High">High</div>
+    </div>
+  </div>
+  <p ogFieldDescription>How urgent is it?</p>
+  @if (field.state.errorsShown()) {
+  <p ogFieldError>{{ field.state.errors()[0]?.message }}</p>
+  }
+</div>
+```
+
+- **Signal Forms:** put `[formField]` on the root, not the Trigger. It binds the `value` model, so a `number | null` field gives a number Select, writes `disabled` from the field's `disabled()` rules, and marks the field touched when focus leaves the Trigger. Opening the list, moving the highlight, choosing and Escape keep focus on the Trigger, so they don't touch it; Tab away does. While the field is `readonly()`, the list still opens and the highlight still moves, but choosing writes nothing and leaves the list open; Escape closes it. `focusBoundControl()` calls the root's `focus()`, which focuses the Trigger.
+- **Field:** inside an `ogField`, the Trigger is the Field's control; don't add `ogFieldControl`. Give it a Label on any element, such as `<span ogFieldLabel>`, before or after the Select: the Trigger's `aria-labelledby` names every Label of its Field, replacing a static one, and the list takes the same `aria-labelledby`. A Label doesn't name it with `for`, so clicking the Label does nothing, as with a [RadioGroup](../radio-group/README.md). The Trigger's `aria-describedby` names the Field's Descriptions, then its Errors, together with a [Tooltip](../tooltip/README.md) on the same button, and `aria-invalid`, `aria-required` and `aria-readonly` follow the Field. See [Field](../field/README.md).
+- **Standalone:** without a Field, use `[(value)]` and name the Trigger yourself. It keeps your static `aria-labelledby`, `aria-describedby`, `aria-required` and the like, and the list takes the Trigger's `aria-labelledby`. A Trigger named by `aria-label` alone doesn't name the list, so name Content yourself, with `aria-label` or a static `aria-labelledby`, as the snippet above does.
+
+To wrap the Select in your own component through `hostDirectives`, expose `value`, `valueChange`, `disabled` and `touch`, so `[formField]` on your component finds them. Signal Forms then calls `focus()` on your component, not on the Select, so give your component a `focus(options?: FocusOptions)` method that calls the injected `OrigamiSelect`'s `focus(options)`; without it, `focusBoundControl()` focuses nothing.
 
 ## Values
 
@@ -72,7 +97,7 @@ Every option is a mounted directive even while the list is closed, so rendering 
 
 ## Replacing Options
 
-The root, Trigger, Content and Option each have their own Options, `OrigamiSelectOptions<T>`, `OrigamiSelectTriggerOptions`, `OrigamiSelectContentOptions` and `OrigamiSelectOptionOptions<T>`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. Other parts read an option's Options only once it has registered, after Angular set its inputs, so a replacement may use required inputs, also in options repeated with `@for`. A directive that composes `ogSelectOption` through `hostDirectives` must expose its required `value`, and its template must bind it, even when the directive's replacement Options supply the value; Angular requires both. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
+The root, Trigger, Content and Option each have their own Options, `OrigamiSelectOptions<T>`, `OrigamiSelectTriggerOptions`, `OrigamiSelectContentOptions` and `OrigamiSelectOptionOptions<T>`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. Other parts read an option's Options only once it has registered, after Angular set its inputs, so a replacement may use required inputs, also in options repeated with `@for`. A directive that composes `ogSelectOption` through `hostDirectives` must expose its required `value`, and its template must bind it, even when the directive's replacement Options supply the value; Angular requires both. A root replacement owns the value, so `[formField]` doesn't bind it: a component that replaces the root Options and takes `[formField]` declares its own `value` model. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
 
 ## State and attributes
 
@@ -85,23 +110,23 @@ The root, Trigger, Content and Option each have their own Options, `OrigamiSelec
 
 Descendants of the root can inject it, and the Trigger exposes the same State as `state`. Content's `state.open()` is its Presence retention, as on Popover Content, for gating children through an exit animation. Each option has `OrigamiSelectOptionState` as `state`: `selected()`, `active()` (highlighted, only while the list is presented) and `disabled()`; descendants of an option can inject it.
 
-| Element | Attributes                                                                                                                                                                                                                                                                               |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger | `type="button"`, `role="combobox"`, `id`, `aria-expanded`, `aria-controls` (mounted Content), `aria-activedescendant` (the highlighted option, only while the list is presented), `data-placeholder` while nothing is selected; the disabled attributes of [Button](../button/README.md) |
-| Content | `role="listbox"`, `id`, `popover="manual"`, `inert` while not presented, the [Presence](../presence/README.md) attributes, `--og-anchor-width` and `--og-available-height`                                                                                                               |
-| Option  | `role="option"`, `id`, `aria-selected` (`"true"` or `"false"`), `data-selected`, `data-active` while highlighted; when disabled, `aria-disabled="true"` and `data-disabled`                                                                                                              |
+| Element | Attributes                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger | `type="button"`, `role="combobox"`, `id`, `aria-expanded`, `aria-controls` (mounted Content), `aria-activedescendant` (the highlighted option, only while the list is presented), `data-placeholder` while nothing is selected; the disabled attributes of [Button](../button/README.md); in a Field, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `aria-required`, `aria-readonly` |
+| Content | `role="listbox"`, `id`, `aria-labelledby` (the Trigger's, else your static one), `popover="manual"`, `inert` while not presented, the [Presence](../presence/README.md) attributes, `--og-anchor-width` and `--og-available-height`                                                                                                                                                           |
+| Option  | `role="option"`, `id`, `aria-selected` (`"true"` or `"false"`), `data-selected`, `data-active` while highlighted; when disabled, `aria-disabled="true"` and `data-disabled`                                                                                                                                                                                                                   |
 
 ## Accessibility
 
-- You supply the Trigger's accessible name with `aria-label` or `aria-labelledby`; its text is announced as the value. Give options readable text and, where the Trigger shows a shorter name, a `label`.
+- Outside a Field you supply the Trigger's accessible name with `aria-label` or `aria-labelledby`; its text is announced as the value. Only `aria-labelledby` also names the list: otherwise name Content with `aria-label`, or with `aria-labelledby` written in its template. The list keeps that static `aria-labelledby` while the Trigger has none; a value written by a directive that composes Content through `hostDirectives` isn't kept, so such a directive names it with `aria-label`. Give options readable text and, where the Trigger shows a shorter name, a `label`.
 - For a group of options, wrap them in your own `role="group"` with `aria-labelledby`; for a divider, use `role="separator"`. Both work inside Content as plain markup.
 
 ## Server rendering and hydration
 
-Server HTML has the list closed, the Trigger's `role`, `aria-expanded="false"`, `aria-controls`, the options' `aria-selected` and your Trigger text, including a label from `selectedOption()`, and no `aria-activedescendant`. Hydration keeps the nodes and IDs. A click on the Trigger replayed after incremental hydration opens the list once.
+Server HTML has the list closed, the Trigger's `role`, `aria-expanded="false"`, `aria-controls`, the options' `aria-selected` and your Trigger text, including a label from `selectedOption()`, and no `aria-activedescendant`; inside a Field, also the Trigger's and the list's `aria-labelledby` and the Trigger's `aria-describedby`, `aria-invalid` and `aria-required`. Hydration keeps the nodes and IDs. A click on the Trigger replayed after incremental hydration opens the list once.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).
 
 ## Not included
 
-No multiple selection, object values or comparator, clear button, option groups or separators as parts, value or indicator parts, item-aligned positioning, scroll buttons or virtualization. No hidden native `<select>`, `name`, form submission or autofill.
+No multiple selection, object values or comparator, clear button, option groups or separators as parts, value or indicator parts, item-aligned positioning, scroll buttons or virtualization. No hidden native `<select>`, `name`, form submission or autofill, and no `ControlValueAccessor`.
