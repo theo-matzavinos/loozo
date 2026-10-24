@@ -3,15 +3,16 @@ import type { WritableSignal } from "@angular/core";
 /**
  * @internal Package-private single-selection write rule shared by Origami's selection widgets;
  * not an application API. Writes only a change: selecting the selected item or clearing an
- * unselected one writes nothing.
+ * unselected one writes nothing. Values compare with `===`, without normalization, so `"1"` and `1`
+ * are different values.
  * @param selection - The widget's effective selected value.
  * @param item - The requesting item's value.
  * @param wanted - Whether the item asks to become selected or to clear.
  * @param clearable - The widget's policy: whether the selected item may clear the selection to null.
  */
-export function ɵrequestSingleSelection(
-  selection: WritableSignal<string | null>,
-  item: string,
+export function ɵrequestSingleSelection<T>(
+  selection: WritableSignal<T | null>,
+  item: T,
   wanted: boolean,
   clearable: boolean,
 ): void {
@@ -36,14 +37,14 @@ export function ɵrequestSingleSelection(
  * @internal Package-private multiple-selection write rule shared by Origami's selection widgets;
  * not an application API. Adds at the end or removes in a new array, keeping every other entry
  * (unknown values included) in order and never mutating the caller's array; a request that
- * matches the current state writes nothing.
+ * matches the current state writes nothing. Values compare with `===`, without normalization.
  * @param selection - The widget's effective selected values.
  * @param item - The requesting item's value.
  * @param wanted - Whether the item asks to be added or removed.
  */
-export function ɵrequestMultipleSelection(
-  selection: WritableSignal<readonly string[]>,
-  item: string,
+export function ɵrequestMultipleSelection<T>(
+  selection: WritableSignal<readonly T[]>,
+  item: T,
   wanted: boolean,
 ): void {
   const current = selection();
@@ -59,7 +60,7 @@ export function ɵrequestMultipleSelection(
     return;
   }
 
-  const remaining: string[] = [];
+  const remaining: T[] = [];
 
   for (const entry of current) {
     if (entry !== item) {

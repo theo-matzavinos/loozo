@@ -285,6 +285,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/checkbox",
     "@loozo/origami-ui/switch",
     "@loozo/origami-ui/dialog",
+    "@loozo/origami-ui/select",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -323,6 +324,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "OrigamiSwitchState",
   ]);
   assert.equal(names["@loozo/origami-ui/dialog"].length, 20);
+  assert.equal(names["@loozo/origami-ui/select"].length, 11);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -363,6 +365,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "checkbox:Checkbox",
     "switch:Switch",
     "dialog:Dialog",
+    "select:Select",
     "utils:Utilities",
   ]);
 
@@ -378,7 +381,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 21 snippets that export one component", async () => {
+test("origami's guide pages run the 22 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -386,7 +389,7 @@ test("origami's guide pages run the 21 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 21);
+  assert.equal(ids.length, 22);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -430,6 +433,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "button/save-button.ts": ["saving:input:boolean"],
     "tooltip/copy-link.ts": ["openDelay:input:number", "side:input:options"],
     "switch/notifications.ts": ["enabled:model:boolean", "disabled:input:boolean"],
+    "select/country.ts": ["disabled:input:boolean"],
   });
 });
 

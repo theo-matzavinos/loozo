@@ -59,6 +59,10 @@ export const routes: Routes = [
       import("./fixtures/dialog-opener.js").then((module) => module.DialogOpenerFixture),
   },
   {
+    path: "select",
+    loadComponent: () => import("./fixtures/select.js").then((module) => module.SelectFixture),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),

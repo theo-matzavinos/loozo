@@ -142,6 +142,19 @@ export const inventory = {
     "OrigamiDialogRef",
     "OrigamiDialogBindings",
   ],
+  select: [
+    "OrigamiSelect",
+    "OrigamiSelectOptions",
+    "OrigamiSelectState",
+    "OrigamiSelectOptionRecord",
+    "OrigamiSelectTrigger",
+    "OrigamiSelectTriggerOptions",
+    "OrigamiSelectContent",
+    "OrigamiSelectContentOptions",
+    "OrigamiSelectOption",
+    "OrigamiSelectOptionOptions",
+    "OrigamiSelectOptionState",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -158,4 +171,5 @@ export const typeOnly = new Set([
   "OrigamiTooltipAlign",
   "OrigamiDialogOpener",
   "OrigamiDialogBindings",
+  "OrigamiSelectOptionRecord",
 ]);

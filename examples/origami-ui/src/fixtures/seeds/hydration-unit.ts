@@ -53,6 +53,12 @@ import {
 } from "@loozo/origami-ui/toolbar";
 import { OrigamiRadioGroup, OrigamiRadioGroupItem } from "@loozo/origami-ui/radio-group";
 import {
+  OrigamiSelect,
+  OrigamiSelectContent,
+  OrigamiSelectOption,
+  OrigamiSelectTrigger,
+} from "@loozo/origami-ui/select";
+import {
   OrigamiTooltip,
   OrigamiTooltipContent,
   OrigamiTooltipTrigger,
@@ -116,6 +122,10 @@ export class AccordionObservation {
     OrigamiToolbarToggleGroupMultiple,
     OrigamiRadioGroup,
     OrigamiRadioGroupItem,
+    OrigamiSelect,
+    OrigamiSelectTrigger,
+    OrigamiSelectContent,
+    OrigamiSelectOption,
     OrigamiTooltip,
     OrigamiTooltipTrigger,
     OrigamiTooltipContent,
@@ -433,6 +443,25 @@ export class AccordionObservation {
         <button ogRadioGroupItem value="center" data-testid="hydration-radio-center">Center</button>
       </div>
     </div>
+
+    <!-- Z8: a closed Select whose Trigger text is the selected option's label. -->
+    <div
+      ogSelect
+      #flavorSelect="ogSelect"
+      [(value)]="flavor"
+      (openChange)="flavorOpenOutputs.update(increment)"
+    >
+      <button ogSelectTrigger aria-label="Server flavor" data-testid="hydration-select-trigger">
+        {{ flavorSelect.state.selectedOption()?.label ?? "Choose a flavor" }}
+      </button>
+      <div ogSelectContent data-testid="hydration-select-content">
+        <div ogSelectOption value="vanilla" label="Vanilla" data-testid="hydration-flavor-vanilla">
+          Vanilla
+        </div>
+        <div ogSelectOption value="mint" label="Mint" data-testid="hydration-flavor-mint">Mint</div>
+      </div>
+    </div>
+    <output data-testid="flavor-open-count">{{ flavorOpenOutputs() }}</output>
 
     <!-- K10: a Toolbar Popover Trigger disabled by its own input. -->
     <button type="button" data-testid="hydration-format-before">Before the format toolbar</button>
@@ -770,6 +799,14 @@ export class HydrationUnit {
   readonly speedOutputs = signal(0);
   readonly lockedSpeed = signal<string | null>("first");
   readonly toolbarRadio = signal<string | null>("center");
+  readonly flavor = linkedSignal<string | null>(() => {
+    if (this.initiallyPresent()) {
+      return "mint";
+    }
+
+    return null;
+  });
+  readonly flavorOpenOutputs = signal(0);
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
   readonly contactModel = signal<{

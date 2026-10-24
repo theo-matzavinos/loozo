@@ -68,6 +68,11 @@ export const routes: Routes = [
       import("./fixtures/dialog-opener-deferred.js").then((module) => module.DialogOpenerDeferred),
   },
   {
+    path: "select",
+    loadComponent: () =>
+      import("./fixtures/select-deferred.js").then((module) => module.SelectDeferred),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),
