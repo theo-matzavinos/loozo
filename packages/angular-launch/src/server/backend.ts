@@ -13,6 +13,7 @@ import { RPC_CALL } from "../generated.js";
 import {
   dispatch,
   failure,
+  invalidInput,
   isJsonMediaType,
   assertBoundScope,
   type ApplicationBinding,
@@ -39,9 +40,9 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  *
  * For intercepted calls, Angular's `REQUEST_CONTEXT` must be the {@link RequestScope}
  * created for Angular's `REQUEST`, or the calls fail with `INTERNAL`. A generated-client
- * call outside `/_rpc/` on the current request's origin fails with `INVALID_INPUT`, as
- * does any intercepted call with a query string, fragment, URL credentials, a method
- * other than `POST`, a non-JSON content type, its own `Authorization`,
+ * call outside `/_rpc/` on the current request's origin fails with `INVALID_INPUT` with no
+ * issues, as does any intercepted call with a query string, fragment, URL credentials, a
+ * method other than `POST`, a non-JSON content type, its own `Authorization`,
  * `Proxy-Authorization` or `Cookie` header, or its own credentials setting.
  *
  * Without a live request, as during prerendering, calls from generated clients and
@@ -151,7 +152,7 @@ export function provideLaunchServer(
                 !isJsonMediaType(contentType) ||
                 authOverride
               ) {
-                deliver(failure("INVALID_INPUT"));
+                deliver(invalidInput());
 
                 return;
               }
@@ -162,14 +163,14 @@ export function provideLaunchServer(
                 const body = request.serializeBody();
 
                 if (typeof body !== "string") {
-                  deliver(failure("INVALID_INPUT"));
+                  deliver(invalidInput());
 
                   return;
                 }
 
                 envelope = JSON.parse(body);
               } catch {
-                deliver(failure("INVALID_INPUT"));
+                deliver(invalidInput());
 
                 return;
               }

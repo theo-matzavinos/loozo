@@ -41,7 +41,7 @@ function schema(order) {
         order.push("validation");
 
         if (typeof value !== "string") {
-          return { issues: [{ message: "secret vendor detail" }] };
+          return { issues: [{ message: "Expected a string", input: value, code: "private" }] };
         }
 
         return { value: { length: value.length } };
@@ -101,9 +101,17 @@ test("async validation, guards and handler ordering; false denies explicitly, no
 
   const invalid = await dispatch(routes, path, { input: 1 }, scope, application, scope.request);
 
-  assert.equal(invalid.status, 400);
+  assert.deepEqual(invalid, {
+    status: 400,
+    body: {
+      error: {
+        code: "INVALID_INPUT",
+        message: "Invalid RPC input",
+        data: { issues: [{ path: [], message: "Expected a string" }] },
+      },
+    },
+  });
   assert.deepEqual(order, ["validation"]);
-  assert.equal(JSON.stringify(invalid).includes("secret"), false);
 
   const denied = registry(
     {
@@ -484,12 +492,20 @@ test("recognized framework frames vs network errors; HttpClient cancellation uns
   assert.equal(client.test.read.kind, "query");
 
   for (const [code, frame] of Object.entries(frameworkFailures)) {
-    assert.equal(
-      recognizedFailure({ error: { code, message: frame.message, data: null } }, frame.status),
-      code,
+    let data = null;
+    let otherData = { issues: [] };
+
+    if (code === "INVALID_INPUT") {
+      data = { issues: [{ path: ["title"], message: "Title required" }] };
+      otherData = null;
+    }
+
+    assert.deepEqual(
+      recognizedFailure({ error: { code, message: frame.message, data } }, frame.status),
+      { code, data },
     );
     assert.equal(
-      recognizedFailure({ error: { code, message: "spoof", data: null } }, frame.status),
+      recognizedFailure({ error: { code, message: "spoof", data } }, frame.status),
       undefined,
     );
     assert.equal(
@@ -500,7 +516,11 @@ test("recognized framework frames vs network errors; HttpClient cancellation uns
       undefined,
     );
     assert.equal(
-      recognizedFailure({ error: { code, message: frame.message, data: null } }, 0),
+      recognizedFailure({ error: { code, message: frame.message, data: otherData } }, frame.status),
+      undefined,
+    );
+    assert.equal(
+      recognizedFailure({ error: { code, message: frame.message, data } }, 0),
       undefined,
     );
     assert.equal(client.test.read.isError(new RpcError(code, frame.status)), false);

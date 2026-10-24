@@ -164,7 +164,7 @@ const result: Promise<{length:number}> = client.todos.length('hello', {signal:ne
 const kind: 'query' = client.todos.length.kind;
 client.todos.list({signal:new AbortController().signal});
 client.session.current();
-if (client.todos.list.isError(value)) { const data:null = value.data; }
+if (client.todos.list.isError(value)) { if (value.code === 'INVALID_INPUT') { const issues: readonly {readonly path: readonly (string|number)[]; readonly message: string}[] = value.data.issues; void issues; } else { const data:null = value.data; } }
 // @ts-expect-error missing caller input
 client.todos.length();
 // @ts-expect-error caller is string, not validated object
@@ -949,7 +949,7 @@ export default defineRpc('todos', {
     "src/mutation-checks.ts",
     `
 import { injectRpc } from './routes/left/rpc.generated';
-import type { ClientRpcError, RpcError } from '@loozo/angular-launch';
+import type { ClientRpcError, InputIssue, InvalidInputData, RpcError } from '@loozo/angular-launch';
 import type group from './routes/left/rpc';
 const rpc = injectRpc();
 const result: Promise<{ id: string; length: number }> = rpc.todos.complete({ id: 'todo' }, { transferCache: false });
@@ -970,8 +970,28 @@ if (rpc.todos.complete.isError(error)) {
     // @ts-expect-error public data is transformed JSON, not raw Date
     const raw: Date = error.data;
     void serialized; void raw;
+  } else if (error.code === 'INVALID_INPUT') {
+    const data: InvalidInputData = error.data;
+    const issue: InputIssue | undefined = error.data.issues[0];
+    const path: readonly (string | number)[] | undefined = issue?.path;
+    const message: string | undefined = issue?.message;
+    const framework: RpcError<'INVALID_INPUT', InvalidInputData> = error;
+    const shorthand: RpcError<'INVALID_INPUT'> = error;
+    const bare: RpcError = error;
+    const shorthandIssues: readonly InputIssue[] = shorthand.data.issues;
+    // @ts-expect-error a bare RpcError may be any framework failure, so its data may be null
+    bare.data.issues;
+    // @ts-expect-error INVALID_INPUT data is not null
+    const nullData: null = error.data;
+    // @ts-expect-error issues are read-only
+    error.data.issues.push({ path: [], message: '' });
+    // @ts-expect-error paths hold property names and indexes only
+    const symbolPath: readonly symbol[] | undefined = issue?.path;
+    void data; void path; void message; void framework; void shorthandIssues; void nullData; void symbolPath;
   } else {
     const noData: null = error.data;
+    // @ts-expect-error other framework failures have no issues
+    error.data.issues;
     void noData;
   }
   void typed;

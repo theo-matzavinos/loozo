@@ -1,5 +1,6 @@
 import { frameworkFailures, type FrameworkCode } from "../client.js";
 import { serializeJson } from "../json.js";
+import { inputIssues, type InputIssue } from "../input-issues.js";
 import type {
   Context,
   ContextDefinition,
@@ -158,10 +159,21 @@ export interface Reply {
   readonly body: unknown;
 }
 
-export function failure(code: FrameworkCode): Reply {
+export function failure(code: Exclude<FrameworkCode, "INVALID_INPUT">): Reply {
   const frame = frameworkFailures[code];
 
   return { status: frame.status, body: { error: { code, message: frame.message, data: null } } };
+}
+
+export function invalidInput(issues: readonly InputIssue[] = []): Reply {
+  const frame = frameworkFailures.INVALID_INPUT;
+  // Both transports publish the same strict JSON, as for declared error data.
+  const data: unknown = JSON.parse(serializeJson({ issues }));
+
+  return {
+    status: frame.status,
+    body: { error: { code: "INVALID_INPUT", message: frame.message, data } },
+  };
 }
 
 export function isJsonMediaType(contentType: string | null): boolean {
@@ -193,8 +205,9 @@ interface RuntimeProcedure extends ProcedureDefinition {
  * path must be `/_rpc/<namespace>/<procedure>` for a registered procedure
  * (`RPC_NOT_FOUND`); a mutation in `"rendering"` mode is refused (`FORBIDDEN`); the
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
- * a cycle or an accessor); it must then be exactly `{ input }` (`INVALID_INPUT`) with
- * input that passes the schema, or `null` without one (`INVALID_INPUT`); the group's
+ * a cycle or an accessor); it must then be exactly `{ input }` (`INVALID_INPUT` with no
+ * issues) with input that passes the schema (`INVALID_INPUT` with the schema's issues),
+ * or `null` without one (`INVALID_INPUT` with no issues); the group's
  * guards and then the procedure's guards must return `true` (`FORBIDDEN`). The
  * handler's strict JSON result is returned with status 200, and its declared errors
  * with their status.
@@ -255,7 +268,7 @@ export async function dispatch(
       !("input" in normalized) ||
       Object.keys(normalized).length !== 1
     ) {
-      return failure("INVALID_INPUT");
+      return invalidInput();
     }
 
     let input: unknown;
@@ -264,12 +277,12 @@ export async function dispatch(
       const parsed = await procedure.input["~standard"].validate(normalized.input);
 
       if (parsed.issues) {
-        return failure("INVALID_INPUT");
+        return invalidInput(inputIssues(parsed.issues));
       }
 
       input = parsed.value;
     } else if (normalized.input !== null) {
-      return failure("INVALID_INPUT");
+      return invalidInput();
     }
 
     const context = scope.value as Context;
@@ -337,10 +350,10 @@ export async function dispatch(
  * `handleRequest` in `server.generated.ts`; call that instead.
  * Any path starting with `/_rpc/` is treated as an RPC request. It must be a `POST`
  * with an `application/json` content type and no query string, otherwise the reply is
- * `INVALID_INPUT` and no context is created. A fresh context is then created before the
- * body is parsed; if that fails the reply is `INTERNAL`, even when the body isn't JSON.
- * Otherwise a body that isn't JSON gives `INVALID_INPUT`. Responses are JSON with
- * `Cache-Control: private, no-store` and `Vary: Cookie`.
+ * `INVALID_INPUT` with no issues and no context is created. A fresh context is then
+ * created before the body is parsed; if that fails the reply is `INTERNAL`, even when the
+ * body isn't JSON. Otherwise a body that isn't JSON gives `INVALID_INPUT` with no issues.
+ * Responses are JSON with `Cache-Control: private, no-store` and `Vary: Cookie`.
  *
  * @typeParam Definition - The application's context definition.
  * @param registry - The application's RPC groups.
@@ -366,7 +379,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
     !isJsonMediaType(request.headers.get("content-type")) ||
     url.search !== ""
   ) {
-    reply = failure("INVALID_INPUT");
+    reply = invalidInput();
   } else {
     try {
       const scope = await createRequestScope(application, request);
@@ -375,7 +388,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
       try {
         envelope = await request.json();
       } catch {
-        return response(failure("INVALID_INPUT"));
+        return response(invalidInput());
       }
 
       reply = await dispatch(registry, url.pathname, envelope, scope, application, scope.request);
