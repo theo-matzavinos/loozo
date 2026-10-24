@@ -9,6 +9,8 @@ import {
   model,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
+import { outputFromObservable } from "@angular/core/rxjs-interop";
+import type { FormValueControl } from "@angular/forms/signals";
 import { ɵrequestSingleSelection } from "@loozo/origami-ui/collection";
 import { OrigamiPopover, OrigamiPopoverOptions } from "@loozo/origami-ui/popover";
 import { injectDeferred } from "@loozo/origami-ui/utils";
@@ -24,7 +26,8 @@ export abstract class OrigamiSelectOptions<
   /**
    * Writable selected value; the direct directive model defaults to null. Null or a value no
    * option has selects nothing and is never normalized: `"1"` and `1` are different values.
-   * External writes remain authoritative; only a user's choice of an option writes it.
+   * External writes remain authoritative; only a user's choice of an option writes it, and not
+   * while the `[formField]` on the root is readonly.
    */
   abstract readonly value: WritableSignal<T | null>;
   /**
@@ -133,6 +136,17 @@ export class OrigamiSelectState<T extends string | number | boolean = string | n
  * render the Trigger's text from `state.value()` or `state.selectedOption()`, name the Trigger,
  * and own markup and styling.
  *
+ * It is an Angular Signal Forms value control: `[formField]` on the root binds its `value` model,
+ * writes its `disabled` input and listens to `touch`, which it emits when focus leaves the
+ * Trigger, not when the list opens or closes or an option is chosen, since focus stays on the
+ * Trigger; `focusBoundControl()` calls `focus()`, which focuses the Trigger. While the bound
+ * field is readonly the list still opens and the active option moves, but choosing writes
+ * nothing. The Trigger is the control of its nearest `ogField`: the Field's Labels name the
+ * Trigger and the list through `aria-labelledby`, so a Label click does nothing; its
+ * Descriptions, then its mounted Errors, describe the Trigger; and the Trigger's
+ * `aria-invalid`, `aria-required` and `aria-readonly` follow the field. It has no `name` or
+ * native form value.
+ *
  * @example
  * ```html
  * <div ogSelect [(value)]="size" #select="ogSelect">
@@ -173,10 +187,13 @@ export class OrigamiSelectState<T extends string | number | boolean = string | n
     }),
   ],
 })
-export class OrigamiSelect<T extends string | number | boolean> implements OrigamiSelectOptions<T> {
+export class OrigamiSelect<T extends string | number | boolean>
+  implements OrigamiSelectOptions<T>, FormValueControl<T | null>
+{
   /**
    * Own selected-value model, default null; `valueChange` emits user choices written to this
-   * model. Replaced Options supply the effective value instead and do not fabricate this output.
+   * model, and `[formField]` binds it. Replaced Options supply the effective value instead and
+   * do not fabricate this output.
    */
   readonly value = model<T | null>(null);
   /**
@@ -184,8 +201,28 @@ export class OrigamiSelect<T extends string | number | boolean> implements Origa
    * choosing and dismissal. Replaced Options supply the effective state instead.
    */
   readonly open = model(false);
-  /** Own disabled input, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
+  /**
+   * Own disabled input, default false with boolean-attribute coercion; `[formField]` writes it
+   * from the field's `disabled()` rules. Replaced Options supply effective policy instead.
+   */
   readonly disabled = input(false, { transform: booleanAttribute });
   /** This root's readonly effective observation, shared with its descendants. */
   readonly state = inject<OrigamiSelectState<T>>(OrigamiSelectState);
+
+  readonly #context = inject(SelectContext);
+
+  /**
+   * Emits when focus leaves the Trigger; `[formField]` marks its field touched. Opening,
+   * browsing, choosing and Escape keep focus on the Trigger, so they don't emit.
+   */
+  readonly touch = outputFromObservable(this.#context.touches);
+
+  /**
+   * Focuses the Trigger once it has registered, in its `ngOnInit`; does nothing before. Signal
+   * Forms' `focusBoundControl()` calls it.
+   * @param options - Passed to the Trigger's native `focus()`.
+   */
+  focus(options?: FocusOptions): void {
+    this.#context.focus(options);
+  }
 }

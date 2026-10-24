@@ -1,6 +1,9 @@
 import { DestroyRef, Service, computed, effect, inject, signal, untracked } from "@angular/core";
 import type { Provider, Signal, WritableSignal } from "@angular/core";
+import { FORM_FIELD } from "@angular/forms/signals";
+import type { FieldState } from "@angular/forms/signals";
 import { injectDeferred } from "@loozo/origami-ui/utils";
+import { Subject } from "rxjs";
 import { TypeaheadBuffer, matchTypeahead, moveActiveOption } from "./active-option";
 import type { ActiveOptionMove } from "./active-option";
 
@@ -20,6 +23,13 @@ export interface SelectOptionRegistration {
 export interface SelectContentRegistration {
   /** Its composed Popover's native participation. */
   readonly participating: Signal<boolean>;
+}
+
+/** What the Trigger registers from its `ngOnInit`. */
+export interface SelectTriggerRegistration {
+  readonly element: HTMLElement;
+  /** Its `aria-labelledby`: the Field's Label IDs while it is the Field's control, else its static value. */
+  readonly labelledBy: Signal<string | null>;
 }
 
 /** Where opening puts the active option: the selected one (else the first enabled), or an end. */
@@ -87,13 +97,17 @@ function typeaheadText(option: SelectOptionRegistration): string {
 /**
  * @internal The Select's private owner: option registrations, the active option, typeahead and
  * the guarded choice. Focus stays on the Trigger; the active option is only highlighted
- * (`aria-activedescendant`). Only `choose` writes the value, from a user's choice.
+ * (`aria-activedescendant`). Only `choose` writes the value, from a user's choice. It also owns
+ * the registered Trigger and the root's Signal Forms binding (`FORM_FIELD` on the root's element).
  */
 @Service({ autoProvided: false })
 export class SelectContext {
   readonly #root = injectDeferred(SelectRootOptions);
+  readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
+  readonly #touches = new Subject<void>();
   readonly #options = signal<readonly SelectOptionRegistration[]>([]);
   readonly #content = signal<SelectContentRegistration | null>(null);
+  readonly #trigger = signal<SelectTriggerRegistration | null>(null);
   readonly #active = signal<SelectOptionRegistration | null>(null);
   readonly #reveal = signal<SelectReveal | null>(null);
   readonly #typeahead = new TypeaheadBuffer();
@@ -131,6 +145,10 @@ export class SelectContext {
   readonly activeDescendant = computed(() => this.highlighted()?.id() ?? null);
   /** The latest activation to scroll into view, or null. */
   readonly reveal = this.#reveal.asReadonly();
+  /** The registered Trigger's `aria-labelledby`, null until it registers and while it has none. */
+  readonly labelledBy = computed(() => this.#trigger()?.labelledBy() ?? null);
+  /** Emits synchronously when focus leaves the Trigger; the root reports it as `touch`. */
+  readonly touches = this.#touches.asObservable();
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -203,6 +221,38 @@ export class SelectContext {
         this.#content.set(null);
       }
     });
+  }
+
+  /** Registers the Trigger from its `ngOnInit`; its composed Popover Trigger rejects a second one first. */
+  registerTrigger(trigger: SelectTriggerRegistration, destroyRef: DestroyRef): void {
+    if (destroyRef.destroyed) {
+      return;
+    }
+
+    this.#trigger.set(trigger);
+    destroyRef.onDestroy(() => {
+      if (this.#trigger() === trigger) {
+        this.#trigger.set(null);
+      }
+    });
+  }
+
+  /**
+   * The Signal Forms state bound on the root's element, or null without `[formField]`; read only
+   * after the parts' `ngOnInit`, once Angular has set that binding.
+   */
+  formState(): FieldState<unknown> | null {
+    return this.#binding?.state() ?? null;
+  }
+
+  /** Focuses the registered Trigger; nothing while none is registered. */
+  focus(options?: FocusOptions): void {
+    this.#trigger()?.element.focus(options);
+  }
+
+  /** Focus left the Trigger. */
+  left(): void {
+    this.#touches.next();
   }
 
   /** Whether `value` is selected, by the root's mode; tracked. */
@@ -296,11 +346,12 @@ export class SelectContext {
   }
 
   /**
-   * A user's choice of `option`, else of the active option: dropped while the Select is disabled or
-   * the option is. Without an option to choose, it closes without writing.
+   * A user's choice of `option`, else of the active option: dropped while the Select is disabled,
+   * the `[formField]` on the root's element is readonly or the option is disabled. Without an
+   * option to choose, it closes without writing.
    */
   choose(option: SelectOptionRegistration | null = this.active()): void {
-    if (this.#destroyed || this.disabled()) {
+    if (this.#destroyed || this.disabled() || (this.formState()?.readonly() ?? false)) {
       return;
     }
 

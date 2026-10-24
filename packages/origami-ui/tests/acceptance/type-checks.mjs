@@ -780,9 +780,15 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   observeString(value: string): void { void value; }`,
   },
   select: {
-    imports: `import { OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from "@loozo/origami-ui/select";`,
-    directives: "OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption",
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from "@loozo/origami-ui/select";
+import { OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription",
     members: `
+  readonly model = signal<{ priority: number | null; agree: boolean | null; size: string | null; shape: { id: number } | null; tags: string[] }>({ priority: null, agree: null, size: null, shape: null, tags: [] });
+  readonly form = form(this.model, (path) => { required(path.priority); });
+  touched(): void {}
   readonly count = signal<number | null>(null);
   readonly agree = signal<boolean | null>(null);
   readonly size = signal<string | null>("m");
@@ -1348,6 +1354,71 @@ const templates = [
     name: "select-positive",
     family: "select",
     template: `<div ogSelect #select="ogSelect" [(value)]="count" (valueChange)="countOutput($event)" [(open)]="open"><button ogSelectTrigger id="count" disabled focusableWhenDisabled (click)="countOutput(select.state.value()); observeRecord(select.state.selectedOption()); observeBoolean(select.state.open())">Count</button><div ogSelectContent side="block-start" align="end" [gap]="4"><div ogSelectOption #one="ogSelectOption" [value]="1" label="One" disabled (click)="observeOption(one.state)">One</div><div ogSelectOption value="1">String one</div></div></div><div ogSelect [(value)]="agree" (valueChange)="agreeOutput($event)"><div ogSelectOption [value]="true">Yes</div></div><div ogSelect [value]="size()" (valueChange)="size.set($event)"><div ogSelectOption value="m">M</div></div>`,
+  },
+  {
+    name: "select-form-positive",
+    family: "select",
+    template: `<div ogField><span ogFieldLabel>Priority</span><div ogSelect #priority="ogSelect" [formField]="form.priority" (touch)="touched()" (click)="priority.focus({ preventScroll: true }); countOutput(priority.state.value()); countOutput(priority.value())"><button ogSelectTrigger>Priority</button><div ogSelectContent><div ogSelectOption [value]="1">Low</div></div></div><p ogFieldDescription>How urgent</p></div><div ogSelect #agree="ogSelect" [formField]="form.agree" (click)="agree.focus(); agreeOutput(agree.state.value())"><div ogSelectOption [value]="true">Yes</div></div><div ogSelect #size="ogSelect" [formField]="form.size" (click)="stringOutput(size.state.value())"><div ogSelectOption value="m">M</div></div>`,
+  },
+  {
+    name: "select-form-number",
+    family: "select",
+    template: `<div ogSelect #priority="ogSelect" [formField]="form.priority" (click)="stringOutput(priority.state.value())"></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "select-form-boolean",
+    family: "select",
+    template: `<div ogSelect #agree="ogSelect" [formField]="form.agree" (click)="countOutput(agree.state.value())"></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /boolean \| null.*not assignable to parameter of type 'number \| null'/s,
+    },
+  },
+  {
+    name: "select-form-string",
+    family: "select",
+    template: `<div ogSelect #size="ogSelect" [formField]="form.size" (click)="agreeOutput(size.state.value())"></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /string \| null.*not assignable to parameter of type 'boolean \| null'/s,
+    },
+  },
+  {
+    name: "select-form-object",
+    family: "select",
+    template: `<div ogSelect [formField]="form.shape"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /not assignable to type 'string \| number \| boolean \| null'/s,
+    },
+  },
+  {
+    name: "select-form-array",
+    family: "select",
+    template: `<div ogSelect [formField]="form.tags"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /string\[\]/,
+    },
+  },
+  {
+    name: "select-form-state-input",
+    family: "select",
+    template: `<div ogSelect [required]="true"></div>`,
+    expected: {
+      code: -998002,
+      span: '[required]="true"',
+      message: /Can't bind to 'required' since it isn't a known property of 'div'/,
+    },
   },
   {
     name: "select-output",

@@ -9,13 +9,14 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
+import { ɵOrigamiFieldMembership } from "@loozo/origami-ui/field";
 import {
   OrigamiPopoverAnchor,
   OrigamiPopoverAnchorOptions,
   OrigamiPopoverTrigger,
   OrigamiPopoverTriggerOptions,
 } from "@loozo/origami-ui/popover";
-import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { OrigamiSelectState } from "./select";
 import { SelectContext } from "./select-context";
 
@@ -83,14 +84,24 @@ function printable(key: string): boolean {
  *
  * The Trigger is disabled while the Select or its own Options are: its composed `ogButton` sets
  * `aria-disabled="true"`, `data-disabled` and native `disabled` unless `focusableWhenDisabled`,
- * and opening is ignored. Requires a nearest Select root; a second mounted Trigger fails. The
- * consumer supplies the accessible name (`aria-label` or `aria-labelledby`) and the text, such
- * as the selected option's label or a placeholder.
+ * and opening is ignored. Requires a nearest Select root; a second mounted Trigger fails.
+ *
+ * It is the control of its nearest `ogField`, governed by the `[formField]` on the Select root,
+ * and registers with the Field and the root once Angular has set its inputs. Inside a Field its
+ * `aria-labelledby` names the Field's Labels, replacing a static value, and is absent while there
+ * is none; a Label has no `for`, so clicking it does nothing. Its `aria-describedby` names the
+ * Field's Descriptions, then its mounted Errors, merged with the IDs of a co-applied
+ * `ogTooltipTrigger` in the order they initialize. `aria-invalid="true"` follows the Field's
+ * shown errors, and `aria-required="true"` and `aria-readonly="true"` the bound field. Outside a
+ * Field, and as a second control the Field ignores, it keeps those attributes' static values.
+ * Focus leaving it is the root's `touch`. The consumer supplies the accessible name outside a
+ * Field (`aria-label` or `aria-labelledby`; only `aria-labelledby` also names the list) and the
+ * text, such as the selected option's label or a placeholder.
  */
 @Directive({
   selector: "button[ogSelectTrigger]",
   exportAs: "ogSelectTrigger",
-  hostDirectives: [OrigamiPopoverTrigger, OrigamiPopoverAnchor],
+  hostDirectives: [OrigamiPopoverTrigger, OrigamiPopoverAnchor, ɵOrigamiDescribedBy],
   providers: [
     OrigamiSelectTriggerOptions.provideExisting(() => OrigamiSelectTrigger),
     OrigamiPopoverTriggerOptions.provideFactory(() => inject(OrigamiSelectTriggerOptions)),
@@ -102,9 +113,14 @@ function printable(key: string): boolean {
     role: "combobox",
     "[attr.aria-activedescendant]": "activeDescendant()",
     "[attr.data-placeholder]": "placeholder()",
+    "[attr.aria-labelledby]": "ariaLabelledBy()",
+    "[attr.aria-invalid]": "ariaInvalid()",
+    "[attr.aria-required]": "ariaRequired()",
+    "[attr.aria-readonly]": "ariaReadonly()",
     "(keydown)": "keydown($event)",
     "(keyup)": "keyup($event)",
     "(click)": "clicked()",
+    "(blur)": "blurred()",
   },
 })
 export class OrigamiSelectTrigger implements OrigamiSelectTriggerOptions {
@@ -120,6 +136,11 @@ export class OrigamiSelectTrigger implements OrigamiSelectTriggerOptions {
   readonly #options = injectDeferred(OrigamiSelectTriggerOptions);
   readonly #context = inject(SelectContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
+  readonly #membership = new ɵOrigamiFieldMembership(() => this.#options().id(), {
+    labelable: false,
+    formState: () => this.#context.formState(),
+  });
   #destroyed = false;
   /** A Space keydown this Trigger handled: its keyup must not click the button. */
   #space = false;
@@ -138,11 +159,33 @@ export class OrigamiSelectTrigger implements OrigamiSelectTriggerOptions {
 
     return null;
   });
+  /** @internal The Field's Label IDs inside a Field; otherwise the static value. */
+  protected readonly ariaLabelledBy = this.#membership.labelledBy;
+  /** @internal The Field's shown errors inside a Field; otherwise the static value. */
+  protected readonly ariaInvalid = this.#membership.invalid;
+  /** @internal The bound field's `required()` inside a Field; otherwise the static value. */
+  protected readonly ariaRequired = this.#membership.required;
+  /** @internal The bound field's `readonly()` inside a Field; otherwise the static value. */
+  protected readonly ariaReadonly = this.#membership.readonly;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
+    this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
+  }
+
+  /** @internal Joins the nearest Field and registers with the Select once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#membership.register(this.#destroyRef);
+    this.#context.registerTrigger(
+      { element: this.#element, labelledBy: this.#membership.labelledBy },
+      this.#destroyRef,
+    );
+  }
+
+  /** @internal Focus left the Trigger: the root's `touch`. */
+  protected blurred(): void {
+    this.#context.left();
   }
 
   /**

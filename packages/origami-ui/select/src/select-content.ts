@@ -2,7 +2,9 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
+  HostAttributeToken,
   afterRenderEffect,
+  computed,
   forwardRef,
   inject,
   input,
@@ -73,7 +75,12 @@ function scrolls(element: HTMLElement): boolean {
  * while it doesn't participate. Options stay mounted while it's closed, so typeahead and the
  * selected option work before it opens. A press inside it keeps focus on the Trigger. When the
  * keys or opening move the active option, the list scrolls its nearest scrolling box inside
- * Content, or Content itself, to show it, never the page; the pointer doesn't scroll it.
+ * Content, or Content itself, to show it, never the page; the pointer doesn't scroll it. Its
+ * `aria-labelledby` is the registered Trigger's while it has one: the Field's Labels inside a
+ * Field, otherwise the Trigger's static `aria-labelledby`. Otherwise it is Content's own static
+ * `aria-labelledby` from the template, and absent without one; a value a directive composing
+ * Content through `hostDirectives` writes isn't read. A Trigger named by `aria-label` alone
+ * doesn't name the list: name Content yourself.
  *
  * Like Popover Content, it exposes `--og-anchor-width` (the Trigger's width) and
  * `--og-available-height` for consumer sizing, retains its children through Presence's exit and
@@ -91,6 +98,7 @@ function scrolls(element: HTMLElement): boolean {
   ],
   host: {
     role: "listbox",
+    "[attr.aria-labelledby]": "labelledBy()",
     "(mousedown)": "pressed($event)",
   },
 })
@@ -110,6 +118,19 @@ export class OrigamiSelectContent implements OrigamiSelectContentOptions {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
   readonly #floating: ɵOrigamiFloating;
+
+  /**
+   * Content's template `aria-labelledby`. The template, not the element: under hydration the
+   * element holds the server's bound value.
+   */
+  readonly #staticLabelledBy = inject(new HostAttributeToken("aria-labelledby"), {
+    optional: true,
+  });
+
+  /** @internal The registered Trigger's `aria-labelledby`, else Content's own static one. */
+  protected readonly labelledBy = computed(
+    () => this.#context.labelledBy() ?? this.#staticLabelledBy,
+  );
 
   constructor() {
     const presentation = inject(ɵOrigamiPresentationScope, { self: true });

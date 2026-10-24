@@ -4,22 +4,22 @@ Field wires a form control to its label, hints and error messages, and shows its
 
 [src/field/signup-email.ts](../snippets/src/field/signup-email.ts "both")
 
-| Part                 | Configuration            | Put it on                                      |
-| -------------------- | ------------------------ | ---------------------------------------------- |
-| `ogField`            | none                     | any element around the parts                   |
-| `ogFieldLabel`       | `id` (default generated) | a `<label>`; any element for a group control   |
-| `ogFieldControl`     | `id` (default generated) | a native `<input>`, `<select>` or `<textarea>` |
-| `ogFieldDescription` | `id` (default generated) | any element with a hint                        |
-| `ogFieldError`       | `id` (default generated) | any element with a message, under `@if`        |
+| Part                 | Configuration            | Put it on                                                |
+| -------------------- | ------------------------ | -------------------------------------------------------- |
+| `ogField`            | none                     | any element around the parts                             |
+| `ogFieldLabel`       | `id` (default generated) | a `<label>`; any element for a group control or a Select |
+| `ogFieldControl`     | `id` (default generated) | a native `<input>`, `<select>` or `<textarea>`           |
+| `ogFieldDescription` | `id` (default generated) | any element with a hint                                  |
+| `ogFieldError`       | `id` (default generated) | any element with a message, under `@if`                  |
 
-Origami's own form controls, [Checkbox](../checkbox/README.md), [Switch](../switch/README.md), [Toggle](../toggle/README.md), [RadioGroup](../radio-group/README.md) and the [ToggleGroup](../toggle-group/README.md) roots, join a Field on their own: don't add `ogFieldControl` to them. Their READMEs list the attributes they bind; a Toggle and a ToggleGroup bind no `aria-invalid`, `aria-required` or `aria-readonly`, which ARIA doesn't support on a button or a `group`. ToggleGroup items, Toolbar Toggles and Toolbar groups aren't form controls and don't join a Field.
+Origami's own form controls, [Checkbox](../checkbox/README.md), [Switch](../switch/README.md), [Toggle](../toggle/README.md), [RadioGroup](../radio-group/README.md), the [ToggleGroup](../toggle-group/README.md) roots and the [Select](../select/README.md) Trigger, join a Field on their own: don't add `ogFieldControl` to them. Their READMEs list the attributes they bind; a Toggle and a ToggleGroup bind no `aria-invalid`, `aria-required` or `aria-readonly`, which ARIA doesn't support on a button or a `group`. ToggleGroup items, Toolbar Toggles and Toolbar groups aren't form controls and don't join a Field.
 
 Parts join the nearest `ogField`, so a Field inside another one is independent. A Field has one control; a second one is reported through Angular's `ErrorHandler` and ignored. Labels, Descriptions and Errors can be anywhere inside the Field, before or after the control, and in their own components.
 
 ## Wiring
 
 - **Label:** `for` names the control's `id`, so clicking the label focuses the input, or checks a checkbox, and the control takes its accessible name from it. Several Labels may name one control.
-- **Group Label:** a label can't name a RadioGroup or ToggleGroup with `for`, so the group's `aria-labelledby` names every Label of its Field instead, in the order they appeared, and the Label has no `for`. Put `ogFieldLabel` on any element, such as a `<span>`, for a group.
+- **Group Label:** a label can't name a RadioGroup or ToggleGroup with `for`, so the group's `aria-labelledby` names every Label of its Field instead, in the order they appeared, and the Label has no `for`. Put `ogFieldLabel` on any element, such as a `<span>`, for a group. A Select's Trigger takes its Labels the same way, and so does its list, so clicking the Label doesn't open the list.
 - **Descriptions and Errors:** the control's `aria-describedby` names every `ogFieldDescription`, then every mounted `ogFieldError`, each in the order they appeared. An Error mounted later comes after the ones already shown.
 - Inside a Field, Origami owns the Label's `for`, a group's `aria-labelledby` and the control's `aria-describedby`: a static value is replaced, and a static `aria-describedby` is kept only while the Field has no Description or Error, and without one the attribute is removed, also after hydration; see [Utilities](../utils/README.md) for the static value's two hydration edges. Add hints with `ogFieldDescription` instead.
 - A [Tooltip](../tooltip/README.md) Trigger on the same control adds its Content's ID to the Field's in one `aria-describedby`, in the order Angular initializes the two directives (your `imports` or `hostDirectives` order).
@@ -29,7 +29,7 @@ Parts join the nearest `ogField`, so a Field inside another one is independent. 
 
 ## Form state
 
-The root exposes `OrigamiFieldState` as `state`, which descendants can also inject. It reads the `[formField]` on the Field's control:
+The root exposes `OrigamiFieldState` as `state`, which descendants can also inject. It reads the `[formField]` on the Field's control, or for a Select Trigger the one on its Select root:
 
 | Signal        | Value                                                                              |
 | ------------- | ---------------------------------------------------------------------------------- |

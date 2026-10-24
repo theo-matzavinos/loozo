@@ -46,12 +46,15 @@ function flag(value: boolean): "true" | null {
  * Descriptions, then its mounted Errors, to the element's shared description while the control
  * is the Field's control, and nothing otherwise. It reads the `[formField]` on the control's own
  * element (`FORM_FIELD`, self, optional) lazily, so its readers run after Angular has set that
- * binding. Outside a Field, and for a second control the Field ignored, each attribute is the
- * control's own static one, so a standalone control keeps what the consumer wrote.
+ * binding; a control whose `[formField]` sits on another element, such as a Select Trigger under
+ * its root, passes a `formState` reader instead. Outside a Field, and for a second control the
+ * Field ignored, each attribute is the control's own static one, so a standalone control keeps
+ * what the consumer wrote.
  */
 export class ɵOrigamiFieldMembership {
   readonly #field = inject(FieldContext, { optional: true });
   readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
+  readonly #formState: () => FieldState<unknown> | null;
   readonly #registration: FieldControlRegistration;
   readonly #member = computed(() => this.#field?.control() === this.#registration);
   readonly #static = staticAttributes();
@@ -103,15 +106,30 @@ export class ɵOrigamiFieldMembership {
    * @param id - The control's effective DOM ID, read only after its `ngOnInit` and only while
    *   `labelable`.
    * @param options - `labelable`: whether a `<label for>` can name the control; false for a group,
-   *   which binds `labelledBy` instead.
+   *   which binds `labelledBy` instead. `formState`: reads the Signal Forms state that governs the
+   *   control, or null without one, only once the control has registered; omitted, it is the
+   *   `[formField]` on the control's own element.
    */
-  constructor(id: () => string, { labelable }: { readonly labelable: boolean }) {
+  constructor(
+    id: () => string,
+    {
+      labelable,
+      formState,
+    }: {
+      readonly labelable: boolean;
+      readonly formState?: () => FieldState<unknown> | null;
+    },
+  ) {
+    this.#formState = formState ?? (() => this.#binding?.state() ?? null);
     this.#registration = { id, labelable, formState: () => this.formState() };
   }
 
-  /** The Signal Forms state bound on the control's element, or null without `[formField]`. */
+  /**
+   * The Signal Forms state that governs the control: the `formState` reader's, else the one
+   * bound on the control's element; null without `[formField]`.
+   */
   formState(): FieldState<unknown> | null {
-    return this.#binding?.state() ?? null;
+    return this.#formState();
   }
 
   /**

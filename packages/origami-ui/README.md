@@ -93,7 +93,7 @@ Explicit and static `id` bindings always take precedence over generated ones.
 
 ## Limitations
 
-- No styled components, themes or design tokens. No menu, listbox or select semantics or focus traps. Tabs, ToggleGroup, Toolbar and RadioGroup are the only primitives with roving tabindex and arrow-key navigation.
+- No styled components, themes or design tokens. No menu semantics, standalone listbox or focus traps. Tabs, ToggleGroup, Toolbar and RadioGroup are the only primitives with roving tabindex; Select's arrow keys move a highlight while focus stays on its Trigger.
 - Angular 22.2.x from 22.2.2 only; tested against 22.2.2.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
 - Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](tests/acceptance/README.md#known-evidence-limits).
