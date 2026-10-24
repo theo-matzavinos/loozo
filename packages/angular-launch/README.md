@@ -302,12 +302,26 @@ Launch itself uses four codes, which you can't declare:
 
 | Code            | Status | When                                                                                |
 | --------------- | ------ | ----------------------------------------------------------------------------------- |
-| `INVALID_INPUT` | 400    | Input failed schema validation                                                      |
+| `INVALID_INPUT` | 400    | The request is malformed, or its input failed schema validation                     |
 | `FORBIDDEN`     | 403    | A guard returned `false`, or a mutation was called during server rendering          |
 | `RPC_NOT_FOUND` | 404    | No such procedure                                                                   |
 | `INTERNAL`      | 500    | Anything else: an unexpected exception, an invalid error payload, a non-JSON result |
 
 `INTERNAL` never exposes details to the client; they go to the server log. Your own `NOT_FOUND` is fine, but `__proto__` can't be an error code.
+
+`INVALID_INPUT` has `InvalidInputData`: `{ issues }`, with one `InputIssue` of `{ path, message }` per issue the input schema found, in the schema's order. `path` holds property names and array indexes into the input, such as `["lines", 1, "amount"]`. It's `[]` for the input as a whole, and for an issue whose schema path can't be sent as JSON, such as one with a symbol key. Only messages and paths reach the client, never the received input or other details of the schema library, so write your schema messages for users. A malformed request, such as a body that isn't JSON or an envelope with extra fields, has no issues. Server rendering and HTTP send the same issues. The other three codes have `null` data.
+
+```ts
+try {
+  await rpc.todos.add({ title });
+} catch (error) {
+  if (rpc.todos.add.isError(error) && error.code === "INVALID_INPUT") {
+    for (const issue of error.data.issues) {
+      showError(issue.path, issue.message); // ["title"], "Title must contain 1–200 characters"
+    }
+  }
+}
+```
 
 ## Calling RPCs
 

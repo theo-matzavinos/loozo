@@ -445,17 +445,29 @@ try {
 
   const beforeRejected = await stats();
 
-  for (const [method, input, user, code, status] of [
-    ["add", { title: " " }, "alice", "INVALID_INPUT", 400],
-    ["add", { title: "x".repeat(201) }, "alice", "INVALID_INPUT", 400],
-    ["complete", { id: 7 }, "alice", "INVALID_INPUT", 400],
-    ["add", { title: "Denied" }, undefined, "FORBIDDEN", 403],
-    ["complete", { id: addedId }, undefined, "FORBIDDEN", 403],
+  const titleIssues = {
+    issues: [{ path: ["title"], message: "Title must contain 1–200 characters" }],
+  };
+
+  for (const [method, input, user, code, status, data] of [
+    ["add", { title: " " }, "alice", "INVALID_INPUT", 400, titleIssues],
+    ["add", { title: "x".repeat(201) }, "alice", "INVALID_INPUT", 400, titleIssues],
+    [
+      "complete",
+      { id: 7 },
+      "alice",
+      "INVALID_INPUT",
+      400,
+      { issues: [{ path: ["id"], message: "Todo id required" }] },
+    ],
+    ["add", { title: "Denied" }, undefined, "FORBIDDEN", 403, null],
+    ["complete", { id: addedId }, undefined, "FORBIDDEN", 403, null],
   ]) {
     const result = await rpcRequest(method, input, user);
 
     assert.equal(result.body.error.code, code);
     assert.equal(result.status, status);
+    assert.deepEqual(result.body.error.data, data);
   }
 
   const afterRejected = await stats();
@@ -466,7 +478,7 @@ try {
   assert.equal((await rpcRequest("complete", { id: addedId }, "alice")).status, 200);
   assert.equal((await stats()).writes, beforeRejected.writes);
   checks.push(
-    "real HTTP invalid input/group denial never reaches mutation store; completion is idempotent",
+    "real HTTP invalid input (with path-indexed issues)/group denial never reaches mutation store; completion is idempotent",
   );
 
   await page.locator("#todo-title").fill("   ");

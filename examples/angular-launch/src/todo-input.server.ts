@@ -19,13 +19,13 @@ export const titleSchema: Schema<TitleInput> = {
         !("title" in value) ||
         typeof value.title !== "string"
       ) {
-        return { issues: [{ message: "Title required" }] };
+        return { issues: [{ message: "Title required", path: ["title"] }] };
       }
 
       const title = value.title.trim();
 
       if (title.length < 1 || title.length > 200) {
-        return { issues: [{ message: "Title must contain 1–200 characters" }] };
+        return { issues: [{ message: "Title must contain 1–200 characters", path: ["title"] }] };
       }
 
       return { value: { title } };
@@ -44,7 +44,7 @@ export const idSchema: Schema<IdInput> = {
         !("id" in value) ||
         typeof value.id !== "string"
       ) {
-        return { issues: [{ message: "Todo id required" }] };
+        return { issues: [{ message: "Todo id required", path: ["id"] }] };
       }
 
       return { value: { id: value.id } };

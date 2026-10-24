@@ -313,13 +313,19 @@ test("client mutation kind/cache, legitimate framework errors and declared trans
     );
 
     for (const [code, frame] of Object.entries(frameworkFailures)) {
-      currentFrame = { error: { code, message: frame.message, data: null } };
+      let data = null;
+
+      if (code === "INVALID_INPUT") {
+        data = { issues: [{ path: ["id"], message: "Todo id required" }] };
+      }
+
+      currentFrame = { error: { code, message: frame.message, data } };
       currentStatus = frame.status;
       await assert.rejects(client.todos.write({ id: "todo-1" }), (error) => {
         assert.ok(client.todos.write.isError(error));
         assert.equal(client.todos.other.isError(error), false);
         assert.equal(error.code, code);
-        assert.equal(error.data, null);
+        assert.deepEqual(error.data, data);
 
         return true;
       });

@@ -7,6 +7,7 @@ import type {
   Schema,
 } from "./server/definitions.js";
 import { serializeJson } from "./json.js";
+import { isInvalidInputData, type InvalidInputData } from "./input-issues.js";
 
 /** Per-call options for a generated query callable. */
 export interface CallOptions {
@@ -62,13 +63,15 @@ export interface ErrorMetadata {
  * The four error codes Launch itself returns, with their HTTP status and public message.
  *
  * @remarks
- * - `INVALID_INPUT` (400): the request or its input failed validation.
+ * - `INVALID_INPUT` (400): the request or its input failed validation. Its data is
+ *   {@link InvalidInputData}: the input schema's issues, or none for a malformed request.
  * - `FORBIDDEN` (403): a guard returned `false`, or a mutation was called during
  *   server rendering.
  * - `RPC_NOT_FOUND` (404): no procedure exists at the requested path.
  * - `INTERNAL` (500): anything else. Details go to the server log, never to the client.
  *
- * These codes are reserved: procedures can't declare errors with them.
+ * The other codes have `null` data. These codes are reserved: procedures can't declare
+ * errors with them.
  */
 export const frameworkFailures = {
   INVALID_INPUT: { status: 400, message: "Invalid RPC input" },
@@ -79,6 +82,10 @@ export const frameworkFailures = {
 
 /** One of the error codes Launch itself returns: a key of {@link frameworkFailures}. */
 export type FrameworkCode = keyof typeof frameworkFailures;
+
+type FrameworkData<Code extends FrameworkCode> = Code extends "INVALID_INPUT"
+  ? InvalidInputData
+  : null;
 
 /**
  * An error response returned by a procedure: either a Launch framework failure or one
@@ -92,10 +99,13 @@ export type FrameworkCode = keyof typeof frameworkFailures;
  * returned by that exact procedure, not `RpcError` instances created elsewhere.
  *
  * @typeParam Code - The error code.
- * @typeParam Data - The error's data: `null` for framework failures, the data schema's
- * output for declared errors.
+ * @typeParam Data - The error's data: {@link InvalidInputData} for `INVALID_INPUT`,
+ * `null` for the other framework failures, the data schema's output for declared errors.
  */
-export class RpcError<Code extends string = FrameworkCode, Data = null> extends Error {
+export class RpcError<
+  Code extends string = FrameworkCode,
+  Data = Code extends FrameworkCode ? FrameworkData<Code> : null,
+> extends Error {
   /**
    * Creates an error with the given code, status and data.
    *
@@ -111,7 +121,10 @@ export class RpcError<Code extends string = FrameworkCode, Data = null> extends 
     readonly code: Code,
     /** The HTTP status of the response. */
     readonly status: number,
-    /** The error's data: `null` for framework failures, validated data for declared errors. */
+    /**
+     * The error's data: {@link InvalidInputData} for `INVALID_INPUT`, `null` for the other
+     * framework failures, validated data for declared errors.
+     */
     readonly data: Data = null as Data,
     message?: string,
   ) {
@@ -134,14 +147,26 @@ export class RpcError<Code extends string = FrameworkCode, Data = null> extends 
  * @remarks
  * Internal; not exported from a public entry point. Used by the generated client to
  * convert responses into {@link RpcError}s. The body must be strict JSON shaped
- * exactly as `{ error: { code, message, data: null } }`, with the framework code's own
- * status and message.
+ * exactly as `{ error: { code, message, data } }`, with the framework code's own
+ * status and message. `data` must be exactly {@link InvalidInputData} for
+ * `INVALID_INPUT` and `null` for the other codes.
  *
  * @param value - The parsed response body.
  * @param status - The response's HTTP status.
- * @returns The framework code, or `undefined` when the body doesn't match exactly.
+ * @returns The framework code and data, or `undefined` when the body doesn't match
+ * exactly.
  */
-export function recognizedFailure(value: unknown, status: number): FrameworkCode | undefined {
+export function recognizedFailure(
+  value: unknown,
+  status: number,
+):
+  | {
+      /** The framework code. */
+      code: FrameworkCode;
+      /** The failure's data. */
+      data: InvalidInputData | null;
+    }
+  | undefined {
   try {
     serializeJson(value);
   } catch {
@@ -174,13 +199,16 @@ export function recognizedFailure(value: unknown, status: number): FrameworkCode
   for (const code of Object.keys(frameworkFailures) as FrameworkCode[]) {
     const expected = frameworkFailures[code];
 
-    if (
-      error.code === code &&
-      status === expected.status &&
-      error.message === expected.message &&
-      error.data === null
-    ) {
-      return code;
+    if (error.code !== code || status !== expected.status || error.message !== expected.message) {
+      continue;
+    }
+
+    if (code === "INVALID_INPUT") {
+      if (isInvalidInputData(error.data)) {
+        return { code, data: error.data };
+      }
+    } else if (error.data === null) {
+      return { code, data: null };
     }
   }
 
@@ -213,14 +241,18 @@ export function recognizedError(
       code: string;
       /** The error's message. */
       message: string;
-      /** The declared error's data as received, or `null` for a framework failure. */
+      /** The error's data as received. */
       data: unknown;
     }
   | undefined {
   const framework = recognizedFailure(value, status);
 
   if (framework) {
-    return { code: framework, message: frameworkFailures[framework].message, data: null };
+    return {
+      code: framework.code,
+      message: frameworkFailures[framework.code].message,
+      data: framework.data,
+    };
   }
 
   try {
@@ -268,7 +300,7 @@ export function recognizedError(
 }
 
 type FrameworkError = {
-  [Code in FrameworkCode]: RpcError<Code, null>;
+  [Code in FrameworkCode]: RpcError<Code, FrameworkData<Code>>;
 }[FrameworkCode];
 type DeclaredError<Errors extends ErrorDefinitions> = {
   [Code in keyof Errors & string]: RpcError<Code, OutputOf<Errors[Code]["data"]>>;
@@ -277,8 +309,9 @@ type DeclaredError<Errors extends ErrorDefinitions> = {
  * The errors a generated callable for a procedure can reject with as {@link RpcError}s.
  *
  * @remarks
- * A union discriminated by `code`: one member per framework failure with `null` data,
- * and one per declared error with its data schema's output type. Import the group
+ * A union discriminated by `code`: one member per framework failure, with
+ * {@link InvalidInputData} for `INVALID_INPUT` and `null` data for the others, and one
+ * per declared error with its data schema's output type. Import the group
  * with `import type` so server code stays out of the browser bundle.
  *
  * @example

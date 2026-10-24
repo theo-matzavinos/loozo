@@ -7,3 +7,4 @@ export type {
   ClientRpcError,
   FrameworkCode,
 } from "./client.js";
+export type { InputIssue, InvalidInputData } from "./input-issues.js";

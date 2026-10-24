@@ -89,10 +89,23 @@ export interface Schema<Input = unknown, Output = Input> {
           readonly issues?: undefined;
         }
       | {
-          /** The problems found, which mark a failure. Not sent to clients. */
+          /**
+           * The problems found, which mark a failure. For a procedure input, each issue's
+           * message and path are sent to the client as `INVALID_INPUT` data.
+           */
           readonly issues: readonly {
             /** A description of the problem. */
             readonly message: string;
+            /** Where the problem is: property keys, or `{ key }` segments. */
+            readonly path?:
+              | readonly (
+                  | PropertyKey
+                  | {
+                      /** The segment's property key. */
+                      readonly key: PropertyKey;
+                    }
+                )[]
+              | undefined;
           }[];
         }
       | Promise<
@@ -103,10 +116,23 @@ export interface Schema<Input = unknown, Output = Input> {
               readonly issues?: undefined;
             }
           | {
-              /** The problems found, which mark a failure. Not sent to clients. */
+              /**
+               * The problems found, which mark a failure. For a procedure input, each issue's
+               * message and path are sent to the client as `INVALID_INPUT` data.
+               */
               readonly issues: readonly {
                 /** A description of the problem. */
                 readonly message: string;
+                /** Where the problem is: property keys, or `{ key }` segments. */
+                readonly path?:
+                  | readonly (
+                      | PropertyKey
+                      | {
+                          /** The segment's property key. */
+                          readonly key: PropertyKey;
+                        }
+                    )[]
+                  | undefined;
               }[];
             }
         >;
