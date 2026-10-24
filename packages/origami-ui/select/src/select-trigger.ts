@@ -2,6 +2,7 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
+  HostAttributeToken,
   booleanAttribute,
   computed,
   forwardRef,
@@ -17,7 +18,6 @@ import {
   OrigamiPopoverTriggerOptions,
 } from "@loozo/origami-ui/popover";
 import { injectDeferred, injectUniqueId, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
-import { OrigamiSelectState } from "./select";
 import { SelectContext } from "./select-context";
 
 /** Substitutable Trigger identity and disabled policy; it supplies the composed Popover Trigger's and Anchor's Options. */
@@ -65,11 +65,12 @@ function printable(key: string): boolean {
 }
 
 /**
- * The Select's Trigger: a native `type="button"` with `role="combobox"`, which keeps focus while
- * the list is open. It composes the Popover Trigger and Anchor, so the list is positioned against
- * it, `aria-expanded` reports whether the list participates and `aria-controls` names mounted
- * Content. `aria-activedescendant` names the active option while the list participates, and
- * `data-placeholder` is present while nothing is selected.
+ * The Trigger of an `ogSelect` or `ogSelectMultiple`: a native `type="button"` with
+ * `role="combobox"`, which keeps focus while the list is open. It composes the Popover Trigger and
+ * Anchor, so the list is positioned against it, `aria-expanded` reports whether the list
+ * participates and `aria-controls` names mounted Content. `aria-activedescendant` names the active
+ * option while the list participates, and `data-placeholder` is present while nothing is selected:
+ * a null value, or an empty one under `ogSelectMultiple`.
  *
  * Keys, with Alt, Ctrl and Meta ignored, as are keys already `defaultPrevented` and keys during
  * IME composition. Closed: Enter, Space, ArrowDown and ArrowUp open with the selected option
@@ -78,9 +79,10 @@ function printable(key: string): boolean {
  * next or previous enabled option without wrapping; Home and End to the first and last; PageDown
  * and PageUp ten enabled options; characters typed within 500 ms search option labels (an
  * option's `label`, else its text), and repeating one character cycles; Space joins a running
- * search, otherwise Space and Enter choose the active option and close; Tab closes without
- * choosing and moves focus on; Escape closes without choosing. A click toggles the list and
- * focuses the Trigger, which macOS Safari doesn't do on its own.
+ * search, otherwise Space and Enter choose the active option: `ogSelect` writes it and closes,
+ * `ogSelectMultiple` toggles it and stays open; Tab closes without choosing and moves focus on;
+ * Escape closes without choosing. A click toggles the list and focuses the Trigger, which macOS
+ * Safari doesn't do on its own.
  *
  * The Trigger is disabled while the Select or its own Options are: its composed `ogButton` sets
  * `aria-disabled="true"`, `data-disabled` and native `disabled` unless `focusableWhenDisabled`,
@@ -95,8 +97,13 @@ function printable(key: string): boolean {
  * shown errors, and `aria-required="true"` and `aria-readonly="true"` the bound field. Outside a
  * Field, and as a second control the Field ignores, it keeps those attributes' static values.
  * Focus leaving it is the root's `touch`. The consumer supplies the accessible name outside a
- * Field (`aria-label` or `aria-labelledby`; only `aria-labelledby` also names the list) and the
- * text, such as the selected option's label or a placeholder.
+ * Field, `aria-label` or `aria-labelledby`, and the text, such as the selected option's label or a
+ * placeholder. Its `aria-labelledby` also names the list; without one, a static `aria-label`
+ * written in its template does, unless Content has its own static name. A bound `aria-label`
+ * isn't read: name Content yourself then.
+ *
+ * It has no `state`: read the root's, through `#select="ogSelect"` or `#pick="ogSelectMultiple"`,
+ * or inject `OrigamiSelectState` or `OrigamiSelectMultipleState`.
  */
 @Directive({
   selector: "button[ogSelectTrigger]",
@@ -130,8 +137,6 @@ export class OrigamiSelectTrigger implements OrigamiSelectTriggerOptions {
   readonly disabled = input(false, { transform: booleanAttribute });
   /** Own input keeping the disabled Trigger focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
   readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
-  /** The Select root's readonly State. */
-  readonly state = inject(OrigamiSelectState);
 
   readonly #options = injectDeferred(OrigamiSelectTriggerOptions);
   readonly #context = inject(SelectContext);
@@ -141,6 +146,11 @@ export class OrigamiSelectTrigger implements OrigamiSelectTriggerOptions {
     labelable: false,
     formState: () => this.#context.formState(),
   });
+  /**
+   * The template's static `aria-label`, which also names a list without its own name. The template,
+   * not the element, like Content's static names.
+   */
+  readonly #staticLabel = inject(new HostAttributeToken("aria-label"), { optional: true });
   #destroyed = false;
   /** A Space keydown this Trigger handled: its keyup must not click the button. */
   #space = false;
@@ -178,7 +188,7 @@ export class OrigamiSelectTrigger implements OrigamiSelectTriggerOptions {
   ngOnInit(): void {
     this.#membership.register(this.#destroyRef);
     this.#context.registerTrigger(
-      { element: this.#element, labelledBy: this.#membership.labelledBy },
+      { element: this.#element, labelledBy: this.#membership.labelledBy, label: this.#staticLabel },
       this.#destroyRef,
     );
   }

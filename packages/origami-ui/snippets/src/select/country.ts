@@ -17,7 +17,7 @@ type Country = { readonly id: number; readonly name: string; readonly flag: stri
       <button ogSelectTrigger class="trigger" aria-label="Country">
         {{ select.state.selectedOption()?.label ?? "Choose a country" }}
       </button>
-      <div ogSelectContent class="list" aria-label="Countries" [gap]="4">
+      <div ogSelectContent class="list" [gap]="4">
         @for (option of countries; track option.id) {
           <div ogSelectOption [value]="option.id" [label]="option.name">
             {{ option.flag }} {{ option.name }}

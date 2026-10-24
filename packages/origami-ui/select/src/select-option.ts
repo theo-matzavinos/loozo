@@ -22,12 +22,16 @@ import type { SelectOptionRegistration } from "./select-context";
 export abstract class OrigamiSelectOptionOptions<
   T extends string | number | boolean = string | number | boolean,
 > {
-  /** The value choosing this option writes to its Select. Required: there is no generated default. */
+  /**
+   * The value choosing this option writes to its Select, or toggles in an `ogSelectMultiple`
+   * value. Required: there is no generated default.
+   */
   abstract readonly value: Signal<T>;
   /** Keeps the option from being chosen or made active by keys, typeahead or the pointer; default false. */
   abstract readonly disabled: Signal<boolean>;
   /**
-   * Typeahead text and the `label` of the Select's `selectedOption()`; default null, where
+   * Typeahead text and the `label` of its record in the Select's `selectedOption()` or
+   * `selectedOptions()`; default null, where
    * typeahead reads the option's text when a key is pressed.
    */
   abstract readonly label: Signal<string | null>;
@@ -82,12 +86,14 @@ export class OrigamiSelectOptionState {
  * `aria-disabled="true"` while disabled, and empty `data-selected`, `data-active` and
  * `data-disabled` markers. Focus never moves to it: the Trigger names the active option with
  * `aria-activedescendant`. Moving the pointer over an enabled option makes it active; clicking
- * it chooses it, writes its value and closes the list. A disabled option ignores both and is
+ * it chooses it: under `ogSelect` it writes its value and closes the list, under
+ * `ogSelectMultiple` it toggles its value and keeps the list open. A disabled option ignores both and is
  * skipped by keys and typeahead.
  *
  * `value` is required: a generated value could never match a form value or survive a reload.
  * Values compare with `===`, so `value="1"` doesn't match a number `1`; bind `[value]="1"`.
- * `label` is the option's typeahead text and the label of `selectedOption()`; without it,
+ * `label` is the option's typeahead text and the label of its `selectedOption()` or
+ * `selectedOptions()` record; without it,
  * typeahead reads the option's text. Options register once Angular has set their inputs and may
  * come and go, also in `@for`, `@if` and `@defer`; an option that isn't mounted can't be
  * reached. Requires a nearest Select root.

@@ -324,7 +324,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "OrigamiSwitchState",
   ]);
   assert.equal(names["@loozo/origami-ui/dialog"].length, 20);
-  assert.equal(names["@loozo/origami-ui/select"].length, 11);
+  assert.equal(names["@loozo/origami-ui/select"].length, 14);
   assert.deepEqual(origami.generatedApi, []);
 });
 

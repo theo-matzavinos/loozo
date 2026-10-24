@@ -1275,3 +1275,454 @@ for (const name of ["select-factory", "select-existing"]) {
     await expect(co("unused-outputs")).toHaveText("0");
   });
 }
+
+function toppingParts(page: Page) {
+  return {
+    trigger: page.getByTestId("toppings-trigger"),
+    content: page.getByTestId("toppings-content"),
+    option: (value: string) => page.getByTestId(`toppings-${value}`),
+    value: page.getByTestId("toppings-value"),
+    selected: page.getByTestId("toppings-selected"),
+    outputs: page.getByTestId("toppings-outputs"),
+    open: page.getByTestId("toppings-open"),
+  };
+}
+
+test("Z13: ogSelectMultiple's list is aria-multiselectable; closed keys open on the first selected option in DOM order; Enter and Space toggle the active option and keep the list open; arrows, Home/End and typeahead only move; Escape and Tab close without writing; Enter with no active option closes without writing", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const { trigger, content, option, value, selected, outputs, open } = toppingParts(page);
+
+  // Value order is onion, anchovy (no option), basil; DOM order puts Basil before Onion.
+  await expect(content).toHaveAttribute("aria-multiselectable", "true");
+  await expect(page.getByTestId("fruit-content")).not.toHaveAttribute("aria-multiselectable", /.*/);
+  await expect(trigger).toHaveAttribute("role", "combobox");
+  await expect(trigger).not.toHaveAttribute("data-placeholder", /.*/);
+  await expect(trigger).toHaveText("3 selected");
+  await expect(selected).toHaveText("Onion,Basil");
+
+  for (const [name, state] of [
+    ["olives", "false"],
+    ["basil", "true"],
+    ["capers", "false"],
+    ["garlic", "false"],
+    ["mushroom", "false"],
+    ["onion", "true"],
+  ]) {
+    await expect(option(name)).toHaveAttribute("aria-selected", state);
+  }
+
+  await expect(option("basil")).toHaveAttribute("data-selected", "");
+  await expect(option("olives")).not.toHaveAttribute("data-selected", /.*/);
+
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option("basil"), content);
+  await expect(content).toHaveAccessibleName("Toppings");
+  await expect(open).toHaveText("true true");
+
+  // Enter toggles the active option off, Space back on at the end; the list stays open.
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("onion,anchovy");
+  await expect(option("basil")).toHaveAttribute("aria-selected", "false");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option("basil"), content);
+  await page.keyboard.press(" ");
+  await expect(value).toHaveText("onion,anchovy,basil");
+  await expect(option("basil")).toHaveAttribute("aria-selected", "true");
+  await expect(selected).toHaveText("Onion,Basil");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(outputs).toHaveText("2");
+  await expect(open).toHaveText("true true");
+
+  // Moves never toggle: arrows skip the disabled Capers, Home and End, typeahead.
+  await page.keyboard.press("ArrowDown");
+  await expectActive(trigger, option("garlic"), content);
+  await page.keyboard.press("Home");
+  await expectActive(trigger, option("olives"), content);
+  await page.keyboard.press("End");
+  await expectActive(trigger, option("onion"), content);
+  await page.keyboard.press("ArrowDown");
+  await expectActive(trigger, option("onion"), content);
+  await page.keyboard.press("ArrowUp");
+  await expectActive(trigger, option("mushroom"), content);
+  await page.keyboard.press("PageUp");
+  await expectActive(trigger, option("olives"), content);
+  await page.keyboard.press("g");
+  await expectActive(trigger, option("garlic"), content);
+  // Space joins a running search instead of toggling.
+  await page.keyboard.press(" ");
+  await expectActive(trigger, option("garlic"), content);
+  await expect(value).toHaveText("onion,anchovy,basil");
+  await expect(outputs).toHaveText("2");
+  await page.waitForTimeout(600);
+  await page.keyboard.press(" ");
+  await expect(value).toHaveText("onion,anchovy,basil,garlic");
+  await expect(trigger).toHaveText("4 selected");
+  await expect(trigger).toBeFocused();
+
+  // Escape closes without writing.
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("onion,anchovy,basil,garlic");
+  await expect(open).toHaveText("false false");
+  await expect(trigger).toBeFocused();
+
+  // Closed Enter opens without toggling, on the first selected option in DOM order.
+  await page.keyboard.press("Enter");
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option("basil"), content);
+  await expect(value).toHaveText("onion,anchovy,basil,garlic");
+
+  // Tab closes without writing and moves focus on.
+  await page.keyboard.press("Tab");
+  await expectClosed(trigger, content);
+  await expect(page.getByTestId("toppings-after")).toBeFocused();
+  await expect(value).toHaveText("onion,anchovy,basil,garlic");
+  await expect(outputs).toHaveText("3");
+
+  // Opened by a write, nothing is active: Enter closes without writing, as under ogSelect.
+  await script(page.getByTestId("open-toppings"));
+  await expectOpen(trigger, content);
+  await trigger.focus();
+  await expect(content.locator("[data-active]")).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("onion,anchovy,basil,garlic");
+  await expect(outputs).toHaveText("3");
+});
+
+test("Z14: ogSelectMultiple's empty value shows the placeholder and a click opens on the first enabled option; option clicks toggle and keep the list open with focus on the Trigger; disabled options ignore them; a Trigger click and an outside click close without writing", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const { trigger, content, option, value, selected, outputs, open } = toppingParts(page);
+
+  await page.getByTestId("clear-toppings").click();
+  await expect(value).toHaveText("");
+  await expect(selected).toHaveText("");
+  await expect(trigger).toHaveAttribute("data-placeholder", "");
+  await expect(trigger).toHaveText("Choose toppings");
+  await expect(content.locator('[aria-selected="true"]')).toHaveCount(0);
+
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option("olives"), content);
+  await expect(trigger).toBeFocused();
+
+  await option("mushroom").click();
+  await expect(value).toHaveText("mushroom");
+  await expect(trigger).not.toHaveAttribute("data-placeholder", /.*/);
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(trigger).toBeFocused();
+  await option("olives").click();
+  await expect(value).toHaveText("mushroom,olives");
+  await option("capers").click({ force: true });
+  await frames(page);
+  await expect(value).toHaveText("mushroom,olives");
+  await expect(option("capers")).toHaveAttribute("aria-selected", "false");
+  await option("mushroom").click();
+  await expect(value).toHaveText("olives");
+  await expect(selected).toHaveText("Olives");
+  await expectOpen(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(outputs).toHaveText("3");
+  await expect(open).toHaveText("true true");
+
+  // A Trigger click closes without writing.
+  await trigger.click();
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("olives");
+  await expect(open).toHaveText("false false");
+
+  // Reopened on the selected option; an outside click closes without writing.
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option("olives"), content);
+  await page.getByRole("heading", { name: "Toppings" }).click();
+  await expectClosed(trigger, content);
+  await expect(value).toHaveText("olives");
+  await expect(outputs).toHaveText("3");
+
+  // Disabled: the Trigger can't open it.
+  await page.getByTestId("disable-toppings").click();
+  await expect(trigger).toBeDisabled();
+  await page.getByTestId("disable-toppings").click();
+  await expect(trigger).toBeEnabled();
+});
+
+test("Z15: ogSelectMultiple keeps the value's order and unknown values and never prunes; external writes emit nothing; selectedOptions() lists registered matches in value order, the first registered option of a duplicate value, and follows options that arrive and go; a NaN option is never selected", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const value = page.getByTestId("numbers-value");
+  const records = page.getByTestId("numbers-records");
+  const trigger = page.getByTestId("numbers-trigger");
+  const content = page.getByTestId("numbers-content");
+  const option = (name: string) => page.getByTestId(`numbers-${name}`);
+
+  // 3 isn't mounted and 9 has no option; 2 has two options, and Two registered first.
+  await expect(value).toHaveText("number:3,number:9,number:2");
+  await expect(records).toHaveText("number:2:Two");
+  await expect(option("2")).toHaveAttribute("aria-selected", "true");
+  await expect(option("2-again")).toHaveAttribute("aria-selected", "true");
+  await expect(option("1")).toHaveAttribute("aria-selected", "false");
+  await expect(option("string-1")).toHaveAttribute("aria-selected", "false");
+
+  // An option arriving later joins in value order; nothing is written.
+  await page.getByTestId("toggle-three").click();
+  await expect(option("3")).toHaveAttribute("aria-selected", "true");
+  await expect(records).toHaveText("number:3:Three,number:2:Two");
+  await expect(value).toHaveText("number:3,number:9,number:2");
+
+  // Toggling appends and removes, keeping the other values in order.
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option("2"), content);
+  await option("1").click();
+  await expect(value).toHaveText("number:3,number:9,number:2,number:1");
+  await expect(option("string-1")).toHaveAttribute("aria-selected", "false");
+  await option("2-again").click();
+  await expect(value).toHaveText("number:3,number:9,number:1");
+  await expect(option("2")).toHaveAttribute("aria-selected", "false");
+  await expect(records).toHaveText("number:3:Three,number:1:One");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+
+  // Removing a selected option prunes nothing.
+  await page.getByTestId("toggle-three").click();
+  await expect(option("3")).toHaveCount(0);
+  await expect(value).toHaveText("number:3,number:9,number:1");
+  await expect(records).toHaveText("number:1:One");
+
+  // Values compare with ===, so a NaN option is never selected, not even by a NaN value.
+  await page.getByTestId("write-nan").click();
+  await expect(value).toHaveText("number:NaN");
+  await expect(option("nan")).toHaveAttribute("aria-selected", "false");
+  await expect(records).toHaveText("");
+  await trigger.click();
+  await expectActive(trigger, option("1"), content);
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+
+  // External writes select without an output, and removing their option keeps them.
+  const toppings = toppingParts(page);
+
+  await page.getByTestId("write-toppings").click();
+  await expect(toppings.value).toHaveText("garlic,olives");
+  await expect(toppings.selected).toHaveText("Garlic,Olives");
+  await expect(toppings.option("garlic")).toHaveAttribute("aria-selected", "true");
+  await expect(toppings.option("onion")).toHaveAttribute("aria-selected", "false");
+  await page.getByTestId("toggle-garlic").click();
+  await expect(toppings.option("garlic")).toHaveCount(0);
+  await expect(toppings.value).toHaveText("garlic,olives");
+  await expect(toppings.selected).toHaveText("Olives");
+  await page.getByTestId("toggle-garlic").click();
+  await expect(toppings.selected).toHaveText("Garlic,Olives");
+  await expect(toppings.outputs).toHaveText("0");
+});
+
+test("Z16: ogSelectMultiple with [formField] on a number[] field writes and follows the model; Field Labels name the Trigger and the listbox; only focus leaving the Trigger touches; focusBoundControl() focuses the Trigger; readonly() opens on the first selected option but never toggles; required, errors and disabled() reach the Trigger", async ({
+  page,
+}, info) => {
+  const field = page.getByTestId("labels-field");
+  const trigger = page.getByTestId("labels-trigger");
+  const content = page.getByTestId("labels-content");
+  const option = (n: number) => page.getByTestId(`labels-${n}`);
+  const value = page.getByTestId("labels-value");
+  const touched = page.getByTestId("labels-touched");
+
+  await fixture(page, "select", info, async () => {
+    await expect(trigger).toHaveAttribute("aria-labelledby", "labels-label");
+    await expect(content).toHaveAttribute("aria-labelledby", "labels-label");
+    await expect(content).not.toHaveAttribute("aria-label", /.*/);
+    await expect(content).toHaveAttribute("aria-multiselectable", "true");
+    await expect(trigger).toHaveAttribute("aria-describedby", "labels-description");
+    await expect(trigger).toHaveAttribute("aria-required", "true");
+    await expect(trigger).toHaveAttribute("data-placeholder", "");
+  });
+
+  await expect(value).toHaveText("");
+  await expect(trigger).toHaveText("Any label");
+  await expect(page.getByRole("combobox", { name: "Labels" })).toHaveAttribute(
+    "data-testid",
+    "labels-trigger",
+  );
+  await expect(trigger).toHaveAccessibleDescription("Pick one or more.");
+
+  // Opening, toggling and Escape keep focus on the Trigger, so none of them touches.
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expect(content).toHaveAccessibleName("Labels");
+  await option(20).click();
+  await expect(value).toHaveText("number:20");
+  await page.keyboard.press("ArrowDown");
+  await expectActive(trigger, option(30), content);
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("number:20,number:30");
+  await expect(trigger).toHaveText("Feature,Docs");
+  await expectOpen(trigger, content);
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await frames(page);
+  await expect(touched).toHaveText("false");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("labels-after")).toBeFocused();
+  await expect(touched).toHaveText("true");
+
+  // An empty array fails minLength once touched; the Error describes the Trigger.
+  await page.getByTestId("clear-labels").click();
+  await expect(trigger).toHaveAttribute("data-placeholder", "");
+  await expect(field).toHaveAttribute("data-invalid", "");
+  await expect(trigger).toHaveAttribute("aria-invalid", "true");
+  await expect(trigger).toHaveAttribute("aria-describedby", "labels-description labels-error");
+  await expect(trigger).toHaveAccessibleDescription("Pick one or more. Choose a label.");
+  await page.getByTestId("write-labels").click();
+  await expect(value).toHaveText("number:30,number:10");
+  await expect(trigger).toHaveText("Docs,Bug");
+  await expect(trigger).not.toHaveAttribute("aria-invalid", /.*/);
+
+  // focusBoundControl() focuses the Trigger without opening the list.
+  await page.getByTestId("focus-labels").click();
+  await expect(trigger).toBeFocused();
+  await frames(page);
+  await expectClosed(trigger, content);
+
+  // readonly(): opens on the first selected option in DOM order, moves, never toggles.
+  await page.getByTestId("freeze-labels").click();
+  await expect(trigger).toHaveAttribute("aria-readonly", "true");
+  await trigger.click();
+  await expectOpen(trigger, content);
+  await expectActive(trigger, option(10), content);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowDown");
+  await expectActive(trigger, option(20), content);
+  await page.keyboard.press(" ");
+  await option(30).click();
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(value).toHaveText("number:30,number:10");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await page.getByTestId("freeze-labels").click();
+  await expect(trigger).not.toHaveAttribute("aria-readonly", /.*/);
+
+  // disabled(): the Trigger is natively disabled.
+  await page.getByTestId("lock-labels").click();
+  await expect(trigger).toBeDisabled();
+  await expect(field).toHaveAttribute("data-disabled", "");
+  await page.getByTestId("lock-labels").click();
+  await expect(trigger).toBeEnabled();
+});
+
+for (const name of ["multiple-factory", "multiple-existing"]) {
+  test(`Z17 O1 O3: ${name.replace("multiple-", "")} replacement Options of a host-composed ogSelectMultiple drive value, open and disabled over its contradicting own inputs, and the unused models emit nothing`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "select", info);
+
+    const co = (role: string) => page.locator(`[data-case="${name}"] [data-co="${role}"]`);
+    const trigger = co("trigger");
+    const content = co("content");
+
+    await expect(co("value")).toHaveText("2,7");
+    await expect(co("selected")).toHaveText("Two");
+    await expect(co("open")).toHaveText("false false");
+    await expect(co("disabled")).toHaveText("true");
+    await expect(trigger).toBeDisabled();
+    await expect(co("option-2")).toHaveAttribute("aria-selected", "true");
+    await expect(co("option-1")).toHaveAttribute("aria-selected", "false");
+    await expect(content).toHaveAttribute("aria-multiselectable", "true");
+    expect(await shown(content)()).toBe(false);
+
+    await co("enable").click();
+    await expect(trigger).toBeEnabled();
+    await trigger.click();
+    await expectOpen(trigger, content);
+    await expect(co("open")).toHaveText("true true");
+    await expectActive(trigger, co("option-2"), content);
+    await co("option-1").click();
+    await expect(co("value")).toHaveText("2,7,1");
+    await co("option-2").click();
+    await expect(co("value")).toHaveText("7,1");
+    await expect(co("selected")).toHaveText("One");
+    await expectOpen(trigger, content);
+    await page.keyboard.press("Escape");
+    await expectClosed(trigger, content);
+    await expect(co("open")).toHaveText("false false");
+    await expect(co("unused-outputs")).toHaveText("0");
+  });
+}
+
+test("Z18: the list takes the Trigger's static aria-label while nothing names it by aria-labelledby; Content's own static aria-label wins; a bound Trigger aria-label isn't copied; a Label or a Trigger that comes and goes updates it", async ({
+  page,
+}, info) => {
+  const copied = page.getByTestId("copied-content");
+  const own = page.getByTestId("own-content");
+  const referenced = page.getByTestId("referenced-content");
+  const bound = page.getByTestId("bound-content");
+  const late = page.getByTestId("naming-late-content");
+
+  await fixture(page, "select", info, async () => {
+    await expect(copied).toHaveAttribute("aria-label", "Copied name");
+    await expect(own).toHaveAttribute("aria-label", "Own name");
+    await expect(referenced).not.toHaveAttribute("aria-label", /.*/);
+    await expect(bound).not.toHaveAttribute("aria-label", /.*/);
+    await expect(late).toHaveAttribute("aria-label", "Late name");
+  });
+
+  // Copied from the Trigger; the listbox is named by it.
+  await expect(copied).toHaveAttribute("aria-label", "Copied name");
+  await expect(copied).not.toHaveAttribute("aria-labelledby", /.*/);
+  await page.getByTestId("copied-trigger").click();
+  await expectOpen(page.getByTestId("copied-trigger"), copied);
+  await expect(copied).toHaveAccessibleName("Copied name");
+  await page.getByTestId("copied-one").click();
+  await expectClosed(page.getByTestId("copied-trigger"), copied);
+  await expect(copied).toHaveAttribute("aria-label", "Copied name");
+
+  // Content's own static aria-label wins over the Trigger's.
+  await expect(own).toHaveAttribute("aria-label", "Own name");
+  await page.getByTestId("own-trigger").click();
+  await expect(own).toHaveAccessibleName("Own name");
+  await page.keyboard.press("Escape");
+
+  // Content's own static aria-labelledby: no aria-label is copied.
+  await expect(referenced).toHaveAttribute("aria-labelledby", "naming-heading");
+  await expect(referenced).not.toHaveAttribute("aria-label", /.*/);
+  await page.getByTestId("referenced-trigger").click();
+  await expect(referenced).toHaveAccessibleName("List names");
+  await page.keyboard.press("Escape");
+
+  // A bound Trigger aria-label names the Trigger only.
+  await expect(page.getByTestId("bound-trigger")).toHaveAccessibleName("Bound name");
+  await expect(bound).not.toHaveAttribute("aria-label", /.*/);
+  await expect(bound).not.toHaveAttribute("aria-labelledby", /.*/);
+
+  // A Field Label arriving replaces the copy by aria-labelledby, and leaving restores it.
+  await page.getByTestId("toggle-naming-late-label").click();
+  await expect(page.getByTestId("naming-late-trigger")).toHaveAttribute(
+    "aria-labelledby",
+    "naming-late-label",
+  );
+  await expect(late).toHaveAttribute("aria-labelledby", "naming-late-label");
+  await expect(late).not.toHaveAttribute("aria-label", /.*/);
+  await page.getByTestId("toggle-naming-late-label").click();
+  await expect(late).not.toHaveAttribute("aria-labelledby", /.*/);
+  await expect(late).toHaveAttribute("aria-label", "Late name");
+
+  // The copy goes with the Trigger and returns with a new one.
+  await page.getByTestId("toggle-naming-late-trigger").click();
+  await expect(page.getByTestId("naming-late-trigger")).toHaveCount(0);
+  await expect(late).not.toHaveAttribute("aria-label", /.*/);
+  await page.getByTestId("toggle-naming-late-trigger").click();
+  await expect(late).toHaveAttribute("aria-label", "Late name");
+});

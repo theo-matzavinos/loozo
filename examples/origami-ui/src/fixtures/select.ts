@@ -22,9 +22,15 @@ import {
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
 import { SelectFieldCases } from "./select-field";
+import { SelectMultipleCases } from "./select-multiple";
+import {
+  SelectMultiplePrecedenceExisting,
+  SelectMultiplePrecedenceFactory,
+} from "./select-multiple-precedence";
+import { SelectNamingCases } from "./select-naming";
 import { SelectPrecedenceExisting, SelectPrecedenceFactory } from "./select-precedence";
 
-// Select cases Z1–Z12. Controls the tests use as script actions are buttons.
+// Select cases Z1–Z18. Controls the tests use as script actions are buttons.
 
 function increment(value: number): number {
   return value + 1;
@@ -73,6 +79,10 @@ const longOptions: readonly number[] = Array.from({ length: 111 }, (_, index) =>
     SelectPrecedenceFactory,
     SelectPrecedenceExisting,
     SelectFieldCases,
+    SelectMultipleCases,
+    SelectMultiplePrecedenceFactory,
+    SelectMultiplePrecedenceExisting,
+    SelectNamingCases,
   ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">
@@ -310,6 +320,13 @@ const longOptions: readonly number[] = Array.from({ length: 111 }, (_, index) =>
     </section>
 
     <select-field-cases />
+    <select-naming-cases />
+    <select-multiple-cases />
+    <section>
+      <h2>Replaced Options over a host-composed multiple root</h2>
+      <select-multiple-precedence-factory />
+      <select-multiple-precedence-existing />
+    </section>
 
     <div class="spacer"></div>
   `,

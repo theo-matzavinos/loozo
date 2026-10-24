@@ -75,12 +75,17 @@ function scrolls(element: HTMLElement): boolean {
  * while it doesn't participate. Options stay mounted while it's closed, so typeahead and the
  * selected option work before it opens. A press inside it keeps focus on the Trigger. When the
  * keys or opening move the active option, the list scrolls its nearest scrolling box inside
- * Content, or Content itself, to show it, never the page; the pointer doesn't scroll it. Its
- * `aria-labelledby` is the registered Trigger's while it has one: the Field's Labels inside a
+ * Content, or Content itself, to show it, never the page; the pointer doesn't scroll it. Under
+ * `ogSelectMultiple` it has `aria-multiselectable="true"`.
+ *
+ * Its `aria-labelledby` is the registered Trigger's while it has one: the Field's Labels inside a
  * Field, otherwise the Trigger's static `aria-labelledby`. Otherwise it is Content's own static
- * `aria-labelledby` from the template, and absent without one; a value a directive composing
- * Content through `hostDirectives` writes isn't read. A Trigger named by `aria-label` alone
- * doesn't name the list: name Content yourself.
+ * `aria-labelledby` from the template, and absent without one. Its `aria-label` is its own static
+ * `aria-label` from the template; without one, and while it has no `aria-labelledby`, the
+ * registered Trigger's static `aria-label`; otherwise absent. Only template attributes are read:
+ * a bound `aria-label` on the Trigger isn't copied, so name Content yourself then, and a value a
+ * directive composing Content through `hostDirectives` writes in its `host` isn't read and is
+ * removed.
  *
  * Like Popover Content, it exposes `--og-anchor-width` (the Trigger's width) and
  * `--og-available-height` for consumer sizing, retains its children through Presence's exit and
@@ -99,6 +104,8 @@ function scrolls(element: HTMLElement): boolean {
   host: {
     role: "listbox",
     "[attr.aria-labelledby]": "labelledBy()",
+    "[attr.aria-label]": "label()",
+    "[attr.aria-multiselectable]": "multiselectable()",
     "(mousedown)": "pressed($event)",
   },
 })
@@ -127,10 +134,36 @@ export class OrigamiSelectContent implements OrigamiSelectContentOptions {
     optional: true,
   });
 
+  /** Content's template `aria-label`, read like its `aria-labelledby`. */
+  readonly #staticLabel = inject(new HostAttributeToken("aria-label"), { optional: true });
+
   /** @internal The registered Trigger's `aria-labelledby`, else Content's own static one. */
   protected readonly labelledBy = computed(
     () => this.#context.labelledBy() ?? this.#staticLabelledBy,
   );
+  /**
+   * @internal Content's own static `aria-label`, else the registered Trigger's static one while
+   * nothing names Content by `aria-labelledby`.
+   */
+  protected readonly label = computed(() => {
+    if (this.#staticLabel !== null) {
+      return this.#staticLabel;
+    }
+
+    if (this.labelledBy() !== null) {
+      return null;
+    }
+
+    return this.#context.triggerLabel();
+  });
+  /** @internal `"true"` under a multiple root, otherwise absent. */
+  protected readonly multiselectable = computed(() => {
+    if (this.#context.multiple()) {
+      return "true";
+    }
+
+    return null;
+  });
 
   constructor() {
     const presentation = inject(ɵOrigamiPresentationScope, { self: true });
