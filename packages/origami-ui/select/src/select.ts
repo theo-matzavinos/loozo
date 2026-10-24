@@ -168,6 +168,7 @@ export class OrigamiSelectState<T extends string | number | boolean = string | n
       const options = inject(OrigamiSelectOptions);
 
       return {
+        multiple: false,
         open: options.open,
         disabled: options.disabled,
         empty: computed(() => options.value() === null),

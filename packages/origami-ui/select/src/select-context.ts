@@ -30,6 +30,8 @@ export interface SelectTriggerRegistration {
   readonly element: HTMLElement;
   /** Its `aria-labelledby`: the Field's Label IDs while it is the Field's control, else its static value. */
   readonly labelledBy: Signal<string | null>;
+  /** Its template's static `aria-label`, or null; a bound one isn't read. */
+  readonly label: string | null;
 }
 
 /** Where opening puts the active option: the selected one (else the first enabled), or an end. */
@@ -40,10 +42,12 @@ export type SelectReveal = { readonly option: SelectOptionRegistration };
 
 /**
  * Configuration of the Select Context, supplied by the root that provides it. The root's mode owns
- * what "selected" means and what choosing an option writes, so a later multiple-selection root can
+ * what "selected" means and what choosing an option writes, so the single and multiple roots
  * share the Context and its parts.
  */
 export abstract class SelectRootOptions {
+  /** Whether the root selects several values: Content is `aria-multiselectable` and choosing keeps it open. */
+  abstract readonly multiple: boolean;
   /** Requested open state, which the composed Popover root also reads and writes. */
   abstract readonly open: WritableSignal<boolean>;
   /** Blocks opening and choosing. */
@@ -147,6 +151,10 @@ export class SelectContext {
   readonly reveal = this.#reveal.asReadonly();
   /** The registered Trigger's `aria-labelledby`, null until it registers and while it has none. */
   readonly labelledBy = computed(() => this.#trigger()?.labelledBy() ?? null);
+  /** The registered Trigger's static `aria-label`, null until it registers and while it has none. */
+  readonly triggerLabel = computed(() => this.#trigger()?.label ?? null);
+  /** Whether the root selects several values. */
+  readonly multiple = computed(() => this.#root().multiple);
   /** Emits synchronously when focus leaves the Trigger; the root reports it as `touch`. */
   readonly touches = this.#touches.asObservable();
 
@@ -348,7 +356,7 @@ export class SelectContext {
   /**
    * A user's choice of `option`, else of the active option: dropped while the Select is disabled,
    * the `[formField]` on the root's element is readonly or the option is disabled. Without an
-   * option to choose, it closes without writing.
+   * option to choose, it closes without writing, under either root.
    */
   choose(option: SelectOptionRegistration | null = this.active()): void {
     if (this.#destroyed || this.disabled() || (this.formState()?.readonly() ?? false)) {

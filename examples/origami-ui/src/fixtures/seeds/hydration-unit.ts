@@ -444,16 +444,19 @@ export class AccordionObservation {
       </div>
     </div>
 
-    <!-- Z8: a closed Select whose Trigger text is the selected option's label. -->
+    <!-- Z8: a closed Select whose Trigger text is the selected option's label. Z19: the list takes
+    the Trigger's static aria-label, and drops it when the Trigger goes. -->
     <div
       ogSelect
       #flavorSelect="ogSelect"
       [(value)]="flavor"
       (openChange)="flavorOpenOutputs.update(increment)"
     >
-      <button ogSelectTrigger aria-label="Server flavor" data-testid="hydration-select-trigger">
-        {{ flavorSelect.state.selectedOption()?.label ?? "Choose a flavor" }}
-      </button>
+      @if (flavorTriggerShown()) {
+        <button ogSelectTrigger aria-label="Server flavor" data-testid="hydration-select-trigger">
+          {{ flavorSelect.state.selectedOption()?.label ?? "Choose a flavor" }}
+        </button>
+      }
       <div ogSelectContent data-testid="hydration-select-content">
         <div ogSelectOption value="vanilla" label="Vanilla" data-testid="hydration-flavor-vanilla">
           Vanilla
@@ -462,6 +465,13 @@ export class AccordionObservation {
       </div>
     </div>
     <output data-testid="flavor-open-count">{{ flavorOpenOutputs() }}</output>
+    <button
+      type="button"
+      data-testid="hydration-select-toggle-trigger"
+      (click)="flavorTriggerShown.set(!flavorTriggerShown())"
+    >
+      Toggle the flavor Trigger
+    </button>
 
     <!-- K10: a Toolbar Popover Trigger disabled by its own input. -->
     <button type="button" data-testid="hydration-format-before">Before the format toolbar</button>
@@ -807,6 +817,7 @@ export class HydrationUnit {
     return null;
   });
   readonly flavorOpenOutputs = signal(0);
+  readonly flavorTriggerShown = signal(true);
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
   readonly contactModel = signal<{

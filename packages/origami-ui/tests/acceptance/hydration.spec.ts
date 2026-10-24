@@ -1629,6 +1629,9 @@ async function expectServerSelects(page: Page, labels: string[]): Promise<void> 
     await expect(content).toHaveAttribute("role", "listbox");
     await expect(content).toHaveAttribute("popover", "manual");
     await expect(content).toHaveAttribute("inert", "");
+    // Z19: the list takes the Trigger's static aria-label.
+    await expect(content).toHaveAttribute("aria-label", "Server flavor");
+    await expect(content).not.toHaveAttribute("aria-labelledby", /.*/);
     await expect(mint).toHaveAttribute("aria-selected", String(selected));
 
     if (selected) {
@@ -1710,6 +1713,64 @@ test("Z8 H1 H2 H3: a Select's server HTML is closed with the consumer's label an
   } finally {
     releaseMain();
     releaseLazy();
+  }
+});
+
+test("Z19 H1 H2: the list's name copied from the Trigger's static aria-label is in server HTML and survives hydration; once hydrated, the Trigger leaving drops it and a new Trigger brings it back", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    await expectServerSelects(page, ["A", "B", "C"]);
+    releaseMain();
+    await shell(page, info.project.metadata.runtime);
+
+    const b = page.locator('[data-unit="B"]');
+    const trigger = b.getByTestId("hydration-select-trigger");
+    const content = b.getByTestId("hydration-select-content");
+    const toggle = b.getByTestId("hydration-select-toggle-trigger");
+
+    if (incremental) {
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+    }
+
+    // The click hydrates a dehydrated B first, then removes its Trigger.
+    await toggle.click();
+    await expect(b).toHaveAttribute("data-client-render-seen", "true");
+    await expect(trigger).toHaveCount(0);
+    await expect(content).not.toHaveAttribute("aria-label", /.*/);
+
+    if (incremental) {
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerSelects(page, ["A", "C"]);
+    }
+
+    await toggle.click();
+    await expect(trigger).toHaveCount(1);
+    await expect(content).toHaveAttribute("aria-label", "Server flavor");
+    await trigger.click();
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await expect(content).toHaveAccessibleName("Server flavor");
+    await assertReferences(page, info, { removed: ["B:hydration-select-trigger:0"] });
+  } finally {
+    releaseMain();
   }
 });
 

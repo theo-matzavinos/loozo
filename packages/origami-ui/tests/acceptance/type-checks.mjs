@@ -121,7 +121,7 @@ import * as fieldEntry from '@loozo/origami-ui/field';
 import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origami-ui/checkbox';
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
-import { OrigamiSelectOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
+import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -365,6 +365,25 @@ const selectRecord: OrigamiSelectOptionRecord<number> | null = selectState.selec
 // @ts-expect-error a number Select's record value isn't a string
 const selectRecordValue: string | undefined = selectRecord?.value;
 void selectRecordValue;
+// @ts-expect-error multiple Select value must be writable
+OrigamiSelectMultipleOptions.provideFactory(() => ({value: computed<readonly number[]>(() => []), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error multiple Select value is an array, not a nullable value
+OrigamiSelectMultipleOptions.provideFactory(() => ({value: signal<number | null>(null), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error multiple Select values are strings, numbers or booleans
+OrigamiSelectMultipleOptions.provideFactory(() => ({value: signal<readonly {id: number}[]>([]), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error a multiple Select factory must supply open
+OrigamiSelectMultipleOptions.provideFactory(() => ({value: signal<readonly number[]>([]), disabled: signal(false)}));
+declare const selectMultipleState: OrigamiSelectMultipleState<number>;
+// @ts-expect-error multiple Select State value is readonly
+selectMultipleState.value.set([1]);
+// @ts-expect-error a number multiple Select's values aren't strings
+const selectStrings: readonly string[] = selectMultipleState.value();
+void selectStrings;
+const selectRecords: readonly OrigamiSelectOptionRecord<number>[] = selectMultipleState.selectedOptions();
+// @ts-expect-error a number multiple Select's record values aren't strings
+const selectRecordStrings: readonly OrigamiSelectOptionRecord<string>[] = selectMultipleState.selectedOptions();
+void selectRecords;
+void selectRecordStrings;
 declare const selectOptionState: OrigamiSelectOptionState;
 // @ts-expect-error Select Option State is readonly
 selectOptionState.selected.set(true);
@@ -531,6 +550,11 @@ abstract class AbstractSelect {
   abstract readonly open: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractSelectMultiple {
+  abstract readonly value: WritableSignal<readonly string[]>;
+  abstract readonly open: WritableSignal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+}
 abstract class AbstractSelectOption {
   abstract readonly value: Signal<boolean>;
   abstract readonly disabled: Signal<boolean>;
@@ -605,6 +629,8 @@ export const providers: Provider[] = [
   OrigamiSelectOptions.provideFactory(() => ({value: signal<number | null>(null), open: signal(false), disabled: computed(() => false)})),
   OrigamiSelectOptions.provideFactory(() => ({value: signal<string | null>('s'), open: signal(false), disabled: signal(false)})),
   OrigamiSelectOptions.provideExisting(() => AbstractSelect),
+  OrigamiSelectMultipleOptions.provideFactory(() => ({value: signal<readonly number[]>([1, 2]), open: signal(false), disabled: computed(() => false)})),
+  OrigamiSelectMultipleOptions.provideExisting(() => AbstractSelectMultiple),
   OrigamiSelectTriggerOptions.provideFactory(() => ({id: signal('country'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
   OrigamiSelectTriggerOptions.provideExisting(() => AbstractPopoverTrigger),
   OrigamiSelectContentOptions.provideFactory(() => ({id: signal('countries'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start'), gap: signal(4)})),
@@ -781,12 +807,17 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   },
   select: {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
-import { OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from "@loozo/origami-ui/select";
+import { OrigamiSelect, OrigamiSelectMultiple, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from "@loozo/origami-ui/select";
 import { OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription } from "@loozo/origami-ui/field";`,
     directives:
-      "FormField, OrigamiSelect, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription",
+      "FormField, OrigamiSelect, OrigamiSelectMultiple, OrigamiSelectTrigger, OrigamiSelectContent, OrigamiSelectOption, OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription",
     members: `
-  readonly model = signal<{ priority: number | null; agree: boolean | null; size: string | null; shape: { id: number } | null; tags: string[] }>({ priority: null, agree: null, size: null, shape: null, tags: [] });
+  readonly model = signal<{ priority: number | null; agree: boolean | null; size: string | null; shape: { id: number } | null; tags: string[]; ids: number[]; flags: boolean[] }>({ priority: null, agree: null, size: null, shape: null, tags: [], ids: [], flags: [] });
+  readonly counts = signal<readonly number[]>([]);
+  countsOutput(value: readonly number[]): void { void value; }
+  tagsOutput(value: readonly string[]): void { void value; }
+  flagsOutput(value: readonly boolean[]): void { void value; }
+  observeRecords(value: readonly OrigamiSelectOptionRecord<number>[]): void { void value; }
   readonly form = form(this.model, (path) => { required(path.priority); });
   touched(): void {}
   readonly count = signal<number | null>(null);
@@ -1458,6 +1489,46 @@ const templates = [
       code: -998008,
       span: "div",
       message: /Required input 'value' from directive OrigamiSelectOption must be specified/,
+    },
+  },
+  {
+    name: "select-trigger-state",
+    family: "select",
+    template: `<div ogSelect #select="ogSelect" [(value)]="count"><button ogSelectTrigger #trigger="ogSelectTrigger" (click)="countOutput(trigger.state.value())"></button></div>`,
+    expected: {
+      code: 2339,
+      span: "state",
+      message: /Property 'state' does not exist on type 'OrigamiSelectTrigger'/,
+    },
+  },
+  {
+    name: "select-multiple-positive",
+    family: "select",
+    template: `<div ogSelectMultiple #pick="ogSelectMultiple" [(value)]="counts" (valueChange)="countsOutput($event)" [(open)]="open"><button ogSelectTrigger (click)="countsOutput(pick.state.value()); observeRecords(pick.state.selectedOptions()); observeBoolean(pick.state.open()); observeBoolean(pick.state.disabled())">{{ pick.state.value().length }} selected</button><div ogSelectContent><div ogSelectOption #one="ogSelectOption" [value]="1" label="One" (click)="observeOption(one.state)">One</div></div></div>`,
+  },
+  {
+    name: "select-multiple-form-positive",
+    family: "select",
+    template: `<div ogField><span ogFieldLabel>Labels</span><div ogSelectMultiple #ids="ogSelectMultiple" [formField]="form.ids" (touch)="touched()" (click)="ids.focus({ preventScroll: true }); countsOutput(ids.state.value()); countsOutput(ids.value()); observeRecords(ids.state.selectedOptions())"><button ogSelectTrigger>Labels</button><div ogSelectContent><div ogSelectOption [value]="1">One</div></div></div></div><div ogSelectMultiple #tags="ogSelectMultiple" [formField]="form.tags" (click)="tags.focus(); tagsOutput(tags.state.value())"><div ogSelectOption value="a">A</div></div><div ogSelectMultiple #flags="ogSelectMultiple" [formField]="form.flags" (click)="flagsOutput(flags.state.value())"><div ogSelectOption [value]="true">Yes</div></div>`,
+  },
+  {
+    name: "select-multiple-form-number",
+    family: "select",
+    template: `<div ogSelectMultiple #ids="ogSelectMultiple" [formField]="form.ids" (click)="tagsOutput(ids.state.value())"></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /readonly number\[\].*not assignable to parameter of type 'readonly string\[\]'/s,
+    },
+  },
+  {
+    name: "select-multiple-form-scalar",
+    family: "select",
+    template: `<div ogSelectMultiple [formField]="form.priority"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /number \| null/,
     },
   },
   {
