@@ -106,7 +106,7 @@ export default defineRpc(
 ```
 
 - `defineRpc` is the group discovery marker; `query` / `mutation` express read/write semantics without a `kind` field in authored config.
-- Namespaces prevent procedure-name collisions. Duplicate namespaces in one available ancestry scope are errors; unrelated branches may reuse names.
+- Namespaces prevent procedure-name collisions. Each namespace is unique across the app, because it names the group on the wire (§Wire identity); a duplicate anywhere is a generation error.
 - The existing route tree determines available groups: local plus ancestor groups, including pathless nodes. No sibling/descendant traversal API is required.
 - Availability is not authorization. An HTTP caller who knows another group's identity still encounters that group's declared guards.
 - Guards are explicit on a group and/or procedure; they do not inherit through route ancestry. A call runs the owning group's guards and its own guards, independent of the calling page.
@@ -164,16 +164,16 @@ Server implementation modules/context are not runtime imports of browser facades
 
 ### Wire identity
 
-The ergonomic namespace is not globally unique. Generate deterministic opaque IDs from declaration/source identity, not effective URLs or scan order. Pathless declarations can share URLs. Registry lookup supplies the real operation kind; the caller cannot relabel a mutation as a query.
+The namespace is the group's wire identity. It is unique across the app, so the path doesn't depend on effective URLs, source location or scan order: pathless declarations can share URLs, and moving an `rpc.ts` doesn't change its procedures' paths. Registry lookup supplies the real operation kind; the caller cannot relabel a mutation as a query.
 
 ```http
-POST /_rpc/<group-id>/<procedure>
+POST /_rpc/<namespace>/<procedure>
 Content-Type: application/json
 
 {"input":{"id":"123"}}
 ```
 
-The envelope keeps primitive schema inputs JSON-encoded consistently by HttpClient. Exact ID encoding/version stability and request/error payload limits remain implementation details to qualify, not a promised cross-version protocol.
+The envelope keeps primitive schema inputs JSON-encoded consistently by HttpClient. Version stability and request/error payload limits remain implementation details to qualify, not a promised cross-version protocol.
 
 ## SSR, hydration and prerendering
 
