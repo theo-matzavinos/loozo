@@ -1,6 +1,6 @@
 {
   "name": "@loozo/angular-router",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Typed route declarations, URLs, navigation and route handles for Angular's native router.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
