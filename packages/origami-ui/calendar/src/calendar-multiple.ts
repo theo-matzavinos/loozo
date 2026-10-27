@@ -9,12 +9,13 @@ import {
   inject,
   input,
   model,
+  numberAttribute,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { outputFromObservable } from "@angular/core/rxjs-interop";
 import type { FormValueControl } from "@angular/forms/signals";
 import { injectDeferred } from "@loozo/origami-ui/utils";
-import type { OrigamiCalendarDayRecord } from "./calendar";
+import type { OrigamiCalendarDayRecord, OrigamiCalendarPeriodRecord } from "./calendar";
 import { canonicalDay, monthOf } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
 import { CalendarSeed } from "./calendar-seed";
@@ -42,6 +43,11 @@ export abstract class OrigamiCalendarMultipleOptions {
    */
   abstract readonly month: WritableSignal<string | null>;
   /**
+   * Writable view, `"days"` (the direct directive model's default), `"months"` or `"years"`, as
+   * `OrigamiCalendarOptions.view`.
+   */
+  abstract readonly view: WritableSignal<"days" | "months" | "years">;
+  /**
    * Earliest day that can be chosen or reached by keys, `YYYY-MM-DD`, or null for none (the
    * default), as `OrigamiCalendarOptions.minDate`.
    */
@@ -67,6 +73,11 @@ export abstract class OrigamiCalendarMultipleOptions {
   abstract readonly today: Signal<string>;
   /** Always six weeks, so the grid's height never changes between months; default false. */
   abstract readonly fixedWeeks: Signal<boolean>;
+  /**
+   * Columns of the months and years views, a whole number from 1 to 12; default 3, as
+   * `OrigamiCalendarOptions.columns`.
+   */
+  abstract readonly columns: Signal<number>;
   /**
    * Blocks choosing, focus and the pointer; default false. `[formField]` writes it from the
    * field's `disabled()` rules. External writes remain authoritative.
@@ -116,7 +127,12 @@ export class OrigamiCalendarMultipleState {
    * the value's first canonical day, else today's; held to 0001-02 through 9999-11.
    */
   readonly month: Signal<string> = this.#context.position;
-  /** The displayed month and year in the locale, such as "October 2026"; render it in the Heading. */
+  /** The effective view: `"days"`, `"months"` or `"years"`. */
+  readonly view: Signal<"days" | "months" | "years"> = this.#context.view;
+  /**
+   * The displayed period in the locale, by view: "October 2026", "2026" or "2016 – 2027"; render
+   * it in the Heading.
+   */
   readonly heading: Signal<string> = this.#context.heading;
   /**
    * The seven weekday labels from the week start, for the header: `short` ("Tue") to show and
@@ -130,6 +146,11 @@ export class OrigamiCalendarMultipleState {
    * cell mounted, on the server too.
    */
   readonly weeks: Signal<readonly (readonly OrigamiCalendarDayRecord[])[]> = this.#context.weeks;
+  /** The twelve months of the displayed year, in rows of `columns`, for the months view. */
+  readonly months: Signal<readonly (readonly OrigamiCalendarPeriodRecord[])[]> =
+    this.#context.months;
+  /** The displayed page of twelve years, in rows of `columns`, for the years view. */
+  readonly years: Signal<readonly (readonly OrigamiCalendarPeriodRecord[])[]> = this.#context.years;
   /** Effective root disabled policy. External Options/model writes remain authoritative while disabled. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
 }
@@ -180,10 +201,12 @@ function toggled(days: readonly string[], date: string): readonly string[] {
  * Calendar root for several days: the `ogCalendar` grid, keys, bounds, locale and seed, with a
  * value of several `YYYY-MM-DD` days. Clicking a day, Enter or Space toggles it, writing the
  * canonical days in chronological order, days no cell shows included, then the entries that
- * aren't canonical days. The Grid is `aria-multiselectable="true"`, and every day has `aria-selected`, `"true"`
- * or `"false"`. The grid's tab stop is the focused day, else the value's first day in the displayed
- * month, else today, else the month's first enabled day. Render the same parts as under
- * `ogCalendar`; the root's `state` is an `OrigamiCalendarMultipleState`.
+ * aren't canonical days. In the days view the Grid is `aria-multiselectable="true"`, and every
+ * day has `aria-selected`, `"true"` or `"false"`. The grid's tab stop is the focused day, else the
+ * value's first day in the displayed month, else today, else the month's first enabled day.
+ * Render the same parts as under `ogCalendar`, with the same months and years views, where the
+ * first value's month and year carry `data-selected`; the root's `state` is an
+ * `OrigamiCalendarMultipleState`.
  *
  * Server rendering and hydration work as under `ogCalendar`: the root writes its seed to its
  * host (`data-today`, `data-week-start`), and a hydrating root keeps the server's.
@@ -223,9 +246,15 @@ function toggled(days: readonly string[], date: string): readonly string[] {
 
       return {
         month: options.month,
+        valueLevel: "days",
+        view: options.view,
+        setView: (view) => {
+          options.view.set(view);
+        },
+        columns: options.columns,
         minDate: options.minDate,
         maxDate: options.maxDate,
-        dateDisabled: options.dateDisabled,
+        valueDisabled: options.dateDisabled,
         weekStart: options.weekStart,
         locale: options.locale,
         today: options.today,
@@ -272,6 +301,7 @@ function toggled(days: readonly string[], date: string): readonly string[] {
     "[attr.data-today]": "seedToday",
     "[attr.data-week-start]": "seedWeekStart()",
     "(focusout)": "focusLeft($event)",
+    "(keydown)": "keydown($event)",
   },
 })
 export class OrigamiCalendarMultiple
@@ -289,6 +319,11 @@ export class OrigamiCalendarMultiple
    * display. Replaced Options supply it instead.
    */
   readonly month = model<string | null>(null);
+  /**
+   * Own view model, default `"days"`; `viewChange` emits drill-downs and Escape. Replaced
+   * Options supply the effective view instead.
+   */
+  readonly view = model<"days" | "months" | "years">("days");
   /** Own earliest-day input, default null; replaced Options supply the effective bound instead. */
   readonly minDate = input<string | null>(null);
   /** Own latest-day input, default null; replaced Options supply the effective bound instead. */
@@ -306,6 +341,8 @@ export class OrigamiCalendarMultiple
   readonly today = input(inject(CalendarSeed).today);
   /** Own six-weeks input, default false with boolean-attribute coercion. */
   readonly fixedWeeks = input(false, { transform: booleanAttribute });
+  /** Own months and years columns input, default 3 with number-attribute coercion. */
+  readonly columns = input(3, { transform: numberAttribute });
   /**
    * Own disabled input, default false with boolean-attribute coercion; `[formField]` writes it
    * from the field's `disabled()` rules. Replaced Options supply effective policy instead.
@@ -347,5 +384,10 @@ export class OrigamiCalendarMultiple
   /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */
   protected focusLeft(event: FocusEvent): void {
     this.#context.focusOut(event, this.#element);
+  }
+
+  /** @internal Escape anywhere in the root, Previous and Next included, returns to the days view. */
+  protected keydown(event: KeyboardEvent): void {
+    this.#context.escape(event);
   }
 }

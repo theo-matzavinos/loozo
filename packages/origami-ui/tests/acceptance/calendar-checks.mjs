@@ -183,6 +183,15 @@ const grid = await source("calendar-grid-model");
     /2026/,
     "The Gregorian calendar, not the locale's Buddhist one",
   );
+  // The months and years views' labels: short months, years and a page of years as a range.
+  assert.equal(labels.monthShort("2026-10"), "Oct");
+  assert.equal(labels.month("2026-10"), "October 2026");
+  assert.equal(labels.year("2026"), "2026");
+  assert.equal(labels.year("0012"), "12", "Years below 100 kept");
+  assert.equal(labels.years("2016", "2027"), "2016\u2009\u2013\u20092027");
+  assert.equal(new locale.CalendarLabels("de-DE").years("2016", "2027"), "2016\u20132027");
+  assert.equal(new locale.CalendarLabels("th-TH").year("2026"), "2026", "Gregorian years");
+  assert.equal(new locale.CalendarLabels("de-DE").monthShort("2026-03"), "M\u00e4r");
   assert.equal(locale.localeWeekStart("en-US"), 7);
   assert.equal(locale.localeWeekStart("en-GB"), 1);
   assert.equal(locale.localeWeekStart("ar-EG"), 6);
@@ -407,11 +416,13 @@ const never = () => false;
 
   assert.equal(grid.cellDisabled("days", "2026-10-31", bounds, weekends), true, "dateDisabled");
   assert.equal(grid.cellDisabled("days", "2026-10-30", bounds, weekends), false);
+  assert.equal(grid.cellDisabled("months", "2026-10", bounds, null), false, "No predicate");
   assert.equal(
-    grid.cellDisabled("months", "2026-10", bounds, () => true),
-    false,
-    "Days alone",
+    grid.cellDisabled("months", "2026-10", bounds, (month) => month === "2026-10"),
+    true,
+    "A month value's monthDisabled",
   );
+  assert.equal(grid.cellDisabled("months", "2026-09", bounds, null), true, "Wholly before min");
   assert.equal(grid.levelOf("2026-10-27"), "days");
   assert.equal(grid.levelOf("2026-10"), "months");
   assert.equal(grid.levelOf("2026"), "years");

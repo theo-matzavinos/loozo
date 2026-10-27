@@ -26,10 +26,12 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // The commit tier runs each axis only where it reaches the library. A project's `grep` also sees
 // the file name. Reduced motion changes only Presence and its composers; production and incremental
 // hydration change only creation through hydration and Angular's production errors; the Calendar's
-// seed cases (CA10–CA12), its split Heading boundary (CA21) and its hydrated several days and range
-// (CA23) check what hydration keeps, so they run there too.
+// seed cases (CA10–CA12), its split Heading boundary (CA21), its hydrated several days and range
+// (CA23) and its hydrated years view and month Calendar (CA44) check what hydration keeps, so they
+// run there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
-const hydrationAndErrorCases = /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13])\b/;
+const hydrationAndErrorCases =
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b/;
 
 let browsers = browserNames;
 

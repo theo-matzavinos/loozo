@@ -12,8 +12,11 @@ import {
 import { CalendarFieldCases } from "./calendar-field.js";
 import { CalendarSelectionCases } from "./calendar-selection.js";
 import { CalendarSelectionFieldCases } from "./calendar-selection-field.js";
+import { CalendarMonthFieldCases } from "./calendar-month-field.js";
+import { CalendarViewsCases } from "./calendar-views.js";
 
-// Calendar cases CA1–CA19, CA21 and CA22; the selection cases add CA23–CA33. Controls the tests
+// Calendar cases CA1–CA19, CA21 and CA22; the selection cases add CA23–CA33, the views cases
+// CA34–CA41 and CA43–CA47. Controls the tests
 // use as script actions are buttons; every cell carries its day as `data-date`, so a test can find
 // it.
 
@@ -186,6 +189,7 @@ export class CalendarSettings {
       return {
         value: settings.value,
         month: settings.month,
+        view: signal<"days" | "months" | "years">("days"),
         minDate: signal(null),
         maxDate: signal(null),
         dateDisabled: signal(noneDisabled),
@@ -193,6 +197,7 @@ export class CalendarSettings {
         locale: signal("en-GB"),
         today: signal("2026-02-14"),
         fixedWeeks: signal(true),
+        columns: signal(3),
         disabled: signal(false),
         readonly: signal(false),
       };
@@ -219,6 +224,8 @@ export class FebruaryCalendar {
     CalendarSplitCases,
     CalendarSelectionCases,
     CalendarSelectionFieldCases,
+    CalendarViewsCases,
+    CalendarMonthFieldCases,
   ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">
@@ -389,6 +396,8 @@ export class FebruaryCalendar {
     <calendar-field-cases />
     <calendar-selection-cases />
     <calendar-selection-field-cases />
+    <calendar-views-cases />
+    <calendar-month-field-cases />
   `,
 })
 export class CalendarFixture {

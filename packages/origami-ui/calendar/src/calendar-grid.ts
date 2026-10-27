@@ -4,18 +4,21 @@ import { ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { CalendarContext } from "./calendar-context";
 
 /**
- * The grid of a Calendar root, usually a `<table>`: static `role="grid"` (a consumer's static
- * `role` overrides it), with `aria-multiselectable="true"` under `ogCalendarMultiple` and
- * `ogCalendarRange`, where several days can be selected, `aria-disabled="true"` while the root is disabled and `aria-readonly="true"` while
- * it is readonly. Render its rows from the root's `state.weeks()` and give each day an
- * `ogCalendarCell`. Use explicit `<thead>`/`<tbody>` so the browser inserts no element that
- * server rendering didn't, and a `<th scope="col" [attr.abbr]="weekday.long">` per weekday.
+ * The grid of a Calendar root's current view, usually a `<table>`: static `role="grid"` (a
+ * consumer's static `role` overrides it), with `aria-multiselectable="true"` in the days view of
+ * `ogCalendarMultiple` and `ogCalendarRange`, where several days can be selected,
+ * `aria-disabled="true"` while the root is disabled and `aria-readonly="true"` while it is
+ * readonly. Render its rows from the root's `state.weeks()`, `state.months()` or `state.years()`
+ * by `state.view()`, and give each day, month or year an `ogCalendarCell`. Use explicit
+ * `<thead>`/`<tbody>` so the browser inserts no element that server rendering didn't, and, in
+ * the days view, a `<th scope="col" [attr.abbr]="weekday.long">` per weekday; the months and years
+ * views have no header row.
  *
  * It is the control of its nearest `ogField`, governed by the `[formField]` on the Calendar root,
  * and registers once Angular has set its inputs. Its `aria-labelledby` names the Field's Labels
  * while it is the Field's control, else the grid's own static `aria-labelledby` (from the
  * template or a composing directive's `host`), followed by the registered `ogCalendarHeading`,
- * so the month is part of the grid's name; a Heading still dehydrated in another `@defer`
+ * so the displayed period is part of the grid's name; a Heading still dehydrated in another `@defer`
  * boundary isn't named until it hydrates. A Label has no `for`, so clicking it does nothing. Its `aria-describedby` names the Field's Descriptions, then its
  * mounted Errors. `aria-invalid="true"` follows the Field's shown errors and `aria-required="true"`
  * the bound field; outside a Field, and as a second control the Field ignores, they keep their
@@ -71,7 +74,7 @@ export class OrigamiCalendarGrid {
 
     return ids.join(" ");
   });
-  /** @internal Present only where several days can be selected. */
+  /** @internal Present only where several days can be selected: the days view of Multiple and Range. */
   protected readonly ariaMultiselectable = computed(() => {
     if (this.#context.multiselectable()) {
       return "true";

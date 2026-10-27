@@ -32,9 +32,10 @@ export abstract class OrigamiCalendarHeadingOptions {
 
 /**
  * The visible period of a Calendar root: render the root's `state.heading()` in it ("October
- * 2026"). It binds its effective `id`, which the Grid's `aria-labelledby` names after any Field
- * Labels once the Heading registers, and static `aria-live="polite"`, so moving to another month
- * announces it. Use any element, such as an `<h2>`. One Heading per root: a second mounted
+ * 2026", "2026" or "2016 – 2027", by view). It binds its effective `id`, which the Grid's
+ * `aria-labelledby` names after any Field Labels once the Heading registers, and static
+ * `aria-live="polite"`, so moving to another month, year or page announces it. It may sit inside
+ * your own view-switch button. Use any element, such as an `<h2>`. One Heading per root: a second mounted
  * Heading fails clearly when it registers. Requires a nearest Calendar root.
  */
 @Directive({

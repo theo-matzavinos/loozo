@@ -10,8 +10,8 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { injectDeferred } from "@loozo/origami-ui/utils";
-import { canonicalDay } from "./calendar-date";
 import { CalendarContext } from "./calendar-context";
+import { levelOf } from "./calendar-grid-model";
 
 /**
  * Effective cell configuration. Other parts read it only once the cell has registered in
@@ -19,9 +19,11 @@ import { CalendarContext } from "./calendar-context";
  */
 export abstract class OrigamiCalendarCellOptions {
   /**
-   * The cell's day, `YYYY-MM-DD`, usually a `state.weeks()` record's `date`. Required: there is
-   * no default. A value that isn't a canonical day is reported through Angular's `ErrorHandler`
-   * when the cell registers, and the cell stays inert.
+   * The cell's date at the level of the root's current view: a day `YYYY-MM-DD` (days), a month
+   * `YYYY-MM` (months) or a year `YYYY` (years), usually the `date` of a `state.weeks()`,
+   * `state.months()` or `state.years()` record. Required: there is no default. A value that isn't
+   * a canonical date of the current view's level is reported through Angular's `ErrorHandler`
+   * when the cell registers, and the cell is inert while its level isn't the view's.
    */
   abstract readonly date: Signal<string>;
 
@@ -47,6 +49,9 @@ export abstract class OrigamiCalendarCellOptions {
   }
 }
 
+/** The date shape each view's cells take. */
+const patterns = { days: "YYYY-MM-DD", months: "YYYY-MM", years: "YYYY" } as const;
+
 function marker(value: boolean): "" | null {
   if (value) {
     return "";
@@ -56,26 +61,35 @@ function marker(value: boolean): "" | null {
 }
 
 /**
- * A day of a Calendar root's grid, usually a `<td>`: one focusable `role="gridcell"` (a
- * consumer's static `role` overrides it), named by its full localized date (`aria-label`, such as
- * "Tuesday, October 27, 2026"), so screen readers needn't announce column headers. Put the day
- * number inside; the label replaces it as the name.
+ * A day, month or year of a Calendar root's grid, usually a `<td>`: one focusable
+ * `role="gridcell"` (a consumer's static `role` overrides it), named by its full localized date
+ * (`aria-label`: "Tuesday, October 27, 2026", "October 2026" or "2026"), so screen readers needn't
+ * announce column headers. Put the day number, the short month or the year inside; the label
+ * replaces it as the name. Its `date`'s level must be the root's current view's: render days in
+ * the days view, months in the months view and years in the years view.
  *
  * Host semantics: `tabindex="0"` on the grid's single tab stop and `"-1"` on every other cell,
- * none while the root is disabled; `aria-selected="true"` and `data-selected` on a selected day
+ * none while the root is disabled; `aria-current="date"` and `data-today` on today, today's
+ * month or today's year; `aria-disabled="true"` and `data-disabled` while the cell can't be
+ * chosen (wholly outside the bounds, `dateDisabled` for days, `monthDisabled` for an
+ * `ogMonthCalendar` month, or the root disabled). In the value's own view (days; months under
+ * `ogMonthCalendar`), `aria-selected="true"` and `data-selected` on a selected day or month
  * (under `ogCalendarRange`, every day of the range), and `aria-selected="false"` on the others
- * under `ogCalendarMultiple` and `ogCalendarRange`; `aria-current="date"` and `data-today` on
- * today; `data-outside` on a day of the previous or next month; `aria-disabled="true"` and
- * `data-disabled` while the day can't be chosen (out of `minDate`/`maxDate`, `dateDisabled`, or
- * the root disabled). Under `ogCalendarRange`, also `data-range-start` and `data-range-end` on
- * the range's first and last day, `data-in-range` on every day of it, ends included, and, while
- * its first day is pending, `data-preview` on the days the next choice would span: from that day
- * to the hovered one, else the focused one. Style from these attributes; no State read is needed.
+ * under `ogCalendarMultiple` and `ogCalendarRange`. In a coarser view, no `aria-selected`:
+ * `data-selected` marks the month or year holding the value (a range's start; several days'
+ * first), and `data-current` the displayed month or year. Days only: `data-outside` on a day of
+ * the previous or next month and, under `ogCalendarRange`, `data-range-start` and
+ * `data-range-end` on the range's first and last day, `data-in-range` on every day of it, ends
+ * included, and, while its first day is pending, `data-preview` on the days the next choice
+ * would span: from that day to the hovered one, else the focused one. Style from these
+ * attributes; no State read is needed.
  *
- * Click, Enter and Space choose the day; the arrows, Home/End and PageUp/PageDown move focus
- * (see `ogCalendar`); Escape drops a range's pending first day. A disabled day takes focus but
- * isn't chosen. To leave outside days blank, keep their `<td>` and skip `ogCalendarCell` on it.
- * Requires a nearest Calendar root: `ogCalendar`, `ogCalendarMultiple` or `ogCalendarRange`.
+ * Click, Enter and Space choose the cell: a day (or `ogMonthCalendar`'s month) is written, and a
+ * coarser month or year drills down to its days or months; the arrows, Home/End and
+ * PageUp/PageDown move focus (see `ogCalendar`). A disabled cell takes focus but isn't chosen.
+ * To leave outside days blank, keep their `<td>` and skip `ogCalendarCell` on it. Requires a
+ * nearest Calendar root: `ogCalendar`, `ogCalendarMultiple`, `ogCalendarRange` or
+ * `ogMonthCalendar`.
  */
 @Directive({
   selector: "[ogCalendarCell]",
@@ -89,6 +103,7 @@ function marker(value: boolean): "" | null {
     "[attr.aria-disabled]": "ariaDisabled()",
     "[attr.data-selected]": "selected()",
     "[attr.data-today]": "today()",
+    "[attr.data-current]": "current()",
     "[attr.data-outside]": "outside()",
     "[attr.data-disabled]": "disabledAttribute()",
     "[attr.data-range-start]": "rangeStart()",
@@ -101,7 +116,10 @@ function marker(value: boolean): "" | null {
   },
 })
 export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
-  /** Own required day input, `YYYY-MM-DD`; replaced Options supply the effective day instead. */
+  /**
+   * Own required date input, `YYYY-MM-DD`, `YYYY-MM` or `YYYY` by the root's view; replaced
+   * Options supply the effective date instead.
+   */
   readonly date = input.required<string>();
 
   readonly #options = injectDeferred(OrigamiCalendarCellOptions);
@@ -109,53 +127,65 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
   readonly #errorHandler = inject(ErrorHandler);
-  /** The effective day while it is canonical; an inert cell's is null. */
-  readonly #day = computed(() => canonicalDay(this.#options().date()));
-  readonly #disabled = computed(() => {
-    const day = this.#day();
+  /** The effective date while it is canonical at the current view's level; an inert cell's is null. */
+  readonly #date = computed(() => {
+    const date = this.#options().date();
 
-    return day === null || this.#context.disabled() || this.#context.isDateDisabled(day);
+    if (levelOf(date) !== this.#context.view()) {
+      return null;
+    }
+
+    return date;
+  });
+  readonly #disabled = computed(() => {
+    const date = this.#date();
+
+    return date === null || this.#context.disabled() || this.#context.isCellDisabled(date);
   });
 
   /** @internal "0" on the tab stop, "-1" elsewhere, none while disabled or inert. */
   protected readonly tabIndex = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    if (day === null || this.#context.disabled()) {
+    if (date === null || this.#context.disabled()) {
       return null;
     }
 
-    if (this.#context.tabStop() === day) {
+    if (this.#context.tabStop() === date) {
       return "0";
     }
 
     return "-1";
   });
-  /** @internal The full localized date. */
+  /** @internal The full localized date, month or year. */
   protected readonly ariaLabel = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    if (day === null) {
+    if (date === null) {
       return null;
     }
 
-    return this.#context.label(day);
+    return this.#context.label(date);
   });
   readonly #selected = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return day !== null && this.#context.isSelected(day);
+    return date !== null && this.#context.isSelected(date);
   });
   /**
-   * @internal "true" on a selected day; "false" on the others where several days can be
-   * selected, else absent.
+   * @internal In the value's own view, "true" on a selected cell and "false" on the others where
+   * several days can be selected; else absent.
    */
   protected readonly ariaSelected = computed(() => {
+    if (this.#date() === null || !this.#context.valueView()) {
+      return null;
+    }
+
     if (this.#selected()) {
       return "true";
     }
 
-    if (this.#day() !== null && this.#context.multiselectable()) {
+    if (this.#context.multiselectable()) {
       return "false";
     }
 
@@ -164,11 +194,11 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   /** @internal Selected marker. */
   protected readonly selected = computed(() => marker(this.#selected()));
   readonly #today = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return day !== null && this.#context.isToday(day);
+    return date !== null && this.#context.isToday(date);
   });
-  /** @internal `aria-current="date"` on today. */
+  /** @internal `aria-current="date"` on today, today's month or today's year. */
   protected readonly ariaCurrent = computed(() => {
     if (this.#today()) {
       return "date";
@@ -178,11 +208,17 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   });
   /** @internal Today marker. */
   protected readonly today = computed(() => marker(this.#today()));
+  /** @internal The displayed month or year in a coarser view. */
+  protected readonly current = computed(() => {
+    const date = this.#date();
+
+    return marker(date !== null && this.#context.isCurrent(date));
+  });
   /** @internal Outside-month marker. */
   protected readonly outside = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return marker(day !== null && this.#context.isOutside(day));
+    return marker(date !== null && this.#context.isOutside(date));
   });
   /** @internal Disabled ARIA. */
   protected readonly ariaDisabled = computed(() => {
@@ -196,44 +232,44 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   protected readonly disabledAttribute = computed(() => marker(this.#disabled()));
   /** @internal The committed range's first day. */
   protected readonly rangeStart = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return marker(day !== null && this.#context.isRangeStart(day));
+    return marker(date !== null && this.#context.isRangeStart(date));
   });
   /** @internal The committed range's last day. */
   protected readonly rangeEnd = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return marker(day !== null && this.#context.isRangeEnd(day));
+    return marker(date !== null && this.#context.isRangeEnd(date));
   });
   /** @internal A day of the committed range, its ends included. */
   protected readonly inRange = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return marker(day !== null && this.#context.isInRange(day));
+    return marker(date !== null && this.#context.isInRange(date));
   });
   /** @internal A day the pending range would span. */
   protected readonly preview = computed(() => {
-    const day = this.#day();
+    const date = this.#date();
 
-    return marker(day !== null && this.#context.isPreviewed(day));
+    return marker(date !== null && this.#context.isPreviewed(date));
   });
 
   constructor() {
     // Native listeners, not host listeners: the pointer crosses cells constantly, and only a
     // pending range reads what it hovers, so a crossing needn't schedule change detection.
     const entered = (): void => {
-      const day = this.#day();
+      const date = this.#date();
 
-      if (day !== null) {
-        this.#context.pointerEntered(day);
+      if (date !== null) {
+        this.#context.pointerEntered(date);
       }
     };
     const left = (): void => {
-      const day = this.#day();
+      const date = this.#date();
 
-      if (day !== null) {
-        this.#context.pointerLeft(day);
+      if (date !== null) {
+        this.#context.pointerLeft(date);
       }
     };
 
@@ -246,37 +282,38 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   }
 
   /**
-   * @internal Registers with the Calendar once Angular has set its inputs, reporting a day that
-   * isn't canonical.
+   * @internal Registers with the Calendar once Angular has set its inputs, reporting a date that
+   * isn't a canonical date of the current view's level.
    */
   ngOnInit(): void {
     const date = this.#options().date();
+    const view = this.#context.view();
 
-    if (canonicalDay(date) === null) {
+    if (levelOf(date) !== view) {
       this.#errorHandler.handleError(
         new Error(
-          `ogCalendarCell: date must be a YYYY-MM-DD day from 0001 to 9999; got ${JSON.stringify(date)}. The cell is inert.`,
+          `ogCalendarCell: the ${view} view requires a ${patterns[view]} date from 0001 to 9999; got ${JSON.stringify(date)}. The cell is inert.`,
         ),
       );
     }
 
-    this.#context.registerCell({ element: this.#element, date: this.#day }, this.#destroyRef);
+    this.#context.registerCell({ element: this.#element, date: this.#date }, this.#destroyRef);
   }
 
   /** @internal The Calendar's keys. */
   protected keydown(event: KeyboardEvent): void {
-    const day = this.#day();
+    const date = this.#date();
 
-    if (day !== null) {
-      this.#context.keydown(day, this.#element, event);
+    if (date !== null) {
+      this.#context.keydown(date, this.#element, event);
     }
   }
 
   /** @internal A click focuses the cell, as not every engine does for a table cell, then chooses it. */
   protected clicked(): void {
-    const day = this.#day();
+    const date = this.#date();
 
-    if (day === null || this.#context.disabled()) {
+    if (date === null || this.#context.disabled()) {
       return;
     }
 
@@ -284,15 +321,15 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
       this.#element.focus();
     }
 
-    this.#context.choose(day);
+    this.#context.choose(date);
   }
 
   /** @internal The focused day is the tab stop. */
   protected focused(): void {
-    const day = this.#day();
+    const date = this.#date();
 
-    if (day !== null) {
-      this.#context.focused(day);
+    if (date !== null) {
+      this.#context.focused(date);
     }
   }
 }

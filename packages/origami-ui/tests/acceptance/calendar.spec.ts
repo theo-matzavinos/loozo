@@ -1600,3 +1600,769 @@ test("CA33: a range: a second choice after the bounds or dateDisabled disabled t
   await expect(value).toHaveText("2026-10-26 2026-10-27");
   await expect(page.getByTestId("r-outputs")).toHaveText("3");
 });
+
+/** A page of years as the en-US heading writes it, "2016 – 2027", thin spaces around the dash. */
+function yearsHeading(first: string, last: string): RegExp {
+  return new RegExp(`^${first}\\s–\\s${last}$`);
+}
+
+/** The months from `first` to `last` of one year, `YYYY-MM`. */
+function monthsFrom(year: string, first: number, last: number): string[] {
+  const months: string[] = [];
+
+  for (let month = first; month <= last; month += 1) {
+    months.push(`${year}-${String(month).padStart(2, "0")}`);
+  }
+
+  return months;
+}
+
+/** Presses `key` and expects focus to stay on the cell of `date`. */
+async function pressHeld(page: Page, key: string, date: string, name: string): Promise<void> {
+  await page.keyboard.press(key);
+  await settle(page);
+  await expect(cell(page, name, date)).toBeFocused();
+}
+
+test("CA34: views drill down from years to months to a day with focus following each time; only the day writes the value", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const heading = page.getByTestId("v-heading");
+  const value = page.getByTestId("v-value");
+  const month = page.getByTestId("v-month");
+  const view = page.getByTestId("v-view");
+
+  await page.getByTestId("v-switch").click();
+  await expect(view).toHaveText("years");
+  await expect(heading).toHaveText(yearsHeading("2016", "2027"));
+  await expect(page.getByTestId("v-grid").locator('td[role="gridcell"]')).toHaveCount(12);
+  await expectTabStop(page, "v", "2026");
+
+  // By keys: a year shows its months with the displayed month's number focused, a month its days.
+  await cell(page, "v", "2026").focus();
+  await press(page, "ArrowRight", "2027", "v");
+  await page.keyboard.press("Enter");
+  await expect(view).toHaveText("months");
+  await expect(heading).toHaveText("2027");
+  await expect(cell(page, "v", "2027-10")).toBeFocused();
+  await expectTabStop(page, "v", "2027-10");
+  await expect(month).toHaveText("2027-10");
+  await press(page, "ArrowLeft", "2027-09", "v");
+  await page.keyboard.press("Space");
+  await expect(view).toHaveText("days");
+  await expect(heading).toHaveText("September 2027");
+  await expect(cell(page, "v", "2027-09-01")).toBeFocused();
+  await expectTabStop(page, "v", "2027-09-01");
+  await expect(month).toHaveText("2027-09");
+  await expect(value).toHaveText("null");
+  await press(page, "ArrowRight", "2027-09-02", "v");
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2027-09-02");
+  await expect(view).toHaveText("days");
+  await expect(cell(page, "v", "2027-09-02")).toBeFocused();
+
+  // By pointer: the months view's tab stop is the displayed month's number.
+  await page.getByTestId("v-switch").click();
+  await expect(heading).toHaveText(yearsHeading("2016", "2027"));
+  await cell(page, "v", "2020").click();
+  await expect(heading).toHaveText("2020");
+  await expect(cell(page, "v", "2020-09")).toBeFocused();
+  await cell(page, "v", "2020-02").click();
+  await expect(heading).toHaveText("February 2020");
+  await expect(cell(page, "v", "2020-02-01")).toBeFocused();
+  await cell(page, "v", "2020-02-14").click();
+  await expect(value).toHaveText("2020-02-14");
+  await expect(page.getByTestId("v-state")).toHaveText("days 2020-02");
+  await expect(page.getByTestId("v-outputs")).toHaveText("2");
+  await expect(page.getByTestId("v-view-outputs")).toHaveText("4");
+
+  // Readonly still drills down, and the day isn't written.
+  await page.getByTestId("v-readonly").click();
+  await page.getByTestId("v-months").click();
+  await cell(page, "v", "2020-05").click();
+  await expect(heading).toHaveText("May 2020");
+  await expect(cell(page, "v", "2020-05-01")).toBeFocused();
+  await cell(page, "v", "2020-05-06").click();
+  await settle(page);
+  await expect(value).toHaveText("2020-02-14");
+});
+
+test("CA35: keys in the months and years views move by one, by columns, to the row's ends and by a year or twelve, showing the next year or page; Previous and Next step a year or twelve", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const heading = page.getByTestId("v-heading");
+  const month = page.getByTestId("v-month");
+
+  await page.getByTestId("v-months").click();
+  await expect(heading).toHaveText("2026");
+  await expect(page.getByTestId("v-grid").locator("tr")).toHaveCount(4);
+  await expect(cell(page, "v", "2026-10")).toHaveText("Oct");
+  await expectTabStop(page, "v", "2026-10");
+  await cell(page, "v", "2026-10").focus();
+  await press(page, "ArrowRight", "2026-11", "v");
+  await press(page, "ArrowLeft", "2026-10", "v");
+  await press(page, "End", "2026-12", "v");
+  await press(page, "Home", "2026-10", "v");
+  await press(page, "ArrowUp", "2026-07", "v");
+  await press(page, "ArrowDown", "2026-10", "v");
+  await expect(month).toHaveText("null");
+  await press(page, "ArrowDown", "2027-01", "v");
+  await expect(heading).toHaveText("2027");
+  await expect(month).toHaveText("2027-01");
+  await press(page, "ArrowLeft", "2026-12", "v");
+  await expect(heading).toHaveText("2026");
+  await press(page, "PageDown", "2027-12", "v");
+  await expect(heading).toHaveText("2027");
+  await press(page, "PageUp", "2026-12", "v");
+  await pressHeld(page, "Shift+PageDown", "2026-12", "v");
+  await expect(heading).toHaveText("2026");
+
+  // Previous and Next step a year and keep their focus.
+  await page.getByTestId("v-next").click();
+  await expect(heading).toHaveText("2027");
+  await expect(month).toHaveText("2027-12");
+  await expect(page.getByTestId("v-next")).toBeFocused();
+  await expectTabStop(page, "v", "2027-12");
+  await page.getByTestId("v-previous").click();
+  await expect(heading).toHaveText("2026");
+  await expect(page.getByTestId("v-previous")).toBeFocused();
+
+  // Years: a page of twelve in rows of three.
+  await page.getByTestId("v-years").click();
+  await expect(heading).toHaveText(yearsHeading("2016", "2027"));
+  await expectTabStop(page, "v", "2026");
+  await cell(page, "v", "2026").focus();
+  await press(page, "ArrowRight", "2027", "v");
+  await press(page, "ArrowRight", "2028", "v");
+  await expect(heading).toHaveText(yearsHeading("2028", "2039"));
+  await expect(month).toHaveText("2028-12");
+  await press(page, "ArrowLeft", "2027", "v");
+  await expect(heading).toHaveText(yearsHeading("2016", "2027"));
+  await press(page, "ArrowUp", "2024", "v");
+  await press(page, "ArrowDown", "2027", "v");
+  await press(page, "Home", "2025", "v");
+  await press(page, "End", "2027", "v");
+  await press(page, "PageDown", "2039", "v");
+  await expect(heading).toHaveText(yearsHeading("2028", "2039"));
+  await press(page, "PageUp", "2027", "v");
+  await page.getByTestId("v-next").click();
+  await expect(heading).toHaveText(yearsHeading("2028", "2039"));
+  await expect(month).toHaveText("2039-12");
+  await expect(page.getByTestId("v-next")).toBeFocused();
+  await expectTabStop(page, "v", "2039");
+  await page.getByTestId("v-previous").click();
+  await expect(heading).toHaveText(yearsHeading("2016", "2027"));
+  await expect(month).toHaveText("2027-12");
+
+  // Four columns: three rows, and Up and Down move by four.
+  await page.getByTestId("v-four-columns").click();
+  await page.getByTestId("v-months").click();
+  await expect(page.getByTestId("v-grid").locator("tr")).toHaveCount(3);
+  await expect(page.getByTestId("v-grid").locator("tr").first().locator("td")).toHaveCount(4);
+  await cell(page, "v", "2027-12").focus();
+  await press(page, "ArrowUp", "2027-08", "v");
+  await press(page, "Home", "2027-05", "v");
+  await press(page, "End", "2027-08", "v");
+});
+
+test("CA36: Escape in the months or years view shows the days again without changing month, focus following from a cell and staying on Previous; a range's anchor goes first", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const heading = page.getByTestId("v-heading");
+  const month = page.getByTestId("v-month");
+  const view = page.getByTestId("v-view");
+
+  await page.evaluate(() => {
+    const escapes: boolean[] = [];
+
+    Object.assign(window, { calendarEscapes: escapes });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        escapes.push(event.defaultPrevented);
+      }
+    });
+  });
+
+  await page.getByTestId("v-years").click();
+  await cell(page, "v", "2026").focus();
+  await press(page, "PageDown", "2038", "v");
+  await expect(month).toHaveText("2038-10");
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveText("days");
+  await expect(heading).toHaveText("October 2038");
+  await expect(month).toHaveText("2038-10");
+  await expect(cell(page, "v", "2038-10-01")).toBeFocused();
+  await expectTabStop(page, "v", "2038-10-01");
+
+  // From Previous: the days show and Previous keeps focus.
+  await page.getByTestId("v-months").click();
+  await expect(heading).toHaveText("2038");
+  await page.getByTestId("v-previous").focus();
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveText("days");
+  await expect(page.getByTestId("v-previous")).toBeFocused();
+  await expect(month).toHaveText("2038-10");
+
+  // In the days view Escape is left alone.
+  await cell(page, "v", "2038-10-01").focus();
+  await page.keyboard.press("Escape");
+  await settle(page);
+  await expect(view).toHaveText("days");
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, "calendarEscapes")))
+    .toEqual([true, true, false]);
+  await expect(page.getByTestId("v-view-outputs")).toHaveText("2");
+
+  // A range: the first Escape drops the anchor, the next shows the days.
+  const anchor = page.getByTestId("vr-anchor");
+
+  await cell(page, "vr", "2026-09-15").click();
+  await expect(anchor).toHaveText("2026-09-15");
+  await page.getByTestId("vr-months").click();
+  await cell(page, "vr", "2026-09").focus();
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveText("null");
+  await expect(page.getByTestId("vr-view")).toHaveText("months");
+  await expect(cell(page, "vr", "2026-09")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("vr-view")).toHaveText("days");
+  await expect(cell(page, "vr", "2026-09-28")).toBeFocused();
+  await expect(page.getByTestId("vr-value")).toHaveText("2026-09-28 2026-10-03");
+});
+
+test("CA37: in the months and years views a month or year is disabled only when wholly outside minDate/maxDate; keys stop there, Previous and Next disable, and disabled cells don't drill down; dateDisabled disables days alone", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const heading = page.getByTestId("v-heading");
+  const previous = page.getByTestId("v-previous");
+  const next = page.getByTestId("v-next");
+
+  await page.getByTestId("v-bound").click();
+  await page.getByTestId("v-months").click();
+  await expect.poll(() => daysWith(page, "v", "aria-disabled")).toEqual(monthsFrom("2026", 1, 9));
+  await expect.poll(() => daysWith(page, "v", "data-disabled")).toEqual(monthsFrom("2026", 1, 9));
+  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await expect(next).not.toHaveAttribute("aria-disabled", /.*/);
+  await cell(page, "v", "2026-10").focus();
+  await pressHeld(page, "ArrowLeft", "2026-10", "v");
+  await pressHeld(page, "PageUp", "2026-10", "v");
+  await press(page, "ArrowUp", "2026-10", "v");
+  await cell(page, "v", "2026-09").click({ force: true });
+  await settle(page);
+  await expect(page.getByTestId("v-view")).toHaveText("months");
+
+  await next.click();
+  await expect(heading).toHaveText("2027");
+  await expect.poll(() => daysWith(page, "v", "aria-disabled")).toEqual(monthsFrom("2027", 3, 12));
+  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await expect(next).toBeFocused();
+  await expect(previous).not.toHaveAttribute("aria-disabled", /.*/);
+  await cell(page, "v", "2027-02").focus();
+  await pressHeld(page, "ArrowRight", "2027-02", "v");
+  await pressHeld(page, "PageDown", "2027-02", "v");
+
+  // Years: only 2026 and 2027 hold days within the bounds.
+  await page.getByTestId("v-years").click();
+  await expect.poll(() => daysWith(page, "v", "aria-disabled")).toHaveLength(10);
+  await expect(cell(page, "v", "2026")).not.toHaveAttribute("aria-disabled", /.*/);
+  await expect(cell(page, "v", "2027")).not.toHaveAttribute("aria-disabled", /.*/);
+  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "v", "2027").focus();
+  await pressHeld(page, "ArrowRight", "2027", "v");
+  await press(page, "ArrowLeft", "2026", "v");
+  await pressHeld(page, "ArrowLeft", "2026", "v");
+  await pressHeld(page, "PageUp", "2026", "v");
+  await cell(page, "v", "2025").click({ force: true });
+  await settle(page);
+  await expect(page.getByTestId("v-view")).toHaveText("years");
+
+  // dateDisabled doesn't disable months; their days are.
+  await page.getByTestId("v-every-day").click();
+  await cell(page, "v", "2027").click();
+  await expect(heading).toHaveText("2027");
+  await expect(cell(page, "v", "2027-01")).not.toHaveAttribute("aria-disabled", /.*/);
+  await cell(page, "v", "2027-01").click();
+  await expect(heading).toHaveText("January 2027");
+  await expect(page.getByTestId("v-grid").locator('td[aria-disabled="true"]')).toHaveCount(42);
+});
+
+test("CA38: writing view yourself keeps focus where it is and moves the grid's tab stop to the displayed period", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const toggle = page.getByTestId("v-switch");
+
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("v-view")).toHaveText("years");
+  await expect(toggle).toBeFocused();
+  await expectTabStop(page, "v", "2026");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("v-next")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(cell(page, "v", "2026")).toBeFocused();
+  await press(page, "ArrowLeft", "2025", "v");
+
+  // A focused cell of another view keeps no tab stop: back in the days, it's today.
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("v-view")).toHaveText("days");
+  await expect(toggle).toBeFocused();
+  await expectTabStop(page, "v", "2026-10-27");
+
+  // The months view's tab stop is the displayed month, and follows a month write.
+  await page.getByTestId("v-months").click();
+  await expect(page.getByTestId("v-months")).toBeFocused();
+  await expectTabStop(page, "v", "2026-10");
+  await page.getByTestId("v-march-2025").click();
+  await expect(page.getByTestId("v-heading")).toHaveText("2025");
+  await expectTabStop(page, "v", "2025-03");
+  await page.getByTestId("v-days").click();
+  await expectTabStop(page, "v", "2025-03-01");
+  await expect(page.getByTestId("v-days")).toBeFocused();
+});
+
+test("CA39: per view, the months and years mark the selection's period, the displayed one and today's, aria-selected only in the days, and aria-multiselectable only there", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  // One day: 15 October 2026 chosen, March 2025 displayed.
+  await page.getByTestId("v-write").click();
+  await page.getByTestId("v-march-2025").click();
+  await page.getByTestId("v-months").click();
+
+  const grid = page.getByTestId("v-grid");
+
+  await expect(page.getByTestId("v-heading")).toHaveText("2025");
+  await expect.poll(() => daysWith(page, "v", "data-current")).toEqual(["2025-03"]);
+  await expect.poll(() => daysWith(page, "v", "data-selected")).toEqual([]);
+  await expect.poll(() => daysWith(page, "v", "data-today")).toEqual([]);
+  await expect(grid.locator("[aria-selected]")).toHaveCount(0);
+  await expect(grid.locator("[aria-current]")).toHaveCount(0);
+  await expect(cell(page, "v", "2025-03")).toHaveAttribute("aria-label", "March 2025");
+  await page.getByTestId("v-next").click();
+  await expect.poll(() => daysWith(page, "v", "data-current")).toEqual(["2026-03"]);
+  await expect.poll(() => daysWith(page, "v", "data-selected")).toEqual(["2026-10"]);
+  await expect.poll(() => daysWith(page, "v", "data-today")).toEqual(["2026-10"]);
+  await expect(cell(page, "v", "2026-10")).toHaveAttribute("aria-current", "date");
+  await expect(grid.locator("[aria-selected]")).toHaveCount(0);
+  await page.getByTestId("v-years").click();
+  await expect(page.getByTestId("v-heading")).toHaveText(yearsHeading("2016", "2027"));
+  await expect.poll(() => daysWith(page, "v", "data-current")).toEqual(["2026"]);
+  await expect.poll(() => daysWith(page, "v", "data-selected")).toEqual(["2026"]);
+  await expect.poll(() => daysWith(page, "v", "data-today")).toEqual(["2026"]);
+  await expect(cell(page, "v", "2026")).toHaveAttribute("aria-label", "2026");
+  await expect(cell(page, "v", "2026")).toHaveAttribute("aria-current", "date");
+  await expect(grid.locator("[aria-selected], [data-outside]")).toHaveCount(0);
+  await expect(grid).not.toHaveAttribute("aria-multiselectable", /.*/);
+  await page.getByTestId("v-days").click();
+  await expect(cell(page, "v", "2026-03-04")).toHaveAttribute(
+    "aria-label",
+    "Wednesday, March 4, 2026",
+  );
+  await expect(grid.locator("[data-current]")).toHaveCount(0);
+
+  // Several days: the first value's month and year; the days alone are multiselectable.
+  const several = page.getByTestId("vm-grid");
+
+  await expect(several).toHaveAttribute("aria-multiselectable", "true");
+  await page.getByTestId("vm-months").click();
+  await expect(page.getByTestId("vm-heading")).toHaveText("2026");
+  await expect(several).not.toHaveAttribute("aria-multiselectable", /.*/);
+  await expect.poll(() => daysWith(page, "vm", "data-selected")).toEqual(["2026-11"]);
+  await expect.poll(() => daysWith(page, "vm", "data-current")).toEqual(["2026-11"]);
+  await expect(several.locator("[aria-selected]")).toHaveCount(0);
+  await page.getByTestId("vm-years").click();
+  await expect.poll(() => daysWith(page, "vm", "data-selected")).toEqual(["2026"]);
+  await expect(several.locator("[aria-selected]")).toHaveCount(0);
+  await page.getByTestId("vm-days").click();
+  await expect(several).toHaveAttribute("aria-multiselectable", "true");
+  await expect(several.locator('td[aria-selected="true"]')).toHaveCount(1);
+
+  // A range: its start's month; no range markers outside the days.
+  const range = page.getByTestId("vr-grid");
+
+  await page.getByTestId("vr-months").click();
+  await expect(range).not.toHaveAttribute("aria-multiselectable", /.*/);
+  await expect.poll(() => daysWith(page, "vr", "data-selected")).toEqual(["2026-09"]);
+  await expect(
+    range.locator(
+      "[aria-selected], [data-range-start], [data-range-end], [data-in-range], [data-preview]",
+    ),
+  ).toHaveCount(0);
+  await page.getByTestId("vr-days").click();
+  await expect.poll(() => daysWith(page, "vr", "data-in-range")).toHaveLength(6);
+});
+
+test("CA40: a month Calendar writes the chosen YYYY-MM; keys, a year drilling down to its months, minMonth/maxMonth, monthDisabled and readonly", async ({
+  page,
+}, info) => {
+  async function expectMonths(): Promise<void> {
+    const grid = page.getByTestId("mc-grid");
+
+    await expect(page.getByTestId("mc-heading")).toHaveText("2026");
+    await expect(grid).toHaveAttribute("role", "grid");
+    await expect(grid.locator('td[role="gridcell"]')).toHaveCount(12);
+    await expect(cell(page, "mc", "2026-10")).toHaveAttribute("aria-current", "date");
+    await expect(grid.locator("[aria-selected]")).toHaveCount(0);
+    await expectTabStop(page, "mc", "2026-10");
+    await expect(root(page, "mc")).toHaveAttribute("data-today", /^\d{4}-\d{2}-\d{2}$/);
+    await expect(root(page, "mc")).not.toHaveAttribute("data-week-start", /.*/);
+  }
+
+  await fixture(page, "calendar", info, expectMonths);
+  await expectMonths();
+
+  const value = page.getByTestId("mc-value");
+  const heading = page.getByTestId("mc-heading");
+
+  // Choosing writes the month and keeps the view.
+  await cell(page, "mc", "2026-03").click();
+  await expect(value).toHaveText("2026-03");
+  await expect(cell(page, "mc", "2026-03")).toHaveAttribute("aria-selected", "true");
+  await expect(cell(page, "mc", "2026-03")).toHaveAttribute("data-selected", "");
+  await expect(page.getByTestId("mc-view")).toHaveText("months");
+  await expect(page.getByTestId("mc-month")).toHaveText("null");
+  await expect(cell(page, "mc", "2026-03")).toBeFocused();
+  await press(page, "ArrowDown", "2026-06", "mc");
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2026-06");
+  await press(page, "PageDown", "2027-06", "mc");
+  await expect(heading).toHaveText("2027");
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2027-06");
+  await expect(cell(page, "mc", "2027-06")).toBeFocused();
+
+  // A year shows its months; Escape returns from the years.
+  await page.getByTestId("mc-switch").click();
+  await expect(heading).toHaveText(yearsHeading("2016", "2027"));
+  await expectTabStop(page, "mc", "2027");
+  await cell(page, "mc", "2027").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mc-view")).toHaveText("months");
+  await expect(cell(page, "mc", "2027-06")).toBeFocused();
+  await page.getByTestId("mc-switch").click();
+  await cell(page, "mc", "2020").click();
+  await expect(heading).toHaveText("2020");
+  await expect(cell(page, "mc", "2020-06")).toBeFocused();
+  await expect(page.getByTestId("mc-month")).toHaveText("2020-06");
+  await expect(value).toHaveText("2027-06");
+  await expect(page.getByTestId("mc-state")).toHaveText("2027-06 2020-06 months");
+  await expect(page.getByTestId("mc-outputs")).toHaveText("3");
+
+  // Bounds: months outside, and years wholly outside, are disabled; keys and steps stop.
+  await page.getByTestId("mc-bound").click();
+  await expect(heading).toHaveText("2020");
+  await expect.poll(() => daysWith(page, "mc", "aria-disabled")).toHaveLength(12);
+  await expect(page.getByTestId("mc-next")).toHaveAttribute("aria-disabled", "true");
+  await page.getByTestId("mc-switch").click();
+  await expect.poll(() => daysWith(page, "mc", "aria-disabled")).toHaveLength(10);
+  await expect(page.getByTestId("mc-previous")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("mc-next")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "mc", "2026").click();
+  await expect(heading).toHaveText("2026");
+  await expect.poll(() => daysWith(page, "mc", "aria-disabled")).toEqual(["2026-01", "2026-02"]);
+  await expect(page.getByTestId("mc-previous")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "mc", "2026-03").focus();
+  await pressHeld(page, "ArrowLeft", "2026-03", "mc");
+  await cell(page, "mc", "2026-02").click({ force: true });
+  await settle(page);
+  await expect(value).toHaveText("2027-06");
+  await page.getByTestId("mc-next").click();
+  await expect.poll(() => daysWith(page, "mc", "aria-disabled")).toEqual(monthsFrom("2027", 9, 12));
+  await cell(page, "mc", "2027-08").focus();
+  await pressHeld(page, "ArrowRight", "2027-08", "mc");
+
+  // monthDisabled disables months alone.
+  await page.getByTestId("mc-july").click();
+  await expect(cell(page, "mc", "2027-07")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "mc", "2027-07").click({ force: true });
+  await settle(page);
+  await expect(value).toHaveText("2027-06");
+  await page.getByTestId("mc-switch").click();
+  await expect(cell(page, "mc", "2027")).not.toHaveAttribute("aria-disabled", /.*/);
+  await page.getByTestId("mc-switch").click();
+
+  // Readonly browses and drills down without writing.
+  await page.getByTestId("mc-readonly").click();
+  await cell(page, "mc", "2027-05").click();
+  await settle(page);
+  await expect(value).toHaveText("2027-06");
+  await page.getByTestId("mc-switch").click();
+  await cell(page, "mc", "2026").click();
+  await expect(heading).toHaveText("2026");
+  await page.getByTestId("mc-readonly").click();
+
+  // A value that isn't a month selects nothing and is kept.
+  await page.getByTestId("mc-write-invalid").click();
+  await expect(page.getByTestId("mc-grid").locator("[aria-selected]")).toHaveCount(0);
+  await expect(value).toHaveText("2026-13");
+  await expect(page.getByTestId("mc-outputs")).toHaveText("3");
+});
+
+test("CA41: Signal Forms and Field for a month: Labels then the Heading name the grid, the bound value, touch only on leaving, focusBoundControl, minMonth next to formField, readonly and disabled rules", async ({
+  page,
+}, info) => {
+  const grid = page.getByTestId("start-grid");
+  const value = page.getByTestId("start-value");
+  const touched = page.getByTestId("start-touched");
+
+  async function expectNaming(): Promise<void> {
+    await expect(grid).toHaveAttribute("aria-labelledby", "start-label start-heading");
+    await expect(grid).toHaveAttribute("aria-describedby", "start-description");
+    await expect(grid).toHaveAttribute("aria-required", "true");
+    await expect(cell(page, "start", "2026-02")).toHaveAttribute("aria-disabled", "true");
+    await expectTabStop(page, "start", "2026-10");
+  }
+
+  await fixture(page, "calendar", info, expectNaming);
+  await expectNaming();
+  await expect(page.getByRole("grid", { name: "Start month 2026" })).toHaveCount(1);
+
+  await page.getByTestId("focus-start").click();
+  await expect(cell(page, "start", "2026-10")).toBeFocused();
+  await press(page, "PageDown", "2027-10", "start");
+  await press(page, "PageUp", "2026-10", "start");
+  await settle(page);
+  await expect(touched).toHaveText("false");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("start-after")).toBeFocused();
+  await expect(touched).toHaveText("true");
+  await expect(grid).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#start-error")).toHaveText("Choose the start month.");
+
+  await cell(page, "start", "2026-02").click({ force: true });
+  await settle(page);
+  await expect(value).toHaveText("null");
+  await cell(page, "start", "2026-04").click();
+  await expect(value).toHaveText("2026-04");
+  await expect(grid).not.toHaveAttribute("aria-invalid", /.*/);
+  await page.getByTestId("write-start").click();
+  await expect(cell(page, "start", "2026-05")).toHaveAttribute("aria-selected", "true");
+
+  await page.getByTestId("freeze-start").click();
+  await expect(grid).toHaveAttribute("aria-readonly", "true");
+  await cell(page, "start", "2026-08").click();
+  await settle(page);
+  await expect(value).toHaveText("2026-05");
+  await page.getByTestId("freeze-start").click();
+
+  await page.getByTestId("lock-start").click();
+  await expect(grid).toHaveAttribute("aria-disabled", "true");
+  await expect(grid.locator("td[tabindex]")).toHaveCount(0);
+  await cell(page, "start", "2026-09").click({ force: true });
+  await settle(page);
+  await expect(value).toHaveText("2026-05");
+  await page.getByTestId("lock-start").click();
+  await expectTabStop(page, "start", "2026-08");
+});
+
+test("CA43: the first and last year pages, 0012–0023 and 9984–9995, and the months of 0001 and 9999 hold keys and Previous/Next at their edges", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const heading = page.getByTestId("v-heading");
+
+  await page.getByTestId("v-first-month").click();
+  await page.getByTestId("v-years").click();
+  await expect(heading).toHaveText(yearsHeading("12", "23"));
+  await expect(page.getByTestId("v-previous")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("v-grid").locator('td[role="gridcell"]')).toHaveCount(12);
+  await expectTabStop(page, "v", "0012");
+  await cell(page, "v", "0012").focus();
+  await pressHeld(page, "ArrowLeft", "0012", "v");
+  await pressHeld(page, "PageUp", "0012", "v");
+  await expect(page.getByTestId("v-month")).toHaveText("0001-01");
+
+  await page.getByTestId("v-months").click();
+  await expect(heading).toHaveText("1");
+  await expect(page.getByTestId("v-previous")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "v", "0001-01").focus();
+  await pressHeld(page, "ArrowLeft", "0001-01", "v");
+  await pressHeld(page, "PageUp", "0001-01", "v");
+  await page.keyboard.press("Enter");
+  await expect(heading).toHaveText("February 1");
+  await expect(cell(page, "v", "0001-02-01")).toBeFocused();
+
+  await page.getByTestId("v-last-month").click();
+  await page.getByTestId("v-years").click();
+  await expect(heading).toHaveText(yearsHeading("9984", "9995"));
+  await expect(page.getByTestId("v-next")).toHaveAttribute("aria-disabled", "true");
+  await expectTabStop(page, "v", "9984");
+  await cell(page, "v", "9995").focus();
+  await pressHeld(page, "ArrowRight", "9995", "v");
+  await pressHeld(page, "PageDown", "9995", "v");
+
+  await page.getByTestId("v-last-month").click();
+  await page.getByTestId("v-months").click();
+  await expect(heading).toHaveText("9999");
+  await expect(page.getByTestId("v-next")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "v", "9999-12").focus();
+  await pressHeld(page, "ArrowRight", "9999-12", "v");
+  await pressHeld(page, "PageDown", "9999-12", "v");
+});
+
+test("CA44: the years view and a month Calendar in server HTML and after hydration: the years, the selection's and today's markers, aria-selected only in the value's view, tab stops; choices once hydrated", async ({
+  page,
+}, info) => {
+  async function expectViews(): Promise<void> {
+    const years = page.getByTestId("vy-grid");
+    const months = page.getByTestId("ms-grid");
+
+    await expect(page.getByTestId("vy-heading")).toHaveText(yearsHeading("2016", "2027"));
+    await expect(years.locator('td[role="gridcell"]')).toHaveCount(12);
+    await expect(years.locator("th")).toHaveCount(0);
+    await expect(cell(page, "vy", "2026")).toHaveAttribute("aria-label", "2026");
+    await expect(cell(page, "vy", "2026")).toHaveAttribute("data-selected", "");
+    await expect(cell(page, "vy", "2026")).toHaveAttribute("data-current", "");
+    await expect(cell(page, "vy", "2026")).toHaveAttribute("data-today", "");
+    await expect(cell(page, "vy", "2026")).toHaveAttribute("aria-current", "date");
+    await expect(years.locator("[aria-selected]")).toHaveCount(0);
+    await expectTabStop(page, "vy", "2026");
+    await expect(years).toHaveAttribute(
+      "aria-labelledby",
+      (await page.getByTestId("vy-heading").getAttribute("id"))!,
+    );
+
+    await expect(page.getByTestId("ms-heading")).toHaveText("2026");
+    await expect(months.locator('td[role="gridcell"]')).toHaveCount(12);
+    await expect(cell(page, "ms", "2026-05")).toHaveAttribute("aria-selected", "true");
+    await expect(cell(page, "ms", "2026-05")).toHaveAttribute("data-selected", "");
+    await expect(cell(page, "ms", "2026-05")).toHaveAttribute("aria-label", "May 2026");
+    await expect(cell(page, "ms", "2026-05")).toHaveText("May");
+    await expect(cell(page, "ms", "2026-10")).toHaveAttribute("aria-current", "date");
+    await expect(months.locator("[aria-selected]")).toHaveCount(1);
+    await expectTabStop(page, "ms", "2026-05");
+  }
+
+  await fixture(page, "calendar", info, expectViews);
+  await expectViews();
+  await expect(page.getByTestId("vy-state")).toHaveText("years 2026-10");
+
+  // The hydrated roots drill down and choose once per click.
+  await cell(page, "vy", "2020").click();
+  await expect(page.getByTestId("vy-heading")).toHaveText("2020");
+  await expect(cell(page, "vy", "2020-10")).toBeFocused();
+  await cell(page, "ms", "2026-07").click();
+  await expect(page.getByTestId("ms-value")).toHaveText("2026-07");
+  await expect(page.getByTestId("ms-grid").locator("[aria-selected]")).toHaveCount(1);
+});
+
+test("CA45: writing view yourself away and back puts the tab stop on the displayed period, not the cell that last had focus there", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const months = page.getByTestId("v-months");
+
+  // A day root's months view: November last had focus, October is displayed.
+  await months.click();
+  await cell(page, "v", "2026-10").focus();
+  await press(page, "ArrowRight", "2026-11", "v");
+  await page.getByTestId("v-years").click();
+  await expectTabStop(page, "v", "2026");
+  await months.click();
+  await expect(page.getByTestId("v-heading")).toHaveText("2026");
+  await expect(months).toBeFocused();
+  await expectTabStop(page, "v", "2026-10");
+  await expect(page.getByTestId("v-month")).toHaveText("null");
+
+  // Its days view: 20 October last had focus, today is the tab stop.
+  await page.getByTestId("v-days").click();
+  await cell(page, "v", "2026-10-20").focus();
+  await months.click();
+  await page.getByTestId("v-days").click();
+  await expect(page.getByTestId("v-days")).toBeFocused();
+  await expectTabStop(page, "v", "2026-10-27");
+
+  // A month Calendar's months view by its Heading button.
+  const toggle = page.getByTestId("mc-switch");
+
+  await cell(page, "mc", "2026-10").focus();
+  await press(page, "ArrowRight", "2026-11", "mc");
+  await toggle.click();
+  await expect(page.getByTestId("mc-view")).toHaveText("years");
+  await expectTabStop(page, "mc", "2026");
+  await toggle.click();
+  await expect(page.getByTestId("mc-view")).toHaveText("months");
+  await expect(toggle).toBeFocused();
+  await expectTabStop(page, "mc", "2026-10");
+});
+
+test("CA46: a focus request waiting for its cell is dropped when view is written yourself, and still lands without one", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const grid = page.getByTestId("mp-grid");
+  const hold = page.getByTestId("mp-hold");
+
+  /** Fires a window event the fixture listens to, without moving focus. */
+  async function dispatch(type: string): Promise<void> {
+    await page.evaluate((name) => window.dispatchEvent(new Event(name)), type);
+  }
+
+  // Asked for 2026 in the years view with no cells; the months, then the years render.
+  await hold.focus();
+  await dispatch("calendar-month-pending-focus");
+  await dispatch("calendar-month-pending-months");
+  await dispatch("calendar-month-pending-show");
+  await expect(grid.locator('td[data-date="2026-10"]')).toHaveCount(1);
+  await settle(page);
+  await dispatch("calendar-month-pending-years");
+  await expect(grid.locator('td[data-date="2026"]')).toHaveCount(1);
+  await settle(page);
+  await expect(hold).toBeFocused();
+
+  // No view written in between: it lands on 2026.
+  await dispatch("calendar-month-pending-hide");
+  await expect(grid).toHaveCount(0);
+  await dispatch("calendar-month-pending-focus");
+  await dispatch("calendar-month-pending-show");
+  await expect(grid.locator('td[data-date="2026"]')).toBeFocused();
+});
+
+test("CA47: a range's hovered day is forgotten when the view changes, so back in the days only the anchor previews", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("vr-value");
+  const anchor = page.getByTestId("vr-anchor");
+  const months = page.getByTestId("vr-months");
+  const days = page.getByTestId("vr-days");
+
+  await cell(page, "vr", "2026-09-10").click();
+  await expect(anchor).toHaveText("2026-09-10");
+  await months.focus();
+  await cell(page, "vr", "2026-09-20").hover();
+  await expect(cell(page, "vr", "2026-09-20")).toHaveAttribute("data-preview", "");
+  await expect.poll(() => daysWith(page, "vr", "data-preview")).toHaveLength(11);
+
+  // The days go with the pointer still on 20 September, which then leaves the grid.
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("vr-view")).toHaveText("months");
+  await expect(page.getByTestId("vr-heading")).toHaveText("2026");
+  await page.mouse.move(0, 0);
+  await days.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("vr-view")).toHaveText("days");
+  await expect(cell(page, "vr", "2026-09-10")).toHaveCount(1);
+  await settle(page);
+  await expect(days).toBeFocused();
+  await expect(anchor).toHaveText("2026-09-10");
+  await expect(value).toHaveText("2026-09-28 2026-10-03");
+  await expect.poll(() => daysWith(page, "vr", "data-preview")).toEqual(["2026-09-10"]);
+});

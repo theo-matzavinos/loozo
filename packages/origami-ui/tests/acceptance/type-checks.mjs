@@ -122,7 +122,7 @@ import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origam
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
-import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
+import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -389,19 +389,19 @@ declare const selectOptionState: OrigamiSelectOptionState;
 // @ts-expect-error Select Option State is readonly
 selectOptionState.selected.set(true);
 // Positive: a whole Calendar factory, with ordinary signals and readonly bounds.
-OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: computed<string | null>(() => '2026-01-01'), maxDate: signal<string | null>(null), dateDisabled: signal((date: string) => date.endsWith('-13')), weekStart: signal<1 | 2 | 3 | 4 | 5 | 6 | 7 | null>(7), locale: signal('en-GB'), today: signal('2026-10-27'), fixedWeeks: signal(true), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: computed<string | null>(() => '2026-01-01'), maxDate: signal<string | null>(null), dateDisabled: signal((date: string) => date.endsWith('-13')), weekStart: signal<1 | 2 | 3 | 4 | 5 | 6 | 7 | null>(7), locale: signal('en-GB'), today: signal('2026-10-27'), fixedWeeks: signal(true), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error Calendar value must be writable
-OrigamiCalendarOptions.provideFactory(() => ({value: computed<string | null>(() => null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: computed<string | null>(() => null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error Calendar value is a string day, never a Date
-OrigamiCalendarOptions.provideFactory(() => ({value: signal<Date | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<Date | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error Calendar month must be writable
-OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: computed<string | null>(() => null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: computed<string | null>(() => null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error Calendar week start is an ISO weekday from 1 to 7
-OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(0), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(0), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error a Calendar factory must supply maxDate
-OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error Calendar bounds are minDate and maxDate, not Signal Forms' min and max
-OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), min: signal<string | null>(null), max: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), min: signal<string | null>(null), max: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 OrigamiCalendarCellOptions.provideFactory(() => ({date: input.required<string>()}));
 // @ts-expect-error Calendar Cell date is a string
 OrigamiCalendarCellOptions.provideFactory(() => ({date: signal(27)}));
@@ -418,22 +418,50 @@ void calendarMonth;
 const calendarDay: OrigamiCalendarDayRecord | undefined = calendarState.weeks()[0]?.[0];
 // @ts-expect-error a day record is readonly
 calendarDay!.outside = true;
-// @ts-expect-error Calendar State has no months view in this release
-void calendarState.months;
+const calendarView: 'days' | 'months' | 'years' = calendarState.view();
+const calendarPeriod: OrigamiCalendarPeriodRecord | undefined = calendarState.months()[0]?.[0] ?? calendarState.years()[0]?.[0];
+void calendarView;
+// @ts-expect-error Calendar period records are readonly
+calendarPeriod!.label = 'Oct';
+// @ts-expect-error Calendar State view is readonly
+calendarState.view.set('months');
+// @ts-expect-error Calendar view must be writable
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: computed<'days' | 'months' | 'years'>(() => 'days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error Calendar view is days, months or years
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'weeks'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a Calendar factory must supply columns
+OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+// Positive: a whole month Calendar factory, with ordinary signals and readonly bounds.
+OrigamiMonthCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'months' | 'years'>('months'), minMonth: computed<string | null>(() => '2026-03'), maxMonth: signal<string | null>(null), monthDisabled: signal((month: string) => month.endsWith('-07')), locale: signal('en-GB'), today: signal('2026-10-27'), columns: signal(4), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a month Calendar has no days view
+OrigamiMonthCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('months'), minMonth: signal<string | null>(null), maxMonth: signal<string | null>(null), monthDisabled: signal(() => false), locale: signal('en-US'), today: signal('2026-10-27'), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error month Calendar bounds are minMonth and maxMonth, not Signal Forms' min and max
+OrigamiMonthCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'months' | 'years'>('months'), min: signal<string | null>(null), max: signal<string | null>(null), monthDisabled: signal(() => false), locale: signal('en-US'), today: signal('2026-10-27'), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error month Calendar value must be writable
+OrigamiMonthCalendarOptions.provideFactory(() => ({value: computed<string | null>(() => null), month: signal<string | null>(null), view: signal<'months' | 'years'>('months'), minMonth: signal<string | null>(null), maxMonth: signal<string | null>(null), monthDisabled: signal(() => false), locale: signal('en-US'), today: signal('2026-10-27'), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+declare const monthCalendarState: OrigamiMonthCalendarState;
+const monthCalendarView: 'months' | 'years' = monthCalendarState.view();
+const monthCalendarValue: string | null = monthCalendarState.value();
+void monthCalendarView;
+void monthCalendarValue;
+// @ts-expect-error month Calendar State value is readonly
+monthCalendarState.value.set('2026-10');
+// @ts-expect-error month Calendar State has no weeks
+void monthCalendarState.weeks;
 // Positive: whole multiple and range Calendar factories.
-OrigamiCalendarMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
-OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>({ start: '2026-10-01', end: '2026-10-05' }), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>({ start: '2026-10-01', end: '2026-10-05' }), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error multiple Calendar value is an array of days, not one day
-OrigamiCalendarMultipleOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarMultipleOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error multiple Calendar value must be writable
-OrigamiCalendarMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error range Calendar value is a range, not one day
-OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error a range has both ends
 const halfRange: OrigamiDateRange = { start: '2026-10-01' };
 void halfRange;
 // @ts-expect-error a range Calendar factory must supply readonly
-OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false)}));
+OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), columns: signal(3), disabled: signal(false)}));
 declare const calendarMultipleState: OrigamiCalendarMultipleState;
 const calendarDays: readonly string[] = calendarMultipleState.value();
 void calendarDays;
@@ -895,17 +923,19 @@ import { OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription } from "@loozo
   },
   calendar: {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
-import { OrigamiCalendar, OrigamiCalendarMultiple, OrigamiCalendarRange, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, type OrigamiCalendarDayRecord, type OrigamiDateRange } from "@loozo/origami-ui/calendar";
+import { OrigamiCalendar, OrigamiCalendarMultiple, OrigamiCalendarRange, OrigamiMonthCalendar, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, type OrigamiCalendarDayRecord, type OrigamiCalendarPeriodRecord, type OrigamiDateRange } from "@loozo/origami-ui/calendar";
 import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
     directives:
-      "FormField, OrigamiCalendar, OrigamiCalendarMultiple, OrigamiCalendarRange, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, OrigamiField, OrigamiFieldLabel",
+      "FormField, OrigamiCalendar, OrigamiCalendarMultiple, OrigamiCalendarRange, OrigamiMonthCalendar, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, OrigamiField, OrigamiFieldLabel",
     members: `
   readonly day = signal<string | null>(null);
   readonly days = signal<readonly string[]>([]);
   readonly period = signal<OrigamiDateRange | null>(null);
   readonly month = signal<string | null>(null);
+  readonly view = signal<"days" | "months" | "years">("days");
+  readonly monthView = signal<"months" | "years">("months");
   readonly count = signal<number | null>(null);
-  readonly model = signal<{ day: string | null; days: readonly string[]; period: OrigamiDateRange | null; count: number | null }>({ day: null, days: [], period: null, count: null });
+  readonly model = signal<{ day: string | null; days: readonly string[]; period: OrigamiDateRange | null; count: number | null; start: string | null }>({ day: null, days: [], period: null, count: null, start: null });
   readonly form = form(this.model, (path) => { required(path.day); });
   weekend(date: string): boolean { return date.endsWith("-01"); }
   touched(): void {}
@@ -916,7 +946,10 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   observeWeeks(value: readonly (readonly OrigamiCalendarDayRecord[])[]): void { void value; }
   daysOutput(value: readonly string[]): void { void value; }
   periodOutput(value: OrigamiDateRange | null): void { void value; }
-  anchorOutput(value: string | null): void { void value; }`,
+  anchorOutput(value: string | null): void { void value; }
+  viewOutput(value: "days" | "months" | "years"): void { void value; }
+  monthViewOutput(value: "months" | "years"): void { void value; }
+  observePeriods(value: readonly (readonly OrigamiCalendarPeriodRecord[])[]): void { void value; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -1610,6 +1643,82 @@ const templates = [
       code: 2339,
       span: "anchor",
       message: /Property 'anchor' does not exist/,
+    },
+  },
+  {
+    name: "calendar-views-positive",
+    family: "calendar",
+    template: `<div ogCalendar #cal="ogCalendar" [(view)]="view" (viewChange)="viewOutput($event)" columns="4" (click)="viewOutput(cal.state.view()); observePeriods(cal.state.months()); observePeriods(cal.state.years())"><table ogCalendarGrid><tbody>@for (row of cal.state.years(); track $index) {<tr>@for (year of row; track year.date) {<td ogCalendarCell [date]="year.date">{{ year.label }}</td>}</tr>}</tbody></table></div><div ogCalendarMultiple #several="ogCalendarMultiple" [(view)]="view" [columns]="3" (click)="viewOutput(several.state.view())"></div><div ogCalendarRange #range="ogCalendarRange" view="months" (click)="observePeriods(range.state.months())"></div>`,
+  },
+  {
+    name: "calendar-view",
+    family: "calendar",
+    template: `<div ogCalendar view="weeks"></div>`,
+    expected: {
+      code: 2322,
+      span: "view",
+      message: /"weeks"' is not assignable to type '"days" \| "months" \| "years"'/,
+    },
+  },
+  {
+    name: "calendar-view-output",
+    family: "calendar",
+    template: `<div ogCalendar (viewChange)="monthViewOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message:
+        /"days" \| "months" \| "years"'.*not assignable to parameter of type '"months" \| "years"'/s,
+    },
+  },
+  {
+    name: "calendar-month-positive",
+    family: "calendar",
+    template: `<div ogMonthCalendar #cal="ogMonthCalendar" [(value)]="month" (valueChange)="monthOutput($event)" [(month)]="month" [(view)]="monthView" (viewChange)="monthViewOutput($event)" minMonth="2026-03" [maxMonth]="null" [monthDisabled]="weekend" locale="en-GB" today="2026-10-27" columns="4" disabled readonly (click)="cal.focus(); monthOutput(cal.state.value()); observeMonth(cal.state.month()); monthViewOutput(cal.state.view()); observePeriods(cal.state.months()); observePeriods(cal.state.years())"><button ogCalendarPrevious aria-label="Previous year"></button><h2 ogCalendarHeading>{{ cal.state.heading() }}</h2><button ogCalendarNext aria-label="Next year"></button><table ogCalendarGrid><tbody>@for (row of cal.state.months(); track $index) {<tr>@for (m of row; track m.date) {<td ogCalendarCell [date]="m.date">{{ m.label }}</td>}</tr>}</tbody></table></div>`,
+  },
+  {
+    name: "calendar-month-form-positive",
+    family: "calendar",
+    template: `<div ogField><span ogFieldLabel>Start</span><div ogMonthCalendar #cal="ogMonthCalendar" [formField]="form.start" minMonth="2026-03" [maxMonth]="month()" (touch)="touched()" (click)="cal.focus(); monthOutput(cal.value())"><table ogCalendarGrid></table></div></div>`,
+  },
+  {
+    name: "calendar-month-form-days",
+    family: "calendar",
+    template: `<div ogMonthCalendar [formField]="form.days"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /readonly string\[\].*not assignable to type 'string'/s,
+    },
+  },
+  {
+    name: "calendar-month-days-view",
+    family: "calendar",
+    template: `<div ogMonthCalendar [(view)]="view"></div>`,
+    expected: {
+      code: 2322,
+      span: "view",
+      message: /"days".*not assignable to type '"months" \| "years"'/s,
+    },
+  },
+  {
+    name: "calendar-month-min",
+    family: "calendar",
+    template: `<div ogMonthCalendar [min]="month()"></div>`,
+    expected: {
+      code: -998002,
+      span: '[min]="month()"',
+      message: /Can't bind to 'min' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "calendar-month-week-start",
+    family: "calendar",
+    template: `<div ogMonthCalendar [weekStart]="1"></div>`,
+    expected: {
+      code: -998002,
+      span: '[weekStart]="1"',
+      message: /Can't bind to 'weekStart' since it isn't a known property of 'div'/,
     },
   },
   {

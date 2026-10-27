@@ -419,20 +419,21 @@ export function outOfBounds(
 }
 
 /**
- * Whether a cell can't be chosen: out of bounds, or, for days alone, `dateDisabled`. A
- * disabled cell still takes focus.
+ * Whether a cell can't be chosen: out of bounds, or `disabled` returns true for it. The caller
+ * passes `disabled` only for the value's own level (`dateDisabled` for days, `monthDisabled` for
+ * a month value), else null. A disabled cell still takes focus.
  */
 export function cellDisabled(
   level: GridLevel,
   date: string,
   config: Pick<GridConfig, "min" | "max">,
-  dateDisabled: (date: string) => boolean,
+  disabled: ((date: string) => boolean) | null,
 ): boolean {
   if (outOfBounds(level, date, config)) {
     return true;
   }
 
-  return level === "days" && dateDisabled(date);
+  return disabled !== null && disabled(date);
 }
 
 /** Whether a cell date of `level` belongs to the period at `position` (rather than outside it). */
@@ -471,7 +472,7 @@ export function tabStop(
   level: GridLevel,
   { focused, selected, today, position }: TabStopCandidates,
   config: GridConfig,
-  dateDisabled: (date: string) => boolean,
+  disabled: ((date: string) => boolean) | null,
 ): string {
   if (focused !== null) {
     return focused;
@@ -488,7 +489,7 @@ export function tabStop(
   const cells = periodCells(level, position, config);
 
   for (const cell of cells) {
-    if (!cellDisabled(level, cell, config, dateDisabled)) {
+    if (!cellDisabled(level, cell, config, disabled)) {
       return cell;
     }
   }

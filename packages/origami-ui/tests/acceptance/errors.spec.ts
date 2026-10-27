@@ -62,6 +62,12 @@ for (const [variant, caseId, context] of [
   ["tooltip-negative-gap", "N10", /Tooltip gap must be finite and nonnegative/],
   ["tooltip-nan-gap", "N10", /Tooltip gap must be finite and nonnegative/],
   ["calendar-heading", "CA20", /Calendar supports only one mounted Heading/],
+  [
+    "calendar-cell-level",
+    "CA42",
+    // Firefox's captured console arguments escape the quotes.
+    /ogCalendarCell: the days view requires a YYYY-MM-DD date[\s\S]*\\?"2026-10\\?"[\s\S]*inert/,
+  ],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,
@@ -172,6 +178,21 @@ for (const [variant, caseId, context] of [
     expect(issues.join("\n")).not.toMatch(
       /Cannot find module|does not provide an export|NG050[0-9]|hydration mismatch/i,
     );
+
+    if (variant === "calendar-cell-level") {
+      // The month cell in the days view is inert; the day beside it isn't.
+      const inert = page.getByTestId("error-calendar-cell");
+
+      await expect(inert).toHaveAttribute("aria-disabled", "true");
+      await expect(inert).not.toHaveAttribute("tabindex", /.*/);
+      await expect(inert).not.toHaveAttribute("aria-label", /.*/);
+      await expect(inert).not.toHaveAttribute("aria-current", /.*/);
+      await expect(page.getByTestId("error-calendar-day")).toHaveAttribute(
+        "aria-label",
+        "Tuesday, October 27, 2026",
+      );
+      await expect(page.getByTestId("error-calendar-day")).toHaveAttribute("tabindex", "0");
+    }
   });
 }
 
