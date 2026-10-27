@@ -12,114 +12,18 @@ import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { documentOrder } from "./document-order";
-
-/** A widget's arrow keys: one orientation, or `both` for a widget with no orientation (RadioGroup). */
-type Orientation = "horizontal" | "vertical" | "both";
-type Move = "next" | "previous" | "first" | "last";
-
-/** One item host: its element and the value, disabled state and disabled focusability it registers. */
-type Member = {
-  readonly element: HTMLElement;
-  readonly value: Signal<string>;
-  readonly disabled: Signal<boolean>;
-  readonly focusable: Signal<boolean>;
-};
-
-/** Whether a member can take focus: enabled, or disabled but focusable. */
-function reachable(member: Member): boolean {
-  return !member.disabled() || member.focusable();
-}
+import { moveFor, reachable, searchable, targetOf } from "./roving-targets";
+import type { Member } from "./roving-targets";
+import { ɵmatchTypeahead } from "./typeahead";
 
 /**
- * Maps a key to a move. Horizontal arrows follow reading direction; vertical arrows ignore it.
- * `both` takes the vertical and the horizontal arrows.
+ * Whether `element` has focus, also in an open shadow root, where the document's `activeElement`
+ * is the shadow host. Browser only.
  */
-function moveFor(key: string, orientation: Orientation, rtl: boolean): Move | null {
-  if (key === "Home") {
-    return "first";
-  }
+function hasFocus(element: HTMLElement): boolean {
+  const root = element.getRootNode();
 
-  if (key === "End") {
-    return "last";
-  }
-
-  if (orientation !== "horizontal") {
-    if (key === "ArrowDown") {
-      return "next";
-    }
-
-    if (key === "ArrowUp") {
-      return "previous";
-    }
-  }
-
-  if (orientation === "vertical") {
-    return null;
-  }
-
-  if (key === "ArrowRight") {
-    if (rtl) {
-      return "previous";
-    }
-
-    return "next";
-  }
-
-  if (key === "ArrowLeft") {
-    if (rtl) {
-      return "next";
-    }
-
-    return "previous";
-  }
-
-  return null;
-}
-
-/** Walks DOM order from `current`, skipping members that can't take focus and wrapping at both ends. */
-function targetOf(ordered: readonly Member[], current: Member, move: Move): Member | null {
-  const targets: Member[] = [];
-
-  for (const member of ordered) {
-    if (reachable(member)) {
-      targets.push(member);
-    }
-  }
-
-  if (targets.length === 0) {
-    return null;
-  }
-
-  if (move === "first") {
-    return targets[0];
-  }
-
-  if (move === "last") {
-    return targets[targets.length - 1];
-  }
-
-  const start = ordered.indexOf(current);
-
-  if (start === -1) {
-    return null;
-  }
-
-  let step = 1;
-
-  if (move === "previous") {
-    step = -1;
-  }
-
-  for (let offset = 1; offset <= ordered.length; offset += 1) {
-    const index = (((start + step * offset) % ordered.length) + ordered.length) % ordered.length;
-    const candidate = ordered[index];
-
-    if (reachable(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
+  return "activeElement" in root && root.activeElement === element;
 }
 
 /**
@@ -151,8 +55,10 @@ export abstract class ɵOrigamiRovingFocusOptions {
  * every read. It owns one roving tab stop, arrow/Home/End movement
  * with wrapping, disabled skipping and focus repair. A disabled member that registers as
  * focusable stays a move target and can hold the tab stop, but a move onto it is no navigation.
- * It does not select, activate, typeahead or use `aria-activedescendant`; a widget that acts on
- * a keyboard move subscribes to `navigations`.
+ * It does not select, activate or use `aria-activedescendant`; a widget that acts on a keyboard
+ * move subscribes to `navigations`. A widget that enters at an edge or searches by typeahead,
+ * such as a Menu, calls `focusEdge` and `search`; the others never do, and members that register
+ * no `label` aren't searched.
  */
 @Service({ autoProvided: false })
 export class ɵOrigamiRovingFocusContext {
@@ -225,7 +131,7 @@ export class ɵOrigamiRovingFocusContext {
       }
 
       const active = this.#document.activeElement;
-      const lost = active === null || active === this.#document.body || active === focused.element;
+      const lost = active === null || active === this.#document.body || hasFocus(focused.element);
       const target = this.#tabStop();
 
       this.#focused.set(null);
@@ -246,7 +152,8 @@ export class ɵOrigamiRovingFocusContext {
    * item's `ngOnInit`, after its inputs are set; its `destroyRef` removes it.
    * @param item - `value` matches the root's preferred values and is what `navigations` emits;
    *   `disabled` items are never navigations or preferred, and are targets or tab stops only
-   *   while `focusable`.
+   *   while `focusable`. `label`, read when a key is pressed, is the item's typeahead text for
+   *   `search`; without one the item isn't searched.
    */
   register(
     item: {
@@ -254,6 +161,7 @@ export class ɵOrigamiRovingFocusContext {
       readonly value: Signal<string>;
       readonly disabled: Signal<boolean>;
       readonly focusable: Signal<boolean>;
+      readonly label?: () => string;
     },
     destroyRef: DestroyRef,
   ): void {
@@ -266,6 +174,7 @@ export class ɵOrigamiRovingFocusContext {
       value: item.value,
       disabled: item.disabled,
       focusable: item.focusable,
+      label: item.label ?? null,
     };
 
     this.#members.update((members) => [...members, member]);
@@ -313,15 +222,54 @@ export class ɵOrigamiRovingFocusContext {
     // departure, a removed or natively disabled one awaits repair, and one focused again in the
     // meantime keeps its record.
     queueMicrotask(() => {
-      const departed =
-        member.element.isConnected &&
-        reachable(member) &&
-        this.#document.activeElement !== member.element;
+      const departed = member.element.isConnected && reachable(member) && !hasFocus(member.element);
 
       if (this.#focused() === member && departed) {
         this.#focused.set(null);
       }
     });
+  }
+
+  /**
+   * @internal Focuses the first or last member that can take focus, a focusable disabled one
+   * included, in current DOM order; event time and after render only. Reads membership, so a
+   * reactive caller runs again when members register.
+   * @returns Whether a member took focus.
+   */
+  focusEdge(edge: "first" | "last"): boolean {
+    const target = targetOf(this.#ordered(), null, edge);
+
+    if (target === null) {
+      return false;
+    }
+
+    target.element.focus();
+
+    return hasFocus(target.element);
+  }
+
+  /**
+   * @internal The member a typeahead search lands on: the first, in current DOM order from
+   * `from`'s member and wrapping, whose `label` starts with `text`, case-insensitively, among
+   * the members that can take focus, focusable disabled ones included. One character, or one
+   * character repeated, starts after `from`, so repeating it cycles. Event time only; it moves
+   * no focus.
+   * @param from - The focused element; one that isn't a member searches from the first.
+   * @returns The member's element, or null without a match.
+   */
+  search(text: string, from: HTMLElement | null): HTMLElement | null {
+    let active: Member | null = null;
+
+    if (from !== null) {
+      active = this.#memberOf(from);
+    }
+
+    const match = ɵmatchTypeahead(searchable(this.#ordered()), active, text, (member) => {
+      // `searchable` keeps only members with a label.
+      return member.label?.() ?? "";
+    });
+
+    return match?.element ?? null;
   }
 
   #memberOf(element: HTMLElement): Member | null {
@@ -385,7 +333,7 @@ export class ɵOrigamiRovingFocusContext {
     // focused. A focusable disabled target takes focus but is no navigation.
     const registered = this.#members().includes(target);
 
-    if (registered && !target.disabled() && this.#document.activeElement === target.element) {
+    if (registered && !target.disabled() && hasFocus(target.element)) {
       this.#navigations.next(target.value());
     }
   }

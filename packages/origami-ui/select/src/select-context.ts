@@ -2,9 +2,10 @@ import { DestroyRef, Service, computed, effect, inject, signal, untracked } from
 import type { Provider, Signal, WritableSignal } from "@angular/core";
 import { FORM_FIELD } from "@angular/forms/signals";
 import type { FieldState } from "@angular/forms/signals";
+import { ɵTypeaheadBuffer, ɵmatchTypeahead } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { Subject } from "rxjs";
-import { TypeaheadBuffer, matchTypeahead, moveActiveOption } from "./active-option";
+import { moveActiveOption } from "./active-option";
 import type { ActiveOptionMove } from "./active-option";
 
 /** The values a Select and its options carry, compared with `===`. */
@@ -114,7 +115,7 @@ export class SelectContext {
   readonly #trigger = signal<SelectTriggerRegistration | null>(null);
   readonly #active = signal<SelectOptionRegistration | null>(null);
   readonly #reveal = signal<SelectReveal | null>(null);
-  readonly #typeahead = new TypeaheadBuffer();
+  readonly #typeahead = new ɵTypeaheadBuffer();
   #destroyed = false;
   /** Whether the list participated since the last user open, so losing participation closes. */
   #participated = false;
@@ -287,7 +288,7 @@ export class SelectContext {
     }
 
     const search = this.#typeahead.add(character, time);
-    const match = matchTypeahead(this.#candidates(), null, search, typeaheadText);
+    const match = ɵmatchTypeahead(this.#candidates(), null, search, typeaheadText);
 
     if (match !== null) {
       this.#activate(match);
@@ -339,7 +340,7 @@ export class SelectContext {
   /** A printable key while open: moves the active option to the next match, if any. */
   typeahead(character: string, time: number): void {
     const search = this.#typeahead.add(character, time);
-    const match = matchTypeahead(this.#candidates(), this.active(), search, typeaheadText);
+    const match = ɵmatchTypeahead(this.#candidates(), this.active(), search, typeaheadText);
 
     if (match !== null) {
       this.#activate(match);

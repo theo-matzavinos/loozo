@@ -54,6 +54,7 @@ for (const directory of [
   "select",
   "calendar",
   "date-field",
+  "menu",
   "dist",
 ]) {
   librarySources.push(path.resolve(directory));
@@ -545,7 +546,7 @@ export async function auditBundleContexts(
     }
   }
 
-  assert.equal(publicClasses.length, 150, "Packaged token inventory changed; review required");
+  assert.equal(publicClasses.length, 166, "Packaged token inventory changed; review required");
 
   assert.deepEqual(
     Object.keys(metafiles).sort(),
@@ -642,7 +643,7 @@ export async function auditBundleContexts(
   for (const context of [application, browser]) {
     assert.equal(
       Object.keys(context.apf).length,
-      20,
+      21,
       "Missing complete installed APF support input evidence",
     );
 

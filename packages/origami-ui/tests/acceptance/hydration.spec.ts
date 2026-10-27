@@ -1716,6 +1716,105 @@ test("Z8 H1 H2 H3: a Select's server HTML is closed with the consumer's label an
   }
 });
 
+/** Menu server state: closed, named by its Trigger, every item out of the Tab order. */
+async function expectServerMenus(page: Page, labels: string[]): Promise<void> {
+  for (const label of labels) {
+    const unit = page.locator(`[data-unit="${label}"]`);
+    const trigger = unit.getByTestId("hydration-menu-trigger");
+    const content = unit.getByTestId("hydration-menu-content");
+
+    await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(trigger).toHaveAttribute(
+      "aria-controls",
+      (await content.getAttribute("id")) ?? "",
+    );
+    await expect(content).toHaveAttribute("role", "menu");
+    await expect(content).toHaveAttribute("popover", "manual");
+    await expect(content).toHaveAttribute("inert", "");
+    await expect(content).toHaveAttribute("tabindex", "-1");
+    await expect(content).toHaveAttribute(
+      "aria-labelledby",
+      (await trigger.getAttribute("id")) ?? "",
+    );
+    await expect(unit.getByTestId("hydration-menu-rename")).toHaveAttribute("role", "menuitem");
+    await expect(unit.getByTestId("hydration-menu-rename")).toHaveAttribute("tabindex", "-1");
+    await expect(unit.getByTestId("hydration-menu-archive")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  }
+}
+
+test("MN8 H1 H2 H3: a Menu's server HTML is closed and named by its Trigger, and hydration keeps it; a Trigger click after attachment or replay opens it once on its first item", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+  let releaseLazy = () => {};
+
+  try {
+    await expectServerMenus(page, ["A", "B", "C"]);
+
+    const b = page.locator('[data-unit="B"]');
+    const trigger = b.getByTestId("hydration-menu-trigger");
+    const content = b.getByTestId("hydration-menu-content");
+
+    if (incremental) {
+      // Holds B's genuine deferred dependency so the initiating click must be replayed.
+      const lazy = await holdDependency(page, "data-client-render-seen");
+
+      releaseLazy = lazy.release;
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.acceptanceObservation.registrations.some(
+              (item) => item.type === "click" && item.target === "body",
+            ),
+          ),
+        )
+        .toBe(true);
+      await trigger.click();
+      await expect.poll(() => lazy.requests.length).toBeGreaterThan(0);
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+      await expect(b.getByTestId("menu-open-count")).toHaveText("0");
+      lazy.release();
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+
+      for (const label of ["A", "C"]) {
+        await expect(page.locator(`[data-unit="${label}"]`)).toHaveAttribute(
+          "data-client-render-seen",
+          "false",
+        );
+      }
+
+      await expectServerMenus(page, ["A", "C"]);
+    } else {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      // Hydration changes no server attribute.
+      await expectServerMenus(page, ["A", "B", "C"]);
+      await trigger.click();
+    }
+
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(b.getByTestId("hydration-menu-rename")).toBeFocused();
+    await expect(b.getByTestId("menu-open-count")).toHaveText("1");
+    await assertReferences(page, info);
+    await b.getByTestId("hydration-menu-rename").click();
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+    await expect(trigger).toBeFocused();
+    await expect(b.getByTestId("menu-open-count")).toHaveText("2");
+  } finally {
+    releaseMain();
+    releaseLazy();
+  }
+});
+
 test("Z19 H1 H2: the list's name copied from the Trigger's static aria-label is in server HTML and survives hydration; once hydrated, the Trigger leaving drops it and a new Trigger brings it back", async ({
   page,
 }, info) => {

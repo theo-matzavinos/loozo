@@ -59,6 +59,7 @@ for (const directory of [
   "select/src",
   "calendar/src",
   "date-field/src",
+  "menu/src",
 ]) {
   await collect(directory);
 }
@@ -265,6 +266,19 @@ const directiveDefaults = {
   "OrigamiTimeField.hourCycle": ["null", /\bnull\b/i],
   "OrigamiTimeField.disabled": ["false", /\bfalse\b/i],
   "OrigamiTimeField.readonly": ["false", /\bfalse\b/i],
+  "OrigamiMenu.open": ["false", /\bfalse\b/i],
+  "OrigamiMenu.disabled": ["false", /\bfalse\b/i],
+  "OrigamiMenuTrigger.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiMenuTrigger.disabled": ["false", /\bfalse\b/i],
+  "OrigamiMenuTrigger.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiMenuContent.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiMenuContent.side": ["block-end", /block-end/],
+  "OrigamiMenuContent.align": ["start", /\bstart\b/],
+  "OrigamiMenuContent.gap": ["0", /\b0\b/],
+  "OrigamiMenuItem.disabled": ["false", /\bfalse\b/i],
+  "OrigamiMenuItem.label": ["null", /\bnull\b/i],
+  "OrigamiMenuLink.label": ["null", /\bnull\b/i],
+  "OrigamiMenuGroupLabel.id": ["opaque generated hosted ID", /generat/i],
 };
 const subjects = [];
 const failures = [];

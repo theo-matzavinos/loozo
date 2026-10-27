@@ -1,7 +1,8 @@
 /**
- * The Select's active-option rules: where a key moves the highlighted option and what typeahead
- * matches. Pure and framework-free; the Select Context feeds them its registered options in DOM
- * order at event time. Package-private.
+ * The Select's active-option rules: where a key moves the highlighted option. Pure and
+ * framework-free; the Select Context feeds them its registered options in DOM order at event time.
+ * Typeahead is the shared `ɵmatchTypeahead` and `ɵTypeaheadBuffer` from /collection.
+ * Package-private.
  */
 
 /** What the rules read from an option, at event time. */
@@ -13,8 +14,6 @@ export interface ActiveOptionCandidate {
 export type ActiveOptionMove = "first" | "last" | "next" | "previous" | "pageUp" | "pageDown";
 
 const pageSize = 10;
-/** How long a typeahead buffer keeps running after its last character, in milliseconds. */
-const typeaheadTimeout = 500;
 
 /**
  * The option a move lands on.
@@ -91,85 +90,4 @@ export function moveActiveOption<C extends ActiveOptionCandidate>(
   }
 
   return enabled[Math.max(backward - pageSize + 1, 0)];
-}
-
-/**
- * The first option whose text starts with the search, case-insensitively, in DOM order from the
- * active option, wrapping. A single character, or one character repeated, starts after the active
- * option, so repeating a character cycles through the options it starts.
- * @param candidates - The enabled options in DOM order.
- * @param active - The current active option, or null to search from the first candidate.
- * @param search - The typeahead buffer.
- * @param text - Reads an option's typeahead text.
- * @returns The match, or null.
- */
-export function matchTypeahead<C>(
-  candidates: readonly C[],
-  active: C | null,
-  search: string,
-  text: (option: C) => string,
-): C | null {
-  // One code point repeated, such as "bbb", searches for that character.
-  const repeated = /^(.)\1+$/su.exec(search);
-  let query = search.toLocaleLowerCase();
-
-  if (repeated !== null) {
-    query = repeated[1].toLocaleLowerCase();
-  }
-
-  const count = candidates.length;
-  let position = -1;
-  let start = 0;
-
-  if (active !== null) {
-    position = candidates.indexOf(active);
-  }
-
-  if (position !== -1) {
-    start = position;
-
-    if (/^.$/su.test(query)) {
-      start = position + 1;
-    }
-  }
-
-  for (let step = 0; step < count; step++) {
-    const candidate = candidates[(start + step) % count];
-
-    if (text(candidate).toLocaleLowerCase().startsWith(query)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-/** The typeahead buffer: characters typed within 500 ms of each other. */
-export class TypeaheadBuffer {
-  #buffer = "";
-  #time = 0;
-
-  /** Whether a buffer typed before `time` still runs, so a Space joins it instead of committing. */
-  running(time: number): boolean {
-    return this.#buffer !== "" && time - this.#time <= typeaheadTimeout;
-  }
-
-  /**
-   * Adds a character typed at `time`, starting a new buffer when the last one stopped running.
-   * @returns The buffer.
-   */
-  add(character: string, time: number): string {
-    if (!this.running(time)) {
-      this.#buffer = "";
-    }
-
-    this.#buffer += character;
-    this.#time = time;
-
-    return this.#buffer;
-  }
-
-  reset(): void {
-    this.#buffer = "";
-  }
 }

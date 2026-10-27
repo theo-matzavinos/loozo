@@ -288,6 +288,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/select",
     "@loozo/origami-ui/calendar",
     "@loozo/origami-ui/date-field",
+    "@loozo/origami-ui/menu",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -329,6 +330,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/select"].length, 14);
   assert.equal(names["@loozo/origami-ui/calendar"].length, 22);
   assert.equal(names["@loozo/origami-ui/date-field"].length, 10);
+  assert.equal(names["@loozo/origami-ui/menu"].length, 16);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -372,6 +374,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "select:Select",
     "calendar:Calendar",
     "date-field:Date field",
+    "menu:Menu",
     "utils:Utilities",
   ]);
 
@@ -387,7 +390,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 23 snippets that export one component", async () => {
+test("origami's guide pages run the 24 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -395,7 +398,7 @@ test("origami's guide pages run the 23 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 23);
+  assert.equal(ids.length, 24);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -440,6 +443,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "tooltip/copy-link.ts": ["openDelay:input:number", "side:input:options"],
     "switch/notifications.ts": ["enabled:model:boolean", "disabled:input:boolean"],
     "select/country.ts": ["disabled:input:boolean"],
+    "menu/row-actions.ts": ["disabled:input:boolean"],
     "calendar/date-of-birth.ts": [
       "disabled:input:boolean",
       "readonly:input:boolean",

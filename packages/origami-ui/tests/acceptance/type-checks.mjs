@@ -124,6 +124,7 @@ import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOp
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
+import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, type OrigamiMenuState, type OrigamiMenuItemState } from '@loozo/origami-ui/menu';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -471,6 +472,29 @@ const dateFieldPart: OrigamiDateFieldPart | undefined = dateFieldState.segments(
 dateFieldPart!.text = '27';
 const dateFieldErrorKind: string | undefined = dateFieldState.parseErrors()[0]?.kind;
 void dateFieldErrorKind;
+// Positive: whole Menu factories, with ordinary signals.
+OrigamiMenuOptions.provideFactory(() => ({open: signal(false), disabled: computed(() => false)}));
+OrigamiMenuTriggerOptions.provideFactory(() => ({id: signal('actions'), disabled: signal(false), focusableWhenDisabled: signal(false)}));
+OrigamiMenuItemOptions.provideFactory(() => ({disabled: signal(false), label: signal<string | null>('Delete')}));
+OrigamiMenuLinkOptions.provideFactory(() => ({label: signal<string | null>(null)}));
+OrigamiMenuGroupLabelOptions.provideFactory(() => ({id: signal('sort-label')}));
+// @ts-expect-error Menu open must be writable
+OrigamiMenuOptions.provideFactory(() => ({open: computed(() => false), disabled: signal(false)}));
+// @ts-expect-error a Menu factory must supply disabled
+OrigamiMenuOptions.provideFactory(() => ({open: signal(false)}));
+// @ts-expect-error a Menu Content factory must supply gap
+OrigamiMenuContentOptions.provideFactory(() => ({id: signal('menu'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start')}));
+// @ts-expect-error a Menu item factory must supply label
+OrigamiMenuItemOptions.provideFactory(() => ({disabled: signal(false)}));
+// @ts-expect-error a Menu link has no disabled; its label is a string or null
+OrigamiMenuLinkOptions.provideFactory(() => ({label: signal(false)}));
+declare const menuState: OrigamiMenuState;
+// @ts-expect-error Menu State open is readonly
+menuState.open.set(true);
+declare const menuItemState: OrigamiMenuItemState;
+// @ts-expect-error Menu item State disabled is readonly
+menuItemState.disabled.set(true);
+menuItemState.select.subscribe(() => {});
 declare const monthCalendarState: OrigamiMonthCalendarState;
 const monthCalendarView: 'months' | 'years' = monthCalendarState.view();
 const monthCalendarValue: string | null = monthCalendarState.value();
