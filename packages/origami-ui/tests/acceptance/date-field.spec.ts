@@ -1062,3 +1062,100 @@ test("DF18 seed with non-consecutive digits: rendered with zh-u-nu-hanidec on th
   await expect(segment(page, "hanidec", "month")).toHaveAttribute("aria-valuetext", "三月");
   await expectClean(page, "hanidec");
 });
+
+const emptyDate = ["––", "/", "––", "/", "––––"];
+
+test("DF19 clear() on an empty field with a half-typed draft empties every segment and removes the parse error, emitting nothing", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-field", info);
+
+  const parse = page.getByTestId("typing-parse");
+
+  await segment(page, "typing", "month").focus();
+  await page.keyboard.type("10");
+  await expect.poll(() => texts(page, "typing")).toEqual(["10", "/", "––", "/", "––––"]);
+  await expect(parse).toHaveText("dateIncomplete");
+  await page.getByTestId("typing-clear").click();
+  await expect.poll(() => texts(page, "typing")).toEqual(emptyDate);
+  await expect(parse).toHaveText("");
+  await expect(page.getByTestId("typing-value")).toHaveText("null");
+  await expect(page.getByTestId("typing-writes")).toHaveText("0");
+  await expectClean(page, "typing");
+});
+
+test("DF20 clear() while a segment keeps focus ends its typing: the next digit starts the unit over", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-field", info);
+
+  const month = segment(page, "typing", "month");
+
+  // A script click leaves focus where it is.
+  await moveFocus(month);
+  await page.keyboard.type("1");
+  await expect(month).toHaveText("01");
+  await page.getByTestId("typing-clear").evaluate((button: HTMLElement) => button.click());
+  await expect(month).toHaveText("––");
+  await expect.poll(() => focused(page)).toBe("month");
+  await page.keyboard.type("2");
+  await expect(month).toHaveText("02");
+  await expect.poll(() => focused(page)).toBe("day");
+  await expect(page.getByTestId("typing-writes")).toHaveText("0");
+});
+
+test("DF21 clear() over a committed date with a half-typed day commits null once and Signal Forms sees it; readonly and disabled don't stop it", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-field", info);
+
+  const value = page.getByTestId("direct-value");
+  const errors = page.getByTestId("direct-errors");
+  const writes = page.getByTestId("direct-writes");
+
+  await moveFocus(segment(page, "direct", "day"));
+  await page.keyboard.press("Delete");
+  await expect(errors).toHaveText("dateIncomplete");
+  await expect(value).toHaveText("2026-10-27");
+  await page.getByTestId("direct-clear").click();
+  await expect(value).toHaveText("");
+  // The field is required, so required is its only error.
+  await expect(errors).toHaveText("required");
+  await expect(page.getByTestId("direct-parse")).toHaveText("");
+  await expect(writes).toHaveText("1");
+  await expect.poll(() => texts(page, "direct")).toEqual(emptyDate);
+
+  // A programmatic write, so the form's readonly and disabled rules don't stop it.
+  for (const policy of ["direct-freeze", "direct-lock"]) {
+    await page.getByTestId("direct-write").click();
+    await expect(value).toHaveText("2026-12-25");
+    await page.getByTestId(policy).click();
+    await page.getByTestId("direct-clear").click();
+    await expect(value).toHaveText("");
+    await expect.poll(() => texts(page, "direct")).toEqual(emptyDate);
+    await page.getByTestId(policy).click();
+  }
+
+  await expect(writes).toHaveText("3");
+  await expectClean(page, "direct");
+});
+
+test("DF22 clear() on a root composed by a directive that supplies its Options clears through the composer's value", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-field", info);
+
+  const errors = page.getByTestId("composed-errors");
+
+  await moveFocus(segment(page, "composed", "day"));
+  await page.keyboard.press("Delete");
+  await expect(errors).toHaveText("dateIncomplete");
+  await page.getByTestId("composed-clear").click();
+  await expect(page.getByTestId("composed-value")).toHaveText("");
+  await expect(errors).toHaveText("");
+  await expect(page.getByTestId("composed-parse")).toHaveText("");
+  await expect(page.getByTestId("composed-writes")).toHaveText("1");
+  await expect(page.getByTestId("composed-own-value")).toHaveText("null");
+  await expect.poll(() => texts(page, "composed")).toEqual(emptyDate);
+  await expectClean(page, "composed");
+});

@@ -270,7 +270,7 @@ export class OrigamiDateFieldSegment implements OrigamiDateFieldSegmentOptions {
       case "deleteWordBackward":
       case "deleteWordForward":
       case "deleteByCut":
-        this.#context.clear(this.#registration);
+        this.#context.emptyUnit(this.#registration);
 
         return;
     }
@@ -369,7 +369,7 @@ export class OrigamiDateFieldSegment implements OrigamiDateFieldSegmentOptions {
         return;
       case "Delete":
         prevent(event);
-        this.#context.clear(this.#registration);
+        this.#context.emptyUnit(this.#registration);
 
         return;
     }

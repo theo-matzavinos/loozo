@@ -8,14 +8,17 @@ A date field is a typed date input made of one editable segment per unit, day, m
 | `ogDateFieldInput`   | none; the segment group, usually a `<div>`; it may share the root's element                                                                                  |
 | `ogDateFieldSegment` | `ogDateFieldSegment: "year" \| "month" \| "day"` (required: the unit), `placeholder: string \| null` (default `null`: one `–` per digit); usually a `<span>` |
 
+<!-- prettier-ignore -->
 ```html
 <div ogDateField [(value)]="birthDate" #date="ogDateField">
   <div ogDateFieldInput aria-label="Date of birth">
-    @for (part of date.state.segments(); track part.key) { @if (part.type === "literal") {
-    <span aria-hidden="true">{{ part.text }}</span>
-    } @else {
-    <span [ogDateFieldSegment]="part.type"></span>
-    } }
+    @for (part of date.state.segments(); track part.key) {
+      @if (part.type === "literal") {
+        <span aria-hidden="true">{{ part.text }}</span>
+      } @else {
+        <span [ogDateFieldSegment]="part.type"></span>
+      }
+    }
   </div>
 </div>
 ```
@@ -48,34 +51,45 @@ The field keeps what you type in a draft. A complete, real date is written to `v
 - `{ kind: "dateIncomplete" }` while a segment is empty, holds a waiting `0`, or the year has fewer than four digits (`10/––/2026`);
 - `{ kind: "dateInvalid" }` for a date that doesn't exist (`02/31/2026`), shown as typed, never clamped.
 
-Clearing the day of a loaded date keeps its month and year, and its value. Writing `value` replaces the draft; writing the value it already has changes nothing, so use the form's `reset()` to throw a draft away. A value that isn't a canonical date (`"27/10/2026"`, `"2026-02-31"`) shows empty segments and stays until someone edits.
+Clearing the day of a loaded date keeps its month and year, and its value. Writing `value` replaces the draft; writing the value it already has changes nothing, so use the form's `reset()` to throw a draft away and keep the value. A value that isn't a canonical date (`"27/10/2026"`, `"2026-02-31"`) shows empty segments and stays until someone edits.
+
+To empty the field, call the root's `clear()`, not `value.set(null)`. It throws the draft away with its half-typed units and parse error, and writes `null` to the value. Writing `null` yourself does nothing while the value is already `null`, so a half-typed `10/––/––––` over an empty field would stay with its `dateIncomplete`. `valueChange` emits only if the value wasn't `null`. Like any write from code, `clear()` works while the field is readonly or disabled. If a segment keeps focus, the next digit starts its unit over.
 
 Without Signal Forms, read the same errors from `state.parseErrors()`. Origami ships no messages; map the kinds to your own.
 
 ## Forms and Fields
 
+<!-- prettier-ignore -->
 ```html
 <div ogField #field="ogField">
   <span ogFieldLabel>Date of birth</span>
   <div ogDateField ogDateFieldInput [formField]="form.dateOfBirth" #date="ogDateField">
-    @for (part of date.state.segments(); track part.key) { @if (part.type === "literal") {
-    <span aria-hidden="true">{{ part.text }}</span>
-    } @else {
-    <span [ogDateFieldSegment]="part.type"></span>
-    } }
+    @for (part of date.state.segments(); track part.key) {
+      @if (part.type === "literal") {
+        <span aria-hidden="true">{{ part.text }}</span>
+      } @else {
+        <span [ogDateFieldSegment]="part.type"></span>
+      }
+    }
   </div>
-  @if (field.state.errorsShown()) { @switch (field.state.errors()[0]?.kind) { @case
-  ("dateIncomplete") {
-  <p ogFieldError>Enter a complete date</p>
-  } @case ("dateInvalid") {
-  <p ogFieldError>This date doesn't exist</p>
-  } @default {
-  <p ogFieldError>{{ field.state.errors()[0]?.message }}</p>
-  } } }
+  <button type="button" (click)="date.clear()">Clear</button>
+  @if (field.state.errorsShown()) {
+    @switch (field.state.errors()[0]?.kind) {
+      @case ("dateIncomplete") {
+        <p ogFieldError>Enter a complete date</p>
+      }
+      @case ("dateInvalid") {
+        <p ogFieldError>This date doesn't exist</p>
+      }
+      @default {
+        <p ogFieldError>{{ field.state.errors()[0]?.message }}</p>
+      }
+    }
+  }
 </div>
 ```
 
-- **Signal Forms:** put `[formField]` on the root, for a `string | null` field. It binds the `value` model, writes `disabled` and `readonly` from the field's rules, and marks the field touched when focus leaves the Input; moving between segments doesn't touch it. The parse errors come first in the field's errors, so `dateIncomplete` and `required` can both be there while a draft sits over an empty value. `focusBoundControl()` calls the root's `focus()`, which focuses the first segment. Bounds and other rules belong in the schema:
+- **Signal Forms:** put `[formField]` on the root, for a `string | null` field. It binds the `value` model, writes `disabled` and `readonly` from the field's rules, and marks the field touched when focus leaves the Input; moving between segments doesn't touch it. The parse errors come first in the field's errors, so `dateIncomplete` and `required` can both be there while a draft sits over an empty value. `focusBoundControl()` calls the root's `focus()`, which focuses the first segment. To empty the field, call `clear()` (see [Half-typed and impossible dates](#half-typed-and-impossible-dates)): the form sees the `null`, and a draft over an already empty value goes too. Don't write `null` to the form's value for this, and keep the form's `reset()` for when you also want to reset touched and dirty. Bounds and other rules belong in the schema:
 
   ```ts
   validate(path.dateOfBirth, ({ value }) =>
@@ -89,7 +103,7 @@ Without Signal Forms, read the same errors from `state.parseErrors()`. Origami s
 
 ### Your own control
 
-A directive that composes `ogDateField` through `hostDirectives` and is itself the form control has its own `value` model and `disabled` and `readonly` inputs, provides the date field's Options from them, exposes the root's `touch` and forwards `focus()`, since Signal Forms calls it on the control it binds. The parse errors still reach the form.
+A directive that composes `ogDateField` through `hostDirectives` and is itself the form control has its own `value` model and `disabled` and `readonly` inputs, provides the date field's Options from them, exposes the root's `touch` and forwards `focus()`, since Signal Forms calls it on the control it binds. The parse errors still reach the form, and the composed root's `clear()` writes `null` through your `value`.
 
 ```ts
 @Directive({

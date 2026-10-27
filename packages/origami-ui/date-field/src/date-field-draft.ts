@@ -10,7 +10,8 @@ import type { Draft } from "./date-field-unit";
  * effective `value`, with the root's shape as `parse` and `format`. Writing a draft parses it: a
  * complete real value commits at once, all units empty commits null, anything else keeps the
  * value and sets the parse error. A value write, an external one included, replaces the draft;
- * so does Signal Forms' `reset()`, also to the value already committed.
+ * so does Signal Forms' `reset()`, also to the value already committed, and the root's `clear()`,
+ * which writes the empty draft.
  *
  * Provided by each root and created the first time something reads it, outside any reactive
  * context (A1): its constructor is an injection context of the root's node injector, so
