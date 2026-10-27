@@ -63,6 +63,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/select.js").then((module) => module.SelectFixture),
   },
   {
+    path: "calendar",
+    loadComponent: () => import("./fixtures/calendar.js").then((module) => module.CalendarFixture),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),

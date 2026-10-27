@@ -158,6 +158,19 @@ export const inventory = {
     "OrigamiSelectOptionOptions",
     "OrigamiSelectOptionState",
   ],
+  calendar: [
+    "OrigamiCalendar",
+    "OrigamiCalendarOptions",
+    "OrigamiCalendarState",
+    "OrigamiCalendarDayRecord",
+    "OrigamiCalendarGrid",
+    "OrigamiCalendarCell",
+    "OrigamiCalendarCellOptions",
+    "OrigamiCalendarHeading",
+    "OrigamiCalendarHeadingOptions",
+    "OrigamiCalendarPrevious",
+    "OrigamiCalendarNext",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -175,4 +188,5 @@ export const typeOnly = new Set([
   "OrigamiDialogOpener",
   "OrigamiDialogBindings",
   "OrigamiSelectOptionRecord",
+  "OrigamiCalendarDayRecord",
 ]);

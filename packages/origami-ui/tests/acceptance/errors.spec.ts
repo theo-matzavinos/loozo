@@ -61,6 +61,7 @@ for (const [variant, caseId, context] of [
   ["tooltip-content", "N1", /Tooltip supports only one mounted content/],
   ["tooltip-negative-gap", "N10", /Tooltip gap must be finite and nonnegative/],
   ["tooltip-nan-gap", "N10", /Tooltip gap must be finite and nonnegative/],
+  ["calendar-heading", "CA20", /Calendar supports only one mounted Heading/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,

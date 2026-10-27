@@ -1,7 +1,7 @@
 {
   "name": "@loozo/origami-ui",
   "version": "0.0.2",
-  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs, toggle group, toolbar, radio group, button, tooltip, field, checkbox, switch, dialog, alert dialog and select.",
+  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs, toggle group, toolbar, radio group, button, tooltip, field, checkbox, switch, dialog, alert dialog, select and calendar.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
   "author": "Theophilos Matzavinos",
@@ -85,6 +85,10 @@
       "types": "./dist/types/loozo-origami-ui-select.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-select.mjs"
     },
+    "./calendar": {
+      "types": "./dist/types/loozo-origami-ui-calendar.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-calendar.mjs"
+    },
     "./utils": {
       "types": "./dist/types/loozo-origami-ui-utils.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-utils.mjs"
@@ -116,7 +120,7 @@
     "acceptance:types": "node tests/acceptance/type-checks.mjs",
     "acceptance:docs": "node tests/acceptance/docs-checks.mjs",
     "acceptance:docs:audit": "node tests/acceptance/docs-checks.mjs --audit",
-    "acceptance:node": "node tests/acceptance/utility-checks.mjs && node tests/acceptance/selection-checks.mjs && node tests/acceptance/ssr-checks.mjs",
+    "acceptance:node": "node tests/acceptance/utility-checks.mjs && node tests/acceptance/selection-checks.mjs && node tests/acceptance/calendar-checks.mjs && node tests/acceptance/ssr-checks.mjs",
     "acceptance:check": "pnpm run acceptance:package && pnpm run acceptance:types && pnpm run acceptance:docs && pnpm run acceptance:node",
     "acceptance:aot": "(cd .scratch/consumer && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration development-eager && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration development-incremental && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration production-eager && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration production-incremental)",
     "acceptance:bundles": "node tests/acceptance/bundle-checks.mjs",

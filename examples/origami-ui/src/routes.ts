@@ -73,6 +73,11 @@ export const routes: Routes = [
       import("./fixtures/select-deferred.js").then((module) => module.SelectDeferred),
   },
   {
+    path: "calendar",
+    loadComponent: () =>
+      import("./fixtures/calendar-deferred.js").then((module) => module.CalendarDeferred),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),

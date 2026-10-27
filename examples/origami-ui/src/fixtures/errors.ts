@@ -24,6 +24,7 @@ import {
   OrigamiTooltipContent,
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
+import { OrigamiCalendar, OrigamiCalendarHeading } from "@loozo/origami-ui/calendar";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -50,6 +51,8 @@ import {
     OrigamiTooltip,
     OrigamiTooltipTrigger,
     OrigamiTooltipContent,
+    OrigamiCalendar,
+    OrigamiCalendarHeading,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -86,6 +89,7 @@ import {
         <option value="tooltip-content">Duplicate tooltip content</option>
         <option value="tooltip-negative-gap">Negative tooltip gap</option>
         <option value="tooltip-nan-gap">NaN tooltip gap</option>
+        <option value="calendar-heading">Duplicate calendar heading</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -138,6 +142,12 @@ import {
         <span ogTooltipContent>Second tooltip content</span>
       }
     </span>
+    <section ogCalendar today="2026-10-27">
+      <h2 ogCalendarHeading>First calendar heading</h2>
+      @if (mounted() && selected() === "calendar-heading") {
+        <h2 ogCalendarHeading>Second calendar heading</h2>
+      }
+    </section>
     <section ogCollapsible>
       <button ogCollapsibleTrigger>First trigger</button>
       <div ogCollapsiblePanel>First panel</div>
