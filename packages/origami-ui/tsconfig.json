@@ -32,7 +32,8 @@
       "@loozo/origami-ui/switch": ["./switch/src/public-api.ts"],
       "@loozo/origami-ui/dialog": ["./dialog/src/public-api.ts"],
       "@loozo/origami-ui/select": ["./select/src/public-api.ts"],
-      "@loozo/origami-ui/calendar": ["./calendar/src/public-api.ts"]
+      "@loozo/origami-ui/calendar": ["./calendar/src/public-api.ts"],
+      "@loozo/origami-ui/date-field": ["./date-field/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -60,6 +61,7 @@
     "switch/src/**/*.ts",
     "dialog/src/**/*.ts",
     "select/src/**/*.ts",
-    "calendar/src/**/*.ts"
+    "calendar/src/**/*.ts",
+    "date-field/src/**/*.ts"
   ]
 }

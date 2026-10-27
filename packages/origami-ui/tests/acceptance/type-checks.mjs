@@ -123,6 +123,7 @@ import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
+import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -439,6 +440,27 @@ OrigamiMonthCalendarOptions.provideFactory(() => ({value: signal<string | null>(
 OrigamiMonthCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'months' | 'years'>('months'), min: signal<string | null>(null), max: signal<string | null>(null), monthDisabled: signal(() => false), locale: signal('en-US'), today: signal('2026-10-27'), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error month Calendar value must be writable
 OrigamiMonthCalendarOptions.provideFactory(() => ({value: computed<string | null>(() => null), month: signal<string | null>(null), view: signal<'months' | 'years'>('months'), minMonth: signal<string | null>(null), maxMonth: signal<string | null>(null), monthDisabled: signal(() => false), locale: signal('en-US'), today: signal('2026-10-27'), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
+// Positive: a whole date field factory, with ordinary signals.
+OrigamiDateFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-GB'), disabled: computed(() => false), readonly: signal(false)}));
+// @ts-expect-error date field value must be writable
+OrigamiDateFieldOptions.provideFactory(() => ({value: computed<string | null>(() => null), locale: signal('en-US'), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error date field value is a string day, never a Date
+OrigamiDateFieldOptions.provideFactory(() => ({value: signal<Date | null>(null), locale: signal('en-US'), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a date field factory must supply readonly
+OrigamiDateFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), disabled: signal(false)}));
+OrigamiDateFieldSegmentOptions.provideFactory(() => ({segment: input.required<OrigamiDateFieldSegmentType>(), placeholder: signal<string | null>('dd')}));
+// @ts-expect-error a date field segment is a unit, not any string
+OrigamiDateFieldSegmentOptions.provideFactory(() => ({segment: signal('week'), placeholder: signal<string | null>(null)}));
+// @ts-expect-error a date field segment factory must supply placeholder
+OrigamiDateFieldSegmentOptions.provideFactory(() => ({segment: signal<OrigamiDateFieldSegmentType>('day')}));
+declare const dateFieldState: OrigamiDateFieldState;
+// @ts-expect-error date field State value is readonly
+dateFieldState.value.set('2026-10-27');
+const dateFieldPart: OrigamiDateFieldPart | undefined = dateFieldState.segments()[0];
+// @ts-expect-error date field parts are readonly
+dateFieldPart!.text = '27';
+const dateFieldErrorKind: string | undefined = dateFieldState.parseErrors()[0]?.kind;
+void dateFieldErrorKind;
 declare const monthCalendarState: OrigamiMonthCalendarState;
 const monthCalendarView: 'months' | 'years' = monthCalendarState.view();
 const monthCalendarValue: string | null = monthCalendarState.value();

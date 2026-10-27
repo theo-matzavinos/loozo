@@ -68,6 +68,7 @@ for (const [variant, caseId, context] of [
     // Firefox's captured console arguments escape the quotes.
     /ogCalendarCell: the days view requires a YYYY-MM-DD date[\s\S]*\\?"2026-10\\?"[\s\S]*inert/,
   ],
+  ["date-field-input", "DF16", /Date field supports only one mounted Input/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,

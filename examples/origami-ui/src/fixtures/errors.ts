@@ -29,6 +29,7 @@ import {
   OrigamiCalendarCell,
   OrigamiCalendarHeading,
 } from "@loozo/origami-ui/calendar";
+import { OrigamiDateField, OrigamiDateFieldInput } from "@loozo/origami-ui/date-field";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -58,6 +59,8 @@ import {
     OrigamiCalendar,
     OrigamiCalendarCell,
     OrigamiCalendarHeading,
+    OrigamiDateField,
+    OrigamiDateFieldInput,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -96,6 +99,7 @@ import {
         <option value="tooltip-nan-gap">NaN tooltip gap</option>
         <option value="calendar-heading">Duplicate calendar heading</option>
         <option value="calendar-cell-level">Month cell in a calendar's days view</option>
+        <option value="date-field-input">Duplicate date field Input</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -162,6 +166,12 @@ import {
             </tr>
           </tbody>
         </table>
+      }
+    </section>
+    <section ogDateField>
+      <div ogDateFieldInput></div>
+      @if (mounted() && selected() === "date-field-input") {
+        <div ogDateFieldInput></div>
       }
     </section>
     <section ogCollapsible>
