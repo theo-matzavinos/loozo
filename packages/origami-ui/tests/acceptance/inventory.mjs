@@ -194,6 +194,24 @@ export const inventory = {
     "OrigamiTimeField",
     "OrigamiTimeFieldOptions",
   ],
+  menu: [
+    "OrigamiMenu",
+    "OrigamiMenuOptions",
+    "OrigamiMenuState",
+    "OrigamiMenuTrigger",
+    "OrigamiMenuTriggerOptions",
+    "OrigamiMenuContent",
+    "OrigamiMenuContentOptions",
+    "OrigamiMenuItem",
+    "OrigamiMenuItemOptions",
+    "OrigamiMenuItemState",
+    "OrigamiMenuLink",
+    "OrigamiMenuLinkOptions",
+    "OrigamiMenuGroup",
+    "OrigamiMenuGroupLabel",
+    "OrigamiMenuGroupLabelOptions",
+    "OrigamiMenuSeparator",
+  ],
 };
 
 export const typeOnly = new Set([

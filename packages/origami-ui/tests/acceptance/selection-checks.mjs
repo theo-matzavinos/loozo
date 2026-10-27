@@ -3,9 +3,9 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-// The package-private selection rules in Node: the shared write rules through the installed
-// package's ɵ exports, and the Select's active-option model, which no entry point exports, through
-// its framework-free source.
+// The package-private selection and focus rules in Node: the shared write rules and typeahead
+// through the installed package's ɵ exports, and the Select's active-option model and the roving
+// focus's targets, which no entry point exports, through their framework-free sources.
 const consumer = createRequire(resolve(".scratch/consumer/package.json"));
 
 async function load(specifier) {
@@ -15,11 +15,20 @@ async function load(specifier) {
 await load("@angular/compiler");
 
 const { signal } = await load("@angular/core");
-const { ɵrequestSingleSelection, ɵrequestMultipleSelection } = await load(
-  "@loozo/origami-ui/collection",
-);
-const { moveActiveOption, matchTypeahead, TypeaheadBuffer } = await import(
+const {
+  ɵrequestSingleSelection,
+  ɵrequestMultipleSelection,
+  ɵmatchTypeahead: matchTypeahead,
+  ɵTypeaheadBuffer: TypeaheadBuffer,
+} = await load("@loozo/origami-ui/collection");
+const { moveActiveOption } = await import(
   pathToFileURL(resolve("select/src/active-option.ts")).href
+);
+const { targetOf, searchable } = await import(
+  pathToFileURL(resolve("collection/src/roving-targets.ts")).href
+);
+const { documentOrder } = await import(
+  pathToFileURL(resolve("collection/src/document-order.ts")).href
 );
 
 /** Counts writes, so a request that matches the current state is seen to write nothing. */
@@ -173,6 +182,200 @@ function option(name, disabled = false) {
   assert.equal(buffer.running(2502), false);
 }
 
+/**
+ * A roving member for the targets model: a name, its disabled state and focusability, and its
+ * typeahead text, or none.
+ */
+function member(name, { disabled = false, focusable = false, label = name } = {}) {
+  let text = null;
+
+  if (label !== null) {
+    text = () => label;
+  }
+
+  return { name, disabled: () => disabled, focusable: () => focusable, label: text };
+}
+
+// Roving edge entry over [Archive (disabled, focusable), Copy, Delete (disabled), Edit,
+// Share (disabled, focusable)]: a focusable disabled member is an edge, a natively disabled one
+// isn't.
+{
+  const archive = member("Archive", { disabled: true, focusable: true });
+  const copy = member("Copy");
+  const remove = member("Delete", { disabled: true });
+  const edit = member("Edit");
+  const share = member("Share", { disabled: true, focusable: true });
+  const members = [archive, copy, remove, edit, share];
+
+  assert.equal(targetOf(members, null, "first"), archive, "First: a focusable disabled member");
+  assert.equal(targetOf(members, null, "last"), share);
+  assert.equal(targetOf([remove, copy, remove], null, "first"), copy, "Skips natively disabled");
+  assert.equal(targetOf([remove, copy, remove], null, "last"), copy);
+  assert.equal(targetOf([remove], null, "first"), null, "No member can take focus: none");
+  assert.equal(targetOf([], null, "last"), null);
+  assert.equal(targetOf(members, null, "next"), null, "Next and previous need a current member");
+  assert.equal(targetOf(members, edit, "next"), share);
+  assert.equal(targetOf(members, share, "next"), archive, "Wraps");
+  assert.equal(targetOf(members, copy, "previous"), archive);
+  assert.equal(targetOf(members, edit, "previous"), copy, "Skips the natively disabled member");
+}
+
+// Roving search: focusable members with a label, a focusable disabled one included, cycling.
+{
+  const save = member("Save", { disabled: true, focusable: true });
+  const share = member("Share");
+  const skip = member("Skip", { disabled: true });
+  const settings = member("Gear", { label: "Settings" });
+  const silent = member("Silent", { label: null });
+  const members = [save, share, skip, settings, silent];
+  const candidates = searchable(members);
+  const text = (candidate) => candidate.label();
+
+  assert.deepEqual(candidates, [save, share, settings], "Labelled members that can take focus");
+  assert.equal(matchTypeahead(candidates, null, "s", text), save, "A disabled item is found");
+  assert.equal(matchTypeahead(candidates, save, "s", text), share, "One character: after it");
+  assert.equal(matchTypeahead(candidates, share, "ss", text), settings, "Repeated: cycles");
+  assert.equal(matchTypeahead(candidates, settings, "sss", text), save, "Wrapping");
+  assert.equal(matchTypeahead(candidates, share, "set", text), settings, "The label, not the name");
+  assert.equal(matchTypeahead(candidates, null, "gear", text), null, "A label replaces the text");
+  assert.equal(
+    matchTypeahead(candidates, skip, "s", text),
+    save,
+    "From a non-candidate: the first",
+  );
+}
+
+/**
+ * A node for the order comparator, which reads only `parentNode`, `nodeType`, a shadow root's
+ * `host` and `compareDocumentPosition`, here as DOM specifies it: tree order within one root,
+ * and disconnected, with an arbitrary but consistent direction, across two roots, as for a light
+ * element and one in a shadow root of the same document.
+ */
+class TreeNode {
+  children = [];
+
+  constructor(name, parent = null, { nodeType = 1, host } = {}) {
+    this.name = name;
+    this.parentNode = parent;
+    this.nodeType = nodeType;
+
+    if (host !== undefined) {
+      this.host = host;
+    }
+
+    if (parent !== null) {
+      parent.children.push(this);
+    }
+  }
+
+  get root() {
+    let root = this;
+
+    while (root.parentNode !== null) {
+      root = root.parentNode;
+    }
+
+    return root;
+  }
+
+  contains(other) {
+    for (let node = other; node !== null; node = node.parentNode) {
+      if (node === this) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  compareDocumentPosition(other) {
+    if (other === this) {
+      return 0;
+    }
+
+    if (other.root !== this.root) {
+      return 1 | 32 | 2;
+    }
+
+    const order = [];
+    const walk = (node) => {
+      order.push(node);
+
+      for (const child of node.children) {
+        walk(child);
+      }
+    };
+
+    walk(this.root);
+
+    if (order.indexOf(other) < order.indexOf(this)) {
+      if (other.contains(this)) {
+        return 2 | 8;
+      }
+
+      return 2;
+    }
+
+    if (this.contains(other)) {
+      return 4 | 16;
+    }
+
+    return 4;
+  }
+}
+
+/** Attaches a shadow root to `host`. */
+function shadow(host) {
+  return new TreeNode(`${host.name}#shadow`, null, { nodeType: 11, host });
+}
+
+// Document order across open shadow roots: an element in a shadow root sorts at its host, after
+// it and before the host's light children; a nested shadow root at its own host; elements with
+// no common tree compare equal.
+{
+  const document = new TreeNode("#document", null, { nodeType: 9 });
+  const content = new TreeNode("content", document);
+  const zero = new TreeNode("zero", content);
+  const host = new TreeNode("host", content);
+  const slotted = new TreeNode("slotted", host);
+  const tail = new TreeNode("tail", content);
+  const root = shadow(host);
+  const alpha = new TreeNode("alpha", root);
+  const inner = new TreeNode("inner", root);
+  const bravo = new TreeNode("bravo", root);
+  const deep = new TreeNode("deep", shadow(inner));
+  const detached = new TreeNode("detached");
+  const fragment = new TreeNode("#fragment", null, { nodeType: 11 });
+  const loose = new TreeNode("loose", fragment);
+  const names = (nodes) => {
+    const sorted = [...nodes].sort(documentOrder);
+    const result = [];
+
+    for (const node of sorted) {
+      result.push(node.name);
+    }
+
+    return result;
+  };
+
+  assert.deepEqual(
+    names([tail, bravo, alpha, zero, deep, slotted, host]),
+    ["zero", "host", "alpha", "deep", "bravo", "slotted", "tail"],
+    "Shadow members sort at their hosts, a nested root at its own",
+  );
+  assert.deepEqual(names([alpha, bravo, zero]), ["zero", "alpha", "bravo"], "A light item before");
+  assert.equal(documentOrder(zero, tail), -1, "Same root: tree order");
+  assert.equal(documentOrder(tail, zero), 1);
+  assert.equal(documentOrder(host, alpha), -1, "A host before its shadow tree");
+  assert.equal(documentOrder(alpha, host), 1);
+  assert.equal(documentOrder(alpha, slotted), -1, "A shadow tree before its host's children");
+  assert.equal(documentOrder(deep, alpha), 1, "A nested root after what precedes its host");
+  assert.equal(documentOrder(deep, bravo), -1);
+  assert.equal(documentOrder(alpha, detached), 0, "No common tree: equal");
+  assert.equal(documentOrder(detached, zero), 0);
+  assert.equal(documentOrder(loose, alpha), 0, "A fragment without a host: no common tree");
+}
+
 console.log(
-  "Selection rules: generic single and multiple writes compare with ===; the Select's active-option moves, typeahead and buffer.",
+  "Selection and focus rules: generic single and multiple writes compare with ===; the Select's active-option moves; typeahead and its buffer; roving edge entry and search candidates; document order across shadow roots.",
 );

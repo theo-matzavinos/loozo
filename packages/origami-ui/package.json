@@ -1,7 +1,7 @@
 {
   "name": "@loozo/origami-ui",
   "version": "0.0.2",
-  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs, toggle group, toolbar, radio group, button, tooltip, field, checkbox, switch, dialog, alert dialog, select, calendar and date field.",
+  "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs, toggle group, toolbar, radio group, button, tooltip, field, checkbox, switch, dialog, alert dialog, select, calendar, date field and menu.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
   "author": "Theophilos Matzavinos",
@@ -92,6 +92,10 @@
     "./date-field": {
       "types": "./dist/types/loozo-origami-ui-date-field.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-date-field.mjs"
+    },
+    "./menu": {
+      "types": "./dist/types/loozo-origami-ui-menu.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-menu.mjs"
     },
     "./utils": {
       "types": "./dist/types/loozo-origami-ui-utils.d.ts",

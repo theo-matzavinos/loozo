@@ -59,6 +59,12 @@ import {
   OrigamiSelectTrigger,
 } from "@loozo/origami-ui/select";
 import {
+  OrigamiMenu,
+  OrigamiMenuContent,
+  OrigamiMenuItem,
+  OrigamiMenuTrigger,
+} from "@loozo/origami-ui/menu";
+import {
   OrigamiTooltip,
   OrigamiTooltipContent,
   OrigamiTooltipTrigger,
@@ -126,6 +132,10 @@ export class AccordionObservation {
     OrigamiSelectTrigger,
     OrigamiSelectContent,
     OrigamiSelectOption,
+    OrigamiMenu,
+    OrigamiMenuTrigger,
+    OrigamiMenuContent,
+    OrigamiMenuItem,
     OrigamiTooltip,
     OrigamiTooltipTrigger,
     OrigamiTooltipContent,
@@ -473,6 +483,16 @@ export class AccordionObservation {
       Toggle the flavor Trigger
     </button>
 
+    <!-- MN8: a closed Menu; a Trigger click, replayed or not, opens it once on its first item. -->
+    <div ogMenu (openChange)="menuOpenOutputs.update(increment)">
+      <button ogMenuTrigger data-testid="hydration-menu-trigger">Server actions</button>
+      <div ogMenuContent data-testid="hydration-menu-content">
+        <button ogMenuItem data-testid="hydration-menu-rename">Rename</button>
+        <button ogMenuItem disabled data-testid="hydration-menu-archive">Archive</button>
+      </div>
+    </div>
+    <output data-testid="menu-open-count">{{ menuOpenOutputs() }}</output>
+
     <!-- K10: a Toolbar Popover Trigger disabled by its own input. -->
     <button type="button" data-testid="hydration-format-before">Before the format toolbar</button>
     <div ogToolbar aria-label="Server format" data-testid="hydration-format-toolbar">
@@ -817,6 +837,7 @@ export class HydrationUnit {
     return null;
   });
   readonly flavorOpenOutputs = signal(0);
+  readonly menuOpenOutputs = signal(0);
   readonly flavorTriggerShown = signal(true);
   readonly popoverOutputs = signal(0);
   readonly tooltipOpen = linkedSignal(() => this.label() === "B");
