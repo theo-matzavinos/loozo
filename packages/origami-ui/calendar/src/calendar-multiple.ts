@@ -14,9 +14,9 @@ import {
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { outputFromObservable } from "@angular/core/rxjs-interop";
 import type { FormValueControl } from "@angular/forms/signals";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { injectDeferred, ɵcanonicalDay as canonicalDay } from "@loozo/origami-ui/utils";
 import type { OrigamiCalendarDayRecord, OrigamiCalendarPeriodRecord } from "./calendar";
-import { canonicalDay, monthOf } from "./calendar-date";
+import { monthOf } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
 import { CalendarSeed } from "./calendar-seed";
 

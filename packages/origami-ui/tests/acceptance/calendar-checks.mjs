@@ -5,8 +5,16 @@ import { pathToFileURL } from "node:url";
 
 // The Calendar's package-private date module, locale facts and grid model in Node, through their framework-free sources, which no entry point exports. The sources import
 // each other without an extension, as the library build resolves them; Node needs `.ts` added.
+// From `@loozo/origami-ui/utils` they import only the civil-date functions, so that specifier
+// resolves to the framework-free `civil-date` source, which utility-checks.mjs covers.
+const civilDate = pathToFileURL(resolve("utils/src/civil-date.ts")).href;
+
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === "@loozo/origami-ui/utils") {
+      return nextResolve(civilDate, context);
+    }
+
     if (specifier.startsWith("./calendar-") && !specifier.endsWith(".ts")) {
       return nextResolve(`${specifier}.ts`, context);
     }
@@ -19,44 +27,13 @@ async function source(name) {
   return import(pathToFileURL(resolve(`calendar/src/${name}.ts`)).href);
 }
 
+const { ɵparseDay: parseDay } = await import(civilDate);
 const date = await source("calendar-date");
 const locale = await source("calendar-locale");
 const grid = await source("calendar-grid-model");
 
-// Parsing: only canonical days, months and years in 0001–9999 are values.
+// Parsing: only canonical months and years in 0001–9999 are values (days: utility-checks.mjs).
 {
-  assert.deepEqual(date.parseDay("2026-10-27"), { year: 2026, month: 10, day: 27 });
-  assert.deepEqual(date.parseDay("2024-02-29"), { year: 2024, month: 2, day: 29 }, "Leap day");
-  assert.deepEqual(date.parseDay("2000-02-29"), { year: 2000, month: 2, day: 29 }, "400-year leap");
-  assert.deepEqual(date.parseDay("0001-01-01"), { year: 1, month: 1, day: 1 });
-  assert.deepEqual(date.parseDay("9999-12-31"), { year: 9999, month: 12, day: 31 });
-
-  for (const text of [
-    "2026-02-31",
-    "2023-02-29",
-    "1900-02-29",
-    "2026-04-31",
-    "2026-13-01",
-    "2026-00-10",
-    "2026-10-00",
-    "27/10/2026",
-    "2026-1-07",
-    "2026-10-7",
-    " 2026-10-27",
-    "2026-10-27T00:00",
-    "0000-01-01",
-    "10000-01-01",
-    "+02026-10-27",
-    "",
-    null,
-    undefined,
-    20261027,
-  ]) {
-    assert.equal(date.parseDay(text), null, `${JSON.stringify(text)} is no day`);
-    assert.equal(date.canonicalDay(text), null);
-  }
-
-  assert.equal(date.canonicalDay("2026-10-27"), "2026-10-27");
   assert.deepEqual(date.parseMonth("2026-10"), { year: 2026, month: 10 });
   assert.equal(date.canonicalMonth("2026-10"), "2026-10");
 
@@ -86,7 +63,7 @@ const grid = await source("calendar-grid-model");
 
   for (const text of ["0001-01-01", "0099-03-01", "1600-02-29", "1970-01-01", "2026-10-27"]) {
     const instant = new Date(0);
-    const parsed = date.parseDay(text);
+    const parsed = parseDay(text);
 
     instant.setUTCFullYear(parsed.year, parsed.month - 1, parsed.day);
     assert.equal(date.dayNumber(parsed), instant.getTime() / 86400000, text);
@@ -148,7 +125,6 @@ const grid = await source("calendar-grid-model");
       assert.equal(labels.date("2018-11-04"), "Sunday, November 4, 2018", `${timeZone}, DST day`);
       assert.equal(labels.day("2018-11-04"), "4");
       assert.equal(labels.month("2026-10"), "October 2026");
-      assert.equal(date.utcDate("2018-11-04").toISOString(), "2018-11-04T00:00:00.000Z");
     }
   } finally {
     if (zone === undefined) {
@@ -167,7 +143,6 @@ const grid = await source("calendar-grid-model");
     process.env.TZ = zone;
   }
 
-  assert.equal(date.utcDate("0001-01-01").getUTCFullYear(), 1, "Years below 100 kept");
   assert.equal(new locale.CalendarLabels("en-US").date("0001-01-01"), "Monday, January 1, 1");
 }
 

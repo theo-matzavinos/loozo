@@ -1,3 +1,12 @@
+import {
+  ɵdaysInMonth as daysInMonth,
+  ɵfirstYear as firstYear,
+  ɵformatDay as formatDay,
+  ɵlastYear as lastYear,
+  ɵparseDay as parseDay,
+} from "@loozo/origami-ui/utils";
+import type { ɵCalendarDay as CalendarDay } from "@loozo/origami-ui/utils";
+
 /**
  * The Calendar's private date module: canonical ISO strings for a day (`YYYY-MM-DD`), a month
  * (`YYYY-MM`) and a year (`YYYY`), proleptic Gregorian, years 0001–9999. Values never pass
@@ -10,24 +19,12 @@
 /** An ISO weekday: 1 is Monday, 7 is Sunday. */
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-/** A day's fields. */
-export interface CalendarDay {
-  readonly year: number;
-  readonly month: number;
-  readonly day: number;
-}
-
 /** A month's fields. */
 export interface CalendarMonth {
   readonly year: number;
   readonly month: number;
 }
 
-/** The first and last supported years. */
-export const firstYear = 1;
-export const lastYear = 9999;
-
-const dayPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
 const monthPattern = /^(\d{4})-(\d{2})$/;
 const yearPattern = /^\d{4}$/;
 
@@ -35,57 +32,8 @@ const yearPattern = /^\d{4}$/;
 const epochShift = 719468;
 const daysPerEra = 146097;
 
-/** Whether `year` is a Gregorian leap year. */
-export function leapYear(year: number): boolean {
-  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-}
-
-/** The number of days in `month` (1–12) of `year`. */
-export function daysInMonth(year: number, month: number): number {
-  if (month === 2) {
-    if (leapYear(year)) {
-      return 29;
-    }
-
-    return 28;
-  }
-
-  if (month === 4 || month === 6 || month === 9 || month === 11) {
-    return 30;
-  }
-
-  return 31;
-}
-
 function supportedYear(year: number): boolean {
   return year >= firstYear && year <= lastYear;
-}
-
-/** A canonical `YYYY-MM-DD` day in 0001–9999, or null for anything else ("2026-02-31", "27/10/2026"). */
-export function parseDay(text: unknown): CalendarDay | null {
-  if (typeof text !== "string") {
-    return null;
-  }
-
-  const match = dayPattern.exec(text);
-
-  if (match === null) {
-    return null;
-  }
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-
-  if (!supportedYear(year) || month < 1 || month > 12 || day < 1) {
-    return null;
-  }
-
-  if (day > daysInMonth(year, month)) {
-    return null;
-  }
-
-  return { year, month, day };
 }
 
 /** A canonical `YYYY-MM` month in 0001–9999, or null. */
@@ -125,15 +73,6 @@ export function parseYear(text: unknown): number | null {
   return year;
 }
 
-/** `text` if it is a canonical day, else null. */
-export function canonicalDay(text: unknown): string | null {
-  if (typeof text !== "string" || parseDay(text) === null) {
-    return null;
-  }
-
-  return text;
-}
-
 /** `text` if it is a canonical month, else null. */
 export function canonicalMonth(text: unknown): string | null {
   if (typeof text !== "string" || parseMonth(text) === null) {
@@ -153,10 +92,6 @@ export function formatYear(year: number): string {
 
 export function formatMonth(year: number, month: number): string {
   return `${pad(year, 4)}-${pad(month, 2)}`;
-}
-
-export function formatDay({ year, month, day }: CalendarDay): string {
-  return `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}`;
 }
 
 /** Days since 1970-01-01 (negative before it), for any proleptic Gregorian day. */
@@ -325,19 +260,6 @@ export function lastDayOf(month: string): string {
   const { year, month: number } = parseMonth(month)!;
 
   return formatDay({ year, month: number, day: daysInMonth(year, number) });
-}
-
-/**
- * A `Date` at midnight UTC of a canonical day, for `Intl` labels formatted with
- * `timeZone: "UTC"`. `setUTCFullYear` keeps years below 100 as they are.
- */
-export function utcDate(date: string): Date {
-  const { year, month, day } = parseDay(date)!;
-  const instant = new Date(0);
-
-  instant.setUTCFullYear(year, month - 1, day);
-
-  return instant;
 }
 
 /**
