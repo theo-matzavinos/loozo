@@ -384,7 +384,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 22 snippets that export one component", async () => {
+test("origami's guide pages run the 23 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -392,7 +392,7 @@ test("origami's guide pages run the 22 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 22);
+  assert.equal(ids.length, 23);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -437,6 +437,13 @@ test("origami's playgrounds get a control for each input and model of their comp
     "tooltip/copy-link.ts": ["openDelay:input:number", "side:input:options"],
     "switch/notifications.ts": ["enabled:model:boolean", "disabled:input:boolean"],
     "select/country.ts": ["disabled:input:boolean"],
+    "calendar/date-of-birth.ts": [
+      "disabled:input:boolean",
+      "readonly:input:boolean",
+      "fixedWeeks:input:boolean",
+      "weekStart:input:options",
+      "locale:input:options",
+    ],
   });
 });
 
