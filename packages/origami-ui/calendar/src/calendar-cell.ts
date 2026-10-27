@@ -56,21 +56,26 @@ function marker(value: boolean): "" | null {
 }
 
 /**
- * A day of an `ogCalendar`'s grid, usually a `<td>`: one focusable `role="gridcell"` (a
+ * A day of a Calendar root's grid, usually a `<td>`: one focusable `role="gridcell"` (a
  * consumer's static `role` overrides it), named by its full localized date (`aria-label`, such as
  * "Tuesday, October 27, 2026"), so screen readers needn't announce column headers. Put the day
  * number inside; the label replaces it as the name.
  *
  * Host semantics: `tabindex="0"` on the grid's single tab stop and `"-1"` on every other cell,
- * none while the root is disabled; `aria-selected="true"` and `data-selected` on the chosen day;
- * `aria-current="date"` and `data-today` on today; `data-outside` on a day of the previous or
- * next month; `aria-disabled="true"` and `data-disabled` while the day can't be chosen (out of
- * `minDate`/`maxDate`, `dateDisabled`, or the root disabled). Style from these attributes; no State read
- * is needed.
+ * none while the root is disabled; `aria-selected="true"` and `data-selected` on a selected day
+ * (under `ogCalendarRange`, every day of the range), and `aria-selected="false"` on the others
+ * under `ogCalendarMultiple` and `ogCalendarRange`; `aria-current="date"` and `data-today` on
+ * today; `data-outside` on a day of the previous or next month; `aria-disabled="true"` and
+ * `data-disabled` while the day can't be chosen (out of `minDate`/`maxDate`, `dateDisabled`, or
+ * the root disabled). Under `ogCalendarRange`, also `data-range-start` and `data-range-end` on
+ * the range's first and last day, `data-in-range` on every day of it, ends included, and, while
+ * its first day is pending, `data-preview` on the days the next choice would span: from that day
+ * to the hovered one, else the focused one. Style from these attributes; no State read is needed.
  *
  * Click, Enter and Space choose the day; the arrows, Home/End and PageUp/PageDown move focus
- * (see `ogCalendar`). A disabled day takes focus but isn't chosen. To leave outside days blank,
- * keep their `<td>` and skip `ogCalendarCell` on it. Requires a nearest Calendar root.
+ * (see `ogCalendar`); Escape drops a range's pending first day. A disabled day takes focus but
+ * isn't chosen. To leave outside days blank, keep their `<td>` and skip `ogCalendarCell` on it.
+ * Requires a nearest Calendar root: `ogCalendar`, `ogCalendarMultiple` or `ogCalendarRange`.
  */
 @Directive({
   selector: "[ogCalendarCell]",
@@ -86,6 +91,10 @@ function marker(value: boolean): "" | null {
     "[attr.data-today]": "today()",
     "[attr.data-outside]": "outside()",
     "[attr.data-disabled]": "disabledAttribute()",
+    "[attr.data-range-start]": "rangeStart()",
+    "[attr.data-range-end]": "rangeEnd()",
+    "[attr.data-in-range]": "inRange()",
+    "[attr.data-preview]": "preview()",
     "(keydown)": "keydown($event)",
     "(click)": "clicked()",
     "(focus)": "focused()",
@@ -137,10 +146,17 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
 
     return day !== null && this.#context.isSelected(day);
   });
-  /** @internal "true" on a selected day only. */
+  /**
+   * @internal "true" on a selected day; "false" on the others where several days can be
+   * selected, else absent.
+   */
   protected readonly ariaSelected = computed(() => {
     if (this.#selected()) {
       return "true";
+    }
+
+    if (this.#day() !== null && this.#context.multiselectable()) {
+      return "false";
     }
 
     return null;
@@ -178,6 +194,56 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   });
   /** @internal Disabled marker. */
   protected readonly disabledAttribute = computed(() => marker(this.#disabled()));
+  /** @internal The committed range's first day. */
+  protected readonly rangeStart = computed(() => {
+    const day = this.#day();
+
+    return marker(day !== null && this.#context.isRangeStart(day));
+  });
+  /** @internal The committed range's last day. */
+  protected readonly rangeEnd = computed(() => {
+    const day = this.#day();
+
+    return marker(day !== null && this.#context.isRangeEnd(day));
+  });
+  /** @internal A day of the committed range, its ends included. */
+  protected readonly inRange = computed(() => {
+    const day = this.#day();
+
+    return marker(day !== null && this.#context.isInRange(day));
+  });
+  /** @internal A day the pending range would span. */
+  protected readonly preview = computed(() => {
+    const day = this.#day();
+
+    return marker(day !== null && this.#context.isPreviewed(day));
+  });
+
+  constructor() {
+    // Native listeners, not host listeners: the pointer crosses cells constantly, and only a
+    // pending range reads what it hovers, so a crossing needn't schedule change detection.
+    const entered = (): void => {
+      const day = this.#day();
+
+      if (day !== null) {
+        this.#context.pointerEntered(day);
+      }
+    };
+    const left = (): void => {
+      const day = this.#day();
+
+      if (day !== null) {
+        this.#context.pointerLeft(day);
+      }
+    };
+
+    this.#element.addEventListener("pointerenter", entered);
+    this.#element.addEventListener("pointerleave", left);
+    this.#destroyRef.onDestroy(() => {
+      this.#element.removeEventListener("pointerenter", entered);
+      this.#element.removeEventListener("pointerleave", left);
+    });
+  }
 
   /**
    * @internal Registers with the Calendar once Angular has set its inputs, reporting a day that

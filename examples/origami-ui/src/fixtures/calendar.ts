@@ -10,9 +10,12 @@ import {
   OrigamiCalendarState,
 } from "@loozo/origami-ui/calendar";
 import { CalendarFieldCases } from "./calendar-field.js";
+import { CalendarSelectionCases } from "./calendar-selection.js";
+import { CalendarSelectionFieldCases } from "./calendar-selection-field.js";
 
-// Calendar cases CA1–CA19, CA21 and CA22. Controls the tests use as script actions are buttons; every cell
-// carries its day as `data-date`, so a test can find it.
+// Calendar cases CA1–CA19, CA21 and CA22; the selection cases add CA23–CA33. Controls the tests
+// use as script actions are buttons; every cell carries its day as `data-date`, so a test can find
+// it.
 
 function increment(value: number): number {
   return value + 1;
@@ -214,6 +217,8 @@ export class FebruaryCalendar {
     CalendarFieldCases,
     CalendarNamingCases,
     CalendarSplitCases,
+    CalendarSelectionCases,
+    CalendarSelectionFieldCases,
   ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">
@@ -382,6 +387,8 @@ export class FebruaryCalendar {
     </section>
 
     <calendar-field-cases />
+    <calendar-selection-cases />
+    <calendar-selection-field-cases />
   `,
 })
 export class CalendarFixture {

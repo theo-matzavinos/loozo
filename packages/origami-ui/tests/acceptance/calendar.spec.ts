@@ -1005,3 +1005,598 @@ test("CA22: a bound among the first or last shown month's outside days holds key
   await press(page, "ArrowRight", "9999-12-02");
   await press(page, "PageUp", "9999-12-02");
 });
+
+/** The cells of the calendar marked `name` that carry `attribute`, in DOM order, by day. */
+async function daysWith(page: Page, name: string, attribute: string): Promise<string[]> {
+  return root(page, name)
+    .locator(`td[${attribute}]`)
+    .evaluateAll((cells) => cells.map((cell) => cell.getAttribute("data-date") ?? ""));
+}
+
+test("CA23: several days and a range with values in server HTML and after hydration: aria-multiselectable, aria-selected on every day, the range's markers and tab stops", async ({
+  page,
+}, info) => {
+  async function expectSelection(): Promise<void> {
+    const several = page.getByTestId("m-grid");
+    const range = page.getByTestId("r-grid");
+
+    await expect(several).toHaveAttribute("aria-multiselectable", "true");
+    await expect(page.getByTestId("m-heading")).toHaveText("October 2026");
+    await expect(several.locator('td[aria-selected="true"]')).toHaveCount(2);
+    await expect(several.locator('td[aria-selected="false"]')).toHaveCount(33);
+    await expect(cell(page, "m", "2026-10-06")).toHaveAttribute("aria-selected", "true");
+    await expect(cell(page, "m", "2026-10-06")).toHaveAttribute("data-selected", "");
+    await expect(cell(page, "m", "2026-10-20")).toHaveAttribute("aria-selected", "true");
+    await expect(cell(page, "m", "2026-09-27")).toHaveAttribute("aria-selected", "false");
+    await expect(
+      several.locator("[data-range-start], [data-range-end], [data-in-range], [data-preview]"),
+    ).toHaveCount(0);
+    await expectTabStop(page, "m", "2026-10-06");
+
+    await expect(range).toHaveAttribute("aria-multiselectable", "true");
+    await expect(page.getByTestId("r-heading")).toHaveText("October 2026");
+    await expect(range.locator('td[aria-selected="false"]')).toHaveCount(30);
+    await expect
+      .poll(() => daysWith(page, "r", 'aria-selected="true"'))
+      .toEqual(["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"]);
+    await expect
+      .poll(() => daysWith(page, "r", "data-selected"))
+      .toEqual(["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"]);
+    await expect.poll(() => daysWith(page, "r", "data-in-range")).toHaveLength(5);
+    await expect.poll(() => daysWith(page, "r", "data-range-start")).toEqual(["2026-10-12"]);
+    await expect.poll(() => daysWith(page, "r", "data-range-end")).toEqual(["2026-10-16"]);
+    await expect(range.locator("[data-preview]")).toHaveCount(0);
+    await expectTabStop(page, "r", "2026-10-12");
+    await expect(page.getByTestId("r-anchor")).toHaveText("null");
+  }
+
+  await fixture(page, "calendar", info, expectSelection);
+  await expectSelection();
+
+  // The hydrated roots choose once per click.
+  await cell(page, "m", "2026-10-13").click();
+  await expect(page.getByTestId("m-value")).toHaveText("2026-10-06 2026-10-13 2026-10-20");
+  await cell(page, "r", "2026-10-20").click();
+  await expect(page.getByTestId("r-anchor")).toHaveText("2026-10-20");
+  await cell(page, "r", "2026-10-22").click();
+  await expect(page.getByTestId("r-value")).toHaveText("2026-10-20 2026-10-22");
+  await expect(page.getByTestId("m-outputs")).toHaveText("1");
+  await expect(page.getByTestId("r-outputs")).toHaveText("1");
+});
+
+test("CA24: several days: choosing toggles, writing the canonical days in chronological order, days no cell shows included, then the entries that aren't days", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("m-value");
+  const thirteenth = cell(page, "m", "2026-10-13");
+
+  await thirteenth.click();
+  await expect(value).toHaveText("2026-10-06 2026-10-13 2026-10-20");
+  await expect(thirteenth).toHaveAttribute("aria-selected", "true");
+  await expect(thirteenth).toHaveAttribute("data-selected", "");
+  await expect(thirteenth).toBeFocused();
+  await cell(page, "m", "2026-10-01").click();
+  await cell(page, "m", "2026-10-31").click();
+  await expect(value).toHaveText("2026-10-01 2026-10-06 2026-10-13 2026-10-20 2026-10-31");
+
+  // Choosing a chosen day removes it; Enter and Space toggle the focused day.
+  await thirteenth.click();
+  await expect(value).toHaveText("2026-10-01 2026-10-06 2026-10-20 2026-10-31");
+  await expect(thirteenth).toHaveAttribute("aria-selected", "false");
+  await expect(thirteenth).not.toHaveAttribute("data-selected", /.*/);
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2026-10-01 2026-10-06 2026-10-13 2026-10-20 2026-10-31");
+  await page.keyboard.press("Space");
+  await expect(value).toHaveText("2026-10-01 2026-10-06 2026-10-20 2026-10-31");
+  await expect(page.getByTestId("m-outputs")).toHaveText("6");
+  await expect(page.getByTestId("m-grid").locator('td[aria-selected="true"]')).toHaveCount(4);
+
+  // The write is kept as written and the display follows its first canonical day; a choice keeps
+  // the day no cell shows and moves the entry that isn't a day after the days.
+  await page.getByTestId("m-write").click();
+  await expect(value).toHaveText("27/10/2026 2026-10-20 2026-12-25");
+  await expect(page.getByTestId("m-state")).toHaveText("27/10/2026 2026-10-20 2026-12-25 2026-10");
+  await expect(page.getByTestId("m-grid").locator('td[aria-selected="true"]')).toHaveCount(1);
+  await cell(page, "m", "2026-10-10").click();
+  await expect(value).toHaveText("2026-10-10 2026-10-20 2026-12-25 27/10/2026");
+  await cell(page, "m", "2026-10-30").click();
+  await expect(value).toHaveText("2026-10-10 2026-10-20 2026-10-30 2026-12-25 27/10/2026");
+  await cell(page, "m", "2026-10-20").click();
+  await expect(value).toHaveText("2026-10-10 2026-10-30 2026-12-25 27/10/2026");
+
+  // An outside day is added in order too, and its month shows with focus on it.
+  await cell(page, "m", "2026-09-30").click();
+  await expect(value).toHaveText("2026-09-30 2026-10-10 2026-10-30 2026-12-25 27/10/2026");
+  await expect(page.getByTestId("m-heading")).toHaveText("September 2026");
+  await expect(cell(page, "m", "2026-09-30")).toBeFocused();
+  await expect(cell(page, "m", "2026-09-30")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("m-outputs")).toHaveText("10");
+});
+
+test("CA25: a range by pointer: the first choice anchors and the hovered day previews; the second writes the range sorted, the same day allowed", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("r-value");
+  const anchor = page.getByTestId("r-anchor");
+  const outputs = page.getByTestId("r-outputs");
+
+  await cell(page, "r", "2026-10-20").click();
+  await expect(anchor).toHaveText("2026-10-20");
+  await expect(cell(page, "r", "2026-10-20")).toBeFocused();
+  await expect.poll(() => daysWith(page, "r", "data-preview")).toEqual(["2026-10-20"]);
+  // The value is never half a range: the committed one keeps its markers.
+  await settle(page);
+  await expect(value).toHaveText("2026-10-12 2026-10-16");
+  await expect(outputs).toHaveText("0");
+  await expect.poll(() => daysWith(page, "r", "data-range-start")).toEqual(["2026-10-12"]);
+
+  await cell(page, "r", "2026-10-23").hover();
+  await expect(cell(page, "r", "2026-10-23")).toHaveAttribute("data-preview", "");
+  await expect
+    .poll(() => daysWith(page, "r", "data-preview"))
+    .toEqual(["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"]);
+  await cell(page, "r", "2026-10-18").hover();
+  await expect(cell(page, "r", "2026-10-23")).not.toHaveAttribute("data-preview", /.*/);
+  await expect
+    .poll(() => daysWith(page, "r", "data-preview"))
+    .toEqual(["2026-10-18", "2026-10-19", "2026-10-20"]);
+
+  // Choosing before the anchor writes the range sorted.
+  await cell(page, "r", "2026-10-18").click();
+  await expect(value).toHaveText("2026-10-18 2026-10-20");
+  await expect(anchor).toHaveText("null");
+  await expect(outputs).toHaveText("1");
+  await expect(page.getByTestId("r-grid").locator("[data-preview]")).toHaveCount(0);
+  await expect
+    .poll(() => daysWith(page, "r", 'aria-selected="true"'))
+    .toEqual(["2026-10-18", "2026-10-19", "2026-10-20"]);
+  await expect
+    .poll(() => daysWith(page, "r", "data-in-range"))
+    .toEqual(["2026-10-18", "2026-10-19", "2026-10-20"]);
+  await expect.poll(() => daysWith(page, "r", "data-range-start")).toEqual(["2026-10-18"]);
+  await expect.poll(() => daysWith(page, "r", "data-range-end")).toEqual(["2026-10-20"]);
+  await expect(cell(page, "r", "2026-10-12")).toHaveAttribute("aria-selected", "false");
+  await expect(page.getByTestId("r-state")).toHaveText("2026-10-18 2026-10-20 2026-10");
+
+  // The same day twice is a one-day range.
+  await cell(page, "r", "2026-10-05").click();
+  await cell(page, "r", "2026-10-05").click();
+  await expect(value).toHaveText("2026-10-05 2026-10-05");
+  await expect.poll(() => daysWith(page, "r", "data-range-start")).toEqual(["2026-10-05"]);
+  await expect.poll(() => daysWith(page, "r", "data-range-end")).toEqual(["2026-10-05"]);
+  await expect.poll(() => daysWith(page, "r", "data-in-range")).toEqual(["2026-10-05"]);
+
+  // Choosing after the anchor.
+  await cell(page, "r", "2026-10-07").click();
+  await cell(page, "r", "2026-10-09").click();
+  await expect(value).toHaveText("2026-10-07 2026-10-09");
+  await expect(outputs).toHaveText("3");
+});
+
+test("CA26: a range by keys: Enter anchors, focus previews, across months too; Escape drops the anchor without writing", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("r-value");
+  const anchor = page.getByTestId("r-anchor");
+
+  await cell(page, "r", "2026-10-05").focus();
+  await page.keyboard.press("Enter");
+  await expect(anchor).toHaveText("2026-10-05");
+  await press(page, "ArrowRight", "2026-10-06", "r");
+  await press(page, "ArrowRight", "2026-10-07", "r");
+  await press(page, "ArrowRight", "2026-10-08", "r");
+  await expect
+    .poll(() => daysWith(page, "r", "data-preview"))
+    .toEqual(["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"]);
+  await press(page, "ArrowUp", "2026-10-01", "r");
+  await expect
+    .poll(() => daysWith(page, "r", "data-preview"))
+    .toEqual(["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"]);
+
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveText("null");
+  await expect(page.getByTestId("r-grid").locator("[data-preview]")).toHaveCount(0);
+  await expect(cell(page, "r", "2026-10-01")).toBeFocused();
+  await settle(page);
+  await expect(value).toHaveText("2026-10-12 2026-10-16");
+  await expect(page.getByTestId("r-outputs")).toHaveText("0");
+
+  // Backwards, then across a month: the preview follows focus into November.
+  await cell(page, "r", "2026-10-15").focus();
+  await page.keyboard.press("Space");
+  await press(page, "ArrowLeft", "2026-10-14", "r");
+  await press(page, "ArrowLeft", "2026-10-13", "r");
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2026-10-13 2026-10-15");
+  await expect(anchor).toHaveText("null");
+
+  await cell(page, "r", "2026-10-28").focus();
+  await page.keyboard.press("Enter");
+  await press(page, "PageDown", "2026-11-28", "r");
+  await expect(page.getByTestId("r-heading")).toHaveText("November 2026");
+  await expect(anchor).toHaveText("2026-10-28");
+  await expect.poll(() => daysWith(page, "r", "data-preview")).toHaveLength(28);
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2026-10-28 2026-11-28");
+  await expect.poll(() => daysWith(page, "r", "data-in-range")).toHaveLength(28);
+  await expect.poll(() => daysWith(page, "r", "data-range-start")).toEqual([]);
+  await expect.poll(() => daysWith(page, "r", "data-range-end")).toEqual(["2026-11-28"]);
+  await page.getByTestId("r-previous").click();
+  await expect.poll(() => daysWith(page, "r", "data-range-start")).toEqual(["2026-10-28"]);
+  await expect
+    .poll(() => daysWith(page, "r", "data-in-range"))
+    .toEqual(["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"]);
+  await expect(page.getByTestId("r-outputs")).toHaveText("2");
+});
+
+test("CA27: a range's anchor survives focus leaving and Previous/Next, and is dropped by a value write, readonly and disabled; readonly never anchors", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("r-value");
+  const anchor = page.getByTestId("r-anchor");
+
+  // Leaving the root keeps the anchor.
+  await cell(page, "r", "2026-10-20").click();
+  await page.getByTestId("r-after").click();
+  await settle(page);
+  await expect(anchor).toHaveText("2026-10-20");
+  await cell(page, "r", "2026-10-22").click();
+  await expect(value).toHaveText("2026-10-20 2026-10-22");
+
+  // Next keeps it, so a pointer range can span months.
+  await cell(page, "r", "2026-10-29").click();
+  await page.getByTestId("r-next").click();
+  await expect(page.getByTestId("r-heading")).toHaveText("November 2026");
+  await expect(anchor).toHaveText("2026-10-29");
+  await cell(page, "r", "2026-11-03").hover();
+  await expect
+    .poll(() => daysWith(page, "r", "data-preview"))
+    .toEqual(["2026-11-01", "2026-11-02", "2026-11-03"]);
+  await cell(page, "r", "2026-11-03").click();
+  await expect(value).toHaveText("2026-10-29 2026-11-03");
+
+  // A value write drops the anchor without writing: the next choice anchors again.
+  await cell(page, "r", "2026-11-10").click();
+  await expect(anchor).toHaveText("2026-11-10");
+  await page.getByTestId("r-write").click();
+  await expect(value).toHaveText("2026-11-02 2026-11-06");
+  await expect(anchor).toHaveText("null");
+  await expect(page.getByTestId("r-grid").locator("[data-preview]")).toHaveCount(0);
+  await cell(page, "r", "2026-11-12").click();
+  await expect(anchor).toHaveText("2026-11-12");
+  await expect(value).toHaveText("2026-11-02 2026-11-06");
+
+  // Becoming readonly drops it, and readonly never anchors.
+  await page.getByTestId("r-readonly").click();
+  await expect(page.getByTestId("r-grid")).toHaveAttribute("aria-readonly", "true");
+  await expect(anchor).toHaveText("null");
+  await cell(page, "r", "2026-11-14").click();
+  await page.keyboard.press("Enter");
+  await settle(page);
+  await expect(anchor).toHaveText("null");
+  await expect(page.getByTestId("r-grid").locator("[data-preview]")).toHaveCount(0);
+  await page.getByTestId("r-readonly").click();
+
+  // Becoming disabled drops it.
+  await cell(page, "r", "2026-11-14").click();
+  await expect(anchor).toHaveText("2026-11-14");
+  await page.getByTestId("r-disable").click();
+  await expect(anchor).toHaveText("null");
+  await page.getByTestId("r-disable").click();
+  await settle(page);
+  await expect(value).toHaveText("2026-11-02 2026-11-06");
+  await expect(page.getByTestId("r-outputs")).toHaveText("2");
+});
+
+test("CA28: a range's ends must be enabled while disabled days may lie inside it; a range with its end before its start selects nothing and is kept", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("r-value");
+  const anchor = page.getByTestId("r-anchor");
+
+  await page.getByTestId("r-weekends").click();
+  await expect(cell(page, "r", "2026-10-10")).toHaveAttribute("aria-disabled", "true");
+
+  // A disabled first day doesn't anchor; a disabled second day doesn't end the range.
+  await cell(page, "r", "2026-10-10").click({ force: true });
+  await settle(page);
+  await expect(anchor).toHaveText("null");
+  await cell(page, "r", "2026-10-09").click();
+  await expect(anchor).toHaveText("2026-10-09");
+  await cell(page, "r", "2026-10-11").click({ force: true });
+  await settle(page);
+  await expect(anchor).toHaveText("2026-10-09");
+  await expect(value).toHaveText("2026-10-12 2026-10-16");
+
+  // Disabled days inside the range are part of it.
+  await cell(page, "r", "2026-10-13").click();
+  await expect(value).toHaveText("2026-10-09 2026-10-13");
+  await expect
+    .poll(() => daysWith(page, "r", "data-in-range"))
+    .toEqual(["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13"]);
+  await expect(cell(page, "r", "2026-10-10")).toHaveAttribute("aria-selected", "true");
+  await expect(cell(page, "r", "2026-10-10")).toHaveAttribute("aria-disabled", "true");
+
+  // A reversed value selects nothing, is kept, and the display follows today.
+  await page.getByTestId("r-write-reversed").click();
+  await expect(value).toHaveText("2026-10-20 2026-10-10");
+  await expect(page.getByTestId("r-state")).toHaveText("2026-10-20 2026-10-10 2026-10");
+  await expect(page.getByTestId("r-grid").locator('td[aria-selected="true"]')).toHaveCount(0);
+  await expect(
+    page.getByTestId("r-grid").locator("[data-in-range], [data-range-start], [data-range-end]"),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("r-outputs")).toHaveText("1");
+});
+
+test("CA29: Signal Forms and Field for several days and a range: Labels then the Heading name the grids, the bound values, touch on leaving with the anchor kept, readonly and disabled rules", async ({
+  page,
+}, info) => {
+  const trip = page.getByTestId("trip-grid");
+  const stay = page.getByTestId("stay-grid");
+
+  async function expectNaming(): Promise<void> {
+    await expect(trip).toHaveAttribute("aria-labelledby", "trip-label trip-heading");
+    await expect(trip).toHaveAttribute("aria-describedby", "trip-description");
+    await expect(trip).toHaveAttribute("aria-multiselectable", "true");
+    await expect(stay).toHaveAttribute("aria-labelledby", "stay-label stay-heading");
+    await expect(stay).toHaveAttribute("aria-multiselectable", "true");
+    await expectTabStop(page, "trip", "2026-10-27");
+    await expectTabStop(page, "stay", "2026-10-27");
+  }
+
+  await fixture(page, "calendar", info, expectNaming);
+  await expectNaming();
+  await expect(page.getByRole("grid", { name: "Trip days October 2026" })).toHaveCount(1);
+  await expect(page.getByRole("grid", { name: "Stay October 2026" })).toHaveCount(1);
+
+  // Several days: focusBoundControl, toggles written to the field, touch only on leaving.
+  await page.getByTestId("focus-trip").click();
+  await expect(cell(page, "trip", "2026-10-27")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await press(page, "ArrowLeft", "2026-10-26", "trip");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("trip-value")).toHaveText("2026-10-26 2026-10-27");
+  await expect(page.getByTestId("trip-touched")).toHaveText("false");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("trip-after")).toBeFocused();
+  await expect(page.getByTestId("trip-touched")).toHaveText("true");
+
+  // A range: never half in the field; leaving touches and keeps the anchor.
+  await page.getByTestId("focus-stay").click();
+  await expect(cell(page, "stay", "2026-10-27")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("stay-anchor")).toHaveText("2026-10-27");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("stay-after")).toBeFocused();
+  await expect(page.getByTestId("stay-touched")).toHaveText("true");
+  await expect(page.getByTestId("stay-anchor")).toHaveText("2026-10-27");
+  await expect(page.getByTestId("stay-value")).toHaveText("null");
+  await cell(page, "stay", "2026-10-29").click();
+  await expect(page.getByTestId("stay-value")).toHaveText("2026-10-27 2026-10-29");
+
+  // A model write selects in both, and drops a pending anchor.
+  await cell(page, "stay", "2026-10-20").click();
+  await expect(page.getByTestId("stay-anchor")).toHaveText("2026-10-20");
+  await page.getByTestId("write-booking").click();
+  await expect(page.getByTestId("stay-anchor")).toHaveText("null");
+  await expect
+    .poll(() => daysWith(page, "trip", 'aria-selected="true"'))
+    .toEqual(["2026-10-02", "2026-10-09"]);
+  await expect
+    .poll(() => daysWith(page, "stay", "data-in-range"))
+    .toEqual(["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"]);
+
+  // Readonly rules: nothing writes and no anchor is set.
+  await page.getByTestId("freeze-booking").click();
+  await expect(trip).toHaveAttribute("aria-readonly", "true");
+  await expect(stay).toHaveAttribute("aria-readonly", "true");
+  await cell(page, "trip", "2026-10-15").click();
+  await cell(page, "stay", "2026-10-15").click();
+  await settle(page);
+  await expect(page.getByTestId("trip-value")).toHaveText("2026-10-02 2026-10-09");
+  await expect(page.getByTestId("stay-anchor")).toHaveText("null");
+  await page.getByTestId("freeze-booking").click();
+
+  // Disabled rules: no tab stop, and a pending anchor is dropped.
+  await cell(page, "stay", "2026-10-20").click();
+  await expect(page.getByTestId("stay-anchor")).toHaveText("2026-10-20");
+  await page.getByTestId("lock-booking").click();
+  await expect(trip).toHaveAttribute("aria-disabled", "true");
+  await expect(stay).toHaveAttribute("aria-disabled", "true");
+  await expect(trip.locator("td[tabindex]")).toHaveCount(0);
+  await expect(stay.locator("td[tabindex]")).toHaveCount(0);
+  await expect(page.getByTestId("stay-anchor")).toHaveText("null");
+  await page.getByTestId("lock-booking").click();
+  await expect(page.getByTestId("stay-value")).toHaveText("2026-10-05 2026-10-08");
+});
+
+test("CA30: several days: whatever order an external value has, a choice writes its canonical days in chronological order, each once, then the entries that aren't days", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("m-value");
+
+  // The write is kept as written until the next choice.
+  await page.getByTestId("m-write-unsorted").click();
+  await expect(value).toHaveText("2026-10-20 2026-10-06");
+  await expectTabStop(page, "m", "2026-10-20");
+  await cell(page, "m", "2026-10-13").click();
+  await expect(value).toHaveText("2026-10-06 2026-10-13 2026-10-20");
+
+  // A removal sorts too, with a day no cell shows, an entry that isn't a day and a repeated day.
+  await page.getByTestId("m-write-mixed").click();
+  await expect(value).toHaveText("2026-10-20 27/10/2026 2026-12-25 2026-10-06 2026-10-06");
+  await cell(page, "m", "2026-10-20").click();
+  await expect(value).toHaveText("2026-10-06 2026-12-25 27/10/2026");
+  await page.getByTestId("m-write-mixed").click();
+  await cell(page, "m", "2026-10-13").click();
+  await expect(value).toHaveText("2026-10-06 2026-10-13 2026-10-20 2026-12-25 27/10/2026");
+  await expect(page.getByTestId("m-outputs")).toHaveText("3");
+});
+
+test("CA31: a choice inside the displayed month keeps a followed display there by writing it to month, so the chosen day keeps focus", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("m-value");
+  const month = page.getByTestId("m-month");
+  const heading = page.getByTestId("m-heading");
+
+  // A choice that doesn't move the display writes no month.
+  await cell(page, "m", "2026-10-13").click();
+  await expect(value).toHaveText("2026-10-06 2026-10-13 2026-10-20");
+  await settle(page);
+  await expect(month).toHaveText("null");
+
+  // By keys: removing the first day would show December.
+  await page.getByTestId("m-write-spread").click();
+  await expect(heading).toHaveText("October 2026");
+  await cell(page, "m", "2026-10-20").focus();
+  await page.keyboard.press("Enter");
+  await expect(value).toHaveText("2026-12-25");
+  await expect(month).toHaveText("2026-10");
+  await expect(heading).toHaveText("October 2026");
+  await expect(cell(page, "m", "2026-10-20")).toBeFocused();
+  await press(page, "ArrowRight", "2026-10-21", "m");
+
+  // By pointer.
+  await page.getByTestId("m-write-spread").click();
+  await page.getByTestId("m-follow").click();
+  await expect(month).toHaveText("null");
+  await cell(page, "m", "2026-10-20").click();
+  await expect(value).toHaveText("2026-12-25");
+  await expect(month).toHaveText("2026-10");
+  await expect(heading).toHaveText("October 2026");
+  await expect(cell(page, "m", "2026-10-20")).toBeFocused();
+
+  // Removing the only day of a followed month other than today's would show today's.
+  await page.getByTestId("m-follow").click();
+  await expect(heading).toHaveText("December 2026");
+  await cell(page, "m", "2026-12-25").click();
+  await expect(value).toHaveText("");
+  await expect(month).toHaveText("2026-12");
+  await expect(heading).toHaveText("December 2026");
+  await expect(cell(page, "m", "2026-12-25")).toBeFocused();
+  await press(page, "ArrowLeft", "2026-12-24", "m");
+});
+
+test("CA32: a range: Escape drops the anchor from Previous and Next too; inside a Dialog the first Escape drops it and the next closes the Dialog", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const anchor = page.getByTestId("r-anchor");
+  const next = page.getByTestId("r-next");
+  const previous = page.getByTestId("r-previous");
+
+  await cell(page, "r", "2026-10-29").click();
+  await next.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("r-heading")).toHaveText("November 2026");
+  await expect(next).toBeFocused();
+  await expect(anchor).toHaveText("2026-10-29");
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveText("null");
+  await expect(next).toBeFocused();
+  await expect(page.getByTestId("r-grid").locator("[data-preview]")).toHaveCount(0);
+
+  await cell(page, "r", "2026-11-03").click();
+  await previous.focus();
+  await page.keyboard.press("Escape");
+  await expect(anchor).toHaveText("null");
+  await expect(previous).toBeFocused();
+  await settle(page);
+  await expect(page.getByTestId("r-value")).toHaveText("2026-10-12 2026-10-16");
+  await expect(page.getByTestId("r-outputs")).toHaveText("0");
+
+  // In a Dialog, from a cell, then from Next.
+  const open = page.getByTestId("d-open-state");
+  const dialogAnchor = page.getByTestId("d-anchor");
+  const content = page.getByTestId("d-content");
+
+  await page.getByTestId("d-open").click();
+  await expect(content).toBeVisible();
+  await cell(page, "d", "2026-10-20").click();
+  await expect(dialogAnchor).toHaveText("2026-10-20");
+  await page.keyboard.press("Escape");
+  await expect(dialogAnchor).toHaveText("null");
+  await settle(page);
+  await expect(open).toHaveText("true");
+  await expect(cell(page, "d", "2026-10-20")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(open).toHaveText("false");
+  await expect(content).toBeHidden();
+
+  await page.getByTestId("d-open").click();
+  await expect(content).toBeVisible();
+  await cell(page, "d", "2026-10-22").click();
+  await expect(dialogAnchor).toHaveText("2026-10-22");
+  await page.getByTestId("d-next").focus();
+  await page.keyboard.press("Escape");
+  await expect(dialogAnchor).toHaveText("null");
+  await settle(page);
+  await expect(open).toHaveText("true");
+  await expect(page.getByTestId("d-next")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(open).toHaveText("false");
+  await expect(content).toBeHidden();
+});
+
+test("CA33: a range: a second choice after the bounds or dateDisabled disabled the anchor anchors anew and writes nothing", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const value = page.getByTestId("r-value");
+  const anchor = page.getByTestId("r-anchor");
+
+  // dateDisabled.
+  await cell(page, "r", "2026-10-10").click();
+  await expect(anchor).toHaveText("2026-10-10");
+  await page.getByTestId("r-weekends").click();
+  await expect(cell(page, "r", "2026-10-10")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "r", "2026-10-13").click();
+  await expect(anchor).toHaveText("2026-10-13");
+  await settle(page);
+  await expect(value).toHaveText("2026-10-12 2026-10-16");
+  await expect(page.getByTestId("r-outputs")).toHaveText("0");
+  await cell(page, "r", "2026-10-14").click();
+  await expect(value).toHaveText("2026-10-13 2026-10-14");
+
+  // minDate raised past the anchor.
+  await cell(page, "r", "2026-10-20").click();
+  await expect(anchor).toHaveText("2026-10-20");
+  await page.getByTestId("r-min").click();
+  await expect(cell(page, "r", "2026-10-20")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "r", "2026-10-22").click();
+  await expect(anchor).toHaveText("2026-10-22");
+  await settle(page);
+  await expect(value).toHaveText("2026-10-13 2026-10-14");
+  await cell(page, "r", "2026-10-23").click();
+  await expect(value).toHaveText("2026-10-22 2026-10-23");
+
+  // maxDate lowered before it.
+  await cell(page, "r", "2026-10-29").click();
+  await expect(anchor).toHaveText("2026-10-29");
+  await page.getByTestId("r-max").click();
+  await expect(cell(page, "r", "2026-10-29")).toHaveAttribute("aria-disabled", "true");
+  await cell(page, "r", "2026-10-26").click();
+  await expect(anchor).toHaveText("2026-10-26");
+  await settle(page);
+  await expect(value).toHaveText("2026-10-22 2026-10-23");
+  await cell(page, "r", "2026-10-27").click();
+  await expect(value).toHaveText("2026-10-26 2026-10-27");
+  await expect(page.getByTestId("r-outputs")).toHaveText("3");
+});

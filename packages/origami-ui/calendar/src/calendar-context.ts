@@ -38,6 +38,12 @@ export interface CalendarDayRecord {
   readonly outside: boolean;
 }
 
+/** A span of canonical days, `start` on or before `end`. */
+export interface CalendarDaySpan {
+  readonly start: string;
+  readonly end: string;
+}
+
 /** What a cell registers from its `ngOnInit`. */
 export interface CalendarCellRegistration {
   readonly element: HTMLElement;
@@ -72,6 +78,15 @@ export abstract class CalendarRootOptions {
   abstract shown(): string | null;
   /** Applies the mode's write rule to a chosen, enabled day. */
   abstract choose(date: string): void;
+  /** The committed range while the value is one, else null; tracked. Null for the other modes. */
+  abstract range(): CalendarDaySpan | null;
+  /** The range's pending first day, else null; tracked. Null for the other modes. */
+  abstract anchor(): string | null;
+  /**
+   * Drops a pending first day without writing, on Escape or before a choice once it can't be
+   * chosen any more; whether there was one.
+   */
+  abstract cancel(): boolean;
 
   /**
    * Provides the root Options beside the Context.
@@ -85,9 +100,10 @@ export abstract class CalendarRootOptions {
 
 /**
  * @internal The Calendar's private owner: the effective displayed month, the grid model's
- * periods and labels, cell and Heading registrations, the focused date and pending focus
- * requests, keyboard moves, choices, Previous/Next steps and the touch notification. It reads
- * the root's Signal Forms binding (`FORM_FIELD` on the root's element) for Field membership.
+ * periods and labels, cell and Heading registrations, the focused and hovered dates, pending
+ * focus requests, a pending range's preview, keyboard moves, choices, Previous/Next steps and
+ * the touch notification. It reads the root's Signal Forms binding (`FORM_FIELD` on the root's
+ * element) for Field membership.
  */
 @Service({ autoProvided: false })
 export class CalendarContext {
@@ -100,6 +116,8 @@ export class CalendarContext {
   readonly #heading = signal<Signal<string> | null>(null);
   /** The date of the cell that last took focus inside the grid. */
   readonly #focused = signal<string | null>(null);
+  /** The date of the cell under the pointer since focus last moved, or null. */
+  readonly #hovered = signal<string | null>(null);
   readonly #request = signal<FocusRequest | null>(null);
   #destroyed = false;
 
@@ -160,6 +178,27 @@ export class CalendarContext {
     }
 
     return weeks;
+  });
+  /** The committed range, or null. */
+  readonly #range = computed(() => this.#root().range());
+  /**
+   * While a range's first day is pending, the days the next choice would span: from it to the
+   * hovered day, else the focused day, else itself. Null otherwise.
+   */
+  readonly #preview = computed<CalendarDaySpan | null>(() => {
+    const anchor = this.#root().anchor();
+
+    if (anchor === null) {
+      return null;
+    }
+
+    const target = this.#hovered() ?? this.#focused() ?? anchor;
+
+    if (target < anchor) {
+      return { start: target, end: anchor };
+    }
+
+    return { start: anchor, end: target };
   });
   /** The registered Heading's effective ID, or null before it registers. */
   readonly headingId = computed(() => this.#heading()?.() ?? null);
@@ -258,6 +297,30 @@ export class CalendarContext {
     return this.#root().selected(date);
   }
 
+  /** Whether `date` starts the committed range; tracked. */
+  isRangeStart(date: string): boolean {
+    return this.#range()?.start === date;
+  }
+
+  /** Whether `date` ends the committed range; tracked. */
+  isRangeEnd(date: string): boolean {
+    return this.#range()?.end === date;
+  }
+
+  /** Whether `date` lies in the committed range, its ends included; tracked. */
+  isInRange(date: string): boolean {
+    const range = this.#range();
+
+    return range !== null && range.start <= date && date <= range.end;
+  }
+
+  /** Whether `date` lies in the pending range's preview, its ends included; tracked. */
+  isPreviewed(date: string): boolean {
+    const preview = this.#preview();
+
+    return preview !== null && preview.start <= date && date <= preview.end;
+  }
+
   /** The full date, a cell's accessible name; tracked. */
   label(date: string): string {
     return this.#labels().date(date);
@@ -309,9 +372,22 @@ export class CalendarContext {
     });
   }
 
-  /** A cell took focus. */
+  /** A cell took focus: it, not the pointer's last cell, is now what a pending range previews to. */
   focused(date: string): void {
     this.#focused.set(date);
+    this.#hovered.set(null);
+  }
+
+  /** The pointer entered the cell of `date`. */
+  pointerEntered(date: string): void {
+    this.#hovered.set(date);
+  }
+
+  /** The pointer left the cell of `date`. */
+  pointerLeft(date: string): void {
+    if (untracked(this.#hovered) === date) {
+      this.#hovered.set(null);
+    }
   }
 
   /**
@@ -371,22 +447,63 @@ export class CalendarContext {
   }
 
   /**
+   * A keydown anywhere in a range root's element, its cells and Previous/Next included: Escape
+   * drops a pending first day and prevents its default, and is left alone without one, so an
+   * enclosing layer takes it then. Keys with Alt, Ctrl or Meta, keys already `defaultPrevented`
+   * and keys during IME composition are ignored.
+   */
+  escape(event: KeyboardEvent): void {
+    if (
+      this.#destroyed ||
+      event.key !== "Escape" ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+
+    if (this.#root().cancel()) {
+      event.preventDefault();
+    }
+  }
+
+  /**
    * A user's choice of a mounted cell, by click, Enter or Space: written by the root's mode
    * unless the root is disabled or readonly or the day can't be chosen. Choosing a day outside
-   * the displayed month also shows its month, and focus follows to its cell.
+   * the displayed month also shows its month, and focus follows to its cell. Choosing a day
+   * inside it keeps the display there: when `month` follows the selection and the choice would
+   * move it, the displayed month is written to `month`, so the chosen cell keeps focus.
    */
   choose(date: string): void {
     if (this.#destroyed || this.disabled() || this.readonly() || this.isDateDisabled(date)) {
       return;
     }
 
-    // Read first: while `month` follows the value, the choice itself changes the display.
+    // Read first: while `month` follows the value, the choice itself can change the display.
     const outside = this.isOutside(date);
+    const position = this.position();
+    const following = canonicalMonth(this.#root().month()) === null;
+    const anchor = this.#root().anchor();
+
+    // A pending first day the bounds or `dateDisabled` have disabled since can't end a range:
+    // this choice starts a new one instead.
+    if (anchor !== null && this.isDateDisabled(anchor)) {
+      this.#root().cancel();
+    }
 
     this.#root().choose(date);
 
     if (outside) {
       this.#show(date);
+
+      return;
+    }
+
+    if (following && this.position() !== position) {
+      this.#root().month.set(position);
     }
   }
 
@@ -408,11 +525,18 @@ export class CalendarContext {
   }
 
   /**
-   * Focus left the root's element for `next`, or for nothing. Losing focus to nothing while a
-   * focus request is pending is the focused cell leaving with its month, not the user leaving.
+   * The root element's `focusout`: a touch when focus leaves `root`, not when it moves inside it.
+   * Losing focus to nothing while a focus request is pending is the focused cell leaving with its
+   * month, not the user leaving. A pending range's first day is kept.
    */
-  left(next: Element | null): void {
-    if (next === null && this.#request() !== null) {
+  focusOut(event: FocusEvent, root: HTMLElement): void {
+    const next = event.relatedTarget;
+
+    if (next instanceof Node && root.contains(next)) {
+      return;
+    }
+
+    if (!(next instanceof Element) && this.#request() !== null) {
       return;
     }
 
