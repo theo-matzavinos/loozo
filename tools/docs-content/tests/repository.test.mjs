@@ -286,6 +286,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/switch",
     "@loozo/origami-ui/dialog",
     "@loozo/origami-ui/select",
+    "@loozo/origami-ui/calendar",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -325,6 +326,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   ]);
   assert.equal(names["@loozo/origami-ui/dialog"].length, 20);
   assert.equal(names["@loozo/origami-ui/select"].length, 14);
+  assert.equal(names["@loozo/origami-ui/calendar"].length, 11);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -366,6 +368,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "switch:Switch",
     "dialog:Dialog",
     "select:Select",
+    "calendar:Calendar",
     "utils:Utilities",
   ]);
 

@@ -57,6 +57,7 @@ for (const directory of [
   "switch/src",
   "dialog/src",
   "select/src",
+  "calendar/src",
 ]) {
   await collect(directory);
 }
@@ -199,6 +200,19 @@ const directiveDefaults = {
   "OrigamiSelectOption.disabled": ["false", /\bfalse\b/i],
   "OrigamiSelectOption.label": ["null", /\bnull\b/i],
   "OrigamiSelectOption.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiCalendar.value": ["null", /\bnull\b/i],
+  "OrigamiCalendar.month": ["null", /\bnull\b/i],
+  "OrigamiCalendar.minDate": ["null", /\bnull\b/i],
+  "OrigamiCalendar.maxDate": ["null", /\bnull\b/i],
+  "OrigamiCalendar.dateDisabled": ["none disabled", /none disabled/i],
+  "OrigamiCalendar.weekStart": ["null", /\bnull\b/i],
+  "OrigamiCalendar.locale": ["LOCALE_ID", /LOCALE_ID/],
+  "OrigamiCalendar.today": ["seed", /seed/i],
+  "OrigamiCalendar.fixedWeeks": ["false", /\bfalse\b/i],
+  "OrigamiCalendar.disabled": ["false", /\bfalse\b/i],
+  "OrigamiCalendar.readonly": ["false", /\bfalse\b/i],
+  "OrigamiCalendarCell.date": ["required", /required/i],
+  "OrigamiCalendarHeading.id": ["opaque generated hosted ID", /generat/i],
 };
 const subjects = [];
 const failures = [];
