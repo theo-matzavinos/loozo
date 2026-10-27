@@ -9,6 +9,7 @@ import {
   inject,
   input,
   model,
+  numberAttribute,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { outputFromObservable } from "@angular/core/rxjs-interop";
@@ -21,9 +22,9 @@ import { CalendarSeed } from "./calendar-seed";
 
 /**
  * Effective `ogCalendar` configuration, replaced as a whole rather than merged with unused
- * defaults. Dates are canonical ISO strings: days `YYYY-MM-DD` and months `YYYY-MM`, Gregorian,
- * years 0001–9999; they carry no time zone, and with four-digit years they compare
- * chronologically with `<`.
+ * defaults. Dates are canonical ISO strings: days `YYYY-MM-DD`, months `YYYY-MM` and years
+ * `YYYY`, Gregorian, years 0001–9999; they carry no time zone, and with four-digit years they
+ * compare chronologically with `<`.
  */
 export abstract class OrigamiCalendarOptions {
   /**
@@ -39,12 +40,24 @@ export abstract class OrigamiCalendarOptions {
    * the display; a user's choice inside the displayed month never does, writing the displayed
    * month here if it would. A canonical month shows that month; any other string is treated as
    * null.
-   * Keyboard moves into another month and Previous/Next write it; choosing a day outside the
-   * displayed month writes it unless the display already follows the chosen value there. The
-   * Calendar shows 0001-02 through 9999-11, whose weeks are whole: a month before or after them
-   * shows the nearest. `state.month()` is always the month actually shown.
+   * Keyboard moves into another month, year or page and Previous/Next write it; choosing a day
+   * outside the displayed month writes it unless the display already follows the chosen value
+   * there, and so does choosing a year (that year, the same month number) or a month in a
+   * coarser view. The days view shows 0001-02 through 9999-11, whose weeks are whole: a month
+   * before or after them shows the nearest. `state.month()` is always the month actually shown.
+   * The months view shows its year, and the years view the page of twelve holding it.
    */
   abstract readonly month: WritableSignal<string | null>;
+  /**
+   * Writable view: `"days"` (the direct directive model's default), `"months"` (the displayed
+   * year's months) or `"years"` (the page of twelve years holding it, aligned to a multiple of
+   * 12, 0012–0023 through 9984–9995). Choosing a year writes `"months"` and choosing a month
+   * `"days"`, and focus follows to the new view's tab stop; Escape in the months or years view
+   * writes `"days"` without changing `month`. Write it yourself, as from a heading button, to
+   * switch views: focus stays where it is and the grid's tab stop moves to the displayed period.
+   * Any other value counts as `"days"`.
+   */
+  abstract readonly view: WritableSignal<"days" | "months" | "years">;
   /**
    * Earliest day that can be chosen or reached by keys, `YYYY-MM-DD`, or null for none (the
    * default). A non-canonical value is no bound. Days before it are disabled, moves stop at it
@@ -81,6 +94,11 @@ export abstract class OrigamiCalendarOptions {
   abstract readonly today: Signal<string>;
   /** Always six weeks, so the grid's height never changes between months; default false. */
   abstract readonly fixedWeeks: Signal<boolean>;
+  /**
+   * Columns of the months and years views, for `state.months()` and `state.years()` and for the
+   * arrow keys there, a whole number from 1 to 12; default 3. Any other value counts as 3.
+   */
+  abstract readonly columns: Signal<number>;
   /**
    * Blocks choosing, focus and the pointer: no cell takes focus and Previous/Next are natively
    * disabled; default false. `[formField]` writes it from the field's `disabled()` rules.
@@ -125,6 +143,17 @@ export interface OrigamiCalendarDayRecord {
   readonly outside: boolean;
 }
 
+/**
+ * One month or year of `OrigamiCalendarState.months()` or `.years()`: what a cell of the months
+ * or years view renders.
+ */
+export interface OrigamiCalendarPeriodRecord {
+  /** The month, `YYYY-MM`, or the year, `YYYY`: bind it to the cell's `date` and track the `@for` by it. */
+  readonly date: string;
+  /** The localized short month ("Oct") or year ("2026"). */
+  readonly label: string;
+}
+
 /** Locally provided readonly facade for the nearest `ogCalendar`; nested roots have independent owners. */
 @Service({ autoProvided: false })
 export class OrigamiCalendarState {
@@ -135,10 +164,15 @@ export class OrigamiCalendarState {
   readonly value: Signal<string | null> = computed(() => this.#options().value());
   /**
    * The displayed month, `YYYY-MM`: the `month` Option while it is canonical, else the value's
-   * month, else today's; held to 0001-02 through 9999-11.
+   * month, else today's; held to 0001-02 through 9999-11. The months view shows its year.
    */
   readonly month: Signal<string> = this.#context.position;
-  /** The displayed month and year in the locale, such as "October 2026"; render it in the Heading. */
+  /** The effective view: `"days"`, `"months"` or `"years"`. */
+  readonly view: Signal<"days" | "months" | "years"> = this.#context.view;
+  /**
+   * The displayed period in the locale, by view: the month and year ("October 2026"), the year
+   * ("2026") or the page of years ("2016 – 2027"); render it in the Heading.
+   */
   readonly heading: Signal<string> = this.#context.heading;
   /**
    * The seven weekday labels from the week start, for the header: `short` ("Tue") to show and
@@ -152,6 +186,17 @@ export class OrigamiCalendarState {
    * cell mounted, on the server too.
    */
   readonly weeks: Signal<readonly (readonly OrigamiCalendarDayRecord[])[]> = this.#context.weeks;
+  /**
+   * The twelve months of the displayed year, in rows of `columns`, for the months view. Computed
+   * whatever the view, without any cell mounted, on the server too.
+   */
+  readonly months: Signal<readonly (readonly OrigamiCalendarPeriodRecord[])[]> =
+    this.#context.months;
+  /**
+   * The displayed page of twelve years, aligned to a multiple of 12 (2016–2027), in rows of
+   * `columns`, for the years view. Computed whatever the view, on the server too.
+   */
+  readonly years: Signal<readonly (readonly OrigamiCalendarPeriodRecord[])[]> = this.#context.years;
   /** Effective root disabled policy. External Options/model writes remain authoritative while disabled. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
 }
@@ -161,11 +206,12 @@ function neverDisabled(): boolean {
 }
 
 /**
- * Calendar root for one day: an inline month grid, the APG date-picker grid without a dialog.
- * The consumer renders the markup from `state`: an `ogCalendarGrid` table whose `ogCalendarCell`
- * cells come from `state.weeks()`, an `ogCalendarHeading` with `state.heading()`, and
- * `ogCalendarPrevious`/`ogCalendarNext` buttons. Origami computes the dates, labels, keys,
- * focus and ARIA; it generates no markup.
+ * Calendar root for one day: an inline month grid, the APG date-picker grid without a dialog,
+ * with months and years views for choosing the month and year first. The consumer renders the
+ * markup from `state`: an `ogCalendarGrid` table whose `ogCalendarCell` cells come from
+ * `state.weeks()`, `state.months()` or `state.years()` by `state.view()`, an `ogCalendarHeading`
+ * with `state.heading()`, and `ogCalendarPrevious`/`ogCalendarNext` buttons. Origami computes the
+ * dates, labels, keys, focus and ARIA; it generates no markup.
  *
  * The value is a `YYYY-MM-DD` string or null, never a `Date`, so no time zone can shift it.
  * Clicking a day, Enter or Space chooses it; arrows, Home/End and PageUp/PageDown (with Shift,
@@ -173,6 +219,13 @@ function neverDisabled(): boolean {
  * swap in right-to-left text). The grid has one tab stop: the focused day, else the chosen day
  * in the displayed month, else today, else the month's first enabled day. Disabled days take
  * focus but can't be chosen; `minDate` and `maxDate` stop moves.
+ *
+ * Views: in the months view, choosing a month shows its days, and in the years view choosing a
+ * year shows its months; focus follows to the new view's tab stop, and Escape returns to the
+ * days view. There the arrows move a month or year, Up and Down by `columns`, Home and End go to
+ * the row's ends and PageUp/PageDown move a year or twelve. A month or year is disabled only
+ * when it lies wholly outside `minDate`/`maxDate`; `dateDisabled` disables days alone. Previous
+ * and Next step a month, a year or twelve years, by view.
  *
  * Server rendering and hydration: the root writes its seed to its host, `data-today` (the
  * default today) and `data-week-start` (the locale's week start). A hydrating root reads them
@@ -215,9 +268,15 @@ function neverDisabled(): boolean {
 
       return {
         month: options.month,
+        valueLevel: "days",
+        view: options.view,
+        setView: (view) => {
+          options.view.set(view);
+        },
+        columns: options.columns,
         minDate: options.minDate,
         maxDate: options.maxDate,
-        dateDisabled: options.dateDisabled,
+        valueDisabled: options.dateDisabled,
         weekStart: options.weekStart,
         locale: options.locale,
         today: options.today,
@@ -252,6 +311,7 @@ function neverDisabled(): boolean {
     "[attr.data-today]": "seedToday",
     "[attr.data-week-start]": "seedWeekStart()",
     "(focusout)": "focusLeft($event)",
+    "(keydown)": "keydown($event)",
   },
 })
 export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl<string | null> {
@@ -266,6 +326,11 @@ export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl
    * `monthChange` emits navigation. Replaced Options supply the effective month instead.
    */
   readonly month = model<string | null>(null);
+  /**
+   * Own view model, default `"days"`; `viewChange` emits drill-downs and Escape. Replaced
+   * Options supply the effective view instead.
+   */
+  readonly view = model<"days" | "months" | "years">("days");
   /** Own earliest-day input, default null; replaced Options supply the effective bound instead. */
   readonly minDate = input<string | null>(null);
   /** Own latest-day input, default null; replaced Options supply the effective bound instead. */
@@ -283,6 +348,8 @@ export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl
   readonly today = input(inject(CalendarSeed).today);
   /** Own six-weeks input, default false with boolean-attribute coercion. */
   readonly fixedWeeks = input(false, { transform: booleanAttribute });
+  /** Own months and years columns input, default 3 with number-attribute coercion. */
+  readonly columns = input(3, { transform: numberAttribute });
   /**
    * Own disabled input, default false with boolean-attribute coercion; `[formField]` writes it
    * from the field's `disabled()` rules. Replaced Options supply effective policy instead.
@@ -327,5 +394,10 @@ export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl
   /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */
   protected focusLeft(event: FocusEvent): void {
     this.#context.focusOut(event, this.#element);
+  }
+
+  /** @internal Escape anywhere in the root, Previous and Next included, returns to the days view. */
+  protected keydown(event: KeyboardEvent): void {
+    this.#context.escape(event);
   }
 }

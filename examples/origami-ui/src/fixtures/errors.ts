@@ -24,7 +24,11 @@ import {
   OrigamiTooltipContent,
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
-import { OrigamiCalendar, OrigamiCalendarHeading } from "@loozo/origami-ui/calendar";
+import {
+  OrigamiCalendar,
+  OrigamiCalendarCell,
+  OrigamiCalendarHeading,
+} from "@loozo/origami-ui/calendar";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -52,6 +56,7 @@ import { OrigamiCalendar, OrigamiCalendarHeading } from "@loozo/origami-ui/calen
     OrigamiTooltipTrigger,
     OrigamiTooltipContent,
     OrigamiCalendar,
+    OrigamiCalendarCell,
     OrigamiCalendarHeading,
   ],
   template: `
@@ -90,6 +95,7 @@ import { OrigamiCalendar, OrigamiCalendarHeading } from "@loozo/origami-ui/calen
         <option value="tooltip-negative-gap">Negative tooltip gap</option>
         <option value="tooltip-nan-gap">NaN tooltip gap</option>
         <option value="calendar-heading">Duplicate calendar heading</option>
+        <option value="calendar-cell-level">Month cell in a calendar's days view</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -146,6 +152,16 @@ import { OrigamiCalendar, OrigamiCalendarHeading } from "@loozo/origami-ui/calen
       <h2 ogCalendarHeading>First calendar heading</h2>
       @if (mounted() && selected() === "calendar-heading") {
         <h2 ogCalendarHeading>Second calendar heading</h2>
+      }
+      @if (mounted() && selected() === "calendar-cell-level") {
+        <table>
+          <tbody>
+            <tr>
+              <td ogCalendarCell date="2026-10" data-testid="error-calendar-cell">Oct</td>
+              <td ogCalendarCell date="2026-10-27" data-testid="error-calendar-day">27</td>
+            </tr>
+          </tbody>
+        </table>
       }
     </section>
     <section ogCollapsible>

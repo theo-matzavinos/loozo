@@ -62,6 +62,8 @@ export class CalendarLabels {
   readonly #day: Intl.DateTimeFormat;
   readonly #date: Intl.DateTimeFormat;
   readonly #month: Intl.DateTimeFormat;
+  readonly #monthShort: Intl.DateTimeFormat;
+  readonly #year: Intl.DateTimeFormat;
   readonly #weekdayShort: Intl.DateTimeFormat;
   readonly #weekdayLong: Intl.DateTimeFormat;
 
@@ -77,6 +79,8 @@ export class CalendarLabels {
       day: "numeric",
     });
     this.#month = new Intl.DateTimeFormat(locale, { ...base, year: "numeric", month: "long" });
+    this.#monthShort = new Intl.DateTimeFormat(locale, { ...base, month: "short" });
+    this.#year = new Intl.DateTimeFormat(locale, { ...base, year: "numeric" });
     this.#weekdayShort = new Intl.DateTimeFormat(locale, { ...base, weekday: "short" });
     this.#weekdayLong = new Intl.DateTimeFormat(locale, { ...base, weekday: "long" });
   }
@@ -91,9 +95,24 @@ export class CalendarLabels {
     return this.#date.format(utcDate(date));
   }
 
-  /** A canonical month and its year ("October 2026"). */
+  /** A canonical month and its year ("October 2026"): the days heading and a month cell's name. */
   month(month: string): string {
     return this.#month.format(utcDate(`${month}-01`));
+  }
+
+  /** A canonical month's short name alone ("Oct"), a month cell's text. */
+  monthShort(month: string): string {
+    return this.#monthShort.format(utcDate(`${month}-01`));
+  }
+
+  /** A canonical year ("2026"): the months heading, and a year cell's text and name. */
+  year(year: string): string {
+    return this.#year.format(utcDate(`${year}-01-01`));
+  }
+
+  /** A page of years from `first` to `last`, canonical years, as a range ("2016 – 2027"). */
+  years(first: string, last: string): string {
+    return this.#year.formatRange(utcDate(`${first}-01-01`), utcDate(`${last}-01-01`));
   }
 
   /** The seven weekday labels, starting at `weekStart`. */

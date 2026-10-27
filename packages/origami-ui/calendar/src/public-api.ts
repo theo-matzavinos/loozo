@@ -1,5 +1,5 @@
 export { OrigamiCalendar, OrigamiCalendarOptions, OrigamiCalendarState } from "./calendar";
-export type { OrigamiCalendarDayRecord } from "./calendar";
+export type { OrigamiCalendarDayRecord, OrigamiCalendarPeriodRecord } from "./calendar";
 export {
   OrigamiCalendarMultiple,
   OrigamiCalendarMultipleOptions,
@@ -11,6 +11,11 @@ export {
   OrigamiCalendarRangeState,
 } from "./calendar-range";
 export type { OrigamiDateRange } from "./calendar-range";
+export {
+  OrigamiMonthCalendar,
+  OrigamiMonthCalendarOptions,
+  OrigamiMonthCalendarState,
+} from "./month-calendar";
 export { OrigamiCalendarGrid } from "./calendar-grid";
 export { OrigamiCalendarCell, OrigamiCalendarCellOptions } from "./calendar-cell";
 export { OrigamiCalendarHeading, OrigamiCalendarHeadingOptions } from "./calendar-heading";
