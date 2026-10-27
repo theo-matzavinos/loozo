@@ -4,9 +4,9 @@ import { ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { CalendarContext } from "./calendar-context";
 
 /**
- * The grid of an `ogCalendar`, usually a `<table>`: static `role="grid"` (a consumer's static
- * `role` overrides it), with `aria-multiselectable="true"` only where several days can be
- * selected, `aria-disabled="true"` while the root is disabled and `aria-readonly="true"` while
+ * The grid of a Calendar root, usually a `<table>`: static `role="grid"` (a consumer's static
+ * `role` overrides it), with `aria-multiselectable="true"` under `ogCalendarMultiple` and
+ * `ogCalendarRange`, where several days can be selected, `aria-disabled="true"` while the root is disabled and `aria-readonly="true"` while
  * it is readonly. Render its rows from the root's `state.weeks()` and give each day an
  * `ogCalendarCell`. Use explicit `<thead>`/`<tbody>` so the browser inserts no element that
  * server rendering didn't, and a `<th scope="col" [attr.abbr]="weekday.long">` per weekday.

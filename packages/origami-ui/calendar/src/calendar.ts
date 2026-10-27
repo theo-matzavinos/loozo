@@ -36,7 +36,9 @@ export abstract class OrigamiCalendarOptions {
   /**
    * Writable displayed month, `YYYY-MM`, or null (the direct directive model's default) to follow
    * the value: the Calendar then shows the value's month, else today's, and a value write moves
-   * the display. A canonical month shows that month; any other string is treated as null.
+   * the display; a user's choice inside the displayed month never does, writing the displayed
+   * month here if it would. A canonical month shows that month; any other string is treated as
+   * null.
    * Keyboard moves into another month and Previous/Next write it; choosing a day outside the
    * displayed month writes it unless the display already follows the chosen value there. The
    * Calendar shows 0001-02 through 9999-11, whose weeks are whole: a month before or after them
@@ -237,6 +239,9 @@ function neverDisabled(): boolean {
         choose: (date) => {
           ɵrequestSingleSelection(options.value, date, true, false);
         },
+        range: () => null,
+        anchor: () => null,
+        cancel: () => false,
       };
     }),
     CalendarSeed,
@@ -321,18 +326,6 @@ export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl
 
   /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */
   protected focusLeft(event: FocusEvent): void {
-    const next = event.relatedTarget;
-
-    if (next instanceof Node && this.#element.contains(next)) {
-      return;
-    }
-
-    if (next instanceof Element) {
-      this.#context.left(next);
-
-      return;
-    }
-
-    this.#context.left(null);
+    this.#context.focusOut(event, this.#element);
   }
 }

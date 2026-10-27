@@ -122,7 +122,7 @@ import { OrigamiCheckboxOptions, type OrigamiCheckboxState } from '@loozo/origam
 import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui/switch';
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
-import { OrigamiCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiCalendarState, type OrigamiCalendarDayRecord } from '@loozo/origami-ui/calendar';
+import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -420,6 +420,34 @@ const calendarDay: OrigamiCalendarDayRecord | undefined = calendarState.weeks()[
 calendarDay!.outside = true;
 // @ts-expect-error Calendar State has no months view in this release
 void calendarState.months;
+// Positive: whole multiple and range Calendar factories.
+OrigamiCalendarMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>({ start: '2026-10-01', end: '2026-10-05' }), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error multiple Calendar value is an array of days, not one day
+OrigamiCalendarMultipleOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error multiple Calendar value must be writable
+OrigamiCalendarMultipleOptions.provideFactory(() => ({value: computed<readonly string[]>(() => []), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error range Calendar value is a range, not one day
+OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a range has both ends
+const halfRange: OrigamiDateRange = { start: '2026-10-01' };
+void halfRange;
+// @ts-expect-error a range Calendar factory must supply readonly
+OrigamiCalendarRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>(null), month: signal<string | null>(null), minDate: signal<string | null>(null), maxDate: signal<string | null>(null), dateDisabled: signal(() => false), weekStart: signal(null), locale: signal('en-US'), today: signal('2026-10-27'), fixedWeeks: signal(false), disabled: signal(false)}));
+declare const calendarMultipleState: OrigamiCalendarMultipleState;
+const calendarDays: readonly string[] = calendarMultipleState.value();
+void calendarDays;
+// @ts-expect-error multiple Calendar State value is readonly
+calendarMultipleState.value.set([]);
+declare const calendarRangeState: OrigamiCalendarRangeState;
+const calendarRange: OrigamiDateRange | null = calendarRangeState.value();
+const calendarAnchor: string | null = calendarRangeState.anchor();
+void calendarRange;
+void calendarAnchor;
+// @ts-expect-error range Calendar State anchor is readonly
+calendarRangeState.anchor.set(null);
+// @ts-expect-error a range is readonly
+calendarRange!.start = '2026-10-01';
 // @ts-expect-error RadioGroup value must be writable
 OrigamiRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null), disabled: signal(false)}));
 // @ts-expect-error RadioGroup value is a nullable string
@@ -867,15 +895,17 @@ import { OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription } from "@loozo
   },
   calendar: {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
-import { OrigamiCalendar, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, type OrigamiCalendarDayRecord } from "@loozo/origami-ui/calendar";
+import { OrigamiCalendar, OrigamiCalendarMultiple, OrigamiCalendarRange, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, type OrigamiCalendarDayRecord, type OrigamiDateRange } from "@loozo/origami-ui/calendar";
 import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
     directives:
-      "FormField, OrigamiCalendar, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, OrigamiField, OrigamiFieldLabel",
+      "FormField, OrigamiCalendar, OrigamiCalendarMultiple, OrigamiCalendarRange, OrigamiCalendarGrid, OrigamiCalendarCell, OrigamiCalendarHeading, OrigamiCalendarPrevious, OrigamiCalendarNext, OrigamiField, OrigamiFieldLabel",
     members: `
   readonly day = signal<string | null>(null);
+  readonly days = signal<readonly string[]>([]);
+  readonly period = signal<OrigamiDateRange | null>(null);
   readonly month = signal<string | null>(null);
   readonly count = signal<number | null>(null);
-  readonly model = signal<{ day: string | null; count: number | null }>({ day: null, count: null });
+  readonly model = signal<{ day: string | null; days: readonly string[]; period: OrigamiDateRange | null; count: number | null }>({ day: null, days: [], period: null, count: null });
   readonly form = form(this.model, (path) => { required(path.day); });
   weekend(date: string): boolean { return date.endsWith("-01"); }
   touched(): void {}
@@ -883,7 +913,10 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   monthOutput(value: string | null): void { void value; }
   countOutput(value: number | null): void { void value; }
   observeMonth(value: string): void { void value; }
-  observeWeeks(value: readonly (readonly OrigamiCalendarDayRecord[])[]): void { void value; }`,
+  observeWeeks(value: readonly (readonly OrigamiCalendarDayRecord[])[]): void { void value; }
+  daysOutput(value: readonly string[]): void { void value; }
+  periodOutput(value: OrigamiDateRange | null): void { void value; }
+  anchorOutput(value: string | null): void { void value; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -1502,6 +1535,81 @@ const templates = [
       code: 2345,
       span: "weeks",
       message: /not assignable to parameter of type 'string'/,
+    },
+  },
+  {
+    name: "calendar-multiple-positive",
+    family: "calendar",
+    template: `<div ogCalendarMultiple #cal="ogCalendarMultiple" [(value)]="days" (valueChange)="daysOutput($event)" [(month)]="month" minDate="2026-01-01" [maxDate]="null" [dateDisabled]="weekend" [weekStart]="1" locale="en-GB" today="2026-10-27" fixedWeeks disabled readonly (click)="cal.focus(); daysOutput(cal.state.value()); observeMonth(cal.state.month()); observeWeeks(cal.state.weeks())"><button ogCalendarPrevious aria-label="Previous month"></button><h2 ogCalendarHeading>{{ cal.state.heading() }}</h2><button ogCalendarNext aria-label="Next month"></button><table ogCalendarGrid><tbody>@for (week of cal.state.weeks(); track $index) {<tr>@for (day of week; track day.date) {<td ogCalendarCell [date]="day.date">{{ day.label }}</td>}</tr>}</tbody></table></div>`,
+  },
+  {
+    name: "calendar-range-positive",
+    family: "calendar",
+    template: `<div ogCalendarRange #cal="ogCalendarRange" [(value)]="period" (valueChange)="periodOutput($event)" [(month)]="month" minDate="2026-01-01" [dateDisabled]="weekend" today="2026-10-27" (click)="cal.focus(); periodOutput(cal.state.value()); anchorOutput(cal.state.anchor())"><table ogCalendarGrid><tbody>@for (week of cal.state.weeks(); track $index) {<tr>@for (day of week; track day.date) {<td ogCalendarCell [date]="day.date">{{ day.label }}</td>}</tr>}</tbody></table></div>`,
+  },
+  {
+    name: "calendar-multiple-form-positive",
+    family: "calendar",
+    template: `<div ogField><span ogFieldLabel>Days</span><div ogCalendarMultiple [formField]="form.days" minDate="2026-01-01" (touch)="touched()"><table ogCalendarGrid></table></div></div><div ogField><span ogFieldLabel>Period</span><div ogCalendarRange [formField]="form.period" [maxDate]="day()" (touch)="touched()"><table ogCalendarGrid></table></div></div>`,
+  },
+  {
+    name: "calendar-multiple-form-day",
+    family: "calendar",
+    template: `<div ogCalendarMultiple [formField]="form.day"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /string \| null.*not assignable to type 'readonly string\[\]'/s,
+    },
+  },
+  {
+    name: "calendar-range-form-day",
+    family: "calendar",
+    template: `<div ogCalendarRange [formField]="form.day"></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /string.*not assignable to type 'OrigamiDateRange'/s,
+    },
+  },
+  {
+    name: "calendar-multiple-value",
+    family: "calendar",
+    template: `<div ogCalendarMultiple [(value)]="day"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /not assignable to type 'readonly string\[\]'/,
+    },
+  },
+  {
+    name: "calendar-range-value",
+    family: "calendar",
+    template: `<div ogCalendarRange [(value)]="day"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /not assignable to type 'OrigamiDateRange'/,
+    },
+  },
+  {
+    name: "calendar-multiple-min",
+    family: "calendar",
+    template: `<div ogCalendarMultiple [min]="day()"></div>`,
+    expected: {
+      code: -998002,
+      span: '[min]="day()"',
+      message: /Can't bind to 'min' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "calendar-multiple-state-anchor",
+    family: "calendar",
+    template: `<div ogCalendarMultiple #cal="ogCalendarMultiple" (click)="anchorOutput(cal.state.anchor())"></div>`,
+    expected: {
+      code: 2339,
+      span: "anchor",
+      message: /Property 'anchor' does not exist/,
     },
   },
   {
