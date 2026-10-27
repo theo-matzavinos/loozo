@@ -390,12 +390,22 @@ export class DateFieldContext {
   }
 
   /** Delete: empties the unit. */
-  clear(segment: DateFieldSegmentRegistration): void {
+  emptyUnit(segment: DateFieldSegmentRegistration): void {
     if (!this.#editable()) {
       return;
     }
 
     this.#set(segment.unit(), "");
+    this.#typing = null;
+  }
+
+  /**
+   * The root's `clear()`: discards the draft and the typing session and commits null, whatever
+   * the policies say. An empty draft parses to null, so the parser writes null to the effective
+   * value, which emits only if it changes, and clears the parse errors.
+   */
+  clear(): void {
+    this.#draft().value.set(this.#root().shape.format(null));
     this.#typing = null;
   }
 

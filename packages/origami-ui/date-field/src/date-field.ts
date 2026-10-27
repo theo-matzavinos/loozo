@@ -59,7 +59,8 @@ export class OrigamiDateFieldState {
  * commits null; anything else keeps the last value and reports a parse error, `dateIncomplete`
  * (`10/––/2026`) or `dateInvalid` (`02/31/2026`), shown as typed, never clamped. Writing the
  * value, a Signal Forms `reset()` included, replaces the draft; `reset()` also does so to the
- * value already committed. There are no bounds on the field: put them in the form schema.
+ * value already committed. `clear()` discards the draft and commits null, also over a null value.
+ * There are no bounds on the field: put them in the form schema.
  *
  * Server rendering and hydration: the root writes its resolved layout to its host as
  * `data-layout` (order, literals, unit names, digits). A hydrating root reads it from its server
@@ -152,5 +153,18 @@ export class OrigamiDateField implements OrigamiDateFieldOptions, FormValueContr
    */
   focus(options?: FocusOptions): void {
     this.#context.focus(options);
+  }
+
+  /**
+   * Empties the field: discards the draft, half-typed units included, and the typing session, and
+   * commits null to the effective value. `valueChange` emits, and Signal Forms sees the write,
+   * only if the value wasn't null already; the parse errors clear and every segment shows its
+   * placeholder. Writing null to `value` doesn't do this while the value is already null, since
+   * nothing changes, and Signal Forms' `reset()` also resets touched and dirty. A programmatic
+   * write: it applies whatever `disabled` and `readonly` say. A segment keeping focus starts its
+   * unit over with the next digit.
+   */
+  clear(): void {
+    this.#context.clear();
   }
 }

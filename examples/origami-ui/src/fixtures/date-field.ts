@@ -218,6 +218,8 @@ export class DateFieldSeedCases {
       <output data-testid="direct-errors">{{ kinds(dates.direct()) }}</output>
       <output data-testid="direct-parse">{{ parse(direct.state) }}</output>
       <output data-testid="direct-touched">{{ dates.direct().touched() }}</output>
+      <output data-testid="direct-writes">{{ directWrites() }}</output>
+      <button type="button" data-testid="direct-clear" (click)="direct.clear()">Clear</button>
       <button type="button" data-testid="direct-reset-same" (click)="dates.direct().reset()">
         Reset
       </button>
@@ -248,6 +250,7 @@ export class DateFieldSeedCases {
           ogDateField
           #direct="ogDateField"
           [formField]="dates.direct"
+          (valueChange)="directWrites.set(directWrites() + 1)"
           data-testid="direct-root"
         >
           <date-segments group="direct-group" />
@@ -264,6 +267,7 @@ export class DateFieldSeedCases {
         modelComposer
         #composer="modelComposer"
         [formField]="dates.composed"
+        (valueChange)="composedWrites.set(composedWrites() + 1)"
         data-testid="composed-root"
       >
         <date-segments />
@@ -273,6 +277,10 @@ export class DateFieldSeedCases {
       <output data-testid="composed-parse">{{ parse(composer.state) }}</output>
       <output data-testid="composed-own-value">{{ composer.field.value() ?? "null" }}</output>
       <output data-testid="composed-touched">{{ dates.composed().touched() }}</output>
+      <output data-testid="composed-writes">{{ composedWrites() }}</output>
+      <button type="button" data-testid="composed-clear" (click)="composer.field.clear()">
+        Clear the composed root
+      </button>
       <button type="button" data-testid="composed-reset-same" (click)="dates.composed().reset()">
         Reset
       </button>
@@ -372,6 +380,7 @@ export class DateFieldSeedCases {
       >
         Toggle the locale
       </button>
+      <button type="button" data-testid="typing-clear" (click)="typing.clear()">Clear</button>
       <button type="button" data-testid="after-typing">After the typing field</button>
 
       <h2>Right to left</h2>
@@ -417,6 +426,8 @@ export class DateFieldFixture {
   readonly plainValue = signal<string | null>("2026-10-27");
   readonly typingValue = signal<string | null>(null);
   readonly typingWrites = signal(0);
+  readonly directWrites = signal(0);
+  readonly composedWrites = signal(0);
   readonly typingLocale = signal("en-US");
   readonly laterShown = signal(false);
   readonly kinds = errorKinds;
