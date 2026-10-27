@@ -1,4 +1,4 @@
-import { utcDate } from "./calendar-date";
+import { ɵutcDate as utcDate } from "@loozo/origami-ui/utils";
 import type { Weekday } from "./calendar-date";
 
 /**

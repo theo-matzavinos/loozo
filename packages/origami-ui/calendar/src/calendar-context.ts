@@ -12,10 +12,9 @@ import {
 import type { Provider, Signal, WritableSignal } from "@angular/core";
 import { FORM_FIELD } from "@angular/forms/signals";
 import type { FieldState } from "@angular/forms/signals";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { injectDeferred, ɵcanonicalDay as canonicalDay } from "@loozo/origami-ui/utils";
 import { Subject } from "rxjs";
 import {
-  canonicalDay,
   canonicalMonth,
   formatMonth,
   formatYear,

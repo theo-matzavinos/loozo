@@ -15,8 +15,8 @@ import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angu
 import { outputFromObservable } from "@angular/core/rxjs-interop";
 import type { FormValueControl } from "@angular/forms/signals";
 import { ɵrequestSingleSelection } from "@loozo/origami-ui/collection";
-import { injectDeferred } from "@loozo/origami-ui/utils";
-import { canonicalDay, monthOf } from "./calendar-date";
+import { injectDeferred, ɵcanonicalDay as canonicalDay } from "@loozo/origami-ui/utils";
+import { monthOf } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
 import { CalendarSeed } from "./calendar-seed";
 

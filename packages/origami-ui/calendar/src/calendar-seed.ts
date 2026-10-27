@@ -1,6 +1,7 @@
 import { ElementRef, PLATFORM_ID, Service, inject } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
-import { canonicalDay, localToday } from "./calendar-date";
+import { ɵcanonicalDay as canonicalDay } from "@loozo/origami-ui/utils";
+import { localToday } from "./calendar-date";
 import type { Weekday } from "./calendar-date";
 
 function weekdayAttribute(value: string | null): Weekday | null {
