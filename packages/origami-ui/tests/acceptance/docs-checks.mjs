@@ -58,6 +58,7 @@ for (const directory of [
   "dialog/src",
   "select/src",
   "calendar/src",
+  "date-field/src",
 ]) {
   await collect(directory);
 }
@@ -252,6 +253,12 @@ const directiveDefaults = {
   "OrigamiMonthCalendar.readonly": ["false", /\bfalse\b/i],
   "OrigamiCalendarCell.date": ["required", /required/i],
   "OrigamiCalendarHeading.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDateField.value": ["null", /\bnull\b/i],
+  "OrigamiDateField.locale": ["LOCALE_ID", /LOCALE_ID/],
+  "OrigamiDateField.disabled": ["false", /\bfalse\b/i],
+  "OrigamiDateField.readonly": ["false", /\bfalse\b/i],
+  "OrigamiDateFieldSegment.segment": ["required", /required/i],
+  "OrigamiDateFieldSegment.placeholder": ["null", /\bnull\b/i],
 };
 const subjects = [];
 const failures = [];

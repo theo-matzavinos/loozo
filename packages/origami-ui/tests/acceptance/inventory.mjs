@@ -182,6 +182,16 @@ export const inventory = {
     "OrigamiCalendarPrevious",
     "OrigamiCalendarNext",
   ],
+  "date-field": [
+    "OrigamiDateField",
+    "OrigamiDateFieldOptions",
+    "OrigamiDateFieldState",
+    "OrigamiDateFieldPart",
+    "OrigamiDateFieldInput",
+    "OrigamiDateFieldSegment",
+    "OrigamiDateFieldSegmentOptions",
+    "OrigamiDateFieldSegmentType",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -202,4 +212,6 @@ export const typeOnly = new Set([
   "OrigamiCalendarDayRecord",
   "OrigamiCalendarPeriodRecord",
   "OrigamiDateRange",
+  "OrigamiDateFieldPart",
+  "OrigamiDateFieldSegmentType",
 ]);
