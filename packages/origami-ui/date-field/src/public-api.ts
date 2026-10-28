@@ -1,6 +1,9 @@
-export { OrigamiDateField, OrigamiDateFieldState } from "./date-field";
+export { OrigamiDateField } from "./date-field";
+export { OrigamiDateFieldState } from "./date-field-state";
 export { OrigamiDateFieldOptions } from "./date-field-options";
 export type { OrigamiDateFieldPart } from "./date-field-context";
 export { OrigamiDateFieldInput } from "./date-field-input";
 export { OrigamiDateFieldSegment, OrigamiDateFieldSegmentOptions } from "./date-field-segment";
 export type { OrigamiDateFieldSegmentType } from "./date-field-segment-type";
+export { OrigamiTimeField } from "./time-field";
+export { OrigamiTimeFieldOptions } from "./time-field-options";

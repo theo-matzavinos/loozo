@@ -83,6 +83,11 @@ export const routes: Routes = [
       import("./fixtures/date-field-deferred.js").then((module) => module.DateFieldDeferred),
   },
   {
+    path: "time-field",
+    loadComponent: () =>
+      import("./fixtures/date-field-time-deferred.js").then((module) => module.TimeFieldDeferred),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by-deferred.js").then((module) => module.DescribedByDeferred),

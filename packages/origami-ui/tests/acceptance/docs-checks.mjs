@@ -259,6 +259,12 @@ const directiveDefaults = {
   "OrigamiDateField.readonly": ["false", /\bfalse\b/i],
   "OrigamiDateFieldSegment.segment": ["required", /required/i],
   "OrigamiDateFieldSegment.placeholder": ["null", /\bnull\b/i],
+  "OrigamiTimeField.value": ["null", /\bnull\b/i],
+  "OrigamiTimeField.locale": ["LOCALE_ID", /LOCALE_ID/],
+  "OrigamiTimeField.precision": ['"minute"', /"minute"/],
+  "OrigamiTimeField.hourCycle": ["null", /\bnull\b/i],
+  "OrigamiTimeField.disabled": ["false", /\bfalse\b/i],
+  "OrigamiTimeField.readonly": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

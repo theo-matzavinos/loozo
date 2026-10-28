@@ -328,7 +328,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/dialog"].length, 20);
   assert.equal(names["@loozo/origami-ui/select"].length, 14);
   assert.equal(names["@loozo/origami-ui/calendar"].length, 22);
-  assert.equal(names["@loozo/origami-ui/date-field"].length, 8);
+  assert.equal(names["@loozo/origami-ui/date-field"].length, 10);
   assert.deepEqual(origami.generatedApi, []);
 });
 

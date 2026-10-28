@@ -31,6 +31,7 @@ async function source(name) {
 const unit = await source("date-field-unit");
 const layout = await source("date-field-layout");
 const { dateValue } = await source("date-value");
+const { timeValue } = await source("time-value");
 
 const h12 = { hourCycle: 12 };
 const h24 = { hourCycle: 24 };
@@ -237,7 +238,7 @@ function typeAll(name, digits, context = h24) {
 // The date value shape: canonical days format to padded units; drafts parse to a value, null,
 // dateIncomplete or dateInvalid.
 {
-  assert.deepEqual(dateValue.units, ["year", "month", "day"]);
+  assert.deepEqual(dateValue.units(), ["year", "month", "day"]);
   assert.deepEqual(dateValue.format("2026-10-27"), { year: "2026", month: "10", day: "27" });
   assert.deepEqual(dateValue.format("0026-01-05"), { year: "0026", month: "01", day: "05" });
 
@@ -271,6 +272,95 @@ function typeAll(name, digits, context = h24) {
   assert.equal(dateValue.canonical("10/27/2026"), null);
 }
 
+// The time value shape: canonical times at either precision format to padded units in the
+// resolved hour cycle; drafts parse to the root's precision, null or timeIncomplete.
+{
+  const precision = { value: "minute" };
+  const time = timeValue(() => precision.value);
+
+  assert.deepEqual(time.units(), ["hour", "minute"]);
+  // Minute precision leaves a value's second out of the draft.
+  assert.deepEqual(time.format("09:30", h24), { hour: "09", minute: "30" });
+  assert.deepEqual(time.format("09:30:15", h24), { hour: "09", minute: "30" });
+  assert.deepEqual(time.format("13:05", h12), { hour: "01", minute: "05", dayPeriod: "pm" });
+  assert.deepEqual(time.format("00:00", h12), { hour: "12", minute: "00", dayPeriod: "am" });
+  assert.deepEqual(time.format("12:00", h12), { hour: "12", minute: "00", dayPeriod: "pm" });
+  assert.deepEqual(time.format("11:59:59", h12), { hour: "11", minute: "59", dayPeriod: "am" });
+
+  for (const text of [
+    null,
+    "9:30",
+    "24:00",
+    "09:60",
+    "09:30:60",
+    "09:30:1",
+    "0930",
+    " 09:30",
+    "٠٩:٣٠",
+  ]) {
+    assert.deepEqual(time.format(text, h24), {}, `${JSON.stringify(text)} shows empty`);
+  }
+
+  // Minute precision: a second in the draft never reaches the value.
+  assert.deepEqual(time.parse({ hour: "09", minute: "45", second: "15" }, h24), { value: "09:45" });
+  assert.deepEqual(time.parse({ hour: "23", minute: "59" }, h24), { value: "23:59" });
+  assert.deepEqual(time.parse({ hour: "00", minute: "00" }, h24), { value: "00:00" });
+  assert.deepEqual(time.parse({ hour: "12", minute: "00", dayPeriod: "am" }, h12), {
+    value: "00:00",
+  });
+  assert.deepEqual(time.parse({ hour: "12", minute: "00", dayPeriod: "pm" }, h12), {
+    value: "12:00",
+  });
+  assert.deepEqual(time.parse({ hour: "01", minute: "30", dayPeriod: "pm" }, h12), {
+    value: "13:30",
+  });
+  assert.deepEqual(time.parse({ hour: "11", minute: "59", dayPeriod: "am" }, h12), {
+    value: "11:59",
+  });
+  assert.deepEqual(time.parse({}, h24), { value: null });
+  assert.deepEqual(time.parse({ second: "15" }, h24), { value: null }, "a hidden second is empty");
+  assert.deepEqual(time.parse({ hour: "", minute: "", dayPeriod: "" }, h12), { value: null });
+
+  for (const [draft, context] of [
+    [{ hour: "09" }, h24],
+    [{ hour: "09", minute: "3" }, h24],
+    [{ hour: "0", minute: "30", dayPeriod: "am" }, h12],
+    [{ hour: "09", minute: "30" }, h12],
+    [{ dayPeriod: "pm" }, h12],
+  ]) {
+    assert.deepEqual(time.parse(draft, context), { error: { kind: "timeIncomplete" } });
+  }
+
+  precision.value = "second";
+  assert.deepEqual(time.units(), ["hour", "minute", "second"]);
+  // Second precision shows a minute value's second as 00.
+  assert.deepEqual(time.format("09:30", h24), { hour: "09", minute: "30", second: "00" });
+  assert.deepEqual(time.format("23:30:15", h12), {
+    hour: "11",
+    minute: "30",
+    second: "15",
+    dayPeriod: "pm",
+  });
+  assert.deepEqual(time.parse({ hour: "09", minute: "30", second: "00" }, h24), {
+    value: "09:30:00",
+  });
+  assert.deepEqual(time.parse({ hour: "12", minute: "00", second: "05", dayPeriod: "am" }, h12), {
+    value: "00:00:05",
+  });
+  assert.deepEqual(time.parse({ hour: "09", minute: "30" }, h24), {
+    error: { kind: "timeIncomplete" },
+  });
+  assert.deepEqual(time.parse({ second: "15" }, h24), { error: { kind: "timeIncomplete" } });
+
+  for (const text of ["00:00", "23:59", "09:30:15", "23:59:59"]) {
+    assert.equal(time.canonical(text), text);
+  }
+
+  for (const text of ["24:00", "9:30", "09:30:", "09.30", "noon"]) {
+    assert.equal(time.canonical(text), null, `${text} is no time`);
+  }
+}
+
 // Layout: order, literals, unit names and digits from Node's Intl; the seed round-trips and
 // rejects anything that isn't a complete layout.
 {
@@ -301,6 +391,35 @@ function typeAll(name, digits, context = h24) {
   assert.deepEqual(types(time12), ["hour", "literal", "minute", "literal", "dayPeriod"]);
   assert.deepEqual(time12.periods, ["AM", "PM"]);
   assert.equal(time12.labels.hour, "hour");
+  assert.equal(time12.labels.dayPeriod, "AM/PM");
+  assert.equal(time12.parts[3].text, "\u202f", "Node puts U+202F before the day period");
+
+  const timeEl = layout.resolveLayout("el", time);
+
+  assert.equal(timeEl.hourCycle, 12);
+  assert.deepEqual(types(timeEl), ["hour", "literal", "minute", "literal", "dayPeriod"]);
+  assert.deepEqual(timeEl.periods, ["π.μ.", "μ.μ."]);
+  assert.deepEqual(timeEl.labels, {
+    hour: "ώρα",
+    minute: "λεπτό",
+    dayPeriod: "π.μ./μ.μ.",
+  });
+
+  const timeGB = layout.resolveLayout("en-GB", time);
+
+  assert.equal(timeGB.hourCycle, 24);
+  assert.deepEqual(types(timeGB), ["hour", "literal", "minute"]);
+  assert.equal(timeGB.periods, null);
+
+  const timeGB12 = layout.resolveLayout("en-GB", { ...time, hourCycle: 12 });
+
+  assert.equal(timeGB12.hourCycle, 12);
+  assert.deepEqual(types(timeGB12), ["hour", "literal", "minute", "literal", "dayPeriod"]);
+  assert.deepEqual(timeGB12.periods, ["am", "pm"]);
+  assert.deepEqual(
+    types(layout.resolveLayout("en-US", { units: ["hour", "minute", "second"], hourCycle: null })),
+    ["hour", "literal", "minute", "literal", "second", "literal", "dayPeriod"],
+  );
 
   const seconds24 = { units: ["hour", "minute", "second"], hourCycle: 24 };
   const time24 = layout.resolveLayout("en-US", seconds24);
@@ -323,6 +442,9 @@ function typeAll(name, digits, context = h24) {
     [arEG, date],
     [time12, time],
     [time24, seconds24],
+    [timeEl, time],
+    [timeGB, time],
+    [timeGB12, { ...time, hourCycle: 12 }],
   ]) {
     assert.deepEqual(layout.readLayout(layout.writeLayout(resolved), request), resolved);
   }
@@ -437,6 +559,21 @@ function typeAll(name, digits, context = h24) {
   ]) {
     assert.equal(layout.readLayout(broken, time), null, `${broken} is no time seed`);
   }
+
+  // A seed lays out exactly the root's precision.
+  assert.equal(
+    layout.readLayout(JSON.stringify(timeSeed), {
+      units: ["hour", "minute", "second"],
+      hourCycle: null,
+    }),
+    null,
+    "a minute seed is no second seed",
+  );
+  assert.equal(
+    layout.readLayout(layout.writeLayout(time24), { units: ["hour", "minute"], hourCycle: 24 }),
+    null,
+    "a second seed is no minute seed",
+  );
 }
 
 console.log("Date field segment engine, value shape and layout checks passed.");

@@ -80,12 +80,15 @@ function flag(value: boolean): "true" | null {
  * Typing: decimal digits (ASCII, the locale's own or full-width) fill the unit and focus moves on
  * once no further digit could fit (a month from 2, a day from 4, a year after four digits); a
  * leading zero waits for the next digit, and the first digit after the segment takes focus
- * replaces a filled unit. ArrowUp and ArrowDown step the unit by one, wrapping within it without
- * changing another unit; an empty unit starts at its minimum or maximum, an empty year at this
- * year. Home and End go to the unit's minimum and maximum. ArrowLeft and ArrowRight move to the
+ * replaces a filled unit. A 12-hour hour takes 1 to 12, a 24-hour one 0 to 23. The day period
+ * takes the first letter of either of the locale's names (`a` or `p` in English, `π` or `μ` in
+ * Greek), case-insensitively. ArrowUp and ArrowDown step the unit by one, wrapping within it
+ * without changing another unit (the day period toggles); an empty unit starts at its minimum or
+ * maximum, an empty year at this year. Home and End go to the unit's minimum and maximum (AM and
+ * PM). ArrowLeft and ArrowRight move to the
  * previous and next segment in visual order (flipped in right-to-left text) and stop at the ends;
  * every segment is a Tab stop. Backspace removes the last digit, and on an empty unit moves to
- * the previous segment; Delete empties the unit. Pasting a whole value (`2026-10-27`) replaces
+ * the previous segment; Delete empties the unit. Pasting a whole value (`2026-10-27`, `09:30`) replaces
  * every unit; pasting digits fills this unit. Keys with Alt, Ctrl or Meta, keys already
  * `defaultPrevented` and keys during IME composition are ignored. A composition's text is typed
  * once, when it ends; nothing the browser inserts stays in the segment.
@@ -94,8 +97,9 @@ function flag(value: boolean): "true" | null {
  * the Input group's labels, from a Field or the group's own static `aria-labelledby`, then the
  * segment itself, so a screen reader hears "Date of birth, day"; absent while the group names
  * none. `aria-valuenow`, `aria-valuemin` and `aria-valuemax` follow the unit's value and bounds,
- * absent while it is empty; a month's `aria-valuetext` is its localized name. `aria-invalid` and
- * `aria-required` follow the Input group's Field. `inputmode="numeric"`, `enterkeyhint="next"`,
+ * absent while it is empty; a month's `aria-valuetext` is its localized name, the day period's
+ * its localized AM or PM (`aria-valuenow` 0 or 1). `aria-invalid` and `aria-required` follow the
+ * Input group's Field. `inputmode="numeric"`, the day period's `"text"`, `enterkeyhint="next"`,
  * `spellcheck="false"` and `autocorrect="off"`. Readonly: it focuses and moves but never edits,
  * `aria-readonly="true"`, not `contenteditable`. Disabled: out of the tab order, not editable,
  * `aria-disabled="true"`.
@@ -136,7 +140,10 @@ function flag(value: boolean): "true" | null {
   },
 })
 export class OrigamiDateFieldSegment implements OrigamiDateFieldSegmentOptions {
-  /** Own required unit input, the directive's selector: `"year"`, `"month"` or `"day"` in a date field. */
+  /**
+   * Own required unit input, the directive's selector: `"year"`, `"month"` or `"day"` in a date
+   * field; `"hour"`, `"minute"`, `"second"` or `"dayPeriod"` in a time field.
+   */
   readonly segment = input.required<OrigamiDateFieldSegmentType>({ alias: "ogDateFieldSegment" });
   /** Own placeholder input, default null: one `–` per digit of the unit's width. */
   readonly placeholder = input<string | null>(null);
