@@ -1,3 +1,4 @@
+import { rm, writeFile } from "node:fs/promises";
 import { expect } from "playwright/test";
 import type { Page, TestInfo } from "playwright/test";
 
@@ -75,6 +76,27 @@ declare global {
 }
 
 /** Passive DOM retention observation and forwarding native call probes, never substitute behavior. */
+/**
+ * Attaches `body` by file, not inline: the JSON reporter then records the attachment's path instead
+ * of its base64 body, so a full run's report stays under V8's maximum string length.
+ */
+export async function attachFile(
+  testInfo: TestInfo,
+  name: string,
+  body: string,
+  contentType: string,
+): Promise<void> {
+  const path = testInfo.outputPath(`scratch-${name}`);
+
+  await writeFile(path, body);
+
+  try {
+    await testInfo.attach(name, { path, contentType });
+  } finally {
+    await rm(path, { force: true });
+  }
+}
+
 export async function installObservation(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const observation: BrowserObservation = {
@@ -636,10 +658,12 @@ export async function assertReferences(
     };
   });
 
-  await testInfo.attach("prebootstrap-node-retention", {
-    body: JSON.stringify(result, null, 2),
-    contentType: "application/json",
-  });
+  await attachFile(
+    testInfo,
+    "prebootstrap-node-retention",
+    JSON.stringify(result, null, 2),
+    "application/json",
+  );
   expect({ ...result, changed: result.changed.sort(), removed: result.removed.sort() }).toEqual({
     changed: [...removed].sort(),
     removed: [...removed].sort(),
@@ -690,7 +714,7 @@ export async function bootstrapHeld(
 
   expect(raw).toBeDefined();
   expect(raw).toContain("ngh=");
-  await testInfo.attach("raw-genuine-ssr.html", { body: raw ?? "", contentType: "text/html" });
+  await attachFile(testInfo, "raw-genuine-ssr.html", raw ?? "", "text/html");
   await expect.poll(() => mainHeld).toBe(true);
   await page.waitForFunction(
     () => document.readyState !== "loading" && document.querySelector("[data-testid], [data-unit]"),
@@ -751,8 +775,10 @@ export async function attachObservation(page: Page, testInfo: TestInfo): Promise
     };
   });
 
-  await testInfo.attach("native-and-render-observations", {
-    body: JSON.stringify(result, null, 2),
-    contentType: "application/json",
-  });
+  await attachFile(
+    testInfo,
+    "native-and-render-observations",
+    JSON.stringify(result, null, 2),
+    "application/json",
+  );
 }
