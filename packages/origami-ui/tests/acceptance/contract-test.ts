@@ -1,5 +1,5 @@
 import { test as base, expect } from "playwright/test";
-import { attachObservation } from "./observation.js";
+import { attachFile, attachObservation } from "./observation.js";
 
 export type ErrorRecord = {
   source: string;
@@ -137,8 +137,10 @@ export const test = base.extend<{
       }
 
       await drain();
-      await testInfo.attach("engine-runtime-and-errors", {
-        body: JSON.stringify(
+      await attachFile(
+        testInfo,
+        "engine-runtime-and-errors",
+        JSON.stringify(
           {
             engine: testInfo.project.use.browserName,
             engineVersion: browser.version(),
@@ -149,8 +151,8 @@ export const test = base.extend<{
           null,
           2,
         ),
-        contentType: "application/json",
-      });
+        "application/json",
+      );
 
       if (expected.length > 0) {
         const descriptions: string[] = [];
