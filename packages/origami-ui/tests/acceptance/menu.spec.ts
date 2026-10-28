@@ -12,6 +12,9 @@ declare global {
     menuKeys?: string[];
     menuLinkClicks?: string[];
     menuPointer?: { x: number; y: number };
+    menuMoves?: Record<string, number>;
+    menuLastMoves?: Record<string, number>;
+    menuFocused?: string[];
   }
 }
 
@@ -334,11 +337,21 @@ test("MN3: arrows wrap, Home and End reach the ends, a disabled item is focused 
   const x = point?.x ?? 0;
   const y = point?.y ?? 0;
 
-  // After a key, a pointer event at the pointer's last position isn't movement.
+  // After a key, pointer events at the pointer's last position aren't movement: leaving Share for
+  // PDF and moving on it there, as every engine sends when the items move under a still cursor.
   await page.keyboard.press("ArrowDown");
   await expect(item("duplicate")).toBeFocused();
   await item("pdf").evaluate(
     (node, point) => {
+      node.ownerDocument.querySelector('[data-testid="file-share"]')?.dispatchEvent(
+        new PointerEvent("pointerout", {
+          pointerType: "mouse",
+          clientX: point.x,
+          clientY: point.y,
+          relatedTarget: node,
+          bubbles: true,
+        }),
+      );
       node.dispatchEvent(
         new PointerEvent("pointermove", {
           pointerType: "mouse",
@@ -2208,4 +2221,1317 @@ test("MN32: a script's click from an Enter keypress listener toggles or selects 
   await expect(selected).toHaveText(/,compact@view-spacious@true,due@view-trigger@false$/);
   await expect(order).toHaveText(/,compact\.select=compact,due\.change,due\.select=true$/);
   await expect(heard).toHaveAttribute("data-heard", "4");
+});
+
+function editParts(page: Page) {
+  return {
+    trigger: page.getByTestId("edit-trigger"),
+    content: page.getByTestId("edit-content"),
+    item: (name: string) => page.getByTestId(`edit-${name}`),
+    move: page.getByTestId("edit-move"),
+    moveContent: page.getByTestId("move-content"),
+    moveItem: (name: string) => page.getByTestId(`move-${name}`),
+    more: page.getByTestId("move-more"),
+    moreContent: page.getByTestId("more-content"),
+    share: page.getByTestId("edit-share"),
+    shareContent: page.getByTestId("share-content"),
+    exportTrigger: page.getByTestId("edit-export"),
+    exportContent: page.getByTestId("export-content"),
+    state: page.getByTestId("edit-state"),
+    selected: page.getByTestId("edit-selected"),
+    changes: page.getByTestId("edit-changes"),
+  };
+}
+
+/** The last `count` entries of a comma-separated log. */
+async function tail(log: Locator, count: number): Promise<string> {
+  const text = (await log.textContent()) ?? "";
+
+  return text.split(",").slice(-count).join(",");
+}
+
+/**
+ * Records, from now on, the page clock's time of the first and the last mouse `pointermove` on each
+ * element with a `data-testid`, and every item a `focusin` reaches, in `menuMoves`,
+ * `menuLastMoves` and `menuFocused`.
+ */
+async function watchPointer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const moves: Record<string, number> = {};
+    const lastMoves: Record<string, number> = {};
+    const focused: string[] = [];
+
+    window.menuMoves = moves;
+    window.menuLastMoves = lastMoves;
+    window.menuFocused = focused;
+    document.addEventListener(
+      "pointermove",
+      (event) => {
+        const target = event.target;
+        const id = target instanceof Element ? target.getAttribute("data-testid") : null;
+
+        if (event.pointerType === "mouse" && id !== null && window.menuMoves === moves) {
+          const now = performance.now();
+
+          moves[id] ??= now;
+          lastMoves[id] = now;
+        }
+      },
+      true,
+    );
+    document.addEventListener(
+      "focusin",
+      (event) => {
+        const target = event.target;
+
+        if (target instanceof Element && window.menuFocused === focused) {
+          focused.push(target.getAttribute("data-testid") ?? "none");
+        }
+      },
+      true,
+    );
+  });
+}
+
+async function firstMove(page: Page, testId: string): Promise<number> {
+  return page.evaluate((id) => window.menuMoves?.[id] ?? Number.NaN, testId);
+}
+
+async function focusedSince(page: Page): Promise<string[]> {
+  return page.evaluate(() => [...(window.menuFocused ?? [])]);
+}
+
+/**
+ * Runs `steps` with the page clock, which `page.clock.install()` faked, paused, so the menus' hover
+ * waits, rendering and the times the page records advance only by `page.clock.runFor`, however
+ * loaded the host is; then lets it run again. `pauseAt` fires what's due up to a second ahead, so
+ * call it with no hover wait pending.
+ */
+async function paused(page: Page, steps: () => Promise<void>): Promise<void> {
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+
+  try {
+    await steps();
+  } finally {
+    await page.clock.resume();
+  }
+}
+
+/**
+ * With the page clock paused: moves the mouse onto `point`, then on to the left, 2 px every 20 ms,
+ * for 80 ms, and runs 19 ms more, so 99 ms have passed since the first move. A wait that the later
+ * moves started over wouldn't end at 100 ms.
+ */
+async function wander(page: Page, point: { x: number; y: number }): Promise<void> {
+  await page.mouse.move(point.x, point.y);
+
+  for (let step = 1; step <= 4; step++) {
+    await page.clock.runFor(20);
+    await page.mouse.move(point.x - 2 * step, point.y);
+  }
+
+  await page.clock.runFor(19);
+}
+
+/** The page clock's time when `testId`'s submenu last opened or closed, -1 before. */
+async function recorded(page: Page, testId: string): Promise<number> {
+  return Number(await page.getByTestId(testId).textContent());
+}
+
+async function center(locator: Locator): Promise<{ x: number; y: number }> {
+  const box = await locator.boundingBox();
+
+  if (box === null) {
+    throw new Error("No box");
+  }
+
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+test("MN33: a sub-trigger is a menuitem that controls its submenu, a menu named by it beside it, in server HTML and after hydration; a click after hydration opens the submenu, keeps focus on the sub-trigger and a second click keeps it open; a disabled sub-trigger stays focusable", async ({
+  page,
+}, info) => {
+  const parts = editParts(page);
+  const closedStructure = async () => {
+    for (const subTrigger of [parts.move, parts.more, parts.share, parts.exportTrigger]) {
+      await expect(subTrigger).toHaveAttribute("role", "menuitem");
+      await expect(subTrigger).toHaveAttribute("aria-haspopup", "menu");
+      await expect(subTrigger).toHaveAttribute("aria-expanded", "false");
+      await expect(subTrigger).toHaveAttribute("tabindex", "-1");
+      await expect(subTrigger).toHaveAttribute("type", "button");
+    }
+
+    for (const [subTrigger, content] of [
+      [parts.move, parts.moveContent],
+      [parts.more, parts.moreContent],
+      [parts.share, parts.shareContent],
+    ] as const) {
+      const id = await subTrigger.getAttribute("id");
+
+      expect(id).toMatch(/\S/);
+      await expect(subTrigger).toHaveAttribute(
+        "aria-controls",
+        (await content.getAttribute("id")) ?? "",
+      );
+      await expect(content).toHaveAttribute("role", "menu");
+      await expect(content).toHaveAttribute("popover", "manual");
+      await expect(content).toHaveAttribute("inert", "");
+      await expect(content).toHaveAttribute("tabindex", "-1");
+      await expect(content).toHaveAttribute("aria-labelledby", id ?? "");
+    }
+
+    await expect(parts.exportTrigger).toHaveAttribute("aria-disabled", "true");
+    await expect(parts.exportTrigger).toHaveAttribute("data-disabled", "");
+    await expect(parts.exportTrigger).not.toHaveAttribute("disabled", /.*/);
+    await expect(parts.move).not.toHaveAttribute("aria-disabled", /.*/);
+  };
+
+  await fixture(page, "menu", info, closedStructure);
+  await closedStructure();
+  await expect(parts.state).toHaveText("false false false false false");
+
+  await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await parts.trigger.click();
+  await expectOpen(parts.trigger, parts.content);
+  await parts.move.click();
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  await expect(parts.state).toHaveText("true true false false false");
+  await expect(page.getByTestId("move-state")).toHaveText("true true");
+  await expect(parts.moveContent).toHaveAccessibleName("Move to");
+  await expectPreferred(page, "inline-end", "start", 0, {
+    anchor: "edit-move",
+    content: "move-content",
+  });
+  // The open submenu's sub-trigger doesn't toggle it closed.
+  await parts.move.click();
+  await frames(page);
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.changes).toHaveText("edit:true,move:true");
+  // A disabled sub-trigger is focused by arrows and opens nothing.
+  await page.keyboard.press("End");
+  await expect(parts.exportTrigger).toBeFocused();
+  await expectClosed(parts.move, parts.moveContent);
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+  await expect(parts.trigger).toBeFocused();
+  await expect(parts.state).toHaveText("false false false false false");
+});
+
+test("MN34: ArrowRight, Enter and Space on a sub-trigger open its submenu on its first item; ArrowLeft and Escape close one level and focus the sub-trigger; arrows leaving a sub-trigger close its submenu; one submenu is open per menu", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const parts = editParts(page);
+
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(parts.move).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  await expect(parts.state).toHaveText("true true false false false");
+  await page.keyboard.press("ArrowLeft");
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  await expect(parts.state).toHaveText("true false false false false");
+  await expectOpen(parts.trigger, parts.content);
+  await page.keyboard.press("Enter");
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  // Two levels: arrows move within the submenu; ArrowLeft closes only the inner one.
+  await page.keyboard.press("ArrowDown");
+  await expect(parts.moveItem("archive")).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(parts.more).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expectOpen(parts.more, parts.moreContent);
+  await expect(page.getByTestId("more-trash")).toBeFocused();
+  await expect(parts.state).toHaveText("true true true false false");
+  await page.keyboard.press("ArrowLeft");
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.more).toBeFocused();
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.state).toHaveText("true true false false false");
+  // Space opens once: its release clicks nothing.
+  await page.keyboard.press("Space");
+  await expect(page.getByTestId("more-trash")).toBeFocused();
+  await frames(page);
+  await expect(parts.state).toHaveText("true true true false false");
+  await expect(parts.selected).toHaveText("");
+  // Escape closes one level at a time.
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.more).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  await expectOpen(parts.trigger, parts.content);
+  await expect(parts.state).toHaveText("true false false false false");
+
+  // A submenu a click opened, focus on its sub-trigger, closes when arrows move focus on.
+  await parts.move.click();
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(parts.item("rename")).toBeFocused();
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.state).toHaveText("true false false false false");
+
+  // Opening a sibling closes the open submenu with its own open submenu.
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowRight");
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(parts.more).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expectOpen(parts.more, parts.moreContent);
+  await parts.share.click();
+  // At once, within the 100 ms wait the mouse moving onto Share started while Move to was open: a
+  // script's click on Move to, which moves no focus, closes Share. The click on Share ended that
+  // wait, so Share doesn't take over again once it would have expired.
+  await script(page, "edit-move");
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)));
+  await expectOpen(parts.move, parts.moveContent);
+  await expectClosed(parts.share, parts.shareContent);
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.state).toHaveText("true true false false false");
+  expect(await tail(parts.changes, 3)).toBe("share:true,share:false,move:true");
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.move, parts.moveContent);
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+});
+
+test("MN35: activating an item in a submenu closes the whole tree, innermost first, with focus on the root's Trigger before (select); a checkable item's Space and click keep the tree open and its Enter closes it", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const parts = editParts(page);
+
+  // Enter on an item two levels down.
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("more-trash")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(parts.trigger, parts.content);
+  await expectClosed(parts.move, parts.moveContent);
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.trigger).toBeFocused();
+  await expect(parts.selected).toHaveText("trash@edit-trigger@false/false/false/false/false/false");
+  await expect(parts.changes).toHaveText(
+    "edit:true,move:true,more:true,more:false,move:false,edit:false",
+  );
+  await expect(parts.state).toHaveText("false false false false false");
+
+  // A click on an item one level down.
+  await parts.trigger.click();
+  await parts.move.click();
+  await expectOpen(parts.move, parts.moveContent);
+  await parts.moveItem("archive").click();
+  await expectClosed(parts.trigger, parts.content);
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.trigger).toBeFocused();
+  expect(await tail(parts.selected, 1)).toBe(
+    "archive@edit-trigger@false/false/false/false/false/false",
+  );
+  expect(await tail(parts.changes, 2)).toBe("move:false,edit:false");
+
+  // A checkable item: Space and a click keep the tree open; Enter closes it.
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowUp");
+  await expect(parts.share).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("share-email")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Space");
+  await expect(page.getByTestId("edit-notify")).toHaveText("true");
+  await expect(page.getByTestId("share-notify")).toBeFocused();
+  await expectOpen(parts.share, parts.shareContent);
+  expect(await tail(parts.selected, 1)).toBe(
+    "notify@share-notify@true/false/false/true/false/false",
+  );
+  await page.getByTestId("share-notify").click();
+  await expect(page.getByTestId("edit-notify")).toHaveText("false");
+  await expectOpen(parts.share, parts.shareContent);
+  await expectOpen(parts.trigger, parts.content);
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("edit-notify")).toHaveText("true");
+  await expectClosed(parts.share, parts.shareContent);
+  await expectClosed(parts.trigger, parts.content);
+  await expect(parts.trigger).toBeFocused();
+  expect(await tail(parts.selected, 1)).toBe(
+    "notify@edit-trigger@false/false/false/false/false/false",
+  );
+  expect(await tail(parts.changes, 2)).toBe("share:false,edit:false");
+});
+
+test("MN36: Tab and Shift+Tab from a submenu close the whole tree and move on from the root's Trigger; an outside click closes the whole tree, innermost first, and leaves focus where it went", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const parts = editParts(page);
+  const openMore = async () => {
+    await page.keyboard.press("Enter");
+    await expect(parts.item("undo")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await expect(parts.moveItem("inbox")).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("more-trash")).toBeFocused();
+    await expect(parts.state).toHaveText("true true true false false");
+  };
+
+  await parts.trigger.focus();
+  await openMore();
+  await page.keyboard.press("Tab");
+  await expect(parts.item("after")).toBeFocused();
+  await expectClosed(parts.trigger, parts.content);
+  await expectClosed(parts.move, parts.moveContent);
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.state).toHaveText("false false false false false");
+  expect(await tail(parts.changes, 3)).toBe("more:false,move:false,edit:false");
+
+  await page.keyboard.press("Shift+Tab");
+  await expect(parts.trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(parts.item("before")).toBeFocused();
+  await expectClosed(parts.trigger, parts.content);
+  await expect(parts.state).toHaveText("false false false false false");
+
+  await parts.trigger.focus();
+  await openMore();
+  await parts.item("before").click();
+  await expectClosed(parts.trigger, parts.content);
+  await expectClosed(parts.move, parts.moveContent);
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.item("before")).toBeFocused();
+  await expect(parts.state).toHaveText("false false false false false");
+  expect(await tail(parts.changes, 3)).toBe("more:false,move:false,edit:false");
+  await expect(parts.selected).toHaveText("");
+});
+
+test("MN37: in right to left, ArrowLeft opens a submenu placed on the left and ArrowRight closes it back to its sub-trigger", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const trigger = page.getByTestId("format-trigger");
+  const content = page.getByTestId("format-content");
+  const align = page.getByTestId("format-align");
+  const alignContent = page.getByTestId("align-content");
+  const state = page.getByTestId("format-state");
+
+  await trigger.evaluate((node) => node.scrollIntoView({ block: "center", inline: "center" }));
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("format-bold")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(align).toBeFocused();
+  // ArrowRight is the back arrow here: it opens nothing.
+  await page.keyboard.press("ArrowRight");
+  await frames(page);
+  await expect(align).toBeFocused();
+  await expect(state).toHaveText("true false");
+  await page.keyboard.press("ArrowLeft");
+  await expectOpen(align, alignContent);
+  await expect(page.getByTestId("align-right")).toBeFocused();
+  await expect(state).toHaveText("true true");
+  await expectPreferred(page, "inline-end", "start", 0, {
+    anchor: "format-align",
+    content: "align-content",
+  });
+  const [alignBox, contentBox] = await Promise.all([
+    align.boundingBox(),
+    alignContent.boundingBox(),
+  ]);
+
+  expect((contentBox?.x ?? 0) + (contentBox?.width ?? 0)).toBeLessThanOrEqual(
+    (alignBox?.x ?? 0) + 1,
+  );
+  // ArrowLeft inside moves nothing; ArrowRight closes the submenu.
+  await page.keyboard.press("ArrowLeft");
+  await frames(page);
+  await expect(page.getByTestId("align-right")).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expectClosed(align, alignContent);
+  await expect(align).toBeFocused();
+  await expect(state).toHaveText("true false");
+  await expectOpen(trigger, content);
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await expect(state).toHaveText("false false");
+});
+
+test("MN38: closing the root, by its Trigger or by a write, closes every submenu and writes their open false, so reopening it shows them all closed, also a close and a reopen written before effects run, at the root and at a submenu, while a submenu written open in that turn stays open", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const parts = editParts(page);
+  const openMore = async () => {
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await expect(parts.moveItem("inbox")).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("more-trash")).toBeFocused();
+    await expect(parts.state).toHaveText("true true true false false");
+  };
+
+  await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await openMore();
+  await parts.trigger.click();
+  await expectClosed(parts.trigger, parts.content);
+  await expect(parts.state).toHaveText("false false false false false");
+  expect(await tail(parts.changes, 3)).toBe("more:false,move:false,edit:false");
+  await expect(parts.trigger).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expectOpen(parts.trigger, parts.content);
+  await expect(parts.item("undo")).toBeFocused();
+  await expect(parts.move).toHaveAttribute("aria-expanded", "false");
+  await expect(parts.state).toHaveText("true false false false false");
+  await openMore();
+
+  // An external close of the root: the submenus' models follow.
+  await script(page, "edit-close");
+  await expectClosed(parts.trigger, parts.content);
+  await expectClosed(parts.move, parts.moveContent);
+  await expectClosed(parts.more, parts.moreContent);
+  await expect(parts.state).toHaveText("false false false false false");
+  await parts.trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(parts.trigger, parts.content);
+  await expect(parts.item("undo")).toBeFocused();
+  await frames(page);
+  await expect(parts.move).toHaveAttribute("aria-expanded", "false");
+  await expect(parts.more).toHaveAttribute("aria-expanded", "false");
+  await expect(parts.state).toHaveText("true false false false false");
+
+  // Falsifier: the root's model written false and then true in one callback, before effects run,
+  // is a new open decision, which every submenu belongs to no longer.
+  await openMore();
+  await script(page, "edit-reopen");
+  await expectClosed(parts.more, parts.moreContent);
+  await expectClosed(parts.move, parts.moveContent);
+  await expectOpen(parts.trigger, parts.content);
+  await expect(parts.state).toHaveText("true false false false false");
+  expect(await tail(parts.changes, 4)).toBe("edit:false,edit:true,more:false,move:false");
+
+  // The same one level down: Move to stays open and More closes.
+  await parts.item("undo").focus();
+  await openMore();
+  await script(page, "move-reopen");
+  await expectClosed(parts.more, parts.moreContent);
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.state).toHaveText("true true false false false");
+  expect(await tail(parts.changes, 3)).toBe("move:false,move:true,more:false");
+  await script(page, "edit-close");
+  await expectClosed(parts.trigger, parts.content);
+
+  // Final values: a submenu written open in the same turn as its parent's close and reopen, before
+  // them, is bound to the reopened decision and stays open, at the root and one level down.
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await script(page, "move-open-edit-reopen");
+  await expectOpen(parts.trigger, parts.content);
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.state).toHaveText("true true false false false");
+  expect(await tail(parts.changes, 3)).toBe("move:true,edit:false,edit:true");
+  await script(page, "more-open-move-reopen");
+  await expectOpen(parts.move, parts.moveContent);
+  await expectOpen(parts.more, parts.moreContent);
+  await expect(parts.state).toHaveText("true true true false false");
+  expect(await tail(parts.changes, 3)).toBe("more:true,move:false,move:true");
+  await frames(page);
+  await expectOpen(parts.more, parts.moreContent);
+  await expect(parts.state).toHaveText("true true true false false");
+  await script(page, "edit-close");
+  await expectClosed(parts.trigger, parts.content);
+});
+
+test("MN39: the mouse resting on a sub-trigger opens its submenu after 100 ms, not before, without moving focus into it, and the mouse focuses the submenu's items; a disabled sub-trigger opens nothing by the mouse, a click or a key", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+
+  const parts = editParts(page);
+
+  await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await parts.trigger.click();
+  await expect(parts.item("undo")).toBeFocused();
+
+  const move = await center(parts.move);
+
+  await watchPointer(page);
+  // Falsifier: 99 ms after the mouse moved onto Move to, the submenu is still closed; at 100 it opens.
+  await paused(page, async () => {
+    await page.mouse.move(move.x, move.y);
+    await expect(parts.move).toBeFocused();
+    await page.clock.runFor(99);
+    await expect(parts.move).toHaveAttribute("aria-expanded", "false");
+    expect(await recorded(page, "move-opened-at")).toBe(-1);
+    await page.clock.runFor(1);
+  });
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  expect((await recorded(page, "move-opened-at")) - (await firstMove(page, "edit-move"))).toBe(100);
+  expect(await focusedSince(page)).toEqual(["edit-move"]);
+  await parts.moveItem("archive").hover();
+  await expect(parts.moveItem("archive")).toBeFocused();
+  await expect(parts.state).toHaveText("true true false false false");
+
+  // The disabled Export: the mouse resting on it focuses it and closes Move to, and opens nothing.
+  const exportPoint = await center(parts.exportTrigger);
+
+  await paused(page, async () => {
+    await page.mouse.move(exportPoint.x, exportPoint.y);
+    await page.clock.runFor(100);
+    await expect(parts.exportTrigger).toBeFocused();
+    await page.clock.runFor(300);
+  });
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.exportTrigger).toHaveAttribute("aria-expanded", "false");
+  expect(await shown(parts.exportContent)()).toBe(false);
+  await parts.exportTrigger.click({ force: true });
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Space");
+  await frames(page);
+  await expect(parts.exportTrigger).toBeFocused();
+  await expect(parts.exportTrigger).toHaveAttribute("aria-expanded", "false");
+  await expect(parts.state).toHaveText("true false false false false");
+  // The consumer's own (click) ran for the click, Enter and Space.
+  await expect(page.getByTestId("export-clicks")).toHaveText("3");
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+});
+
+test("MN40: while a submenu is open, the mouse resting on another item focuses it and closes the submenu after 100 ms; a diagonal move across two items toward the submenu keeps it open and focuses neither", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+
+  const parts = editParts(page);
+
+  await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await parts.trigger.click();
+  await parts.move.hover();
+  await expectOpen(parts.move, parts.moveContent);
+
+  // Falsifier: a move straight down onto Rename, going on along it away from the submenu,
+  // switches 100 ms after the mouse reached it.
+  const start = await center(parts.move);
+  const rename = await center(parts.item("rename"));
+
+  await watchPointer(page);
+  await paused(page, async () => {
+    await wander(page, { x: start.x, y: rename.y });
+    await expect(parts.move).toBeFocused();
+    await page.clock.runFor(1);
+    await expect(parts.item("rename")).toBeFocused();
+  });
+  await expectClosed(parts.move, parts.moveContent);
+  expect((await recorded(page, "move-closed-at")) - (await firstMove(page, "edit-rename"))).toBe(
+    100,
+  );
+  expect(await focusedSince(page)).toEqual(["edit-rename"]);
+
+  // Reopen, then move diagonally across Rename and Delete into the submenu.
+  await parts.move.hover();
+  await expectOpen(parts.move, parts.moveContent);
+  await watchPointer(page);
+
+  const content = await parts.moveContent.boundingBox();
+  const deleteBox = await parts.item("delete").boundingBox();
+
+  if (content === null || deleteBox === null) {
+    throw new Error("No box");
+  }
+
+  const from = await center(parts.move);
+  const to = { x: content.x + 12, y: deleteBox.y + deleteBox.height * 0.75 };
+  const steps = 24;
+
+  expect(to.y).toBeLessThan(content.y + content.height);
+
+  // A step every 20 ms of the page's clock, so the mouse stays over each item longer than the
+  // delay while every step heads for the submenu.
+  await paused(page, async () => {
+    for (let step = 1; step <= steps; step++) {
+      await page.mouse.move(
+        from.x + ((to.x - from.x) * step) / steps,
+        from.y + ((to.y - from.y) * step) / steps,
+      );
+      await page.clock.runFor(20);
+    }
+
+    await page.clock.runFor(250);
+  });
+
+  const dwell = await page.evaluate(() => {
+    const first = window.menuMoves ?? {};
+    const last = window.menuLastMoves ?? {};
+
+    return {
+      rename: (last["edit-rename"] ?? Number.NaN) - (first["edit-rename"] ?? Number.NaN),
+      delete: (last["edit-delete"] ?? Number.NaN) - (first["edit-delete"] ?? Number.NaN),
+    };
+  });
+
+  // It crossed both items and stayed over Rename longer than the delay.
+  expect(dwell.rename).toBeGreaterThanOrEqual(100);
+  expect(dwell.delete).toBeGreaterThanOrEqual(0);
+  await expectOpen(parts.move, parts.moveContent);
+
+  const focused = await focusedSince(page);
+
+  expect(focused).not.toContain("edit-rename");
+  expect(focused).not.toContain("edit-delete");
+  await expect(parts.state).toHaveText("true true false false false");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+});
+
+test.describe("touch", () => {
+  test.use({ hasTouch: true });
+
+  test("MN41: a touch tap on a sub-trigger opens its submenu without moving focus into it, and a tap on an item in it activates it and closes the tree", async ({
+    page,
+  }, info) => {
+    await fixture(page, "menu", info);
+
+    const parts = editParts(page);
+
+    await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+    await parts.trigger.tap();
+    await expectOpen(parts.trigger, parts.content);
+    await parts.move.tap();
+    await expectOpen(parts.move, parts.moveContent);
+    await frames(page);
+
+    const inside = await parts.moveContent.evaluate((node) =>
+      node.contains(document.activeElement),
+    );
+
+    expect(inside).toBe(false);
+    await expect(parts.state).toHaveText("true true false false false");
+    await parts.moveItem("inbox").tap();
+    await expectClosed(parts.trigger, parts.content);
+    await expectClosed(parts.move, parts.moveContent);
+    await expect(parts.selected).toHaveText(
+      "inbox@edit-trigger@false/false/false/false/false/false",
+    );
+  });
+});
+
+test("MN42: in a Dialog, the first Escape closes only the submenu, the next only the menu, then the Dialog; activating an item in the submenu closes the menu tree and keeps the Dialog open", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const trigger = page.getByTestId("tools-trigger");
+  const content = page.getByTestId("tools-content");
+  const insert = page.getByTestId("tools-insert");
+  const insertContent = page.getByTestId("insert-content");
+  const state = page.getByTestId("tools-state");
+  const modal = () => page.getByTestId("tools-dialog").evaluate((node) => node.matches(":modal"));
+
+  await page.getByTestId("tools-dialog-trigger").click();
+  await expect.poll(modal).toBe(true);
+  await trigger.click();
+  await expect(insert).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("insert-table")).toBeFocused();
+  await expect(state).toHaveText("true true true");
+  await page.keyboard.press("Escape");
+  await expectClosed(insert, insertContent);
+  await expect(insert).toBeFocused();
+  await expect(state).toHaveText("true true false");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("insert-table")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expectClosed(insert, insertContent);
+  await expect(trigger).toBeFocused();
+  await expect(state).toHaveText("true false false");
+  expect(await modal()).toBe(true);
+  expect(await tail(page.getByTestId("edit-selected"), 1)).toBe(
+    "table@tools-trigger@false/false/false/false/false/false",
+  );
+
+  await trigger.click();
+  await insert.click();
+  await expectOpen(insert, insertContent);
+  await page.keyboard.press("Escape");
+  await expectClosed(insert, insertContent);
+  await expectOpen(trigger, content);
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  expect(await modal()).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect.poll(modal).toBe(false);
+  await expect(state).toHaveText("false false false");
+});
+
+test("MN43: one submenu is open per menu however it opens, the newest decision winning: a submenu written open closes the open one with its own, also with focus inside it, which returns to its sub-trigger, so does one that arrives open, and one whose openChange listener reopens it while a click opens another stays open and ends that opening", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const parts = editParts(page);
+
+  // Share's model, written true while Move to and More are open. Scripts' clicks open them, so
+  // focus stays on Undo, outside the submenus that close.
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await script(page, "edit-move");
+  await expectOpen(parts.move, parts.moveContent);
+  await script(page, "move-more");
+  await expectOpen(parts.more, parts.moreContent);
+  await expect(parts.item("undo")).toBeFocused();
+  await script(page, "share-open");
+  await expectOpen(parts.share, parts.shareContent);
+  await expectClosed(parts.more, parts.moreContent);
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.state).toHaveText("true false false true false");
+  expect(await tail(parts.changes, 2)).toBe("more:false,move:false");
+
+  // Move to's listener reopens it while a click on Share closes it: Share's opening ends there.
+  await script(page, "edit-move");
+  await expectOpen(parts.move, parts.moveContent);
+  await expectClosed(parts.share, parts.shareContent);
+  await script(page, "arm-keep-move");
+  await script(page, "edit-share");
+  await frames(page);
+  await expectOpen(parts.move, parts.moveContent);
+  await expectClosed(parts.share, parts.shareContent);
+  await expect(parts.state).toHaveText("true true false false false");
+  expect(await tail(parts.changes, 4)).toBe("share:false,move:true,move:false,move:true");
+  await script(page, "edit-close");
+  await expectClosed(parts.trigger, parts.content);
+
+  // Share written open while focus is inside Move to: Move to's close returns focus to its
+  // sub-trigger, which isn't a move to another item, so Share stays open.
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(parts.move).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  await script(page, "share-open");
+  await expectOpen(parts.share, parts.shareContent);
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  await frames(page);
+  await expectOpen(parts.share, parts.shareContent);
+  await expect(parts.move).toBeFocused();
+  await expect(parts.state).toHaveText("true false false true false");
+  await script(page, "edit-close");
+  await expectClosed(parts.trigger, parts.content);
+
+  // Late arrives with its `open` true while Open with is open.
+  const files = page.getByTestId("files-trigger");
+  const openWith = page.getByTestId("files-open-with");
+  const openWithContent = page.getByTestId("open-with-content");
+  const filesState = page.getByTestId("files-state");
+
+  await files.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("files-copy")).toBeFocused();
+  await script(page, "files-open-with");
+  await expectOpen(openWith, openWithContent);
+  await expect(filesState).toHaveText("true true false");
+  await script(page, "files-mount-late");
+  await expectOpen(page.getByTestId("files-late"), page.getByTestId("files-late-content"));
+  await expectClosed(openWith, openWithContent);
+  await expect(filesState).toHaveText("true false true");
+  await script(page, "files-trigger");
+  await expectClosed(files, page.getByTestId("files-content"));
+  await expect(filesState).toHaveText("false false false");
+});
+
+test("MN44: a submenu's openChange listener that replaces the closing root, or the closing submenu around it, with one sharing its Options leaves the replacement open: the destroyed menu writes nothing once its submenus closed", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  // The root, disabled while its submenu is open.
+  const treeOpen = page.getByTestId("tree-open");
+
+  await page.getByTestId("tree-trigger-1").click();
+  await expectOpen(page.getByTestId("tree-trigger-1"), page.getByTestId("tree-content-1"));
+  await page.getByTestId("tree-sub-1").click();
+  await expectOpen(page.getByTestId("tree-sub-1"), page.getByTestId("tree-sub-content-1"));
+  await script(page, "arm-tree");
+  await script(page, "disable-tree");
+  await expect(page.getByTestId("tree-trigger-1")).toHaveCount(0);
+  await expect.poll(shown(page.getByTestId("tree-content-2"))).toBe(true);
+  await frames(page);
+  await expect(treeOpen).toHaveText("true");
+  expect(await shown(page.getByTestId("tree-content-2"))()).toBe(true);
+  await script(page, "tree-trigger-2");
+  await expectClosed(page.getByTestId("tree-trigger-2"), page.getByTestId("tree-content-2"));
+  await expect(treeOpen).toHaveText("false");
+
+  // A submenu, disabled while its own submenu is open.
+  const branchOpen = page.getByTestId("branch-open");
+
+  await page.getByTestId("branch-trigger").click();
+  await expectOpen(page.getByTestId("branch-trigger"), page.getByTestId("branch-content"));
+  await page.getByTestId("branch-sub-1").click();
+  await expectOpen(page.getByTestId("branch-sub-1"), page.getByTestId("branch-sub-content-1"));
+  await page.getByTestId("branch-deep-1").click();
+  await expectOpen(page.getByTestId("branch-deep-1"), page.getByTestId("branch-deep-content-1"));
+  await script(page, "arm-branch");
+  await script(page, "disable-branch");
+  await expect(page.getByTestId("branch-sub-1")).toHaveCount(0);
+  await expect.poll(shown(page.getByTestId("branch-sub-content-2"))).toBe(true);
+  await frames(page);
+  await expect(branchOpen).toHaveText("true true");
+  expect(await shown(page.getByTestId("branch-sub-content-2"))()).toBe(true);
+  await script(page, "branch-trigger");
+  await expectClosed(page.getByTestId("branch-trigger"), page.getByTestId("branch-content"));
+  await expect(branchOpen).toHaveText("false false");
+});
+
+test("MN45: the mouse resting on a sub-trigger whose focus handler removes it, or replaces it, opens nothing", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+
+  const trigger = page.getByTestId("swap-trigger");
+  const first = page.getByTestId("swap-first");
+  const firstContent = page.getByTestId("swap-first-content");
+  const secondContent = page.getByTestId("swap-second-content");
+  const state = page.getByTestId("swap-state");
+
+  await trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await trigger.click();
+  await expect(first).toBeFocused();
+
+  for (const [mode, generation, replacement] of [
+    ["replace", 1, 2],
+    ["remove", 2, null],
+  ] as const) {
+    await first.hover();
+    await expectOpen(first, firstContent);
+    await script(page, `arm-swap-${mode}`);
+
+    const second = page.getByTestId(`swap-second-${generation}`);
+    const point = await center(second);
+
+    // While First is open, the mouse rests on Second for 100 ms: its focus closes First, and its
+    // focus handler takes it out.
+    await paused(page, async () => {
+      await page.mouse.move(point.x, point.y);
+      await page.clock.runFor(100);
+      await page.clock.runFor(300);
+    });
+    await expect(second).toHaveCount(0);
+
+    if (replacement !== null) {
+      await expect(page.getByTestId(`swap-second-${replacement}`)).toHaveCount(1);
+    }
+
+    await expectClosed(first, firstContent);
+    await frames(page);
+    expect(await shown(secondContent)()).toBe(false);
+    await expect(state).toHaveText("true false false 0");
+  }
+
+  await script(page, "swap-trigger");
+  await expectClosed(trigger, page.getByTestId("swap-content"));
+});
+
+test("MN46: a submenu placed below its sub-trigger, with an item between them, keeps the safe corridor: a diagonal move across that item toward it keeps it open and focuses nothing; a move onto an item away from it switches after 100 ms", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+
+  const trigger = page.getByTestId("files-trigger");
+  const openWith = page.getByTestId("files-open-with");
+  const openWithContent = page.getByTestId("open-with-content");
+  const copy = page.getByTestId("files-copy");
+
+  await trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await trigger.click();
+  await openWith.hover();
+  await expectOpen(openWith, openWithContent);
+  await expectPreferred(page, "block-end", "start", 60, {
+    anchor: "files-open-with",
+    content: "open-with-content",
+  });
+
+  const content = await openWithContent.boundingBox();
+  const beta = await page.getByTestId("files-beta").boundingBox();
+
+  if (content === null || beta === null) {
+    throw new Error("No box");
+  }
+
+  // Alpha and Beta are between the sub-trigger and its submenu.
+  expect(content.y).toBeGreaterThanOrEqual(beta.y + beta.height);
+
+  const from = await center(openWith);
+  const to = { x: content.x + content.width - 12, y: content.y + 12 };
+  const steps = 30;
+
+  await watchPointer(page);
+  await paused(page, async () => {
+    for (let step = 1; step <= steps; step++) {
+      await page.mouse.move(
+        from.x + ((to.x - from.x) * step) / steps,
+        from.y + ((to.y - from.y) * step) / steps,
+      );
+      await page.clock.runFor(20);
+    }
+
+    await page.clock.runFor(250);
+  });
+
+  const dwell = await page.evaluate(() => {
+    const first = window.menuMoves ?? {};
+    const last = window.menuLastMoves ?? {};
+
+    return (last["files-alpha"] ?? Number.NaN) - (first["files-alpha"] ?? Number.NaN);
+  });
+
+  // It stayed over Alpha longer than the delay.
+  expect(dwell).toBeGreaterThanOrEqual(100);
+  await expectOpen(openWith, openWithContent);
+
+  const focused = await focusedSince(page);
+
+  expect(focused).not.toContain("files-alpha");
+  expect(focused).not.toContain("files-beta");
+  await expect(page.getByTestId("files-state")).toHaveText("true true false");
+
+  // Falsifier: straight up onto Copy, going on along it, away from the submenu, switches 100 ms
+  // after the mouse reached it.
+  await openWith.hover();
+  await expect(openWith).toBeFocused();
+
+  const copyPoint = await center(copy);
+
+  await paused(page, async () => {
+    await wander(page, { x: from.x, y: copyPoint.y });
+    await expect(openWith).toBeFocused();
+    await page.clock.runFor(1);
+    await expect(copy).toBeFocused();
+  });
+  await expectClosed(openWith, openWithContent);
+  await expect(page.getByTestId("files-state")).toHaveText("true false false");
+
+  // Falsifier: Copy's left edge is on the line of the submenu's left edge. Up along that line,
+  // away from the submenu, through the triangles with no area that line makes, switches too.
+  await openWith.hover();
+  await expectOpen(openWith, openWithContent);
+
+  const copyBox = await copy.boundingBox();
+  const edge = await openWithContent.boundingBox();
+
+  if (copyBox === null || edge === null) {
+    throw new Error("No box");
+  }
+
+  expect(Number.isInteger(edge.x)).toBe(true);
+  expect(copyBox.x).toBe(edge.x);
+
+  await paused(page, async () => {
+    await page.mouse.move(edge.x, copyPoint.y);
+
+    for (let step = 1; step <= 4; step++) {
+      await page.clock.runFor(20);
+      await page.mouse.move(edge.x, copyPoint.y - step);
+    }
+
+    await page.clock.runFor(19);
+    await expect(openWith).toBeFocused();
+    await page.clock.runFor(1);
+    await expect(copy).toBeFocused();
+
+    // Moving on along it past the delay.
+    for (let step = 5; step <= 6; step++) {
+      await page.mouse.move(edge.x, copyPoint.y - step);
+      await page.clock.runFor(20);
+    }
+
+    await expect(copy).toBeFocused();
+  });
+  await expectClosed(openWith, openWithContent);
+  await expect(page.getByTestId("files-state")).toHaveText("true false false");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, page.getByTestId("files-content"));
+});
+
+test("MN47: submenus written open in one turn, before effects run, settle by their final values: the first in document order stays open, whichever was written first and although its effect runs last", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const trigger = page.getByTestId("panels-trigger");
+  const content = page.getByTestId("panels-content");
+  const left = page.getByTestId("panels-left");
+  const leftContent = page.getByTestId("left-content");
+  const right = page.getByTestId("panels-right");
+  const rightContent = page.getByTestId("right-content");
+  const state = page.getByTestId("panels-state");
+
+  // Falsifier: Left's effect runs after Right's, in its embedded view, in both write orders.
+  for (const order of ["panels-left-right", "panels-right-left"]) {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(left).toBeFocused();
+    await script(page, order);
+    await expectOpen(left, leftContent);
+    await expectClosed(right, rightContent);
+    await expect(state).toHaveText("true true false");
+    await frames(page);
+    await expectClosed(right, rightContent);
+    await expect(state).toHaveText("true true false");
+    await script(page, "panels-trigger");
+    await expectClosed(trigger, content);
+    await expect(state).toHaveText("false false false");
+  }
+});
+
+test("MN48: Space on a sub-trigger that a running search reached joins the search instead of opening its submenu, and its release clicks nothing; with no search running, Space opens it", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const parts = editParts(page);
+
+  await parts.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  // Falsifier: "move", Space, "to" is one search for "move to" in Edit.
+  await page.keyboard.type("move");
+  await expect(parts.move).toBeFocused();
+  await page.keyboard.press("Space");
+  await page.keyboard.type("to");
+  await frames(page);
+  await expect(parts.move).toBeFocused();
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.state).toHaveText("true false false false false");
+  await expect(parts.changes).toHaveText("edit:true");
+
+  // A closed menu ends the search: Space then opens Move to on its first item.
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+  await page.keyboard.press("Enter");
+  await expect(parts.item("undo")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(parts.move).toBeFocused();
+  await page.keyboard.press("Space");
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.moveItem("inbox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+});
+
+test("MN49: the mouse leaving a sub-trigger before its submenu opens ends the wait: coming back starts a new one of 100 ms", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+
+  const parts = editParts(page);
+
+  await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await parts.trigger.click();
+  await expect(parts.item("undo")).toBeFocused();
+
+  const move = await center(parts.move);
+  const box = await parts.content.boundingBox();
+
+  if (box === null) {
+    throw new Error("No box");
+  }
+
+  await watchPointer(page);
+  // Falsifier: onto Move to at 0, off Content at 20, back onto Move to at 90: still closed at 100
+  // and 189, open at 190.
+  await paused(page, async () => {
+    await page.mouse.move(move.x, move.y);
+    await expect(parts.move).toBeFocused();
+    await page.clock.runFor(20);
+    await page.mouse.move(box.x + box.width + 40, move.y);
+    await page.clock.runFor(70);
+    await page.mouse.move(move.x + 4, move.y);
+    await page.clock.runFor(10);
+    expect(await recorded(page, "move-opened-at")).toBe(-1);
+    await page.clock.runFor(89);
+    await expect(parts.move).toHaveAttribute("aria-expanded", "false");
+    expect(await recorded(page, "move-opened-at")).toBe(-1);
+    await page.clock.runFor(1);
+  });
+  await expectOpen(parts.move, parts.moveContent);
+  await expect(parts.move).toBeFocused();
+  expect((await recorded(page, "move-opened-at")) - (await firstMove(page, "edit-move"))).toBe(190);
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.move, parts.moveContent);
+  await parts.item("undo").hover();
+  await expect(parts.item("undo")).toBeFocused();
+
+  const opened = await recorded(page, "move-opened-at");
+
+  await watchPointer(page);
+  // Falsifier: the same, back onto the very point it left: leaving forgot that point, so the
+  // return is movement and starts a new wait.
+  await paused(page, async () => {
+    await page.mouse.move(move.x, move.y);
+    await expect(parts.move).toBeFocused();
+    await page.clock.runFor(20);
+    await page.mouse.move(box.x + box.width + 40, move.y);
+    await page.clock.runFor(70);
+    await page.mouse.move(move.x, move.y);
+    await page.clock.runFor(10);
+    await page.clock.runFor(89);
+    await expect(parts.move).toHaveAttribute("aria-expanded", "false");
+    expect(await recorded(page, "move-opened-at")).toBe(opened);
+    await page.clock.runFor(1);
+  });
+  await expectOpen(parts.move, parts.moveContent);
+  expect((await recorded(page, "move-opened-at")) - (await firstMove(page, "edit-move"))).toBe(190);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expectClosed(parts.trigger, parts.content);
+});
+
+test("MN50: the mouse leaving a sub-trigger in a shadow root inside Content for a node in the same shadow root ends the wait: coming back starts a new one of 100 ms, also at the very point it left", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+
+  const trigger = page.getByTestId("mail-trigger");
+  const content = page.getByTestId("mail-content");
+  const send = page.getByTestId("mail-send");
+  const sendContent = page.getByTestId("send-content");
+
+  await trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await trigger.click();
+  await expect(page.getByTestId("mail-reply")).toBeFocused();
+
+  const point = await center(send);
+  const spacer = await center(page.getByTestId("send-spacer"));
+  let start = Number.NaN;
+
+  // Falsifier: onto Send to at 0, onto the spacer beside it in its shadow root at 20, which
+  // Content never hears of, back onto Send to at 90: still closed at 100 and 189, open at 190.
+  await paused(page, async () => {
+    await page.mouse.move(point.x, point.y);
+    start = await page.evaluate(() => performance.now());
+    await expect(send).toBeFocused();
+    await page.clock.runFor(20);
+    await page.mouse.move(spacer.x, spacer.y);
+    await page.clock.runFor(70);
+    await page.mouse.move(point.x + 4, point.y);
+    await page.clock.runFor(10);
+    expect(await recorded(page, "send-opened-at")).toBe(-1);
+    await page.clock.runFor(89);
+    await expect(send).toHaveAttribute("aria-expanded", "false");
+    expect(await recorded(page, "send-opened-at")).toBe(-1);
+    await page.clock.runFor(1);
+  });
+  await expectOpen(send, sendContent);
+  await expect(send).toBeFocused();
+  expect((await recorded(page, "send-opened-at")) - start).toBe(190);
+  await page.keyboard.press("Escape");
+  await expectClosed(send, sendContent);
+  await page.getByTestId("mail-reply").hover();
+  await expect(page.getByTestId("mail-reply")).toBeFocused();
+
+  const opened = await recorded(page, "send-opened-at");
+
+  // Falsifier: onto Send to at 0, onto the spacer at 20, past the first wait's end, back onto the
+  // very point it left at 150: leaving forgot that point, so the return starts a new wait.
+  await paused(page, async () => {
+    await page.mouse.move(point.x, point.y);
+    start = await page.evaluate(() => performance.now());
+    await expect(send).toBeFocused();
+    await page.clock.runFor(20);
+    await page.mouse.move(spacer.x, spacer.y);
+    await page.clock.runFor(130);
+    await expect(send).toHaveAttribute("aria-expanded", "false");
+    await page.mouse.move(point.x, point.y);
+    await page.clock.runFor(99);
+    await expect(send).toHaveAttribute("aria-expanded", "false");
+    expect(await recorded(page, "send-opened-at")).toBe(opened);
+    await page.clock.runFor(1);
+  });
+  await expectOpen(send, sendContent);
+  expect((await recorded(page, "send-opened-at")) - start).toBe(250);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+});
+
+test("MN51: a submenu written open while focus is inside a sibling submenu in an open shadow root closes that sibling, whose close returns focus to its sub-trigger in the shadow root, and stays open", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const send = page.getByTestId("mail-send");
+  const sendContent = page.getByTestId("send-content");
+  const forward = page.getByTestId("mail-forward");
+  const forwardContent = page.getByTestId("forward-content");
+  const state = page.getByTestId("mail-state");
+
+  await page.getByTestId("mail-trigger").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mail-reply")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(send).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expectOpen(send, sendContent);
+  await expect(page.getByTestId("send-phone")).toBeFocused();
+  // The document's `activeElement` is the shadow host.
+  expect(await page.evaluate(() => document.activeElement?.localName)).toBe(
+    "acceptance-menu-submenu-shadow",
+  );
+  await expect(state).toHaveText("true true false");
+
+  await script(page, "forward-open");
+  await expectOpen(forward, forwardContent);
+  await expectClosed(send, sendContent);
+  await expect(send).toBeFocused();
+  await frames(page);
+  await expectOpen(forward, forwardContent);
+  await expect(send).toBeFocused();
+  await expect(state).toHaveText("true false true");
 });

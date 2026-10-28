@@ -221,6 +221,10 @@ export const inventory = {
     "OrigamiMenuRadioItemOptions",
     "OrigamiMenuRadioItemState",
     "OrigamiMenuSeparator",
+    "OrigamiMenuSub",
+    "OrigamiMenuSubOptions",
+    "OrigamiMenuSubTrigger",
+    "OrigamiMenuSubTriggerOptions",
   ],
 };
 

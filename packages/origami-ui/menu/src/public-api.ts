@@ -20,3 +20,5 @@ export {
   OrigamiMenuRadioItemState,
 } from "./menu-radio-item";
 export { OrigamiMenuSeparator } from "./menu-separator";
+export { OrigamiMenuSub, OrigamiMenuSubOptions } from "./menu-sub";
+export { OrigamiMenuSubTrigger, OrigamiMenuSubTriggerOptions } from "./menu-sub-trigger";

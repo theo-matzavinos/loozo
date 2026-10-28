@@ -10,7 +10,6 @@ import {
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { OrigamiPopover, OrigamiPopoverOptions } from "@loozo/origami-ui/popover";
-import { injectDeferred } from "@loozo/origami-ui/utils";
 import { MenuContext, MenuRootOptions } from "./menu-context";
 
 /** Effective root configuration, replaced as a whole rather than merged with unused defaults. */
@@ -52,10 +51,12 @@ export abstract class OrigamiMenuOptions {
   }
 }
 
-/** Locally provided readonly facade for the nearest Menu root; nested roots have independent owners. */
+/**
+ * Locally provided readonly facade for the nearest Menu root, an `ogMenu` or an `ogMenuSub`; nested
+ * roots have independent owners.
+ */
 @Service({ autoProvided: false })
 export class OrigamiMenuState {
-  readonly #options = injectDeferred(OrigamiMenuOptions);
   readonly #context = inject(MenuContext);
 
   /**
@@ -65,7 +66,7 @@ export class OrigamiMenuState {
    */
   readonly open: Signal<boolean> = this.#context.participating;
   /** Effective root disabled policy. External Options/model writes remain authoritative while disabled. */
-  readonly disabled: Signal<boolean> = computed(() => this.#options().disabled());
+  readonly disabled: Signal<boolean> = this.#context.disabled;
 }
 
 /**
@@ -80,8 +81,9 @@ export class OrigamiMenuState {
  * The root composes `ogPopover`, with `dismissible` fixed true, so the menu is a Popover: native
  * top layer, Escape and outside dismissal, nesting in a Dialog or Popover. Parts:
  * `ogMenuTrigger`, `ogMenuContent`, and inside Content `ogMenuItem` buttons, `ogMenuLink`
- * anchors, `ogMenuGroup` with `ogMenuGroupLabel`, and `ogMenuSeparator`. Consumers name an icon
- * Trigger and own markup and styling.
+ * anchors, `ogMenuGroup` with `ogMenuGroupLabel`, `ogMenuSeparator`, checkable items and
+ * `ogMenuSub` submenus. Activating an item in a submenu focuses this root's Trigger and closes the
+ * whole tree. Consumers name an icon Trigger and own markup and styling.
  *
  * @example
  * ```html

@@ -125,6 +125,7 @@ export class OrigamiMenuCheckboxItemState {
     "(focus)": "focused()",
     "(blur)": "blurred()",
     "(pointermove)": "hovered($event)",
+    "(pointerout)": "departed($event)",
   },
 })
 export class OrigamiMenuCheckboxItem implements OrigamiMenuCheckboxItemOptions {
@@ -193,6 +194,11 @@ export class OrigamiMenuCheckboxItem implements OrigamiMenuCheckboxItemOptions {
   /** @internal */
   protected hovered(event: PointerEvent): void {
     this.#context.hovered(event);
+  }
+
+  /** @internal */
+  protected departed(event: PointerEvent): void {
+    this.#context.departed(event);
   }
 
   /** Flips the effective `checked`. */

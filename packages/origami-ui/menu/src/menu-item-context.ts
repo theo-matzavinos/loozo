@@ -3,11 +3,12 @@ import type { Signal } from "@angular/core";
 import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import { MenuContentContext } from "./menu-content-context";
+import type { MenuContext } from "./menu-context";
 
 /**
- * @internal One item's private owner, for `ogMenuItem`, `ogMenuLink` and the checkable items: its
- * registration with its menu, its focus, its hover and its `select` event, which State and the
- * directive's output re-expose.
+ * @internal One item's private owner, for `ogMenuItem`, `ogMenuLink`, the checkable items and
+ * `ogMenuSubTrigger`: its registration with its menu, its focus, its hover and its `select` event,
+ * which State and the directive's output re-expose.
  */
 @Service({ autoProvided: false })
 export class MenuItemContext {
@@ -29,9 +30,14 @@ export class MenuItemContext {
   /**
    * Registers the item with its menu from its `ngOnInit`; `destroyRef` removes it. A checkable item
    * passes `write`, its state write: its menu then handles its Enter on keydown, through `check`.
+   * A sub-trigger passes the `sub` it opens.
    */
   register(
-    item: { readonly disabled: Signal<boolean>; readonly label: Signal<string | null> },
+    item: {
+      readonly disabled: Signal<boolean>;
+      readonly label: Signal<string | null>;
+      readonly sub?: MenuContext;
+    },
     destroyRef: DestroyRef,
     write: (() => void) | null = null,
   ): void {
@@ -42,7 +48,13 @@ export class MenuItemContext {
     }
 
     this.#content.register(
-      { element: this.#element, disabled: item.disabled, label: item.label, enter },
+      {
+        element: this.#element,
+        disabled: item.disabled,
+        label: item.label,
+        enter,
+        sub: item.sub ?? null,
+      },
       destroyRef,
     );
   }
@@ -81,11 +93,19 @@ export class MenuItemContext {
     }, close);
   }
 
-  /** The item's `focus`: the menu records it as the focused item. */
-  focused(): void {
+  /**
+   * The item's `focus`: the menu records it as the focused item. A sub-trigger passes `from`, the
+   * element focus left.
+   */
+  focused(from: EventTarget | null = null): void {
     if (!this.#destroyed) {
-      this.#content.focused(this.#element);
+      this.#content.focused(this.#element, from);
     }
+  }
+
+  /** Whether its menu's typeahead search is still running at `time`, a key's `timeStamp`. */
+  searching(time: number): boolean {
+    return this.#content.searching(time);
   }
 
   /** The item's `blur`. */
@@ -99,6 +119,13 @@ export class MenuItemContext {
   hovered(event: PointerEvent): void {
     if (!this.#destroyed) {
       this.#content.hovered(this.#element, event);
+    }
+  }
+
+  /** The item's `pointerout`. */
+  departed(event: PointerEvent): void {
+    if (!this.#destroyed) {
+      this.#content.departed(this.#element, event);
     }
   }
 }

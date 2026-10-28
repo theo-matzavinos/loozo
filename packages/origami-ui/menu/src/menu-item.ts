@@ -72,7 +72,8 @@ export class OrigamiMenuItemState {
 /**
  * An action in a Menu's Content: a native `type="button"` with `role="menuitem"` and
  * `tabindex="-1"`, composing `ogButton`. A click, Enter or Space activates it: the menu focuses
- * its Trigger, closes, and then the item emits `(select)`. So a Dialog that the listener opens
+ * its Trigger, closes, and then the item emits `(select)`; in a submenu, the root menu focuses its
+ * Trigger and the whole tree closes. So a Dialog that the listener opens
  * records the Trigger as the element to return focus to, and focus the listener moves wins.
  *
  * A disabled item stays focusable, as the APG menu pattern asks: `aria-disabled="true"` and
@@ -111,6 +112,7 @@ export class OrigamiMenuItemState {
     "(focus)": "focused()",
     "(blur)": "blurred()",
     "(pointermove)": "hovered($event)",
+    "(pointerout)": "departed($event)",
   },
 })
 export class OrigamiMenuItem implements OrigamiMenuItemOptions {
@@ -162,5 +164,10 @@ export class OrigamiMenuItem implements OrigamiMenuItemOptions {
   /** @internal */
   protected hovered(event: PointerEvent): void {
     this.#context.hovered(event);
+  }
+
+  /** @internal */
+  protected departed(event: PointerEvent): void {
+    this.#context.departed(event);
   }
 }

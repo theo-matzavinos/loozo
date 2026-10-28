@@ -1,6 +1,6 @@
 # Menu
 
-Menu is a list of actions that opens from a button, such as a row's "⋯" actions or a toolbar's "More": the [menu button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) pattern with an action [menu](https://www.w3.org/WAI/ARIA/apg/patterns/menubar/). Focus moves into the menu: the arrows, typeahead and the mouse move it between the items, and activating one runs your `(select)` and closes the menu. Checkbox and radio items turn options on and off, such as a table's columns and density. The menu is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one.
+Menu is a list of actions that opens from a button, such as a row's "⋯" actions or a toolbar's "More": the [menu button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) pattern with an action [menu](https://www.w3.org/WAI/ARIA/apg/patterns/menubar/). Focus moves into the menu: the arrows, typeahead and the mouse move it between the items, and activating one runs your `(select)` and closes the menu. Checkbox and radio items turn options on and off, such as a table's columns and density, and a submenu opens beside its item. The menu is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one.
 
 [src/menu/row-actions.ts](../snippets/src/menu/row-actions.ts "playground")
 
@@ -17,6 +17,8 @@ Menu is a list of actions that opens from a button, such as a row's "⋯" action
 | `ogMenuGroup`        | none                                                                                                                                                          |
 | `ogMenuGroupLabel`   | `id` (default generated)                                                                                                                                      |
 | `ogMenuSeparator`    | none                                                                                                                                                          |
+| `ogMenuSub`          | `open: boolean` model (default `false`), `disabled` (default `false`)                                                                                         |
+| `ogMenuSubTrigger`   | `id` (default generated), `disabled` (default `false`), `label: string \| null` (default `null`); must be a `<button>`                                        |
 
 ```html
 <div ogMenu>
@@ -49,7 +51,7 @@ Menu is a list of actions that opens from a button, such as a row's "⋯" action
 
 Put the Trigger and Content inside `ogMenu`, and the items inside Content. Listen to `(select)`, not `(click)`: it runs when an item is activated by a click, Enter or Space, never for a disabled item.
 
-- **Activation** focuses the Trigger, closes the menu, and only then emits `(select)`. So a [Dialog](../dialog/README.md) that your `(select)` opens records the Trigger as the element to return focus to: Cancel and Escape come back to the Trigger. Whatever your listener focuses, such as a dialog's `autofocus` or a page your router opens, wins. If the Trigger can't take focus, because you've removed or detached it, the menu still closes and emits, and your listener runs with focus wherever it was.
+- **Activation** focuses the Trigger, closes the menu, and only then emits `(select)`; in a [submenu](#submenus), that's the root menu's Trigger, and the whole tree closes. So a [Dialog](../dialog/README.md) that your `(select)` opens records the Trigger as the element to return focus to: Cancel and Escape come back to the Trigger. Whatever your listener focuses, such as a dialog's `autofocus` or a page your router opens, wins. If the Trigger can't take focus, because you've removed or detached it, the menu still closes and emits, and your listener runs with focus wherever it was.
 - **`open`** is the requested state. Opening, activation and dismissal write it, and you can write it yourself; a menu opened that way moves no focus, until ArrowDown or ArrowUp on the Trigger. Writing it after an opening, even false and back to true before the menu renders, cancels that opening if it hasn't focused its item yet. So does focus moving elsewhere, also from your `openChange` listener while the opening writes `open`: focus stays where it put it. Your listener writing false and back to true inside that write doesn't cancel it: the reopened menu still focuses the requested item.
 - **`disabled`**, on `ogMenu` or on `ogMenuTrigger`, natively disables the Trigger, so the menu can't open from it, and an open menu closes when either becomes disabled. Your own writes still apply.
 
@@ -82,21 +84,24 @@ Focusing it before the row goes doesn't work when you confirm in a modal Dialog:
 
 Keys with Alt, Ctrl or Meta, keys already `defaultPrevented` and keys during IME composition are ignored.
 
-| Where            | Key                     | Action                                                                                                                          |
-| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger, closed  | Enter, Space, ArrowDown | open and focus the first item                                                                                                   |
-| Trigger, closed  | ArrowUp                 | open and focus the last item                                                                                                    |
-| Trigger, opening | Enter, Space            | nothing: the menu keeps opening on the item it was opened for                                                                   |
-| Trigger, open    | ArrowDown / ArrowUp     | focus the first / last item                                                                                                     |
-| Trigger, open    | Enter, Space            | close                                                                                                                           |
-| item             | ArrowDown / ArrowUp     | the next / previous item; it wraps                                                                                              |
-| item             | Home / End              | the first / last item                                                                                                           |
-| item             | characters              | typeahead: the next item whose `label`, else its text, starts with what you typed; repeating one character cycles through them  |
-| item             | Enter, Space            | activate: focus the Trigger, close, emit `(select)`; on a disabled item, nothing. Space types a space while a search is running |
-| checkable item   | Space                   | toggle or select it; the menu stays open                                                                                        |
-| checkable item   | Enter                   | toggle or select it and close: focus the Trigger, close, write, emit `(select)`                                                 |
-| item             | Escape                  | close and focus the Trigger                                                                                                     |
-| item             | Tab, Shift+Tab          | close; focus moves on from the Trigger's place in the page, after or before it                                                  |
+| Where            | Key                      | Action                                                                                                                          |
+| ---------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger, closed  | Enter, Space, ArrowDown  | open and focus the first item                                                                                                   |
+| Trigger, closed  | ArrowUp                  | open and focus the last item                                                                                                    |
+| Trigger, opening | Enter, Space             | nothing: the menu keeps opening on the item it was opened for                                                                   |
+| Trigger, open    | ArrowDown / ArrowUp      | focus the first / last item                                                                                                     |
+| Trigger, open    | Enter, Space             | close                                                                                                                           |
+| item             | ArrowDown / ArrowUp      | the next / previous item; it wraps                                                                                              |
+| item             | Home / End               | the first / last item                                                                                                           |
+| item             | characters               | typeahead: the next item whose `label`, else its text, starts with what you typed; repeating one character cycles through them  |
+| item             | Enter, Space             | activate: focus the Trigger, close, emit `(select)`; on a disabled item, nothing. Space types a space while a search is running |
+| checkable item   | Space                    | toggle or select it; the menu stays open                                                                                        |
+| checkable item   | Enter                    | toggle or select it and close: focus the Trigger, close, write, emit `(select)`                                                 |
+| item             | Escape                   | close and focus the Trigger                                                                                                     |
+| item             | Tab, Shift+Tab           | close; focus moves on from the Trigger's place in the page, after or before it                                                  |
+| sub-trigger      | ArrowRight, Enter, Space | open its submenu and focus its first item (ArrowLeft instead of ArrowRight right to left)                                       |
+| submenu item     | ArrowLeft, Escape        | close the submenu and focus its sub-trigger (ArrowRight instead of ArrowLeft right to left)                                     |
+| submenu item     | Tab, Shift+Tab           | close every menu; focus moves on from the root's Trigger                                                                        |
 
 Disabled items are reached by the arrows and typeahead, as the APG asks, but don't activate. Characters typed within 500 ms of each other form one search, matched against the start of an item's `label`, else its text with whitespace collapsed, ignoring case. Separators and group labels aren't items: the keys skip them.
 
@@ -161,9 +166,36 @@ A group is `role="group"`, named by its labels through `aria-labelledby`. A sepa
 - **Disabled** checkable items stay focusable and reachable, like disabled items: they write and emit nothing and keep the menu open, while your own `(click)` on them still runs.
 - The arrows, typeahead and the mouse only move focus: they never check anything. Holding Space toggles once, when you release it.
 
+## Submenus
+
+```html
+<div ogMenuContent class="menu">
+  <button ogMenuItem (select)="rename()">Rename</button>
+  <div ogMenuSub>
+    <button ogMenuSubTrigger>Move to</button>
+    <div ogMenuContent class="menu">
+      @for (list of lists(); track list.id) {
+      <button ogMenuItem (select)="move(list)">{{ list.name }}</button>
+      }
+    </div>
+  </div>
+</div>
+```
+
+`ogMenuSub` nests a menu in an item: `ogMenuSubTrigger` is an item of the menu around it, `role="menuitem"` with `aria-haspopup="menu"`, and its own `ogMenuContent` is the submenu, named by the sub-trigger and placed beside it (`side` defaults to `inline-end`; set it like any Content's). A submenu's Content holds the same items as any menu, submenus too.
+
+- **Opening**: ArrowRight, Enter and Space on the sub-trigger open the submenu on its first item; ArrowLeft and Escape close it again with focus back on the sub-trigger. Right to left, ArrowLeft opens and ArrowRight closes, from the element's `direction`. A click opens it and leaves focus on the sub-trigger; clicking it again keeps it open. While you're typing to search the menu, Space joins the search instead of opening the submenu.
+- **The mouse** resting on the sub-trigger for 100 ms opens the submenu (leaving it and coming back starts the count over, at the same point too), without moving focus into it. While it's open, the mouse resting on another item for 100 ms focuses that item and closes the submenu, unless the mouse is heading for the submenu, wherever it's placed: crossing other items on a straight line toward it keeps it open. Touch opens it with a tap.
+- **One submenu is open per menu**: opening another closes it, also when you write its `open` true, and so do the arrows moving focus to another item. `open` writes you make together, before Angular runs effects, settle by their final values: of several submenus written open at once, the first in the menu stays open.
+- **Activating an item** anywhere in the tree focuses the root menu's Trigger, closes every menu, innermost first, and then emits `(select)`, as in a single menu. A checkbox or radio item's Space and click keep the whole tree open. Tab and a click outside close every menu too.
+- **Closing a menu** closes its submenus and writes their `open` false, so reopening it shows them all closed, also when you close and reopen it in one go. A submenu you write open in that same go stays open, by the same final-values rule.
+- **Disabled**: `disabled` on `ogMenuSub` or on the sub-trigger leaves the sub-trigger focusable and reachable, like a disabled item, and opens nothing; your own `(click)` on it still runs.
+
+The sub-trigger has no `(select)`: opening a submenu isn't an activation. Its `state` and `ogMenuSub`'s are the submenu's own `OrigamiMenuState`, which the items inside it inject too.
+
 ## Inside a Toolbar, a Dialog or a Popover
 
-Inside a [Dialog](../dialog/README.md) or Popover Content, the first Escape and a click elsewhere in it close only the menu, and activating an item keeps the enclosing layer open. A [Tooltip](../tooltip/README.md) Trigger can share the button with `ogMenuTrigger`; the Tooltip closes when the menu takes focus.
+Inside a [Dialog](../dialog/README.md) or Popover Content, the first Escape closes only the innermost open menu, a click elsewhere in it closes only the menu and its submenus, and activating an item keeps the enclosing layer open. A [Tooltip](../tooltip/README.md) Trigger can share the button with `ogMenuTrigger`; the Tooltip closes when the menu takes focus.
 
 A menu's items have their own focus, separate from an `ogToolbar`'s arrows, but `ogMenuTrigger` isn't a Toolbar control: there's no Toolbar variant of it yet.
 
@@ -173,7 +205,7 @@ Content stays mounted while the menu is closed, so its items are registered befo
 
 ## Replacing Options
 
-The root, Trigger, Content, item, checkbox item, radio group, radio item, link and group label each have their own Options, `OrigamiMenuOptions`, `OrigamiMenuTriggerOptions`, `OrigamiMenuContentOptions`, `OrigamiMenuItemOptions`, `OrigamiMenuCheckboxItemOptions`, `OrigamiMenuRadioGroupOptions`, `OrigamiMenuRadioItemOptions`, `OrigamiMenuLinkOptions` and `OrigamiMenuGroupLabelOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. To wrap an item in your own directive, compose it through `hostDirectives` and expose what you need:
+The root, Trigger, Content, item, checkbox item, radio group, radio item, link, group label, submenu and sub-trigger each have their own Options, `OrigamiMenuOptions`, `OrigamiMenuTriggerOptions`, `OrigamiMenuContentOptions`, `OrigamiMenuItemOptions`, `OrigamiMenuCheckboxItemOptions`, `OrigamiMenuRadioGroupOptions`, `OrigamiMenuRadioItemOptions`, `OrigamiMenuLinkOptions`, `OrigamiMenuGroupLabelOptions`, `OrigamiMenuSubOptions` and `OrigamiMenuSubTriggerOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. To wrap an item in your own directive, compose it through `hostDirectives` and expose what you need:
 
 ```ts
 @Directive({
@@ -189,7 +221,7 @@ See [How the primitives fit together](../README.md#how-the-primitives-fit-togeth
 
 ## State and attributes
 
-`OrigamiMenuState`, the root's `state` and also the Trigger's, has `open()`, whether the menu is actually presented and interactive, not the requested `open` (false on the server and during an exit), and `disabled()`, the root's effective disabled policy. Content's `state.open()` is its Presence retention, as on Popover Content. Each item has `OrigamiMenuItemState` as `state`: `disabled()` and `select`, an `Observable` of its activations; descendants of an item can inject it. A checkbox item has `OrigamiMenuCheckboxItemState` and a radio item `OrigamiMenuRadioItemState`, each with `checked()`, `disabled()` and `select`. Links, groups, radio groups, group labels and separators have no `state`.
+`OrigamiMenuState`, the root's `state` and also the Trigger's, and a submenu's own on `ogMenuSub` and its sub-trigger, has `open()`, whether the menu is actually presented and interactive, not the requested `open` (false on the server and during an exit), and `disabled()`, the root's effective disabled policy. Content's `state.open()` is its Presence retention, as on Popover Content. Each item has `OrigamiMenuItemState` as `state`: `disabled()` and `select`, an `Observable` of its activations; descendants of an item can inject it. A checkbox item has `OrigamiMenuCheckboxItemState` and a radio item `OrigamiMenuRadioItemState`, each with `checked()`, `disabled()` and `select`. Links, groups, radio groups, group labels and separators have no `state`.
 
 | Element                   | Attributes                                                                                                                                                                                                                                   |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -198,6 +230,7 @@ See [How the primitives fit together](../README.md#how-the-primitives-fit-togeth
 | Item                      | `type="button"`, `role="menuitem"`, `tabindex="-1"`; when disabled, `aria-disabled="true"` and `data-disabled`                                                                                                                               |
 | Checkbox item, radio item | `type="button"`, `role="menuitemcheckbox"` or `role="menuitemradio"`, `tabindex="-1"`, `aria-checked`; when checked, `data-checked`; when disabled, `aria-disabled="true"` and `data-disabled`                                               |
 | Link                      | `role="menuitem"`, `tabindex="-1"`                                                                                                                                                                                                           |
+| Sub-trigger               | `type="button"`, `role="menuitem"`, `aria-haspopup="menu"`, `tabindex="-1"`, `id`, `aria-expanded`, `aria-controls` (the submenu's mounted Content); when disabled, `aria-disabled="true"` and `data-disabled`                               |
 | Group, radio group        | `role="group"`, `aria-labelledby` (its labels, once they're mounted)                                                                                                                                                                         |
 | Group label               | `id`                                                                                                                                                                                                                                         |
 | Separator                 | `role="separator"`                                                                                                                                                                                                                           |
@@ -210,10 +243,10 @@ See [How the primitives fit together](../README.md#how-the-primitives-fit-togeth
 
 ## Server rendering and hydration
 
-Server HTML has the menu closed: the Trigger's `aria-haspopup`, `aria-expanded="false"` and `aria-controls`, Content's `role`, `tabindex` and `aria-labelledby`, and the items' roles, `tabindex="-1"`, disabled attributes and, for checkbox and radio items, `aria-checked` and `data-checked` from your values. Hydration keeps the nodes and IDs. A click on the Trigger replayed after incremental hydration opens the menu once on its first item. Keyboard interaction before hydration isn't promised.
+Server HTML has the menu closed: the Trigger's `aria-haspopup`, `aria-expanded="false"` and `aria-controls`, Content's `role`, `tabindex` and `aria-labelledby`, and the items' roles, `tabindex="-1"`, disabled attributes and, for checkbox and radio items, `aria-checked` and `data-checked` from your values; submenus are closed, their sub-triggers with `aria-haspopup`, `aria-expanded="false"` and `aria-controls`. Hydration keeps the nodes and IDs. A click on the Trigger replayed after incremental hydration opens the menu once on its first item, and a click on a sub-trigger after hydration opens its submenu. Keyboard interaction before hydration isn't promised.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).
 
 ## Not included
 
-No submenus yet, no mixed checkbox state, no `disabled` on a radio group, no menubar, context menu, press-drag-release, shortcut or indicator parts, `closeOnSelect`, `loop` or `modal` options, and no disabled links.
+No mixed checkbox state, no `disabled` on a radio group, no menubar, context menu, press-drag-release, shortcut or indicator parts, `closeOnSelect`, `loop` or `modal` options, and no disabled links.

@@ -64,6 +64,7 @@ const notDisabled = computed(() => false);
     "(focus)": "focused()",
     "(blur)": "blurred()",
     "(pointermove)": "hovered($event)",
+    "(pointerout)": "departed($event)",
   },
 })
 export class OrigamiMenuLink implements OrigamiMenuLinkOptions {
@@ -110,5 +111,10 @@ export class OrigamiMenuLink implements OrigamiMenuLinkOptions {
   /** @internal */
   protected hovered(event: PointerEvent): void {
     this.#context.hovered(event);
+  }
+
+  /** @internal */
+  protected departed(event: PointerEvent): void {
+    this.#context.departed(event);
   }
 }

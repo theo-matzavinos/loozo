@@ -124,7 +124,7 @@ import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOp
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
-import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
+import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -526,6 +526,15 @@ const menuRadioChecked: boolean = menuRadioItemState.checked();
 void menuRadioChecked;
 // @ts-expect-error Menu radio item State disabled is readonly
 menuRadioItemState.disabled.set(true);
+// Positive: whole submenu factories, with ordinary signals.
+OrigamiMenuSubOptions.provideFactory(() => ({open: signal(false), disabled: computed(() => false)}));
+OrigamiMenuSubTriggerOptions.provideFactory(() => ({id: signal('move'), disabled: signal(false), label: signal<string | null>('Move')}));
+// @ts-expect-error a Menu Sub's open must be writable
+OrigamiMenuSubOptions.provideFactory(() => ({open: computed(() => false), disabled: signal(false)}));
+// @ts-expect-error a Menu sub-trigger factory must supply label
+OrigamiMenuSubTriggerOptions.provideFactory(() => ({id: signal('move'), disabled: signal(false)}));
+// @ts-expect-error a Menu sub-trigger's label is a string or null
+OrigamiMenuSubTriggerOptions.provideFactory(() => ({id: signal('move'), disabled: signal(false), label: signal(false)}));
 declare const monthCalendarState: OrigamiMonthCalendarState;
 const monthCalendarView: 'months' | 'years' = monthCalendarState.view();
 const monthCalendarValue: string | null = monthCalendarState.value();

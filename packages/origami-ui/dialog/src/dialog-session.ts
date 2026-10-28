@@ -13,7 +13,12 @@ import {
 } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
 import { OrigamiPresenceState, ɵOrigamiPresencePresentation } from "@loozo/origami-ui/presence";
-import { injectDeferred, ɵOrigamiLayer, ɵflatTreeContains } from "@loozo/origami-ui/utils";
+import {
+  injectDeferred,
+  ɵOrigamiLayer,
+  ɵdeepActiveElement,
+  ɵflatTreeContains,
+} from "@loozo/origami-ui/utils";
 import type {
   ɵOrigamiIntent,
   ɵOrigamiPresentation,
@@ -21,7 +26,7 @@ import type {
 } from "@loozo/origami-ui/utils";
 import { DialogContext } from "./dialog";
 import { OrigamiDialogContentOptions } from "./dialog-content";
-import { ModalSessions, deepActiveElement } from "./modal-sessions";
+import { ModalSessions } from "./modal-sessions";
 import type { ModalDialog, ModalReturn } from "./modal-sessions";
 
 /** One `showModal()` until its native close; compared by identity. */
@@ -79,7 +84,7 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
     joinsModalBranch: false,
     presentation: this,
     containsTarget: (target, event) => this.#contains(target, event),
-    containsFocus: (focus) => this.#element.contains(focus),
+    containsFocus: (focus) => ɵflatTreeContains(this.#element, focus),
     elements: () => [this.#element],
     closeFromInteraction: () => {
       this.#context.setOpen(false);
@@ -429,7 +434,7 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
     }
 
     const document = this.#element.ownerDocument;
-    const active = deepActiveElement(document);
+    const active = ɵdeepActiveElement(document);
 
     if (active !== null && active !== document.body && !ɵflatTreeContains(this.#element, active)) {
       return;
