@@ -22,7 +22,7 @@ the full browser matrix takes about 40 minutes, so match the run to the moment:
 - at sign-off, before the commit: `test:commit` once, after the reviews are clean, never once per review round.
 - before a release: the full `test:full`.
 
-don't run a gate while reviewers or implementers are using the same machine; the contention flakes timing-sensitive cases.
+browser and AOT build steps take a machine-wide lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`), so a run started while another holds it waits instead of contending; never bypass it. don't overlap two runs in one checkout: they share its scratch consumer and evidence.
 
 ## readmes
 

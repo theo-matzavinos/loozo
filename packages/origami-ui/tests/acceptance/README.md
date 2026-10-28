@@ -25,6 +25,7 @@ The consumer's authored sources are the workspace example [`examples/origami-ui`
 | `matrix-summary.mjs`                                                                                                                                                                                     | Completeness check and release record for the full product matrix                                                                                                                                                                                                                                              |
 | `skip-checks.mjs`                                                                                                                                                                                        | Source check that no spec outside `hydration.spec.ts` skips, focuses or expects failure                                                                                                                                                                                                                        |
 | `warm-servers.mjs`                                                                                                                                                                                       | Global setup: one sequential request per fixture route on every started server before the parallel workers begin                                                                                                                                                                                               |
+| `gate-lock.sh`                                                                                                                                                                                           | Runs one browser or AOT build step under the machine-wide lock (see [One run at a time](#one-run-at-a-time))                                                                                                                                                                                                   |
 | `source-identity.mjs`, `source-freshness.mjs`                                                                                                                                                            | Optional forensic hooks (`ORIGAMI_FORENSIC=1`)                                                                                                                                                                                                                                                                 |
 
 ## Prerequisites
@@ -56,6 +57,16 @@ pnpm run acceptance:prepare
 On a fresh checkout there is no installation yet, so the first `acceptance:sync` (and with it `pnpm test`, `test:fast` and `test:focus`) runs this clean installation itself, says so in one line, and then continues.
 
 On small hosts, set `NG_BUILD_MAX_WORKERS=2` for builds; servers started for one matrix group always receive it.
+
+## One run at a time
+
+Every step that launches browsers or runs the four AOT builds (`acceptance:aot`, `acceptance:browser-readiness`, `acceptance:observer-calibration`, `acceptance:test` and their `:fast` variants) runs under `gate-lock.sh`. It holds a machine-wide `flock` on `$XDG_RUNTIME_DIR/origami-gate.lock` (`/tmp/origami-gate.lock` without it), so a step started from another checkout waits and names the holder:
+
+```text
+origami gate: waiting for 12:19:46 /path/to/checkout/packages/origami-ui: playwright test --config tests/acceptance/playwright.config.ts
+```
+
+One run already uses the reference host's cores, so a concurrent second run gains no throughput: it stretches real-time windows until timing-sensitive cases fail, and every product run serves on the same fixed ports. A composite gate takes the lock per step, so a short focused run waits for the current step, not the whole gate. The step holds it until it exits, so a cancelled run keeps it through Playwright's teardown. A killed run (`SIGKILL`) can leave its servers running; the next run on that target then fails with Playwright's `is already used` port error until they are stopped. Builds, type checks and Node checks don't take it. Two runs in one checkout also share `.scratch/consumer` and `.acceptance-evidence`, which the lock doesn't cover; don't overlap them.
 
 ## Browser-free checks: `pnpm test`
 
