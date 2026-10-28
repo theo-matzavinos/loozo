@@ -81,6 +81,11 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/menu.js").then((module) => module.MenuFixture),
   },
   {
+    path: "date-time-field",
+    loadComponent: () =>
+      import("./fixtures/date-field-date-time.js").then((module) => module.DateTimeFieldFixture),
+  },
+  {
     path: "described-by",
     loadComponent: () =>
       import("./fixtures/described-by.js").then((module) => module.DescribedByFixture),

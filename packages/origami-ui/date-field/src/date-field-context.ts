@@ -120,7 +120,7 @@ export class DateFieldContext {
 
   /**
    * The layout: the seed while hydrating, until a later change of the locale, the hour cycle or
-   * the units (a time root's precision); else the locale's.
+   * the units (a time or date-time root's precision); else the locale's.
    */
   readonly layout = linkedSignal<LayoutRequest & { readonly locale: string }, DateFieldLayout>({
     source: () => ({

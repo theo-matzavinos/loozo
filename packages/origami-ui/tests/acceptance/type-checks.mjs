@@ -123,7 +123,7 @@ import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
-import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
+import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, type OrigamiMenuState, type OrigamiMenuItemState } from '@loozo/origami-ui/menu';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
@@ -464,6 +464,14 @@ OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null
 OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), hourCycle: signal<number | null>(11), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error a time field factory must supply hourCycle
 OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), disabled: signal(false), readonly: signal(false)}));
+// Positive: a whole date-time field factory, with ordinary signals.
+OrigamiDateTimeFieldOptions.provideFactory(() => ({value: signal<string | null>('2026-10-27T09:30'), locale: signal('en-GB'), precision: signal<'minute' | 'second'>('second'), hourCycle: signal<12 | 24 | null>(null), disabled: computed(() => false), readonly: signal(false)}));
+// @ts-expect-error date-time field value must be writable
+OrigamiDateTimeFieldOptions.provideFactory(() => ({value: computed<string | null>(() => null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), hourCycle: signal<12 | 24 | null>(null), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error date-time field precision is minute or second, not any string
+OrigamiDateTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal('day'), hourCycle: signal<12 | 24 | null>(null), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a date-time field factory must supply hourCycle
+OrigamiDateTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), disabled: signal(false), readonly: signal(false)}));
 declare const dateFieldState: OrigamiDateFieldState;
 // @ts-expect-error date field State value is readonly
 dateFieldState.value.set('2026-10-27');

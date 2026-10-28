@@ -279,6 +279,12 @@ const directiveDefaults = {
   "OrigamiMenuItem.label": ["null", /\bnull\b/i],
   "OrigamiMenuLink.label": ["null", /\bnull\b/i],
   "OrigamiMenuGroupLabel.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiDateTimeField.value": ["null", /\bnull\b/i],
+  "OrigamiDateTimeField.locale": ["LOCALE_ID", /LOCALE_ID/],
+  "OrigamiDateTimeField.precision": ['"minute"', /"minute"/],
+  "OrigamiDateTimeField.hourCycle": ["null", /\bnull\b/i],
+  "OrigamiDateTimeField.disabled": ["false", /\bfalse\b/i],
+  "OrigamiDateTimeField.readonly": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

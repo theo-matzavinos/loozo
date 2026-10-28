@@ -10,7 +10,8 @@ import type { Draft, UnitContext } from "./date-field-unit";
 export interface DateFieldShape {
   /**
    * The units the root lays out, without the day period, which the hour cycle adds; reactive,
-   * since a time root's follow its precision.
+   * since a time or date-time root's follow its precision. The same array while they don't
+   * change: the Context's layout refresh compares them by identity.
    */
   units(): readonly OrigamiDateFieldSegmentType[];
   /**

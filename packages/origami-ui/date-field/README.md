@@ -1,11 +1,12 @@
 # Date field
 
-A date field is a typed date input made of one editable segment per unit, day, month and year, in the order and with the separators of the locale: `10/27/2026` in `en-US`, `27/10/2026` in `el`. Its value is an ISO string, `"2026-10-27"`, never a `Date`, so no time zone can move it. You render the markup from its State; Origami computes the layout, the unit names, typing, keys, focus and ARIA. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control that reports half-typed and impossible dates as parse errors, and it joins a [Field](../field/README.md) on its own. A time field, `ogTimeField`, types a wall-clock time, `"09:30"`, with the same parts: see [Time fields](#time-fields).
+A date field is a typed date input made of one editable segment per unit, day, month and year, in the order and with the separators of the locale: `10/27/2026` in `en-US`, `27/10/2026` in `el`. Its value is an ISO string, `"2026-10-27"`, never a `Date`, so no time zone can move it. You render the markup from its State; Origami computes the layout, the unit names, typing, keys, focus and ARIA. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control that reports half-typed and impossible dates as parse errors, and it joins a [Field](../field/README.md) on its own. A time field, `ogTimeField`, types a wall-clock time, `"09:30"`, and a date-time field, `ogDateTimeField`, a local date and time, `"2026-10-27T09:30"`, with the same parts: see [Time fields](#time-fields) and [Date-time fields](#date-time-fields).
 
 | Directive            | Configuration                                                                                                                                                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogDateField`        | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `locale` (default `LOCALE_ID`), `disabled`, `readonly` (default `false`)                                                                                        |
 | `ogTimeField`        | `value: string \| null` model (`HH:mm` or `HH:mm:ss`, default `null`), `precision: "minute" \| "second"` (default `"minute"`), `hourCycle: 12 \| 24 \| null` (default `null`: the locale's), `locale`, `disabled`, `readonly` |
+| `ogDateTimeField`    | `value: string \| null` model (`YYYY-MM-DDTHH:mm` or `YYYY-MM-DDTHH:mm:ss`, default `null`), `precision`, `hourCycle`, `locale`, `disabled`, `readonly`, as `ogTimeField`'s                                                   |
 | `ogDateFieldInput`   | none; the segment group, usually a `<div>`; it may share the root's element                                                                                                                                                   |
 | `ogDateFieldSegment` | `ogDateFieldSegment: OrigamiDateFieldSegmentType` (required: the unit, such as `"year"` or `"hour"`), `placeholder: string \| null` (default `null`: one `–` per digit); usually a `<span>`                                   |
 
@@ -160,9 +161,50 @@ A replacement that owns the value without being the control, such as a `provideF
 
 A composer of `ogTimeField` provides `OrigamiTimeFieldOptions`, the same as the date field's with `precision` and `hourCycle`.
 
+## Date-time fields
+
+`ogDateTimeField` holds a date and a time on the wall: `"2026-10-27T09:30"`, or `"2026-10-27T09:30:15"` with `precision="second"`. The date is a real day in years 0001 to 9999 and the time runs from `00:00` to `23:59:59`. There is no time zone: the field never reads or writes a zone, an offset or `Z`, and never reads the browser's zone (see [Time zones are yours](#time-zones-are-yours)). The markup is the same loop:
+
+<!-- prettier-ignore -->
+```html
+<div ogField #field="ogField">
+  <span ogFieldLabel>Starts at</span>
+  <div ogDateTimeField ogDateFieldInput [formField]="form.startsAt" #startsAt="ogDateTimeField">
+    @for (part of startsAt.state.segments(); track part.key) {
+      @if (part.type === "literal") {
+        <span aria-hidden="true">{{ part.text }}</span>
+      } @else {
+        <span [ogDateFieldSegment]="part.type"></span>
+      }
+    }
+  </div>
+  @if (field.state.errorsShown()) {
+    @switch (field.state.errors()[0]?.kind) {
+      @case ("dateTimeIncomplete") {
+        <p ogFieldError>Enter a complete date and time</p>
+      }
+      @case ("dateInvalid") {
+        <p ogFieldError>This date doesn't exist</p>
+      }
+      @default {
+        <p ogFieldError>{{ field.state.errors()[0]?.message }}</p>
+      }
+    }
+  }
+</div>
+```
+
+- **Layout:** the locale formats the date and the time together, so it orders the two halves and picks the separator between them: `10/27/2026, 09:30 AM` in `en-US`, `27/10/2026, 09:30 π.μ.` in `el`, `27/10/2026, 09:30` in `en-GB`. Typing the year's fourth digit moves on to the hour, and ArrowLeft, ArrowRight and Tab cross between the halves like any other segments.
+- **Hour cycle, day period and precision** work as for [time fields](#time-fields). A value of the other precision shows, and the next edit, a date edit included, writes the field's precision.
+- **Half-typed and impossible values:** while a segment is empty, the time's or the date's, the field keeps its value and reports `{ kind: "dateTimeIncomplete" }`. A complete draft whose date doesn't exist (`02/31/2026, 09:30 AM`) reports `{ kind: "dateInvalid" }`, shown as typed. Emptying every segment writes `null`; `clear()`, `reset()` and writes work as for dates.
+- **Changing `precision` or the hour cycle** shows the value again in the new layout, as for time fields: a half-typed draft goes, its date units included, with its parse error, and nothing is written.
+- **Values that aren't canonical** show empty segments and stay until someone edits: `"2026-10-27T09:30Z"`, `"2026-10-27T09:30+03:00"`, `"2026-10-27 09:30"`, `"2026-02-31T09:30"`. Pasting a whole local date-time of either precision fills every unit and writes the field's precision; a pasted string with a zone or an offset, a date alone or a time alone is ignored.
+
+A composer of `ogDateTimeField` provides `OrigamiDateTimeFieldOptions`, the same fields as `OrigamiTimeFieldOptions`.
+
 ## Time zones are yours
 
-The field holds a civil date, or a wall-clock time: no zone, no instant. If your backend speaks instants, convert at your own boundary, in the zone you choose, with whatever you already use (here `@internationalized/date`; Temporal or date-fns-tz work the same way):
+The field holds a civil date, a wall-clock time or a local date and time: no zone, no instant. If your backend speaks instants, convert at your own boundary, in the zone you choose, with whatever you already use (here `@internationalized/date`; Temporal or date-fns-tz work the same way):
 
 ```ts
 import { parseAbsolute, parseDate, toCalendarDate } from "@internationalized/date";
@@ -176,17 +218,33 @@ form.validFrom().value.set(toCalendarDate(parseAbsolute(dto.validFrom, zone)).to
 const instant = parseDate(form.validFrom().value()!).toDate(zone).toISOString();
 ```
 
+A date-time field holds the wall time in that zone. Loading takes the instant's wall time there; submitting turns the wall time back into an instant, and your app decides what a wall time that happens twice or never (at a daylight saving change) means:
+
+```ts
+import { parseAbsolute, parseDateTime, toCalendarDateTime } from "@internationalized/date";
+
+// load: backend instant -> the wall time in that zone, at the field's minute precision
+const local = toCalendarDateTime(parseAbsolute(dto.expiresAt, zone)).toString().slice(0, 16);
+form.expiresAt().value.set(local); // "2026-10-27T14:30"
+
+// submit: wall time -> instant; "reject" throws for 02:30 on a spring-forward day and for an
+// ambiguous fall-back hour ("earlier", "later" and "compatible" pick one instead)
+const instant = parseDateTime(form.expiresAt().value()!).toDate(zone, "reject").toISOString();
+```
+
+`toString()` writes seconds, so slice to 19 characters for `precision="second"`. A wall time that doesn't exist in the zone is still a valid field value; reject it in the schema with a `validate()` rule that makes the same conversion, if you need to.
+
 ## Replacing Options
 
-The roots and the segment have their own Options, `OrigamiDateFieldOptions`, `OrigamiTimeFieldOptions` and `OrigamiDateFieldSegmentOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. The value may be a plain `signal()`, a `linkedSignal()` or a composer's `model()`. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
+The roots and the segment have their own Options, `OrigamiDateFieldOptions`, `OrigamiTimeFieldOptions`, `OrigamiDateTimeFieldOptions` and `OrigamiDateFieldSegmentOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. The value may be a plain `signal()`, a `linkedSignal()` or a composer's `model()`. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
 
 ## State and attributes
 
-`OrigamiDateFieldState`, the `state` of either root, has:
+`OrigamiDateFieldState`, the `state` of every root, has:
 
 - `value()`: the effective value, including `null` and a value that isn't a canonical date.
 - `segments()`: the layout, `OrigamiDateFieldPart`s `{ key, type, text }`: each unit (`key` and `type` `"month"`, `"day"`, `"year"`, or `"hour"`, `"minute"`, `"second"`, `"dayPeriod"`) with its current text, and each literal (`key` `"literal-0"`, `"literal-1"`, …, `type` `"literal"`) with its text.
-- `parseErrors()`: `dateIncomplete`, `dateInvalid`, `timeIncomplete` or none.
+- `parseErrors()`: `dateIncomplete`, `dateInvalid`, `timeIncomplete`, `dateTimeIncomplete` or none.
 - `disabled()` and `readonly()`: the effective policies.
 
 Descendants of the root can inject its State. The Input and the segments have no `state`.
@@ -205,10 +263,10 @@ The group is named by its label and each segment by its unit, announced with its
 
 ## Server rendering and hydration
 
-The order of the segments, their separators, their names and their digits come from `Intl`, and the server's and the browser's can differ. So the root writes its layout to its host as `data-layout`. A hydrating root reads it from its server element and keeps it until `locale` changes, so the server's markup survives hydration, eager or incremental, whatever the browser's `Intl` says; it also keeps the server's unit names. A date field the browser creates lays out from its own `Intl`, as does one whose `data-layout` isn't a layout for its units, such as a tampered one. A digit typed into a segment before its `@defer` block hydrates is replayed into it once the block does.
+The order of the segments, their separators, their names and their digits come from `Intl`, and the server's and the browser's can differ. So the root writes its layout to its host as `data-layout`. A hydrating root reads it from its server element and keeps it until `locale` changes, or a time or date-time field's `precision` or hour cycle, so the server's markup survives hydration, eager or incremental, whatever the browser's `Intl` says; it also keeps the server's unit names. A date field the browser creates lays out from its own `Intl`, as does one whose `data-layout` isn't a layout for its units, such as a tampered one. A digit typed into a segment before its `@defer` block hydrates is replayed into it once the block does.
 
 Server HTML has the whole field: the group's role and, in a Field, its labels and description, and every segment's role, ID, names, values and text. What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).
 
 ## Not included
 
-Date-time and month fields, a date picker with a trigger or popup, bounds on the field, Origami validators and messages, localized free-text paste, two-digit years, PageUp and PageDown, eras and non-Gregorian calendars, partial dates, a hidden native input for form submission or autofill. No `ControlValueAccessor`.
+Month fields, zoned date-times and instants, a date picker with a trigger or popup, bounds on the field, Origami validators and messages, localized free-text paste, two-digit years, PageUp and PageDown, eras and non-Gregorian calendars, partial dates, a hidden native input for form submission or autofill. No `ControlValueAccessor`.

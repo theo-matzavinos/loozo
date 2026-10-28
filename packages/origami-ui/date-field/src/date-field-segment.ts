@@ -142,7 +142,8 @@ function flag(value: boolean): "true" | null {
 export class OrigamiDateFieldSegment implements OrigamiDateFieldSegmentOptions {
   /**
    * Own required unit input, the directive's selector: `"year"`, `"month"` or `"day"` in a date
-   * field; `"hour"`, `"minute"`, `"second"` or `"dayPeriod"` in a time field.
+   * field; `"hour"`, `"minute"`, `"second"` or `"dayPeriod"` in a time field; any of them in a
+   * date-time field.
    */
   readonly segment = input.required<OrigamiDateFieldSegmentType>({ alias: "ogDateFieldSegment" });
   /** Own placeholder input, default null: one `–` per digit of the unit's width. */

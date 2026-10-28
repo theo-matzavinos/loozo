@@ -5,8 +5,8 @@ import { DateFieldContext } from "./date-field-context";
 import type { OrigamiDateFieldPart } from "./date-field-context";
 
 /**
- * Locally provided readonly facade for the nearest date or time field root, the same shape for
- * every root; nested roots have independent owners.
+ * Locally provided readonly facade for the nearest date, time or date-time field root, the same
+ * shape for every root; nested roots have independent owners.
  */
 @Service({ autoProvided: false })
 export class OrigamiDateFieldState {
@@ -18,15 +18,19 @@ export class OrigamiDateFieldState {
    * The locale's layout: each unit and each literal between them in order, with the unit's
    * current text (its digits or day period name, else its default placeholder) and the literal's
    * text. `en-US` is month `/` day `/` year, `el` day `/` month `/` year; a 12-hour time is hour
-   * `:` minute, then the day period. Render a segment per unit and the literals as plain,
+   * `:` minute, then the day period; a date-time is the locale's date and time halves in its
+   * order, with its literal between them (`en-US` month `/` day `/` year `, ` hour `:` minute
+   * day period). Render a segment per unit and the literals as plain,
    * `aria-hidden` text. A root that hydrates keeps the server's layout (its `data-layout` seed)
-   * until `locale`, a time root's `precision` or its `hourCycle` changes.
+   * until `locale`, a time or date-time root's `precision` or its `hourCycle` changes.
    */
   readonly segments: Signal<readonly OrigamiDateFieldPart[]> = this.#context.segments;
   /**
    * The draft's parse errors, for use without Signal Forms. A date: `{ kind: "dateIncomplete" }`
    * while some units are empty, `{ kind: "dateInvalid" }` for a complete draft that names no day
-   * (31 February). A time: `{ kind: "timeIncomplete" }` while some units are empty. Else none.
+   * (31 February). A time: `{ kind: "timeIncomplete" }` while some units are empty. A date-time:
+   * `{ kind: "dateTimeIncomplete" }` while some units are empty, `{ kind: "dateInvalid" }` for a
+   * complete draft whose date names no day. Else none.
    * `[formField]` on the root reports the same errors to the form. Origami ships no messages.
    */
   readonly parseErrors: Signal<readonly ValidationError.WithoutFieldTree[]> =
