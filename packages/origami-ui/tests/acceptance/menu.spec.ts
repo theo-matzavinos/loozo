@@ -1523,3 +1523,689 @@ test("MN22: an openChange listener that moves focus out of the menu while a key 
     await close();
   }
 });
+
+function viewParts(page: Page) {
+  return {
+    trigger: page.getByTestId("view-trigger"),
+    content: page.getByTestId("view-content"),
+    item: (name: string) => page.getByTestId(`view-${name}`),
+    values: page.getByTestId("view-values"),
+    open: page.getByTestId("view-open"),
+    selected: page.getByTestId("view-selected"),
+    changes: page.getByTestId("view-changes"),
+    order: page.getByTestId("view-order"),
+  };
+}
+
+async function expectChecked(item: Locator, checked: boolean): Promise<void> {
+  await expect(item).toHaveAttribute("aria-checked", String(checked));
+
+  if (checked) {
+    await expect(item).toHaveAttribute("data-checked", "");
+  } else {
+    await expect(item).not.toHaveAttribute("data-checked", /.*/);
+  }
+}
+
+test("MN23: checkbox and radio items are menuitemcheckbox and menuitemradio buttons with tabindex -1 whose aria-checked and data-checked follow their bound state, in server HTML, through hydration and after external writes; a radio group is a group named by its label", async ({
+  page,
+}, info) => {
+  const { item, values, changes } = viewParts(page);
+  const initial = async () => {
+    for (const name of ["owner", "due", "archived"]) {
+      await expect(item(name)).toHaveAttribute("role", "menuitemcheckbox");
+    }
+
+    for (const name of ["compact", "comfortable", "spacious"]) {
+      await expect(item(name)).toHaveAttribute("role", "menuitemradio");
+    }
+
+    for (const name of ["owner", "due", "archived", "compact", "comfortable", "spacious"]) {
+      await expect(item(name)).toHaveAttribute("tabindex", "-1");
+      await expect(item(name)).toHaveAttribute("type", "button");
+    }
+
+    await expectChecked(item("owner"), true);
+    await expectChecked(item("due"), false);
+    await expectChecked(item("archived"), false);
+    await expectChecked(item("compact"), true);
+    await expectChecked(item("comfortable"), false);
+    await expectChecked(item("spacious"), false);
+    await expect(item("archived")).toHaveAttribute("aria-disabled", "true");
+    await expect(item("archived")).not.toHaveAttribute("disabled", /.*/);
+    await expect(item("spacious")).toHaveAttribute("aria-disabled", "true");
+    await expect(item("spacious")).not.toHaveAttribute("disabled", /.*/);
+    await expect(item("owner-mark")).toHaveText("✓");
+    await expect(item("compact-mark")).toHaveText("●");
+    await expect(item("density")).toHaveAttribute("role", "group");
+    await expect(item("density")).toHaveAttribute(
+      "aria-labelledby",
+      (await item("density-label").getAttribute("id")) ?? "",
+    );
+  };
+
+  await fixture(page, "menu", info, initial);
+  await initial();
+
+  // External writes are the bound state the items reflect; they emit no change output.
+  await script(page, "view-write");
+  await expect(values).toHaveText("false true false comfortable");
+  await expectChecked(item("owner"), false);
+  await expectChecked(item("due"), true);
+  await expectChecked(item("compact"), false);
+  await expectChecked(item("comfortable"), true);
+  await expect(item("owner-mark")).toHaveText("·");
+  await expect(item("compact-mark")).toHaveText("○");
+  await expect(changes).toHaveText("");
+
+  await page.getByTestId("view-trigger").click();
+  await expect(item("owner")).toBeFocused();
+  await expect(item("content")).toHaveAccessibleName("View");
+  await expect(item("columns")).toHaveAccessibleName("Columns");
+  await expect(item("density")).toHaveAccessibleName("Density");
+});
+
+test("MN24: Space and a click toggle a checkbox item and select a radio item, leaving the menu open with focus on the item, and (select) and the change output run with focus on the item and the menu open; a held Space toggles once; an action item still closes", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, changes, order } = viewParts(page);
+
+  await trigger.click();
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press(" ");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("owner")).toBeFocused();
+  await expectChecked(item("owner"), false);
+  await expect(values).toHaveText("false false false compact");
+  await expect(selected).toHaveText("owner@view-owner@true");
+  await expect(changes).toHaveText("owner@view-owner@true");
+  // The state is written before (select), which reads it.
+  await expect(order).toHaveText("owner.change,owner.select=false");
+
+  await item("due").click();
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("due")).toBeFocused();
+  await expectChecked(item("due"), true);
+  await expect(selected).toHaveText("owner@view-owner@true,due@view-due@true");
+  await expect(changes).toHaveText("owner@view-owner@true,due@view-due@true");
+
+  await item("comfortable").click();
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("comfortable")).toBeFocused();
+  await expectChecked(item("comfortable"), true);
+  await expectChecked(item("compact"), false);
+  await expect(values).toHaveText("false true false comfortable");
+  await expect(selected).toHaveText(
+    "owner@view-owner@true,due@view-due@true,comfortable@view-comfortable@true",
+  );
+  await expect(changes).toHaveText(
+    "owner@view-owner@true,due@view-due@true,density@view-comfortable@true",
+  );
+  await expect(order).toHaveText(
+    "owner.change,owner.select=false,due.change,due.select=true,density.change,comfortable.select=comfortable",
+  );
+
+  await page.keyboard.press("ArrowUp");
+  await expect(item("compact")).toBeFocused();
+  await page.keyboard.press(" ");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("compact")).toBeFocused();
+  await expect(values).toHaveText("false true false compact");
+
+  // Held: the auto-repeated keydowns click nothing; the one release toggles once.
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await expect(item("due")).toBeFocused();
+  await page.keyboard.down(" ");
+  await page.keyboard.down(" ");
+  await page.keyboard.down(" ");
+  await page.keyboard.down(" ");
+  await frames(page);
+  await expectChecked(item("due"), true);
+  await page.keyboard.up(" ");
+  await frames(page);
+  await expectChecked(item("due"), false);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(item("comfortable")).toBeFocused();
+  await page.keyboard.down(" ");
+  await page.keyboard.down(" ");
+  await page.keyboard.down(" ");
+  await page.keyboard.up(" ");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(values).toHaveText("false false false comfortable");
+  await expect(selected).toHaveText(
+    "owner@view-owner@true,due@view-due@true,comfortable@view-comfortable@true,compact@view-compact@true,due@view-due@true,comfortable@view-comfortable@true",
+  );
+  await expect(changes).toHaveText(
+    "owner@view-owner@true,due@view-due@true,density@view-comfortable@true,density@view-compact@true,due@view-due@true,density@view-comfortable@true",
+  );
+  await expect(order).toHaveText(
+    "owner.change,owner.select=false,due.change,due.select=true,density.change,comfortable.select=comfortable,density.change,compact.select=compact,due.change,due.select=false,density.change,comfortable.select=comfortable",
+  );
+
+  // An action item beside them still closes on Space.
+  await page.keyboard.press("End");
+  await expect(item("reset")).toBeFocused();
+  await page.keyboard.press(" ");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(selected).toHaveText(/,reset@view-trigger@false$/);
+});
+
+test("MN25: Enter and Shift+Enter toggle a checkbox item and select a radio item and close the menu: (select) and the change output run with focus on the Trigger and the menu closed; Ctrl+Enter clicks only in Firefox, which stays open, and activates nothing elsewhere; an Enter during IME composition activates nothing", async ({
+  page,
+  browserName,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, changes, order } = viewParts(page);
+
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expectChecked(item("owner"), false);
+  await expect(selected).toHaveText("owner@view-trigger@false");
+  await expect(changes).toHaveText("owner@view-trigger@false");
+  // The state is written before (select), which reads it.
+  await expect(order).toHaveText("owner.change,owner.select=false");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("c");
+  await page.keyboard.press("c");
+  await expect(item("comfortable")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(values).toHaveText("false false false comfortable");
+  await expectChecked(item("comfortable"), true);
+  await expect(selected).toHaveText("owner@view-trigger@false,comfortable@view-trigger@false");
+  await expect(changes).toHaveText("owner@view-trigger@false,density@view-trigger@false");
+  await expect(order).toHaveText(
+    "owner.change,owner.select=false,density.change,comfortable.select=comfortable",
+  );
+
+  // Shift+Enter is Enter.
+  await page.keyboard.press("ArrowDown");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(item("due")).toBeFocused();
+  await page.keyboard.press("Shift+Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("c");
+  await expect(item("compact")).toBeFocused();
+  await page.keyboard.press("Shift+Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(values).toHaveText("false true false compact");
+  await expect(selected).toHaveText(
+    "owner@view-trigger@false,comfortable@view-trigger@false,due@view-trigger@false,compact@view-trigger@false",
+  );
+  await expect(order).toHaveText(
+    "owner.change,owner.select=false,density.change,comfortable.select=comfortable,due.change,due.select=true,density.change,compact.select=compact",
+  );
+
+  // Ctrl+Enter isn't the menu's: Firefox clicks the button, a click like any other, which stays
+  // open; Chromium and WebKit click nothing.
+  await trigger.click();
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(item("due")).toBeFocused();
+  await page.keyboard.press("Control+Enter");
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("due")).toBeFocused();
+
+  if (browserName === "firefox") {
+    await expectChecked(item("due"), false);
+    await expect(selected).toHaveText(/,compact@view-trigger@false,due@view-due@true$/);
+  } else {
+    await expectChecked(item("due"), true);
+    await expect(selected).toHaveText(/,compact@view-trigger@false$/);
+  }
+
+  // An Enter keydown during IME composition is the composition's; the same keydown outside one
+  // is the item's.
+  const before = await selected.textContent();
+  const enter = async (isComposing: boolean) => {
+    await item("due").evaluate((node, isComposing) => {
+      node.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          isComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, isComposing);
+  };
+
+  await enter(true);
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("due")).toBeFocused();
+  await expect(selected).toHaveText(before ?? "");
+  await enter(false);
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(selected).toHaveText(/,due@view-trigger@false$/);
+});
+
+test("MN26: selecting the checked radio item never clears the group: Space, a click and Enter write nothing and still emit (select), and Enter still closes", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, changes } = viewParts(page);
+
+  await trigger.click();
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("c");
+  await expect(item("compact")).toBeFocused();
+  // After the search, so Space doesn't join it.
+  await page.waitForTimeout(700);
+  await page.keyboard.press(" ");
+  await frames(page);
+  await item("compact").click();
+  await frames(page);
+  await expectOpen(trigger, content);
+  await expect(item("compact")).toBeFocused();
+  await expectChecked(item("compact"), true);
+  await expect(values).toHaveText("true false false compact");
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expectChecked(item("compact"), true);
+  await expect(values).toHaveText("true false false compact");
+  await expect(selected).toHaveText(
+    "compact@view-compact@true,compact@view-compact@true,compact@view-trigger@false",
+  );
+  await expect(changes).toHaveText("");
+});
+
+test("MN27: arrows, Home, End, typeahead, Space inside a search and hover move focus across checkbox and radio items without checking anything", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, changes } = viewParts(page);
+  const order = ["owner", "due", "archived", "compact", "comfortable", "spacious", "reset"];
+
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+
+  for (let step = 0; step < order.length + 1; step++) {
+    await expect(item(order[step % order.length])).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+  }
+
+  await page.keyboard.press("ArrowUp");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(item("reset")).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(item("reset")).toBeFocused();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("c");
+  await expect(item("compact")).toBeFocused();
+  await page.keyboard.press("c");
+  await expect(item("comfortable")).toBeFocused();
+  await page.waitForTimeout(700);
+  // Space joins the running search "due d" and clicks nothing.
+  await page.keyboard.type("due d");
+  await expect(item("due")).toBeFocused();
+  await frames(page);
+  await item("spacious").hover();
+  await expect(item("spacious")).toBeFocused();
+  await item("comfortable").hover();
+  await expect(item("comfortable")).toBeFocused();
+  await expectOpen(trigger, content);
+  await expect(values).toHaveText("true false false compact");
+  await expectChecked(item("owner"), true);
+  await expectChecked(item("due"), false);
+  await expectChecked(item("compact"), true);
+  await expectChecked(item("comfortable"), false);
+  await expect(selected).toHaveText("");
+  await expect(changes).toHaveText("");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+});
+
+test("MN28: a disabled checkbox or radio item writes and emits nothing on a click, Enter or Space and keeps the menu open with focus on it; only its own (click) runs", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, changes } = viewParts(page);
+
+  await trigger.click();
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(item("archived")).toBeFocused();
+  // The menu leaves a disabled item's Enter alone: its native click runs the item's own (click).
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("archived-clicks")).toHaveText("1");
+  await page.keyboard.press(" ");
+  // Forced: Playwright counts aria-disabled as not actionable.
+  await item("archived").click({ force: true });
+  await frames(page);
+  await expect(page.getByTestId("archived-clicks")).toHaveText("3");
+  await expectOpen(trigger, content);
+  await expect(item("archived")).toBeFocused();
+  await expectChecked(item("archived"), false);
+
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowUp");
+  await expect(item("spacious")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("spacious-clicks")).toHaveText("1");
+  await page.keyboard.press(" ");
+  await item("spacious").click({ force: true });
+  await frames(page);
+  await expect(page.getByTestId("spacious-clicks")).toHaveText("3");
+  await expectOpen(trigger, content);
+  await expect(item("spacious")).toBeFocused();
+  await expectChecked(item("spacious"), false);
+  await expect(values).toHaveText("true false false compact");
+  await expect(selected).toHaveText("");
+  await expect(changes).toHaveText("");
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+});
+
+test("MN29 O1: a checkbox item and a radio group composed through hostDirectives with factory Options read and write the replacement signals", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const trigger = page.getByTestId("wrapped-trigger");
+  const content = page.getByTestId("wrapped-content");
+  const pin = page.getByTestId("wrapped-pin");
+  const values = page.getByTestId("wrapped-values");
+
+  await expect(pin).toHaveAttribute("role", "menuitemcheckbox");
+  await expectChecked(pin, true);
+  await expectChecked(page.getByTestId("wrapped-name"), true);
+  await expectChecked(page.getByTestId("wrapped-date"), false);
+  await trigger.click();
+  await expect(pin).toBeFocused();
+  await page.keyboard.press(" ");
+  await expectChecked(pin, false);
+  await page.getByTestId("wrapped-date").click();
+  await expectOpen(trigger, content);
+  await expect(values).toHaveText("false date");
+  await expectChecked(page.getByTestId("wrapped-name"), false);
+  await expectChecked(page.getByTestId("wrapped-date"), true);
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await expect(pin).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(values).toHaveText("true date");
+});
+
+test("MN30: a Trigger focus handler or an openChange listener that replaces only the activating checkable item during Enter's activation writes nothing: a replacement sharing its Options keeps the state, the surviving group its value, and nothing is emitted", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const trigger = page.getByTestId("remounted-trigger");
+  const content = page.getByTestId("remounted-content");
+  const shared = (generation: number) => page.getByTestId(`remounted-shared-${generation}`);
+  const grid = (generation: number) => page.getByTestId(`remounted-grid-${generation}`);
+  const values = page.getByTestId("remounted-values");
+  const log = page.getByTestId("remounted-log");
+
+  // Each Enter replaces both items, so Shared and Grid move one generation on.
+  for (const [when, generation] of [
+    ["focus", 1],
+    ["close", 3],
+  ] as const) {
+    await trigger.click();
+    await expect(shared(generation)).toBeFocused();
+    await script(page, `remount-on-${when}`);
+    await page.keyboard.press("Enter");
+    await expectClosed(trigger, content);
+    await expect(trigger).toBeFocused();
+    await expect(shared(generation)).toHaveCount(0);
+    await expectChecked(shared(generation + 1), false);
+    await expect(values).toHaveText("false list");
+
+    await trigger.click();
+    await expect(shared(generation + 1)).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await expect(grid(generation + 1)).toBeFocused();
+    await script(page, `remount-on-${when}`);
+    await page.keyboard.press("Enter");
+    await expectClosed(trigger, content);
+    await expect(trigger).toBeFocused();
+    await expect(grid(generation + 1)).toHaveCount(0);
+    await expectChecked(grid(generation + 2), false);
+    await expectChecked(page.getByTestId("remounted-list"), true);
+    await expect(values).toHaveText("false list");
+  }
+
+  await expect(log).toHaveText("");
+
+  // Not replaced, the same Enter writes and emits.
+  await trigger.click();
+  await expect(shared(5)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(values).toHaveText("true list");
+  await trigger.click();
+  await expect(shared(5)).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(grid(5)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(values).toHaveText("true grid");
+  await expect(log).toHaveText("shared,layout,grid");
+});
+
+/**
+ * Arms a listener for the next Enter `type` event on the `on` test ID: it clicks the `click` test
+ * ID by script, unless null, then cancels the event if `cancel`. `heard` counts its runs in the
+ * body's `data-heard`.
+ */
+async function onNextEnter(
+  page: Page,
+  on: string,
+  type: "keydown" | "keypress",
+  click: string | null,
+  cancel: boolean,
+): Promise<void> {
+  await page.evaluate(
+    ([on, type, click, cancel]) => {
+      const target = document.querySelector(`[data-testid="${on}"]`);
+      const listener = (event: Event) => {
+        if (!(event instanceof KeyboardEvent) || event.key !== "Enter") {
+          return;
+        }
+
+        target?.removeEventListener(type, listener);
+        document.body.dataset["heard"] = String(Number(document.body.dataset["heard"] ?? 0) + 1);
+
+        if (click !== null) {
+          document.querySelector<HTMLElement>(`[data-testid="${click}"]`)?.click();
+        }
+
+        if (cancel) {
+          event.preventDefault();
+        }
+      };
+
+      target?.addEventListener(type, listener);
+    },
+    [on, type, click, cancel] as const,
+  );
+}
+
+test("MN31: an Enter keydown a listener on the item cancels activates nothing; a script's click from a keydown listener on the item toggles or selects and stays open, canceled or not, and an uncanceled Enter then closes once", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, order } = viewParts(page);
+  const heard = page.locator("body");
+
+  await trigger.click();
+  await expect(item("owner")).toBeFocused();
+
+  // Canceled before Content's listener: nothing activates.
+  await page.keyboard.press("ArrowDown");
+  await expect(item("due")).toBeFocused();
+  await onNextEnter(page, "view-due", "keydown", null, true);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "1");
+  await expectOpen(trigger, content);
+  await expect(item("due")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(item("comfortable")).toBeFocused();
+  await onNextEnter(page, "view-comfortable", "keydown", null, true);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "2");
+  await expectOpen(trigger, content);
+  await expect(item("comfortable")).toBeFocused();
+  await expect(values).toHaveText("true false false compact");
+  await expect(selected).toHaveText("");
+
+  // The script's click, then the cancel: the click toggles or selects once and stays open.
+  await onNextEnter(page, "view-comfortable", "keydown", "view-comfortable", true);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "3");
+  await expectOpen(trigger, content);
+  await expect(item("comfortable")).toBeFocused();
+  await expect(values).toHaveText("true false false comfortable");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowDown");
+  await expect(item("due")).toBeFocused();
+  await onNextEnter(page, "view-due", "keydown", "view-due", true);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "4");
+  await expectOpen(trigger, content);
+  await expect(item("due")).toBeFocused();
+  await expect(values).toHaveText("true true false comfortable");
+  await expect(selected).toHaveText("comfortable@view-comfortable@true,due@view-due@true");
+
+  // Uncanceled: the script's click stays open, then Content's Enter closes, once.
+  await onNextEnter(page, "view-due", "keydown", "view-due", false);
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(heard).toHaveAttribute("data-heard", "5");
+  await expect(values).toHaveText("true true false comfortable");
+  await expect(selected).toHaveText(
+    "comfortable@view-comfortable@true,due@view-due@true,due@view-due@true,due@view-trigger@false",
+  );
+  await expect(order).toHaveText(/,due\.change,due\.select=false,due\.change,due\.select=true$/);
+
+  await page.keyboard.press("ArrowDown");
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("c");
+  await expect(item("compact")).toBeFocused();
+  await onNextEnter(page, "view-compact", "keydown", "view-compact", false);
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(heard).toHaveAttribute("data-heard", "6");
+  await expect(values).toHaveText("true true false compact");
+  await expect(selected).toHaveText(/,compact@view-compact@true,compact@view-trigger@false$/);
+  await expect(order).toHaveText(
+    /,density\.change,compact\.select=compact,compact\.select=compact$/,
+  );
+});
+
+test("MN32: a script's click from an Enter keypress listener toggles or selects and stays open, canceled or not; an enabled checkable item's Enter has no keypress, so such a listener never runs and the Enter closes once", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const { trigger, content, item, values, selected, order } = viewParts(page);
+  const heard = page.locator("body");
+
+  // A disabled item's Enter is left to the button, so its keypress runs: a Content listener
+  // clicks another item by script, which stays open with focus where it was.
+  await trigger.click();
+  await expect(item("owner")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(item("archived")).toBeFocused();
+  await onNextEnter(page, "view-content", "keypress", "view-due", true);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "1");
+  await expectOpen(trigger, content);
+  await expect(item("archived")).toBeFocused();
+  await expect(values).toHaveText("true true false compact");
+  await expect(selected).toHaveText("due@view-archived@true");
+  // Canceling the keypress cancels the button's own click.
+  await expect(page.getByTestId("archived-clicks")).toHaveText("0");
+
+  await onNextEnter(page, "view-content", "keypress", "view-due", false);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "2");
+  await expectOpen(trigger, content);
+  await expect(item("archived")).toBeFocused();
+  await expect(values).toHaveText("true false false compact");
+  await expect(selected).toHaveText("due@view-archived@true,due@view-archived@true");
+  await expect(page.getByTestId("archived-clicks")).toHaveText("1");
+
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowUp");
+  await expect(item("spacious")).toBeFocused();
+  await onNextEnter(page, "view-content", "keypress", "view-comfortable", true);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "3");
+  await onNextEnter(page, "view-content", "keypress", "view-compact", false);
+  await page.keyboard.press("Enter");
+  await frames(page);
+  await expect(heard).toHaveAttribute("data-heard", "4");
+  await expectOpen(trigger, content);
+  await expect(item("spacious")).toBeFocused();
+  await expect(values).toHaveText("true false false compact");
+  await expect(selected).toHaveText(/,comfortable@view-spacious@true,compact@view-spacious@true$/);
+  await expect(page.getByTestId("spacious-clicks")).toHaveText("1");
+
+  // Content cancels an enabled checkable item's Enter keydown, which cancels its keypress too.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowDown");
+  await expect(item("due")).toBeFocused();
+  await onNextEnter(page, "view-content", "keypress", "view-due", false);
+  await page.keyboard.press("Enter");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await expect(values).toHaveText("true true false compact");
+  await expect(selected).toHaveText(/,compact@view-spacious@true,due@view-trigger@false$/);
+  await expect(order).toHaveText(/,compact\.select=compact,due\.change,due\.select=true$/);
+  await expect(heard).toHaveAttribute("data-heard", "4");
+});

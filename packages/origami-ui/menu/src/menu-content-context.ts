@@ -12,6 +12,11 @@ export interface MenuItemRegistration {
   readonly disabled: Signal<boolean>;
   /** The explicit typeahead text, or null to read the item's text when a key is pressed. */
   readonly label: Signal<string | null>;
+  /**
+   * A checkable item's Enter, which Content handles on keydown, so the button's native click never
+   * runs for it; null for an item whose Enter clicks natively.
+   */
+  readonly enter: (() => void) | null;
 }
 
 /** Menu items have no value: they are never preferred and nothing reads their navigations. */
@@ -41,8 +46,8 @@ export class MenuContentContext {
   readonly #roving = inject(ɵOrigamiRovingFocusContext, { self: true });
   readonly #document = inject(DOCUMENT);
   readonly #typeahead = new ɵTypeaheadBuffer();
-  /** The registered items' elements, so keys from a nested menu's items are told apart. */
-  readonly #items = new Set<HTMLElement>();
+  /** The registered items by element, so keys from a nested menu's items are told apart. */
+  readonly #items = new Map<HTMLElement, MenuItemRegistration>();
   #element: HTMLElement | null = null;
   #destroyed = false;
   /**
@@ -79,7 +84,7 @@ export class MenuContentContext {
       return;
     }
 
-    this.#items.add(item.element);
+    this.#items.set(item.element, item);
     menuElements.add(item.element);
     destroyRef.onDestroy(() => {
       this.#items.delete(item.element);
@@ -174,8 +179,8 @@ export class MenuContentContext {
    * Content's `keydown`, from Content itself or one of its items, also one inside an open shadow
    * root within Content, which the event's target only names by its shadow host; keys from a
    * nested menu's items are that menu's. Tab and Shift+Tab focus the Trigger and close, without
-   * preventing the native move; arrows, Home and End move focus (the roving focus); a character
-   * searches.
+   * preventing the native move; arrows, Home and End move focus (the roving focus); Enter on an
+   * enabled checkable item activates it; a character searches.
    */
   keydown(event: KeyboardEvent): void {
     // Every Space press decides for itself: one that doesn't join a search clicks natively.
@@ -218,6 +223,19 @@ export class MenuContentContext {
     }
 
     if (event.defaultPrevented) {
+      return;
+    }
+
+    // A checkable item's Enter closes the menu; its native click, which would stay open, is
+    // prevented. A disabled one's still clicks, for the consumer's own listeners.
+    if (key === "Enter" && !self) {
+      const item = this.#items.get(target);
+
+      if (item !== undefined && item.enter !== null && !item.disabled()) {
+        event.preventDefault();
+        item.enter();
+      }
+
       return;
     }
 
@@ -298,12 +316,12 @@ export class MenuContentContext {
   }
 
   /**
-   * The one activation path: focuses the Trigger, closes the menu, then runs `emit`. Callers
-   * check their own disabled state first.
+   * The one activation path: focuses the Trigger, closes the menu, then runs `emit`; with `close`
+   * false, only runs `emit`. Callers check their own disabled state first.
    */
-  activate(emit: () => void): void {
+  activate(emit: () => void, close: boolean): void {
     if (!this.#destroyed) {
-      this.#menu.select(emit);
+      this.#menu.select(emit, close);
     }
   }
 

@@ -35,12 +35,13 @@ import {
   OrigamiTooltipContent,
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
+import { MenuCheckable } from "./menu-checkable";
 import { MenuLifecycle } from "./menu-lifecycle";
 import { MenuPrecedenceExisting, MenuPrecedenceFactory } from "./menu-precedence";
 import { MenuRowActions } from "./menu-row-actions";
 
-// Menu cases MN1–MN8, MN18 and MN20, MN9–MN15, MN17, MN19 and MN21 in the lifecycle sections
-// and MN16 in the precedence section.
+// Menu cases MN1–MN8, MN18 and MN20, MN9–MN15, MN17, MN19 and MN21 in the lifecycle sections,
+// MN16 in the precedence section and MN23–MN29 in the checkable sections.
 // Controls the tests use as script actions are buttons.
 
 /** A helm-style item: the consumer's own directive composing `ogMenuItem` through `hostDirectives`. */
@@ -79,6 +80,7 @@ function increment(value: number): number {
     OrigamiTooltipContent,
     MenuRowActions,
     MenuLifecycle,
+    MenuCheckable,
     MenuPrecedenceFactory,
     MenuPrecedenceExisting,
     AppMenuItem,
@@ -276,6 +278,8 @@ function increment(value: number): number {
     </section>
 
     <acceptance-menu-lifecycle />
+
+    <acceptance-menu-checkable />
 
     <section>
       <h2>Precedence</h2>

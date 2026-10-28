@@ -30,10 +30,11 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // (CA23) and its hydrated years view and month Calendar (CA44), and the date field's seed (DF12)
 // and its typing replayed into a hydrating block (DF13), the time field's and the date-time field's
 // seeds under eager and incremental hydration (DF32, DF33, DF47, DF48), and the Menu's server HTML
-// and deferred items (MN8), check what hydration keeps, so they run there too.
+// and deferred items (MN8) and its checkable items' server HTML (MN23), check what hydration keeps,
+// so they run there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
 const hydrationAndErrorCases =
-  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN8\b/;
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23)\b/;
 
 let browsers = browserNames;
 

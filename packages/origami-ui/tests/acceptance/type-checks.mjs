@@ -124,7 +124,7 @@ import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOp
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
-import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, type OrigamiMenuState, type OrigamiMenuItemState } from '@loozo/origami-ui/menu';
+import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -503,6 +503,29 @@ declare const menuItemState: OrigamiMenuItemState;
 // @ts-expect-error Menu item State disabled is readonly
 menuItemState.disabled.set(true);
 menuItemState.select.subscribe(() => {});
+// Positive: whole checkable factories, with ordinary signals.
+OrigamiMenuCheckboxItemOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), label: signal<string | null>(null)}));
+OrigamiMenuRadioGroupOptions.provideFactory(() => ({value: signal<string | null>('compact')}));
+OrigamiMenuRadioItemOptions.provideFactory(() => ({value: signal('compact'), disabled: computed(() => false), label: signal<string | null>('Compact')}));
+// @ts-expect-error a Menu checkbox item's checked must be writable
+OrigamiMenuCheckboxItemOptions.provideFactory(() => ({checked: computed(() => false), disabled: signal(false), label: signal<string | null>(null)}));
+// @ts-expect-error a Menu checkbox item factory must supply label
+OrigamiMenuCheckboxItemOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false)}));
+// @ts-expect-error a Menu radio group's value must be writable
+OrigamiMenuRadioGroupOptions.provideFactory(() => ({value: computed<string | null>(() => null)}));
+// @ts-expect-error a Menu radio group's value is a string or null
+OrigamiMenuRadioGroupOptions.provideFactory(() => ({value: signal<number | null>(1)}));
+// @ts-expect-error a Menu radio item's value is a string
+OrigamiMenuRadioItemOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), label: signal<string | null>(null)}));
+declare const menuCheckboxItemState: OrigamiMenuCheckboxItemState;
+// @ts-expect-error Menu checkbox item State checked is readonly
+menuCheckboxItemState.checked.set(true);
+menuCheckboxItemState.select.subscribe(() => {});
+declare const menuRadioItemState: OrigamiMenuRadioItemState;
+const menuRadioChecked: boolean = menuRadioItemState.checked();
+void menuRadioChecked;
+// @ts-expect-error Menu radio item State disabled is readonly
+menuRadioItemState.disabled.set(true);
 declare const monthCalendarState: OrigamiMonthCalendarState;
 const monthCalendarView: 'months' | 'years' = monthCalendarState.view();
 const monthCalendarValue: string | null = monthCalendarState.value();

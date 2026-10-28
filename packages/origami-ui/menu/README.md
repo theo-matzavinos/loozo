@@ -1,19 +1,22 @@
 # Menu
 
-Menu is a list of actions that opens from a button, such as a row's "⋯" actions or a toolbar's "More": the [menu button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) pattern with an action [menu](https://www.w3.org/WAI/ARIA/apg/patterns/menubar/). Focus moves into the menu: the arrows, typeahead and the mouse move it between the items, and activating one runs your `(select)` and closes the menu. The menu is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one.
+Menu is a list of actions that opens from a button, such as a row's "⋯" actions or a toolbar's "More": the [menu button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) pattern with an action [menu](https://www.w3.org/WAI/ARIA/apg/patterns/menubar/). Focus moves into the menu: the arrows, typeahead and the mouse move it between the items, and activating one runs your `(select)` and closes the menu. Checkbox and radio items turn options on and off, such as a table's columns and density. The menu is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one.
 
 [src/menu/row-actions.ts](../snippets/src/menu/row-actions.ts "playground")
 
-| Directive          | Configuration                                                                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ogMenu`           | `open: boolean` model (default `false`), `disabled` (default `false`)                                                                                         |
-| `ogMenuTrigger`    | `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`     |
-| `ogMenuContent`    | `id` (default generated), `side` (default `block-end`), `align` (default `start`), `gap` (CSS px, default `0`), as on [Popover Content](../popover/README.md) |
-| `ogMenuItem`       | `disabled` (default `false`), `label: string \| null` (default `null`); `(select)` output; must be a `<button>`                                               |
-| `ogMenuLink`       | `label: string \| null` (default `null`); `(select)` output; must be an `<a>`                                                                                 |
-| `ogMenuGroup`      | none                                                                                                                                                          |
-| `ogMenuGroupLabel` | `id` (default generated)                                                                                                                                      |
-| `ogMenuSeparator`  | none                                                                                                                                                          |
+| Directive            | Configuration                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogMenu`             | `open: boolean` model (default `false`), `disabled` (default `false`)                                                                                         |
+| `ogMenuTrigger`      | `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`     |
+| `ogMenuContent`      | `id` (default generated), `side` (default `block-end`), `align` (default `start`), `gap` (CSS px, default `0`), as on [Popover Content](../popover/README.md) |
+| `ogMenuItem`         | `disabled` (default `false`), `label: string \| null` (default `null`); `(select)` output; must be a `<button>`                                               |
+| `ogMenuCheckboxItem` | `checked: boolean` model (default `false`), `disabled` (default `false`), `label: string \| null` (default `null`); `(select)` output; must be a `<button>`   |
+| `ogMenuRadioGroup`   | `value: string \| null` model (default `null`)                                                                                                                |
+| `ogMenuRadioItem`    | `value: string` (required), `disabled` (default `false`), `label: string \| null` (default `null`); `(select)` output; must be a `<button>`                   |
+| `ogMenuLink`         | `label: string \| null` (default `null`); `(select)` output; must be an `<a>`                                                                                 |
+| `ogMenuGroup`        | none                                                                                                                                                          |
+| `ogMenuGroupLabel`   | `id` (default generated)                                                                                                                                      |
+| `ogMenuSeparator`    | none                                                                                                                                                          |
 
 ```html
 <div ogMenu>
@@ -90,6 +93,8 @@ Keys with Alt, Ctrl or Meta, keys already `defaultPrevented` and keys during IME
 | item             | Home / End              | the first / last item                                                                                                           |
 | item             | characters              | typeahead: the next item whose `label`, else its text, starts with what you typed; repeating one character cycles through them  |
 | item             | Enter, Space            | activate: focus the Trigger, close, emit `(select)`; on a disabled item, nothing. Space types a space while a search is running |
+| checkable item   | Space                   | toggle or select it; the menu stays open                                                                                        |
+| checkable item   | Enter                   | toggle or select it and close: focus the Trigger, close, write, emit `(select)`                                                 |
 | item             | Escape                  | close and focus the Trigger                                                                                                     |
 | item             | Tab, Shift+Tab          | close; focus moves on from the Trigger's place in the page, after or before it                                                  |
 
@@ -127,6 +132,35 @@ A disabled `ogMenuItem` is a focusable disabled [Button](../button/README.md): `
 
 A group is `role="group"`, named by its labels through `aria-labelledby`. A separator is `role="separator"`. Neither takes focus.
 
+## Checkbox and radio items
+
+```html
+<div ogMenuContent class="menu">
+  <div ogMenuGroup>
+    <span ogMenuGroupLabel>Columns</span>
+    <button ogMenuCheckboxItem #owner="ogMenuCheckboxItem" label="Owner" [(checked)]="showOwner">
+      <span aria-hidden="true">{{ owner.state.checked() ? "✓" : "" }}</span> Owner
+    </button>
+    <button ogMenuCheckboxItem [(checked)]="showDue">Due date</button>
+  </div>
+  <div ogMenuSeparator></div>
+  <div ogMenuRadioGroup [(value)]="density">
+    <span ogMenuGroupLabel>Density</span>
+    <button ogMenuRadioItem value="compact">Compact</button>
+    <button ogMenuRadioItem value="comfortable">Comfortable</button>
+  </div>
+</div>
+```
+
+`ogMenuCheckboxItem` is `role="menuitemcheckbox"` with `aria-checked` from its `checked` model. `ogMenuRadioItem` is `role="menuitemradio"` inside an `ogMenuRadioGroup`, checked while the group's `value` is its `value`; the group is `role="group"`, named by its `ogMenuGroupLabel`s like `ogMenuGroup`. A checked item has `data-checked`, and its `state.checked()`, through a `#item="ogMenuCheckboxItem"` or `"ogMenuRadioItem"` reference, can draw your indicator. If the indicator is text at the start of the item, give the item a `label` for typeahead.
+
+- **Space and a click** toggle a checkbox item or select a radio item, and the menu stays open with focus on the item, so you can change several in a row. Your `(checkedChange)`, `(valueChange)` and `(select)` run in that order, with focus on the item.
+- **Enter** toggles or selects the item and closes the menu, in the same order as an action: focus moves to the Trigger, the menu closes, the state is written and `(select)` runs. Your change and `(select)` listeners run with focus on the Trigger and `open` false. The menu handles Enter on the key press itself, so the button gets no `click` event for it: listen to `(select)`, `(checkedChange)` or `(valueChange)`, not `(click)`.
+- **Any click**, also your own script's `click()`, toggles or selects the item and keeps the menu open, like a pointer click. Only the Enter key closes.
+- **Selecting the checked radio item** writes nothing, so a radio group never clears; `(select)` still runs and Enter still closes. To start with nothing checked, leave `value` null.
+- **Disabled** checkable items stay focusable and reachable, like disabled items: they write and emit nothing and keep the menu open, while your own `(click)` on them still runs.
+- The arrows, typeahead and the mouse only move focus: they never check anything. Holding Space toggles once, when you release it.
+
 ## Inside a Toolbar, a Dialog or a Popover
 
 Inside a [Dialog](../dialog/README.md) or Popover Content, the first Escape and a click elsewhere in it close only the menu, and activating an item keeps the enclosing layer open. A [Tooltip](../tooltip/README.md) Trigger can share the button with `ogMenuTrigger`; the Tooltip closes when the menu takes focus.
@@ -139,7 +173,7 @@ Content stays mounted while the menu is closed, so its items are registered befo
 
 ## Replacing Options
 
-The root, Trigger, Content, item, link and group label each have their own Options, `OrigamiMenuOptions`, `OrigamiMenuTriggerOptions`, `OrigamiMenuContentOptions`, `OrigamiMenuItemOptions`, `OrigamiMenuLinkOptions` and `OrigamiMenuGroupLabelOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. To wrap an item in your own directive, compose it through `hostDirectives` and expose what you need:
+The root, Trigger, Content, item, checkbox item, radio group, radio item, link and group label each have their own Options, `OrigamiMenuOptions`, `OrigamiMenuTriggerOptions`, `OrigamiMenuContentOptions`, `OrigamiMenuItemOptions`, `OrigamiMenuCheckboxItemOptions`, `OrigamiMenuRadioGroupOptions`, `OrigamiMenuRadioItemOptions`, `OrigamiMenuLinkOptions` and `OrigamiMenuGroupLabelOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. To wrap an item in your own directive, compose it through `hostDirectives` and expose what you need:
 
 ```ts
 @Directive({
@@ -155,17 +189,18 @@ See [How the primitives fit together](../README.md#how-the-primitives-fit-togeth
 
 ## State and attributes
 
-`OrigamiMenuState`, the root's `state` and also the Trigger's, has `open()`, whether the menu is actually presented and interactive, not the requested `open` (false on the server and during an exit), and `disabled()`, the root's effective disabled policy. Content's `state.open()` is its Presence retention, as on Popover Content. Each item has `OrigamiMenuItemState` as `state`: `disabled()` and `select`, an `Observable` of its activations; descendants of an item can inject it. Links, groups, group labels and separators have no `state`.
+`OrigamiMenuState`, the root's `state` and also the Trigger's, has `open()`, whether the menu is actually presented and interactive, not the requested `open` (false on the server and during an exit), and `disabled()`, the root's effective disabled policy. Content's `state.open()` is its Presence retention, as on Popover Content. Each item has `OrigamiMenuItemState` as `state`: `disabled()` and `select`, an `Observable` of its activations; descendants of an item can inject it. A checkbox item has `OrigamiMenuCheckboxItemState` and a radio item `OrigamiMenuRadioItemState`, each with `checked()`, `disabled()` and `select`. Links, groups, radio groups, group labels and separators have no `state`.
 
-| Element     | Attributes                                                                                                                                                                                                                                   |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger     | `type="button"`, `aria-haspopup="menu"`, `id`, `aria-expanded`, `aria-controls` (mounted Content); the disabled attributes of [Button](../button/README.md)                                                                                  |
-| Content     | `role="menu"`, `tabindex="-1"`, `id`, `aria-labelledby` (the Trigger, once it's mounted), `popover="manual"`, `inert` while not presented, the [Presence](../presence/README.md) attributes, `--og-anchor-width` and `--og-available-height` |
-| Item        | `type="button"`, `role="menuitem"`, `tabindex="-1"`; when disabled, `aria-disabled="true"` and `data-disabled`                                                                                                                               |
-| Link        | `role="menuitem"`, `tabindex="-1"`                                                                                                                                                                                                           |
-| Group       | `role="group"`, `aria-labelledby` (its labels, once they're mounted)                                                                                                                                                                         |
-| Group label | `id`                                                                                                                                                                                                                                         |
-| Separator   | `role="separator"`                                                                                                                                                                                                                           |
+| Element                   | Attributes                                                                                                                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger                   | `type="button"`, `aria-haspopup="menu"`, `id`, `aria-expanded`, `aria-controls` (mounted Content); the disabled attributes of [Button](../button/README.md)                                                                                  |
+| Content                   | `role="menu"`, `tabindex="-1"`, `id`, `aria-labelledby` (the Trigger, once it's mounted), `popover="manual"`, `inert` while not presented, the [Presence](../presence/README.md) attributes, `--og-anchor-width` and `--og-available-height` |
+| Item                      | `type="button"`, `role="menuitem"`, `tabindex="-1"`; when disabled, `aria-disabled="true"` and `data-disabled`                                                                                                                               |
+| Checkbox item, radio item | `type="button"`, `role="menuitemcheckbox"` or `role="menuitemradio"`, `tabindex="-1"`, `aria-checked`; when checked, `data-checked`; when disabled, `aria-disabled="true"` and `data-disabled`                                               |
+| Link                      | `role="menuitem"`, `tabindex="-1"`                                                                                                                                                                                                           |
+| Group, radio group        | `role="group"`, `aria-labelledby` (its labels, once they're mounted)                                                                                                                                                                         |
+| Group label               | `id`                                                                                                                                                                                                                                         |
+| Separator                 | `role="separator"`                                                                                                                                                                                                                           |
 
 ## Accessibility
 
@@ -175,10 +210,10 @@ See [How the primitives fit together](../README.md#how-the-primitives-fit-togeth
 
 ## Server rendering and hydration
 
-Server HTML has the menu closed: the Trigger's `aria-haspopup`, `aria-expanded="false"` and `aria-controls`, Content's `role`, `tabindex` and `aria-labelledby`, and the items' roles, `tabindex="-1"` and disabled attributes. Hydration keeps the nodes and IDs. A click on the Trigger replayed after incremental hydration opens the menu once on its first item. Keyboard interaction before hydration isn't promised.
+Server HTML has the menu closed: the Trigger's `aria-haspopup`, `aria-expanded="false"` and `aria-controls`, Content's `role`, `tabindex` and `aria-labelledby`, and the items' roles, `tabindex="-1"`, disabled attributes and, for checkbox and radio items, `aria-checked` and `data-checked` from your values. Hydration keeps the nodes and IDs. A click on the Trigger replayed after incremental hydration opens the menu once on its first item. Keyboard interaction before hydration isn't promised.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).
 
 ## Not included
 
-No checkbox or radio items or submenus yet, no menubar, context menu, press-drag-release, shortcut or indicator parts, `closeOnSelect`, `loop` or `modal` options, and no disabled links.
+No submenus yet, no mixed checkbox state, no `disabled` on a radio group, no menubar, context menu, press-drag-release, shortcut or indicator parts, `closeOnSelect`, `loop` or `modal` options, and no disabled links.

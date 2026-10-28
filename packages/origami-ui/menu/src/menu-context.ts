@@ -275,10 +275,18 @@ export class MenuContext {
    * An activation: focuses the Trigger, writes `open` false, then runs `emit`. A Dialog the
    * listener opens records the Trigger as the element to return focus to, and whatever the
    * listener focuses wins. A Trigger that can't take focus, such as one that's gone or detached,
-   * doesn't stop it: the menu closes and `emit` runs with focus wherever it was.
+   * doesn't stop it: the menu closes and `emit` runs with focus wherever it was. With `close`
+   * false, as for a checkable item's Space or click, only `emit` runs: the menu stays open and
+   * focus where it is.
    */
-  select(emit: () => void): void {
+  select(emit: () => void, close: boolean): void {
     if (this.#destroyed) {
+      return;
+    }
+
+    if (!close) {
+      emit();
+
       return;
     }
 
