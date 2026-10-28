@@ -2508,13 +2508,35 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
     await fixture(page, "popover", info);
     await page.getByTestId("native-motion").selectOption(motion);
     await nativeOpen(page);
+
+    const retained =
+      (motion === "finite" || motion === "mixed") &&
+      info.project.metadata.motion === "no-preference";
+
+    // Pause the 800 ms exit in the page as it starts: on a loaded host, the round trips before the
+    // retained exit is sampled can outlast it.
+    if (retained) {
+      await page.getByTestId("native-content").evaluate((node) => {
+        const observer = new MutationObserver(() => {
+          if (!node.hasAttribute("data-leaving")) {
+            return;
+          }
+
+          observer.disconnect();
+
+          for (const animation of node.getAnimations()) {
+            animation.pause();
+          }
+        });
+
+        observer.observe(node, { attributes: true, attributeFilter: ["data-leaving"] });
+      });
+    }
+
     await page.getByTestId("native-inside-close").click();
     await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "false");
 
-    if (
-      (motion === "finite" || motion === "mixed") &&
-      info.project.metadata.motion === "no-preference"
-    ) {
+    if (retained) {
       await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "closing");
       expect(
         await page.getByTestId("native-content").evaluate((node) => node.matches(":popover-open")),
@@ -2540,6 +2562,13 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
         expect(read.inert).toBe(true);
         expect(read.native).toBe(true);
       }
+
+      // Resume the exit: native hide follows its completion.
+      await page.getByTestId("native-content").evaluate((node) => {
+        for (const animation of node.getAnimations()) {
+          animation.play();
+        }
+      });
     }
 
     await closed(page);

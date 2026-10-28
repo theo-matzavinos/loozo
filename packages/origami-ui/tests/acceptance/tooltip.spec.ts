@@ -2249,6 +2249,24 @@ function expectOpenedAtOnce(entries: readonly JournalEntry[], name: string): voi
   expect(groupEntry(entries, `${name}:true`).event).not.toBe("none");
 }
 
+/**
+ * `closed` closed in one of its own `events` dispatches, before `opened` opened, so the close
+ * didn't come from `opened`'s open taking over the group.
+ */
+function expectClosedBefore(
+  entries: readonly JournalEntry[],
+  closed: string,
+  events: readonly string[],
+  opened: string,
+): void {
+  const kinds = groupKinds(entries);
+  const close = kinds.indexOf(`${closed}:false`);
+
+  expect(close).toBeGreaterThanOrEqual(0);
+  expect(events).toContain(entries[close].event);
+  expect(close).toBeLessThan(kinds.indexOf(`${opened}:true`));
+}
+
 /** Opened by the timer, at least the 200 ms delay after its enter. */
 function expectOpenedAfterDelay(entries: readonly JournalEntry[], name: string): void {
   const enter = groupEntry(entries, `${name}:enter`);
@@ -2305,14 +2323,18 @@ test("N13: a hover or focus open closes the other intent-opened Tooltip; the gro
   expect(groupKinds(entries).filter((kind) => kind === "b:false")).toHaveLength(1);
   expect(groupKinds(entries).filter((kind) => kind === "c:true")).toHaveLength(1);
 
-  // C closes by leaving; B, entered within 300 ms, opens at once.
-  await away(page);
-  await expect(groupIntent(page, "c")).toHaveText("false");
+  // C closes by leaving; B, entered within 300 ms, opens at once. Nothing waits between the
+  // leave and the enter, so load adds no round trips to the gap.
   mark = await groupMark(page);
   point = center(await box(groupTrigger(page, "b")));
+  await away(page);
   await page.mouse.move(point.x, point.y);
   await expect(groupIntent(page, "b")).toHaveText("true");
-  expectOpenedAtOnce(await groupJournal(page, mark), "b");
+  await expect(groupIntent(page, "c")).toHaveText("false");
+  entries = await groupJournal(page, mark);
+  // The leave closes C itself, or its move out of the grace area toward C's Content does.
+  expectClosedBefore(entries, "c", ["pointerleave", "pointermove"], "b");
+  expectOpenedAtOnce(entries, "b");
 
   // After 300 ms, B opens after its delay again.
   await away(page);
@@ -2353,13 +2375,15 @@ test("N13: a hover or focus open closes the other intent-opened Tooltip; the gro
   await expect(groupIntent(page, "c")).toHaveText("true");
 
   // Escape closes A, the most recently shown, and warms the group: B opens at once.
-  await page.keyboard.press("Escape");
-  await expect(groupIntent(page, "a")).toHaveText("false");
   mark = await groupMark(page);
   point = center(await box(groupTrigger(page, "b")));
+  await page.keyboard.press("Escape");
   await page.mouse.move(point.x, point.y);
   await expect(groupIntent(page, "b")).toHaveText("true");
-  expectOpenedAtOnce(await groupJournal(page, mark), "b");
+  await expect(groupIntent(page, "a")).toHaveText("false");
+  entries = await groupJournal(page, mark);
+  expectClosedBefore(entries, "a", ["keydown"], "b");
+  expectOpenedAtOnce(entries, "b");
   await expect(groupIntent(page, "c")).toHaveText("true");
   await away(page);
   await expect(groupIntent(page, "b")).toHaveText("false");
