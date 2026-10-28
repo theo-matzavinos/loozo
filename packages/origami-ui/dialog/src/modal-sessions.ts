@@ -1,21 +1,11 @@
 import { DOCUMENT, Service, inject } from "@angular/core";
+import { ɵdeepActiveElement } from "@loozo/origami-ui/utils";
 import type { ɵOrigamiLayer } from "@loozo/origami-ui/utils";
 
 /** The longhands `overflow` sets, snapshotted one by one: the shorthand reads empty unless both match. */
 const axes = ["overflow-x", "overflow-y"] as const;
 
 type Declaration = { readonly axis: string; readonly value: string; readonly priority: string };
-
-/** The focused element itself, inside any open shadow roots, where `activeElement` is their host. */
-export function deepActiveElement(document: Document): Element | null {
-  let active = document.activeElement;
-
-  while (active?.shadowRoot?.activeElement) {
-    active = active.shadowRoot.activeElement;
-  }
-
-  return active;
-}
 
 /**
  * @internal A session's place in the focus-return chain, from `hold`; `release` hands it to the
@@ -108,7 +98,7 @@ export class ModalSessions {
       below = record;
     }
 
-    const active = deepActiveElement(this.#document);
+    const active = ɵdeepActiveElement(this.#document);
     let target: HTMLElement | SVGElement | null = null;
 
     if (

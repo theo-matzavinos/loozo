@@ -14,7 +14,12 @@ import {
 import type { AbstractType, Provider, Signal, Type, WritableSignal } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
 import { OrigamiPresenceState, ɵOrigamiPresencePresentation } from "@loozo/origami-ui/presence";
-import { injectDeferred, ɵOrigamiLayer } from "@loozo/origami-ui/utils";
+import {
+  injectDeferred,
+  ɵOrigamiLayer,
+  ɵdeepActiveElement,
+  ɵflatTreeContains,
+} from "@loozo/origami-ui/utils";
 import type { ɵOrigamiIntent } from "@loozo/origami-ui/utils";
 import { ɵOrigamiFloating } from "./floating";
 import type { OrigamiPopoverAnchorOptions } from "./popover-anchor";
@@ -124,7 +129,7 @@ export class PopoverContext {
     parent: () => this.#parent?.floating ?? this.layer.scope()?.presentation ?? null,
     nextOrder: () => this.layer.nextOrder(),
     closed: (previous, interaction) => {
-      const focus = this.layer.document.activeElement;
+      const focus = ɵdeepActiveElement(this.layer.document);
       const restore = previous?.open === true && !interaction && this.layer.containsFocus(focus);
 
       // Restore only the owning closing trigger, never each suppressed descendant.
@@ -158,7 +163,7 @@ export class PopoverContext {
     containsFocus: (focus) => {
       const content = this.#content();
 
-      return content !== null && content.element.contains(focus);
+      return content !== null && ɵflatTreeContains(content.element, focus);
     },
     elements: () => {
       const elements: HTMLElement[] = [];
@@ -261,7 +266,7 @@ export class PopoverContext {
       !trigger.element.isConnected ||
       trigger.element.matches(":disabled") ||
       trigger.element.closest("[inert]") !== null ||
-      this.layer.document.activeElement !== expectedFocus
+      ɵdeepActiveElement(this.layer.document) !== expectedFocus
     ) {
       return;
     }
@@ -335,6 +340,8 @@ export class OrigamiPopoverState {
     PopoverContext,
     OrigamiPopoverState,
     OrigamiPopoverOptions.provideExisting(() => OrigamiPopover),
+    // Package-private: a composing Menu closes its submenu tree through its root's layer.
+    { provide: ɵOrigamiLayer, useFactory: () => inject(PopoverContext).layer },
   ],
 })
 export class OrigamiPopover implements OrigamiPopoverOptions {

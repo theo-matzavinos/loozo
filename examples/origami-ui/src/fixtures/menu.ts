@@ -39,9 +39,12 @@ import { MenuCheckable } from "./menu-checkable";
 import { MenuLifecycle } from "./menu-lifecycle";
 import { MenuPrecedenceExisting, MenuPrecedenceFactory } from "./menu-precedence";
 import { MenuRowActions } from "./menu-row-actions";
+import { MenuSubmenu } from "./menu-submenu";
+import { MenuSubmenuLifecycle } from "./menu-submenu-lifecycle";
 
 // Menu cases MN1–MN8, MN18 and MN20, MN9–MN15, MN17, MN19 and MN21 in the lifecycle sections,
-// MN16 in the precedence section and MN23–MN29 in the checkable sections.
+// MN16 in the precedence section, MN23–MN29 in the checkable sections and MN33–MN46 in the
+// submenu sections.
 // Controls the tests use as script actions are buttons.
 
 /** A helm-style item: the consumer's own directive composing `ogMenuItem` through `hostDirectives`. */
@@ -81,6 +84,8 @@ function increment(value: number): number {
     MenuRowActions,
     MenuLifecycle,
     MenuCheckable,
+    MenuSubmenu,
+    MenuSubmenuLifecycle,
     MenuPrecedenceFactory,
     MenuPrecedenceExisting,
     AppMenuItem,
@@ -280,6 +285,9 @@ function increment(value: number): number {
     <acceptance-menu-lifecycle />
 
     <acceptance-menu-checkable />
+
+    <acceptance-menu-submenu />
+    <acceptance-menu-submenu-lifecycle />
 
     <section>
       <h2>Precedence</h2>

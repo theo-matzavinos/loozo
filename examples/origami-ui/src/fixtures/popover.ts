@@ -32,6 +32,7 @@ import { LifecycleCases } from "./lifecycle-cases.js";
 import { PopoverPresentation } from "./popover-presentation.js";
 import { NativeOwnerLifetime } from "./native-owner-lifetime.js";
 import { LatePointer } from "./pointer-lifetime.js";
+import { PopoverShadow } from "./popover-shadow.js";
 
 @Service({ autoProvided: false })
 export class BranchJournal {
@@ -249,6 +250,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     PopoverPresentation,
     NativeOwnerLifetime,
     LatePointer,
+    PopoverShadow,
     NativePopover,
     NativeContent,
     OrigamiPopover,
@@ -421,6 +423,10 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     @if (latePointerMounted()) {
       <acceptance-late-pointer />
     }
+    <button type="button" data-testid="shadow-mount" (click)="shadowMounted.set(true)">Mount shadow root case</button>
+    @if (shadowMounted()) {
+      <acceptance-popover-shadow />
+    }
     <acceptance-popover />
   `,
   styles: `
@@ -579,6 +585,7 @@ export class PopoverFixture {
   readonly presentationMounted = signal(false);
   readonly ownerLifetimeMounted = signal(false);
   readonly latePointerMounted = signal(false);
+  readonly shadowMounted = signal(false);
   readonly pressChildMounted = signal(false);
   readonly pressChildOpen = signal(true);
   readonly increment = (value: number): number => value + 1;

@@ -127,6 +127,7 @@ export class OrigamiMenuRadioItemState {
     "(focus)": "focused()",
     "(blur)": "blurred()",
     "(pointermove)": "hovered($event)",
+    "(pointerout)": "departed($event)",
   },
 })
 export class OrigamiMenuRadioItem implements OrigamiMenuRadioItemOptions {
@@ -194,6 +195,11 @@ export class OrigamiMenuRadioItem implements OrigamiMenuRadioItemOptions {
   /** @internal */
   protected hovered(event: PointerEvent): void {
     this.#context.hovered(event);
+  }
+
+  /** @internal */
+  protected departed(event: PointerEvent): void {
+    this.#context.departed(event);
   }
 
   /** Writes the item's value to its group. */

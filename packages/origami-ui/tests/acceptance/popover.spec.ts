@@ -1909,6 +1909,53 @@ for (const eligibility of [
   });
 }
 
+test("V19: with its parts in an open shadow root and focus in a shadow root nested inside Content, a script close and Escape restore the Trigger, and an Escape whose openChange listener moves focus within the shadow root leaves it there", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await scriptControl(page, "shadow-mount");
+
+  const trigger = page.getByTestId("shadow-trigger");
+  const content = page.getByTestId("shadow-content");
+  const nested = page.getByTestId("shadow-nested");
+  const intent = page.getByTestId("shadow-intent");
+
+  // The document's `activeElement` is the outer host wherever focus is in it.
+  const open = async (): Promise<void> => {
+    await scriptControl(page, "shadow-trigger");
+    await expect(intent).toHaveText("true");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await nested.focus();
+    await expect(nested).toBeFocused();
+    expect(await page.evaluate(() => document.activeElement?.localName)).toBe(
+      "acceptance-popover-shadow",
+    );
+  };
+  const shut = async (): Promise<void> => {
+    await expect(intent).toHaveText("false");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+  };
+
+  // Script close: focus is inside the closing Content, in the flat tree.
+  await open();
+  await scriptControl(page, "shadow-close");
+  await shut();
+  await expect(trigger).toBeFocused();
+
+  // Escape: focus is where it was before the close.
+  await open();
+  await page.keyboard.press("Escape");
+  await shut();
+  await expect(trigger).toBeFocused();
+
+  // Escape whose listener moved focus to After, in the same outer shadow root: no restoration.
+  await open();
+  await scriptControl(page, "shadow-arm-move");
+  await page.keyboard.press("Escape");
+  await shut();
+  await expect(page.getByTestId("shadow-after")).toBeFocused();
+});
+
 test("V16: a Trigger's own disabled blocks only its activation; the root, writes and Escape stay enabled", async ({
   page,
 }, info) => {

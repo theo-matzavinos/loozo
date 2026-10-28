@@ -5,7 +5,8 @@ const FOLLOWING = 4;
 const DOCUMENT_FRAGMENT = 11;
 
 /**
- * Sort comparator for connected elements in document order, also across open shadow roots: an
+ * @internal Package-private, exported as `ɵdocumentOrder` for Menu; not an application API. Sort
+ * comparator for connected elements in document order, also across open shadow roots: an
  * element in a shadow root sorts where its shadow host does, after the host and before the
  * host's light-DOM children. Elements in no common tree compare equal.
  */

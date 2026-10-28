@@ -31,7 +31,7 @@ import { MenuContext } from "./menu-context";
 export abstract class OrigamiMenuContentOptions {
   /** Effective reactive DOM ID; the Trigger's `aria-controls` names it while Content is mounted. */
   abstract readonly id: Signal<string>;
-  /** Logical main side against the Trigger, direct default `block-end`. */
+  /** Logical main side against the Trigger, direct default `block-end`, `inline-end` inside an `ogMenuSub`. */
   abstract readonly side: Signal<OrigamiPopoverSide>;
   /** Logical cross alignment, direct default `start`. */
   abstract readonly align: Signal<OrigamiPopoverAlign>;
@@ -64,6 +64,15 @@ export abstract class OrigamiMenuContentOptions {
   }
 }
 
+/** The direct `side` default: below the Trigger, or beside the sub-trigger inside a Sub. */
+function defaultSide(): OrigamiPopoverSide {
+  if (inject(MenuContext).parent !== null) {
+    return "inline-end";
+  }
+
+  return "block-end";
+}
+
 /**
  * The menu: `role="menu"`, composing Popover Content, so it is persistent, authored in place and
  * presented in the native top layer (`popover="manual"`), and `inert` while it doesn't
@@ -81,6 +90,11 @@ export abstract class OrigamiMenuContentOptions {
  * character cycles; Space joins a running search. Tab and Shift+Tab close the menu and move on
  * from the Trigger's place in the page; Escape closes it and focuses the Trigger. The mouse
  * moving over an item focuses it, so style `:focus` as the highlight.
+ *
+ * Inside an `ogMenuSub` it is that submenu: named by and placed beside its sub-trigger
+ * (`side` defaults to `inline-end`), ArrowLeft, or ArrowRight in right to left, and Escape close
+ * it and focus the sub-trigger, and Tab and Shift+Tab close the whole tree from the root's
+ * Trigger.
  *
  * Like Popover Content, it exposes `--og-anchor-width` and `--og-available-height` for consumer
  * sizing, retains its children through Presence's exit and exposes that retention as
@@ -115,8 +129,8 @@ export abstract class OrigamiMenuContentOptions {
 export class OrigamiMenuContent implements OrigamiMenuContentOptions {
   /** Own ID input, default a generated opaque hosted identity. Replaced Options supply every effective field. */
   readonly id = input(injectUniqueId("menu-content"));
-  /** Own logical side input, default `block-end`. */
-  readonly side = input<OrigamiPopoverSide>("block-end");
+  /** Own logical side input, default `block-end`, or `inline-end` inside an `ogMenuSub`. */
+  readonly side = input<OrigamiPopoverSide>(defaultSide());
   /** Own logical cross alignment input, default `start`. */
   readonly align = input<OrigamiPopoverAlign>("start");
   /** Own main separation input in CSS pixels, default 0; finite and nonnegative. */
@@ -176,8 +190,9 @@ export class OrigamiMenuContent implements OrigamiMenuContentOptions {
     this.#context.left(event);
   }
 
-  /** @internal A press is pointer input: hover may move focus again. */
+  /** @internal A press is pointer input: hover may move focus again, and a resting mouse's wait ends. */
   protected pressed(): void {
     this.#menu.pointed();
+    this.#context.pressed();
   }
 }

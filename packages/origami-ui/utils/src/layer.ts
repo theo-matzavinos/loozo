@@ -34,13 +34,19 @@ export interface ɵOrigamiLayerHost {
   readonly presentation: ɵOrigamiPresentation;
   /** Whether a composed-path node of the pointer `event` is inside one of this owner's own parts. */
   containsTarget(target: Node, event: PointerEvent): boolean;
-  /** Whether focus is inside this owner's own Content. */
+  /**
+   * Whether `focus`, the focused element itself (`ɵdeepActiveElement`), is inside this owner's own
+   * Content in the flat tree.
+   */
   containsFocus(focus: Element): boolean;
   /** This owner's registered part elements; its modal scope must contain every one of them. */
   elements(): readonly Element[];
   /** Writes intent closed for an accepted user dismissal. */
   closeFromInteraction(): void;
-  /** Restores focus after an accepted Escape or Trigger dismissal of the branch this owner owns. */
+  /**
+   * Restores focus after an accepted Escape or Trigger dismissal of the branch this owner owns,
+   * unless the focused element itself (`ɵdeepActiveElement`) is no longer `expectedFocus`.
+   */
   restoreFocus(expectedFocus: Element | null): void;
 }
 
@@ -116,6 +122,17 @@ export class ɵOrigamiLayer {
   /** Dismisses this layer's current branch, unless a requested-open member vetoes it. */
   dismiss(reason: "escape" | "outside" | "trigger", bypassOwner: boolean): void {
     this.#layers.dismiss(this.captureBranch(), reason, bypassOwner);
+  }
+
+  /**
+   * Closes this layer's current branch from inside it, as an activated menu item closes its menu
+   * tree: runs `focus`, the one focus move, then, while the branch captured before it is still
+   * current and its owner requested open, writes every requested-open member closed, descendants
+   * before ancestor, as an accepted dismissal does. Nothing vetoes it and nothing restores focus
+   * afterwards.
+   */
+  closeBranch(focus: () => void): void {
+    this.#layers.closeBranch(this.captureBranch(), focus);
   }
 
   /**
@@ -223,7 +240,10 @@ export class ɵOrigamiLayer {
     return participating(this);
   }
 
-  /** Whether focus is inside this owner's Content or a branch descendant's. */
+  /**
+   * Whether `focus`, the focused element itself, is inside this owner's Content or a branch
+   * descendant's, in the flat tree.
+   */
   containsFocus(focus: Element | null): boolean {
     if (focus === null) {
       return false;
@@ -370,6 +390,20 @@ export function ɵflatTreeContains(ancestor: Node, node: Node): boolean {
   }
 
   return false;
+}
+
+/**
+ * @internal The focused element itself, inside any open shadow roots, where the document's
+ * `activeElement` is their host.
+ */
+export function ɵdeepActiveElement(document: Document): Element | null {
+  let active = document.activeElement;
+
+  while (active?.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+
+  return active;
 }
 
 /** @internal Application-local event ownership, not a public overlay stack or global document singleton. */
@@ -658,12 +692,42 @@ export class ɵOrigamiLayers {
       }
     }
 
-    const focus = this.document.activeElement;
+    const focus = ɵdeepActiveElement(this.document);
 
+    if (!this.#close(branch)) {
+      return;
+    }
+
+    if (
+      reason !== "outside" &&
+      ɵdeepActiveElement(this.document) === focus &&
+      this.#fresh(branch)
+    ) {
+      branch.owner.restoreFocus(focus);
+    }
+  }
+
+  /** See `ɵOrigamiLayer.closeBranch`. */
+  closeBranch(branch: Branch, focus: () => void): void {
+    focus();
+
+    // Focus handlers ran inside: one may have closed, changed or destroyed a member.
+    if (!this.#fresh(branch) || !branch.owner.intent().open) {
+      return;
+    }
+
+    this.#close(branch);
+  }
+
+  /**
+   * Writes every requested-open member of `branch` closed, descendants before ancestor, while it
+   * stays the one captured; false once a listener changed it or kept a member open.
+   */
+  #close(branch: Branch): boolean {
     // The snapshot is already postorder: descendants before ancestor.
     for (const member of branch.members) {
       if (!this.#fresh(branch)) {
-        return;
+        return false;
       }
 
       if (!member.intent.open) {
@@ -673,22 +737,20 @@ export class ɵOrigamiLayers {
       member.layer.closeFromInteraction();
 
       if (member.layer.intent().open) {
-        return;
+        return false;
       }
 
       member.intent = member.layer.intent();
 
       if (!member.layer.acceptCloseEpoch(member)) {
-        return;
+        return false;
       }
 
       if (!this.#fresh(branch)) {
-        return;
+        return false;
       }
     }
 
-    if (reason !== "outside" && this.document.activeElement === focus && this.#fresh(branch)) {
-      branch.owner.restoreFocus(focus);
-    }
+    return true;
   }
 }
