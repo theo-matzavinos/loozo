@@ -5,8 +5,11 @@ import {
   ɵparseDay as parseDay,
 } from "@loozo/origami-ui/utils";
 import type { DateFieldShape } from "./date-field-root";
+import type { OrigamiDateFieldSegmentType } from "./date-field-segment-type";
 import { unitValue } from "./date-field-unit";
 import type { Draft } from "./date-field-unit";
+
+const dateUnits: readonly OrigamiDateFieldSegmentType[] = ["year", "month", "day"];
 
 /**
  * `ogDateField`'s value shape: a civil date `YYYY-MM-DD` (years 0001–9999) as year, month and day
@@ -15,7 +18,9 @@ import type { Draft } from "./date-field-unit";
  * invalid. Framework-free and package-private.
  */
 export const dateValue: DateFieldShape = {
-  units: ["year", "month", "day"],
+  units(): readonly OrigamiDateFieldSegmentType[] {
+    return dateUnits;
+  },
   format(value: string | null): Draft {
     const day = parseDay(value);
 

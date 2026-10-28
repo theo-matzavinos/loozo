@@ -1,51 +1,20 @@
 import {
   Directive,
   LOCALE_ID,
-  Service,
   booleanAttribute,
   computed,
   inject,
   input,
   model,
 } from "@angular/core";
-import type { Signal } from "@angular/core";
 import { outputFromObservable } from "@angular/core/rxjs-interop";
-import type { FormValueControl, ValidationError } from "@angular/forms/signals";
+import type { FormValueControl } from "@angular/forms/signals";
 import { DateFieldContext } from "./date-field-context";
-import type { OrigamiDateFieldPart } from "./date-field-context";
 import { DateFieldDraft } from "./date-field-draft";
 import { OrigamiDateFieldOptions } from "./date-field-options";
 import { DateFieldRoot } from "./date-field-root";
+import { OrigamiDateFieldState } from "./date-field-state";
 import { dateValue } from "./date-value";
-
-/** Locally provided readonly facade for the nearest date field root; nested roots have independent owners. */
-@Service({ autoProvided: false })
-export class OrigamiDateFieldState {
-  readonly #context = inject(DateFieldContext);
-
-  /** The effective committed value, including null and a value that isn't canonical. */
-  readonly value: Signal<string | null> = this.#context.value;
-  /**
-   * The locale's layout: each unit and each literal between them in order, with the unit's
-   * current text (its digits, else its default placeholder) and the literal's text. `en-US` is
-   * month `/` day `/` year, `el` day `/` month `/` year. Render a segment per unit and the
-   * literals as plain, `aria-hidden` text. A root that hydrates keeps the server's layout (its
-   * `data-layout` seed) until `locale` changes.
-   */
-  readonly segments: Signal<readonly OrigamiDateFieldPart[]> = this.#context.segments;
-  /**
-   * The draft's parse errors, for use without Signal Forms: `{ kind: "dateIncomplete" }` while
-   * some units are empty, `{ kind: "dateInvalid" }` for a complete draft that names no day (31
-   * February), else none. `[formField]` on the root reports the same errors to the form. Origami
-   * ships no messages.
-   */
-  readonly parseErrors: Signal<readonly ValidationError.WithoutFieldTree[]> =
-    this.#context.parseErrors;
-  /** The root's effective disabled policy. */
-  readonly disabled: Signal<boolean> = this.#context.disabled;
-  /** The root's effective readonly policy. */
-  readonly readonly: Signal<boolean> = this.#context.readonly;
-}
 
 /**
  * Date field root: a civil date `YYYY-MM-DD`, typed as locale-ordered segments. The consumer

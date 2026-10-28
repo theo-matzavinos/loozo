@@ -123,7 +123,7 @@ import { OrigamiSwitchOptions, type OrigamiSwitchState } from '@loozo/origami-ui
 import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOptions, OrigamiDialogContentOptions, OrigamiDialogTitleOptions, OrigamiDialogDescriptionOptions, OrigamiDialogCloseOptions, injectOrigamiDialogOpener, type OrigamiDialogState, type OrigamiDialogContentState, type OrigamiDialogBindings, type OrigamiDialogOpener, type OrigamiDialogRef } from '@loozo/origami-ui/dialog';
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
-import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
+import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -453,6 +453,16 @@ OrigamiDateFieldSegmentOptions.provideFactory(() => ({segment: input.required<Or
 OrigamiDateFieldSegmentOptions.provideFactory(() => ({segment: signal('week'), placeholder: signal<string | null>(null)}));
 // @ts-expect-error a date field segment factory must supply placeholder
 OrigamiDateFieldSegmentOptions.provideFactory(() => ({segment: signal<OrigamiDateFieldSegmentType>('day')}));
+// Positive: a whole time field factory, with ordinary signals.
+OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>('09:30'), locale: signal('en-GB'), precision: signal<'minute' | 'second'>('second'), hourCycle: signal<12 | 24 | null>(null), disabled: computed(() => false), readonly: signal(false)}));
+// @ts-expect-error time field value must be writable
+OrigamiTimeFieldOptions.provideFactory(() => ({value: computed<string | null>(() => null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), hourCycle: signal<12 | 24 | null>(null), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error time field precision is minute or second, not any string
+OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal('hour'), hourCycle: signal<12 | 24 | null>(null), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error time field hour cycle is 12, 24 or null, not any number
+OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), hourCycle: signal<number | null>(11), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a time field factory must supply hourCycle
+OrigamiTimeFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), disabled: signal(false), readonly: signal(false)}));
 declare const dateFieldState: OrigamiDateFieldState;
 // @ts-expect-error date field State value is readonly
 dateFieldState.value.set('2026-10-27');

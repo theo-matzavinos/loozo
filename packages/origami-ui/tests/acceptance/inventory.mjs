@@ -191,6 +191,8 @@ export const inventory = {
     "OrigamiDateFieldSegment",
     "OrigamiDateFieldSegmentOptions",
     "OrigamiDateFieldSegmentType",
+    "OrigamiTimeField",
+    "OrigamiTimeFieldOptions",
   ],
 };
 

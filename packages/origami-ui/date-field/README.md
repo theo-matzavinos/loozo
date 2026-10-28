@@ -1,12 +1,13 @@
 # Date field
 
-A date field is a typed date input made of one editable segment per unit, day, month and year, in the order and with the separators of the locale: `10/27/2026` in `en-US`, `27/10/2026` in `el`. Its value is an ISO string, `"2026-10-27"`, never a `Date`, so no time zone can move it. You render the markup from its State; Origami computes the layout, the unit names, typing, keys, focus and ARIA. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control that reports half-typed and impossible dates as parse errors, and it joins a [Field](../field/README.md) on its own.
+A date field is a typed date input made of one editable segment per unit, day, month and year, in the order and with the separators of the locale: `10/27/2026` in `en-US`, `27/10/2026` in `el`. Its value is an ISO string, `"2026-10-27"`, never a `Date`, so no time zone can move it. You render the markup from its State; Origami computes the layout, the unit names, typing, keys, focus and ARIA. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control that reports half-typed and impossible dates as parse errors, and it joins a [Field](../field/README.md) on its own. A time field, `ogTimeField`, types a wall-clock time, `"09:30"`, with the same parts: see [Time fields](#time-fields).
 
-| Directive            | Configuration                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ogDateField`        | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `locale` (default `LOCALE_ID`), `disabled`, `readonly` (default `false`)                       |
-| `ogDateFieldInput`   | none; the segment group, usually a `<div>`; it may share the root's element                                                                                  |
-| `ogDateFieldSegment` | `ogDateFieldSegment: "year" \| "month" \| "day"` (required: the unit), `placeholder: string \| null` (default `null`: one `–` per digit); usually a `<span>` |
+| Directive            | Configuration                                                                                                                                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogDateField`        | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `locale` (default `LOCALE_ID`), `disabled`, `readonly` (default `false`)                                                                                        |
+| `ogTimeField`        | `value: string \| null` model (`HH:mm` or `HH:mm:ss`, default `null`), `precision: "minute" \| "second"` (default `"minute"`), `hourCycle: 12 \| 24 \| null` (default `null`: the locale's), `locale`, `disabled`, `readonly` |
+| `ogDateFieldInput`   | none; the segment group, usually a `<div>`; it may share the root's element                                                                                                                                                   |
+| `ogDateFieldSegment` | `ogDateFieldSegment: OrigamiDateFieldSegmentType` (required: the unit, such as `"year"` or `"hour"`), `placeholder: string \| null` (default `null`: one `–` per digit); usually a `<span>`                                   |
 
 <!-- prettier-ignore -->
 ```html
@@ -126,9 +127,42 @@ export class DateOfBirth implements OrigamiDateFieldOptions, FormValueControl<st
 
 A replacement that owns the value without being the control, such as a `provideFactory` holding a plain `signal()`, works without `[formField]`; `[formField]` binds the model of the control it finds, not your signal.
 
+## Time fields
+
+`ogTimeField` holds a time on the wall: `"09:30"`, or `"09:30:15"` with `precision="second"`, from `00:00` to `23:59:59`, with no date and no time zone. It uses the same Input and Segments as the date field and the same State, so the markup is the same loop:
+
+<!-- prettier-ignore -->
+```html
+<div ogField #field="ogField">
+  <span ogFieldLabel>Opens at</span>
+  <div ogTimeField ogDateFieldInput [formField]="form.opensAt" #time="ogTimeField">
+    @for (part of time.state.segments(); track part.key) {
+      @if (part.type === "literal") {
+        <span aria-hidden="true">{{ part.text }}</span>
+      } @else {
+        <span [ogDateFieldSegment]="part.type"></span>
+      }
+    }
+  </div>
+  @if (field.state.errors()[0]?.kind === "timeIncomplete") {
+    <p ogFieldError>Enter a complete time</p>
+  }
+</div>
+```
+
+- **Hour cycle:** `hourCycle` follows the locale while it's `null`: `en-US` and `el` are 12-hour, `en-GB` is 24-hour. Set `hourCycle="12"` or `hourCycle="24"` to force one. A 24-hour field shows the hour 0 to 23. A 12-hour field shows it 1 to 12 and adds a day period segment (`dayPeriod`) for AM and PM in the locale's words (`AM`/`PM`, `π.μ.`/`μ.μ.`); midnight is 12 AM and noon 12 PM. The value is always 24-hour: `12:00 AM` is `"00:00"`.
+- **The day period** is named by the locale ("AM/PM", "π.μ./μ.μ."), and its value text is the period's name. Type the first letter of either period, in either case (`a` or `p`, `π` or `μ`); ArrowUp and ArrowDown toggle it, Home is AM and End PM; Backspace and Delete empty it. Its `inputmode` is `"text"`. Some locales start both periods with the same letter (Korean `오전`/`오후`): there the letter chooses AM, and the arrows reach PM.
+- **Precision:** `"minute"` lays out hour and minute and writes `"HH:mm"`; `"second"` adds the second and writes `"HH:mm:ss"`. A value of the other precision shows: `"09:30:15"` in a minute field shows 09:30, `"09:30"` in a second field shows 09:30:00. Neither is rewritten until someone edits: the next edit writes the field's precision, without the second in a minute field.
+- **Changing `precision`, `hourCycle` or `locale`** lays the field out again. A change of precision or of the hour cycle, from either input or the locale, shows the value again in the new layout: a half-typed draft goes with its parse error, and a segment keeping focus starts its unit over with the next digit. Nothing is written to the value, so a value of the other precision stays until an edit, and `valueChange` doesn't emit. A change of locale that keeps the hour cycle keeps the draft by unit, as for dates.
+- **Half-typed times:** while a segment is empty or holds a waiting `0`, the field keeps its value and reports `{ kind: "timeIncomplete" }`. Every complete time exists, so there's no "invalid" kind. Emptying every segment writes `null`; `clear()`, `reset()` and writes work as for dates.
+- **Typing:** a 24-hour hour moves on from 3, a 12-hour hour from 2, minutes and seconds from 6. A 12-hour hour ignores `00`. Pasting a whole time, `13:45` or `13:45:30`, fills every unit, also the day period, and writes the field's precision; digits fill the focused unit.
+- **Server rendering:** the seed carries the hour cycle and the day period names too. Node and browsers don't agree on the space before "PM" (U+202F against U+0020), and a hydrated time field keeps the server's.
+
+A composer of `ogTimeField` provides `OrigamiTimeFieldOptions`, the same as the date field's with `precision` and `hourCycle`.
+
 ## Time zones are yours
 
-The field holds a civil date: no zone, no instant. If your backend speaks instants, convert at your own boundary, in the zone you choose, with whatever you already use (here `@internationalized/date`; Temporal or date-fns-tz work the same way):
+The field holds a civil date, or a wall-clock time: no zone, no instant. If your backend speaks instants, convert at your own boundary, in the zone you choose, with whatever you already use (here `@internationalized/date`; Temporal or date-fns-tz work the same way):
 
 ```ts
 import { parseAbsolute, parseDate, toCalendarDate } from "@internationalized/date";
@@ -144,30 +178,30 @@ const instant = parseDate(form.validFrom().value()!).toDate(zone).toISOString();
 
 ## Replacing Options
 
-The root and the segment have their own Options, `OrigamiDateFieldOptions` and `OrigamiDateFieldSegmentOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. The value may be a plain `signal()`, a `linkedSignal()` or a composer's `model()`. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
+The roots and the segment have their own Options, `OrigamiDateFieldOptions`, `OrigamiTimeFieldOptions` and `OrigamiDateFieldSegmentOptions`, with the fields in the table above, replaced as a whole with `provideExisting` or `provideFactory`. The value may be a plain `signal()`, a `linkedSignal()` or a composer's `model()`. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
 
 ## State and attributes
 
-`OrigamiDateFieldState`, the root's `state`, has:
+`OrigamiDateFieldState`, the `state` of either root, has:
 
 - `value()`: the effective value, including `null` and a value that isn't a canonical date.
-- `segments()`: the layout, `OrigamiDateFieldPart`s `{ key, type, text }`: each unit (`key` and `type` `"month"`, `"day"`, `"year"`) with its current text, and each literal (`key` `"literal-0"`, `"literal-1"`, …, `type` `"literal"`) with its text.
-- `parseErrors()`: `dateIncomplete`, `dateInvalid` or none.
+- `segments()`: the layout, `OrigamiDateFieldPart`s `{ key, type, text }`: each unit (`key` and `type` `"month"`, `"day"`, `"year"`, or `"hour"`, `"minute"`, `"second"`, `"dayPeriod"`) with its current text, and each literal (`key` `"literal-0"`, `"literal-1"`, …, `type` `"literal"`) with its text.
+- `parseErrors()`: `dateIncomplete`, `dateInvalid`, `timeIncomplete` or none.
 - `disabled()` and `readonly()`: the effective policies.
 
 Descendants of the root can inject its State. The Input and the segments have no `state`.
 
-| Element | Attributes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `data-layout`, the layout seed (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Input   | `role="group"`; in a Field, `aria-labelledby` and `aria-describedby`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Segment | `role="spinbutton"`, an `id`, `aria-label` (the unit's localized name), `aria-labelledby` (the group's labels, then itself), `aria-valuenow`, `aria-valuemin`, `aria-valuemax` (none while empty), the month's `aria-valuetext` (its name), `inputmode="numeric"`, `enterkeyhint="next"`, `spellcheck="false"`, `autocorrect="off"`, `contenteditable` while editable, `tabindex="0"` unless disabled, `aria-readonly`, `aria-disabled`, `aria-invalid`, `aria-required`, `data-placeholder` while empty |
+| Element | Attributes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `data-layout`, the layout seed (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Input   | `role="group"`; in a Field, `aria-labelledby` and `aria-describedby`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Segment | `role="spinbutton"`, an `id`, `aria-label` (the unit's localized name), `aria-labelledby` (the group's labels, then itself), `aria-valuenow`, `aria-valuemin`, `aria-valuemax` (none while empty), the month's and day period's `aria-valuetext` (its name), `inputmode="numeric"` (the day period's `"text"`), `enterkeyhint="next"`, `spellcheck="false"`, `autocorrect="off"`, `contenteditable` while editable, `tabindex="0"` unless disabled, `aria-readonly`, `aria-disabled`, `aria-invalid`, `aria-required`, `data-placeholder` while empty |
 
 Style the segments' caret, focus ring and placeholder yourself, such as `[ogDateFieldSegment]:focus { caret-color: transparent; }`.
 
 ## Accessibility
 
-The group is named by its label and each segment by its unit, announced with its value and bounds; the month also by its name. The literals are hidden. How NVDA, JAWS, VoiceOver and TalkBack announce this structure, and how iOS and Android keyboards type into it, hasn't been checked with real assistive technology or devices yet; the acceptance checks the accessibility tree and simulated input in Chromium, Firefox and WebKit. Two things it shows: Chromium reports an empty segment's value as `0`, and it doesn't surface the month's `aria-valuetext` in its tree.
+The group is named by its label and each segment by its unit, announced with its value and bounds; the month and the day period also by their names. The literals are hidden. How NVDA, JAWS, VoiceOver and TalkBack announce this structure, and how iOS and Android keyboards type into it, hasn't been checked with real assistive technology or devices yet; the acceptance checks the accessibility tree and simulated input in Chromium, Firefox and WebKit. Two things it shows: Chromium reports an empty segment's value as `0`, and it doesn't surface the month's `aria-valuetext` in its tree.
 
 ## Server rendering and hydration
 
@@ -177,4 +211,4 @@ Server HTML has the whole field: the group's role and, in a Field, its labels an
 
 ## Not included
 
-Time, date-time and month fields, a date picker with a trigger or popup, bounds on the field, Origami validators and messages, localized free-text paste, two-digit years, PageUp and PageDown, eras and non-Gregorian calendars, partial dates, a hidden native input for form submission or autofill. No `ControlValueAccessor`.
+Date-time and month fields, a date picker with a trigger or popup, bounds on the field, Origami validators and messages, localized free-text paste, two-digit years, PageUp and PageDown, eras and non-Gregorian calendars, partial dates, a hidden native input for form submission or autofill. No `ControlValueAccessor`.

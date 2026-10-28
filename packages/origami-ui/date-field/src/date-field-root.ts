@@ -1,19 +1,25 @@
 import type { Provider, Signal, WritableSignal } from "@angular/core";
 import type { ParseResult } from "@angular/forms/signals";
 import type { OrigamiDateFieldSegmentType } from "./date-field-segment-type";
-import type { Draft } from "./date-field-unit";
+import type { Draft, UnitContext } from "./date-field-unit";
 
 /**
  * A root's value shape: which units it lays out and how its value and a draft convert. A
  * strategy each root supplies; the segment engine and the parts are shared.
  */
 export interface DateFieldShape {
-  /** The units the root lays out, without the day period, which the hour cycle adds. */
-  readonly units: readonly OrigamiDateFieldSegmentType[];
-  /** The draft that shows `value`; empty for null and for a value that isn't canonical. */
-  format(value: string | null): Draft;
-  /** The value a draft commits, or its parse error. */
-  parse(draft: Draft): ParseResult<string | null>;
+  /**
+   * The units the root lays out, without the day period, which the hour cycle adds; reactive,
+   * since a time root's follow its precision.
+   */
+  units(): readonly OrigamiDateFieldSegmentType[];
+  /**
+   * The draft that shows `value` in the resolved hour cycle; empty for null and for a value that
+   * isn't canonical.
+   */
+  format(value: string | null, context: UnitContext): Draft;
+  /** The value a draft in the resolved hour cycle commits, or its parse error. */
+  parse(draft: Draft, context: UnitContext): ParseResult<string | null>;
   /** `text` if it is a canonical value of this shape, else null; for paste. */
   canonical(text: string): string | null;
 }

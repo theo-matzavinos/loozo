@@ -5,6 +5,7 @@ import {
   Service,
   afterRenderEffect,
   computed,
+  effect,
   inject,
   linkedSignal,
   signal,
@@ -18,7 +19,7 @@ import { injectDeferred } from "@loozo/origami-ui/utils";
 import { Subject } from "rxjs";
 import { DateFieldDraft } from "./date-field-draft";
 import { readLayout, resolveLayout, writeLayout } from "./date-field-layout";
-import type { DateFieldLayout } from "./date-field-layout";
+import type { DateFieldLayout, LayoutRequest } from "./date-field-layout";
 import { DateFieldRoot } from "./date-field-root";
 import type { OrigamiDateFieldSegmentType } from "./date-field-segment-type";
 import {
@@ -117,11 +118,18 @@ export class DateFieldContext {
     readonly draft: Draft;
   } | null = null;
 
-  /** The layout: the seed while hydrating, until a later locale change; else the locale's. */
-  readonly layout = linkedSignal<{ locale: string; hourCycle: 12 | 24 | null }, DateFieldLayout>({
-    source: () => ({ locale: this.#root().locale(), hourCycle: this.#root().hourCycle() }),
+  /**
+   * The layout: the seed while hydrating, until a later change of the locale, the hour cycle or
+   * the units (a time root's precision); else the locale's.
+   */
+  readonly layout = linkedSignal<LayoutRequest & { readonly locale: string }, DateFieldLayout>({
+    source: () => ({
+      locale: this.#root().locale(),
+      units: this.#root().shape.units(),
+      hourCycle: this.#root().hourCycle(),
+    }),
     computation: (source, previous) => {
-      const request = { units: this.#root().shape.units, hourCycle: source.hourCycle };
+      const request = { units: source.units, hourCycle: source.hourCycle };
 
       if (previous === undefined) {
         const seed = readLayout(this.#seed, request);
@@ -160,9 +168,13 @@ export class DateFieldContext {
   /** Emits synchronously when focus leaves the Input group; the root reports it as `touch`. */
   readonly touches = this.#touches.asObservable();
 
-  readonly #unitContext = computed<UnitContext>(() => ({
-    hourCycle: this.layout().hourCycle ?? 24,
-  }));
+  /**
+   * The layout's resolved hour cycle, 24 without an hour unit: the draft's hour is in it, and the
+   * root's shape formats and parses with it.
+   */
+  readonly hourCycle = computed<12 | 24>(() => this.layout().hourCycle ?? 24);
+
+  readonly #unitContext = computed<UnitContext>(() => ({ hourCycle: this.hourCycle() }));
   readonly #monthNames = computed(() => {
     const format = new Intl.DateTimeFormat(this.layout().locale, {
       calendar: "gregory",
@@ -181,6 +193,37 @@ export class DateFieldContext {
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.#touches.complete();
+    });
+
+    // A change of the root's precision or resolved hour cycle shows the value again under the
+    // new layout: the draft refreshes, its parse errors clear and the typing session ends. A
+    // view effect of the root's view: change detection runs it after that view's template and
+    // before its child views and host bindings, and reruns the view if its template read the
+    // draft, so no frame paints the discarded draft or its errors. It tracks only the units and
+    // the cycle and writes untracked, so its own write can't rerun it. The first run only
+    // records them: the draft formats in the layout it settles in, and a digit replayed at
+    // hydration stays.
+    let shown: {
+      readonly units: readonly OrigamiDateFieldSegmentType[];
+      readonly hourCycle: 12 | 24;
+    } | null = null;
+
+    effect(() => {
+      const units = this.#root().shape.units();
+      const hourCycle = this.hourCycle();
+
+      untracked(() => {
+        const previous = shown;
+
+        shown = { units, hourCycle };
+
+        if (previous === null || (previous.units === units && previous.hourCycle === hourCycle)) {
+          return;
+        }
+
+        this.#draft().refresh();
+        this.#typing = null;
+      });
     });
 
     // Browser-only: render effects never run on the server.
@@ -405,7 +448,7 @@ export class DateFieldContext {
    * value, which emits only if it changes, and clears the parse errors.
    */
   clear(): void {
-    this.#draft().value.set(this.#root().shape.format(null));
+    this.#draft().value.set(this.#root().shape.format(null, this.#unitContext()));
     this.#typing = null;
   }
 
@@ -462,7 +505,7 @@ export class DateFieldContext {
     const value = root.shape.canonical(trimmed);
 
     if (value !== null) {
-      this.#draft().value.set(root.shape.format(value));
+      this.#draft().value.set(root.shape.format(value, this.#unitContext()));
       this.#typing = null;
 
       return;
