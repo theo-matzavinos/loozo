@@ -193,6 +193,8 @@ export const inventory = {
     "OrigamiDateFieldSegmentType",
     "OrigamiTimeField",
     "OrigamiTimeFieldOptions",
+    "OrigamiDateTimeField",
+    "OrigamiDateTimeFieldOptions",
   ],
   menu: [
     "OrigamiMenu",

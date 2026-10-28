@@ -6,10 +6,32 @@ import {
 } from "@loozo/origami-ui/utils";
 import type { DateFieldShape } from "./date-field-root";
 import type { OrigamiDateFieldSegmentType } from "./date-field-segment-type";
-import { unitValue } from "./date-field-unit";
+import { draftFill } from "./date-field-unit";
 import type { Draft } from "./date-field-unit";
 
-const dateUnits: readonly OrigamiDateFieldSegmentType[] = ["year", "month", "day"];
+/** A civil date's units, also the first half of a date-time's. */
+export const dateUnits: readonly OrigamiDateFieldSegmentType[] = ["year", "month", "day"];
+
+/** The draft that shows a canonical `YYYY-MM-DD` day; empty for anything else. */
+export function formatDate(value: string | null): Draft {
+  const day = parseDay(value);
+
+  if (day === null) {
+    return {};
+  }
+
+  const [year, month, date] = formatDay(day).split("-");
+
+  return { year, month, day: date };
+}
+
+/**
+ * The canonical day a draft whose date units all hold a value names, or null when there is no
+ * such day (31 February).
+ */
+export function writeDate(draft: Draft): string | null {
+  return canonicalDay(`${draft.year}-${draft.month}-${draft.day}`);
+}
 
 /**
  * `ogDateField`'s value shape: a civil date `YYYY-MM-DD` (years 0001–9999) as year, month and day
@@ -18,38 +40,20 @@ const dateUnits: readonly OrigamiDateFieldSegmentType[] = ["year", "month", "day
  * invalid. Framework-free and package-private.
  */
 export const dateValue: DateFieldShape = {
-  units(): readonly OrigamiDateFieldSegmentType[] {
-    return dateUnits;
-  },
-  format(value: string | null): Draft {
-    const day = parseDay(value);
-
-    if (day === null) {
-      return {};
-    }
-
-    const [year, month, date] = formatDay(day).split("-");
-
-    return { year, month, day: date };
-  },
+  units: () => dateUnits,
+  format: formatDate,
   parse(draft: Draft): ParseResult<string | null> {
-    const year = draft.year ?? "";
-    const month = draft.month ?? "";
-    const day = draft.day ?? "";
+    const fill = draftFill(draft, dateUnits);
 
-    if (year === "" && month === "" && day === "") {
+    if (fill === "empty") {
       return { value: null };
     }
 
-    if (
-      unitValue("year", year) === null ||
-      unitValue("month", month) === null ||
-      unitValue("day", day) === null
-    ) {
+    if (fill === "incomplete") {
       return { error: { kind: "dateIncomplete" } };
     }
 
-    const value = canonicalDay(`${year}-${month}-${day}`);
+    const value = writeDate(draft);
 
     if (value === null) {
       return { error: { kind: "dateInvalid" } };

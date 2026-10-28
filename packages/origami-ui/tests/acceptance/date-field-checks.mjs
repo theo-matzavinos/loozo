@@ -16,7 +16,7 @@ registerHooks({
       return nextResolve(civilDate, context);
     }
 
-    if (specifier.startsWith("./date-") && !specifier.endsWith(".ts")) {
+    if (specifier.startsWith("./") && !specifier.endsWith(".ts")) {
       return nextResolve(`${specifier}.ts`, context);
     }
 
@@ -30,8 +30,10 @@ async function source(name) {
 
 const unit = await source("date-field-unit");
 const layout = await source("date-field-layout");
-const { dateValue } = await source("date-value");
+const { dateValue, formatDate, writeDate } = await source("date-value");
 const { timeValue } = await source("time-value");
+const { dateTimeValue } = await source("date-time-value");
+const wallTime = await source("wall-time");
 
 const h12 = { hourCycle: 12 };
 const h24 = { hourCycle: 24 };
@@ -361,6 +363,169 @@ function typeAll(name, digits, context = h24) {
   }
 }
 
+// The shared halves: a draft's fill, the time's 12-hour conversion both ways and its canonical
+// text, the date's draft and day.
+{
+  const units = ["year", "hour", "dayPeriod"];
+
+  assert.equal(unit.draftFill({}, units), "empty");
+  assert.equal(unit.draftFill({ year: "", hour: "", dayPeriod: "" }, units), "empty");
+  assert.equal(unit.draftFill({ year: "2026", hour: "09", dayPeriod: "am" }, units), "complete");
+  assert.equal(unit.draftFill({ year: "2026", hour: "09" }, units), "incomplete");
+  assert.equal(unit.draftFill({ year: "202", hour: "09", dayPeriod: "am" }, units), "incomplete");
+  assert.equal(unit.draftFill({ hour: "0" }, units), "incomplete", "a lone 0 isn't empty");
+  assert.equal(unit.draftFill({ minute: "30" }, units), "empty", "only the given units count");
+
+  assert.equal(wallTime.timeUnits("minute"), wallTime.timeUnits("minute"), "the same array");
+  assert.deepEqual(wallTime.timeUnits("second"), ["hour", "minute", "second"]);
+  assert.deepEqual(wallTime.timeDraftUnits("minute", 12), ["hour", "minute", "dayPeriod"]);
+  assert.deepEqual(wallTime.timeDraftUnits("second", 24), ["hour", "minute", "second"]);
+  assert.deepEqual(wallTime.readTime("09:30"), { hour: "09", minute: "30", second: null });
+  assert.deepEqual(wallTime.readTime("23:59:59"), { hour: "23", minute: "59", second: "59" });
+
+  for (const text of ["24:00", "9:30", "09:30Z", "09:30+03:00", "09:30:00.000", "T09:30"]) {
+    assert.equal(wallTime.readTime(text), null, `${text} is no time`);
+  }
+
+  // 12-hour display: 0 → 12 AM, 12 → 12 PM, 13 → 1 PM, 23 → 11 PM; and back.
+  for (const [hour, shown, dayPeriod] of [
+    ["00", "12", "am"],
+    ["01", "01", "am"],
+    ["11", "11", "am"],
+    ["12", "12", "pm"],
+    ["13", "01", "pm"],
+    ["23", "11", "pm"],
+  ]) {
+    const time = { hour, minute: "05", second: null };
+    const draft = wallTime.formatTime(time, "minute", 12);
+
+    assert.deepEqual(draft, { hour: shown, minute: "05", dayPeriod });
+    assert.equal(wallTime.writeTime(draft, "minute", 12), `${hour}:05`);
+    assert.deepEqual(wallTime.formatTime(time, "minute", 24), { hour, minute: "05" });
+    assert.equal(wallTime.writeTime({ hour, minute: "05" }, "minute", 24), `${hour}:05`);
+  }
+
+  assert.deepEqual(
+    wallTime.formatTime({ hour: "09", minute: "30", second: null }, "second", 24),
+    { hour: "09", minute: "30", second: "00" },
+    "second precision shows a missing second as 00",
+  );
+  assert.deepEqual(
+    wallTime.formatTime({ hour: "09", minute: "30", second: "15" }, "minute", 24),
+    { hour: "09", minute: "30" },
+    "minute precision leaves the second out",
+  );
+  assert.equal(
+    wallTime.writeTime({ hour: "09", minute: "30", second: "15" }, "minute", 24),
+    "09:30",
+  );
+  assert.equal(
+    wallTime.writeTime({ hour: "12", minute: "00", second: "05", dayPeriod: "am" }, "second", 12),
+    "00:00:05",
+  );
+
+  assert.deepEqual(formatDate("2026-10-27"), { year: "2026", month: "10", day: "27" });
+  assert.deepEqual(formatDate("2026-02-31"), {});
+  assert.equal(writeDate({ year: "2026", month: "02", day: "28" }), "2026-02-28");
+  assert.equal(writeDate({ year: "2026", month: "02", day: "31" }), null);
+  assert.equal(writeDate({ year: "2028", month: "02", day: "29" }), "2028-02-29");
+}
+
+// The date-time value shape: the date half and the time half, composed; no zone is ever read or
+// written, and a value carrying one isn't canonical.
+{
+  const precision = { value: "minute" };
+  const dateTime = dateTimeValue(() => precision.value);
+
+  assert.deepEqual(dateTime.units(), ["year", "month", "day", "hour", "minute"]);
+  assert.equal(dateTime.units(), dateTime.units(), "the same array while the precision stays");
+  assert.deepEqual(dateTime.format("2026-10-27T09:30", h24), {
+    year: "2026",
+    month: "10",
+    day: "27",
+    hour: "09",
+    minute: "30",
+  });
+  assert.deepEqual(dateTime.format("2026-10-27T00:05:59", h12), {
+    year: "2026",
+    month: "10",
+    day: "27",
+    hour: "12",
+    minute: "05",
+    dayPeriod: "am",
+  });
+
+  for (const text of [
+    null,
+    "2026-10-27",
+    "09:30",
+    "2026-10-27T09:30Z",
+    "2026-10-27T09:30:00Z",
+    "2026-10-27T09:30+03:00",
+    "2026-10-27T09:30:00.000",
+    "2026-10-27t09:30",
+    "2026-10-27 09:30",
+    "2026-10-27T9:30",
+    "2026-10-27T24:00",
+    "2026-02-31T09:30",
+    "0000-01-01T00:00",
+    "26-10-27T09:30",
+    "2026-10-27TT09:30",
+    "2026-10-27T09:30T",
+  ]) {
+    assert.deepEqual(dateTime.format(text, h24), {}, `${JSON.stringify(text)} shows empty`);
+    assert.equal(dateTime.canonical(text ?? ""), null, `${JSON.stringify(text)} isn't canonical`);
+  }
+
+  const complete = { year: "2026", month: "10", day: "27", hour: "09", minute: "30" };
+
+  assert.deepEqual(dateTime.parse({}, h24), { value: null });
+  assert.deepEqual(dateTime.parse({ second: "15" }, h24), { value: null });
+  assert.deepEqual(dateTime.parse(complete, h24), { value: "2026-10-27T09:30" });
+  assert.deepEqual(dateTime.parse({ ...complete, second: "15" }, h24), {
+    value: "2026-10-27T09:30",
+  });
+  assert.deepEqual(dateTime.parse({ ...complete, hour: "12", dayPeriod: "am" }, h12), {
+    value: "2026-10-27T00:30",
+  });
+  assert.deepEqual(dateTime.parse({ ...complete, hour: "01", dayPeriod: "pm" }, h12), {
+    value: "2026-10-27T13:30",
+  });
+  assert.deepEqual(dateTime.parse({ ...complete, month: "02", day: "31" }, h24), {
+    error: { kind: "dateInvalid" },
+  });
+  assert.deepEqual(dateTime.parse({ ...complete, year: "2028", month: "02", day: "29" }, h24), {
+    value: "2028-02-29T09:30",
+  });
+
+  for (const [draft, context] of [
+    [{ ...complete, hour: "", minute: "" }, h24],
+    [{ ...complete, year: "", month: "", day: "" }, h24],
+    [{ ...complete, year: "202" }, h24],
+    [{ ...complete, minute: "3" }, h24],
+    [complete, h12],
+    [{ dayPeriod: "pm" }, h12],
+    [{ ...complete, month: "02", day: "31", minute: "" }, h24],
+  ]) {
+    assert.deepEqual(dateTime.parse(draft, context), { error: { kind: "dateTimeIncomplete" } });
+  }
+
+  for (const text of ["2026-10-27T09:30", "0001-01-01T00:00", "9999-12-31T23:59:59"]) {
+    assert.equal(dateTime.canonical(text), text);
+  }
+
+  precision.value = "second";
+  assert.deepEqual(dateTime.units(), ["year", "month", "day", "hour", "minute", "second"]);
+  assert.deepEqual(dateTime.format("2026-10-27T09:30", h24), {
+    ...complete,
+    second: "00",
+  });
+  assert.deepEqual(dateTime.parse({ ...complete, second: "05" }, h24), {
+    value: "2026-10-27T09:30:05",
+  });
+  assert.deepEqual(dateTime.parse(complete, h24), { error: { kind: "dateTimeIncomplete" } });
+}
+
 // Layout: order, literals, unit names and digits from Node's Intl; the seed round-trips and
 // rejects anything that isn't a complete layout.
 {
@@ -436,7 +601,97 @@ function typeAll(name, digits, context = h24) {
     24,
   );
 
+  // A date-time: one formatToParts over both halves, so the locale orders them and the literal
+  // between them.
+  const dateTime = { units: ["year", "month", "day", "hour", "minute"], hourCycle: null };
+  const dateTimeUS = layout.resolveLayout("en-US", dateTime);
+  const dateTimeEl = layout.resolveLayout("el", dateTime);
+  const dateTimeGB = layout.resolveLayout("en-GB", dateTime);
+  const dateTimeKo = layout.resolveLayout("ko", dateTime);
+
+  assert.deepEqual(types(dateTimeUS), [
+    "month",
+    "literal",
+    "day",
+    "literal",
+    "year",
+    "literal",
+    "hour",
+    "literal",
+    "minute",
+    "literal",
+    "dayPeriod",
+  ]);
+  assert.equal(dateTimeUS.parts[5].text, ", ");
+  assert.equal(dateTimeUS.parts[9].text, "\u202f", "Node puts U+202F before the day period");
+  assert.equal(dateTimeUS.hourCycle, 12);
+  assert.deepEqual(dateTimeUS.periods, ["AM", "PM"]);
+  assert.deepEqual(types(dateTimeEl), [
+    "day",
+    "literal",
+    "month",
+    "literal",
+    "year",
+    "literal",
+    "hour",
+    "literal",
+    "minute",
+    "literal",
+    "dayPeriod",
+  ]);
+  assert.deepEqual(dateTimeEl.periods, ["π.μ.", "μ.μ."]);
+  assert.deepEqual(types(dateTimeGB), [
+    "day",
+    "literal",
+    "month",
+    "literal",
+    "year",
+    "literal",
+    "hour",
+    "literal",
+    "minute",
+  ]);
+  assert.equal(dateTimeGB.hourCycle, 24);
+  assert.equal(dateTimeGB.parts[5].text, ", ");
+  // Korean puts the day period before the hour.
+  assert.deepEqual(types(dateTimeKo).slice(5), [
+    "literal",
+    "dayPeriod",
+    "literal",
+    "hour",
+    "literal",
+    "minute",
+  ]);
+  assert.deepEqual(
+    types(
+      layout.resolveLayout("en-GB", {
+        ...dateTime,
+        units: [...dateTime.units, "second"],
+        hourCycle: 12,
+      }),
+    ),
+    [
+      "day",
+      "literal",
+      "month",
+      "literal",
+      "year",
+      "literal",
+      "hour",
+      "literal",
+      "minute",
+      "literal",
+      "second",
+      "literal",
+      "dayPeriod",
+    ],
+  );
+
   for (const [resolved, request] of [
+    [dateTimeUS, dateTime],
+    [dateTimeEl, dateTime],
+    [dateTimeGB, dateTime],
+    [dateTimeKo, dateTime],
     [enUS, date],
     [el, date],
     [arEG, date],
@@ -559,6 +814,28 @@ function typeAll(name, digits, context = h24) {
   ]) {
     assert.equal(layout.readLayout(broken, time), null, `${broken} is no time seed`);
   }
+
+  // A date-time seed lays out the date and the time units: a date or a time seed isn't one, and
+  // neither is one missing a date unit or carrying the other cycle.
+  const dateTimeSeed = JSON.parse(layout.writeLayout(dateTimeUS));
+
+  assert.equal(layout.readLayout(JSON.stringify(timeSeed), dateTime), null, "a time seed");
+  assert.equal(layout.readLayout(layout.writeLayout(enUS), dateTime), null, "a date seed");
+  assert.equal(layout.readLayout(JSON.stringify(dateTimeSeed), time), null, "no time seed");
+  assert.equal(layout.readLayout(JSON.stringify(dateTimeSeed), date), null, "no date seed");
+  assert.equal(
+    layout.readLayout(JSON.stringify(dateTimeSeed), { ...dateTime, hourCycle: 24 }),
+    null,
+    "a 12-hour date-time seed is no forced 24-hour one",
+  );
+  assert.equal(
+    layout.readLayout(
+      JSON.stringify({ ...dateTimeSeed, parts: dateTimeSeed.parts.slice(2) }),
+      dateTime,
+    ),
+    null,
+    "a date-time seed without its month",
+  );
 
   // A seed lays out exactly the root's precision.
   assert.equal(

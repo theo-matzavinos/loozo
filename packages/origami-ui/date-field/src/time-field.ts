@@ -5,21 +5,9 @@ import { DateFieldContext } from "./date-field-context";
 import { DateFieldDraft } from "./date-field-draft";
 import { DateFieldRoot } from "./date-field-root";
 import { OrigamiDateFieldState } from "./date-field-state";
+import { hourCycleAttribute } from "./hour-cycle-attribute";
 import { OrigamiTimeFieldOptions } from "./time-field-options";
 import { timeValue } from "./time-value";
-
-/** `hourCycle`'s coercion: a static `hourCycle="24"` attribute is the number. */
-function hourCycleAttribute(value: 12 | 24 | "12" | "24" | null): 12 | 24 | null {
-  if (value === 12 || value === "12") {
-    return 12;
-  }
-
-  if (value === 24 || value === "24") {
-    return 24;
-  }
-
-  return null;
-}
 
 /**
  * Time field root: a wall-clock time, `HH:mm` or `HH:mm:ss`, typed as locale-ordered segments.

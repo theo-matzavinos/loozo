@@ -120,6 +120,40 @@ export function unitValue(unit: OrigamiDateFieldSegmentType, entry: DraftEntry):
   return Number(entry);
 }
 
+/**
+ * Whether a draft's `units` are all empty, all hold a value (`unitValue`), or neither: a lone
+ * `"0"` or a short year is neither empty nor a value.
+ */
+export function draftFill(
+  draft: Draft,
+  units: readonly OrigamiDateFieldSegmentType[],
+): "empty" | "incomplete" | "complete" {
+  let empty = true;
+  let complete = true;
+
+  for (const unit of units) {
+    const entry = draft[unit] ?? "";
+
+    if (entry !== "") {
+      empty = false;
+    }
+
+    if (unitValue(unit, entry) === null) {
+      complete = false;
+    }
+  }
+
+  if (empty) {
+    return "empty";
+  }
+
+  if (complete) {
+    return "complete";
+  }
+
+  return "incomplete";
+}
+
 /** The entry that holds `value`, padded to the unit's width. */
 function entryOf(unit: OrigamiDateFieldSegmentType, value: number): DraftEntry {
   if (unit === "dayPeriod") {

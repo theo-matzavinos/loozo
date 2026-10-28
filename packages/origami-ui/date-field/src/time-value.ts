@@ -1,19 +1,10 @@
 import type { Signal } from "@angular/core";
 import type { ParseResult } from "@angular/forms/signals";
 import type { DateFieldShape } from "./date-field-root";
-import type { OrigamiDateFieldSegmentType } from "./date-field-segment-type";
-import { unitValue } from "./date-field-unit";
+import { draftFill } from "./date-field-unit";
 import type { Draft, UnitContext } from "./date-field-unit";
-
-const minuteUnits: readonly OrigamiDateFieldSegmentType[] = ["hour", "minute"];
-const secondUnits: readonly OrigamiDateFieldSegmentType[] = ["hour", "minute", "second"];
-
-/** A wall-clock time at either precision: `HH:mm` or `HH:mm:ss`, 00:00 to 23:59:59. */
-const canonicalTime = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
-
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
+import { formatTime, readTime, timeDraftUnits, timeUnits, writeTime } from "./wall-time";
+import type { TimePrecision } from "./wall-time";
 
 /**
  * `ogTimeField`'s value shape: a wall-clock time, `HH:mm` at minute precision and `HH:mm:ss` at
@@ -26,99 +17,33 @@ function pad(value: number): string {
  * @param precision - The root's effective precision, read by the layout, by `format` and by
  *   `parse`. A change of it after the layout settles refreshes the draft (the Context's job).
  */
-export function timeValue(precision: Signal<"minute" | "second">): DateFieldShape {
-  function units(): readonly OrigamiDateFieldSegmentType[] {
-    if (precision() === "second") {
-      return secondUnits;
-    }
-
-    return minuteUnits;
-  }
-
+export function timeValue(precision: Signal<TimePrecision>): DateFieldShape {
   return {
-    units,
+    units: () => timeUnits(precision()),
     format(value: string | null, { hourCycle }: UnitContext): Draft {
-      const match = canonicalTime.exec(value ?? "");
+      const time = readTime(value ?? "");
 
-      if (match === null) {
+      if (time === null) {
         return {};
       }
 
-      const [, hour, minute, second = "00"] = match;
-      let draft: Draft = { hour, minute };
-
-      if (precision() === "second") {
-        draft = { hour, minute, second };
-      }
-
-      if (hourCycle === 24) {
-        return draft;
-      }
-
-      const hours = Number(hour);
-      let shown = hours % 12;
-      let dayPeriod = "am";
-
-      if (shown === 0) {
-        shown = 12;
-      }
-
-      if (hours >= 12) {
-        dayPeriod = "pm";
-      }
-
-      return { ...draft, hour: pad(shown), dayPeriod };
+      return formatTime(time, precision(), hourCycle);
     },
     parse(draft: Draft, { hourCycle }: UnitContext): ParseResult<string | null> {
-      const laidOut = [...units()];
+      const fill = draftFill(draft, timeDraftUnits(precision(), hourCycle));
 
-      if (hourCycle === 12) {
-        laidOut.push("dayPeriod");
-      }
-
-      let empty = true;
-      let complete = true;
-
-      for (const unit of laidOut) {
-        const entry = draft[unit] ?? "";
-
-        if (entry !== "") {
-          empty = false;
-        }
-
-        if (unitValue(unit, entry) === null) {
-          complete = false;
-        }
-      }
-
-      if (empty) {
+      if (fill === "empty") {
         return { value: null };
       }
 
-      if (!complete) {
+      if (fill === "incomplete") {
         return { error: { kind: "timeIncomplete" } };
       }
 
-      let hours = Number(draft.hour);
-
-      if (hourCycle === 12) {
-        hours %= 12;
-
-        if (draft.dayPeriod === "pm") {
-          hours += 12;
-        }
-      }
-
-      const value = `${pad(hours)}:${draft.minute}`;
-
-      if (precision() === "second") {
-        return { value: `${value}:${draft.second}` };
-      }
-
-      return { value };
+      return { value: writeTime(draft, precision(), hourCycle) };
     },
     canonical(text: string): string | null {
-      if (!canonicalTime.test(text)) {
+      if (readTime(text) === null) {
         return null;
       }
 
