@@ -985,9 +985,31 @@ async function expectExitRetention(
   info: Parameters<typeof fixture>[2],
   { panel, gated, open, close }: Record<"panel" | "gated" | "open" | "close", Locator>,
 ): Promise<void> {
+  const retained = info.project.metadata.motion === "no-preference";
+
+  // Pause the 1000 ms exit in the page as it starts: on a loaded host, the round trips before the
+  // retained exit is sampled can outlast it.
+  if (retained) {
+    await panel.evaluate((node) => {
+      const observer = new MutationObserver(() => {
+        if (!node.hasAttribute("data-leaving")) {
+          return;
+        }
+
+        observer.disconnect();
+
+        for (const animation of node.getAnimations()) {
+          animation.pause();
+        }
+      });
+
+      observer.observe(node, { attributes: true, attributeFilter: ["data-leaving"] });
+    });
+  }
+
   await close.click();
 
-  if (info.project.metadata.motion === "no-preference") {
+  if (retained) {
     await expect(panel).toHaveAttribute("data-leaving", "");
     await expect
       .poll(() => panel.evaluate((node) => node.getAnimations().length))
@@ -996,6 +1018,13 @@ async function expectExitRetention(
     await expect(panel).not.toHaveAttribute("hidden", /.*/);
     await expect(gated).toHaveCount(1);
     await expect(open).toHaveText("true");
+
+    // Resume the exit: the gated content goes once it settles.
+    await panel.evaluate((node) => {
+      for (const animation of node.getAnimations()) {
+        animation.play();
+      }
+    });
   }
 
   await expect(panel).not.toHaveAttribute("data-leaving", /.*/);
