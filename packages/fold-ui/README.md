@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, and Field with Input and Textarea. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input and Textarea. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ ng add @loozo/fold-ui
 ## Add components
 
 ```sh
-ng generate @loozo/fold-ui:add --names button alert-dialog dialog
+ng generate @loozo/fold-ui:add --names button alert-dialog dialog sheet
 ng generate @loozo/fold-ui:add --names field input textarea
 ```
 
@@ -68,7 +68,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's and Dialog's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog` or `dialog` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -97,7 +97,7 @@ Tailwind's default colors and `text-*` sizes stay available.
 
 ## Class merging and slots
 
-Every part except the AlertDialog and Dialog roots takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
+Every part except the AlertDialog, Dialog and Sheet roots takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
 
 ```html
 <button foldButton class="px-6">Wider</button>
@@ -376,6 +376,67 @@ DialogContent and AlertDialogContent fade and scale in over 150ms when they open
 - The transition is in Content's classes. Origami waits only for the dialog's own transition, so if your `class` changes its `duration-*`, change `backdrop:duration-*` to match, or the backdrop's fade gets cut off.
 - A dialog that's open in the server's HTML fades in once after hydration.
 - Closes Origami doesn't start, such as a `<form method="dialog">` submit or calling `close()` on the element, skip the exit.
+
+## Sheet
+
+```ts
+import { SheetParts } from "#ui/sheet";
+import { Button } from "#ui/button";
+```
+
+Sheet is a full-height modal panel against the right or left edge of the screen, for filters, details or navigation, over Origami's [Dialog](../origami-ui/dialog/README.md). It works like [Dialog](#dialog), with its own parts: `SheetParts` holds all nine for a component's `imports`; each is also exported on its own.
+
+```html
+<div foldSheet [(open)]="open">
+  <button foldSheetTrigger>Filters</button>
+  <dialog foldSheetContent>
+    <form class="contents" (submit)="apply($event)">
+      <div foldSheetHeader>
+        <h2 foldSheetTitle>Filters</h2>
+        <p foldSheetDescription>12 contracts match.</p>
+      </div>
+      <div foldSheetBody class="grid gap-4">
+        <div foldField>
+          <label foldFieldLabel>Search</label>
+          <input foldInput autofocus [formField]="f.search" />
+        </div>
+        …
+      </div>
+      <div foldSheetFooter>
+        <button foldButton variant="primary" type="submit">Apply</button>
+      </div>
+    </form>
+  </dialog>
+</div>
+```
+
+- `Sheet`: the root, with `open` (two-way), `dismissible` and `openChange`. It's `display: contents` unless it's on the `<dialog>` itself. Escape and a backdrop click close the sheet while it's dismissible.
+- `SheetTrigger`: opens the sheet. It takes Button's `variant`, `size` and `class`, plus `id`, `disabled` and `focusableWhenDisabled`.
+- `SheetContent`: the modal `<dialog>` over a scrim, the viewport's full height and 320px wide, or the viewport's width when that's narrower, against the right edge, or the left one with `side="left"`. A border separates it from the page. It lays its children out in a column, 20px apart. It takes `id`, `returnFocus`, `side`, `closeButton` and `closeLabel`. When it closes, focus returns to what had it before the sheet opened, or to `returnFocus` if that can take focus; see Origami's [Focus](../origami-ui/dialog/README.md#focus) for when focus was lost.
+- `SheetHeader`: stacks the title and description, clear of the close button.
+- `SheetTitle` and `SheetDescription`: name and describe the sheet for assistive technology. They take `id`.
+- `SheetBody`: the part that scrolls when the sheet runs out of height, so the header and footer stay in place. Without a Body, the whole sheet scrolls, close button and footer included.
+- `SheetFooter`: the actions, right-aligned, at the bottom of the sheet.
+- `SheetClose`: closes the sheet, whatever `dismissible` says. Secondary by default; it takes Button's inputs, `disabled` and `focusableWhenDisabled`.
+
+Content ends with the same corner close button as [Dialog](#dialog)'s: named by `closeLabel`, disabled but focusable while the sheet isn't dismissible, and removed by `[closeButton]="false"`. Its `class` replaces the width or the spacing. A navigation sheet with a visually hidden title:
+
+```html
+<div foldSheet [(open)]="navOpen">
+  <button foldSheetTrigger variant="ghost">Menu</button>
+  <dialog foldSheetContent side="left" [closeButton]="false" class="w-72 gap-0 p-0">
+    <div foldSheetHeader class="sr-only"><h2 foldSheetTitle>Navigation</h2></div>
+    <nav class="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
+      <a href="/contracts" (click)="navOpen.set(false)">Contracts</a>
+      …
+    </nav>
+  </dialog>
+</div>
+```
+
+`side` is physical: a `right` sheet stays on the right in a right-to-left page, while the close button and the Header's room for it sit at the inline end.
+
+Everything Dialog's guidance says applies to a sheet too, with the Sheet parts: [forms](#forms-in-a-dialog) (`autofocus` on the first field, `[readOnly]` fields and a guarded submit handler while saving), [opening from code](#opening-a-dialog-from-code) through `hostDirectives: [Sheet]`, and [motion](#motion), except that a sheet slides in from its side and fades over 200ms, and stays modal for those 200ms when it closes.
 
 ## Field
 

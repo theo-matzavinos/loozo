@@ -1,6 +1,7 @@
 // Chromium smoke of the consumer check's production build (consumer.mjs): the prerendered HTML,
-// hydration without errors, the button geometry, colors and type, the AlertDialog's and Dialog's
-// focus, dismissal and motion, and a Signal Forms Field's wiring, errors and control styling.
+// hydration without errors, the button geometry, colors and type, the AlertDialog's, Dialog's and
+// Sheet's focus, dismissal, placement and motion, and a Signal Forms Field's wiring, errors and
+// control styling.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -115,6 +116,24 @@ try {
   assert.match(openingTag(html, "note-content"), /\bdata-slot="dialog-content"/);
   assert.match(openingTag(html, "discard-content"), /\bdata-slot="alert-dialog-content"/);
 
+  // Sheet: closed on the server, named by its Title, with the corner close button; on a shared
+  // host, closed too, with Content's slot.
+  const sheetContent = openingTag(html, "sheet-content");
+  const panelContent = openingTag(html, "panel-content");
+
+  assert.match(sheetContent, /\bdata-slot="sheet-content"/);
+  assert.match(sheetContent, /\baria-labelledby="sheet-title"/);
+  assert.doesNotMatch(sheetContent, /\sopen[\s=>]/);
+  assert.doesNotMatch(openingTag(html, "nav-content"), /\sopen[\s=>]/);
+  assert.doesNotMatch(panelContent, /\sopen[\s=>]/);
+  assert.match(panelContent, /\bdata-slot="sheet-content"/);
+  assert.ok(
+    html
+      .match(/<button\b[^>]*>/g)
+      .some((tag) => tag.includes('data-slot="sheet-close"') && tag.includes('aria-label="Close"')),
+    "the server HTML has the sheet's labelled close button",
+  );
+
   // Field: the label names the input, the description describes it, and no error shows yet.
   const emailField = openingTag(html, "email-field");
   const emailLabel = openingTag(html, "email-label");
@@ -143,7 +162,15 @@ try {
   const prerenderedDisplay = await prerendered.evaluate(() => {
     const result = {};
 
-    for (const id of ["content", "dialog-content", "note-content", "discard-content"]) {
+    for (const id of [
+      "content",
+      "dialog-content",
+      "note-content",
+      "discard-content",
+      "sheet-content",
+      "nav-content",
+      "panel-content",
+    ]) {
       result[id] = getComputedStyle(document.getElementById(id)).display;
     }
 
@@ -155,6 +182,9 @@ try {
     "dialog-content": "none",
     "note-content": "none",
     "discard-content": "none",
+    "sheet-content": "none",
+    "nav-content": "none",
+    "panel-content": "none",
   });
   await prerendered.close();
 
@@ -282,8 +312,8 @@ try {
   const closed = (id) =>
     page.waitForFunction((id) => !document.getElementById(id)?.hasAttribute("open"), id);
   // Clicks `control` in the page and, once a render has marked Content with `phase`
-  // (data-entering or data-leaving), reports whether it's modal and whether transitions run on
-  // Content itself, not its backdrop. Presence waits for those only, so without them the phase
+  // (data-entering or data-leaving), reports whether it's modal and the properties transitioning
+  // on Content itself, not its backdrop. Presence waits for those only, so without them the phase
   // can end in the same task.
   const phase = (id, phase, control) =>
     page.evaluate(
@@ -306,9 +336,15 @@ try {
 
             observer.disconnect();
             clearTimeout(timeout);
+            const transitions = [];
+
+            for (const animation of content.getAnimations()) {
+              transitions.push(animation.transitionProperty);
+            }
+
             resolve({
               modal: content.matches(":modal"),
-              transitioning: content.getAnimations().length > 0,
+              transitions: transitions.sort((left, right) => left.localeCompare(right)),
             });
           });
 
@@ -334,12 +370,12 @@ try {
   // It fades in, and closing fades it out while it stays modal.
   assert.deepEqual(await phase("content", "data-entering", "#trigger"), {
     modal: true,
-    transitioning: true,
+    transitions: ["opacity", "scale"],
   });
   await settled("content");
   assert.deepEqual(await phase("content", "data-leaving", "#cancel"), {
     modal: true,
-    transitioning: true,
+    transitions: ["opacity", "scale"],
   });
   await closed("content");
   assert.equal(await page.evaluate(() => document.activeElement?.id), "trigger");
@@ -443,12 +479,12 @@ try {
   // Dismissible again: the close button closes it, fading it out while it stays modal.
   assert.deepEqual(await phase("dialog-content", "data-entering", "#dialog-trigger"), {
     modal: true,
-    transitioning: true,
+    transitions: ["opacity", "scale"],
   });
   await settled("dialog-content");
   assert.deepEqual(
     await phase("dialog-content", "data-leaving", "#dialog-content > [data-slot=dialog-close]"),
-    { modal: true, transitioning: true },
+    { modal: true, transitions: ["opacity", "scale"] },
   );
   await closed("dialog-content");
   assert.equal(await page.evaluate(() => document.activeElement?.id), "dialog-trigger");
@@ -493,21 +529,164 @@ try {
     );
   }
 
-  // With reduced motion, the dialogs open and close without transitions, so closing doesn't wait.
+  // Sheet: hidden while closed, it slides and fades in against the right edge at full height,
+  // named by its Title, with the autofocus field focused and a labelled corner close button last.
+  const sheetClose = () =>
+    page.evaluate(() => {
+      const close = document.querySelector("#sheet-content > [data-slot=sheet-close]");
+
+      return {
+        last: close === document.getElementById("sheet-content").lastElementChild,
+        label: close.getAttribute("aria-label"),
+        ariaDisabled: close.getAttribute("aria-disabled"),
+        disabled: close.disabled,
+        tabIndex: close.tabIndex,
+      };
+    });
+  const sheetBox = (id) =>
+    page.evaluate((id) => {
+      const content = document.getElementById(id);
+      const rect = content.getBoundingClientRect();
+      const style = getComputedStyle(content);
+
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        maxWidth: style.maxWidth,
+        maxHeight: style.maxHeight,
+        viewport: `${innerWidth}x${innerHeight}`,
+      };
+    }, id);
+
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.getElementById("sheet-content")).display),
+    "none",
+  );
+  // phase() clicks from script, which doesn't move focus as a real click does.
+  await page.focus("#sheet-trigger");
+  assert.deepEqual(await phase("sheet-content", "data-entering", "#sheet-trigger"), {
+    modal: true,
+    transitions: ["opacity", "translate"],
+  });
+  await settled("sheet-content");
+  assert.equal(await page.getByRole("dialog", { name: "Filters" }).count(), 1);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "sheet-search");
+  assert.deepEqual(await sheetClose(), {
+    last: true,
+    label: "Close",
+    ariaDisabled: null,
+    disabled: false,
+    tabIndex: 0,
+  });
+  // The browser's max-width and max-height are off: 320px wide, the viewport's full height.
+  assert.deepEqual(await sheetBox("sheet-content"), {
+    x: 960,
+    y: 0,
+    width: 320,
+    height: 720,
+    maxWidth: "none",
+    maxHeight: "none",
+    viewport: "1280x720",
+  });
+
+  // While applying: the close button is disabled but focusable and Escape is blocked, until it
+  // closes and returns focus to the Trigger.
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector("#sheet-content > [data-slot=sheet-close]")
+        .getAttribute("aria-disabled") === "true",
+  );
+  assert.deepEqual(await sheetClose(), {
+    last: true,
+    label: "Close",
+    ariaDisabled: "true",
+    disabled: false,
+    tabIndex: 0,
+  });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  assert.ok(await page.evaluate(() => document.querySelector("#sheet-content").matches(":modal")));
+  await closed("sheet-content");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "sheet-trigger");
+  assert.equal(await page.textContent("#filter-applies"), "1", "applies once");
+
+  // Dismissible again: the close button closes it, sliding it out while it stays modal.
+  await page.click("#sheet-trigger");
+  await settled("sheet-content");
+  assert.deepEqual(
+    await phase("sheet-content", "data-leaving", "#sheet-content > [data-slot=sheet-close]"),
+    { modal: true, transitions: ["opacity", "translate"] },
+  );
+  await closed("sheet-content");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "sheet-trigger");
+
+  // The left sheet: against the left edge, its class replacing the width, without a close button,
+  // named by its visually hidden Title. A link closes it, returning focus to the Trigger.
+  await page.focus("#nav-trigger");
+  assert.deepEqual(await phase("nav-content", "data-entering", "#nav-trigger"), {
+    modal: true,
+    transitions: ["opacity", "translate"],
+  });
+  await settled("nav-content");
+  assert.equal(await page.getByRole("dialog", { name: "Navigation" }).count(), 1);
+  assert.equal(
+    await page.evaluate(() => document.querySelector("#nav-content [data-slot=sheet-close]")),
+    null,
+  );
+  assert.deepEqual(await sheetBox("nav-content"), {
+    x: 0,
+    y: 0,
+    width: 288,
+    height: 720,
+    maxWidth: "none",
+    maxHeight: "none",
+    viewport: "1280x720",
+  });
+  assert.deepEqual(await phase("nav-content", "data-leaving", "#nav-link"), {
+    modal: true,
+    transitions: ["opacity", "translate"],
+  });
+  await closed("nav-content");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "nav-trigger");
+
+  // The Sheet root on the <dialog> itself: hidden while closed, it opens and closes.
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.getElementById("panel-content")).display),
+    "none",
+    "panel-content closed",
+  );
+  await page.click("#panel-open");
+  await settled("panel-content");
+  await page.keyboard.press("Escape");
+  await closed("panel-content");
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.getElementById("panel-content")).display),
+    "none",
+    "panel-content closed again",
+  );
+
+  // With reduced motion, the dialogs and sheets open and close without transitions, so closing
+  // doesn't wait.
   await page.emulateMedia({ reducedMotion: "reduce" });
 
   for (const [id, open, close] of [
     ["content", "#trigger", "#cancel"],
     ["dialog-content", "#dialog-trigger", "#dialog-content > [data-slot=dialog-close]"],
+    ["sheet-content", "#sheet-trigger", "#sheet-content > [data-slot=sheet-close]"],
+    ["nav-content", "#nav-trigger", "#nav-link"],
   ]) {
     const opening = await phase(id, "data-entering", open);
 
-    assert.equal(opening.transitioning, false, `${id} opens`);
+    assert.deepEqual(opening.transitions, [], `${id} opens`);
     await settled(id);
 
     const closing = await phase(id, "data-leaving", close);
 
-    assert.equal(closing.transitioning, false, `${id} closes`);
+    assert.deepEqual(closing.transitions, [], `${id} closes`);
     await closed(id);
   }
 
