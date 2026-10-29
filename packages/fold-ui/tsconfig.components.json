@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": [],
+    "noEmit": true,
+    "paths": {
+      "@loozo/origami-ui/button": ["../origami-ui/button/src/public-api.ts"],
+      "@loozo/origami-ui/dialog": ["../origami-ui/dialog/src/public-api.ts"],
+      "@loozo/origami-ui/utils": ["../origami-ui/utils/src/public-api.ts"],
+      "@loozo/origami-ui/presence": ["../origami-ui/presence/src/public-api.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  },
+  "include": ["components/**/*.ts"]
+}

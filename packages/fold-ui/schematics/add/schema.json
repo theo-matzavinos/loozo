@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "FoldAdd",
+  "title": "Add fold components",
+  "type": "object",
+  "properties": {
+    "names": {
+      "description": "The components to copy into the application.",
+      "type": "array",
+      "items": { "type": "string", "enum": ["alert-dialog", "button", "cn"] },
+      "x-prompt": "Which components do you want to add?"
+    },
+    "existing": {
+      "description": "What to do with a named component whose folder already exists: keep it, replace fold's files in it, or fail.",
+      "type": "string",
+      "enum": ["skip", "overwrite", "error"],
+      "default": "skip"
+    }
+  },
+  "required": ["names"]
+}

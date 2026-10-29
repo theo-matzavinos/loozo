@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.components.json",
+  "compilerOptions": {
+    "paths": {
+      "#ui/*": ["../components/*/index.ts"],
+      "@loozo/origami-ui/button": ["../../origami-ui/button/src/public-api.ts"],
+      "@loozo/origami-ui/dialog": ["../../origami-ui/dialog/src/public-api.ts"],
+      "@loozo/origami-ui/presence": ["../../origami-ui/presence/src/public-api.ts"],
+      "@loozo/origami-ui/utils": ["../../origami-ui/utils/src/public-api.ts"]
+    }
+  },
+  "include": ["consumer-app.ts"]
+}
