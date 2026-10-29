@@ -426,6 +426,43 @@ describe("add", () => {
     }
   });
 
+  test("copies Field, Input and Textarea with only what they import", async () => {
+    const cases = {
+      field: ["cn", "field"],
+      input: ["cn", "input"],
+      textarea: ["cn", "input", "textarea"],
+    };
+
+    for (const [name, expected] of Object.entries(cases)) {
+      const { runner } = createRunner();
+      const tree = await runner.runSchematic("add", { names: [name] }, await setUp(runner));
+      const folders = tree.getDir("src/ui").subdirs.map(String);
+
+      assert.deepEqual(folders.sort(), expected, name);
+
+      for (const folder of expected) {
+        for (const file of await readdir(new URL(`components/${folder}/`, dist))) {
+          const source = await readFile(new URL(`components/${folder}/${file}`, dist), "utf8");
+
+          assert.equal(
+            readText(tree, `src/ui/${folder}/${file}`),
+            source.replaceAll("fold__", "zz"),
+            `${folder}/${file}`,
+          );
+        }
+      }
+    }
+  });
+
+  test("renames Field's exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["field"] }, await setUp(runner));
+    const field = readText(tree, "src/ui/field/field.ts");
+
+    assert.match(field, /selector: "\[zzField\]"/);
+    assert.match(field, /exportAs: "zzField"/);
+  });
+
   test("skips an existing named component by default, with a warning", async () => {
     const { runner, warnings } = createRunner();
     const tree = await runner.runSchematic("add", { names: ["button"] }, await setUp(runner));

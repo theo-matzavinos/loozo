@@ -15,6 +15,7 @@
     "paths": {
       "@loozo/origami-ui/button": ["../origami-ui/button/src/public-api.ts"],
       "@loozo/origami-ui/dialog": ["../origami-ui/dialog/src/public-api.ts"],
+      "@loozo/origami-ui/field": ["../origami-ui/field/src/public-api.ts"],
       "@loozo/origami-ui/utils": ["../origami-ui/utils/src/public-api.ts"],
       "@loozo/origami-ui/presence": ["../origami-ui/presence/src/public-api.ts"]
     }

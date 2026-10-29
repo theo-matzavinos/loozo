@@ -107,13 +107,30 @@ await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 run("npm", ["install", "--no-audit", "--no-fund"], app);
 ng(["add", "@loozo/fold-ui", "--skip-confirmation", "--prefix", "zz"]);
-ng(["generate", "@loozo/fold-ui:add", "--names", "button", "alert-dialog"]);
+ng([
+  "generate",
+  "@loozo/fold-ui:add",
+  "--names",
+  "button",
+  "alert-dialog",
+  "field",
+  "input",
+  "textarea",
+]);
 
 const installed = JSON.parse(await readFile(manifestPath, "utf8"));
 const folders = await readdir(join(app, "src/ui"));
 
 assert.deepEqual(installed.imports, { "#ui/*": "./src/ui/*/index.ts" });
-assert.deepEqual(folders.sort(), ["alert-dialog", "button", "cn", "theme.css"]);
+assert.deepEqual(folders.sort(), [
+  "alert-dialog",
+  "button",
+  "cn",
+  "field",
+  "input",
+  "textarea",
+  "theme.css",
+]);
 // The CLI runs the app's Prettier on written files, so quotes follow the app's style.
 assert.match(
   await readFile(join(app, "src/styles.css"), "utf8"),
