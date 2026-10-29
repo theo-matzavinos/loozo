@@ -1,0 +1,15 @@
+{
+  "schematics": {
+    "ng-add": {
+      "description": "Set up fold in an Angular application.",
+      "factory": "./ng-add/index.js",
+      "schema": "./ng-add/schema.json",
+      "private": true
+    },
+    "add": {
+      "description": "Copy fold components into the application.",
+      "factory": "./add/index.js",
+      "schema": "./add/schema.json"
+    }
+  }
+}

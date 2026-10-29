@@ -9,6 +9,7 @@ A monorepo for Angular-related packages. Each package owns its API, contract, do
 | [@loozo/angular-router](packages/angular-router/README.md) | Typed route declarations, URLs, navigation and route handles over Angular’s native router | Experimental |
 | [@loozo/angular-launch](packages/angular-launch/README.md) | Typed server functions for Angular SSR applications built with `@loozo/angular-router`    | Experimental |
 | [@loozo/origami-ui](packages/origami-ui/README.md)         | Headless, accessible Angular primitives                                                   | Experimental |
+| [@loozo/fold-ui](packages/fold-ui/README.md)               | Styled components over Origami, copied into Angular apps by schematics                    | Experimental |
 
 ## Repository layout
 

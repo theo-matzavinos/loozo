@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "fold configuration",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "prefix": {
+      "description": "Selector prefix of the components `add` copies, such as `fold` for `foldButton`.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*$"
+    },
+    "path": {
+      "description": "Workspace-relative folder `add` copies components into.",
+      "type": "string"
+    }
+  },
+  "required": ["prefix", "path"],
+  "additionalProperties": false
+}
