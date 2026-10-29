@@ -15,6 +15,7 @@ import {
 } from "#ui/dialog";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
+import { SheetParts } from "#ui/sheet";
 import { Textarea } from "#ui/textarea";
 import { LucideTriangleAlert } from "@lucide/angular";
 
@@ -56,6 +57,7 @@ export class SearchDialog {
     FormField,
     Input,
     LucideTriangleAlert,
+    SheetParts,
     Textarea,
   ],
   template: `
@@ -166,6 +168,70 @@ export class SearchDialog {
           <button zzAlertDialogCancel>Keep editing</button>
         </div>
       </dialog>
+
+      <div zzSheet [(open)]="filtersOpen" [dismissible]="!filtersPending()">
+        <button zzSheetTrigger id="sheet-trigger">Filters</button>
+        <dialog zzSheetContent id="sheet-content">
+          <form class="contents" (submit)="applyFilters($event)">
+            <div zzSheetHeader>
+              <h2 zzSheetTitle id="sheet-title">Filters</h2>
+              <p zzSheetDescription>12 contracts match.</p>
+            </div>
+            <div zzSheetBody class="grid gap-4">
+              <div zzField>
+                <label zzFieldLabel>Status</label>
+                <input zzInput [readOnly]="filtersPending()" />
+              </div>
+              <div zzField>
+                <label zzFieldLabel>Search</label>
+                <input zzInput autofocus [readOnly]="filtersPending()" id="sheet-search" />
+              </div>
+            </div>
+            <div zzSheetFooter>
+              <button
+                zzButton
+                variant="primary"
+                type="submit"
+                [disabled]="filtersPending()"
+                focusableWhenDisabled
+              >
+                Apply
+              </button>
+            </div>
+          </form>
+        </dialog>
+      </div>
+      <output id="filter-applies">{{ filterApplies() }}</output>
+
+      <div zzSheet [(open)]="navOpen">
+        <button zzSheetTrigger variant="ghost" id="nav-trigger">Menu</button>
+        <dialog
+          zzSheetContent
+          side="left"
+          [closeButton]="false"
+          class="w-72 gap-0 p-0"
+          id="nav-content"
+        >
+          <div zzSheetHeader class="sr-only"><h2 zzSheetTitle>Navigation</h2></div>
+          <nav class="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
+            <a
+              href="/contracts"
+              (click)="$event.preventDefault(); navOpen.set(false)"
+              id="nav-link"
+            >
+              Contracts
+            </a>
+          </nav>
+        </dialog>
+      </div>
+
+      <!-- The Sheet root on the <dialog> itself. -->
+      <button zzButton (click)="panelOpen.set(true)" id="panel-open">Show details</button>
+      <dialog zzSheet zzSheetContent [(open)]="panelOpen" id="panel-content">
+        <div zzSheetHeader>
+          <h2 zzSheetTitle>Details</h2>
+        </div>
+      </dialog>
     </main>
 
     <section class="grid w-80 gap-4 p-5">
@@ -211,6 +277,11 @@ export class App {
   protected readonly contractSaves = signal(0);
   protected readonly noteOpen = signal(false);
   protected readonly discardOpen = signal(false);
+  protected readonly filtersOpen = signal(false);
+  protected readonly filtersPending = signal(false);
+  protected readonly filterApplies = signal(0);
+  protected readonly navOpen = signal(false);
+  protected readonly panelOpen = signal(false);
   readonly #search = injectOrigamiDialogOpener(SearchDialog);
   protected readonly contact = form(
     signal({ email: "", notes: "", account: "ACC-0042" }),
@@ -242,6 +313,21 @@ export class App {
     setTimeout(() => {
       this.editPending.set(false);
       this.editOpen.set(false);
+    }, 600);
+  }
+
+  protected applyFilters(event: Event): void {
+    event.preventDefault();
+
+    if (this.filtersPending()) {
+      return;
+    }
+
+    this.filterApplies.update((count) => count + 1);
+    this.filtersPending.set(true);
+    setTimeout(() => {
+      this.filtersPending.set(false);
+      this.filtersOpen.set(false);
     }, 600);
   }
 

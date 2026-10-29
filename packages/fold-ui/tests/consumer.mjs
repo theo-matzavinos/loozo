@@ -116,6 +116,7 @@ ng([
   "dialog",
   "field",
   "input",
+  "sheet",
   "textarea",
 ]);
 
@@ -130,6 +131,7 @@ assert.deepEqual(folders.sort(), [
   "dialog",
   "field",
   "input",
+  "sheet",
   "textarea",
   "theme.css",
 ]);

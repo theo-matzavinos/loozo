@@ -426,11 +426,12 @@ describe("add", () => {
     }
   });
 
-  test("copies Field, Input, Textarea and Dialog with only what they import", async () => {
+  test("copies Field, Input, Textarea, Dialog and Sheet with only what they import", async () => {
     const cases = {
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
+      sheet: ["button", "cn", "sheet"],
       textarea: ["cn", "input", "textarea"],
     };
 
