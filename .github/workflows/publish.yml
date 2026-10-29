@@ -9,7 +9,7 @@ on:
       package:
         description: Package to release
         type: choice
-        options: [angular-router, angular-launch, origami-ui]
+        options: [angular-router, angular-launch, origami-ui, fold-ui]
 
 permissions:
   contents: read
@@ -53,13 +53,14 @@ jobs:
       - run: pnpm --filter "${{ steps.bump.outputs.name }}" run test
       - if: hashFiles(format('packages/{0}/tests/packed.mjs', inputs.package)) != ''
         run: node "packages/$PACKAGE/tests/packed.mjs" "$RUNNER_TEMP/packed"
-      # The push fails if main moved during the run, so nothing gets published.
+      # The bump can touch other packages (an Origami release moves fold's Origami
+      # version). The push fails if main moved during the run, so nothing gets published.
       - env:
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit --no-verify --message "chore(release): $TAG" -- "packages/$PACKAGE"
+          git commit --no-verify --message "chore(release): $TAG" -- packages
           git tag "$TAG"
           git push --atomic origin HEAD:main "$TAG"
 
