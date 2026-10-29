@@ -2,9 +2,9 @@
 
 Styled Angular components for back-office apps, built on [Origami](../origami-ui/README.md)'s headless primitives and themed with Tailwind CSS v4. fold doesn't ship a component library you import: its schematics copy each component's source into your app, where you own and edit it.
 
-Each fold component is a directive that composes one Origami directive and adds classes. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
+Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink) and AlertDialog. There's no loading state, dialog motion, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, and Field with Input and Textarea. There's no loading state, dialog motion, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -40,6 +40,7 @@ ng add @loozo/fold-ui
 
 ```sh
 ng generate @loozo/fold-ui:add --names button alert-dialog
+ng generate @loozo/fold-ui:add --names field input textarea
 ```
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
@@ -55,14 +56,19 @@ src/ui/
 │   ├── button-style.ts
 │   ├── button.ts
 │   └── button-link.ts
-└── alert-dialog/
+├── alert-dialog/
+│   ├── index.ts
+│   ├── alert-dialog.ts
+│   ├── alert-dialog-trigger.ts
+│   └── …
+└── field/
     ├── index.ts
-    ├── alert-dialog.ts
-    ├── alert-dialog-trigger.ts
+    ├── field.ts
+    ├── field-label.ts
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's Trigger and Cancel are styled by Button's `ButtonStyle`, so adding `alert-dialog` adds `button` too, and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's Trigger and Cancel are styled by Button's `ButtonStyle`, so adding `alert-dialog` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -91,7 +97,7 @@ Tailwind's default colors and `text-*` sizes stay available.
 
 ## Class merging and slots
 
-Every part takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
+Every part except the AlertDialog root takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
 
 ```html
 <button foldButton class="px-6">Wider</button>
@@ -120,7 +126,7 @@ export class Panel {
 
 Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`; Input and Textarea also style native `:disabled` and `[readonly]`.
 
 ## Button
 
@@ -215,6 +221,58 @@ protected terminate(): void {
 ```
 
 End pending however the work ends: if it fails, the dialog stays open with Cancel, Escape and the action usable again, and can show the error.
+
+## Field
+
+```ts
+import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
+import { Input } from "#ui/input";
+import { Textarea } from "#ui/textarea";
+```
+
+Field stacks a label, a control, its descriptions and its errors, over Origami's [Field](../origami-ui/field/README.md), which links them for assistive technology and reads the control's [Signal Forms](https://angular.dev/guide/forms/signals/overview) state. Bind the control with `[formField]`:
+
+```html
+<div foldField #email="foldField">
+  <label foldFieldLabel>Email</label>
+  <input foldInput type="email" [formField]="f.email" placeholder="you@example.com" />
+  <p foldFieldDescription>We only use it for receipts.</p>
+  @if (email.state.errorsShown()) {
+  <p foldFieldError>{{ email.state.errors()[0]?.message }}</p>
+  }
+</div>
+<div foldField>
+  <label foldFieldLabel>Notes</label>
+  <textarea foldTextarea rows="4" [formField]="f.notes"></textarea>
+</div>
+```
+
+- `Field`: the root, a column with a 6px gap. Its template reference, `#email="foldField"` with your prefix, has `state`: Origami's Field state, with `errorsShown`, `errors`, `invalid`, `touched`, `disabled` and `required` signals.
+- `FieldLabel`: a `<label>` that names the control, in body text at weight 600. It dims while the Field is disabled. It takes `id`.
+- `FieldDescription`: a 12px muted hint. It takes `id`.
+- `FieldError`: a 12px message in the destructive text color, after an alert icon hidden from assistive technology. It always shows while it's mounted, so put it under `@if (field.state.errorsShown())`; the text is yours. It takes `id`.
+
+Origami's Field README describes the wiring, when errors show and the server rendering. Field wraps any control that joins an Origami Field, not only fold's.
+
+Field's state needs Signal Forms' `[formField]` on the control. With reactive forms' `[formControl]`, `ngModel` or a bare native `disabled`, every state signal stays `false`: no error border, no `errorsShown` to gate errors on, and no dimmed label. Native `:disabled` and `[readonly]` still style the control.
+
+A disabled Field also dims the labels of Fields nested inside it.
+
+## Input
+
+`Input` styles a native `<input>`: 32px, the surface fill, a 1px border that darkens on hover, the green focus ring, a destructive border while the Field shows errors, a dashed border without fill when `readonly`, and 50% opacity when disabled. Inside a Field, Origami gives it an `id`, `aria-describedby` and `aria-invalid`; it takes `id`. It also works without a Field, keeping your own attributes:
+
+```html
+<input foldInput type="search" aria-label="Search" class="ps-8" />
+```
+
+Use it for text-like types, such as `text`, `email`, `password`, `search`, `number` and `date`. Checkbox, radio and file inputs don't fit its look.
+
+`inputClasses` is the look without the height, shared with Textarea.
+
+## Textarea
+
+`Textarea` styles a native `<textarea>` with Input's look, at least 64px tall and resizable vertically; `rows` sets its height above that. It takes `id`. It imports `inputClasses` from `../input`, so adding `textarea` adds `input`.
 
 ## Limitations
 

@@ -1,6 +1,6 @@
 // Chromium smoke of the consumer check's production build (consumer.mjs): the prerendered HTML,
-// hydration without errors, the button geometry, colors and type, and the AlertDialog's focus and
-// dismissal rules.
+// hydration without errors, the button geometry, colors and type, the AlertDialog's focus and
+// dismissal rules, and a Signal Forms Field's wiring, errors and control styling.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -91,6 +91,24 @@ try {
   assert.match(cancel, /\bautofocus=""/);
   assert.match(cancel, /\bdata-slot="alert-dialog-cancel"/);
   assert.match(html, /\bngh="/, "the server HTML carries hydration annotations");
+
+  // Field: the label names the input, the description describes it, and no error shows yet.
+  const emailField = openingTag(html, "email-field");
+  const emailLabel = openingTag(html, "email-label");
+  const email = openingTag(html, "email");
+
+  assert.match(emailField, /\bdata-slot="field"/);
+  assert.match(emailField, /\bdata-required=""/);
+  assert.doesNotMatch(emailField, /\sdata-invalid=/);
+  assert.match(emailLabel, /\bfor="email"/);
+  assert.match(emailLabel, /\bdata-slot="field-label"/);
+  assert.match(email, /\bdata-slot="input"/);
+  assert.match(email, /\baria-describedby="email-description"/);
+  assert.doesNotMatch(email, /\saria-invalid=/);
+  assert.match(openingTag(html, "email-description"), /\bdata-slot="field-description"/);
+  assert.match(openingTag(html, "notes"), /\bdata-slot="textarea"/);
+  assert.match(openingTag(html, "account-field"), /\bdata-disabled=""/);
+  assert.doesNotMatch(html, /\bid="email-error"/);
 
   browser = await chromium.launch();
 
@@ -245,6 +263,155 @@ try {
   });
   assert.equal(await page.evaluate(() => document.activeElement?.id), "trigger");
   assert.equal(await page.textContent("#terminations"), "1", "action runs once while pending");
+
+  // Field, Input and Textarea: control sizes, readonly, the disabled Field's label, and a class
+  // that refines the padding and replaces the width. Without transitions, colors read settled.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+
+  const controls = await page.evaluate(() => {
+    const search = document.getElementById("search");
+    const searchStyle = getComputedStyle(search);
+
+    return {
+      input: getComputedStyle(document.getElementById("email")).height,
+      textarea: getComputedStyle(document.getElementById("notes")).minHeight,
+      readonly: getComputedStyle(document.getElementById("contract")).borderTopStyle,
+      disabledLabel: getComputedStyle(document.getElementById("account-label")).opacity,
+      searchClasses: [...search.classList],
+      searchWidth: searchStyle.width,
+      searchPadding: `${searchStyle.paddingInlineStart} ${searchStyle.paddingInlineEnd}`,
+    };
+  });
+
+  assert.equal(controls.input, "32px");
+  assert.equal(controls.textarea, "64px");
+  assert.equal(controls.readonly, "dashed");
+  assert.equal(controls.disabledLabel, "0.5");
+  assert.ok(controls.searchClasses.includes("w-60"), "search keeps its width class");
+  assert.equal(controls.searchClasses.includes("w-full"), false, "search drops w-full");
+  assert.equal(controls.searchWidth, "240px");
+  assert.equal(controls.searchPadding, "32px 10px");
+
+  const border = (id) =>
+    page.evaluate((id) => getComputedStyle(document.getElementById(id)).borderTopColor, id);
+
+  // Hover mixes the control's own theme colors: inside a light subtree of the dark document, it
+  // matches the same control under a light document.
+  await page.mouse.move(0, 0);
+
+  const lightRest = await border("light-input");
+
+  await page.hover("#light-input");
+
+  const lightHover = await border("light-input");
+
+  await page.evaluate(() => document.documentElement.classList.add("light"));
+
+  const lightDocumentHover = await border("light-input");
+
+  await page.evaluate(() => document.documentElement.classList.remove("light"));
+  assert.equal(lightRest, "rgb(133, 133, 129)", "the light subtree's input border");
+  assert.notEqual(lightHover, lightRest, "hover changes the border");
+  assert.equal(lightHover, lightDocumentHover, "the light subtree's hover border");
+
+  // Focused and valid: the border is the ring, hovered or not.
+  await page.click("#notes");
+
+  const focusedHover = await border("notes");
+
+  await page.mouse.move(0, 0);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "notes");
+  assert.deepEqual(
+    { hovered: focusedHover, rest: await border("notes") },
+    { hovered: "rgb(76, 196, 111)", rest: "rgb(76, 196, 111)" },
+  );
+
+  // A disabled control is natively disabled, dimmed and keeps its border under the pointer.
+  const disabledControl = () =>
+    page.evaluate(() => {
+      const account = document.getElementById("account");
+      const style = getComputedStyle(account);
+
+      return {
+        disabled: account.disabled,
+        opacity: style.opacity,
+        cursor: style.cursor,
+        border: style.borderTopColor,
+      };
+    });
+  const disabledStyle = {
+    disabled: true,
+    opacity: "0.5",
+    cursor: "not-allowed",
+    border: "rgb(107, 107, 104)",
+  };
+
+  assert.deepEqual(await disabledControl(), disabledStyle, "disabled at rest");
+  await page.hover("#account");
+  assert.deepEqual(await disabledControl(), disabledStyle, "disabled while hovered");
+  await page.mouse.move(0, 0);
+
+  // Leaving the field with an invalid value shows the error, with its icon, after the description.
+  await page.click("#email");
+  await page.keyboard.type("bad");
+  await page.keyboard.press("Tab");
+  await page.waitForSelector("#email-error");
+
+  const invalid = await page.evaluate(() => {
+    const field = document.getElementById("email-field");
+    const email = document.getElementById("email");
+    const error = document.getElementById("email-error");
+
+    return {
+      fieldInvalid: field.hasAttribute("data-invalid"),
+      ariaInvalid: email.getAttribute("aria-invalid"),
+      describedBy: email.getAttribute("aria-describedby"),
+      error: error.textContent.trim(),
+      errorSlot: error.dataset.slot,
+      icon: error.querySelector(":scope > svg[aria-hidden='true']") !== null,
+      border: getComputedStyle(email).borderTopColor,
+    };
+  });
+
+  assert.deepEqual(invalid, {
+    fieldInvalid: true,
+    ariaInvalid: "true",
+    describedBy: "email-description email-error",
+    error: "Enter a valid email.",
+    errorSlot: "field-error",
+    icon: true,
+    border: "rgb(224, 144, 111)",
+  });
+
+  // Focused while invalid: the border keeps the error color and the focus outline is the ring.
+  await page.keyboard.press("Shift+Tab");
+
+  const focused = await page.evaluate(() => {
+    const email = document.getElementById("email");
+    const style = getComputedStyle(email);
+
+    return {
+      focused: document.activeElement === email,
+      border: style.borderTopColor,
+      outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
+      offset: style.outlineOffset,
+    };
+  });
+
+  assert.deepEqual(focused, {
+    focused: true,
+    border: "rgb(224, 144, 111)",
+    outline: "solid 2px rgb(76, 196, 111)",
+    offset: "2px",
+  });
+
+  // Saving untouched fields shows their errors and doesn't run the action.
+  await page.goto(base, { waitUntil: "networkidle" });
+  await page.click("#save");
+  await page.waitForSelector("#email-error");
+  assert.equal((await page.textContent("#email-error")).trim(), "Enter your email.");
+  assert.equal(await page.getAttribute("#email", "aria-invalid"), "true");
+  assert.equal(await page.textContent("#saves"), "0");
 
   assert.deepEqual(errors, [], "console errors or warnings");
   console.log("Chromium smoke passed:", JSON.stringify(geometry));

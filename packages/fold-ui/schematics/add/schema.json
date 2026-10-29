@@ -7,7 +7,10 @@
     "names": {
       "description": "The components to copy into the application.",
       "type": "array",
-      "items": { "type": "string", "enum": ["alert-dialog", "button", "cn"] },
+      "items": {
+        "type": "string",
+        "enum": ["alert-dialog", "button", "cn", "field", "input", "textarea"]
+      },
       "x-prompt": "Which components do you want to add?"
     },
     "existing": {
