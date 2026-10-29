@@ -1,5 +1,6 @@
 // Bumps packages/<package> to the next 0.0.x. Launch also pins the router's
 // current version as its exact peer dependency and in its README install command.
+// Origami also moves the version fold's ng-add installs to the new release.
 import { readFile, writeFile } from "node:fs/promises";
 
 const name = process.argv[2];
@@ -35,6 +36,18 @@ if (name === "angular-launch") {
 
   manifest.peerDependencies["@loozo/angular-router"] = router.version;
   await writeFile(readmeUrl, readme.replace(install, `@loozo/angular-router@${router.version}`));
+}
+
+if (name === "origami-ui") {
+  const ngAddUrl = new URL("../packages/fold-ui/schematics/ng-add/index.ts", import.meta.url);
+  const ngAdd = await readFile(ngAddUrl, "utf8");
+  const pin = /("@loozo\/origami-ui": )"\d+\.\d+\.\d+"/;
+
+  if (!pin.test(ngAdd)) {
+    throw new Error("Can't find the @loozo/origami-ui version in fold's ng-add");
+  }
+
+  await writeFile(ngAddUrl, ngAdd.replace(pin, `$1"${manifest.version}"`));
 }
 
 await writeFile(manifestUrl(name), `${JSON.stringify(manifest, null, 2)}\n`);

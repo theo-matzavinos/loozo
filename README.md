@@ -39,7 +39,7 @@ Pack and publish only from `dist/`; publishing from a package root fails on purp
 
 Release a package from the Actions tab: run the **Publish** workflow on `main` and pick the package. The workflow:
 
-1. Bumps the package to the next `0.0.x` with `scripts/bump-version.mjs`. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed.
+1. Bumps the package to the next `0.0.x` with `scripts/bump-version.mjs`. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
 2. Builds the package and the workspace packages it depends on, then runs its `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one.
 3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main`. If `main` moved during the run, the push fails and nothing is published.
 4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token. If only this step fails, use **Re-run failed jobs**.
