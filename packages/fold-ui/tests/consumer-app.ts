@@ -1,13 +1,46 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
-import { Component, signal } from "@angular/core";
+import { Component, inject, signal } from "@angular/core";
 import { FormField, disabled, email, form, required, submit } from "@angular/forms/signals";
+import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { Button, ButtonLink } from "#ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogParts,
+  DialogTitle,
+} from "#ui/dialog";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
 import { Textarea } from "#ui/textarea";
 import { LucideTriangleAlert } from "@lucide/angular";
+
+// A dialog opened from code: the component is the Dialog root and closes itself.
+@Component({
+  selector: "app-search-dialog",
+  imports: [Button, DialogContent, DialogFooter, DialogHeader, DialogTitle],
+  hostDirectives: [Dialog],
+  template: `
+    <dialog zzDialogContent id="search-content" class="w-[min(640px,calc(100%-32px))]">
+      <div zzDialogHeader>
+        <h2 zzDialogTitle>Search invoices</h2>
+      </div>
+      <div zzDialogFooter>
+        <button zzButton variant="primary" (click)="done()" id="search-done">Search</button>
+      </div>
+    </dialog>
+  `,
+})
+export class SearchDialog {
+  readonly #dialog = inject(OrigamiDialog);
+
+  protected done(): void {
+    this.#dialog.open.set(false);
+  }
+}
 
 @Component({
   selector: "app-root",
@@ -15,6 +48,7 @@ import { LucideTriangleAlert } from "@lucide/angular";
     Button,
     ButtonLink,
     AlertDialogParts,
+    DialogParts,
     Field,
     FieldDescription,
     FieldError,
@@ -75,6 +109,63 @@ import { LucideTriangleAlert } from "@lucide/angular";
           </div>
         </dialog>
       </div>
+
+      <div zzDialog [(open)]="editOpen" [dismissible]="!editPending()">
+        <button zzDialogTrigger id="dialog-trigger">Edit contract</button>
+        <dialog zzDialogContent id="dialog-content">
+          <form class="contents" (submit)="saveContract($event)">
+            <div zzDialogHeader>
+              <h2 zzDialogTitle id="dialog-title">Edit contract</h2>
+              <p zzDialogDescription>Changes apply from the next billing period.</p>
+            </div>
+            <div zzDialogBody class="grid gap-4">
+              <div zzField>
+                <label zzFieldLabel>Reference</label>
+                <input zzInput autofocus [readOnly]="editPending()" id="dialog-reference" />
+              </div>
+            </div>
+            <div zzDialogFooter>
+              <button
+                zzDialogClose
+                [disabled]="editPending()"
+                focusableWhenDisabled
+                id="dialog-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                zzButton
+                variant="primary"
+                type="submit"
+                [disabled]="editPending()"
+                focusableWhenDisabled
+                id="dialog-save"
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        </dialog>
+      </div>
+      <output id="contract-saves">{{ contractSaves() }}</output>
+      <button zzButton (click)="openSearch()" id="search-open">Search invoices</button>
+
+      <!-- The root on the <dialog> itself. -->
+      <button zzButton (click)="noteOpen.set(true)" id="note-open">Add note</button>
+      <dialog zzDialog zzDialogContent [(open)]="noteOpen" id="note-content">
+        <div zzDialogHeader>
+          <h2 zzDialogTitle>Add note</h2>
+        </div>
+      </dialog>
+      <button zzButton (click)="discardOpen.set(true)" id="discard-open">Discard draft</button>
+      <dialog zzAlertDialog zzAlertDialogContent [(open)]="discardOpen" id="discard-content">
+        <div zzAlertDialogHeader>
+          <h2 zzAlertDialogTitle>Discard draft?</h2>
+        </div>
+        <div zzAlertDialogFooter>
+          <button zzAlertDialogCancel>Keep editing</button>
+        </div>
+      </dialog>
     </main>
 
     <section class="grid w-80 gap-4 p-5">
@@ -115,6 +206,12 @@ export class App {
   protected readonly pending = signal(false);
   protected readonly terminations = signal(0);
   protected readonly saves = signal(0);
+  protected readonly editOpen = signal(false);
+  protected readonly editPending = signal(false);
+  protected readonly contractSaves = signal(0);
+  protected readonly noteOpen = signal(false);
+  protected readonly discardOpen = signal(false);
+  readonly #search = injectOrigamiDialogOpener(SearchDialog);
   protected readonly contact = form(
     signal({ email: "", notes: "", account: "ACC-0042" }),
     (path) => {
@@ -130,6 +227,26 @@ export class App {
 
       return undefined;
     });
+  }
+
+  protected saveContract(event: Event): void {
+    event.preventDefault();
+
+    // A focusable disabled submit button still submits, and so does Enter in a field.
+    if (this.editPending()) {
+      return;
+    }
+
+    this.contractSaves.update((count) => count + 1);
+    this.editPending.set(true);
+    setTimeout(() => {
+      this.editPending.set(false);
+      this.editOpen.set(false);
+    }, 600);
+  }
+
+  protected openSearch(): void {
+    this.#search.open();
   }
 
   protected terminate(): void {

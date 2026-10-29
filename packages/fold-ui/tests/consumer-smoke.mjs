@@ -1,6 +1,6 @@
 // Chromium smoke of the consumer check's production build (consumer.mjs): the prerendered HTML,
-// hydration without errors, the button geometry, colors and type, the AlertDialog's focus and
-// dismissal rules, and a Signal Forms Field's wiring, errors and control styling.
+// hydration without errors, the button geometry, colors and type, the AlertDialog's and Dialog's
+// focus, dismissal and motion, and a Signal Forms Field's wiring, errors and control styling.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -92,6 +92,29 @@ try {
   assert.match(cancel, /\bdata-slot="alert-dialog-cancel"/);
   assert.match(html, /\bngh="/, "the server HTML carries hydration annotations");
 
+  // Dialog: closed on the server, named by its Title, with the corner close button.
+  const dialogContent = openingTag(html, "dialog-content");
+
+  assert.match(dialogContent, /\bdata-slot="dialog-content"/);
+  assert.match(dialogContent, /\baria-labelledby="dialog-title"/);
+  assert.doesNotMatch(dialogContent, /\sopen[\s=>]/);
+  assert.ok(
+    html
+      .match(/<button\b[^>]*>/g)
+      .some(
+        (tag) => tag.includes('data-slot="dialog-close"') && tag.includes('aria-label="Close"'),
+      ),
+    "the server HTML has the labelled close button",
+  );
+
+  // The root on the <dialog> itself: closed on the server.
+  for (const id of ["note-content", "discard-content"]) {
+    assert.doesNotMatch(openingTag(html, id), /\sopen[\s=>]/, `${id} open`);
+  }
+  // Content's slot wins over the root's on a shared host.
+  assert.match(openingTag(html, "note-content"), /\bdata-slot="dialog-content"/);
+  assert.match(openingTag(html, "discard-content"), /\bdata-slot="alert-dialog-content"/);
+
   // Field: the label names the input, the description describes it, and no error shows yet.
   const emailField = openingTag(html, "email-field");
   const emailLabel = openingTag(html, "email-label");
@@ -111,6 +134,29 @@ try {
   assert.doesNotMatch(html, /\bid="email-error"/);
 
   browser = await chromium.launch();
+
+  // Before hydration, the prerendered dialogs are hidden, also with the root on the <dialog>.
+  const prerendered = await browser.newPage({ javaScriptEnabled: false });
+
+  await prerendered.goto(base);
+
+  const prerenderedDisplay = await prerendered.evaluate(() => {
+    const result = {};
+
+    for (const id of ["content", "dialog-content", "note-content", "discard-content"]) {
+      result[id] = getComputedStyle(document.getElementById(id)).display;
+    }
+
+    return result;
+  });
+
+  assert.deepEqual(prerenderedDisplay, {
+    content: "none",
+    "dialog-content": "none",
+    "note-content": "none",
+    "discard-content": "none",
+  });
+  await prerendered.close();
 
   const page = await browser.newPage();
   const errors = [];
@@ -227,6 +273,51 @@ try {
     assert.ok(Number.parseFloat(geometry[id].height) < 28, `${id} height ${geometry[id].height}`);
   }
 
+  const settled = (id) =>
+    page.waitForFunction((id) => {
+      const content = document.getElementById(id);
+
+      return content.hasAttribute("data-present") && getComputedStyle(content).opacity === "1";
+    }, id);
+  const closed = (id) =>
+    page.waitForFunction((id) => !document.getElementById(id)?.hasAttribute("open"), id);
+  // Clicks `control` in the page and, once a render has marked Content with `phase`
+  // (data-entering or data-leaving), reports whether it's modal and whether transitions run on
+  // Content itself, not its backdrop. Presence waits for those only, so without them the phase
+  // can end in the same task.
+  const phase = (id, phase, control) =>
+    page.evaluate(
+      ([id, phase, control]) =>
+        new Promise((resolve, reject) => {
+          const content = document.getElementById(id);
+          const timeout = setTimeout(() => reject(new Error(`${id} never got ${phase}`)), 5_000);
+          const observer = new MutationObserver((records) => {
+            let marked = false;
+
+            for (const record of records) {
+              if (record.oldValue === null) {
+                marked = true;
+              }
+            }
+
+            if (!marked) {
+              return;
+            }
+
+            observer.disconnect();
+            clearTimeout(timeout);
+            resolve({
+              modal: content.matches(":modal"),
+              transitioning: content.getAnimations().length > 0,
+            });
+          });
+
+          observer.observe(content, { attributeFilter: [phase], attributeOldValue: true });
+          document.querySelector(control).click();
+        }),
+      [id, phase, control],
+    );
+
   // AlertDialog: Cancel takes initial focus; the backdrop doesn't dismiss; Escape does.
   await page.click("#trigger");
   await page.waitForFunction(() => document.querySelector("#content").matches(":modal"));
@@ -238,6 +329,19 @@ try {
 
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !document.querySelector("#content").hasAttribute("open"));
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "trigger");
+
+  // It fades in, and closing fades it out while it stays modal.
+  assert.deepEqual(await phase("content", "data-entering", "#trigger"), {
+    modal: true,
+    transitioning: true,
+  });
+  await settled("content");
+  assert.deepEqual(await phase("content", "data-leaving", "#cancel"), {
+    modal: true,
+    transitioning: true,
+  });
+  await closed("content");
   assert.equal(await page.evaluate(() => document.activeElement?.id), "trigger");
 
   // While the action is pending, it doesn't run again and Escape is blocked; closing on success
@@ -264,9 +368,151 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement?.id), "trigger");
   assert.equal(await page.textContent("#terminations"), "1", "action runs once while pending");
 
+  // Dialog: it fades and scales in to full opacity, named by its Title, with the autofocus field
+  // focused and a labelled corner close button last.
+  const closeButton = () =>
+    page.evaluate(() => {
+      const close = document.querySelector("#dialog-content > [data-slot=dialog-close]");
+
+      return {
+        last: close === document.getElementById("dialog-content").lastElementChild,
+        label: close.getAttribute("aria-label"),
+        ariaDisabled: close.getAttribute("aria-disabled"),
+        disabled: close.disabled,
+        tabIndex: close.tabIndex,
+      };
+    });
+  const width = (id) =>
+    page.evaluate((id) => getComputedStyle(document.getElementById(id)).width, id);
+
+  // Content is laid out only while open.
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.getElementById("dialog-content")).display),
+    "none",
+  );
+
+  await page.click("#dialog-trigger");
+  await settled("dialog-content");
+  assert.equal(await page.getByRole("dialog", { name: "Edit contract" }).count(), 1);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "dialog-reference");
+  assert.deepEqual(await closeButton(), {
+    last: true,
+    label: "Close",
+    ariaDisabled: null,
+    disabled: false,
+    tabIndex: 0,
+  });
+
+  const dialogBox = await page.evaluate(() => {
+    const style = getComputedStyle(document.getElementById("dialog-content"));
+
+    return { width: style.width, display: style.display, outline: style.outlineStyle };
+  });
+
+  assert.deepEqual(dialogBox, { width: "512px", display: "flex", outline: "none" });
+
+  // While saving: the close button is disabled but focusable, Escape is blocked, Enter on the
+  // focusable disabled Save doesn't save again, and focus stays in the dialog until it closes and
+  // returns to the Trigger.
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector("#dialog-content > [data-slot=dialog-close]")
+        .getAttribute("aria-disabled") === "true",
+  );
+  assert.deepEqual(await closeButton(), {
+    last: true,
+    label: "Close",
+    ariaDisabled: "true",
+    disabled: false,
+    tabIndex: 0,
+  });
+  await page.focus("#dialog-save");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "dialog-save");
+
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  assert.ok(await page.evaluate(() => document.querySelector("#dialog-content").matches(":modal")));
+
+  await closed("dialog-content");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "dialog-trigger");
+  assert.equal(await page.textContent("#contract-saves"), "1", "saves once while pending");
+
+  // Dismissible again: the close button closes it, fading it out while it stays modal.
+  assert.deepEqual(await phase("dialog-content", "data-entering", "#dialog-trigger"), {
+    modal: true,
+    transitioning: true,
+  });
+  await settled("dialog-content");
+  assert.deepEqual(
+    await phase("dialog-content", "data-leaving", "#dialog-content > [data-slot=dialog-close]"),
+    { modal: true, transitioning: true },
+  );
+  await closed("dialog-content");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "dialog-trigger");
+
+  // Opened from code: the component is the root, a class widens the content, and the component
+  // closes itself, returning focus to the button that opened it.
+  await page.click("#search-open");
+  await settled("search-content");
+  assert.equal(await page.getByRole("dialog", { name: "Search invoices" }).count(), 1);
+  assert.equal(await width("search-content"), "640px");
+  // The browser's own max-width, calc(100% - 6px - 2em), is off, so wider overrides aren't capped.
+  assert.equal(
+    await page.evaluate(() => getComputedStyle(document.getElementById("search-content")).maxWidth),
+    "none",
+  );
+  // On a narrow screen it keeps 16px from each edge.
+  await page.setViewportSize({ width: 375, height: 667 });
+  assert.equal(await width("search-content"), "343px");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.click("#search-done");
+  await page.waitForFunction(() => document.getElementById("search-content") === null);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "search-open");
+
+  // The root on the <dialog> itself: hidden while closed, it opens and closes.
+  for (const [id, open] of [
+    ["note-content", "#note-open"],
+    ["discard-content", "#discard-open"],
+  ]) {
+    assert.equal(
+      await page.evaluate((id) => getComputedStyle(document.getElementById(id)).display, id),
+      "none",
+      `${id} closed`,
+    );
+    await page.click(open);
+    await settled(id);
+    await page.keyboard.press("Escape");
+    await closed(id);
+    assert.equal(
+      await page.evaluate((id) => getComputedStyle(document.getElementById(id)).display, id),
+      "none",
+      `${id} closed again`,
+    );
+  }
+
+  // With reduced motion, the dialogs open and close without transitions, so closing doesn't wait.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+
+  for (const [id, open, close] of [
+    ["content", "#trigger", "#cancel"],
+    ["dialog-content", "#dialog-trigger", "#dialog-content > [data-slot=dialog-close]"],
+  ]) {
+    const opening = await phase(id, "data-entering", open);
+
+    assert.equal(opening.transitioning, false, `${id} opens`);
+    await settled(id);
+
+    const closing = await phase(id, "data-leaving", close);
+
+    assert.equal(closing.transitioning, false, `${id} closes`);
+    await closed(id);
+  }
+
   // Field, Input and Textarea: control sizes, readonly, the disabled Field's label, and a class
   // that refines the padding and replaces the width. Without transitions, colors read settled.
-  await page.emulateMedia({ reducedMotion: "reduce" });
 
   const controls = await page.evaluate(() => {
     const search = document.getElementById("search");

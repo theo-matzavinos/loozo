@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, and Field with Input and Textarea. There's no loading state, dialog motion, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, and Field with Input and Textarea. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ ng add @loozo/fold-ui
 ## Add components
 
 ```sh
-ng generate @loozo/fold-ui:add --names button alert-dialog
+ng generate @loozo/fold-ui:add --names button alert-dialog dialog
 ng generate @loozo/fold-ui:add --names field input textarea
 ```
 
@@ -68,7 +68,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's Trigger and Cancel are styled by Button's `ButtonStyle`, so adding `alert-dialog` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's and Dialog's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog` or `dialog` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -97,7 +97,7 @@ Tailwind's default colors and `text-*` sizes stay available.
 
 ## Class merging and slots
 
-Every part except the AlertDialog root takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
+Every part except the AlertDialog and Dialog roots takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
 
 ```html
 <button foldButton class="px-6">Wider</button>
@@ -185,9 +185,9 @@ AlertDialog confirms a destructive action, over Origami's [AlertDialog](../origa
 </div>
 ```
 
-- `AlertDialog`: the root, with `open` (two-way), `dismissible` and `openChange`. It's `display: contents`.
+- `AlertDialog`: the root, with `open` (two-way), `dismissible` and `openChange`. It's `display: contents` unless it's on the `<dialog>` itself.
 - `AlertDialogTrigger`: opens the dialog. It takes Button's `variant`, `size` and `class`, plus `id`, `disabled` and `focusableWhenDisabled`.
-- `AlertDialogContent`: the modal `<dialog>`, up to 440px wide, over a scrim. It takes `id` and `returnFocus`. The backdrop doesn't close it; Escape does while the dialog is dismissible. When it closes, focus returns to the Trigger, or to `returnFocus`.
+- `AlertDialogContent`: the modal `<dialog>`, up to 440px wide, over a scrim, with Dialog's [motion](#motion). It takes `id` and `returnFocus`. The backdrop doesn't close it; Escape does while the dialog is dismissible. When it closes, focus returns to what had it before the dialog opened, or to `returnFocus` if that can take focus; see Origami's [Focus](../origami-ui/dialog/README.md#focus) for when focus was lost.
 - `AlertDialogHeader`: lays out the title and description, beside the icon tile when there is one.
 - `AlertDialogIcon`: an optional 32px warning tile for an 18px icon, hidden from assistive technology.
 - `AlertDialogTitle` and `AlertDialogDescription`: name and describe the dialog for assistive technology. They take `id`.
@@ -221,6 +221,161 @@ protected terminate(): void {
 ```
 
 End pending however the work ends: if it fails, the dialog stays open with Cancel, Escape and the action usable again, and can show the error.
+
+## Dialog
+
+```ts
+import { DialogParts } from "#ui/dialog";
+import { Button } from "#ui/button";
+```
+
+Dialog is a centered modal for a task, such as editing a record or filling in search criteria, over Origami's [Dialog](../origami-ui/dialog/README.md). `DialogParts` holds all nine parts for a component's `imports`; each is also exported on its own.
+
+```html
+<div foldDialog [(open)]="open" [dismissible]="!pending()">
+  <button foldDialogTrigger>Edit contract</button>
+  <dialog foldDialogContent>
+    <form class="contents" (submit)="save($event)">
+      <div foldDialogHeader>
+        <h2 foldDialogTitle>Edit contract</h2>
+        <p foldDialogDescription>Changes apply from the next billing period.</p>
+      </div>
+      <div foldDialogBody class="grid gap-4">
+        <div foldField>
+          <label foldFieldLabel>Reference</label>
+          <input foldInput autofocus [readOnly]="pending()" [formField]="f.reference" />
+        </div>
+        …
+      </div>
+      <div foldDialogFooter>
+        <button foldDialogClose [disabled]="pending()" focusableWhenDisabled>Cancel</button>
+        <button
+          foldButton
+          variant="primary"
+          type="submit"
+          [disabled]="pending()"
+          focusableWhenDisabled
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  </dialog>
+</div>
+```
+
+- `Dialog`: the root, with `open` (two-way), `dismissible` and `openChange`. It's `display: contents` unless it's on the `<dialog>` itself. Escape and a backdrop click close the dialog while it's dismissible.
+- `DialogTrigger`: opens the dialog. It takes Button's `variant`, `size` and `class`, plus `id`, `disabled` and `focusableWhenDisabled`.
+- `DialogContent`: the modal `<dialog>` over a scrim, centered, 512px wide and at most the viewport's height less 32px; on narrow screens it keeps 16px from each edge. It lays its children out in a column, 20px apart. It takes `id`, `returnFocus`, `closeButton` and `closeLabel`. When it closes, focus returns to what had it before the dialog opened, or to `returnFocus` if that can take focus; see Origami's [Focus](../origami-ui/dialog/README.md#focus) for when focus was lost.
+- `DialogHeader`: stacks the title and description, clear of the close button.
+- `DialogTitle` and `DialogDescription`: name and describe the dialog for assistive technology. They take `id`.
+- `DialogBody`: the part that scrolls when the dialog runs out of height, so the header and footer stay in place. Without a Body, the whole dialog scrolls, close button and footer included.
+- `DialogFooter`: the actions, right-aligned.
+- `DialogClose`: closes the dialog, whatever `dismissible` says. Secondary by default; it takes Button's inputs, `disabled` and `focusableWhenDisabled`.
+
+Content ends with a close button in its top corner: a ghost icon button named by `closeLabel`, `"Close"` by default, so set it in your app's language. It's disabled but focusable while the dialog isn't dismissible. `[closeButton]="false"` removes it; the Header keeps its room either way. To keep a working close button while the dialog isn't dismissible, remove it and add a `foldDialogClose` of your own.
+
+Content's `class` replaces its width, such as `class="w-[min(640px,calc(100%-32px))]"` for a wider dialog.
+
+### Forms in a dialog
+
+Wrap the header, body and footer in `<form class="contents">`: the form takes no part in the layout, and the footer's submit button submits it.
+
+- **Initial focus.** The browser focuses an `autofocus` element, else the first focusable one. Chromium counts a Body that overflows as focusable, so it focuses the Body before the fields inside it, depending on the viewport's height. Put `autofocus` on the first field of a form dialog.
+- **While saving**, make the dialog non-dismissible and disable the buttons with `focusableWhenDisabled`, as in an [AlertDialog](#alertdialog); the close button follows `dismissible` on its own. Make the fields `[readOnly]` instead of `[disabled]`: disabling the field that has focus drops focus to `<body>`, out of the modal.
+- **Guard the submit handler.** A focusable disabled submit button still submits the form, from Enter on it or Enter in a field, so the handler returns while pending:
+
+```ts
+protected save(event: Event): void {
+  event.preventDefault();
+
+  if (this.pending()) {
+    return;
+  }
+
+  this.pending.set(true);
+  this.contracts
+    .update(this.f().value())
+    .pipe(finalize(() => this.pending.set(false)))
+    .subscribe({
+      next: () => this.open.set(false),
+      error: () => this.failed.set(true),
+    });
+}
+```
+
+### Opening a dialog from code
+
+A component can be the Dialog root through `hostDirectives: [Dialog]`, close itself with `inject(OrigamiDialog).open.set(false)` and be opened with Origami's `injectOrigamiDialogOpener`, which [Opening from code](../origami-ui/dialog/README.md#opening-from-code) describes:
+
+```ts
+import { Component, inject, input, linkedSignal, output } from "@angular/core";
+import { OrigamiDialog } from "@loozo/origami-ui/dialog";
+import { Button } from "#ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#ui/dialog";
+
+@Component({
+  selector: "app-invoice-search-dialog",
+  imports: [Button, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle],
+  hostDirectives: [Dialog],
+  template: `
+    <dialog foldDialogContent class="w-[min(640px,calc(100%-32px))]">
+      <form class="contents" (submit)="submit($event)">
+        <div foldDialogHeader><h2 foldDialogTitle>Search invoices</h2></div>
+        <div foldDialogBody class="grid gap-4 sm:grid-cols-2">…</div>
+        <div foldDialogFooter>
+          <button foldButton variant="primary" type="submit">Search</button>
+        </div>
+      </form>
+    </dialog>
+  `,
+})
+export class InvoiceSearchDialog {
+  readonly initialCriteria = input.required<InvoiceCriteria>();
+  readonly search = output<InvoiceCriteria>();
+
+  protected readonly draft = linkedSignal(() => this.initialCriteria());
+  readonly #dialog = inject(OrigamiDialog);
+
+  protected submit(event: Event): void {
+    event.preventDefault();
+    this.search.emit(this.draft());
+    this.#dialog.open.set(false);
+  }
+}
+```
+
+```ts
+// In the page:
+readonly #search = injectOrigamiDialogOpener(InvoiceSearchDialog);
+
+protected openSearch(): void {
+  const criteria = this.criteria();
+
+  this.#search.open({
+    initialCriteria: () => criteria,
+    search: (next) => this.criteria.set(next),
+  });
+}
+```
+
+The component's host is appended to `<body>`, outside your `<main>`, where `<header>` and `<footer>` would become the page's banner and contentinfo landmarks: put the Header and Footer on `<div>`s.
+
+### Motion
+
+DialogContent and AlertDialogContent fade and scale in over 150ms when they open and back out when they close, with the backdrop fading alongside. Reopening during the exit reverses it smoothly. With `prefers-reduced-motion: reduce`, they open and close at once.
+
+- During the exit the dialog stays modal, as Origami's [closing](../origami-ui/dialog/README.md#opening-and-closing) describes, so the page stays inert for those 150ms.
+- The transition is in Content's classes. Origami waits only for the dialog's own transition, so if your `class` changes its `duration-*`, change `backdrop:duration-*` to match, or the backdrop's fade gets cut off.
+- A dialog that's open in the server's HTML fades in once after hydration.
+- Closes Origami doesn't start, such as a `<form method="dialog">` submit or calling `close()` on the element, skip the exit.
 
 ## Field
 
@@ -277,7 +432,7 @@ Use it for text-like types, such as `text`, `email`, `password`, `search`, `numb
 ## Limitations
 
 - Re-running `add` can't tell untouched files from edited ones, because the CLI reformats them with your Prettier; see `--existing`.
-- The dialog scrim is set on `::backdrop`, which needs to inherit custom properties. Chromium and Firefox do; WebKit wasn't tested.
+- The dialog scrim is set on `::backdrop`, which needs to inherit custom properties. Chromium, Firefox and WebKit do.
 - `tailwind-variants` adds about 13 kB gzipped to your bundle.
 - `ng add` adds `imports` at the top of your `package.json`.
 - Nx workspaces are untested.

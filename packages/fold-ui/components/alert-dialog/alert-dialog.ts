@@ -2,7 +2,8 @@ import { Directive } from "@angular/core";
 import { OrigamiAlertDialog } from "@loozo/origami-ui/dialog";
 
 /**
- * The alert dialog root over Origami's AlertDialog. Layout-transparent (`display: contents`).
+ * The alert dialog root over Origami's AlertDialog. Layout-transparent (`display: contents`) unless
+ * it's on the `<dialog>` itself.
  *
  * @example
  * ```html
@@ -14,6 +15,6 @@ import { OrigamiAlertDialog } from "@loozo/origami-ui/dialog";
   hostDirectives: [
     { directive: OrigamiAlertDialog, inputs: ["open", "dismissible"], outputs: ["openChange"] },
   ],
-  host: { "data-slot": "alert-dialog", class: "contents" },
+  host: { "data-slot": "alert-dialog", class: "not-[dialog]:contents" },
 })
 export class AlertDialog {}

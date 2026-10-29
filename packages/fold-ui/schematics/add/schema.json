@@ -9,7 +9,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["alert-dialog", "button", "cn", "field", "input", "textarea"]
+        "enum": ["alert-dialog", "button", "cn", "dialog", "field", "input", "textarea"]
       },
       "x-prompt": "Which components do you want to add?"
     },

@@ -426,8 +426,9 @@ describe("add", () => {
     }
   });
 
-  test("copies Field, Input and Textarea with only what they import", async () => {
+  test("copies Field, Input, Textarea and Dialog with only what they import", async () => {
     const cases = {
+      dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
       textarea: ["cn", "input", "textarea"],
