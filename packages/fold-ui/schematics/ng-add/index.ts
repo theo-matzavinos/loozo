@@ -25,7 +25,7 @@ export interface NgAddOptions {
  * fold's devDependencies (Origami's: the workspace version), which a unit test checks.
  */
 export const runtimeDependencies: Readonly<Record<string, string>> = {
-  "@loozo/origami-ui": "0.0.1",
+  "@loozo/origami-ui": "0.0.2",
   "tailwind-variants": "3.3.1",
   "@lucide/angular": "1.62.0",
   "@fontsource-variable/hanken-grotesk": "5.3.0",
