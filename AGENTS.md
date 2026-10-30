@@ -14,6 +14,10 @@ consumers use an origami directive either directly in their template or through 
 
 two origami directives co-applied to one element in a template stay in scope, except `ogButton` next to a button primitive (a directive that composes `ogButton`), or two button primitives: that's unsupported: angular shares one `ogButton` between them and only one part's options reach it. a control that needs two of them is a toolbar variant, such as `ogToolbarToggle` or `ogToolbarPopoverTrigger`. don't design, test or guard for co-applied button primitives.
 
+## origami fringe cases
+
+don't design, fix, test or guard for web-component and shadow-DOM edge cases (closed shadow roots, slotted content in a shadow-root host, `delegatesFocus`), nodes from another realm such as an iframe, or DOM named-access quirks such as forms or controls named after DOM properties (`<form name="body">`, `<input name="parentNode">`). document a fringe case in one line where its readme or spec section owns the behavior instead. disposition review findings about them the same way: document, don't fix.
+
 ## origami verification
 
 the full browser matrix takes about 40 minutes, so match the run to the moment:
