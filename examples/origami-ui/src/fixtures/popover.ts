@@ -32,6 +32,7 @@ import { LifecycleCases } from "./lifecycle-cases.js";
 import { PopoverPresentation } from "./popover-presentation.js";
 import { NativeOwnerLifetime } from "./native-owner-lifetime.js";
 import { LatePointer } from "./pointer-lifetime.js";
+import { PopoverNamedForm } from "./popover-named-form.js";
 import { PopoverShadow } from "./popover-shadow.js";
 
 @Service({ autoProvided: false })
@@ -251,6 +252,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     NativeOwnerLifetime,
     LatePointer,
     PopoverShadow,
+    PopoverNamedForm,
     NativePopover,
     NativeContent,
     OrigamiPopover,
@@ -427,6 +429,10 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     @if (shadowMounted()) {
       <acceptance-popover-shadow />
     }
+    <button type="button" data-testid="named-form-mount" (click)="namedFormMounted.set(true)">Mount named form case</button>
+    @if (namedFormMounted()) {
+      <acceptance-popover-named-form />
+    }
     <acceptance-popover />
   `,
   styles: `
@@ -586,6 +592,7 @@ export class PopoverFixture {
   readonly ownerLifetimeMounted = signal(false);
   readonly latePointerMounted = signal(false);
   readonly shadowMounted = signal(false);
+  readonly namedFormMounted = signal(false);
   readonly pressChildMounted = signal(false);
   readonly pressChildOpen = signal(true);
   readonly increment = (value: number): number => value + 1;

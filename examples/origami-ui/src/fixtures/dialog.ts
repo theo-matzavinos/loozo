@@ -1,12 +1,15 @@
 import {
   Component,
   Directive,
+  ElementRef,
   Service,
   ViewEncapsulation,
+  afterNextRender,
   inject,
   model,
   signal,
 } from "@angular/core";
+import { NgTemplateOutlet } from "@angular/common";
 import {
   OrigamiDialog,
   OrigamiDialogClose,
@@ -29,8 +32,30 @@ import {
   OrigamiTooltipTrigger,
 } from "@loozo/origami-ui/tooltip";
 
-// Dialog cases Y1–Y15; AlertDialog's are in alert-dialog.ts, the opener's in dialog-opener.ts. Controls the tests use as script actions are buttons; a dialog's own
+// Dialog cases Y1–Y15 and Y25; AlertDialog's are in alert-dialog.ts, the opener's in dialog-opener.ts. Controls the tests use as script actions are buttons; a dialog's own
 // controls sit inside it, since the rest of the page is inert while it's modal.
+
+/** Y25: the body variants of the scrolling dialog and its plain control. */
+const scrollCases = [
+  "overflow",
+  "short",
+  "autofocus",
+  "nested",
+  "text",
+  "text-only",
+  "tabindex",
+  "autofocus-text",
+  "autofocus-fields",
+  "redirect",
+  "form",
+  "short-form",
+  "short-form-autofocus",
+  "form-scroller",
+  "form-ancestor",
+  "shadow-text",
+] as const;
+
+type ScrollCase = (typeof scrollCases)[number];
 
 function increment(value: number): number {
   return value + 1;
@@ -173,6 +198,57 @@ export class ProjectedDialog {}
 })
 export class ShadowFocusDialog {}
 
+/**
+ * Y25: an open shadow root with `delegatesFocus`, holding only a text scroller that overflows.
+ * Angular's ShadowDom encapsulation can't delegate focus, so the root is attached by hand.
+ */
+@Component({ selector: "scroll-text-region", template: "" })
+export class ScrollTextRegion {
+  constructor() {
+    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+
+    afterNextRender(() => {
+      const root = host.attachShadow({ mode: "open", delegatesFocus: true });
+
+      root.innerHTML = `
+        <div data-testid="scroller" style="max-block-size: 120px; overflow-y: auto">
+          <p style="block-size: 400px">Text only</p>
+        </div>
+      `;
+    });
+  }
+}
+
+/** Y25: a ShadowDom root whose `<dialog>` slots its light-DOM children, then has its own After. */
+@Component({
+  selector: "scroll-slot-dialog",
+  encapsulation: ViewEncapsulation.ShadowDom,
+  imports: [OrigamiDialogContent, OrigamiDialogTitle],
+  hostDirectives: [{ directive: OrigamiDialog, inputs: ["open"], outputs: ["openChange"] }],
+  template: `
+    <dialog ogDialogContent data-testid="scroll-slot-content">
+      <h2 ogDialogTitle>Slotted scrolling dialog</h2>
+      <slot></slot>
+      <button type="button" data-testid="scroll-slot-after">After</button>
+    </dialog>
+  `,
+})
+export class ScrollSlotDialog {}
+
+/** Y25: the control for `ScrollSlotDialog`, a plain `<dialog>` the test shows natively. */
+@Component({
+  selector: "scroll-slot-control",
+  encapsulation: ViewEncapsulation.ShadowDom,
+  template: `
+    <dialog data-testid="scroll-slot-control" aria-label="Plain slotted scrolling dialog">
+      <h2>Plain slotted scrolling dialog</h2>
+      <slot></slot>
+      <button type="button" data-testid="scroll-slot-after">After</button>
+    </dialog>
+  `,
+})
+export class ScrollSlotControl {}
+
 /** Y9: replacement root Options with ordinary writable signals. */
 @Service({ autoProvided: false })
 export class DialogSettings {
@@ -251,6 +327,10 @@ export class FiltersSheet {
     SlotDialog,
     ProjectedDialog,
     ShadowFocusDialog,
+    ScrollTextRegion,
+    ScrollSlotDialog,
+    ScrollSlotControl,
+    NgTemplateOutlet,
   ],
   providers: [DialogSettings],
   template: `
@@ -1020,6 +1100,179 @@ export class FiltersSheet {
       </button>
       <output data-testid="composed-open">{{ composedOpen() }}</output>
     </section>
+
+    <section>
+      <h2>Initial focus</h2>
+      @for (name of scrollCases; track name) {
+        <button
+          type="button"
+          [attr.data-testid]="'scroll-case-' + name"
+          (click)="scrollCase.set(name)"
+        >
+          {{ name }}
+        </button>
+      }
+      <output data-testid="scroll-case">{{ scrollCase() }}</output>
+      <div ogDialog [(open)]="scrollOpen">
+        <dialog ogDialogContent data-testid="scroll-content">
+          <h2 ogDialogTitle>Scrolling dialog</h2>
+          <ng-container [ngTemplateOutlet]="scrollBody" />
+        </dialog>
+      </div>
+      <button type="button" data-testid="open-scroll" (click)="scrollOpen.set(true)">
+        Open scrolling dialog
+      </button>
+      <!-- The control: the same body in a plain <dialog>, which the test shows natively. -->
+      <dialog data-testid="scroll-control" aria-label="Plain scrolling dialog">
+        <h2>Plain scrolling dialog</h2>
+        <ng-container [ngTemplateOutlet]="scrollBody" />
+      </dialog>
+      <ng-template #scrollBody>
+        @switch (scrollCase()) {
+          @case ("overflow") {
+            <div class="scroller" data-testid="scroller">
+              <input disabled aria-label="Disabled" />
+              <input type="hidden" />
+              <input data-testid="scroll-first" aria-label="First" />
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("short") {
+            <div class="scroller" data-testid="scroller">
+              <input data-testid="scroll-first" aria-label="First" />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("autofocus") {
+            <div class="scroller" data-testid="scroller">
+              <input data-testid="scroll-first" aria-label="First" />
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" autofocus />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("nested") {
+            <div class="scroller" data-testid="scroller">
+              <div class="scroller"><p class="tall">Inner text</p></div>
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("text") {
+            <div class="scroller" data-testid="scroller"><p class="tall">Text only</p></div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("text-only") {
+            <div class="scroller" data-testid="scroller"><p class="tall">Text only</p></div>
+          }
+          @case ("tabindex") {
+            <div class="scroller" tabindex="-1" data-testid="scroller">
+              <input data-testid="scroll-first" aria-label="First" />
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("autofocus-text") {
+            <div class="scroller" autofocus data-testid="scroller">
+              <p class="tall">Text only</p>
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("autofocus-fields") {
+            <div class="scroller" autofocus data-testid="scroller">
+              <input data-testid="scroll-first" aria-label="First" />
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("redirect") {
+            <div class="scroller" data-testid="scroller">
+              <input data-testid="scroll-first" aria-label="First" />
+              <input data-testid="scroll-middle" aria-label="Middle" />
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" />
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("form") {
+            <!-- Controls named like the form's own members shadow them. -->
+            <div class="scroller" data-testid="scroller">
+              <form>
+                <input name="focus" data-testid="scroll-first" aria-label="First" />
+                <input name="hasAttribute" aria-label="Second" />
+                <input name="tabIndex" aria-label="Third" />
+                <div class="tall"></div>
+              </form>
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("short-form") {
+            <div class="scroller" data-testid="scroller">
+              <form>
+                <input name="parentNode" data-testid="scroll-first" aria-label="First" />
+                <input name="assignedSlot" data-testid="scroll-last" aria-label="Last" />
+              </form>
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("short-form-autofocus") {
+            <div class="scroller" data-testid="scroller">
+              <form>
+                <input name="parentNode" data-testid="scroll-first" aria-label="First" />
+                <input name="assignedSlot" data-testid="scroll-last" aria-label="Last" autofocus />
+              </form>
+            </div>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("form-scroller") {
+            <form class="scroller" data-testid="scroller">
+              <input name="parentNode" data-testid="scroll-first" aria-label="First" />
+              <div class="tall"></div>
+              <input data-testid="scroll-last" aria-label="Last" />
+            </form>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("form-ancestor") {
+            <form>
+              <div class="scroller" data-testid="scroller">
+                <input data-testid="scroll-first" aria-label="First" />
+                <div class="tall"></div>
+                <input data-testid="scroll-last" aria-label="Last" />
+              </div>
+              <input name="shadowRoot" aria-label="Root" />
+            </form>
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+          @case ("shadow-text") {
+            <scroll-text-region />
+            <button type="button" data-testid="scroll-after">After</button>
+          }
+        }
+      </ng-template>
+      <!-- Client-only, as above: their shadow roots aren't server-rendered. -->
+      @if (attached()) {
+        <scroll-slot-dialog [(open)]="scrollSlotOpen">
+          <div class="scroller" data-testid="slot-scroller">
+            <input data-testid="slot-first" aria-label="First" />
+            <div class="tall"></div>
+          </div>
+        </scroll-slot-dialog>
+        <scroll-slot-control>
+          <div class="scroller" data-testid="slot-scroller">
+            <input data-testid="slot-first" aria-label="First" />
+            <div class="tall"></div>
+          </div>
+        </scroll-slot-control>
+      }
+      <button type="button" data-testid="open-scroll-slot" (click)="scrollSlotOpen.set(true)">
+        Open slotted scrolling dialog
+      </button>
+    </section>
   `,
   styles: `
     dialog {
@@ -1054,6 +1307,13 @@ export class FiltersSheet {
       position: fixed;
       top: 48px;
       right: 48px;
+    }
+    .scroller {
+      max-block-size: 120px;
+      overflow-y: auto;
+    }
+    .tall {
+      block-size: 400px;
     }
     .panel {
       background: #333333;
@@ -1119,6 +1379,10 @@ export class DialogFixture {
   readonly nextDisabled = signal(false);
   readonly factoryOutputs = signal(0);
   readonly composedOpen = signal(false);
+  readonly scrollCases = scrollCases;
+  readonly scrollCase = signal<ScrollCase>("overflow");
+  readonly scrollOpen = signal(false);
+  readonly scrollSlotOpen = signal(false);
 
   /** Y10: the inner Dialog first, then the outer, in one turn. */
   closeChain(): void {

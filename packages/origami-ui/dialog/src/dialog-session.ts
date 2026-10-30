@@ -43,6 +43,43 @@ function focus(element: HTMLElement | SVGElement): boolean {
 }
 
 /**
+ * Whether `element` is focusable only because it's a scroll container that overflows, as Chromium
+ * makes one. No `tabindex` attribute and the default `tabIndex` of -1 leave out controls, links,
+ * `summary` and an author's own `tabindex`; `autofocus` makes it the consumer's choice. Reads go
+ * through the prototypes: a form's controls shadow its members by name.
+ */
+function focusableOnlyAsScroller(element: Element): boolean {
+  if (!(element instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tabIndex: number = Reflect.get(HTMLElement.prototype, "tabIndex", element);
+  const editable: boolean = Reflect.get(HTMLElement.prototype, "isContentEditable", element);
+
+  if (
+    Element.prototype.hasAttribute.call(element, "tabindex") ||
+    Element.prototype.hasAttribute.call(element, "autofocus") ||
+    tabIndex !== -1 ||
+    editable
+  ) {
+    return false;
+  }
+
+  const style = getComputedStyle(element);
+  const scrollsX = style.overflowX === "auto" || style.overflowX === "scroll";
+  const scrollsY = style.overflowY === "auto" || style.overflowY === "scroll";
+
+  return (
+    (scrollsX &&
+      Reflect.get(Element.prototype, "scrollWidth", element) >
+        Reflect.get(Element.prototype, "clientWidth", element)) ||
+    (scrollsY &&
+      Reflect.get(Element.prototype, "scrollHeight", element) >
+        Reflect.get(Element.prototype, "clientHeight", element))
+  );
+}
+
+/**
  * @internal The native modal session of one Dialog Content `<dialog>`, provided on it. It calls
  * `showModal()` in the after-render WRITE phase once the root requests open, keeps the dialog
  * modal while Content's Presence runs the exit, then calls `close()` and returns focus. It is
@@ -295,7 +332,10 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
       return;
     }
 
-    if (!this.#context.desired()) {
+    this.#focusPastScroller(session);
+
+    // The scroller's or the move's focus listeners may have ended the session or requested close.
+    if (this.#session !== session || !this.#context.desired()) {
       return;
     }
 
@@ -304,6 +344,62 @@ export class DialogSession implements ɵOrigamiPresentation, ModalDialog {
 
     for (const child of this.#children()) {
       child.parentRevealed();
+    }
+  }
+
+  /**
+   * Right after `showModal()`: Chromium's initial focus can land on an element inside that's
+   * focusable only as an overflowing scroll container, where Firefox and WebKit pass over it. Then
+   * the first element in the `<dialog>`, in tree order, that takes focus and isn't one gets it, as
+   * there; with none, the browser's choice stands. The scroller has already had `focus`. The walk
+   * stops once focus leaves the scroller, to a candidate or wherever a focus listener moved it, and
+   * once the opening is canceled.
+   */
+  #focusPastScroller(session: Session): void {
+    const document = this.#element.ownerDocument;
+    // The focused element itself, also in a shadow root or slotted inside. The predicate first, so
+    // an ordinary opening walks up nothing.
+    const scroller = ɵdeepActiveElement(document);
+
+    if (
+      scroller === null ||
+      scroller === this.#element ||
+      !focusableOnlyAsScroller(scroller) ||
+      !ɵflatTreeContains(this.#element, scroller)
+    ) {
+      return;
+    }
+
+    // Light DOM only: a shadow host is focused only through `delegatesFocus`, which keeps focus
+    // already inside it, so the walk goes on past a host whose scroller has it.
+    const walker = Document.prototype.createTreeWalker.call(
+      document,
+      this.#element,
+      NodeFilter.SHOW_ELEMENT,
+    );
+
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (
+        !(node instanceof HTMLElement || node instanceof SVGElement) ||
+        focusableOnlyAsScroller(node)
+      ) {
+        continue;
+      }
+
+      if (
+        this.#session !== session ||
+        !this.#context.desired() ||
+        ɵdeepActiveElement(document) !== scroller
+      ) {
+        return;
+      }
+
+      // Through the prototype: a form's control named `focus` shadows the method.
+      if (node instanceof HTMLElement) {
+        HTMLElement.prototype.focus.call(node);
+      } else {
+        SVGElement.prototype.focus.call(node);
+      }
     }
   }
 

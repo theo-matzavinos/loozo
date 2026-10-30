@@ -84,7 +84,9 @@ type Snapshot = "pending" | "server";
  * - **Open.** Once the root requests open and Content is connected, `showModal()` runs after
  *   render; never on the server. Content never binds the `open` attribute, which would make the
  *   dialog non-modal: don't author one. Native rules choose initial focus: an `autofocus`
- *   element, else the first focusable one, else the dialog. No `tabindex` goes on the dialog.
+ *   element, else the first focusable one, else the dialog. When Chromium focuses a scroll
+ *   container that overflows and has no `tabindex`, focus moves to the first element in the
+ *   dialog that takes it, as in Firefox and WebKit. No `tabindex` goes on the dialog.
  * - **Close.** A requested close runs Presence's exit while the dialog stays modal (page inert,
  *   focus inside), then `close()` runs and focus is returned: `returnFocus` if eligible,
  *   otherwise the browser's restore, then an eligible Trigger if focus was left on the body or

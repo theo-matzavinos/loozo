@@ -370,23 +370,29 @@ export function ɵflatTreeContains(ancestor: Node, node: Node): boolean {
       return true;
     }
 
-    const slot: HTMLSlotElement | null = (current as Partial<Slottable>).assignedSlot ?? null;
+    const slot = assignedSlotOf(current);
 
     if (slot !== null) {
       current = slot;
       continue;
     }
 
-    const parent: ParentNode | null = current.parentNode;
+    // Through the prototypes, like `assignedSlotOf`: a form's controls shadow its members by name.
+    const parent: ParentNode | null = Reflect.get(Node.prototype, "parentNode", current);
 
     if (
-      (parent instanceof Element && parent.shadowRoot !== null) ||
-      (parent instanceof HTMLSlotElement && parent.assignedNodes().length > 0)
+      (parent instanceof Element && shadowRootOf(parent) !== null) ||
+      (parent instanceof HTMLSlotElement &&
+        HTMLSlotElement.prototype.assignedNodes.call(parent).length > 0)
     ) {
       return false;
     }
 
-    current = parent instanceof ShadowRoot ? parent.host : parent;
+    if (parent instanceof ShadowRoot) {
+      current = Reflect.get(ShadowRoot.prototype, "host", parent);
+    } else {
+      current = parent;
+    }
   }
 
   return false;
@@ -397,13 +403,50 @@ export function ɵflatTreeContains(ancestor: Node, node: Node): boolean {
  * `activeElement` is their host.
  */
 export function ɵdeepActiveElement(document: Document): Element | null {
-  let active = document.activeElement;
+  // Through the prototypes, like the reads below: a document's named elements shadow its members.
+  let active: Element | null = Reflect.get(Document.prototype, "activeElement", document);
 
-  while (active?.shadowRoot?.activeElement) {
-    active = active.shadowRoot.activeElement;
+  while (active !== null) {
+    const shadow = shadowRootOf(active);
+
+    if (shadow === null) {
+      break;
+    }
+
+    const inner: Element | null = Reflect.get(ShadowRoot.prototype, "activeElement", shadow);
+
+    if (inner === null) {
+      break;
+    }
+
+    active = inner;
   }
 
   return active;
+}
+
+/**
+ * The slot `node` is assigned to. Through the prototypes: a form's controls shadow its members by
+ * name. Classified by `nodeType`, not `instanceof`, so a node another same-origin realm created
+ * and this document adopted still counts.
+ */
+function assignedSlotOf(node: Node): HTMLSlotElement | null {
+  const type: number = Reflect.get(Node.prototype, "nodeType", node);
+
+  if (type === Node.ELEMENT_NODE) {
+    return Reflect.get(Element.prototype, "assignedSlot", node);
+  }
+
+  if (type === Node.TEXT_NODE || type === Node.CDATA_SECTION_NODE) {
+    return Reflect.get(Text.prototype, "assignedSlot", node);
+  }
+
+  return null;
+}
+
+/** `element`'s open shadow root, through the prototype, as `assignedSlotOf`. */
+function shadowRootOf(element: Element): ShadowRoot | null {
+  return Reflect.get(Element.prototype, "shadowRoot", element);
 }
 
 /** @internal Application-local event ownership, not a public overlay stack or global document singleton. */

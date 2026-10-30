@@ -1956,6 +1956,30 @@ test("V19: with its parts in an open shadow root and focus in a shadow root nest
   await expect(page.getByTestId("shadow-after")).toBeFocused();
 });
 
+test("V20: a script close restores the Trigger from a field in a form whose controls are named parentNode, assignedSlot or shadowRoot", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await scriptControl(page, "named-form-mount");
+
+  const trigger = page.getByTestId("named-form-trigger");
+  const content = page.getByTestId("named-form-content");
+  const intent = page.getByTestId("named-form-intent");
+
+  // Each form's own member is its control: the flat-tree walk from focus must not follow it.
+  for (const field of ["named-parent-node", "named-assigned-slot", "named-shadow-root"]) {
+    await scriptControl(page, "named-form-trigger");
+    await expect(intent).toHaveText("true");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await page.getByTestId(field).focus();
+
+    await scriptControl(page, "named-form-close");
+    await expect(intent).toHaveText("false");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+    await expect(trigger, field).toBeFocused();
+  }
+});
+
 test("V16: a Trigger's own disabled blocks only its activation; the root, writes and Escape stay enabled", async ({
   page,
 }, info) => {
