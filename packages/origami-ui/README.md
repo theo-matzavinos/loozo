@@ -99,6 +99,7 @@ Explicit and static `id` bindings always take precedence over generated ones.
 - No styled components, themes or design tokens. No standalone listbox, menubar, context menu or focus traps. Tabs, ToggleGroup, Toolbar, RadioGroup and Calendar's grid are the only primitives with roving tabindex. [Menu](menu/README.md) moves real focus between its items too, but every item has `tabindex="-1"`, so an open menu adds no Tab stop: Tab leaves it from its Trigger. Select's arrow keys move a highlight while focus stays on its Trigger.
 - Angular 22.2.x from 22.2.2 only; tested against 22.2.2.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
+- Don't give forms or form controls names or IDs that match DOM properties, such as `<form name="body">` or `<input name="parentNode">`: the browser lets them shadow those properties, and Origami doesn't guard every read against it.
 - Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](tests/acceptance/README.md#known-evidence-limits).
 
 ## Further reading

@@ -243,7 +243,7 @@ Dialog is a centered modal for a task, such as editing a record or filling in se
       <div foldDialogBody class="grid gap-4">
         <div foldField>
           <label foldFieldLabel>Reference</label>
-          <input foldInput autofocus [readOnly]="pending()" [formField]="f.reference" />
+          <input foldInput [readOnly]="pending()" [formField]="f.reference" />
         </div>
         …
       </div>
@@ -281,7 +281,7 @@ Content's `class` replaces its width, such as `class="w-[min(640px,calc(100%-32p
 
 Wrap the header, body and footer in `<form class="contents">`: the form takes no part in the layout, and the footer's submit button submits it.
 
-- **Initial focus.** The browser focuses an `autofocus` element, else the first focusable one. Chromium counts a Body that overflows as focusable, so it focuses the Body before the fields inside it, depending on the viewport's height. Put `autofocus` on the first field of a form dialog.
+- **Initial focus.** The dialog opens on an `autofocus` element, else the first focusable one, so a form dialog opens on its first field. Put `autofocus` on another field to start there.
 - **While saving**, make the dialog non-dismissible and disable the buttons with `focusableWhenDisabled`, as in an [AlertDialog](#alertdialog); the close button follows `dismissible` on its own. Make the fields `[readOnly]` instead of `[disabled]`: disabling the field that has focus drops focus to `<body>`, out of the modal.
 - **Guard the submit handler.** A focusable disabled submit button still submits the form, from Enter on it or Enter in a field, so the handler returns while pending:
 
@@ -398,7 +398,7 @@ Sheet is a full-height modal panel against the right or left edge of the screen,
       <div foldSheetBody class="grid gap-4">
         <div foldField>
           <label foldFieldLabel>Search</label>
-          <input foldInput autofocus [formField]="f.search" />
+          <input foldInput [formField]="f.search" />
         </div>
         …
       </div>
@@ -436,7 +436,7 @@ Content ends with the same corner close button as [Dialog](#dialog)'s: named by 
 
 `side` is physical: a `right` sheet stays on the right in a right-to-left page, while the close button and the Header's room for it sit at the inline end.
 
-Everything Dialog's guidance says applies to a sheet too, with the Sheet parts: [forms](#forms-in-a-dialog) (`autofocus` on the first field, `[readOnly]` fields and a guarded submit handler while saving), [opening from code](#opening-a-dialog-from-code) through `hostDirectives: [Sheet]`, and [motion](#motion), except that a sheet slides in from its side and fades over 200ms, and stays modal for those 200ms when it closes.
+Everything Dialog's guidance says applies to a sheet too, with the Sheet parts: [forms](#forms-in-a-dialog) (initial focus, `[readOnly]` fields and a guarded submit handler while saving), [opening from code](#opening-a-dialog-from-code) through `hostDirectives: [Sheet]`, and [motion](#motion), except that a sheet slides in from its side and fades over 200ms, and stays modal for those 200ms when it closes.
 
 ## Field
 

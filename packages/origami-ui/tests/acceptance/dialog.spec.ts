@@ -2268,3 +2268,229 @@ test("Y24: a dialog opened from code ends after the dialog its component's own o
   expect(await rootOverflow(page)).toBe("");
   expect(await blocked(page.getByTestId("open-search"))).toBe(false);
 });
+
+/**
+ * The `data-testid` of the focused element itself, also in a shadow root, while `dialog` is
+ * modal; `"dialog"` for the dialog itself.
+ */
+function focusedIn(dialog: Locator): Promise<string | null> {
+  return dialog.evaluate((node) => {
+    let active = node.ownerDocument.activeElement;
+
+    while (active?.shadowRoot?.activeElement) {
+      active = active.shadowRoot.activeElement;
+    }
+
+    if (active === node) {
+      return "dialog";
+    }
+
+    return active?.getAttribute("data-testid") ?? null;
+  });
+}
+
+/** Shows the plain `control` natively and reads its initial focus, as `focusedIn`, in one task. */
+function nativeFocus(control: Locator): Promise<string | null> {
+  return control.evaluate((node) => {
+    if (!(node instanceof HTMLDialogElement)) {
+      throw new Error("Expected the control <dialog>");
+    }
+
+    node.showModal();
+
+    let active = node.ownerDocument.activeElement;
+
+    while (active?.shadowRoot?.activeElement) {
+      active = active.shadowRoot.activeElement;
+    }
+
+    let id: string | null = null;
+
+    if (active === node) {
+      id = "dialog";
+    } else if (active !== null) {
+      id = active.getAttribute("data-testid");
+    }
+
+    node.close();
+
+    return id;
+  });
+}
+
+/** Records every `focus` inside `dialog` from now on, by `data-testid`. */
+function recordFocus(dialog: Locator): Promise<void> {
+  return dialog.evaluate((node) => {
+    const log: string[] = [];
+
+    Reflect.set(window, "dialogFocusLog", log);
+    node.addEventListener(
+      "focus",
+      (event) => {
+        if (event.target instanceof Element) {
+          log.push(event.target.getAttribute("data-testid") ?? event.target.localName);
+        }
+      },
+      true,
+    );
+  });
+}
+
+/** The recorded `focus` events and the element focused now, read in one task. */
+function focusRecord(dialog: Locator): Promise<{ log: string[]; focused: string | null }> {
+  return dialog.evaluate((node) => {
+    const log = Reflect.get(window, "dialogFocusLog") as string[];
+    const active = node.ownerDocument.activeElement;
+    let focused: string | null = null;
+
+    if (active !== null && node.contains(active)) {
+      focused = active.getAttribute("data-testid");
+    }
+
+    return { log: [...log], focused };
+  });
+}
+
+test("Y25: initial focus that Chromium put on a scroll container that overflows, also in a shadow root or slotted, moves to the first element in the dialog that takes focus, as Firefox and WebKit choose; autofocus, also on the scroller, a scroller with tabindex, a short body and a dialog with nothing else focusable keep the browser's choice, and a focus listener's close request or redirect stands", async ({
+  page,
+  browserName,
+}, info) => {
+  await fixture(page, "dialog", info);
+
+  const content = page.getByTestId("scroll-content");
+  const control = page.getByTestId("scroll-control");
+  const cases = [
+    { name: "overflow", focused: "scroll-first", chromium: "scroller" },
+    { name: "short", focused: "scroll-first", chromium: "scroll-first" },
+    { name: "autofocus", focused: "scroll-last", chromium: "scroll-last" },
+    { name: "nested", focused: "scroll-last", chromium: "scroller" },
+    { name: "text", focused: "scroll-after", chromium: "scroller" },
+    { name: "form", focused: "scroll-first", chromium: "scroller" },
+    // Controls named like the members a containment walk reads: opening finishes, focus kept.
+    { name: "short-form", focused: "scroll-first", chromium: "scroll-first" },
+    { name: "short-form-autofocus", focused: "scroll-last", chromium: "scroll-last" },
+    { name: "form-scroller", focused: "scroll-first", chromium: "scroller" },
+    { name: "form-ancestor", focused: "scroll-first", chromium: "scroller" },
+    // Chromium focuses the text scroller in a delegating shadow root before After.
+    { name: "shadow-text", focused: "scroll-after", chromium: "scroller" },
+    // The browser's choice, whatever it is: Origami doesn't intervene.
+    { name: "text-only", focused: null, chromium: "scroller" },
+    { name: "tabindex", focused: null, chromium: "scroller" },
+    { name: "autofocus-text", focused: null, chromium: "scroller" },
+    { name: "autofocus-fields", focused: null, chromium: "scroller" },
+  ];
+
+  for (const { name, focused, chromium } of cases) {
+    await script(page, `scroll-case-${name}`);
+    await expect(page.getByTestId("scroll-case")).toHaveText(name);
+
+    // The plain <dialog> with the same body.
+    const native = await nativeFocus(control);
+
+    // The falsifier: Chromium focuses the scroller where Firefox and WebKit don't.
+    if (browserName === "chromium") {
+      expect(native, name).toBe(chromium);
+    }
+
+    await script(page, "open-scroll");
+    await expectModal(content);
+
+    const overflows = await content
+      .getByTestId("scroller")
+      .evaluate((node) => node.scrollHeight > node.clientHeight);
+
+    expect(overflows, name).toBe(!name.startsWith("short"));
+    expect(await focusedIn(content), name).toBe(focused ?? native);
+
+    await page.keyboard.press("Escape");
+    await expectClosed(content);
+  }
+
+  // The scroller's focus listener presses Escape: no focus moves after the browser's.
+  await script(page, "scroll-case-overflow");
+  await expect(page.getByTestId("scroll-case")).toHaveText("overflow");
+
+  const nativeOverflow = await nativeFocus(control);
+
+  await recordFocus(content);
+  await content.getByTestId("scroller").evaluate((scroller) => {
+    scroller.addEventListener(
+      "focus",
+      () => {
+        scroller.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      },
+      { once: true },
+    );
+  });
+  await script(page, "open-scroll");
+  await expect.poll(async () => (await focusRecord(content)).log.length).toBeGreaterThan(0);
+
+  if (nativeOverflow !== "scroller") {
+    // Firefox and WebKit never focus the scroller, so nothing closes the dialog.
+    await page.keyboard.press("Escape");
+  }
+
+  await expectClosed(content);
+  expect((await focusRecord(content)).log).toEqual([nativeOverflow]);
+
+  // First's focus listener moves focus to Last: Last keeps it, and Middle never has it.
+  await script(page, "scroll-case-redirect");
+  await expect(page.getByTestId("scroll-case")).toHaveText("redirect");
+
+  const nativeRedirect = await nativeFocus(control);
+
+  if (browserName === "chromium") {
+    expect(nativeRedirect).toBe("scroller");
+  }
+
+  await recordFocus(content);
+  await content.getByTestId("scroll-first").evaluate((first) => {
+    const last = first.parentElement?.querySelector("[data-testid='scroll-last']");
+
+    if (!(last instanceof HTMLElement)) {
+      throw new Error("Expected Last");
+    }
+
+    first.addEventListener("focus", () => last.focus(), { once: true });
+  });
+  await script(page, "open-scroll");
+  await expectModal(content);
+
+  const redirected = ["scroll-first", "scroll-last"];
+
+  if (nativeRedirect === "scroller") {
+    redirected.unshift("scroller");
+  }
+
+  expect(await focusRecord(content)).toEqual({ log: redirected, focused: "scroll-last" });
+
+  await page.keyboard.press("Escape");
+  await expectClosed(content);
+
+  // A shadow-root <dialog> slots an overflowing scroller holding First, then has its own After.
+  // Firefox and WebKit pass over slotted elements; the walk stays in the dialog's own tree.
+  const slotContent = page.getByTestId("scroll-slot-content");
+  const nativeSlot = await nativeFocus(page.getByTestId("scroll-slot-control"));
+
+  if (browserName === "chromium") {
+    expect(nativeSlot).toBe("slot-scroller");
+  } else {
+    expect(nativeSlot).toBe("scroll-slot-after");
+  }
+
+  await script(page, "open-scroll-slot");
+  await expectModal(slotContent);
+
+  const slotOverflows = await page
+    .locator("scroll-slot-dialog")
+    .getByTestId("slot-scroller")
+    .evaluate((node) => node.scrollHeight > node.clientHeight);
+
+  expect(slotOverflows).toBe(true);
+  expect(await focusedIn(slotContent)).toBe("scroll-slot-after");
+
+  await page.keyboard.press("Escape");
+  await expectClosed(slotContent);
+});
