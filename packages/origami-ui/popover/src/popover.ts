@@ -75,6 +75,8 @@ type ContentPart = {
   readonly options: () => OrigamiPopoverContentOptions;
   readonly presence: OrigamiPresenceState;
   readonly presentation: ɵOrigamiPresencePresentation;
+  /** Focus is inside the Content, from its own focus events. */
+  readonly focusWithin: Signal<boolean>;
 };
 type Parts = {
   readonly trigger: TriggerPart | null;
@@ -183,6 +185,8 @@ export class PopoverContext {
   });
   readonly participating = this.floating.participating;
   readonly contentId = computed(() => this.#content()?.options().id() ?? null);
+  /** Focus is inside this owner's own registered Content; false without one. */
+  readonly contentHasFocus = computed(() => this.#content()?.focusWithin() ?? false);
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {

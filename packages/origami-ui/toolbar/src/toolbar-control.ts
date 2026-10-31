@@ -1,8 +1,19 @@
 import { DestroyRef, Directive, ElementRef, computed, inject } from "@angular/core";
+import type { Signal } from "@angular/core";
 import { OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
-import { ToolbarContext } from "./toolbar";
+import { ToolbarContext, contentFocusValue } from "./toolbar";
+
+/**
+ * A control variant's own Content, provided on the control's element by the variant that has
+ * one (`ogToolbarPopoverTrigger`). While focus is inside it the control keeps the Toolbar's tab
+ * stop. Internal to `/toolbar`, not exported.
+ */
+export abstract class ToolbarControlContent {
+  /** Focus is inside the control's own Content. */
+  abstract readonly hasFocus: Signal<boolean>;
+}
 
 /**
  * @internal Package-private Toolbar control behavior, composed by `ogToolbarItem`,
@@ -26,6 +37,7 @@ export class ɵOrigamiToolbarControl {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
   readonly #focus = inject(ɵOrigamiRovingFocusContext);
+  readonly #content = inject(ToolbarControlContent, { optional: true, self: true });
   #destroyed = false;
 
   readonly #disabled = computed(() => this.#button().disabled());
@@ -50,11 +62,20 @@ export class ɵOrigamiToolbarControl {
 
   /** @internal Registers this control for roving focus once Angular has set its inputs. */
   ngOnInit(): void {
-    // A control has no value of its own; the Toolbar prefers no value, so it never matters.
+    const content = this.#content;
+
+    // A control has no value of its own. It registers the Toolbar's preferred value only while
+    // focus is inside its own Content, so it is the tab stop while no control has focus.
     this.#focus.register(
       {
         element: this.#element,
-        value: computed(() => ""),
+        value: computed(() => {
+          if (content !== null && content.hasFocus()) {
+            return contentFocusValue;
+          }
+
+          return "";
+        }),
         disabled: this.#disabled,
         focusable: this.#focusable,
       },
