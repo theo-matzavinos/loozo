@@ -483,11 +483,16 @@ test("K7: a standalone group in Popover Content whose Trigger is a Toolbar Popov
   await expect(part("image")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
   await expect(part("table")).toBeFocused();
-  // Focus left the Toolbar's items, so its tab stop returns to its first enabled item; the
+  // Focus is in the Trigger's own Content, so the Trigger keeps the Toolbar's tab stop; the
   // group's is the focused item.
-  await expect(part("before")).toHaveAttribute("tabindex", "0");
+  await expect(part("trigger")).toHaveAttribute("tabindex", "0");
+  await expect(part("before")).toHaveAttribute("tabindex", "-1");
   await expect(part("table")).toHaveAttribute("tabindex", "0");
   await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(2);
+  // Once focus leaves both, the tab stop returns to the Toolbar's first enabled item.
+  await page.getByTestId("toolbar-format-before").focus();
+  await expect(part("before")).toHaveAttribute("tabindex", "0");
+  await expect(part("trigger")).toHaveAttribute("tabindex", "-1");
 });
 
 test("K10: a Toolbar Popover Trigger disabled by its own input or its Popover is skipped, leaves Tab on the toolbar and opens nothing, both ways", async ({
@@ -589,4 +594,184 @@ test("K11: a Toolbar Radio Group inside a Field never joins it: the Label names 
 
   await page.getByTestId("toolbar-left").click();
   await expect(page.getByTestId("toolbar-left")).toHaveAttribute("aria-checked", "true");
+});
+
+test("K12: while focus is in a Toolbar Popover Trigger's own Content inside the Toolbar, the Trigger keeps the tab stop, so Shift+Tab out of the Content returns to it", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const toolbar = page.locator('[data-toolbar-case="paste"]');
+  const part = (role: string) => casePart(page, "paste", role);
+
+  /** Shift+Tab from the Content's last control walks it back to the Trigger, which stays the tab stop. */
+  async function expectShiftTabToTrigger(): Promise<void> {
+    for (const role of ["unmount", "close", "remove", "first", "trigger"]) {
+      await page.keyboard.press("Shift+Tab");
+      await expect(part(role)).toBeFocused();
+      await expectTabStop(toolbar, part("trigger"));
+    }
+  }
+
+  // Keyboard opening: Tab in, arrow to the Trigger, Enter.
+  await page.getByTestId("toolbar-paste-before").focus();
+  await page.keyboard.press("Tab");
+  await expect(part("copy")).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(part("trigger")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(part("content")).toBeVisible();
+
+  // Authored order runs from the Trigger into its Content, which keeps it the Toolbar's tab stop.
+  for (const role of ["first", "remove", "close", "unmount", "last"]) {
+    await page.keyboard.press("Tab");
+    await expect(part(role)).toBeFocused();
+    await expectTabStop(toolbar, part("trigger"));
+  }
+
+  await expectShiftTabToTrigger();
+  await expect(part("content")).toBeVisible();
+
+  // Tab out of the Content's last control leaves both, past the Toolbar's other items, and the
+  // Popover stays open.
+  await part("last").focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("toolbar-paste-after")).toBeFocused();
+  await expect(part("content")).toBeVisible();
+  await expectTabStop(toolbar, part("copy"));
+
+  // Pointer entry from outside makes the Trigger the tab stop without focusing it.
+  await page.getByTestId("toolbar-paste-before").focus();
+  await part("last").click();
+  await expect(part("last")).toBeFocused();
+  await expectTabStop(toolbar, part("trigger"));
+  await expectShiftTabToTrigger();
+});
+
+test("K13: Content authored after or before its Toolbar keeps its Trigger the tab stop while it holds focus, in authored Tab order with no bridge", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const after = (role: string) => casePart(page, "content-after", role);
+  const before = (role: string) => casePart(page, "content-before", role);
+  const between = page.getByTestId("toolbar-outside-between");
+
+  // Content after the Toolbar: Paste is not a tab stop, so Tab from the Trigger enters the Content.
+  await after("trigger").click();
+  await expect(after("content")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(after("first")).toBeFocused();
+  await expectTabStop(after("toolbar"), after("trigger"));
+  await page.keyboard.press("Shift+Tab");
+  await expect(after("trigger")).toBeFocused();
+  await after("last").focus();
+  await expectTabStop(after("toolbar"), after("trigger"));
+  await page.keyboard.press("Tab");
+  await expect(between).toBeFocused();
+  await expectTabStop(after("toolbar"), after("copy"));
+  // Close it so it can't cover the second Toolbar.
+  await after("trigger").click();
+  await expect(after("content")).toBeHidden();
+
+  // Content before the Toolbar: Shift+Tab out of it reaches what precedes it, Tab out of it
+  // reaches the Trigger.
+  await before("trigger").click();
+  await expect(before("content")).toBeVisible();
+  await before("first").focus();
+  await expectTabStop(before("toolbar"), before("trigger"));
+  await page.keyboard.press("Shift+Tab");
+  await expect(between).toBeFocused();
+  await expectTabStop(before("toolbar"), before("copy"));
+  await before("last").focus();
+  await expectTabStop(before("toolbar"), before("trigger"));
+  await page.keyboard.press("Tab");
+  await expect(before("trigger")).toBeFocused();
+  await expect(before("content")).toBeVisible();
+});
+
+test("K14: focus leaving both the Toolbar and its Trigger's own Content, by any route, returns the tab stop to the first enabled item; close and removal never leave it on the Trigger", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const toolbar = page.locator('[data-toolbar-case="paste"]');
+  const part = (role: string) => casePart(page, "paste", role);
+  const before = page.getByTestId("toolbar-paste-before");
+  const body = page.locator("body");
+
+  /** Restores and opens the Popover with focus on `role` in its Content. */
+  async function focusContent(role: string): Promise<void> {
+    await page.getByTestId("toolbar-paste-restore").click();
+    await expect(part("content")).toBeHidden();
+    await part("trigger").click();
+    await expect(part("content")).toBeVisible();
+    await part(role).focus();
+    await expectTabStop(toolbar, part("trigger"));
+  }
+
+  /** Re-entry from outside lands on the first enabled item, as in K2. */
+  async function expectReentryOnCopy(): Promise<void> {
+    await before.focus();
+    await page.keyboard.press("Tab");
+    await expect(part("copy")).toBeFocused();
+  }
+
+  // Script focus outside, then direct re-entry into the open Content.
+  await focusContent("first");
+  await before.focus();
+  await expect(part("content")).toBeVisible();
+  await expectTabStop(toolbar, part("copy"));
+  await part("last").focus();
+  await expectTabStop(toolbar, part("trigger"));
+  // Clicking another control makes it the tab stop.
+  await part("paste").click();
+  await expect(part("paste")).toBeFocused();
+  await expect(part("content")).toBeHidden();
+  await expectTabStop(toolbar, part("paste"));
+
+  // A click outside on nothing focusable closes the Popover and focuses nothing.
+  await focusContent("first");
+  await page.getByTestId("toolbar-paste-blank").click();
+  await expect(part("content")).toBeHidden();
+  await expect(body).toBeFocused();
+  await expectTabStop(toolbar, part("copy"));
+  await expectReentryOnCopy();
+
+  // A click on a button outside closes it and focuses that button.
+  await focusContent("first");
+  await page.getByTestId("toolbar-paste-after").click();
+  await expect(part("content")).toBeHidden();
+  await expect(page.getByTestId("toolbar-paste-after")).toBeFocused();
+  await expectTabStop(toolbar, part("copy"));
+
+  // Escape and a consumer close from inside both restore focus to the Trigger, which keeps the
+  // tab stop.
+  await focusContent("first");
+  await page.keyboard.press("Escape");
+  await expect(part("content")).toBeHidden();
+  await expect(part("trigger")).toBeFocused();
+  await expectTabStop(toolbar, part("trigger"));
+  await focusContent("close");
+  await page.keyboard.press("Enter");
+  await expect(part("content")).toBeHidden();
+  await expect(part("trigger")).toBeFocused();
+  await expectTabStop(toolbar, part("trigger"));
+
+  // Removing the focused control drops focus to the body; not every engine fires focusout for it.
+  await focusContent("remove");
+  await page.keyboard.press("Enter");
+  await expect(part("remove")).toHaveCount(0);
+  await expect(body).toBeFocused();
+  await expect(part("content")).toBeVisible();
+  await expectTabStop(toolbar, part("copy"));
+  await expectReentryOnCopy();
+
+  // Unmounting the Content with focus inside it.
+  await focusContent("unmount");
+  await page.keyboard.press("Enter");
+  await expect(part("content")).toHaveCount(0);
+  await expect(body).toBeFocused();
+  await expectTabStop(toolbar, part("copy"));
+  await expectReentryOnCopy();
 });

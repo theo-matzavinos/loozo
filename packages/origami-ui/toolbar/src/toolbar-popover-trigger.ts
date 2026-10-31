@@ -1,7 +1,7 @@
-import { Directive, booleanAttribute, input } from "@angular/core";
+import { Directive, booleanAttribute, inject, input } from "@angular/core";
 import { OrigamiPopoverTrigger, OrigamiPopoverTriggerOptions } from "@loozo/origami-ui/popover";
 import { injectUniqueId } from "@loozo/origami-ui/utils";
-import { ɵOrigamiToolbarControl } from "./toolbar-control";
+import { ToolbarControlContent, ɵOrigamiToolbarControl } from "./toolbar-control";
 
 /**
  * A Popover Trigger that is one control in the nearest Toolbar, with the inputs, Options and
@@ -25,7 +25,15 @@ import { ɵOrigamiToolbarControl } from "./toolbar-control";
 @Directive({
   selector: "button[ogToolbarPopoverTrigger]",
   hostDirectives: [OrigamiPopoverTrigger, ɵOrigamiToolbarControl],
-  providers: [OrigamiPopoverTriggerOptions.provideExisting(() => OrigamiToolbarPopoverTrigger)],
+  providers: [
+    OrigamiPopoverTriggerOptions.provideExisting(() => OrigamiToolbarPopoverTrigger),
+    {
+      provide: ToolbarControlContent,
+      useFactory: (): ToolbarControlContent => ({
+        hasFocus: inject(OrigamiPopoverTrigger, { self: true }).ɵcontentHasFocus,
+      }),
+    },
+  ],
 })
 export class OrigamiToolbarPopoverTrigger implements OrigamiPopoverTriggerOptions {
   /** Own ID input, default a generated opaque hosted identity, stable across hydration. Static/bound IDs drive default Options; replacements supply the effective ID. */

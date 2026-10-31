@@ -1,12 +1,16 @@
 import {
+  DOCUMENT,
   DestroyRef,
   Directive,
   ElementRef,
   Service,
+  afterEveryRender,
   computed,
   forwardRef,
   inject,
   input,
+  signal,
+  untracked,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import {
@@ -15,7 +19,13 @@ import {
   OrigamiPresenceState,
   ɵOrigamiPresencePresentation,
 } from "@loozo/origami-ui/presence";
-import { injectDeferred, injectUniqueId, ɵOrigamiPresentationScope } from "@loozo/origami-ui/utils";
+import {
+  injectDeferred,
+  injectUniqueId,
+  ɵOrigamiPresentationScope,
+  ɵdeepActiveElement,
+  ɵflatTreeContains,
+} from "@loozo/origami-ui/utils";
 import { PopoverContext } from "./popover";
 
 /** Logical main-side placement, resolved from the Anchor's writing mode and direction. */
@@ -156,6 +166,8 @@ export class OrigamiPopoverContentState {
     "[style.bottom]": "'auto'",
     "[style.margin]": "'0'",
     "(toggle)": "nativeToggle($event)",
+    "(focusin)": "focusEntered()",
+    "(focusout)": "focusLeft($event)",
   },
 })
 export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
@@ -181,6 +193,11 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
   readonly #presentation = inject(ɵOrigamiPresencePresentation);
   readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
+  /**
+   * Focus is inside this Content's flat tree, from its own focus events; false on the server and
+   * until focus first enters.
+   */
+  readonly #focusWithin = signal(false);
   /** @internal Effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
   /** @internal Inactive native Content cannot remain a focus target through retained exit. */
@@ -196,6 +213,24 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
     this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
     });
+
+    const document = inject(DOCUMENT);
+
+    // Browser-only. Not every engine fires focusout when a render removes the focused
+    // descendant, so after each render a claimed focus is checked against the document's.
+    afterEveryRender({
+      read: () => {
+        if (!untracked(this.#focusWithin)) {
+          return;
+        }
+
+        const active = ɵdeepActiveElement(document);
+
+        if (active === null || !ɵflatTreeContains(this.#element, active)) {
+          this.#focusWithin.set(false);
+        }
+      },
+    });
   }
 
   /** @internal Registers Content once Angular has set its inputs; a second mounted Content fails clearly. */
@@ -206,9 +241,22 @@ export class OrigamiPopoverContent implements OrigamiPopoverContentOptions {
         options: this.#options,
         presence: this.#presence,
         presentation: this.#presentation,
+        focusWithin: this.#focusWithin.asReadonly(),
       },
       this.#destroyRef,
     );
+  }
+
+  /** @internal Focus entered this Content or moved inside it. */
+  protected focusEntered(): void {
+    this.#focusWithin.set(true);
+  }
+
+  /** @internal Focus left this Content unless it moves to another node inside it. */
+  protected focusLeft(event: FocusEvent): void {
+    const next = event.relatedTarget;
+
+    this.#focusWithin.set(next instanceof Node && ɵflatTreeContains(this.#element, next));
   }
 
   /** @internal Consults current native state, never queued toggle intent. Bubbled descendant events are ignored. */

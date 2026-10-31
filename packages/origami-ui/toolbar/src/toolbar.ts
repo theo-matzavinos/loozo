@@ -6,6 +6,12 @@ import {
 } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 
+/**
+ * The roving value a Toolbar control registers while focus is inside its own Content, and
+ * the Toolbar's only preferred value, so that control keeps the tab stop while no control has focus.
+ */
+export const contentFocusValue = "ɵorigami-toolbar-content-focus";
+
 /** Toolbar axis: `horizontal` uses ArrowLeft/ArrowRight (reading-direction aware), `vertical` uses ArrowUp/ArrowDown. */
 export type OrigamiToolbarOrientation = "horizontal" | "vertical";
 
@@ -84,7 +90,7 @@ export class OrigamiToolbarState {
     ɵOrigamiRovingFocusContext,
     ɵOrigamiRovingFocusOptions.provideFactory(() => ({
       orientation: inject(ToolbarContext).orientation,
-      preferred: computed<readonly string[]>(() => []),
+      preferred: computed<readonly string[]>(() => [contentFocusValue]),
     })),
     OrigamiToolbarOptions.provideExisting(() => OrigamiToolbar),
   ],

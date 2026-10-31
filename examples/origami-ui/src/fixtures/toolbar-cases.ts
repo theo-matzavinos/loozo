@@ -18,8 +18,9 @@ import {
 } from "@loozo/origami-ui/toolbar";
 
 // K2 keyboard, vertical and reading direction, the K3 Toolbar groups, the K4 focus repair, the K7
-// standalone group in Popover Content and the K10 disabled Toolbar Popover Trigger, beside the core
-// seed's Toolbar. Each case is identified by `data-toolbar-case`.
+// standalone group in Popover Content, the K10 disabled Toolbar Popover Trigger and the K12–K14
+// tab stop while focus is in a Toolbar Popover Trigger's own Content, beside the core seed's
+// Toolbar. Each case is identified by `data-toolbar-case`.
 
 /** A Toolbar group's effective orientation, read from its State. */
 @Directive({ selector: "[toolbarGroupProbe]", exportAs: "toolbarGroupProbe" })
@@ -228,6 +229,65 @@ export class ToolbarAlignment {
       Toggle the format Popover disabled
     </button>
     <output data-testid="toolbar-format-open">{{ formatOpen() }}</output>
+
+    <h2>Toolbar with focus in a Popover Trigger's own Content</h2>
+    <p data-testid="toolbar-paste-blank">Not focusable</p>
+    <button type="button" data-testid="toolbar-paste-before">Before the paste toolbar</button>
+    <div ogToolbar aria-label="Paste" data-toolbar-case="paste">
+      <button ogToolbarItem data-role="copy">Copy</button>
+      <span ogPopover [(open)]="pasteOpen">
+        <button ogToolbarPopoverTrigger ogPopoverAnchor data-role="trigger">Paste special</button>
+        @if (pasteMounted()) {
+          <div ogPopoverContent role="group" aria-label="Paste options" data-role="content">
+            <input aria-label="First" data-role="first" />
+            <!-- Consumer-owned actions on focused controls: remove this button, close the
+                 Popover, unmount its Content. -->
+            @if (pasteRemovable()) {
+              <button type="button" data-role="remove" (click)="pasteRemovable.set(false)">
+                Remove this button
+              </button>
+            }
+            <button type="button" data-role="close" (click)="pasteOpen.set(false)">Close</button>
+            <button type="button" data-role="unmount" (click)="pasteMounted.set(false)">
+              Unmount
+            </button>
+            <input aria-label="Last" data-role="last" />
+          </div>
+        }
+      </span>
+      <button ogToolbarItem data-role="paste">Paste</button>
+    </div>
+    <button type="button" data-testid="toolbar-paste-after">After the paste toolbar</button>
+    <button type="button" data-testid="toolbar-paste-restore" (click)="restorePaste()">
+      Restore the paste toolbar
+    </button>
+
+    <h2>Toolbars with their Trigger's Content authored outside them</h2>
+    <button type="button" data-testid="toolbar-outside-before">Before the outside toolbars</button>
+    <div ogPopover data-toolbar-case="content-after">
+      <div ogToolbar aria-label="Content after" data-role="toolbar">
+        <button ogToolbarItem data-role="copy">Copy</button>
+        <button ogToolbarPopoverTrigger ogPopoverAnchor data-role="trigger">Options</button>
+        <button ogToolbarItem data-role="paste">Paste</button>
+      </div>
+      <div ogPopoverContent role="group" aria-label="Options after" data-role="content">
+        <input aria-label="First" data-role="first" />
+        <input aria-label="Last" data-role="last" />
+      </div>
+    </div>
+    <button type="button" data-testid="toolbar-outside-between">Between the outside toolbars</button>
+    <div ogPopover data-toolbar-case="content-before">
+      <div ogPopoverContent role="group" aria-label="Options before" data-role="content">
+        <input aria-label="First" data-role="first" />
+        <input aria-label="Last" data-role="last" />
+      </div>
+      <div ogToolbar aria-label="Content before" data-role="toolbar">
+        <button ogToolbarItem data-role="copy">Copy</button>
+        <button ogToolbarPopoverTrigger ogPopoverAnchor data-role="trigger">Options</button>
+        <button ogToolbarItem data-role="paste">Paste</button>
+      </div>
+    </div>
+    <button type="button" data-testid="toolbar-outside-after">After the outside toolbars</button>
   `,
 })
 export class ToolbarCases {
@@ -245,6 +305,9 @@ export class ToolbarCases {
   readonly formatOpen = signal(false);
   readonly formatDisabled = signal(true);
   readonly formatRootDisabled = signal(false);
+  readonly pasteOpen = signal(false);
+  readonly pasteMounted = signal(true);
+  readonly pasteRemovable = signal(true);
   readonly increment = (value: number): number => value + 1;
   readonly changeDetector = inject(ChangeDetectorRef);
 
@@ -264,6 +327,12 @@ export class ToolbarCases {
 
       return [...keys, key];
     });
+  }
+
+  restorePaste(): void {
+    this.pasteOpen.set(false);
+    this.pasteMounted.set(true);
+    this.pasteRemovable.set(true);
   }
 
   restoreRepair(): void {

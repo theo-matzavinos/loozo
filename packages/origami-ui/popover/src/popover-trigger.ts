@@ -112,6 +112,12 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
   protected readonly participating = this.#context.participating;
   /** @internal Mounted-only Content association. */
   protected readonly contentId = this.#context.contentId;
+  /**
+   * @internal Package-private: focus is inside this Trigger's own registered Content, from the
+   * Content's own focus events; false without Content. Read by `ogToolbarPopoverTrigger`. Not an
+   * application API.
+   */
+  readonly ɵcontentHasFocus: Signal<boolean> = this.#context.contentHasFocus;
 
   constructor() {
     this.#destroyRef.onDestroy(() => {
