@@ -30,7 +30,7 @@ import {
 } from "./date-picker-precedence.js";
 import { DatePickerModesPrecedence } from "./date-picker-modes-precedence.js";
 
-// Date picker cases DP1–DP17 (section 27); DP18–DP26 are in date-picker-modes.ts and
+// Date picker cases DP1–DP17 and DP27 (section 27); DP18–DP26 are in date-picker-modes.ts and
 // date-picker-modes-precedence.ts, mounted at the end. Controls the tests use as script actions
 // are buttons; every cell carries its date as `data-date`. Every Calendar shows 27 October 2026
 // as today.
@@ -492,6 +492,98 @@ export class DatePickerLabel {
       }
     </section>
 
+    <section>
+      <h2>A focusable disabled Trigger, in both shapes</h2>
+      <button type="button" data-testid="x-before">Before</button>
+      <div
+        ogDatePicker
+        data-testid="x-root"
+        [(value)]="xValue"
+        [(open)]="xOpen"
+        [disabled]="xDisabled()"
+        (touch)="xTouches.update(increment)"
+      >
+        <button
+          ogDatePickerTrigger
+          focusableWhenDisabled
+          aria-label="Valid from"
+          data-testid="x-trigger"
+          (click)="xClicks.update(increment)"
+        >
+          {{ xValue() ?? "Choose a date" }}
+        </button>
+        <div ogDatePickerContent class="panel" data-testid="x-content">
+          <div ogCalendar #xCal="ogCalendar" today="2026-10-27" locale="en-US">
+            <table
+              ogCalendarGrid
+              calendarViewRows
+              data-testid="x-grid"
+              [view]="xCal.state.view()"
+              [weeks]="xCal.state.weeks()"
+              [months]="xCal.state.months()"
+              [years]="xCal.state.years()"
+            ></table>
+          </div>
+        </div>
+      </div>
+      <button type="button" data-testid="x-after">After</button>
+      <output data-testid="x-open">{{ xOpen() }}</output>
+      <output data-testid="x-clicks">{{ xClicks() }}</output>
+      <output data-testid="x-touches">{{ xTouches() }}</output>
+      <button type="button" data-testid="x-disable" (click)="xDisabled.set(true)">Disable</button>
+      <button type="button" data-testid="x-enable" (click)="xDisabled.set(false)">Enable</button>
+
+      <button type="button" data-testid="xf-before">Before</button>
+      <div
+        ogDatePicker
+        #xf="ogDatePicker"
+        data-testid="xf-root"
+        locale="en-US"
+        [(value)]="xfValue"
+        [(open)]="xfOpen"
+        [disabled]="xfDisabled()"
+        (touch)="xfTouches.update(increment)"
+      >
+        <div ogDateFieldInput aria-label="Valid until" data-testid="xf-input">
+          @for (part of xf.state.segments(); track part.key) {
+            @if (part.type === "literal") {
+              <span aria-hidden="true">{{ part.text }}</span>
+            } @else {
+              <span [ogDateFieldSegment]="part.type" [attr.data-segment]="part.type"></span>
+            }
+          }
+          <button
+            ogDatePickerTrigger
+            focusableWhenDisabled
+            aria-label="Choose date"
+            data-testid="xf-trigger"
+            (click)="xfClicks.update(increment)"
+          >
+            ▾
+          </button>
+        </div>
+        <div ogDatePickerContent align="end" class="panel" data-testid="xf-content">
+          <div ogCalendar #xfCal="ogCalendar" today="2026-10-27" locale="en-US">
+            <table
+              ogCalendarGrid
+              calendarViewRows
+              data-testid="xf-grid"
+              [view]="xfCal.state.view()"
+              [weeks]="xfCal.state.weeks()"
+              [months]="xfCal.state.months()"
+              [years]="xfCal.state.years()"
+            ></table>
+          </div>
+        </div>
+      </div>
+      <button type="button" data-testid="xf-after">After</button>
+      <output data-testid="xf-open">{{ xfOpen() }}</output>
+      <output data-testid="xf-clicks">{{ xfClicks() }}</output>
+      <output data-testid="xf-touches">{{ xfTouches() }}</output>
+      <button type="button" data-testid="xf-disable" (click)="xfDisabled.set(true)">Disable</button>
+      <button type="button" data-testid="xf-enable" (click)="xfDisabled.set(false)">Enable</button>
+    </section>
+
     <date-picker-precedence-factory />
     <date-picker-precedence-existing />
     <date-picker-modes />
@@ -566,6 +658,16 @@ export class DatePickerFixture {
   readonly mValue = signal<string | null>(null);
   readonly mOpen = signal(false);
   readonly mRange = signal<OrigamiDateRange | null>(null);
+  readonly xValue = signal<string | null>(null);
+  readonly xOpen = signal(false);
+  readonly xDisabled = signal(true);
+  readonly xClicks = signal(0);
+  readonly xTouches = signal(0);
+  readonly xfValue = signal<string | null>("2026-10-27");
+  readonly xfOpen = signal(false);
+  readonly xfDisabled = signal(true);
+  readonly xfClicks = signal(0);
+  readonly xfTouches = signal(0);
 
   /** The form field f's errors, the date field's parse errors among them. */
   errors(): string {

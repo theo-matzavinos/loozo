@@ -483,7 +483,7 @@ const dateFieldErrorKind: string | undefined = dateFieldState.parseErrors()[0]?.
 void dateFieldErrorKind;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
-OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false)}));
+OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
 OrigamiDatePickerContentOptions.provideFactory(() => ({id: signal('valid-from-calendar'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('end'), gap: signal(4)}));
 // @ts-expect-error date picker value must be writable
 OrigamiDatePickerOptions.provideFactory(() => ({value: computed<string | null>(() => null), open: signal(false), disabled: signal(false), readonly: signal(false), locale: signal('en-US')}));
@@ -492,7 +492,9 @@ OrigamiDatePickerOptions.provideFactory(() => ({value: signal<Date | null>(null)
 // @ts-expect-error a date picker factory must supply readonly
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: signal(false), locale: signal('en-US')}));
 // @ts-expect-error a date picker Trigger factory must supply disabled
-OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from')}));
+OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error a date picker Trigger factory must supply focusableWhenDisabled
+OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false)}));
 // @ts-expect-error date picker Content side is a logical side, not any string
 OrigamiDatePickerContentOptions.provideFactory(() => ({id: signal('c'), side: signal('below'), align: signal<OrigamiPopoverAlign>('start'), gap: signal(0)}));
 declare const datePickerState: OrigamiDatePickerState;

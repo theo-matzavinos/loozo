@@ -29,10 +29,16 @@ export abstract class OrigamiDatePickerTriggerOptions {
   /** Effective reactive DOM ID. Generated identity is only the direct directive's default. */
   abstract readonly id: Signal<string>;
   /**
-   * Natively disables this Trigger, as the picker's `disabled` does, so it doesn't open; direct
-   * default false.
+   * Disables this Trigger, as the picker's `disabled` does, so it doesn't open; direct default
+   * false.
    */
   abstract readonly disabled: Signal<boolean>;
+  /**
+   * While the Trigger is disabled, by the picker or its own Options, it stays focusable:
+   * `aria-disabled="true"` and `data-disabled` without native `disabled`. Opening stays
+   * blocked, but the button's own `(click)` listeners still run. Default false.
+   */
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
 
   /**
    * Replaces Trigger Options with an existing compatible concrete or abstract provider.
@@ -49,7 +55,8 @@ export abstract class OrigamiDatePickerTriggerOptions {
 
   /**
    * Replaces the entire Trigger Options configuration.
-   * @param factory - Injection-context factory supplying `id` and `disabled`.
+   * @param factory - Injection-context factory supplying `id`, `disabled` and
+   *   `focusableWhenDisabled`.
    * @returns A local provider.
    */
   static provideFactory(factory: () => OrigamiDatePickerTriggerOptions): Provider {
@@ -65,8 +72,9 @@ export abstract class OrigamiDatePickerTriggerOptions {
  * names mounted Content. Focus returns to it after a choice and Escape.
  *
  * It is disabled while the picker or its own Options are: its composed `ogButton` sets
- * `aria-disabled="true"`, `data-disabled` and native `disabled`, so it leaves the Tab order and
- * doesn't open. Requires a nearest picker root; a second mounted Trigger fails.
+ * `aria-disabled="true"`, `data-disabled` and native `disabled`, so it leaves the Tab order,
+ * unless `focusableWhenDisabled`, and it doesn't open. Requires a nearest picker root; a second
+ * mounted Trigger fails.
  *
  * Its shape follows where it sits, read once when it is created. In the button shape, outside
  * an `ogDateFieldInput`, it is the control of its nearest `ogField`, governed by the
@@ -94,15 +102,7 @@ export abstract class OrigamiDatePickerTriggerOptions {
   hostDirectives: [OrigamiPopoverTrigger, OrigamiPopoverAnchor, ɵOrigamiDescribedBy],
   providers: [
     OrigamiDatePickerTriggerOptions.provideExisting(() => OrigamiDatePickerTrigger),
-    OrigamiPopoverTriggerOptions.provideFactory(() => {
-      const options = inject(OrigamiDatePickerTriggerOptions);
-
-      return {
-        id: options.id,
-        disabled: options.disabled,
-        focusableWhenDisabled: computed(() => false),
-      };
-    }),
+    OrigamiPopoverTriggerOptions.provideFactory(() => inject(OrigamiDatePickerTriggerOptions)),
     OrigamiPopoverAnchorOptions.provideFactory(() => ({
       id: inject(OrigamiDatePickerTriggerOptions).id,
     })),
@@ -120,6 +120,8 @@ export class OrigamiDatePickerTrigger implements OrigamiDatePickerTriggerOptions
   readonly id = input(injectUniqueId("date-picker-trigger"));
   /** Own disabled input, default false with boolean-attribute coercion. */
   readonly disabled = input(false, { transform: booleanAttribute });
+  /** Own input keeping the disabled Trigger focusable, default false with boolean-attribute coercion. */
+  readonly focusableWhenDisabled = input(false, { transform: booleanAttribute });
 
   readonly #options = injectDeferred(OrigamiDatePickerTriggerOptions);
   readonly #context = inject(DatePickerContext);

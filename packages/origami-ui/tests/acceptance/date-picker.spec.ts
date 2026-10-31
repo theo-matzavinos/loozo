@@ -660,8 +660,10 @@ for (const name of ["date-picker-factory", "date-picker-existing"]) {
     await expect(trigger).toHaveAttribute("aria-controls", `${name}-content`);
     await expect(trigger).toHaveAttribute("aria-labelledby", `${name}-label ${name}-trigger`);
     await expect(content).toHaveAttribute("id", `${name}-content`);
-    // The picker's replaced disabled, over the Trigger's own input too: natively disabled.
+    // The picker's replaced disabled, over the Trigger's own input too, with the replaced
+    // focusableWhenDisabled false over its own true: natively disabled.
     await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveJSProperty("disabled", true);
     await expect(trigger).toHaveAttribute("aria-disabled", "true");
 
     await co("disable").click();
@@ -671,6 +673,7 @@ for (const name of ["date-picker-factory", "date-picker-existing"]) {
     // The replaced Trigger disabled policy, never its own input; the picker stays enabled.
     await co("trigger-disable").click();
     await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveJSProperty("disabled", true);
     await expect(co("policy")).toHaveText("false false");
     await co("trigger-disable").click();
     await expect(trigger).toBeEnabled();
@@ -1528,4 +1531,62 @@ for (const mode of [
       await expect(co("unused-outputs")).toHaveText("0");
     });
   }
+}
+
+for (const shape of [
+  { name: "x", label: "button" },
+  { name: "xf", label: "field" },
+]) {
+  test(`DP27 ${shape.label} shape: a disabled Trigger with focusableWhenDisabled keeps its Tab stop and its own click listener but doesn't open; disabling an open picker still drops focus to the page without a touch`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "date-picker", info);
+
+    const name = shape.name;
+    const trigger = page.getByTestId(`${name}-trigger`);
+
+    await expect(trigger).toHaveAttribute("aria-disabled", "true");
+    await expect(trigger).toHaveAttribute("data-disabled", "");
+    await expect(trigger).toHaveJSProperty("disabled", false);
+
+    // Tab reaches it; in the field shape the disabled segments aren't tab stops, so it is the
+    // field's only one.
+    await page.getByTestId(`${name}-before`).focus();
+    await page.keyboard.press("Tab");
+    await expect(trigger).toBeFocused();
+
+    // Activation reaches the consumer's listener but doesn't open.
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId(`${name}-clicks`)).toHaveText("1");
+    await page.keyboard.press(" ");
+    await expect(page.getByTestId(`${name}-clicks`)).toHaveText("2");
+    await trigger.click({ force: true });
+    await expect(page.getByTestId(`${name}-clicks`)).toHaveText("3");
+    await expect(page.getByTestId(`${name}-open`)).toHaveText("false");
+    expect(await shown(page, name)).toBe(false);
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(trigger).toBeFocused();
+
+    // Leaving it is leaving the picker: a touch.
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId(`${name}-after`)).toBeFocused();
+    await expect(page.getByTestId(`${name}-touches`)).toHaveText("1");
+
+    // Disabling the open picker closes it; focus in the Calendar doesn't return to the focusable
+    // disabled Trigger either, and its fall to the page doesn't touch.
+    await scriptControl(page, `${name}-enable`);
+    await expect(trigger).not.toHaveAttribute("aria-disabled", /.*/);
+    await trigger.click();
+    await expect(cell(page, name, "2026-10-27")).toBeFocused();
+    await expect(page.getByTestId(`${name}-open`)).toHaveText("true");
+    await scriptControl(page, `${name}-disable`);
+    await expect(page.getByTestId(`${name}-open`)).toHaveText("false");
+    await expect.poll(() => shown(page, name)).toBe(false);
+    await expect(trigger).toHaveAttribute("aria-disabled", "true");
+    await expect(trigger).toHaveJSProperty("disabled", false);
+    await expect(trigger).not.toBeFocused();
+    expect(await page.evaluate(() => document.activeElement?.localName)).toBe("body");
+    await expect(page.getByTestId(`${name}-touches`)).toHaveText("1");
+    await expect(page.getByTestId(`${name}-clicks`)).toHaveText("4");
+  });
 }
