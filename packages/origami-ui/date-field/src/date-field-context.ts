@@ -452,6 +452,15 @@ export class DateFieldContext {
     this.#typing = null;
   }
 
+  /**
+   * The root's `ɵdiscardDraft()`: shows the committed value again and ends the typing session.
+   * The parse errors clear and nothing is written to the value.
+   */
+  discardDraft(): void {
+    this.#draft().refresh();
+    this.#typing = null;
+  }
+
   /** Up (+1) or Down (−1), wrapping within the unit; an empty year starts at this year. */
   step(segment: DateFieldSegmentRegistration, delta: 1 | -1): void {
     if (!this.#editable()) {

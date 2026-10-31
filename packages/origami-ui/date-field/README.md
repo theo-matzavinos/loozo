@@ -269,4 +269,4 @@ Server HTML has the whole field: the group's role and, in a Field, its labels an
 
 ## Not included
 
-Month fields, zoned date-times and instants, a date picker with a trigger or popup, bounds on the field, Origami validators and messages, localized free-text paste, two-digit years, PageUp and PageDown, eras and non-Gregorian calendars, partial dates, a hidden native input for form submission or autofill. No `ControlValueAccessor`.
+Month fields, zoned date-times and instants, bounds on the field, Origami validators and messages, localized free-text paste, two-digit years, PageUp and PageDown, eras and non-Gregorian calendars, partial dates, a hidden native input for form submission or autofill. No `ControlValueAccessor`. A calendar popup over the segments is the [Date picker](../date-picker/README.md)'s field shape.

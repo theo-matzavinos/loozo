@@ -61,7 +61,8 @@ export class DateFieldDraft {
 
   /**
    * Shows the committed value again under the current layout, after a change of the root's
-   * precision or resolved hour cycle: the draft becomes the value's, a half-typed one discarded,
+   * precision or resolved hour cycle, and for the root's `ɵdiscardDraft()`: the draft becomes the
+   * value's, a half-typed one discarded,
    * and the parse errors clear, through the transformed signal's public `set`. Writes nothing to
    * the value, so a value of the other precision stays until an edit. Writes signals: call it
    * untracked, never from a render `computed`.

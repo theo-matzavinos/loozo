@@ -9,11 +9,13 @@ import {
   OrigamiCalendarRange,
 } from "@loozo/origami-ui/calendar";
 import type { OrigamiDateRange } from "@loozo/origami-ui/calendar";
+import { OrigamiDateFieldInput, OrigamiDateFieldSegment } from "@loozo/origami-ui/date-field";
 import {
   OrigamiDatePicker,
   OrigamiDatePickerContent,
   OrigamiDatePickerTrigger,
 } from "@loozo/origami-ui/date-picker";
+import type { OrigamiDatePickerState } from "@loozo/origami-ui/date-picker";
 import {
   OrigamiDialog,
   OrigamiDialogContent,
@@ -26,13 +28,23 @@ import {
   DatePickerPrecedenceFactory,
 } from "./date-picker-precedence.js";
 
-// Date picker cases DP1–DP13 (section 27). Controls the tests use as script actions are buttons;
+// Date picker cases DP1–DP17 (section 27). Controls the tests use as script actions are buttons;
 // every cell carries its date as `data-date`. Every Calendar shows 27 October 2026 as today.
 
 type CalendarView = "days" | "months" | "years";
 
 function increment(value: number): number {
   return value + 1;
+}
+
+function kinds(errors: readonly { readonly kind: string }[]): string {
+  const names: string[] = [];
+
+  for (const error of errors) {
+    names.push(error.kind);
+  }
+
+  return names.join(",");
 }
 
 /** A Trigger's text rendered in a child component's view. */
@@ -60,6 +72,8 @@ export class DatePickerLabel {
     OrigamiDatePicker,
     OrigamiDatePickerTrigger,
     OrigamiDatePickerContent,
+    OrigamiDateFieldInput,
+    OrigamiDateFieldSegment,
     OrigamiCalendar,
     OrigamiCalendarRange,
     OrigamiCalendarGrid,
@@ -145,6 +159,63 @@ export class DatePickerLabel {
       <output data-testid="a-touched">{{ dates.a().touched() }}</output>
       <output data-testid="a-touches">{{ aTouches() }}</output>
       <output data-testid="a-segments">{{ a.state.segments().length }}</output>
+    </section>
+
+    <section>
+      <h2>Field shape: segments and the Trigger in the date field's Input, Signal Forms</h2>
+      <button type="button" data-testid="f-before">Before</button>
+      <div ogField data-testid="f-field">
+        <span ogFieldLabel id="f-label">Date of birth</span>
+        <div
+          ogDatePicker
+          #f="ogDatePicker"
+          data-testid="f-root"
+          locale="en-US"
+          [formField]="dates.f"
+          [(open)]="fOpen"
+          (valueChange)="fValueChanges.update(increment)"
+          (touch)="fTouches.update(increment)"
+        >
+          <div ogDateFieldInput data-testid="f-input">
+            @for (part of f.state.segments(); track part.key) {
+              @if (part.type === "literal") {
+                <span aria-hidden="true" data-literal>{{ part.text }}</span>
+              } @else {
+                <span [ogDateFieldSegment]="part.type" [attr.data-segment]="part.type"></span>
+              }
+            }
+            <button ogDatePickerTrigger aria-label="Choose date" data-testid="f-trigger">▾</button>
+          </div>
+          <div ogDatePickerContent align="end" class="panel" data-testid="f-content">
+            <div ogCalendar #fCal="ogCalendar" today="2026-10-27" locale="en-US" [(month)]="fMonth">
+              <button ogCalendarPrevious aria-label="Previous" data-testid="f-previous">‹</button>
+              <span ogCalendarHeading data-testid="f-heading">{{ fCal.state.heading() }}</span>
+              <button ogCalendarNext aria-label="Next" data-testid="f-next">›</button>
+              <table
+                ogCalendarGrid
+                calendarViewRows
+                data-testid="f-grid"
+                [view]="fCal.state.view()"
+                [weeks]="fCal.state.weeks()"
+                [months]="fCal.state.months()"
+                [years]="fCal.state.years()"
+              ></table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button type="button" data-testid="f-after">After</button>
+      <button type="button" data-testid="f-focus" (click)="dates.f().focusBoundControl()">
+        Focus the bound control
+      </button>
+      <output data-testid="f-value">{{ model().f ?? "null" }}</output>
+      <output data-testid="f-open">{{ fOpen() }}</output>
+      <output data-testid="f-month">{{ fMonth() ?? "null" }}</output>
+      <output data-testid="f-parse">{{ parse(f.state) }}</output>
+      <output data-testid="f-errors">{{ errors() }}</output>
+      <output data-testid="f-value-changes">{{ fValueChanges() }}</output>
+      <output data-testid="f-touched">{{ dates.f().touched() }}</output>
+      <output data-testid="f-touches">{{ fTouches() }}</output>
     </section>
 
     <section>
@@ -450,9 +521,11 @@ export class DatePickerFixture {
     b: string | null;
     r: string | null;
     d: string | null;
-  }>({ a: null, b: "2026-10-15", r: "2026-10-15", d: "2026-10-15" });
+    f: string | null;
+  }>({ a: null, b: "2026-10-15", r: "2026-10-15", d: "2026-10-15", f: "2026-10-27" });
   readonly dates = form(this.model, (path) => {
     required(path.a);
+    required(path.f);
     readonly(path.r);
     disabled(path.d);
   });
@@ -460,6 +533,10 @@ export class DatePickerFixture {
   readonly aMonth = signal<string | null>(null);
   readonly aView = signal<CalendarView>("days");
   readonly aTouches = signal(0);
+  readonly fOpen = signal(false);
+  readonly fMonth = signal<string | null>(null);
+  readonly fValueChanges = signal(0);
+  readonly fTouches = signal(0);
   readonly bOpen = signal(false);
   readonly bValueChanges = signal(0);
   readonly bTouches = signal(0);
@@ -481,6 +558,15 @@ export class DatePickerFixture {
   readonly mValue = signal<string | null>(null);
   readonly mOpen = signal(false);
   readonly mRange = signal<OrigamiDateRange | null>(null);
+
+  /** The form field f's errors, the date field's parse errors among them. */
+  errors(): string {
+    return kinds(this.dates.f().errors());
+  }
+
+  parse(state: OrigamiDatePickerState): string {
+    return kinds(state.parseErrors());
+  }
 
   write(value: string): void {
     this.model.update((model) => ({ ...model, a: value }));

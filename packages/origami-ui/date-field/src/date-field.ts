@@ -136,4 +136,15 @@ export class OrigamiDateField implements OrigamiDateFieldOptions, FormValueContr
   clear(): void {
     this.#context.clear();
   }
+
+  /**
+   * @internal Package-private: discards the draft, half-typed units included, and the typing
+   * session, and shows the committed value again; the parse errors clear and nothing is written,
+   * so `valueChange` doesn't emit and Signal Forms sees no write. Called by
+   * `@loozo/origami-ui/date-picker` when its Calendar completes a choice, which may be the value
+   * already committed. Not an application API.
+   */
+  ɵdiscardDraft(): void {
+    this.#context.discardDraft();
+  }
 }

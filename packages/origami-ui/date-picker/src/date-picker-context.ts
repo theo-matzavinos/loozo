@@ -11,6 +11,7 @@ import {
 import type { Provider, Signal, WritableSignal } from "@angular/core";
 import { FORM_FIELD } from "@angular/forms/signals";
 import type { FieldState } from "@angular/forms/signals";
+import { OrigamiDateField } from "@loozo/origami-ui/date-field";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { Subject } from "rxjs";
 
@@ -50,6 +51,8 @@ export interface DatePickerCalendar {
 /** What the Trigger registers from its `ngOnInit`. */
 export interface DatePickerTriggerRegistration {
   readonly element: HTMLElement;
+  /** The field shape: the Trigger sits inside the composed date field's `ogDateFieldInput`. */
+  readonly fieldShape: boolean;
   /** The Trigger's effective ID. */
   readonly id: () => string;
   /** The Field's Labels inside a Field, otherwise the Trigger's static `aria-labelledby`. */
@@ -62,15 +65,17 @@ export interface DatePickerTriggerRegistration {
 
 /**
  * @internal The picker's private owner: the registered Trigger and Calendar, the open session
- * (reset, then focus into the grid once Content is shown), completed choices, and leaving the
- * picker (touch and close). It reads the root's Signal Forms binding (`FORM_FIELD` on the root's
- * element).
+ * (reset, then focus into the grid once Content is shown), completed choices, the shape's focus
+ * target, and leaving the picker (touch and close). It reads the root's Signal Forms binding
+ * (`FORM_FIELD` on the root's element) and the date field the root composes, if any (a single
+ * day's root does).
  */
 @Service({ autoProvided: false })
 export class DatePickerContext {
   readonly #root = injectDeferred(DatePickerRootOptions);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
+  readonly #dateField = inject(OrigamiDateField, { self: true, optional: true });
   readonly #touches = new Subject<void>();
   readonly #trigger = signal<DatePickerTriggerRegistration | null>(null);
   readonly #calendar = signal<DatePickerCalendar | null>(null);
@@ -90,6 +95,8 @@ export class DatePickerContext {
   readonly triggerLabel = computed(() => this.#trigger()?.label ?? null);
   /** The registered Trigger's ID. */
   readonly triggerId = computed(() => this.#trigger()?.id() ?? null);
+  /** The registered Trigger sits inside the date field's Input; false without a Trigger. */
+  readonly fieldShape = computed(() => this.#trigger()?.fieldShape ?? false);
   /** Content natively participates; false without a Trigger. */
   readonly participating = computed(() => this.#trigger()?.participating() ?? false);
   /** Emits synchronously when focus leaves the picker; the root reports it as `touch`. */
@@ -172,16 +179,41 @@ export class DatePickerContext {
     return this.#binding?.state() ?? null;
   }
 
-  /** Focuses the registered Trigger. */
+  /**
+   * Focuses the registered Trigger in the button shape and the date field's first segment in the
+   * field shape; nothing before the Trigger registers.
+   */
   focus(options?: FocusOptions): void {
-    this.#trigger()?.element.focus(options);
+    const trigger = untracked(this.#trigger);
+
+    if (trigger === null) {
+      return;
+    }
+
+    if (trigger.fieldShape && this.#dateField !== null) {
+      this.#dateField.focus(options);
+
+      return;
+    }
+
+    trigger.element.focus(options);
   }
 
-  /** The bound Calendar completed a choice: the picker closes, and Popover returns focus. */
+  /**
+   * The bound Calendar completed a choice, after its own write: in the field shape the date
+   * field's draft is discarded, so the segments show the value even when the choice was the
+   * value already committed; the picker closes, and Popover returns focus.
+   */
   chosen(): void {
-    if (!this.#destroyed) {
-      this.#root().open.set(false);
+    if (this.#destroyed) {
+      return;
     }
+
+    if (untracked(this.fieldShape)) {
+      this.#dateField?.ɵdiscardDraft();
+    }
+
+    this.#root().open.set(false);
   }
 
   /**

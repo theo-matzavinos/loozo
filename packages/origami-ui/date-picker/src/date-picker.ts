@@ -26,9 +26,10 @@ import { DatePickerContext, DatePickerRootOptions } from "./date-picker-context"
 export abstract class OrigamiDatePickerOptions {
   /**
    * Writable chosen day, a civil date `YYYY-MM-DD`, or null; the direct directive model defaults
-   * to null. Only a choice in the bound Calendar, the composed date field's commit and `clear()`
-   * write it, and a choice not while readonly or disabled. External writes remain authoritative;
-   * a value that isn't canonical selects no day and is kept.
+   * to null. Only a choice in the bound Calendar, the composed date field's commit (the segments,
+   * in the field shape) and `clear()` write it, and a choice not while readonly or disabled.
+   * External writes remain authoritative; a value that isn't canonical selects no day and is
+   * kept.
    */
   abstract readonly value: WritableSignal<string | null>;
   /**
@@ -100,6 +101,14 @@ export class OrigamiDatePickerState {
  * Content. It composes `ogPopover` (native top layer, Escape and outside dismissal, nesting in a
  * Dialog or Popover) and `ogDateField`, whose segments render inside an `ogDateFieldInput`.
  *
+ * Two shapes, by where the Trigger sits. In the button shape the Trigger stands alone, shows the
+ * date you render and is the Field's control. In the field shape the Trigger sits inside an
+ * `ogDateFieldInput` with the segments of `state.segments()`: the Input group is the Field's
+ * control with the date field's parse errors, the Trigger is an action button beside the
+ * segments, and a choice also discards a half-typed draft, so the segments show the chosen day
+ * with no parse error even when it is the value already committed. A value typed while the
+ * picker is open shows in the Calendar, whose `month` follows the value after each open's reset.
+ *
  * Each open resets the Calendar as a fresh mount would (its `month` follows the value, its view
  * is the days, no day remembered as focused), then moves focus to the grid's tab stop once Content is shown: the selected day,
  * else today, else the first enabled day. Choosing a day closes the picker, the day already
@@ -107,14 +116,17 @@ export class OrigamiDatePickerState {
  * coarser view back to the days), then closes the picker with focus back on the Trigger. Focus
  * moving to an element outside the root, by Tab past the last control or a click on another
  * field, closes the picker without moving focus and emits `touch`; focus falling to nothing
- * (another window) only emits `touch`. Opening and moving between the Trigger and Content don't.
+ * (another window) only emits `touch`. Opening and moving between the segments, the Trigger and
+ * Content don't; a press on a segment while open closes it by the outside-press rule, with focus
+ * on the segment and no touch. The composed date field's own `touch` isn't forwarded.
  * Readonly opens and browses but never chooses; disabled natively disables the Trigger and closes
  * an open picker.
  *
  * It is an Angular Signal Forms value control: `[formField]` binds its `value` model, writes its
  * `disabled` and `readonly` inputs, listens to `touch`, and `focusBoundControl()` calls `focus()`,
- * which focuses the Trigger. The Trigger is the control of its nearest `ogField`. Origami formats
- * nothing: render the Trigger's text from `state.value()`, such as with `DatePipe`.
+ * which focuses the Trigger, or the first segment in the field shape. The Trigger, or in the field
+ * shape the Input group, is the control of its nearest `ogField`. Origami formats nothing: render
+ * the Trigger's text from `state.value()`, such as with `DatePipe`.
  *
  * Server rendering: the picker renders closed; the composed date field writes its `data-layout`
  * seed to the root's host. A Calendar authored without `@if` renders hidden with its own seed;
@@ -129,6 +141,22 @@ export class OrigamiDatePickerState {
  *   <button ogDatePickerTrigger>{{ picker.state.value() ?? "Choose a date" }}</button>
  *   <div ogDatePickerContent>
  *     <div ogCalendar #cal="ogCalendar">…</div>
+ *   </div>
+ * </div>
+ *
+ * <div ogDatePicker [formField]="form.dateOfBirth" #birth="ogDatePicker">
+ *   <div ogDateFieldInput>
+ *     @for (part of birth.state.segments(); track part.key) {
+ *       @if (part.type === "literal") {
+ *         <span aria-hidden="true">{{ part.text }}</span>
+ *       } @else {
+ *         <span [ogDateFieldSegment]="part.type"></span>
+ *       }
+ *     }
+ *     <button ogDatePickerTrigger aria-label="Choose date">📅</button>
+ *   </div>
+ *   <div ogDatePickerContent align="end">
+ *     <div ogCalendar>…</div>
  *   </div>
  * </div>
  * ```
@@ -197,14 +225,16 @@ export class OrigamiDatePicker
 
   /**
    * Emits when focus leaves the picker, to an element outside the root or to nothing;
-   * `[formField]` marks its field touched. Opening, choosing and Escape don't emit.
+   * `[formField]` marks its field touched. Opening, choosing, Escape and moving between the
+   * segments, the Trigger and Content don't emit.
    */
   readonly touch = outputFromObservable(this.#context.touches);
 
   /**
-   * Focuses the Trigger once it has registered, in its `ngOnInit`; does nothing before. Signal
-   * Forms' `focusBoundControl()` calls it.
-   * @param options - Passed to the Trigger's native `focus()`.
+   * Focuses the Trigger in the button shape, and in the field shape the date field's first
+   * segment (nothing while disabled), once the Trigger has registered, in its `ngOnInit`; does
+   * nothing before. Signal Forms' `focusBoundControl()` calls it.
+   * @param options - Passed to the native `focus()`.
    */
   focus(options?: FocusOptions): void {
     this.#context.focus(options);

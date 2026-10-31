@@ -55,9 +55,11 @@ export abstract class OrigamiDatePickerContentOptions {
  * such as your own buttons, is yours.
  *
  * Its name, unless it has its own static `aria-labelledby` or `aria-label` from the template:
- * `aria-labelledby` names the registered Trigger's Field Labels, or outside a Field the
- * Trigger's static `aria-labelledby`; without either, the Trigger's static `aria-label` is its
- * `aria-label`; without that, `aria-labelledby` names the Trigger, so its text names the dialog.
+ * `aria-labelledby` names the registered Trigger's Field Labels, or outside a Field and in the
+ * field shape (a Trigger inside an `ogDateFieldInput` joins no Field) the Trigger's static
+ * `aria-labelledby`; without either, the Trigger's static `aria-label` is its `aria-label`, so
+ * a field shape's "Choose date" names the dialog; without that, `aria-labelledby` names the
+ * Trigger, so its text names the dialog.
  * Only template attributes are read: a bound `aria-label` on the Trigger isn't copied, so name
  * Content yourself then.
  *

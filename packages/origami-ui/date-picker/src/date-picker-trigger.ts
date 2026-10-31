@@ -10,6 +10,7 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
+import { OrigamiDateFieldInput } from "@loozo/origami-ui/date-field";
 import { ɵOrigamiFieldMembership } from "@loozo/origami-ui/field";
 import {
   OrigamiPopoverAnchor,
@@ -66,15 +67,22 @@ export abstract class OrigamiDatePickerTriggerOptions {
  * `aria-disabled="true"`, `data-disabled` and native `disabled`, so it leaves the Tab order and
  * doesn't open. Requires a nearest picker root; a second mounted Trigger fails.
  *
- * It is the control of its nearest `ogField`, governed by the `[formField]` on the picker root,
- * and registers with the Field and the root once Angular has set its inputs. Its
- * `aria-labelledby` is the Field's Labels, then the Trigger itself, so the name reads the label,
- * then the Trigger's text (the date you render); outside a Field it is a static
- * `aria-labelledby` followed by the Trigger's ID, and absent without one, so the Trigger's own
- * text or `aria-label` names it. A Label has no `for`, so clicking it does nothing. Its
- * `aria-describedby` names the Field's Descriptions, then its mounted Errors, and
+ * Its shape follows where it sits, read once when it is created. In the button shape, outside
+ * an `ogDateFieldInput`, it is the control of its nearest `ogField`, governed by the
+ * `[formField]` on the picker root, and registers with the Field and the root once Angular has
+ * set its inputs. Its `aria-labelledby` is the Field's Labels, then the Trigger itself, so the
+ * name reads the label, then the Trigger's text (the date you render); outside a Field it is a
+ * static `aria-labelledby` followed by the Trigger's ID, and absent without one, so the
+ * Trigger's own text or `aria-label` names it. A Label has no `for`, so clicking it does
+ * nothing. Its `aria-describedby` names the Field's Descriptions, then its mounted Errors, and
  * `aria-invalid="true"`, `aria-required="true"` and `aria-readonly="true"` follow the Field's
  * shown errors and the bound field.
+ *
+ * In the field shape, inside the picker's `ogDateFieldInput`, it is an action button beside the
+ * segments: the Input group is the Field's control and supplies the field's name, and the
+ * Trigger joins no Field. Name it with an `aria-label` ("Choose date"); a static
+ * `aria-labelledby`, `aria-describedby`, `aria-invalid`, `aria-required` or `aria-readonly`
+ * stays as you wrote it.
  *
  * It has no `state`: read the root's, through `#picker="ogDatePicker"`, or inject
  * `OrigamiDatePickerState`.
@@ -121,6 +129,8 @@ export class OrigamiDatePickerTrigger implements OrigamiDatePickerTriggerOptions
     labelable: false,
     formState: () => this.#context.formState(),
   });
+  /** The field shape: inside an `ogDateFieldInput`, so not a Field member. */
+  readonly #fieldShape = inject(OrigamiDateFieldInput, { optional: true }) !== null;
   /**
    * The template's static `aria-label`, which also names Content without its own name. The
    * template, not the element, like Content's static names.
@@ -129,13 +139,13 @@ export class OrigamiDatePickerTrigger implements OrigamiDatePickerTriggerOptions
 
   /**
    * @internal The Field's Labels inside a Field, otherwise the static value, then the Trigger
-   * itself; absent without either.
+   * itself; absent without either. In the field shape, the static value alone.
    */
   protected readonly ariaLabelledBy = computed(() => {
     const labels = this.#membership.labelledBy();
 
-    if (labels === null) {
-      return null;
+    if (labels === null || this.#fieldShape) {
+      return labels;
     }
 
     return `${labels} ${this.#options().id()}`;
@@ -147,12 +157,19 @@ export class OrigamiDatePickerTrigger implements OrigamiDatePickerTriggerOptions
   /** @internal The bound field's `readonly()` inside a Field; otherwise the static value. */
   protected readonly ariaReadonly = this.#membership.readonly;
 
-  /** @internal Joins the nearest Field and registers with the picker once Angular has set its inputs. */
+  /**
+   * @internal Joins the nearest Field, in the button shape, and registers with the picker once
+   * Angular has set its inputs.
+   */
   ngOnInit(): void {
-    this.#membership.register(this.#destroyRef);
+    if (!this.#fieldShape) {
+      this.#membership.register(this.#destroyRef);
+    }
+
     this.#context.registerTrigger(
       {
         element: this.#element,
+        fieldShape: this.#fieldShape,
         id: () => this.#options().id(),
         labelledBy: this.#membership.labelledBy,
         label: this.#staticLabel,

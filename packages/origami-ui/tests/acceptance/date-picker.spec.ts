@@ -736,3 +736,278 @@ for (const name of ["date-picker-factory", "date-picker-existing"]) {
     await expect(co("unused-outputs")).toHaveText("0");
   });
 }
+
+/** The field-shape picker f's segment of `unit`. */
+function segment(page: Page, unit: string): Locator {
+  return page.getByTestId("f-input").locator(`[data-segment="${unit}"]`);
+}
+
+/** The field-shape picker f's segment and literal texts, joined. */
+async function segmentTexts(page: Page): Promise<string> {
+  const texts = await page
+    .getByTestId("f-input")
+    .locator("[data-segment], [data-literal]")
+    .evaluateAll((elements) => elements.map((element) => element.textContent ?? ""));
+
+  return texts.join("");
+}
+
+/** Presses `key` until `target` has focus, at most `limit` times. */
+async function pressUntilFocused(
+  page: Page,
+  key: string,
+  target: Locator,
+  limit: number,
+): Promise<void> {
+  for (let press = 0; press < limit; press += 1) {
+    const focused = await target.evaluate((element) => element === document.activeElement);
+
+    if (focused) {
+      return;
+    }
+
+    await page.keyboard.press(key);
+  }
+
+  await expect(target).toBeFocused();
+}
+
+/** The closed field-shape picker's naming and popup attributes. */
+async function describeFieldShape(page: Page): Promise<Record<string, string | null>> {
+  const read: Record<string, string | null> = {};
+  const parts = {
+    trigger: page.getByTestId("f-trigger"),
+    input: page.getByTestId("f-input"),
+    content: page.getByTestId("f-content"),
+    day: segment(page, "day"),
+  };
+  const attributes = {
+    trigger: [
+      "id",
+      "type",
+      "aria-haspopup",
+      "aria-expanded",
+      "aria-controls",
+      "aria-label",
+      "aria-labelledby",
+      "aria-describedby",
+      "aria-invalid",
+      "aria-required",
+      "aria-readonly",
+    ],
+    input: ["role", "aria-labelledby"],
+    content: ["id", "role", "tabindex", "popover", "aria-labelledby", "aria-label", "inert"],
+    day: ["aria-required"],
+  };
+
+  for (const [part, names] of Object.entries(attributes)) {
+    for (const name of names) {
+      read[`${part} ${name}`] = await parts[part as keyof typeof parts].getAttribute(name);
+    }
+  }
+
+  read["grid aria-labelledby"] = await page.getByTestId("f-grid").getAttribute("aria-labelledby");
+  read["segments"] = await segmentTexts(page);
+
+  return read;
+}
+
+test("DP14 field shape, server HTML and hydration of a closed picker: the Input group is the Field's control, the Trigger an action button named by its aria-label, which names Content", async ({
+  page,
+}, info) => {
+  let server: Record<string, string | null> = {};
+
+  await fixture(page, "date-picker", info, async () => {
+    server = await describeFieldShape(page);
+  });
+
+  const attached = await describeFieldShape(page);
+
+  expect(attached).toEqual(server);
+  expect(attached["trigger id"]).toMatch(/\S/);
+  expect(attached).toMatchObject({
+    "trigger type": "button",
+    "trigger aria-haspopup": "dialog",
+    "trigger aria-expanded": "false",
+    "trigger aria-controls": attached["content id"],
+    "trigger aria-label": "Choose date",
+    "trigger aria-labelledby": null,
+    "trigger aria-describedby": null,
+    "trigger aria-invalid": null,
+    "trigger aria-required": null,
+    "trigger aria-readonly": null,
+    "input role": "group",
+    "input aria-labelledby": "f-label",
+    "content role": "dialog",
+    "content tabindex": "-1",
+    "content popover": "manual",
+    "content aria-labelledby": null,
+    "content aria-label": "Choose date",
+    "content inert": "",
+    "day aria-required": "true",
+    segments: "10/27/2026",
+  });
+  // The bridged Grid never joins the Field.
+  expect(attached["grid aria-labelledby"]?.split(" ")).not.toContain("f-label");
+
+  await expect(page.getByTestId("f-input")).toHaveAccessibleName("Date of birth");
+  await expect(segment(page, "day")).toHaveAccessibleName("Date of birth day");
+  await expect(page.getByTestId("f-trigger")).toHaveAccessibleName("Choose date");
+  expect(await shown(page, "f")).toBe(false);
+
+  await page.getByTestId("f-trigger").click();
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+  await expect(page.getByTestId("f-content")).toHaveAccessibleName("Choose date");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("f-trigger")).toBeFocused();
+});
+
+test("DP15 field shape: a choice discards a half-typed draft, the value already committed too, with no parse error and no write; another day writes once", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+
+  // The plan's falsifier: 2026-10-27 committed, the day cleared, then 27 October chosen. Focus
+  // moves as a user's would: Playwright's `focus()` blurs first for a contenteditable target.
+  await segment(page, "day").click();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("f-parse")).toHaveText("dateIncomplete");
+  await expect(page.getByTestId("f-errors")).toHaveText("dateIncomplete");
+  expect(await segmentTexts(page)).toBe("10/––/2026");
+  await expect(page.getByTestId("f-value")).toHaveText("2026-10-27");
+
+  await page.getByTestId("f-trigger").click();
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+  await cell(page, "f", "2026-10-27").click();
+  await expect(page.getByTestId("f-open")).toHaveText("false");
+  await expect(page.getByTestId("f-trigger")).toBeFocused();
+  await expect.poll(() => segmentTexts(page)).toBe("10/27/2026");
+  await expect(page.getByTestId("f-parse")).toHaveText("");
+  await expect(page.getByTestId("f-errors")).toHaveText("");
+  await expect(page.getByTestId("f-value")).toHaveText("2026-10-27");
+  await expect(page.getByTestId("f-value-changes")).toHaveText("0");
+
+  // The same by Enter on the selected day.
+  await segment(page, "day").click();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("f-parse")).toHaveText("dateIncomplete");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("f-trigger")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("f-open")).toHaveText("false");
+  await expect(page.getByTestId("f-trigger")).toBeFocused();
+  await expect.poll(() => segmentTexts(page)).toBe("10/27/2026");
+  await expect(page.getByTestId("f-parse")).toHaveText("");
+  await expect(page.getByTestId("f-value-changes")).toHaveText("0");
+
+  // Another day over a half-typed draft writes it once and shows it.
+  await segment(page, "day").click();
+  await page.keyboard.press("Delete");
+  await page.getByTestId("f-trigger").click();
+  await cell(page, "f", "2026-10-12").click();
+  await expect(page.getByTestId("f-trigger")).toBeFocused();
+  await expect(page.getByTestId("f-value")).toHaveText("2026-10-12");
+  await expect.poll(() => segmentTexts(page)).toBe("10/12/2026");
+  await expect(page.getByTestId("f-parse")).toHaveText("");
+  await expect(page.getByTestId("f-errors")).toHaveText("");
+  await expect(page.getByTestId("f-value-changes")).toHaveText("1");
+  await expect(page.getByTestId("f-touches")).toHaveText("0");
+  await expect(page.getByTestId("f-touched")).toHaveText("false");
+});
+
+test("DP16 field shape: focusBoundControl() focuses the first segment; moving between the segments, the Trigger and Content doesn't touch or close; Tab out touches once and closes; Escape returns to the Trigger; a press on a segment closes without a touch", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+  await recordFocusOut(page, "f");
+
+  const trigger = page.getByTestId("f-trigger");
+
+  await scriptControl(page, "f-focus");
+  await expect(segment(page, "month")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(segment(page, "day")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(segment(page, "year")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+
+  // Back out of Content to the Trigger and the segments, and in again: it stays open.
+  await pressUntilFocused(page, "Shift+Tab", trigger, 8);
+  await page.keyboard.press("Shift+Tab");
+  await expect(segment(page, "year")).toBeFocused();
+  await expect(page.getByTestId("f-open")).toHaveText("true");
+  expect(await shown(page, "f")).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("f-previous")).toBeFocused();
+  await expect(page.getByTestId("f-open")).toHaveText("true");
+  await expect(page.getByTestId("f-touches")).toHaveText("0");
+
+  for (const entry of (await focusOutLog(page, "f")) as { inside: boolean }[]) {
+    expect(entry.inside).toBe(true);
+  }
+
+  // Tab past the Calendar's last control: closed, focus on After, touched once.
+  await pressUntilFocused(page, "Tab", page.getByTestId("f-after"), 8);
+  await expect(page.getByTestId("f-open")).toHaveText("false");
+  await expect(page.getByTestId("f-touches")).toHaveText("1");
+  await expect(page.getByTestId("f-touched")).toHaveText("true");
+  await expect(page.getByTestId("f-after")).toBeFocused();
+
+  // Escape returns focus to the Trigger, not a segment.
+  await trigger.click();
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("f-open")).toHaveText("false");
+  await expect(trigger).toBeFocused();
+
+  // A press on a segment while open is outside the Popover: it closes, focus stays on the
+  // segment, and nothing touches.
+  await expect(page.getByTestId("f-open")).toHaveText("false");
+  await trigger.click();
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+  await segment(page, "day").click();
+  await expect(page.getByTestId("f-open")).toHaveText("false");
+  await expect.poll(() => shown(page, "f")).toBe(false);
+  await expect(segment(page, "day")).toBeFocused();
+  await expect(page.getByTestId("f-touches")).toHaveText("1");
+});
+
+test("DP17 field shape: a value typed while the picker is open shows in the Calendar, which follows it", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+
+  await page.getByTestId("f-trigger").click();
+  await expect(cell(page, "f", "2026-10-27")).toBeFocused();
+  await expect(page.getByTestId("f-heading")).toHaveText("October 2026");
+
+  // Back to the year segment by keyboard, which keeps the picker open, and type 2027.
+  await pressUntilFocused(page, "Shift+Tab", page.getByTestId("f-trigger"), 8);
+  await page.keyboard.press("Shift+Tab");
+  await expect(segment(page, "year")).toBeFocused();
+  await page.keyboard.type("2027");
+  await expect(page.getByTestId("f-value")).toHaveText("2027-10-27");
+  await expect(page.getByTestId("f-open")).toHaveText("true");
+  await expect(page.getByTestId("f-heading")).toHaveText("October 2027");
+  await expect(page.getByTestId("f-month")).toHaveText("null");
+  await expect(cell(page, "f", "2027-10-27")).toHaveAttribute("aria-selected", "true");
+
+  // Then the month: the Calendar follows to December.
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(segment(page, "month")).toBeFocused();
+  await page.keyboard.type("12");
+  await expect(page.getByTestId("f-value")).toHaveText("2027-12-27");
+  await expect(page.getByTestId("f-heading")).toHaveText("December 2027");
+  await expect(cell(page, "f", "2027-12-27")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("f-open")).toHaveText("true");
+  await expect(page.getByTestId("f-touches")).toHaveText("0");
+});

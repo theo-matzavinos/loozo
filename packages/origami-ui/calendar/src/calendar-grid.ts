@@ -108,7 +108,7 @@ export class OrigamiCalendarGrid {
 
   /**
    * @internal Joins the nearest Field once Angular has set its inputs, unless a picker binds the
-   * root: the picker's Trigger is the Field's control then.
+   * root: the picker supplies the Field's control then, its Trigger or its date field Input.
    */
   ngOnInit(): void {
     if (!this.#context.bridged()) {
