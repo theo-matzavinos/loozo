@@ -23,13 +23,17 @@ import {
 } from "@loozo/origami-ui/dialog";
 import { OrigamiField, OrigamiFieldError, OrigamiFieldLabel } from "@loozo/origami-ui/field";
 import { CalendarViewRows } from "./calendar-views.js";
+import { DatePickerModes } from "./date-picker-modes.js";
 import {
   DatePickerPrecedenceExisting,
   DatePickerPrecedenceFactory,
 } from "./date-picker-precedence.js";
+import { DatePickerModesPrecedence } from "./date-picker-modes-precedence.js";
 
-// Date picker cases DP1–DP17 (section 27). Controls the tests use as script actions are buttons;
-// every cell carries its date as `data-date`. Every Calendar shows 27 October 2026 as today.
+// Date picker cases DP1–DP17 (section 27); DP18–DP26 are in date-picker-modes.ts and
+// date-picker-modes-precedence.ts, mounted at the end. Controls the tests use as script actions
+// are buttons; every cell carries its date as `data-date`. Every Calendar shows 27 October 2026
+// as today.
 
 type CalendarView = "days" | "months" | "years";
 
@@ -87,6 +91,8 @@ export class DatePickerLabel {
     DatePickerLabel,
     DatePickerPrecedenceFactory,
     DatePickerPrecedenceExisting,
+    DatePickerModes,
+    DatePickerModesPrecedence,
   ],
   template: `
     <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">
@@ -488,6 +494,8 @@ export class DatePickerLabel {
 
     <date-picker-precedence-factory />
     <date-picker-precedence-existing />
+    <date-picker-modes />
+    <date-picker-modes-precedence />
     <div class="spacer"></div>
   `,
   styles: `

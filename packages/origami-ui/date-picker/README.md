@@ -1,12 +1,15 @@
 # Date picker
 
-A date picker is a button that opens a [Calendar](../calendar/README.md) in a popup, for a form field such as "Valid from": you choose a day and the popup closes. Put the button inside a [date field](../date-field/README.md)'s segments instead and you can also type the date ([field shape](#field-shape)). Its value is an ISO day, `"2026-10-27"`, never a `Date`. Inside the popup you author an ordinary `ogCalendar`, with its own header, grid and configuration; the picker owns its value, disabled and readonly. The popup is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control, and it joins a [Field](../field/README.md) on its own.
+A date picker is a button that opens a [Calendar](../calendar/README.md) in a popup, for a form field such as "Valid from": you choose a day and the popup closes. Put the button inside a [date field](../date-field/README.md)'s segments instead and you can also type the date ([field shape](#field-shape)). Its value is an ISO day, `"2026-10-27"`, never a `Date`. Inside the popup you author an ordinary `ogCalendar`, with its own header, grid and configuration; the picker owns its value, disabled and readonly. Three more roots pick [several days, a range or a month](#several-days-a-range-or-a-month) the same way, over the Calendar root of their mode. The popup is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control, and it joins a [Field](../field/README.md) on its own.
 
-| Directive             | Configuration                                                                                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ogDatePicker`        | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `open: boolean` model (default `false`), `disabled`, `readonly` (default `false`), `locale` (default `LOCALE_ID`) |
-| `ogDatePickerTrigger` | `id` (default generated), `disabled` (default `false`); must be a `<button>`, alone or inside an `ogDateFieldInput`                                                             |
-| `ogDatePickerContent` | `id` (default generated), `side` (default `block-end`), `align` (default `start`), `gap` (CSS px, default `0`), as on [Popover Content](../popover/README.md)                   |
+| Directive              | Configuration                                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogDatePicker`         | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `open: boolean` model (default `false`), `disabled`, `readonly` (default `false`), `locale` (default `LOCALE_ID`) |
+| `ogDatePickerMultiple` | `value: readonly string[]` model (`YYYY-MM-DD` days, default `[]`), `open`, `disabled`, `readonly`; binds an `ogCalendarMultiple`                                               |
+| `ogDatePickerRange`    | `value: OrigamiDateRange \| null` model (`{ start, end }`, default `null`), `open`, `disabled`, `readonly`; binds an `ogCalendarRange`                                          |
+| `ogMonthPicker`        | `value: string \| null` model (`YYYY-MM`, default `null`), `open`, `disabled`, `readonly`; binds an `ogMonthCalendar`                                                           |
+| `ogDatePickerTrigger`  | `id` (default generated), `disabled` (default `false`); must be a `<button>`, alone or, under `ogDatePicker`, inside an `ogDateFieldInput`                                      |
+| `ogDatePickerContent`  | `id` (default generated), `side` (default `block-end`), `align` (default `start`), `gap` (CSS px, default `0`), as on [Popover Content](../popover/README.md)                   |
 
 <!-- prettier-ignore -->
 ```html
@@ -30,7 +33,7 @@ A date picker is a button that opens a [Calendar](../calendar/README.md) in a po
 </div>
 ```
 
-Put the Trigger and Content inside the root, and the Calendar inside Content. The Trigger's text is yours: Origami formats nothing, and `DatePipe` formats an ISO day safely. The Calendar's markup, keys and options are the [Calendar's](../calendar/README.md); only its `value`, `disabled` and `readonly` come from the picker, so a `value` binding on it is ignored. `ogDatePicker` binds an `ogCalendar`; another Calendar root inside its Content is reported through Angular's `ErrorHandler` and stays an inline Calendar of its own.
+Put the Trigger and Content inside the root, and the Calendar inside Content. The Trigger's text is yours: Origami formats nothing, and `DatePipe` formats an ISO day safely. The Calendar's markup, keys and options are the [Calendar's](../calendar/README.md); only its `value`, `disabled` and `readonly` come from the picker, so a `value` binding on it is ignored. `ogDatePicker` binds an `ogCalendar`; another Calendar root inside its Content is reported through Angular's `ErrorHandler` and stays an inline Calendar of its own. The Trigger and Content are the same parts under every root.
 
 - The value is yours. Only a choice in the Calendar writes it, and `clear()`, which writes `null`. A value that isn't a canonical day selects nothing and is kept.
 - `open` is the requested state of the popup. The Trigger, a choice, Escape, a click outside and leaving the picker write it, and you can write it yourself, such as from a Done button inside Content.
@@ -72,6 +75,57 @@ The segments are the [date field's](../date-field/README.md), with its keys, typ
 - **Typing while open:** a date the segments commit while the picker is open is the Calendar's at once, and the Calendar shows its month unless you navigated it in this session. Shift+Tab from the popup reaches the Trigger and then the segments, and the picker stays open.
 - **A click on a segment while open** closes the picker, with focus on that segment and no touch: the segments are outside the popup and its Trigger.
 
+## Several days, a range or a month
+
+Swap the root and the Calendar inside Content; the Trigger and Content stay the same, and everything else on this page holds unless it's about the date field's segments:
+
+| Root                   | Calendar inside Content | Value                                        | Closes on a choice                                    |
+| ---------------------- | ----------------------- | -------------------------------------------- | ----------------------------------------------------- |
+| `ogDatePickerMultiple` | `ogCalendarMultiple`    | `readonly string[]` of days                  | never: a click toggles a day and the popup stays open |
+| `ogDatePickerRange`    | `ogCalendarRange`       | `OrigamiDateRange \| null`, `{ start, end }` | on the range's end, not its first day                 |
+| `ogMonthPicker`        | `ogMonthCalendar`       | `string \| null`, a `YYYY-MM` month          | on a month, the selected one too; not on a year       |
+
+<!-- prettier-ignore -->
+```html
+<div ogField>
+  <span ogFieldLabel>Stay</span>
+  <div ogDatePickerRange [formField]="form.stay" #picker="ogDatePickerRange">
+    <button ogDatePickerTrigger>
+      @if (picker.state.value(); as stay) {
+        {{ stay.start | date }} – {{ stay.end | date }}
+      } @else {
+        Choose dates
+      }
+    </button>
+    <div ogDatePickerContent>
+      <div ogCalendarRange #cal="ogCalendarRange">
+        <!-- header and grid exactly as an inline range Calendar -->
+        <p>{{ cal.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+These roots have no field shape: their Trigger is always the Field's control, and there's no `locale`, `clear()` or segments. Each root's `state` has `value()`, `open()`, `disabled()` and `readonly()`.
+
+- **Range:** the first choice sets the Calendar's pending first day (`state.anchor()` on the Calendar) and the popup stays open; the second writes `{ start, end }` in chronological order and closes it. Closing with only a first day, by Escape, a click outside or leaving, keeps the range you had, and the next open starts without that day. Escape drops a pending first day first, then returns from the months or years view, then closes the picker.
+- **Month:** each open shows the months of the value's year (today's without a value). Choosing a year in the years view shows its months and stays open; Escape returns from the years view first.
+- **Multiple** stays open while you toggle days, so give it a way to close: Escape, a click outside, the Trigger and leaving do, and so does your own button writing `open`:
+
+<!-- prettier-ignore -->
+```html
+<div ogDatePickerMultiple [formField]="form.holidays" [(open)]="open" #picker="ogDatePickerMultiple">
+  <button ogDatePickerTrigger>{{ picker.state.value().length }} days</button>
+  <div ogDatePickerContent>
+    <div ogCalendarMultiple>…</div>
+    <button ogButton (click)="open.set(false)">Done</button>
+  </div>
+</div>
+```
+
+Focus moves from Done back to the Trigger, as after a choice.
+
 ## Opening and choosing
 
 A click, Enter or Space on the Trigger opens the picker. Each open starts the Calendar afresh: it shows the value's month (today's without a value) in the days view, whatever month, view or day you left it on, so a bound `[(month)]` or `[(view)]` on the Calendar sees those writes. A Calendar gated as below is reset when it mounts. Once the popup is shown, focus moves into the grid: to the selected day, else today, else the first day that can be chosen.
@@ -93,23 +147,23 @@ Content keeps the Calendar until focus is back on the Trigger. Gated on `picker.
 
 ## Escape, leaving and touch
 
-- **Escape** goes to the Calendar first, which returns from the months or years view to the days; the next Escape closes the picker with focus on the Trigger. Inside a [Dialog](../dialog/README.md), the Escape after that closes the Dialog: one layer per press.
+- **Escape** goes to the Calendar first, which drops a range's pending first day, else returns from the months or years view to the days (the months, for a month picker); the next Escape closes the picker with focus on the Trigger. Inside a [Dialog](../dialog/README.md), the Escape after that closes the Dialog: one layer per press.
 - **Leaving:** when focus moves to an element outside the picker, by Tab past the Calendar's last control or a click on another field, the picker closes and focus stays where it went. A click outside closes it too.
 - **Touch:** `touch`, and so Signal Forms' touched state, follows leaving: it's emitted when focus moves outside the picker, and when focus falls to nothing, as when you switch windows, which doesn't close it. Opening, moving between the segments, the Trigger and the Calendar, a click on the popup's padding (Content has `tabindex="-1"`), the Calendar's own focus moves, Escape and choosing don't touch. The date field's own `touch`, when focus leaves its segments, isn't passed on: the picker's is the one `[formField]` hears.
 
 ## Forms and Fields
 
-- **Signal Forms:** put `[formField]` on the root. It binds the `value` model, so the field is `string | null`, writes `disabled` and `readonly` from the field's rules and marks the field touched as above. `focusBoundControl()` calls the root's `focus()`, which focuses the Trigger, or the first segment in the field shape. In the field shape the date field's parse errors, `dateIncomplete` and `dateInvalid`, reach the same field.
+- **Signal Forms:** put `[formField]` on the root. It binds the `value` model, so the field is `string | null` (`readonly string[]`, `OrigamiDateRange | null` or a `YYYY-MM` `string | null` under the other roots), writes `disabled` and `readonly` from the field's rules and marks the field touched as above. `focusBoundControl()` calls the root's `focus()`, which focuses the Trigger, or the first segment in the field shape. In the field shape the date field's parse errors, `dateIncomplete` and `dateInvalid`, reach the same field.
 - **Field:** inside an `ogField`, the Trigger is the Field's control; don't add `ogFieldControl`. Its `aria-labelledby` names the Field's Labels, then the Trigger itself, so it reads "Valid from, 27 Oct 2026, button". A Label doesn't name it with `for`, so clicking the Label does nothing. The Trigger's `aria-describedby` names the Field's Descriptions, then its Errors, and `aria-invalid`, `aria-required` and `aria-readonly` follow the Field. The Calendar's grid doesn't join the Field inside a picker, wherever you put Content. In the field shape the Input group is the Field's control instead, as for a date field, and the Trigger joins no Field.
 - **Standalone:** without a Field, use `[(value)]` and name the Trigger with its text, an `aria-label`, or an `aria-labelledby`, which the Trigger extends with its own ID.
 
 ## State and attributes
 
-`OrigamiDatePickerState`, the root's `state`, has `value()`, `open()` (the requested state), `disabled()`, `readonly()`, and the composed date field's `segments()` and `parseErrors()`. Descendants of the root can inject it. The Trigger has no `state`: read the root's through `#picker="ogDatePicker"`. Content's `state.open()` is its Presence retention, as on Popover Content.
+`OrigamiDatePickerState`, the root's `state`, has `value()`, `open()` (the requested state), `disabled()`, `readonly()`, and the composed date field's `segments()` and `parseErrors()`. `OrigamiDatePickerMultipleState`, `OrigamiDatePickerRangeState` and `OrigamiMonthPickerState` have the first four. Descendants of the root can inject it. The Trigger has no `state`: read the root's through `#picker="ogDatePicker"` (or the other roots' `exportAs`, their selector). Content's `state.open()` is its Presence retention, as on Popover Content.
 
 | Element | Attributes                                                                                                                                                                                                                                                                                                                                                          |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `data-layout`, the composed date field's seed                                                                                                                                                                                                                                                                                                                       |
+| Root    | `ogDatePicker`: `data-layout`, the composed date field's seed; the other roots none                                                                                                                                                                                                                                                                                 |
 | Trigger | `type="button"`, `aria-haspopup="dialog"`, `id`, `aria-expanded`, `aria-controls` (mounted Content); the disabled attributes of [Button](../button/README.md); `aria-labelledby` (the Field's Labels or your static one, then the Trigger); in a Field, `aria-describedby`, `aria-invalid`, `aria-required`, `aria-readonly`. In the field shape only your own ARIA |
 | Content | `role="dialog"`, `tabindex="-1"`, `id`, `popover="manual"`, `inert` while not presented, the [Presence](../presence/README.md) attributes, `--og-anchor-width` and `--og-available-height`; its name (below)                                                                                                                                                        |
 
@@ -127,4 +181,4 @@ What holds for every primitive is in [Server rendering and hydration](../README.
 
 ## Not included
 
-No typed plain text (the field shape types into the date field's segments), no range or month field shape, no popup anchored to the segments and no focus return to a segment, no several-days, range or month picker, no date and time picker, no modal or full-screen variant, no Alt+ArrowDown, no preset, Clear or Today parts (your own buttons in Content write `value` or `open`), and no built-in strings or date formatting.
+No typed plain text (the field shape types into the date field's segments), no several-days, range or month field shape, no popup anchored to the segments and no focus return to a segment, no cross-bound pairs (two pickers constraining each other: use the Calendar's `minDate` and `maxDate` yourself), no date and time picker, no modal or full-screen variant, no Alt+ArrowDown, no preset, Clear or Today parts (your own buttons in Content write `value` or `open`), and no built-in strings or date formatting.

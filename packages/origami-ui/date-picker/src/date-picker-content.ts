@@ -48,11 +48,13 @@ export abstract class OrigamiDatePickerContentOptions {
  * The picker's popup: `role="dialog"`, non-modal (no `aria-modal`, no focus trap), composing
  * Popover Content, so it is persistent, authored in place, presented in the native top layer and
  * `inert` while it isn't shown. `tabindex="-1"` keeps a press on its padding inside the picker.
- * Author the Calendar root of the picker's mode inside it, `ogCalendar` for `ogDatePicker`: the
- * picker binds its value, disabled and readonly, resets and focuses it on open, closes on its
- * completed choices, and its Grid doesn't join a Field. A Calendar of another mode is reported
- * through `ErrorHandler` and stays an unbound inline Calendar. Everything else inside Content,
- * such as your own buttons, is yours.
+ * Author the Calendar root of the picker's mode inside it: `ogCalendar` under `ogDatePicker`,
+ * `ogCalendarMultiple` under `ogDatePickerMultiple`, `ogCalendarRange` under `ogDatePickerRange`
+ * and `ogMonthCalendar` under `ogMonthPicker`. The picker binds its value, disabled and readonly,
+ * resets and focuses it on open, closes on its completed choices (a day, a range's end, a month;
+ * never a Multiple's toggle), and its Grid doesn't join a Field. A Calendar of another mode is
+ * reported through `ErrorHandler` and stays an unbound inline Calendar. Everything else inside
+ * Content, such as your own buttons, is yours.
  *
  * Its name, unless it has its own static `aria-labelledby` or `aria-label` from the template:
  * `aria-labelledby` names the registered Trigger's Field Labels, or outside a Field and in the
@@ -66,7 +68,7 @@ export abstract class OrigamiDatePickerContentOptions {
  * Like Popover Content, it exposes `--og-anchor-width` and `--og-available-height` for sizing,
  * retains its children through Presence's exit and exposes that retention as `state.open()`.
  * Scope a custom `display` to `:popover-open` and use `gap`, not margins. Requires a nearest
- * picker root; a second mounted Content fails.
+ * picker root, any of the four; a second mounted Content fails.
  */
 @Directive({
   selector: "[ogDatePickerContent]",

@@ -58,10 +58,11 @@ export abstract class OrigamiDatePickerTriggerOptions {
 }
 
 /**
- * The Trigger of an `ogDatePicker`: a native `type="button"` with `aria-haspopup="dialog"` that
- * opens and closes Content by click, Enter or Space. It composes the Popover Trigger and Anchor,
- * so Content is positioned against it, `aria-expanded` reports whether Content is shown and
- * `aria-controls` names mounted Content. Focus returns to it after a choice and Escape.
+ * The Trigger of a picker root (`ogDatePicker`, `ogDatePickerMultiple`, `ogDatePickerRange` or
+ * `ogMonthPicker`): a native `type="button"` with `aria-haspopup="dialog"` that opens and closes
+ * Content by click, Enter or Space. It composes the Popover Trigger and Anchor, so Content is
+ * positioned against it, `aria-expanded` reports whether Content is shown and `aria-controls`
+ * names mounted Content. Focus returns to it after a choice and Escape.
  *
  * It is disabled while the picker or its own Options are: its composed `ogButton` sets
  * `aria-disabled="true"`, `data-disabled` and native `disabled`, so it leaves the Tab order and
@@ -78,14 +79,14 @@ export abstract class OrigamiDatePickerTriggerOptions {
  * `aria-invalid="true"`, `aria-required="true"` and `aria-readonly="true"` follow the Field's
  * shown errors and the bound field.
  *
- * In the field shape, inside the picker's `ogDateFieldInput`, it is an action button beside the
- * segments: the Input group is the Field's control and supplies the field's name, and the
- * Trigger joins no Field. Name it with an `aria-label` ("Choose date"); a static
+ * In the field shape, inside an `ogDatePicker`'s `ogDateFieldInput`, it is an action button
+ * beside the segments: the Input group is the Field's control and supplies the field's name, and
+ * the Trigger joins no Field. Name it with an `aria-label` ("Choose date"); a static
  * `aria-labelledby`, `aria-describedby`, `aria-invalid`, `aria-required` or `aria-readonly`
  * stays as you wrote it.
  *
- * It has no `state`: read the root's, through `#picker="ogDatePicker"`, or inject
- * `OrigamiDatePickerState`.
+ * It has no `state`: read the root's, through `#picker="ogDatePicker"` (or the root's own
+ * `exportAs`), or inject its State, such as `OrigamiDatePickerState`.
  */
 @Directive({
   selector: "button[ogDatePickerTrigger]",

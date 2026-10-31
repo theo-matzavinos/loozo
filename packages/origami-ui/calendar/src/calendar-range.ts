@@ -20,7 +20,7 @@ import { injectDeferred, ɵcanonicalDay as canonicalDay } from "@loozo/origami-u
 import type { OrigamiCalendarDayRecord, OrigamiCalendarPeriodRecord } from "./calendar";
 import { monthOf } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
-import { CalendarPickerRegistration } from "./calendar-picker";
+import { CalendarPickerRegistration, injectCalendarPicker } from "./calendar-picker";
 import type { CalendarDaySpan } from "./calendar-context";
 import { CalendarSeed } from "./calendar-seed";
 
@@ -134,14 +134,21 @@ export abstract class OrigamiCalendarRangeOptions {
 @Service({ autoProvided: false })
 export class OrigamiCalendarRangeState {
   readonly #options = injectDeferred(OrigamiCalendarRangeOptions);
+  readonly #picker = injectCalendarPicker<OrigamiDateRange | null>("range");
   readonly #root = injectDeferred(CalendarRootOptions);
   readonly #context = inject(CalendarContext);
 
   /**
-   * Effective range, including null and ranges that select nothing. Never half a range, even
-   * while a first day is pending. No writable alias is exposed.
+   * Effective range, including null and ranges that select nothing: a binding picker's inside its
+   * Content. Never half a range, even while a first day is pending. No writable alias is exposed.
    */
-  readonly value: Signal<OrigamiDateRange | null> = computed(() => this.#options().value());
+  readonly value: Signal<OrigamiDateRange | null> = computed(() => {
+    if (this.#picker !== null) {
+      return this.#picker.value();
+    }
+
+    return this.#options().value();
+  });
   /**
    * The pending first day, `YYYY-MM-DD`, between a first and a second choice, else null. Set by
    * the first choice; dropped by the second, Escape, any write of the value, and the root
@@ -257,13 +264,17 @@ function neverDisabled(): boolean {
     OrigamiCalendarRangeOptions.provideExisting(() => OrigamiCalendarRange),
     CalendarRootOptions.provideFactory(() => {
       const options = inject(OrigamiCalendarRangeOptions);
-      const range = computed(() => rangeOf(options.value()));
+      const picker = injectCalendarPicker<OrigamiDateRange | null>("range");
+      const value = picker?.value ?? options.value;
+      const disabled = picker?.disabled ?? options.disabled;
+      const readonly = picker?.readonly ?? options.readonly;
+      const range = computed(() => rangeOf(value()));
       // Any change of the value, readonly or disabled drops the pending first day.
       const anchor = linkedSignal({
         source: () => ({
-          value: options.value(),
-          readonly: options.readonly(),
-          disabled: options.disabled(),
+          value: value(),
+          readonly: readonly(),
+          disabled: disabled(),
         }),
         computation: (): string | null => null,
       });
@@ -283,10 +294,10 @@ function neverDisabled(): boolean {
         locale: options.locale,
         today: options.today,
         fixedWeeks: options.fixedWeeks,
-        disabled: options.disabled,
-        readonly: options.readonly,
+        disabled,
+        readonly,
         multiselectable: true,
-        bridged: false,
+        bridged: picker !== null,
         selected: (date) => {
           const current = range();
 
@@ -312,12 +323,14 @@ function neverDisabled(): boolean {
           }
 
           if (date < first) {
-            options.value.set({ start: date, end: first });
+            value.set({ start: date, end: first });
           } else {
-            options.value.set({ start: first, end: date });
+            value.set({ start: first, end: date });
           }
 
           anchor.set(null);
+          // Only the end completes a picker's choice; the first day keeps it open.
+          picker?.chosen();
         },
         range,
         anchor,
@@ -423,8 +436,8 @@ export class OrigamiCalendarRange
   }
 
   /**
-   * @internal Reports a binding picker of another mode once Angular has set its inputs: this root
-   * stays an unbound inline Calendar.
+   * @internal Registers with a binding picker once Angular has set its inputs, or reports one of
+   * another mode: this root then stays an unbound inline Calendar.
    */
   ngOnInit(): void {
     this.#picker.register(

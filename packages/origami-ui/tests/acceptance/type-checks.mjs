@@ -124,7 +124,7 @@ import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOp
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
-import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, type OrigamiDatePickerState } from '@loozo/origami-ui/date-picker';
+import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, OrigamiDatePickerMultipleOptions, OrigamiDatePickerRangeOptions, OrigamiMonthPickerOptions, type OrigamiDatePickerState, type OrigamiDatePickerMultipleState, type OrigamiDatePickerRangeState, type OrigamiMonthPickerState } from '@loozo/origami-ui/date-picker';
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
@@ -502,6 +502,33 @@ datePickerState.value.set('2026-10-27');
 datePickerState.open.set(true);
 const datePickerPart: OrigamiDateFieldPart | undefined = datePickerState.segments()[0];
 void datePickerPart;
+// Positive: whole several-days, range and month picker factories, with ordinary signals.
+OrigamiDatePickerMultipleOptions.provideFactory(() => ({value: signal<readonly string[]>([]), open: signal(false), disabled: computed(() => false), readonly: signal(false)}));
+OrigamiDatePickerRangeOptions.provideFactory(() => ({value: signal<OrigamiDateRange | null>(null), open: signal(false), disabled: signal(false), readonly: signal(false)}));
+OrigamiMonthPickerOptions.provideFactory(() => ({value: signal<string | null>('2026-10'), open: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a several-days picker value is an array of days, not one day
+OrigamiDatePickerMultipleOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a range picker value is a range, never half of one
+OrigamiDatePickerRangeOptions.provideFactory(() => ({value: signal<{ start: string } | null>(null), open: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a month picker value must be writable
+OrigamiMonthPickerOptions.provideFactory(() => ({value: computed<string | null>(() => null), open: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a month picker factory must supply open
+OrigamiMonthPickerOptions.provideFactory(() => ({value: signal<string | null>(null), disabled: signal(false), readonly: signal(false)}));
+declare const datePickerMultipleState: OrigamiDatePickerMultipleState;
+declare const datePickerRangeState: OrigamiDatePickerRangeState;
+declare const monthPickerState: OrigamiMonthPickerState;
+const pickedDays: readonly string[] = datePickerMultipleState.value();
+const pickedRange: OrigamiDateRange | null = datePickerRangeState.value();
+const pickedMonth: string | null = monthPickerState.value();
+void pickedDays;
+void pickedRange;
+void pickedMonth;
+// @ts-expect-error several-days picker State value is readonly
+datePickerMultipleState.value.set([]);
+// @ts-expect-error range picker State open is readonly
+datePickerRangeState.open.set(true);
+// @ts-expect-error the month picker has no date field segments
+monthPickerState.segments();
 // Positive: whole Menu factories, with ordinary signals.
 OrigamiMenuOptions.provideFactory(() => ({open: signal(false), disabled: computed(() => false)}));
 OrigamiMenuTriggerOptions.provideFactory(() => ({id: signal('actions'), disabled: signal(false), focusableWhenDisabled: signal(false)}));

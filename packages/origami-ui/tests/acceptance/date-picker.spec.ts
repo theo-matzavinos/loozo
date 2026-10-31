@@ -1011,3 +1011,521 @@ test("DP17 field shape: a value typed while the picker is open shows in the Cale
   await expect(page.getByTestId("f-open")).toHaveText("true");
   await expect(page.getByTestId("f-touches")).toHaveText("0");
 });
+
+// ---- Range, multiple and month roots: the `date-picker-modes` section of the fixture ----
+
+/** Each new root's closed naming and popup attributes, as the server rendered them or as they are now. */
+async function describeModes(page: Page): Promise<Record<string, Record<string, string | null>>> {
+  const read: Record<string, Record<string, string | null>> = {};
+
+  for (const name of ["ra", "mu", "mo"]) {
+    const trigger = page.getByTestId(`${name}-trigger`);
+    const content = page.getByTestId(`${name}-content`);
+    const attributes: Record<string, string | null> = {};
+
+    for (const attribute of [
+      "id",
+      "type",
+      "aria-haspopup",
+      "aria-expanded",
+      "aria-controls",
+      "aria-labelledby",
+      "disabled",
+    ]) {
+      attributes[`trigger ${attribute}`] = await trigger.getAttribute(attribute);
+    }
+
+    for (const attribute of ["id", "role", "tabindex", "popover", "aria-labelledby", "inert"]) {
+      attributes[`content ${attribute}`] = await content.getAttribute(attribute);
+    }
+
+    attributes["grid aria-labelledby"] = await page
+      .getByTestId(`${name}-grid`)
+      .getAttribute("aria-labelledby");
+    attributes["trigger text"] = (await trigger.textContent())?.trim() ?? null;
+    read[name] = attributes;
+  }
+
+  return read;
+}
+
+test("DP18 server HTML and hydration of a closed range, multiple and month picker: Trigger, dialog Content and Field naming; Content authored before the Trigger leaves the Field to it", async ({
+  page,
+}, info) => {
+  let server: Record<string, Record<string, string | null>> = {};
+
+  await fixture(page, "date-picker", info, async () => {
+    server = await describeModes(page);
+  });
+
+  const attached = await describeModes(page);
+
+  expect(attached).toEqual(server);
+
+  for (const [name, text, accessibleName] of [
+    ["ra", "2026-10-05 2026-10-09", "Stay 2026-10-05 2026-10-09"],
+    ["mu", "0 days", "Holidays 0 days"],
+    ["mo", "2026-10", "Expiry 2026-10"],
+  ] as const) {
+    const read = attached[name]!;
+    const triggerId = read["trigger id"];
+    const contentId = read["content id"];
+
+    expect(triggerId).toMatch(/\S/);
+    expect(contentId).toMatch(/\S/);
+    expect(read).toMatchObject({
+      "trigger type": "button",
+      "trigger aria-haspopup": "dialog",
+      "trigger aria-expanded": "false",
+      "trigger aria-controls": contentId,
+      "trigger aria-labelledby": `${name}-label ${triggerId}`,
+      "trigger disabled": null,
+      "content role": "dialog",
+      "content tabindex": "-1",
+      "content popover": "manual",
+      "content aria-labelledby": `${name}-label`,
+      "content inert": "",
+      "trigger text": text,
+    });
+    // The bridged Grid never joins the Field.
+    expect(read["grid aria-labelledby"]?.split(" ")).not.toContain(`${name}-label`);
+    await expect(page.getByTestId(`${name}-trigger`)).toHaveAccessibleName(accessibleName);
+    expect(await shown(page, name)).toBe(false);
+  }
+});
+
+test("DP19 range: the first choice keeps the picker open with a pending first day; the end closes it, writes { start, end } in order and returns focus to the Trigger, by pointer and by keys", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+  await recordTriggerFocus(page, "ra");
+
+  const trigger = page.getByTestId("ra-trigger");
+
+  await trigger.click();
+  await expect(page.getByTestId("ra-open")).toHaveText("true");
+  // The range's start is the tab stop.
+  await expect(cell(page, "ra", "2026-10-05")).toBeFocused();
+
+  await cell(page, "ra", "2026-10-20").click();
+  await expect(page.getByTestId("ra-anchor")).toHaveText("2026-10-20");
+  await expect(page.getByTestId("ra-open")).toHaveText("true");
+  expect(await shown(page, "ra")).toBe(true);
+  await expect(page.getByTestId("ra-value")).toHaveText("2026-10-05 2026-10-09");
+
+  // The end before the start: written in chronological order.
+  await triggerFocusLog(page, "ra");
+  await cell(page, "ra", "2026-10-12").click();
+  await expect(page.getByTestId("ra-open")).toHaveText("false");
+  await expect(page.getByTestId("ra-value")).toHaveText("2026-10-12 2026-10-20");
+  await expect(trigger).toBeFocused();
+  expect(await triggerFocusLog(page, "ra")).toEqual(["2026-10-12 2026-10-20"]);
+  await expect(page.getByTestId("ra-value-changes")).toHaveText("1");
+
+  // By keys: Enter opens on the start, Enter anchors, the arrow moves, Enter ends.
+  await page.keyboard.press("Enter");
+  await expect(cell(page, "ra", "2026-10-12")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("ra-anchor")).toHaveText("2026-10-12");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("ra-open")).toHaveText("false");
+  await expect(trigger).toBeFocused();
+  await expect(page.getByTestId("ra-value")).toHaveText("2026-10-12 2026-10-13");
+  await expect(page.getByTestId("ra-value-changes")).toHaveText("2");
+  await expect(page.getByTestId("ra-touches")).toHaveText("0");
+});
+
+test("DP20 range cancel: closing with only a pending first day, by an outside press or focus leaving, keeps the committed range, and the reopened Calendar has no pending first day", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+
+  const trigger = page.getByTestId("ra-trigger");
+
+  // An outside press.
+  await trigger.click();
+  await expect(cell(page, "ra", "2026-10-05")).toBeFocused();
+  await cell(page, "ra", "2026-10-20").click();
+  await expect(page.getByTestId("ra-anchor")).toHaveText("2026-10-20");
+  await page.getByTestId("ra-after").click();
+  await expect(page.getByTestId("ra-open")).toHaveText("false");
+  await expect.poll(() => shown(page, "ra")).toBe(false);
+  await expect(page.getByTestId("ra-value")).toHaveText("2026-10-05 2026-10-09");
+
+  await trigger.click();
+  await expect(page.getByTestId("ra-anchor")).toHaveText("null");
+  await expect(cell(page, "ra", "2026-10-05")).toBeFocused();
+  await expect(page.getByTestId("ra-content").locator("td[data-preview]")).toHaveCount(0);
+  // The next choice starts a new range rather than ending the dropped one.
+  await cell(page, "ra", "2026-10-22").click();
+  await expect(page.getByTestId("ra-anchor")).toHaveText("2026-10-22");
+  await expect(page.getByTestId("ra-open")).toHaveText("true");
+
+  // Leaving: focus moves to an element outside the picker. (Content is authored before the
+  // Trigger here, so Tab from the grid reaches the Trigger, inside the picker.)
+  await page.getByTestId("ra-after").focus();
+  await expect(page.getByTestId("ra-open")).toHaveText("false");
+  await expect(page.getByTestId("ra-value")).toHaveText("2026-10-05 2026-10-09");
+  await expect(page.getByTestId("ra-touched")).toHaveText("true");
+
+  await trigger.click();
+  await expect(page.getByTestId("ra-anchor")).toHaveText("null");
+  await expect(cell(page, "ra", "2026-10-05")).toBeFocused();
+  await expect(page.getByTestId("ra-value-changes")).toHaveText("0");
+});
+
+test("DP21 range Escape unwinds one step per press: the pending first day, then the coarser view, then the picker with focus on its Trigger", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+
+  const trigger = page.getByTestId("ra-trigger");
+
+  await trigger.click();
+  await expect(cell(page, "ra", "2026-10-05")).toBeFocused();
+  await cell(page, "ra", "2026-10-20").click();
+  await page.getByTestId("ra-years").click();
+  await expect(page.getByTestId("ra-view")).toHaveText("years");
+  await expect(page.getByTestId("ra-anchor")).toHaveText("2026-10-20");
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("ra-anchor")).toHaveText("null");
+  await expect(page.getByTestId("ra-view")).toHaveText("years");
+  await expect(page.getByTestId("ra-open")).toHaveText("true");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("ra-view")).toHaveText("days");
+  await expect(page.getByTestId("ra-open")).toHaveText("true");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("ra-open")).toHaveText("false");
+  await expect(trigger).toBeFocused();
+  await expect(page.getByTestId("ra-value")).toHaveText("2026-10-05 2026-10-09");
+  await expect(page.getByTestId("ra-touches")).toHaveText("0");
+});
+
+test("DP22 multiple: toggles keep the picker open; it closes by an open write from a Done button, Escape, the Trigger and an outside press", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+
+  const trigger = page.getByTestId("mu-trigger");
+
+  await trigger.click();
+  await expect(cell(page, "mu", "2026-10-27")).toBeFocused();
+  await cell(page, "mu", "2026-10-20").click();
+  await expect(page.getByTestId("mu-value")).toHaveText("2026-10-20");
+  await expect(page.getByTestId("mu-open")).toHaveText("true");
+  await expect(cell(page, "mu", "2026-10-20")).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mu-value")).toHaveText("2026-10-20 2026-10-21");
+  await cell(page, "mu", "2026-10-20").click();
+  await expect(page.getByTestId("mu-value")).toHaveText("2026-10-21");
+  await expect(page.getByTestId("mu-open")).toHaveText("true");
+  expect(await shown(page, "mu")).toBe(true);
+  await expect(page.getByTestId("mu-value-changes")).toHaveText("3");
+  await expect(trigger).toHaveText("1 days");
+
+  // Your Done button writes `open`; focus returns to the Trigger.
+  await page.getByTestId("mu-done").click();
+  await expect(page.getByTestId("mu-open")).toHaveText("false");
+  await expect.poll(() => shown(page, "mu")).toBe(false);
+  await expect(trigger).toBeFocused();
+
+  // Escape; the reopened Calendar's tab stop is the value's first day.
+  await page.keyboard.press("Enter");
+  await expect(cell(page, "mu", "2026-10-21")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mu-open")).toHaveText("false");
+  await expect(trigger).toBeFocused();
+
+  // The Trigger.
+  await trigger.click();
+  await expect(cell(page, "mu", "2026-10-21")).toBeFocused();
+  await trigger.click();
+  await expect(page.getByTestId("mu-open")).toHaveText("false");
+  await expect(page.getByTestId("mu-touches")).toHaveText("0");
+
+  // An outside press, which also leaves the picker.
+  await trigger.click();
+  await expect(cell(page, "mu", "2026-10-21")).toBeFocused();
+  await page.getByTestId("mu-after").click();
+  await expect(page.getByTestId("mu-open")).toHaveText("false");
+  await expect.poll(() => shown(page, "mu")).toBe(false);
+  await expect(page.getByTestId("mu-touches")).toHaveText("1");
+  await expect(page.getByTestId("mu-value")).toHaveText("2026-10-21");
+  await expect(page.getByTestId("mu-value-changes")).toHaveText("3");
+});
+
+test("DP23 month: a month closes the picker, the selected one too without a write; a year shows its months and keeps it open; Escape returns from the years view first; each open shows the months view of the value's year", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+  await recordTriggerFocus(page, "mo");
+
+  const trigger = page.getByTestId("mo-trigger");
+
+  await trigger.click();
+  await expect(cell(page, "mo", "2026-10")).toBeFocused();
+  await expect(page.getByTestId("mo-heading")).toHaveText("2026");
+
+  // A year drills down without closing.
+  await page.getByTestId("mo-years").click();
+  await expect(page.getByTestId("mo-view")).toHaveText("years");
+  await cell(page, "mo", "2027").click();
+  await expect(page.getByTestId("mo-view")).toHaveText("months");
+  await expect(page.getByTestId("mo-heading")).toHaveText("2027");
+  await expect(page.getByTestId("mo-open")).toHaveText("true");
+  expect(await shown(page, "mo")).toBe(true);
+  await expect(page.getByTestId("mo-value")).toHaveText("2026-10");
+
+  await triggerFocusLog(page, "mo");
+  await cell(page, "mo", "2027-03").click();
+  await expect(page.getByTestId("mo-open")).toHaveText("false");
+  await expect(page.getByTestId("mo-value")).toHaveText("2027-03");
+  await expect(trigger).toBeFocused();
+  expect(await triggerFocusLog(page, "mo")).toEqual(["2027-03"]);
+  await expect(page.getByTestId("mo-value-changes")).toHaveText("1");
+
+  // The selected month closes without a write.
+  await page.keyboard.press("Enter");
+  await expect(cell(page, "mo", "2027-03")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mo-open")).toHaveText("false");
+  await expect(trigger).toBeFocused();
+  await expect(page.getByTestId("mo-value-changes")).toHaveText("1");
+
+  // Escape returns from the years view, then closes.
+  await page.keyboard.press("Enter");
+  await expect(cell(page, "mo", "2027-03")).toBeFocused();
+  await page.getByTestId("mo-years").click();
+  await expect(page.getByTestId("mo-view")).toHaveText("years");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mo-view")).toHaveText("months");
+  await expect(page.getByTestId("mo-open")).toHaveText("true");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mo-open")).toHaveText("false");
+  await expect(trigger).toBeFocused();
+
+  // Closing in the years view: the next open shows the value's year's months.
+  await trigger.click();
+  await expect(cell(page, "mo", "2027-03")).toBeFocused();
+  await page.getByTestId("mo-years").click();
+  await expect(page.getByTestId("mo-view")).toHaveText("years");
+  await trigger.click();
+  await expect(page.getByTestId("mo-open")).toHaveText("false");
+  await trigger.click();
+  await expect(page.getByTestId("mo-view")).toHaveText("months");
+  await expect(page.getByTestId("mo-heading")).toHaveText("2027");
+  await expect(cell(page, "mo", "2027-03")).toBeFocused();
+  await expect(page.getByTestId("mo-touches")).toHaveText("0");
+});
+
+test("DP24 range, multiple and month by Signal Forms: focusBoundControl() focuses each Trigger; readonly opens and browses without writing or closing; disabled natively disables each Trigger", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+
+  for (const name of ["ra", "mu", "mo"]) {
+    await scriptControl(page, `${name}-focus`);
+    await expect(page.getByTestId(`${name}-trigger`)).toBeFocused();
+  }
+
+  await scriptControl(page, "policy-readonly");
+
+  for (const [name, start, other, value] of [
+    ["ra", "2026-10-05", "2026-10-20", "2026-10-05 2026-10-09"],
+    ["mu", "2026-10-27", "2026-10-20", ""],
+    ["mo", "2026-10", "2026-11", "2026-10"],
+  ] as const) {
+    const trigger = page.getByTestId(`${name}-trigger`);
+
+    await expect(page.getByTestId(`${name}-policy`)).toHaveText("false true false");
+    await expect(trigger).toHaveAttribute("aria-readonly", "true");
+    await trigger.click();
+    await expect(cell(page, name, start)).toBeFocused();
+    await expect(page.getByTestId(`${name}-grid`)).toHaveAttribute("aria-readonly", "true");
+    await cell(page, name, other).click();
+    await cell(page, name, other).click();
+    await expect(page.getByTestId(`${name}-open`)).toHaveText("true");
+    await expect(page.getByTestId(`${name}-value`)).toHaveText(value);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId(`${name}-open`)).toHaveText("false");
+    await expect(trigger).toBeFocused();
+  }
+
+  await expect(page.getByTestId("ra-anchor")).toHaveText("null");
+
+  await scriptControl(page, "policy-disabled");
+
+  for (const name of ["ra", "mu", "mo"]) {
+    const trigger = page.getByTestId(`${name}-trigger`);
+
+    await expect(page.getByTestId(`${name}-policy`)).toHaveText("true false false");
+    await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveAttribute("aria-disabled", "true");
+    await trigger.click({ force: true });
+    await expect(page.getByTestId(`${name}-open`)).toHaveText("false");
+    expect(await shown(page, name)).toBe(false);
+  }
+
+  await scriptControl(page, "policy-none");
+
+  for (const name of ["ra", "mu", "mo"]) {
+    await expect(page.getByTestId(`${name}-trigger`)).toBeEnabled();
+  }
+});
+
+test("DP25 a Calendar of another mode inside a month picker's Content is reported through ErrorHandler and stays an unbound inline Calendar", async ({
+  page,
+  runtimeErrors,
+}, info) => {
+  const message =
+    "ogCalendar inside ogMonthPicker Content isn't bound to the picker; author an ogMonthCalendar there.";
+
+  runtimeErrors.expectExactly([
+    {
+      description: "one mode-mismatch Error reported through ErrorHandler",
+      matches: (record) => {
+        if (record.source !== "console") {
+          return false;
+        }
+
+        for (const argument of record.arguments ?? []) {
+          if (isRecord(argument) && argument["message"] === message) {
+            return true;
+          }
+        }
+
+        return false;
+      },
+    },
+  ]);
+  await fixture(page, "date-picker", info);
+  await scriptControl(page, "mx-mount");
+  await page.getByTestId("mx-trigger").click();
+  await expect(page.getByTestId("mx-open")).toHaveText("true");
+  await expect.poll(() => shown(page, "mx")).toBe(true);
+  // No bound Calendar registered, so nothing moves focus into Content.
+  expect(
+    await page
+      .getByTestId("mx-content")
+      .evaluate((content) => content.contains(document.activeElement)),
+  ).toBe(false);
+
+  await cell(page, "mx", "2026-10-20").click();
+  await expect(page.getByTestId("mx-day")).toHaveText("2026-10-20");
+  await expect(page.getByTestId("mx-value")).toHaveText("null");
+  await expect(page.getByTestId("mx-open")).toHaveText("true");
+});
+
+for (const mode of [
+  {
+    name: "range",
+    initial: "2026-10-12..2026-10-14",
+    focused: "2026-10-12",
+    choices: ["2026-10-20", "2026-10-22"],
+    chosen: "2026-10-20..2026-10-22",
+    closes: true,
+    browse: "2026-10-21",
+  },
+  {
+    name: "multiple",
+    initial: "2026-10-15",
+    focused: "2026-10-15",
+    choices: ["2026-10-20"],
+    chosen: "2026-10-15,2026-10-20",
+    closes: false,
+    browse: "2026-10-21",
+  },
+  {
+    name: "month",
+    initial: "2026-10",
+    focused: "2026-10",
+    choices: ["2026-11"],
+    chosen: "2026-11",
+    closes: true,
+    browse: "2026-12",
+  },
+]) {
+  for (const variant of ["factory", "existing"]) {
+    const name = `${mode.name}-${variant}`;
+
+    test(`DP26 O1 O3: ${name} replacements of the ${mode.name} root drive value, open, disabled and readonly over its contradicting own inputs, and the unused models emit nothing`, async ({
+      page,
+    }, info) => {
+      await fixture(page, "date-picker", info);
+
+      const co = (role: string) => page.locator(`[data-case="${name}"] [data-co="${role}"]`);
+      const trigger = co("trigger");
+      const content = co("content");
+      const day = (date: string) => content.locator(`td[data-date="${date}"]`);
+      const isShown = () => content.evaluate((node) => node.matches(":popover-open"));
+
+      // Before any action, every effective replacement contradicts the own inputs.
+      await expect(co("value")).toHaveText(`${mode.initial} ${mode.initial}`);
+      await expect(co("open")).toHaveText("false false");
+      await expect(co("policy")).toHaveText("true false");
+      await expect(co("lower-policy")).toHaveText("true");
+      await expect(co("unused-outputs")).toHaveText("0");
+      expect(await isShown()).toBe(false);
+      await expect(trigger).toHaveText(mode.initial);
+      await expect(trigger).toBeDisabled();
+
+      await co("disable").click();
+      await expect(co("policy")).toHaveText("false false");
+      await expect(co("lower-policy")).toHaveText("false");
+      await expect(trigger).toBeEnabled();
+
+      // Opening writes the replaced open; the bridged Calendar binds the replaced value.
+      await trigger.click();
+      await expect(co("open")).toHaveText("true true");
+      await expect.poll(isShown).toBe(true);
+      await expect(day(mode.focused)).toBeFocused();
+      await expect(day(mode.focused)).toHaveAttribute("aria-selected", "true");
+      await expect(content).toHaveAccessibleName("Period");
+
+      for (const choice of mode.choices) {
+        await day(choice).click();
+      }
+
+      await expect(co("value")).toHaveText(`${mode.chosen} ${mode.chosen}`);
+
+      if (mode.closes) {
+        await expect(co("open")).toHaveText("false false");
+      } else {
+        await expect(co("open")).toHaveText("true true");
+        await page.keyboard.press("Escape");
+        await expect(co("open")).toHaveText("false false");
+      }
+
+      await expect.poll(isShown).toBe(false);
+      await expect(trigger).toBeFocused();
+      await expect(trigger).toHaveText(mode.chosen);
+
+      // The replaced readonly, over the root's own true until now: opens and browses only.
+      await co("readonly").click();
+      await expect(co("policy")).toHaveText("false true");
+      await trigger.click();
+      await expect(co("open")).toHaveText("true true");
+      await expect(co("grid")).toHaveAttribute("aria-readonly", "true");
+      await day(mode.browse).click();
+      await day(mode.browse).click();
+      await expect(co("open")).toHaveText("true true");
+      await expect(co("value")).toHaveText(`${mode.chosen} ${mode.chosen}`);
+      await page.keyboard.press("Escape");
+      await expect(co("open")).toHaveText("false false");
+      await co("readonly").click();
+      await expect(co("policy")).toHaveText("false false");
+
+      // Disabling the replaced picker while open closes it through the replaced open.
+      await trigger.click();
+      await expect(co("open")).toHaveText("true true");
+      await co("disable").evaluate((node) => (node as HTMLElement).click());
+      await expect(co("open")).toHaveText("false false");
+      await expect.poll(isShown).toBe(false);
+      await expect(trigger).toBeDisabled();
+      await expect(co("unused-outputs")).toHaveText("0");
+    });
+  }
+}

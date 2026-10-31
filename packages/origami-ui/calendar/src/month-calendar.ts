@@ -22,7 +22,7 @@ import type { OrigamiCalendarPeriodRecord } from "./calendar";
 import { canonicalMonth, firstDayOf, lastDayOf } from "./calendar-date";
 import type { Weekday } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
-import { CalendarPickerRegistration } from "./calendar-picker";
+import { CalendarPickerRegistration, injectCalendarPicker } from "./calendar-picker";
 import { CalendarSeed } from "./calendar-seed";
 
 /**
@@ -126,10 +126,20 @@ export abstract class OrigamiMonthCalendarOptions {
 @Service({ autoProvided: false })
 export class OrigamiMonthCalendarState {
   readonly #options = injectDeferred(OrigamiMonthCalendarOptions);
+  readonly #picker = injectCalendarPicker<string | null>("month");
   readonly #context = inject(CalendarContext);
 
-  /** Effective value, including null and non-canonical values. No writable alias is exposed. */
-  readonly value: Signal<string | null> = computed(() => this.#options().value());
+  /**
+   * Effective value, including null and non-canonical values: a binding picker's inside its
+   * Content. No writable alias is exposed.
+   */
+  readonly value: Signal<string | null> = computed(() => {
+    if (this.#picker !== null) {
+      return this.#picker.value();
+    }
+
+    return this.#options().value();
+  });
   /**
    * The displayed position, `YYYY-MM`: the `month` Option while it is canonical, else the
    * value, else today's month. The months view shows its year.
@@ -215,6 +225,8 @@ function neverDisabled(): boolean {
     OrigamiMonthCalendarOptions.provideExisting(() => OrigamiMonthCalendar),
     CalendarRootOptions.provideFactory(() => {
       const options = inject(OrigamiMonthCalendarOptions);
+      const picker = injectCalendarPicker<string | null>("month");
+      const value = picker?.value ?? options.value;
 
       return {
         month: options.month,
@@ -250,15 +262,17 @@ function neverDisabled(): boolean {
         locale: options.locale,
         today: options.today,
         fixedWeeks: signal(false),
-        disabled: options.disabled,
-        readonly: options.readonly,
+        disabled: picker?.disabled ?? options.disabled,
+        readonly: picker?.readonly ?? options.readonly,
         multiselectable: false,
-        bridged: false,
-        selected: (month) => options.value() === month,
+        bridged: picker !== null,
+        selected: (month) => value() === month,
         preferred: () => null,
-        shown: () => options.value(),
+        shown: () => value(),
+        // Only a month completes a picker's choice; a year drills down without reaching here.
         choose: (month) => {
-          ɵrequestSingleSelection(options.value, month, true, false);
+          ɵrequestSingleSelection(value, month, true, false);
+          picker?.chosen();
         },
         range: () => null,
         anchor: () => null,
@@ -349,8 +363,8 @@ export class OrigamiMonthCalendar
   }
 
   /**
-   * @internal Reports a binding picker of another mode once Angular has set its inputs: this root
-   * stays an unbound inline Calendar.
+   * @internal Registers with a binding picker once Angular has set its inputs, or reports one of
+   * another mode: this root then stays an unbound inline Calendar.
    */
   ngOnInit(): void {
     this.#picker.register(

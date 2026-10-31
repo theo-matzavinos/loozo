@@ -19,7 +19,7 @@ import { injectDeferred, ɵcanonicalDay as canonicalDay } from "@loozo/origami-u
 import type { OrigamiCalendarDayRecord, OrigamiCalendarPeriodRecord } from "./calendar";
 import { monthOf } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
-import { CalendarPickerRegistration } from "./calendar-picker";
+import { CalendarPickerRegistration, injectCalendarPicker } from "./calendar-picker";
 import { CalendarSeed } from "./calendar-seed";
 
 /**
@@ -117,13 +117,20 @@ export abstract class OrigamiCalendarMultipleOptions {
 @Service({ autoProvided: false })
 export class OrigamiCalendarMultipleState {
   readonly #options = injectDeferred(OrigamiCalendarMultipleOptions);
+  readonly #picker = injectCalendarPicker<readonly string[]>("dates");
   readonly #context = inject(CalendarContext);
 
   /**
    * Effective chosen days as written, including entries no cell shows and entries that aren't
-   * canonical days. No writable alias is exposed.
+   * canonical days: a binding picker's inside its Content. No writable alias is exposed.
    */
-  readonly value: Signal<readonly string[]> = computed(() => this.#options().value());
+  readonly value: Signal<readonly string[]> = computed(() => {
+    if (this.#picker !== null) {
+      return this.#picker.value();
+    }
+
+    return this.#options().value();
+  });
   /**
    * The displayed month, `YYYY-MM`: the `month` Option while it is canonical, else the month of
    * the value's first canonical day, else today's; held to 0001-02 through 9999-11.
@@ -243,8 +250,10 @@ function toggled(days: readonly string[], date: string): readonly string[] {
     OrigamiCalendarMultipleOptions.provideExisting(() => OrigamiCalendarMultiple),
     CalendarRootOptions.provideFactory(() => {
       const options = inject(OrigamiCalendarMultipleOptions);
+      const picker = injectCalendarPicker<readonly string[]>("dates");
+      const value = picker?.value ?? options.value;
       // `===`, as the toggle compares, not `includes`.
-      const selected = (date: string) => options.value().some((entry) => entry === date);
+      const selected = (date: string) => value().some((entry) => entry === date);
 
       return {
         month: options.month,
@@ -261,13 +270,13 @@ function toggled(days: readonly string[], date: string): readonly string[] {
         locale: options.locale,
         today: options.today,
         fixedWeeks: options.fixedWeeks,
-        disabled: options.disabled,
-        readonly: options.readonly,
+        disabled: picker?.disabled ?? options.disabled,
+        readonly: picker?.readonly ?? options.readonly,
         multiselectable: true,
-        bridged: false,
+        bridged: picker !== null,
         selected,
         preferred: (month) => {
-          for (const entry of options.value()) {
+          for (const entry of value()) {
             const day = canonicalDay(entry);
 
             if (day !== null && monthOf(day) === month) {
@@ -278,7 +287,7 @@ function toggled(days: readonly string[], date: string): readonly string[] {
           return null;
         },
         shown: () => {
-          for (const entry of options.value()) {
+          for (const entry of value()) {
             const day = canonicalDay(entry);
 
             if (day !== null) {
@@ -288,8 +297,9 @@ function toggled(days: readonly string[], date: string): readonly string[] {
 
           return null;
         },
+        // A toggle never completes a picker's choice: it stays open for the next day.
         choose: (date) => {
-          options.value.set(toggled(options.value(), date));
+          value.set(toggled(value(), date));
         },
         range: () => null,
         anchor: () => null,
@@ -387,8 +397,8 @@ export class OrigamiCalendarMultiple
   }
 
   /**
-   * @internal Reports a binding picker of another mode once Angular has set its inputs: this root
-   * stays an unbound inline Calendar.
+   * @internal Registers with a binding picker once Angular has set its inputs, or reports one of
+   * another mode: this root then stays an unbound inline Calendar.
    */
   ngOnInit(): void {
     this.#picker.register(
