@@ -1,4 +1,5 @@
 import {
+  DestroyRef,
   Directive,
   ElementRef,
   LOCALE_ID,
@@ -21,6 +22,7 @@ import type { OrigamiCalendarPeriodRecord } from "./calendar";
 import { canonicalMonth, firstDayOf, lastDayOf } from "./calendar-date";
 import type { Weekday } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
+import { CalendarPickerRegistration } from "./calendar-picker";
 import { CalendarSeed } from "./calendar-seed";
 
 /**
@@ -251,6 +253,7 @@ function neverDisabled(): boolean {
         disabled: options.disabled,
         readonly: options.readonly,
         multiselectable: false,
+        bridged: false,
         selected: (month) => options.value() === month,
         preferred: () => null,
         shown: () => options.value(),
@@ -322,6 +325,8 @@ export class OrigamiMonthCalendar
 
   readonly #context = inject(CalendarContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
+  readonly #picker = new CalendarPickerRegistration("month");
 
   /**
    * Emits when focus leaves the root, not while it moves between cells or to Previous/Next, nor
@@ -341,6 +346,21 @@ export class OrigamiMonthCalendar
    */
   focus(options?: FocusOptions): void {
     this.#context.focus(options);
+  }
+
+  /**
+   * @internal Reports a binding picker of another mode once Angular has set its inputs: this root
+   * stays an unbound inline Calendar.
+   */
+  ngOnInit(): void {
+    this.#picker.register(
+      {
+        reset: () => this.#context.reset(),
+        focus: (options) => this.#context.focus(options),
+        focusPending: () => this.#context.focusPending(),
+      },
+      this.#destroyRef,
+    );
   }
 
   /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */

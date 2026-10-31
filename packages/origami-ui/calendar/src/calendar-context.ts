@@ -103,6 +103,8 @@ export abstract class CalendarRootOptions {
   abstract readonly readonly: Signal<boolean>;
   /** Whether several days can be selected: the Grid's `aria-multiselectable`. */
   abstract readonly multiselectable: boolean;
+  /** Whether a picker binds the root: its Grid then doesn't join a Field. */
+  abstract readonly bridged: boolean;
   /** Whether `date` is selected; tracked. */
   abstract selected(date: string): boolean;
   /** The selection's day the tab stop prefers in `month`, or null; tracked. */
@@ -395,6 +397,8 @@ export class CalendarContext {
   });
   /** Emits synchronously when focus leaves the root's element; the root reports it as `touch`. */
   readonly touches = this.#touches.asObservable();
+  /** Whether a picker binds the root: its Grid doesn't join a Field. */
+  readonly bridged = computed(() => this.#root().bridged);
 
   constructor() {
     // A request is dropped for good once focus moves to another element, in or outside the root,
@@ -624,6 +628,34 @@ export class CalendarContext {
     }
 
     this.#focusDate(date, options);
+  }
+
+  /**
+   * Back to a fresh mount's display for a picker's open: `month` follows the value, the view is
+   * the value's own, a range's pending first day is dropped, and the focused and hovered days are
+   * forgotten, so the tab stop is the selection's day again, else today's.
+   */
+  reset(): void {
+    if (this.#destroyed) {
+      return;
+    }
+
+    const root = this.#root();
+
+    root.month.set(null);
+    root.setView(root.valueLevel);
+    root.cancel();
+    // In the same view these keep the last session's navigation; a view change clears them anyway.
+    this.#focused.set(null);
+    this.#hovered.set(null);
+  }
+
+  /**
+   * Whether focus is waiting for a cell that isn't mounted yet, such as the next month's after
+   * PageDown; the focused cell leaving with its month drops focus to nothing meanwhile.
+   */
+  focusPending(): boolean {
+    return untracked(this.#request) !== null;
   }
 
   /** A cell's keys. Handled keys prevent their default, such as Space scrolling the page. */

@@ -1,12 +1,14 @@
 import {
   DestroyRef,
   Directive,
+  Injector,
   PLATFORM_ID,
   Service,
   booleanAttribute,
   computed,
   forwardRef,
   inject,
+  afterNextRender,
   input,
   model,
   signal,
@@ -93,6 +95,9 @@ export class PopoverContext {
   readonly #trigger = signal<TriggerPart | null>(null);
   readonly #anchor = signal<IdentityPart | null>(null);
   readonly #content = signal<ContentPart | null>(null);
+  readonly #injector = inject(Injector);
+  /** Stops each script-close restore still waiting for its render. */
+  readonly #pendingRestores = new Set<() => void>();
   #destroyed = false;
 
   // Object identity detects invalidated/recomputed effective signal decisions, including
@@ -134,9 +139,11 @@ export class PopoverContext {
       const focus = ɵdeepActiveElement(this.layer.document);
       const restore = previous?.open === true && !interaction && this.layer.containsFocus(focus);
 
-      // Restore only the owning closing trigger, never each suppressed descendant.
+      // Restore only the owning closing trigger, never each suppressed descendant. After this
+      // tick's render, so the Trigger's own content, also in a block or a child component, is
+      // current when focus returns; still before the hide, in the earliest phase.
       if (restore && !this.#server) {
-        this.#restoreFocus(focus);
+        this.#deferRestore(focus);
       }
     },
   });
@@ -191,6 +198,11 @@ export class PopoverContext {
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
+
+      for (const stop of this.#pendingRestores) {
+        stop();
+      }
+
       this.layer.destroy();
       this.floating.destroy();
     });
@@ -259,6 +271,64 @@ export class PopoverContext {
     }
   }
 
+  /**
+   * Restores a script close after this tick's render. Until then, focus moving to an element
+   * outside the closing branch, a focusable `body` included, chooses another destination and
+   * cancels the restore; focus falling to nothing from the inert closing Content fires no
+   * `focusin`, so it doesn't.
+   */
+  #deferRestore(expectedFocus: Element | null): void {
+    const document = this.layer.document;
+    let moved = false;
+    const focusIn = (event: FocusEvent): void => {
+      const target = event.target;
+
+      if (!(target instanceof Element) || !this.layer.containsFocus(target)) {
+        moved = true;
+      }
+    };
+    const stop = (): void => {
+      document.removeEventListener("focusin", focusIn, true);
+      this.#pendingRestores.delete(stop);
+    };
+
+    document.addEventListener("focusin", focusIn, true);
+    this.#pendingRestores.add(stop);
+    afterNextRender(
+      {
+        earlyRead: () => {
+          stop();
+
+          if (!moved) {
+            this.#restoreScriptClose(expectedFocus);
+          }
+        },
+      },
+      { injector: this.#injector },
+    );
+  }
+
+  /**
+   * A script close's deferred restore, unless focus moved meanwhile: unless the Popover reopened,
+   * focus returns while it is still on the element focused at the close, or once it fell to
+   * nothing from the closing Content, which became inert.
+   */
+  #restoreScriptClose(expectedFocus: Element | null): void {
+    if (this.#destroyed || this.desired()) {
+      return;
+    }
+
+    const focus = ɵdeepActiveElement(this.layer.document);
+
+    if (focus === null || focus === this.layer.document.body) {
+      this.#restoreFocus(focus);
+
+      return;
+    }
+
+    this.#restoreFocus(expectedFocus);
+  }
+
   #restoreFocus(expectedFocus: Element | null): void {
     const trigger = this.#trigger();
 
@@ -322,10 +392,13 @@ export class OrigamiPopoverState {
  * is authoritative and suppresses descendants without clearing their requested intent.
  *
  * Escape restores the relevant live eligible Trigger once. Outside dismissal preserves outside
- * focus. Script close restores focus only when it remains inside the closing branch; suppressing
- * nested focused content restores the closing owner's Trigger once. Never restore a
- * disconnected, destroyed, disabled or inert Trigger, or steal focus moved elsewhere by a
- * listener.
+ * focus. Script close restores focus only when it was inside the closing branch, and only after
+ * that change detection has rendered, so the Trigger's own content, also in a block or a child
+ * component, is current when focus returns; it restores while focus is still where it was, or
+ * fell to nothing from the inert closing Content, and not if the Popover reopened or focus moved
+ * outside the closing branch meanwhile, to `body` included. Suppressing nested focused content
+ * restores the closing owner's Trigger once. Never restore a disconnected, destroyed, disabled or
+ * inert Trigger, or steal focus moved elsewhere by a listener.
  *
  * @example
  * ```html

@@ -106,8 +106,13 @@ export class OrigamiCalendarGrid {
   /** @internal The bound field's `required()` inside a Field; otherwise the static value. */
   protected readonly ariaRequired = this.#membership.required;
 
-  /** @internal Joins the nearest Field once Angular has set its inputs. */
+  /**
+   * @internal Joins the nearest Field once Angular has set its inputs, unless a picker binds the
+   * root: the picker's Trigger is the Field's control then.
+   */
   ngOnInit(): void {
-    this.#membership.register(this.#destroyRef);
+    if (!this.#context.bridged()) {
+      this.#membership.register(this.#destroyRef);
+    }
   }
 }

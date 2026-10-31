@@ -1980,6 +1980,75 @@ test("V20: a script close restores the Trigger from a field in a form whose cont
   }
 });
 
+test("V21: a script close from inside Content restores focus after the render, so the Trigger's text in an @if and a child component is current", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await scriptControl(page, "timing-mount");
+
+  const trigger = page.getByTestId("timing-trigger");
+  const content = page.getByTestId("timing-content");
+  const intent = page.getByTestId("timing-intent");
+
+  await trigger.evaluate((element) => {
+    const log: string[] = [];
+
+    (window as unknown as { timingFocus: string[] }).timingFocus = log;
+    element.addEventListener("focus", () => {
+      log.push(element.textContent!.replace(/\s+/g, " ").trim());
+    });
+  });
+
+  // The `@if` and the child component each render the choice: "OneOne".
+  for (const [control, text] of [
+    ["timing-one", "OneOne"],
+    ["timing-two", "TwoTwo"],
+  ]) {
+    await scriptControl(page, "timing-trigger");
+    await expect(intent).toHaveText("true");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await page.getByTestId(control).focus();
+    await scriptControl(page, control);
+    await expect(intent).toHaveText("false");
+    await expect(trigger, control).toBeFocused();
+    expect(
+      await page.evaluate(() =>
+        (window as unknown as { timingFocus: string[] }).timingFocus.splice(0),
+      ),
+      control,
+    ).toEqual([text]);
+  }
+});
+
+test("V22: a script close whose render moves focus outside Content before the deferred restore, to a control that then blurs or to a focusable body, keeps the Trigger unfocused", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+  await scriptControl(page, "timing-mount");
+
+  const trigger = page.getByTestId("timing-trigger");
+  const content = page.getByTestId("timing-content");
+  const intent = page.getByTestId("timing-intent");
+
+  try {
+    for (const control of ["timing-blur", "timing-body"]) {
+      await scriptControl(page, "timing-trigger");
+      await expect(intent).toHaveText("true");
+      await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+      await page.getByTestId(control).focus();
+      await scriptControl(page, control);
+      await expect(intent).toHaveText("false");
+      await expect
+        .poll(() => content.evaluate((node) => node.matches(":popover-open")))
+        .toBe(false);
+      await expect(trigger, control).not.toBeFocused();
+      expect(await page.evaluate(() => document.activeElement?.localName), control).toBe("body");
+    }
+  } finally {
+    await page.evaluate(() => document.body.removeAttribute("tabindex"));
+  }
+});
+
 test("V16: a Trigger's own disabled blocks only its activation; the root, writes and Escape stay enabled", async ({
   page,
 }, info) => {

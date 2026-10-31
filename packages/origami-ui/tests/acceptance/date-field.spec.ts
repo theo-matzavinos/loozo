@@ -2,7 +2,7 @@ import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { bootstrapHeld, fixture } from "./observation.js";
 
-// Date field (section 30, DF). DF1 is the segment engine in Node (date-field-checks.mjs).
+// Date field (section 25, DF). DF1 is the segment engine in Node (date-field-checks.mjs).
 
 function root(page: Page, name: string): Locator {
   return page.getByTestId(`${name}-root`);

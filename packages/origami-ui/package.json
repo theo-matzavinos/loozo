@@ -93,6 +93,10 @@
       "types": "./dist/types/loozo-origami-ui-date-field.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-date-field.mjs"
     },
+    "./date-picker": {
+      "types": "./dist/types/loozo-origami-ui-date-picker.d.ts",
+      "default": "./dist/fesm2022/loozo-origami-ui-date-picker.mjs"
+    },
     "./menu": {
       "types": "./dist/types/loozo-origami-ui-menu.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-menu.mjs"

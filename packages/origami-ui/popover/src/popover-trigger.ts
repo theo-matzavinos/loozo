@@ -118,6 +118,13 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
    * application API.
    */
   readonly ɵcontentHasFocus: Signal<boolean> = this.#context.contentHasFocus;
+  /**
+   * @internal Package-private: Content natively participates, the signal `aria-expanded`
+   * reports; false on the server, before the show and during an exit. Read by
+   * `@loozo/origami-ui/date-picker` to move focus into Content once it is shown. Not an
+   * application API.
+   */
+  readonly ɵparticipating: Signal<boolean> = this.#context.participating;
 
   constructor() {
     this.#destroyRef.onDestroy(() => {

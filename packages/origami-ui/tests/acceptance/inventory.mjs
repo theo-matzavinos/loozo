@@ -196,6 +196,15 @@ export const inventory = {
     "OrigamiDateTimeField",
     "OrigamiDateTimeFieldOptions",
   ],
+  "date-picker": [
+    "OrigamiDatePicker",
+    "OrigamiDatePickerOptions",
+    "OrigamiDatePickerState",
+    "OrigamiDatePickerTrigger",
+    "OrigamiDatePickerTriggerOptions",
+    "OrigamiDatePickerContent",
+    "OrigamiDatePickerContentOptions",
+  ],
   menu: [
     "OrigamiMenu",
     "OrigamiMenuOptions",

@@ -33,6 +33,7 @@ import { PopoverPresentation } from "./popover-presentation.js";
 import { NativeOwnerLifetime } from "./native-owner-lifetime.js";
 import { LatePointer } from "./pointer-lifetime.js";
 import { PopoverNamedForm } from "./popover-named-form.js";
+import { PopoverRestoreTiming } from "./popover-restore-timing.js";
 import { PopoverShadow } from "./popover-shadow.js";
 
 @Service({ autoProvided: false })
@@ -253,6 +254,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     LatePointer,
     PopoverShadow,
     PopoverNamedForm,
+    PopoverRestoreTiming,
     NativePopover,
     NativeContent,
     OrigamiPopover,
@@ -433,6 +435,10 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     @if (namedFormMounted()) {
       <acceptance-popover-named-form />
     }
+    <button type="button" data-testid="timing-mount" (click)="timingMounted.set(true)">Mount restore timing case</button>
+    @if (timingMounted()) {
+      <acceptance-popover-restore-timing />
+    }
     <acceptance-popover />
   `,
   styles: `
@@ -593,6 +599,7 @@ export class PopoverFixture {
   readonly latePointerMounted = signal(false);
   readonly shadowMounted = signal(false);
   readonly namedFormMounted = signal(false);
+  readonly timingMounted = signal(false);
   readonly pressChildMounted = signal(false);
   readonly pressChildOpen = signal(true);
   readonly increment = (value: number): number => value + 1;

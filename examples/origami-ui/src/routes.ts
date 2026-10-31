@@ -83,6 +83,11 @@ export const routes: Routes = [
       import("./fixtures/date-field-deferred.js").then((module) => module.DateFieldDeferred),
   },
   {
+    path: "date-picker",
+    loadComponent: () =>
+      import("./fixtures/date-picker-deferred.js").then((module) => module.DatePickerDeferred),
+  },
+  {
     path: "time-field",
     loadComponent: () =>
       import("./fixtures/date-field-time-deferred.js").then((module) => module.TimeFieldDeferred),

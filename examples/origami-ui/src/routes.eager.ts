@@ -72,6 +72,11 @@ export const routes: Routes = [
       import("./fixtures/date-field.js").then((module) => module.DateFieldFixture),
   },
   {
+    path: "date-picker",
+    loadComponent: () =>
+      import("./fixtures/date-picker.js").then((module) => module.DatePickerFixture),
+  },
+  {
     path: "time-field",
     loadComponent: () =>
       import("./fixtures/date-field-time.js").then((module) => module.TimeFieldFixture),

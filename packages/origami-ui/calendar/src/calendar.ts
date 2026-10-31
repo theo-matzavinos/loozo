@@ -1,4 +1,5 @@
 import {
+  DestroyRef,
   Directive,
   ElementRef,
   LOCALE_ID,
@@ -18,6 +19,7 @@ import { ɵrequestSingleSelection } from "@loozo/origami-ui/collection";
 import { injectDeferred, ɵcanonicalDay as canonicalDay } from "@loozo/origami-ui/utils";
 import { monthOf } from "./calendar-date";
 import { CalendarContext, CalendarRootOptions } from "./calendar-context";
+import { CalendarPickerRegistration, injectCalendarPicker } from "./calendar-picker";
 import { CalendarSeed } from "./calendar-seed";
 
 /**
@@ -158,10 +160,20 @@ export interface OrigamiCalendarPeriodRecord {
 @Service({ autoProvided: false })
 export class OrigamiCalendarState {
   readonly #options = injectDeferred(OrigamiCalendarOptions);
+  readonly #picker = injectCalendarPicker<string | null>("date");
   readonly #context = inject(CalendarContext);
 
-  /** Effective value, including null and non-canonical values. No writable alias is exposed. */
-  readonly value: Signal<string | null> = computed(() => this.#options().value());
+  /**
+   * Effective value, including null and non-canonical values: a binding picker's inside its
+   * Content. No writable alias is exposed.
+   */
+  readonly value: Signal<string | null> = computed(() => {
+    if (this.#picker !== null) {
+      return this.#picker.value();
+    }
+
+    return this.#options().value();
+  });
   /**
    * The displayed month, `YYYY-MM`: the `month` Option while it is canonical, else the value's
    * month, else today's; held to 0001-02 through 9999-11. The months view shows its year.
@@ -265,6 +277,8 @@ function neverDisabled(): boolean {
     OrigamiCalendarOptions.provideExisting(() => OrigamiCalendar),
     CalendarRootOptions.provideFactory(() => {
       const options = inject(OrigamiCalendarOptions);
+      const picker = injectCalendarPicker<string | null>("date");
+      const value = picker?.value ?? options.value;
 
       return {
         month: options.month,
@@ -281,22 +295,24 @@ function neverDisabled(): boolean {
         locale: options.locale,
         today: options.today,
         fixedWeeks: options.fixedWeeks,
-        disabled: options.disabled,
-        readonly: options.readonly,
+        disabled: picker?.disabled ?? options.disabled,
+        readonly: picker?.readonly ?? options.readonly,
         multiselectable: false,
-        selected: (date) => options.value() === date,
+        bridged: picker !== null,
+        selected: (date) => value() === date,
         preferred: (month) => {
-          const value = canonicalDay(options.value());
+          const day = canonicalDay(value());
 
-          if (value !== null && monthOf(value) === month) {
-            return value;
+          if (day !== null && monthOf(day) === month) {
+            return day;
           }
 
           return null;
         },
-        shown: () => options.value(),
+        shown: () => value(),
         choose: (date) => {
-          ɵrequestSingleSelection(options.value, date, true, false);
+          ɵrequestSingleSelection(value, date, true, false);
+          picker?.chosen();
         },
         range: () => null,
         anchor: () => null,
@@ -365,6 +381,8 @@ export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl
 
   readonly #context = inject(CalendarContext);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  readonly #destroyRef = inject(DestroyRef);
+  readonly #picker = new CalendarPickerRegistration("date");
 
   /**
    * Emits when focus leaves the root, not while it moves between cells or to Previous/Next, nor
@@ -389,6 +407,18 @@ export class OrigamiCalendar implements OrigamiCalendarOptions, FormValueControl
    */
   focus(options?: FocusOptions): void {
     this.#context.focus(options);
+  }
+
+  /** @internal Registers with a binding picker once Angular has set its inputs. */
+  ngOnInit(): void {
+    this.#picker.register(
+      {
+        reset: () => this.#context.reset(),
+        focus: (options) => this.#context.focus(options),
+        focusPending: () => this.#context.focusPending(),
+      },
+      this.#destroyRef,
+    );
   }
 
   /** @internal Touch notification for Signal Forms, only when focus leaves the root's element. */

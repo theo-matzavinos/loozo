@@ -59,6 +59,7 @@ for (const directory of [
   "select/src",
   "calendar/src",
   "date-field/src",
+  "date-picker/src",
   "menu/src",
 ]) {
   await collect(directory);
