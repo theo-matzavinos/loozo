@@ -1,6 +1,6 @@
 {
   "name": "@loozo/origami-ui",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Headless, accessible Angular primitives: collection, presence, collapsible, accordion, popover, toggle, tabs, toggle group, toolbar, radio group, button, tooltip, field, checkbox, switch, dialog, alert dialog, select, calendar, date field and menu.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
