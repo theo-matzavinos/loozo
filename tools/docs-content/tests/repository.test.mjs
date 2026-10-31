@@ -288,6 +288,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/select",
     "@loozo/origami-ui/calendar",
     "@loozo/origami-ui/date-field",
+    "@loozo/origami-ui/date-picker",
     "@loozo/origami-ui/menu",
     "@loozo/origami-ui/utils",
   ]);
@@ -330,6 +331,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/select"].length, 14);
   assert.equal(names["@loozo/origami-ui/calendar"].length, 22);
   assert.equal(names["@loozo/origami-ui/date-field"].length, 12);
+  assert.equal(names["@loozo/origami-ui/date-picker"].length, 16);
   assert.equal(names["@loozo/origami-ui/menu"].length, 28);
   assert.deepEqual(origami.generatedApi, []);
 });
@@ -374,6 +376,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "select:Select",
     "calendar:Calendar",
     "date-field:Date field",
+    "date-picker:Date picker",
     "menu:Menu",
     "utils:Utilities",
   ]);
@@ -390,7 +393,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 24 snippets that export one component", async () => {
+test("origami's guide pages run the 29 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -398,7 +401,7 @@ test("origami's guide pages run the 24 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 24);
+  assert.equal(ids.length, 29);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -449,6 +452,11 @@ test("origami's playgrounds get a control for each input and model of their comp
       "readonly:input:boolean",
       "fixedWeeks:input:boolean",
       "weekStart:input:options",
+      "locale:input:options",
+    ],
+    "date-picker/due-date.ts": [
+      "disabled:input:boolean",
+      "readonly:input:boolean",
       "locale:input:options",
     ],
   });

@@ -2,6 +2,8 @@
 
 A date picker is a button that opens a [Calendar](../calendar/README.md) in a popup, for a form field such as "Valid from": you choose a day and the popup closes. Put the button inside a [date field](../date-field/README.md)'s segments instead and you can also type the date ([field shape](#field-shape)). Its value is an ISO day, `"2026-10-27"`, never a `Date`. Inside the popup you author an ordinary `ogCalendar`, with its own header, grid and configuration; the picker owns its value, disabled and readonly. Three more roots pick [several days, a range or a month](#several-days-a-range-or-a-month) the same way, over the Calendar root of their mode. The popup is a [Popover](../popover/README.md), so it's presented in the native top layer, positioned against the button and dismissed like one. It's an [Angular Signal Forms](https://angular.dev/guide/forms/signals/overview) control, and it joins a [Field](../field/README.md) on its own.
 
+[src/date-picker/due-date.ts](../snippets/src/date-picker/due-date.ts "playground")
+
 | Directive              | Configuration                                                                                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogDatePicker`         | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `open: boolean` model (default `false`), `disabled`, `readonly` (default `false`), `locale` (default `LOCALE_ID`) |
@@ -67,7 +69,7 @@ Put the date field's segments and the Trigger in an `ogDateFieldInput` inside th
 </div>
 ```
 
-The segments are the [date field's](../date-field/README.md), with its keys, typing and parse errors; the picker supplies its `value`, `locale`, `disabled` and `readonly`. The shape follows where the Trigger sits, once, when it is created.
+The segments are the [date field's](../date-field/README.md), with its keys, typing and parse errors; the picker supplies its `value`, `locale`, `disabled` and `readonly`. The shape follows where the Trigger sits, once, when it is created. The playground at the top of this page is this shape.
 
 - **Naming:** the Input group is the Field's control and supplies the field's name, "Date of birth". The Trigger isn't a Field member: name it with an `aria-label`, which also names the popup. Any other ARIA you write on it stays as written.
 - **Focus:** `focus()` and `focusBoundControl()` focus the first segment. The popup is positioned against the Trigger, so `align="end"` lines it up with the field's end, and focus returns to the Trigger after a choice and Escape, so the next Tab leaves the field.
@@ -126,6 +128,14 @@ These roots have no field shape: their Trigger is always the Field's control, an
 
 Focus moves from Done back to the Trigger, as after a choice.
 
+A range, several days closed by Done, and a month, each in the button shape:
+
+[src/date-picker/stay.ts](../snippets/src/date-picker/stay.ts "both")
+
+[src/date-picker/holidays.ts](../snippets/src/date-picker/holidays.ts "both")
+
+[src/date-picker/billing-month.ts](../snippets/src/date-picker/billing-month.ts "both")
+
 ## Opening and choosing
 
 A click, Enter or Space on the Trigger opens the picker. Each open starts the Calendar afresh: it shows the value's month (today's without a value) in the days view, whatever month, view or day you left it on, so a bound `[(month)]` or `[(view)]` on the Calendar sees those writes. A Calendar gated as below is reset when it mounts. Once the popup is shown, focus moves into the grid: to the selected day, else today, else the first day that can be chosen.
@@ -150,6 +160,10 @@ Content keeps the Calendar until focus is back on the Trigger. Gated on `picker.
 - **Escape** goes to the Calendar first, which drops a range's pending first day, else returns from the months or years view to the days (the months, for a month picker); the next Escape closes the picker with focus on the Trigger. Inside a [Dialog](../dialog/README.md), the Escape after that closes the Dialog: one layer per press.
 - **Leaving:** when focus moves to an element outside the picker, by Tab past the Calendar's last control or a click on another field, the picker closes and focus stays where it went. A click outside closes it too.
 - **Touch:** `touch`, and so Signal Forms' touched state, follows leaving: it's emitted when focus moves outside the picker, and when focus falls to nothing, as when you switch windows, which doesn't close it. Opening, moving between the segments, the Trigger and the Calendar, a click on the popup's padding (Content has `tabindex="-1"`), the Calendar's own focus moves, Escape and choosing don't touch. The date field's own `touch`, when focus leaves its segments, isn't passed on: the picker's is the one `[formField]` hears.
+
+Here the picker sits in a Dialog: open it, open the picker, and press Escape twice.
+
+[src/date-picker/invoice-filters.ts](../snippets/src/date-picker/invoice-filters.ts "both")
 
 ## Forms and Fields
 
