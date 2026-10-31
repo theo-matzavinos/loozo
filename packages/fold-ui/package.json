@@ -1,6 +1,6 @@
 {
   "name": "@loozo/fold-ui",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Styled Angular components over Origami primitives, copied into your app by schematics and themed with Tailwind CSS v4.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
