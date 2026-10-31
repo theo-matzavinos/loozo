@@ -128,11 +128,13 @@ A sheet is a Dialog styled against an edge, with no option of its own. Remove th
 
 ```css
 .sheet {
-  margin-inline-start: auto;
+  box-sizing: border-box;
+  margin-inline: auto 0;
   margin-block: 0;
   block-size: 100dvh;
   max-block-size: none;
   inline-size: min(20rem, 100vw);
+  max-inline-size: none;
 }
 
 .sheet[data-entering] {
@@ -157,7 +159,7 @@ A sheet is a Dialog styled against an edge, with no option of its own. Remove th
 }
 ```
 
-`translate` is physical: in a right-to-left page, slide from `-100%` and use `margin-inline-end`. For a block-edge sheet, use `margin-block-start: auto` and `translate: 0 100%`.
+The margins are logical, so in a right-to-left page the sheet sits against the left edge; `translate` is physical, so slide it from `-100%` there. For a sheet against the bottom edge, swap the axes: `margin-block: auto 0`, `margin-inline: 0`, a `block-size` of your choice with `inline-size: 100vw`, and `translate: 0 100%`.
 
 ## Replacing Options
 

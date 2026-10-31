@@ -32,11 +32,13 @@ import {
   `,
   styles: `
     .sheet {
-      margin-inline-start: auto;
+      box-sizing: border-box;
+      margin-inline: auto 0;
       margin-block: 0;
       block-size: 100dvh;
       max-block-size: none;
       inline-size: min(20rem, 100vw);
+      max-inline-size: none;
       padding: 1rem;
       border: none;
       border-inline-start: 1px solid currentColor;
