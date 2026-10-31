@@ -658,8 +658,12 @@ export class CalendarContext {
     return untracked(this.#request) !== null;
   }
 
-  /** A cell's keys. Handled keys prevent their default, such as Space scrolling the page. */
-  keydown(date: string, element: HTMLElement, event: KeyboardEvent): void {
+  /**
+   * A cell's keys. Handled keys prevent their default, such as Space scrolling the page. A key on
+   * the cell focus is leaving for another period, before that period renders, acts from the day
+   * focus is moving to: the pending request's, while focus is still where it was made.
+   */
+  keydown(cellDate: string, element: HTMLElement, event: KeyboardEvent): void {
     if (
       this.#destroyed ||
       this.disabled() ||
@@ -670,6 +674,13 @@ export class CalendarContext {
       event.metaKey
     ) {
       return;
+    }
+
+    const request = this.#request();
+    let date = cellDate;
+
+    if (request !== null && request.origin === element) {
+      date = request.date;
     }
 
     const key = event.key;
@@ -755,8 +766,9 @@ export class CalendarContext {
   }
 
   /**
-   * A user's choice of a mounted cell of the current view, by click, Enter or Space, unless the
-   * root is disabled or the cell can't be chosen. In a view coarser than the value's, it drills
+   * A user's choice of a cell of the current view, by click, Enter or Space, unless the root is
+   * disabled or the cell can't be chosen; a key before a new period renders chooses the day focus
+   * is moving to, whose cell isn't mounted yet. In a view coarser than the value's, it drills
    * down, readonly too: a year shows its months and a month its days, and focus follows. At the
    * value's own level the root's mode writes it, unless the root is readonly. Choosing a day
    * outside the displayed month also shows its month, and focus follows to its cell. Choosing a

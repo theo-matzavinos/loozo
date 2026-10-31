@@ -220,7 +220,7 @@ In the months and years views:
 | Enter, Space           | show the month's days (`ogMonthCalendar`: choose it) | show the year's months                                                        |
 | Escape                 | back to the days (`ogMonthCalendar`: none)           | back to the days (`ogMonthCalendar`: the months), also from Previous and Next |
 
-A move past the displayed month shows the next one, and focus follows to the day once its cell renders. From January 31, PageDown lands on February 28, or 29 in a leap year, and PageDown again on March 28. Moves stop at `minDate` and `maxDate`, and at February 1, 0001 and November 30, 9999. With a `maxDate` before February 1, 0001, or a `minDate` after November 30, 9999, no day is both, so the keys don't move.
+A move past the displayed month shows the next one, and focus follows to the day once its cell renders. A key pressed before then acts from that day, not the one focus is leaving. From January 31, PageDown lands on February 28, or 29 in a leap year, and PageDown again on March 28. Moves stop at `minDate` and `maxDate`, and at February 1, 0001 and November 30, 9999. With a `maxDate` before February 1, 0001, or a `minDate` after November 30, 9999, no day is both, so the keys don't move.
 
 A move past the displayed year or page shows the next one, and focus follows. Month and year moves stop at the months and years wholly outside the bounds, and at 0001–9999 and the pages 12–23 and 9984–9995.
 

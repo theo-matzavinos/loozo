@@ -2366,3 +2366,62 @@ test("CA47: a range's hovered day is forgotten when the view changes, so back in
   await expect(value).toHaveText("2026-09-28 2026-10-03");
   await expect.poll(() => daysWith(page, "vr", "data-preview")).toEqual(["2026-09-10"]);
 });
+
+/**
+ * Presses `keys` on the focused element back to back in one task, each on whatever has focus
+ * then, so no render runs between them: a key after a move into another period reaches the cell
+ * focus is leaving.
+ */
+async function pressAtOnce(page: Page, keys: readonly string[]): Promise<void> {
+  await page.evaluate((keys) => {
+    for (const key of keys) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+
+      document.activeElement!.dispatchEvent(event);
+    }
+  }, keys);
+}
+
+test("CA48: a key on the cell focus is leaving, before the next month or year renders, acts from the day or month focus is moving to", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  // One day: a second move goes on from the new day, and Enter chooses it.
+  await cell(page, "a", "2026-10-31").focus();
+  await pressAtOnce(page, ["ArrowRight", "ArrowRight"]);
+  await expect(page.getByTestId("a-heading")).toHaveText("November 2026");
+  await expect(cell(page, "a", "2026-11-02")).toBeFocused();
+  await expectTabStop(page, "a", "2026-11-02");
+  await cell(page, "a", "2026-11-30").focus();
+  await pressAtOnce(page, ["ArrowRight", "Enter"]);
+  await expect(page.getByTestId("a-heading")).toHaveText("December 2026");
+  await expect(cell(page, "a", "2026-12-01")).toBeFocused();
+  await expect(page.getByTestId("a-value")).toHaveText("2026-12-01");
+  await expect(page.getByTestId("a-outputs")).toHaveText("1");
+
+  // Several days: the new day is toggled, not the old one again.
+  await cell(page, "m", "2026-10-31").focus();
+  await pressAtOnce(page, ["Enter", "ArrowRight", "Enter"]);
+  await expect(page.getByTestId("m-heading")).toHaveText("November 2026");
+  await expect(cell(page, "m", "2026-11-01")).toBeFocused();
+  await expect(page.getByTestId("m-value")).toHaveText(
+    "2026-10-06 2026-10-20 2026-10-31 2026-11-01",
+  );
+
+  // A range: anchored on 31 October, it ends two days on, in November.
+  await cell(page, "r", "2026-10-31").focus();
+  await pressAtOnce(page, ["Enter", "ArrowRight", "ArrowRight", "Enter"]);
+  await expect(page.getByTestId("r-heading")).toHaveText("November 2026");
+  await expect(cell(page, "r", "2026-11-02")).toBeFocused();
+  await expect(page.getByTestId("r-value")).toHaveText("2026-10-31 2026-11-02");
+  await expect(page.getByTestId("r-anchor")).toHaveText("null");
+
+  // A month: from December into the next year, Enter chooses January.
+  await cell(page, "mc", "2026-12").focus();
+  await pressAtOnce(page, ["ArrowRight", "Enter"]);
+  await expect(page.getByTestId("mc-heading")).toHaveText("2027");
+  await expect(cell(page, "mc", "2027-01")).toBeFocused();
+  await expect(page.getByTestId("mc-value")).toHaveText("2027-01");
+  await expect(page.getByTestId("mc-outputs")).toHaveText("1");
+});
