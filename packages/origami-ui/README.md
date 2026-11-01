@@ -126,6 +126,8 @@ pnpm run test:commit # the commit gate: each matrix axis only where it reaches t
 pnpm run test:full   # the release gate: 24 projects across three engines (about 40 minutes)
 ```
 
+CI runs both gates: `test:commit` on every pull request and `test:full` on every push to `main`. See [Gates in CI](tests/acceptance/README.md#gates-in-ci).
+
 Acceptance tests the packed build installed into a scratch copy of the example application. On a fresh checkout, the first `test` (or `test:fast`, `test:focus`) runs the clean strict installation itself; after changing the example's `package.json` or the library's dependencies, run `pnpm run acceptance:prepare`. Set `NG_BUILD_MAX_WORKERS=2` on small hosts. WebKit may need private libraries.
 
 The READMEs' code examples live in [`snippets/`](snippets/) and are typechecked by `pnpm run snippets:check`, which `test` and `test:full` run. See [tests/acceptance/README.md](tests/acceptance/README.md) for the suite, its prerequisites and every script.

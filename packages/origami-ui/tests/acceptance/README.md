@@ -150,6 +150,10 @@ It writes `.acceptance-evidence/product/matrix-summary.json`, which records:
 - the consumer's Angular, APF and Floating UI versions, Playwright and Node;
 - per-project counts and the skip reasons.
 
+## Gates in CI
+
+The repository's workflows run both gates on GitHub-hosted `ubuntu-latest` runners (4 vCPU), with `NG_BUILD_MAX_WORKERS=2`: the **CI** workflow's `origami-commit-gate` job runs `test:commit` for every pull request, and the **Release gate** workflow's `test-full` job runs `test:full` for every push to `main`. The runner is disposable, so it installs the engines with `playwright install --with-deps` instead of private WebKit libraries. Each job uploads `.acceptance-evidence/` as an artifact, also when it fails.
+
 ## Focused runs
 
 ```sh

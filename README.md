@@ -44,6 +44,6 @@ Release a package from the Actions tab: run the **Publish** workflow on `main` a
 3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main`. If `main` moved during the run, the push fails and nothing is published.
 4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token. If only this step fails, use **Re-run failed jobs**.
 
-Run the extended proofs a package's README lists, such as Origami's `test:full`, before releasing; the workflow doesn't run them.
+Pull requests into `main` run the **CI** workflow: every package's build, check, typecheck and test, plus Origami's commit gate. Every push to `main` runs the **Release gate** workflow, Origami's `test:full`. Publish refuses an Origami release unless the Release gate passed on the commit it releases; a release commit stands for its nearest non-release ancestor. Run the router's and fold's browser proofs, listed in their READMEs, before releasing them; no workflow runs them yet.
 
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).
