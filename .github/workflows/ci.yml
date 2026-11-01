@@ -55,6 +55,10 @@ jobs:
           pnpm_config_verify_deps_before_run: error
       # The runner is disposable, so the engines' host libraries come from apt.
       - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      # Measure the reference host's font; the runner would otherwise pick DejaVu Sans.
+      - run: |
+          install -D tests/acceptance/fonts.conf ~/.config/fontconfig/fonts.conf
+          fc-match system-ui | grep -q LiberationSans
       - run: pnpm run test:commit
       - if: always()
         uses: actions/upload-artifact@v7
