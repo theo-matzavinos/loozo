@@ -1,6 +1,6 @@
 # Provenance
 
-This package was rebuilt clean-room in a separate repository, `origami-ui-rebuild` (branch `rebuild`), and moved into this monorepo on 2026-10-15 as one squashed change, `6e2007f`. The source history is not imported. Its commits:
+This package was rebuilt clean-room in a separate repository, `origami-ui-rebuild` (branch `rebuild`), and moved into this monorepo on 2026-10-15 as one squashed change, `64d2d09`. The source history is not imported. Its commits:
 
 | Commit                                     | Date       | Content                                                         |
 | ------------------------------------------ | ---------- | --------------------------------------------------------------- |
@@ -15,12 +15,12 @@ The rebuild was pinned to Angular 22.1.5. The move requalified it on Angular 22.
 
 | Commit                                     | Date       | Content                                                                                   |
 | ------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------- |
-| `6e2007fa8aefc1510de281e227952139057d1d9a` | 2026-10-15 | The move above; library sources byte-identical to `bc8c86d`                               |
-| `8c0190c9359a882a41d97e96dae7ca1578aaa322` | 2026-10-15 | Popover positioning failure and outside-pointer completion; SPEC and CASES V6 amended     |
-| `884df3f21d1c9389d5014ecc1baee69687a752d1` | 2026-10-15 | Collection sorted-order reuse; redundant signal facades dropped                           |
-| `b2388f10a60fc97ecc3c1b03815d0bbc397aa18e` | 2026-10-15 | Popover participants and preparation split out of the context                             |
-| `c75ef6600ee9a5182b86c52eb4256b8a22f8070d` | 2026-10-15 | README usage documentation and snippets; TSDoc corrections; provider helper types unified |
-| `29ee42a17666fa24803dc994176b3c3bc4349690` | 2026-10-15 | Collection skips order validation until first read                                        |
+| `64d2d09296669d23fcd2e79fe43c9959d0922d63` | 2026-10-15 | The move above; library sources byte-identical to `bc8c86d`                               |
+| `2a691af2c2dcf1d3bf4fb272b74d7854bede0c17` | 2026-10-15 | Popover positioning failure and outside-pointer completion; SPEC and CASES V6 amended     |
+| `ba4ff0cb79d2e5ab9a203a614415e794eea0b58d` | 2026-10-15 | Collection sorted-order reuse; redundant signal facades dropped                           |
+| `50b691fbe58ed45c73b35faf59d4343ce39d23e3` | 2026-10-15 | Popover participants and preparation split out of the context                             |
+| `a6844d0309488df594967614706adaec1026f0e5` | 2026-10-15 | README usage documentation and snippets; TSDoc corrections; provider helper types unified |
+| `94013d3c1d573cc107d849638e12db47a99be5f8` | 2026-10-15 | Collection skips order validation until first read                                        |
 | —                                          | 2026-10-15 | 0.0.1 release preparation: `~22.2.2` peers, no longer private, README for npm             |
 | —                                          | 2026-10-15 | Specs restated as the current product contract; scope-and-growth policy                   |
 

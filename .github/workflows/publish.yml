@@ -24,13 +24,30 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      checks: read
     env:
       PACKAGE: ${{ inputs.package }}
     outputs:
       name: ${{ steps.bump.outputs.name }}
       tag: ${{ steps.bump.outputs.tag }}
     steps:
+      # The release push goes over the publish deploy key, the only bypass of main's ruleset.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      # An Origami release needs the Release gate (test:full) green on the commit it releases.
+      # Release commits don't run the gate, so they stand for their nearest non-release ancestor.
+      - if: inputs.package == 'origami-ui'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git log -1 --format=%H --invert-grep --grep='^chore(release): ')
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?check_name=test-full" --jq '.check_runs[0].conclusion // "missing"')
+          if [ "$conclusion" != success ]; then
+            echo "::error::Release gate on $sha is $conclusion; run it from the Actions tab and wait for it to pass."
+            exit 1
+          fi
       # Reads the pnpm version from devEngines.packageManager in package.json.
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7

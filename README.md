@@ -41,9 +41,9 @@ Release a package from the Actions tab: run the **Publish** workflow on `main` a
 
 1. Bumps the package to the next `0.0.x` with `scripts/bump-version.mjs`. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
 2. Builds the package and the workspace packages it depends on, then runs its `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one.
-3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main`. If `main` moved during the run, the push fails and nothing is published.
+3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main` over the `publish` deploy key, the only actor that bypasses `main`'s ruleset (pull request with green `checks` and `origami-commit-gate`, no force-push or deletion). If `main` moved during the run, the push fails and nothing is published.
 4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token. If only this step fails, use **Re-run failed jobs**.
 
-Run the extended proofs a package's README lists, such as Origami's `test:full`, before releasing; the workflow doesn't run them.
+Pull requests into `main` run the **CI** workflow: every package's build, check, typecheck and test, plus Origami's commit gate. Every push to `main` runs the **Release gate** workflow, Origami's `test:full`. Publish refuses an Origami release unless the Release gate passed on the commit it releases; a release commit stands for its nearest non-release ancestor. Run the router's and fold's browser proofs, listed in their READMEs, before releasing them; no workflow runs them yet.
 
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).

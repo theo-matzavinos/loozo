@@ -20,13 +20,17 @@ don't design, fix, test or guard for web-component and shadow-DOM edge cases (cl
 
 ## origami verification
 
-the full browser matrix takes about 40 minutes, so match the run to the moment:
+the commit and release gates run in CI, not on loozo's machine. match the run to the moment:
 
 - while iterating, in fix rounds and for mutation checks: `pnpm test` plus the changed primitive's cases, selected by their `acceptance/CASES.md` letter across every spec (`pnpm run test:focus -g '\bN\d+\b'` for tooltip). add the letters of every primitive that composes it: popover's floating, layer and intent pieces add tooltip, presence adds collapsible, accordion, popover and tooltip, the roving core adds tabs, toggle group, toolbar and radio group, `ogButton` adds every button part, and `/utils` adds everything. run them in the other two engines too when focus, pointer or geometry behavior changed (`ORIGAMI_MATRIX_TARGET=development-eager ORIGAMI_BROWSER=<engine> pnpm run acceptance:test -g …`), and under `development-incremental` when hydration behavior changed.
-- at sign-off, before the commit: `test:commit` once, after the reviews are clean, never once per review round.
-- before a release: the full `test:full`.
+- at sign-off, after the reviews are clean: push the slice's pull request. its `origami-commit-gate` check runs `test:commit`; the slice is signed off when it and `checks` pass. never run `test:commit` or `test:full` locally.
+- before a release: the Release gate workflow runs `test:full` on every push to `main`, and Publish refuses an Origami release unless it passed on the commit being released.
 
-browser and AOT build steps take a machine-wide lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`), so a run started while another holds it waits instead of contending; never bypass it. don't overlap two runs in one checkout: they share its scratch consumer and evidence.
+local browser and AOT build steps take a machine-wide lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`), so a run started while another holds it waits instead of contending; never bypass it. don't overlap two runs in one checkout: they share its scratch consumer and evidence.
+
+## pull requests
+
+each signed-off slice ships as its own pull request into `main`; a slice that depends on an unmerged one stacks on its branch and is rebased onto `main` once that one merges. commits on the branch keep their attribution trailers. the pull request title becomes `main`'s commit subject, so it's a conventional commit subject. merge only when loozo says so, and only with `gh pr merge <number> --squash --subject "<title> (#<number>)" --body ""`, which keeps `Co-Authored-By` trailers off `main`.
 
 ## readmes
 
