@@ -31,9 +31,11 @@ jobs:
       name: ${{ steps.bump.outputs.name }}
       tag: ${{ steps.bump.outputs.tag }}
     steps:
+      # The release push goes over the publish deploy key, the only bypass of main's ruleset.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       # An Origami release needs the Release gate (test:full) green on the commit it releases.
       # Release commits don't run the gate, so they stand for their nearest non-release ancestor.
       - if: inputs.package == 'origami-ui'
