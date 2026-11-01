@@ -4,14 +4,14 @@ A date picker is a button that opens a [Calendar](../calendar/README.md) in a po
 
 [src/date-picker/due-date.ts](../snippets/src/date-picker/due-date.ts "playground")
 
-| Directive              | Configuration                                                                                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ogDatePicker`         | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `open: boolean` model (default `false`), `disabled`, `readonly` (default `false`), `locale` (default `LOCALE_ID`) |
-| `ogDatePickerMultiple` | `value: readonly string[]` model (`YYYY-MM-DD` days, default `[]`), `open`, `disabled`, `readonly`; binds an `ogCalendarMultiple`                                               |
-| `ogDatePickerRange`    | `value: OrigamiDateRange \| null` model (`{ start, end }`, default `null`), `open`, `disabled`, `readonly`; binds an `ogCalendarRange`                                          |
-| `ogMonthPicker`        | `value: string \| null` model (`YYYY-MM`, default `null`), `open`, `disabled`, `readonly`; binds an `ogMonthCalendar`                                                           |
-| `ogDatePickerTrigger`  | `id` (default generated), `disabled` (default `false`); must be a `<button>`, alone or, under `ogDatePicker`, inside an `ogDateFieldInput`                                      |
-| `ogDatePickerContent`  | `id` (default generated), `side` (default `block-end`), `align` (default `start`), `gap` (CSS px, default `0`), as on [Popover Content](../popover/README.md)                   |
+| Directive              | Configuration                                                                                                                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogDatePicker`         | `value: string \| null` model (`YYYY-MM-DD`, default `null`), `open: boolean` model (default `false`), `disabled`, `readonly` (default `false`), `locale` (default `LOCALE_ID`)                                         |
+| `ogDatePickerMultiple` | `value: readonly string[]` model (`YYYY-MM-DD` days, default `[]`), `open`, `disabled`, `readonly`; binds an `ogCalendarMultiple`                                                                                       |
+| `ogDatePickerRange`    | `value: OrigamiDateRange \| null` model (`{ start, end }`, default `null`), `open`, `disabled`, `readonly`; binds an `ogCalendarRange`                                                                                  |
+| `ogMonthPicker`        | `value: string \| null` model (`YYYY-MM`, default `null`), `open`, `disabled`, `readonly`; binds an `ogMonthCalendar`                                                                                                   |
+| `ogDatePickerTrigger`  | `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`, alone or, under `ogDatePicker`, inside an `ogDateFieldInput` |
+| `ogDatePickerContent`  | `id` (default generated), `side` (default `block-end`), `align` (default `start`), `gap` (CSS px, default `0`), as on [Popover Content](../popover/README.md)                                                           |
 
 <!-- prettier-ignore -->
 ```html
@@ -39,7 +39,7 @@ Put the Trigger and Content inside the root, and the Calendar inside Content. Th
 
 - The value is yours. Only a choice in the Calendar writes it, and `clear()`, which writes `null`. A value that isn't a canonical day selects nothing and is kept.
 - `open` is the requested state of the popup. The Trigger, a choice, Escape, a click outside and leaving the picker write it, and you can write it yourself, such as from a Done button inside Content.
-- `disabled` natively disables the Trigger, so it leaves the Tab order and the picker can't open, and disables the Calendar. Becoming disabled closes an open picker; focus that was in the popup falls to the page, since it can't return to the disabled Trigger, without a touch. Your own writes, `open` included, still apply.
+- `disabled` natively disables the Trigger, so it leaves the Tab order and the picker can't open, and disables the Calendar. With `focusableWhenDisabled` on the Trigger it stays in the Tab order instead, with `aria-disabled="true"` and no native `disabled`: it still doesn't open, but your own `(click)` on it runs, and leaving it touches as usual. In the field shape the disabled segments aren't tab stops, so it is the field's only one. Becoming disabled closes an open picker; focus that was in the popup falls to the page, since it never returns to a disabled Trigger, focusable or not, without a touch. Your own writes, `open` included, still apply.
 - `readonly` lets the picker open and the Calendar browse, but no day can be chosen.
 - `locale` is the composed [date field's](../date-field/README.md) segments'; the Calendar has its own `locale`.
 

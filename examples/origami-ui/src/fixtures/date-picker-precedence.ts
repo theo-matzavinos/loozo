@@ -34,6 +34,7 @@ export class DatePickerPrecedenceSettings {
   // Element IDs that match between server and client: derived from the case, not allocated.
   readonly triggerId = signal(`${this.label}-trigger`);
   readonly triggerDisabled = signal(false);
+  readonly focusableWhenDisabled = signal(false);
   readonly contentId = signal(`${this.label}-content`);
   readonly side = signal<OrigamiPopoverSide>("inline-end");
   readonly align = signal<OrigamiPopoverAlign>("center");
@@ -54,7 +55,7 @@ const rootComposition = {
 };
 const triggerComposition = {
   directive: OrigamiDatePickerTrigger,
-  inputs: ["id", "disabled"],
+  inputs: ["id", "disabled", "focusableWhenDisabled"],
 };
 const contentComposition = {
   directive: OrigamiDatePickerContent,
@@ -86,7 +87,11 @@ export class PrecedenceFactoryDatePicker {
     OrigamiDatePickerTriggerOptions.provideFactory(() => {
       const settings = inject(DatePickerPrecedenceSettings);
 
-      return { id: settings.triggerId, disabled: settings.triggerDisabled };
+      return {
+        id: settings.triggerId,
+        disabled: settings.triggerDisabled,
+        focusableWhenDisabled: settings.focusableWhenDisabled,
+      };
     }),
   ],
 })
@@ -144,6 +149,7 @@ export class PrecedenceExistingDatePickerTrigger implements OrigamiDatePickerTri
   readonly #settings = inject(DatePickerPrecedenceSettings);
   readonly id = this.#settings.triggerId;
   readonly disabled = this.#settings.triggerDisabled;
+  readonly focusableWhenDisabled = this.#settings.focusableWhenDisabled;
 }
 
 @Directive({
@@ -173,7 +179,7 @@ function datePickerTemplate(
       [readonly]="true" locale="de-DE"
       (valueChange)="root.settings.unusedOutputs.update(root.settings.increment)"
       (openChange)="root.settings.unusedOutputs.update(root.settings.increment)">
-      <button ${prefix}Trigger id="unused-direct-trigger" [disabled]="true" class="anchor"
+      <button ${prefix}Trigger id="unused-direct-trigger" [disabled]="true" [focusableWhenDisabled]="true" class="anchor"
         data-co="trigger" [attr.data-testid]="label + '-trigger'">{{ root.state.value() ?? "Choose" }}</button>
       <div ${prefix}Content id="unused-direct-content" side="block-start" align="end" [gap]="99"
         class="surface" data-co="content" [attr.data-testid]="label + '-content'">
