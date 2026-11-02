@@ -359,7 +359,7 @@ const routeSet: RouteSet = { records: {`,
  * No injection context is required; copies and foreign-set references are invalid.
  * This is not an authored route and cannot be passed to the root createUrl function.
  */`,
-      `export const destination: Destination<${JSON.stringify(declaration.id)}> = createDestination(() => getRouteSet(), ${JSON.stringify(declaration.id)});`,
+      `export const destination: Destination<${JSON.stringify(declaration.id)}> = /* @__PURE__ */ createDestination(() => getRouteSet(), ${JSON.stringify(declaration.id)});`,
       `/**
  * Injects a typed handle bound to this exact generated activated route record.
  *
