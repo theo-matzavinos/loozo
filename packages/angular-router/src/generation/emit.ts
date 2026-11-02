@@ -299,10 +299,11 @@ export const routes: Routes = [${[...before, ...ordinary, ...after].map(record).
 
   shared.push(
     `};
-export type Selected<Id extends keyof RelativeTargets> = {
-  readonly [Expression in keyof AbsoluteTargets | keyof RelativeTargets[Id]]:
-    Definitions[(Expression extends keyof AbsoluteTargets ? AbsoluteTargets[Expression] :
-      Expression extends keyof RelativeTargets[Id] ? RelativeTargets[Id][Expression] : never) & keyof Definitions];
+export type AbsoluteSelected = {
+  readonly [Expression in keyof AbsoluteTargets]: Definitions[AbsoluteTargets[Expression] & keyof Definitions];
+};
+export type Selected<Id extends keyof RelativeTargets> = AbsoluteSelected & {
+  readonly [Expression in keyof RelativeTargets[Id]]: Definitions[RelativeTargets[Id][Expression] & keyof Definitions];
 };
 /** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
 export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
