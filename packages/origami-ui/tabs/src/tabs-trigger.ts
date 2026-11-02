@@ -11,7 +11,7 @@ import {
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { OrigamiButton, OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
-import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
 
 /**
@@ -105,10 +105,10 @@ export abstract class OrigamiTabsTriggerOptions {
 })
 export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
   /**
-   * Own value input, default a generated value that pairs with nothing; give each
-   * Trigger and its Panel the same explicit value. Replaced Options supply the effective value.
+   * Own value input, required: give each Trigger and its Panel the same value, since a
+   * generated one could pair with nothing. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueValue("tabs-trigger-value"));
+  readonly value = input.required<string>();
   /** Own ID input, default opaque hydration-stable generated identity; replaced Options supply the effective ID. */
   readonly id = input(injectUniqueId("tabs-trigger"));
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */

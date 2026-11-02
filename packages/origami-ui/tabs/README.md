@@ -8,10 +8,10 @@ Tabs shows one panel at a time, chosen from a list of native buttons with arrow-
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogTabs`        | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `activation` (`"automatic"` or `"manual"`, default `"automatic"`) |
 | `ogTabsList`    | none                                                                                                                                                                                                                    |
-| `ogTabsTrigger` | `value` (default generated), `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`                                  |
-| `ogTabsPanel`   | `value` (default generated), `id` (default generated)                                                                                                                                                                   |
+| `ogTabsTrigger` | `value: string` (required), `id` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>`                                   |
+| `ogTabsPanel`   | `value: string` (required), `id` (default generated)                                                                                                                                                                    |
 
-Give each Trigger and its Panel the same explicit `value`; a generated value pairs with nothing. Values should be distinct within one Tabs.
+Give each Trigger and its Panel the same `value`; values should be distinct within one Tabs.
 
 - Clicking an enabled Trigger, or pressing Enter or Space on it, selects its value. Selecting the selected tab does nothing; there's no deselection.
 - The value is yours, and Tabs never selects a first tab for you. A Panel is visible exactly when its value is the root value, whether or not a Trigger with that value is mounted. So `null` hides every Panel, a value no Trigger or Panel has selects nothing and hides every Panel, and removing the selected Trigger keeps the value while its Panel stays visible.
@@ -35,7 +35,7 @@ Root, Trigger and Panel each have their own Options. Here the selection lives in
 
 [src/tabs/settings-tabs.ts](../snippets/src/tabs/settings-tabs.ts)
 
-Other parts read a Trigger's or Panel's Options only after Angular has set its inputs, so replacement Options can use required inputs, also in Triggers and Panels repeated with `@for`.
+Other parts read a Trigger's or Panel's Options only after Angular has set its inputs, so replacement Options can use required inputs, also in Triggers and Panels repeated with `@for`. A Trigger's and a Panel's own `value` input is required, so a directive composing one through `hostDirectives` exposes it; the snippet exposes it under the name of its own `value` input, so one binding sets both.
 
 ## State and attributes
 

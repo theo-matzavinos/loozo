@@ -190,10 +190,10 @@ export class FactoryTabs {
   readonly state = inject(OrigamiTabsState);
 }
 
-/** Existing Trigger Options: the consumer's own value input and a value-derived ID. */
+/** Existing Trigger Options: the consumer's own value input, also exposed as the Trigger's required one, and a value-derived ID. */
 @Directive({
   selector: "button[consumerTab]",
-  hostDirectives: [OrigamiTabsTrigger],
+  hostDirectives: [{ directive: OrigamiTabsTrigger, inputs: ["value: consumerTab"] }],
   providers: [OrigamiTabsTriggerOptions.provideExisting(() => ConsumerTab)],
 })
 export class ConsumerTab implements OrigamiTabsTriggerOptions {
@@ -203,10 +203,10 @@ export class ConsumerTab implements OrigamiTabsTriggerOptions {
   readonly id = computed(() => `consumer-tab-${this.value()}`);
 }
 
-/** Factory Panel Options derived from the consumer's own value input. */
+/** Factory Panel Options derived from the consumer's own value input, also exposed as the Panel's required one. */
 @Directive({
   selector: "[consumerTabPanel]",
-  hostDirectives: [OrigamiTabsPanel],
+  hostDirectives: [{ directive: OrigamiTabsPanel, inputs: ["value: consumerTabPanel"] }],
   providers: [
     OrigamiTabsPanelOptions.provideFactory(() => {
       const panel = inject(ConsumerTabPanel);
@@ -258,15 +258,15 @@ export type Alignment = { readonly id: string; readonly available: boolean };
 /** Readable before Angular sets the input: the group reads every repeated item's Options while rendering. */
 const pendingAlignment: Alignment = { id: "", available: false };
 
-/** Existing item Options: value and disabled state come from the consumer's domain record. */
+/** Existing item Options: disabled state comes from the consumer's domain record; the own value input is also exposed as the item's required one. */
 @Directive({
   selector: "button[consumerAlignment]",
-  hostDirectives: [OrigamiToggleGroupItem],
+  hostDirectives: [{ directive: OrigamiToggleGroupItem, inputs: ["value"] }],
   providers: [OrigamiToggleGroupItemOptions.provideExisting(() => ConsumerAlignment)],
 })
 export class ConsumerAlignment implements OrigamiToggleGroupItemOptions {
   readonly alignment = input<Alignment>(pendingAlignment, { alias: "consumerAlignment" });
-  readonly value = computed(() => this.alignment().id);
+  readonly value = input.required<string>();
   readonly disabled = computed(() => !this.alignment().available);
   readonly focusableWhenDisabled = signal(false);
   readonly id = input(injectUniqueId("consumer-alignment"));
@@ -374,15 +374,15 @@ export type SpeedRecord = { readonly id: string; readonly available: boolean };
 /** Readable before Angular sets the input: the group reads every repeated item's Options while rendering. */
 const pendingSpeed: SpeedRecord = { id: "", available: false };
 
-/** Existing item Options: value and availability come from the consumer's domain record. */
+/** Existing item Options: availability comes from the consumer's domain record; the own value input is also exposed as the item's required one. */
 @Directive({
   selector: "button[speedOption]",
-  hostDirectives: [OrigamiRadioGroupItem],
+  hostDirectives: [{ directive: OrigamiRadioGroupItem, inputs: ["value"] }],
   providers: [OrigamiRadioGroupItemOptions.provideExisting(() => SpeedOption)],
 })
 export class SpeedOption implements OrigamiRadioGroupItemOptions {
   readonly option = input<SpeedRecord>(pendingSpeed, { alias: "speedOption" });
-  readonly value = computed(() => this.option().id);
+  readonly value = input.required<string>();
   readonly disabled = computed(() => !this.option().available);
   readonly focusableWhenDisabled = signal(false);
 }
@@ -699,6 +699,7 @@ export class UtilityObservation {
         @for (alignment of alignments(); track alignment.id) {
           <button
             [consumerAlignment]="alignment"
+            [value]="alignment.id"
             [attr.data-testid]="'consumer-align-' + alignment.id"
           >
             {{ alignment.id }}
@@ -800,7 +801,11 @@ export class UtilityObservation {
         data-testid="checkout-speed"
       >
         @for (option of speedOptions(); track option.id) {
-          <button [speedOption]="option" [attr.data-testid]="'checkout-' + option.id">
+          <button
+            [speedOption]="option"
+            [value]="option.id"
+            [attr.data-testid]="'checkout-' + option.id"
+          >
             {{ option.id }}
           </button>
         }

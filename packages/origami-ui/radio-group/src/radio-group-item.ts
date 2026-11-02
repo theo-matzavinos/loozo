@@ -11,7 +11,7 @@ import {
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { OrigamiButton, OrigamiButtonOptions } from "@loozo/origami-ui/button";
 import { ɵOrigamiRovingFocusContext } from "@loozo/origami-ui/collection";
-import { injectDeferred, injectUniqueValue } from "@loozo/origami-ui/utils";
+import { injectDeferred } from "@loozo/origami-ui/utils";
 import { RadioGroupContext } from "./radio-group";
 
 /**
@@ -104,10 +104,10 @@ export abstract class OrigamiRadioGroupItemOptions {
 })
 export class OrigamiRadioGroupItem implements OrigamiRadioGroupItemOptions {
   /**
-   * Own value input, default a generated value that hydration doesn't keep; give each item an
-   * explicit value. Replaced Options supply the effective value.
+   * Own value input, required: there is no generated default, since a generated value could
+   * never match a form or stored value. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueValue("radio-group-item"));
+  readonly value = input.required<string>();
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */
   readonly disabled = input(false, { transform: booleanAttribute });
   /** Own input keeping the disabled item focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */

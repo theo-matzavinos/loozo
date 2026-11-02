@@ -10,9 +10,9 @@ ToggleGroup is a set of pressed buttons with one tab stop and arrow-key navigati
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ogToggleGroupSingle`   | `value: string \| null` model (default `null`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`), `deselectable` (default `false`) |
 | `ogToggleGroupMultiple` | `value: readonly string[]` model (default `[]`), `disabled` (default `false`), `orientation` (`"horizontal"` or `"vertical"`, default `"horizontal"`)                                  |
-| `ogToggleGroupItem`     | `value` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`), `id` (default generated); must be a `<button>` |
+| `ogToggleGroupItem`     | `value: string` (required), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`), `id` (default generated); must be a `<button>`  |
 
-Give each item an explicit `value`; values should be distinct within one group. Don't also put `ogToggle` on an item: the item already composes Toggle.
+Give each item a `value`; values should be distinct within one group. Don't also put `ogToggle` on an item: the item already composes Toggle.
 
 - Clicking an enabled item, or pressing Enter or Space on it, requests a press once. In Single, an unpressed item writes its value; the pressed item writes `null` with `deselectable` and otherwise does nothing, staying an ordinary enabled pressed button. In Multiple, an item adds its value at the end of a new array or removes it.
 - The value is yours. ToggleGroup never writes it without user action: `null` or a value no item has presses nothing and is kept, Multiple keeps values no item has in order, and removing an item doesn't remove its value. Your array is never mutated.
@@ -43,11 +43,11 @@ Only one item is in the Tab order (`tabindex="0"`): the focused one while focus 
 
 ## Replacing Options
 
-Single, Multiple and the item each have their own Options. Here the alignment lives in an application service, and each item's value and disabled state come from a domain record:
+Single, Multiple and the item each have their own Options. Here the alignment lives in an application service, and each item's disabled state comes from a domain record:
 
 [src/toggle-group/editor-alignment.ts](../snippets/src/toggle-group/editor-alignment.ts)
 
-Item Options also drive the composed Toggle, so replacing them alone sets the item's checked (pressed), disabled and focusable state and its `id`; a replacement supplies `id` too, here an input defaulting to a generated ID. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
+Item Options also drive the composed Toggle, so replacing them alone sets the item's checked (pressed), disabled and focusable state and its `id`; a replacement supplies `id` too, here an input defaulting to a generated ID. Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`. The item's own `value` input is required, so a directive composing it through `hostDirectives` exposes it; the snippet exposes it under the name of its own `value` input, so one binding sets both.
 
 A root replacement owns the value, so `[formField]` doesn't bind it: a component that replaces the Single or Multiple Options and takes `[formField]` declares its own `value` model. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
 

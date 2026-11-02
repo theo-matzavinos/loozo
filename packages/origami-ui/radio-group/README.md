@@ -4,12 +4,12 @@ RadioGroup is a set of radio buttons with one tab stop, where arrow keys move an
 
 [src/radio-group/shipping-speed.ts](../snippets/src/radio-group/shipping-speed.ts "playground")
 
-| Directive          | Configuration                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ogRadioGroup`     | `value: string \| null` model (default `null`), `disabled` (default `false`)                                                                                 |
-| `ogRadioGroupItem` | `value` (default generated), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>` |
+| Directive          | Configuration                                                                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ogRadioGroup`     | `value: string \| null` model (default `null`), `disabled` (default `false`)                                                                                |
+| `ogRadioGroupItem` | `value: string` (required), `disabled`, [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled) (both default `false`); must be a `<button>` |
 
-Give each item an explicit `value`; values should be distinct within one group.
+Give each item a `value`; values should be distinct within one group.
 
 - Clicking an enabled unchecked item, or pressing Enter or Space on it, checks it once. On the checked item they do nothing: there's no unchecking. Items are `type="button"`, so nothing submits a form.
 - The value is yours. RadioGroup never writes it without user action: `null` or a value no item has checks nothing and is kept, nothing is checked for you, and removing the checked item doesn't change the value.
@@ -45,11 +45,11 @@ Only one item is in the Tab order (`tabindex="0"`): the focused one while focus 
 
 ## Replacing Options
 
-The root and the item each have their own Options. Here the value and a lock live in an application store, each item's value and availability come from a domain record, and an estimate under the group reads its State:
+The root and the item each have their own Options. Here the value and a lock live in an application store, each item's availability comes from a domain record, and an estimate under the group reads its State:
 
 [src/radio-group/checkout-speed.ts](../snippets/src/radio-group/checkout-speed.ts)
 
-Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`.
+Other items read an item's Options only after Angular has set its inputs, so replacement Options can use required inputs, as the snippet does, also in items repeated with `@for`. The item's own `value` input is required, so a directive composing it through `hostDirectives` exposes it; the snippet exposes it under the name of its own `value` input, so one binding sets both.
 
 A root replacement owns the value, so `[formField]` doesn't bind it: a component that replaces the root Options and takes `[formField]` declares its own `value` model. See [How the primitives fit together](../README.md#how-the-primitives-fit-together).
 
