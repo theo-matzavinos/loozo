@@ -7,7 +7,7 @@ export { defineRoute } from '@loozo/angular-router';
  * No injection context is required; copies and foreign-set references are invalid.
  * This is not an authored route and cannot be passed to the root createUrl function.
  */
-export const destination: Destination<"src/routes/+home/route.ts"> = createDestination(() => getRouteSet(), "src/routes/+home/route.ts");
+export const destination: Destination<"src/routes/+home/route.ts"> = /* @__PURE__ */ createDestination(() => getRouteSet(), "src/routes/+home/route.ts");
 /**
  * Injects a typed handle bound to this exact generated activated route record.
  *
