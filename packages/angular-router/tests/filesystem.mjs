@@ -1172,7 +1172,6 @@ try {
   assert.match(await main.text(), /angular:component-update/);
 
   browser = await chromium.launch({
-    executablePath: "/usr/bin/chromium",
     headless: true,
     args: ["--no-sandbox"],
   });

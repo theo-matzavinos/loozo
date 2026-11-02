@@ -709,7 +709,6 @@ try {
   assert.equal(response.status, 200);
   await writeFile(join(evidence, "http-home.html"), await response.text());
   browser = await chromium.launch({
-    executablePath: "/usr/bin/chromium",
     headless: true,
     args: ["--no-sandbox"],
   });

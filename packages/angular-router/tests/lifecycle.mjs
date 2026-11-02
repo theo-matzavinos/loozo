@@ -1332,7 +1332,6 @@ try {
   const output = outputs.find((output) => output.success && output.baseUrl);
 
   browser = await chromium.launch({
-    executablePath: "/usr/bin/chromium",
     headless: true,
     args: ["--no-sandbox"],
   });

@@ -465,7 +465,6 @@ try {
   const output = serve.outputs.find((value) => value.success && value.baseUrl);
 
   browser = await chromium.launch({
-    executablePath: "/usr/bin/chromium",
     headless: true,
     args: ["--no-sandbox"],
   });

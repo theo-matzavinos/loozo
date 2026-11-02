@@ -381,7 +381,7 @@ pnpm run test                  # root runtime, published-docs and schema tests
 
 `build` regenerates `schemas/application.json` from the installed `@angular/build`; `pnpm test` fails when the committed schema is stale.
 
-The browser tests use real Angular builds and Chromium (`/usr/bin/chromium`). Each takes a fresh absolute directory, which must not exist yet, for its evidence:
+The browser tests use real Angular builds and Playwright's Chromium (`pnpm exec playwright install chromium`). Each takes a fresh absolute directory, which must not exist yet, for its evidence:
 
 ```sh
 pnpm run test:application /absolute/new-directory
