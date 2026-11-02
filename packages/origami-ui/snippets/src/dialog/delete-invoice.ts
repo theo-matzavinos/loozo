@@ -30,8 +30,8 @@ import {
         @if (error()) {
           <p role="alert">{{ error() }}</p>
         }
-        <button ogDialogClose autofocus [disabled]="pending()">Cancel</button>
-        <button ogButton [disabled]="pending()" (click)="delete()">
+        <button ogDialogClose autofocus [disabled]="pending()" focusableWhenDisabled>Cancel</button>
+        <button ogButton [disabled]="pending()" focusableWhenDisabled (click)="delete()">
           @if (pending()) {
             Deleting…
           } @else {
@@ -49,6 +49,11 @@ export class DeleteInvoice {
   #attempts = 0;
 
   delete(): void {
+    // A focusable disabled button still dispatches clicks.
+    if (this.pending()) {
+      return;
+    }
+
     this.pending.set(true);
     this.error.set("");
 

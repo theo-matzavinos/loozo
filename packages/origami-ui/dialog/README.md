@@ -47,7 +47,7 @@ An alert dialog interrupts to ask for a decision, such as confirming a delete. U
 - Content gets `role="alertdialog"`, also in the server's HTML.
 - A backdrop click never closes it, so a stray click can't count as an answer. An open Popover inside still closes on it. Escape and the browser's close requests still close it unless `dismissible` is false.
 
-Cancel is an `ogDialogClose`: give it `autofocus`, so the safe choice has focus when the dialog opens. The Action is your own button. It doesn't close the dialog, so you can keep the dialog open while the request runs and show what went wrong if it fails, then close it by writing `open` once the request succeeds. Disable both buttons and set `dismissible` to false while the request is pending:
+Cancel is an `ogDialogClose`: give it `autofocus`, so the safe choice has focus when the dialog opens. The Action is your own button. It doesn't close the dialog, so you can keep the dialog open while the request runs and show what went wrong if it fails, then close it by writing `open` once the request succeeds. While the request is pending, set `dismissible` to false and disable both buttons with [`focusableWhenDisabled`](../button/README.md#focusable-when-disabled). A focused button that's natively disabled drops focus to `<body>`, out of the modal; with `focusableWhenDisabled` it keeps focus and is announced as disabled. Its clicks still reach your own `(click)` listener, so the Action's handler ignores them while pending:
 
 [src/dialog/delete-invoice.ts](../snippets/src/dialog/delete-invoice.ts "both")
 
