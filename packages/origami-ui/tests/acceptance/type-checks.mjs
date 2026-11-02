@@ -2036,7 +2036,7 @@ const templates = [
   {
     name: "state-positive",
     family: "state",
-    template: `<section ogAccordionSingle><article ogAccordionItem #item="ogAccordionItem" (click)="observeCollapsible(item.state); observeBoolean(item.state.expanded()); observeBoolean(item.state.disabled())"><div ogAccordionPanel #panel="ogAccordionPanel" (click)="observePresence(panel.state); observeBoolean(panel.state.open())"></div></article></section><section ogCollapsible><div ogCollapsiblePanel #collapsiblePanel="ogCollapsiblePanel" (click)="observePresence(collapsiblePanel.state); observeBoolean(collapsiblePanel.state.open())"></div></section><div ogToggleGroupSingle><button ogToggleGroupItem #toggleItem="ogToggleGroupItem" (click)="observeToggle(toggleItem.state); observeBoolean(toggleItem.state.checked()); observeBoolean(toggleItem.state.disabled())">Bold</button></div>`,
+    template: `<section ogAccordionSingle><article ogAccordionItem #item="ogAccordionItem" (click)="observeCollapsible(item.state); observeBoolean(item.state.expanded()); observeBoolean(item.state.disabled())"><div ogAccordionPanel #panel="ogAccordionPanel" (click)="observePresence(panel.state); observeBoolean(panel.state.open())"></div></article></section><section ogCollapsible><div ogCollapsiblePanel #collapsiblePanel="ogCollapsiblePanel" (click)="observePresence(collapsiblePanel.state); observeBoolean(collapsiblePanel.state.open())"></div></section><div ogToggleGroupSingle><button ogToggleGroupItem value="bold" #toggleItem="ogToggleGroupItem" (click)="observeToggle(toggleItem.state); observeBoolean(toggleItem.state.checked()); observeBoolean(toggleItem.state.disabled())">Bold</button></div>`,
   },
   {
     name: "accordion-item-state",
@@ -2073,7 +2073,7 @@ const templates = [
   {
     name: "toggle-group-item-state",
     family: "state",
-    template: `<div ogToggleGroupSingle><button ogToggleGroupItem #toggleItem="ogToggleGroupItem" (click)="observeCollapsible(toggleItem.state)">Bold</button></div>`,
+    template: `<div ogToggleGroupSingle><button ogToggleGroupItem value="bold" #toggleItem="ogToggleGroupItem" (click)="observeCollapsible(toggleItem.state)">Bold</button></div>`,
     expected: {
       code: 2345,
       span: "state",

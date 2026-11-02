@@ -1,6 +1,6 @@
 import { DestroyRef, Directive, computed, forwardRef, inject, input } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { TabsContext } from "./tabs";
 
 /** Effective Panel configuration, used for visibility and mounted-only associations. */
@@ -54,10 +54,10 @@ export abstract class OrigamiTabsPanelOptions {
 })
 export class OrigamiTabsPanel implements OrigamiTabsPanelOptions {
   /**
-   * Own value input, default a generated value that pairs with nothing; give each
-   * Panel its Trigger's explicit value. Replaced Options supply the effective value.
+   * Own value input, required: give each Panel its Trigger's value, since a generated one
+   * could pair with nothing. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueValue("tabs-panel-value"));
+  readonly value = input.required<string>();
   /** Own ID input, default opaque hydration-stable generated identity; replaced Options supply the effective ID. */
   readonly id = input(injectUniqueId("tabs-panel"));
 

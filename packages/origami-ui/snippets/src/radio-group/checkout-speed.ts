@@ -33,15 +33,16 @@ export type SpeedRecord = {
   readonly available: boolean;
 };
 
-// A radio whose value and availability come from a domain record.
+// A radio whose availability comes from a domain record. Its `value` input also sets the
+// composed item's required one.
 @Directive({
   selector: "button[appSpeedOption]",
-  hostDirectives: [OrigamiRadioGroupItem],
+  hostDirectives: [{ directive: OrigamiRadioGroupItem, inputs: ["value"] }],
   providers: [OrigamiRadioGroupItemOptions.provideExisting(() => SpeedOption)],
 })
 export class SpeedOption implements OrigamiRadioGroupItemOptions {
   readonly option = input.required<SpeedRecord>({ alias: "appSpeedOption" });
-  readonly value = computed(() => this.option().id);
+  readonly value = input.required<string>();
   readonly disabled = computed(() => !this.option().available);
   readonly focusableWhenDisabled = signal(false);
 }
@@ -68,7 +69,7 @@ export class SpeedEstimate {
   template: `
     <div appCheckoutSpeed aria-label="Shipping speed">
       @for (option of options(); track option.id) {
-        <button [appSpeedOption]="option">{{ option.label }}</button>
+        <button [appSpeedOption]="option" [value]="option.id">{{ option.label }}</button>
       }
       <app-speed-estimate />
     </div>

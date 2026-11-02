@@ -45,7 +45,7 @@ export class SettingsTabs {}
 // A Trigger whose ID is derived from its value, so links and tests can target it.
 @Directive({
   selector: "button[appSettingsTab]",
-  hostDirectives: [OrigamiTabsTrigger],
+  hostDirectives: [{ directive: OrigamiTabsTrigger, inputs: ["value: appSettingsTab"] }],
   providers: [OrigamiTabsTriggerOptions.provideExisting(() => SettingsTab)],
 })
 export class SettingsTab implements OrigamiTabsTriggerOptions {

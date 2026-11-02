@@ -27,7 +27,7 @@ import { injectUniqueId } from "@loozo/origami-ui/utils";
 /** Replacement Trigger Options whose value is a required input. */
 @Directive({
   selector: "button[repeatedTab]",
-  hostDirectives: [OrigamiTabsTrigger],
+  hostDirectives: [{ directive: OrigamiTabsTrigger, inputs: ["value"] }],
   providers: [OrigamiTabsTriggerOptions.provideExisting(() => RepeatedTab)],
 })
 export class RepeatedTab implements OrigamiTabsTriggerOptions {
@@ -40,7 +40,7 @@ export class RepeatedTab implements OrigamiTabsTriggerOptions {
 /** Replacement ToggleGroup item Options whose value is a required input. */
 @Directive({
   selector: "button[repeatedMark]",
-  hostDirectives: [OrigamiToggleGroupItem],
+  hostDirectives: [{ directive: OrigamiToggleGroupItem, inputs: ["value"] }],
   providers: [OrigamiToggleGroupItemOptions.provideExisting(() => RepeatedMark)],
 })
 export class RepeatedMark implements OrigamiToggleGroupItemOptions {
@@ -64,7 +64,7 @@ export class RepeatedTool implements OrigamiButtonOptions {
 /** Replacement RadioGroup item Options whose value is a required input. */
 @Directive({
   selector: "button[repeatedRadio]",
-  hostDirectives: [OrigamiRadioGroupItem],
+  hostDirectives: [{ directive: OrigamiRadioGroupItem, inputs: ["value"] }],
   providers: [OrigamiRadioGroupItemOptions.provideExisting(() => RepeatedRadio)],
 })
 export class RepeatedRadio implements OrigamiRadioGroupItemOptions {

@@ -18,7 +18,7 @@ import {
   OrigamiToggleState,
   ɵOrigamiToggleNotFormControl,
 } from "@loozo/origami-ui/toggle";
-import { injectDeferred, injectUniqueId, injectUniqueValue } from "@loozo/origami-ui/utils";
+import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { ToggleGroupContext } from "./toggle-group";
 
 /**
@@ -145,10 +145,10 @@ class ToggleGroupItemContext {
 })
 export class OrigamiToggleGroupItem implements OrigamiToggleGroupItemOptions {
   /**
-   * Own value input, default a generated value that hydration doesn't keep; give each item an
-   * explicit value. Replaced Options supply the effective value.
+   * Own value input, required: there is no generated default, since a generated value could
+   * never match a form or stored value. Replaced Options supply the effective value.
    */
-  readonly value = input(injectUniqueValue("toggle-group-item"));
+  readonly value = input.required<string>();
   /** Own disabled input, default false with boolean-attribute coercion; combined with the root's disabled policy. */
   readonly disabled = input(false, { transform: booleanAttribute });
   /** Own input keeping the disabled item focusable, default false with boolean-attribute coercion; replaced Options supply effective policy instead. */
