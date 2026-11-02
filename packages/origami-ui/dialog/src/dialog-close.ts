@@ -47,7 +47,7 @@ export abstract class OrigamiDialogCloseOptions {
  *
  * @example
  * ```html
- * <button ogDialogClose autofocus [disabled]="pending()">Cancel</button>
+ * <button ogDialogClose autofocus [disabled]="pending()" focusableWhenDisabled>Cancel</button>
  * ```
  */
 @Directive({
