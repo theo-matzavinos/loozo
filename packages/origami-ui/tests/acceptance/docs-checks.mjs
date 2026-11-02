@@ -298,6 +298,13 @@ const directiveDefaults = {
   "OrigamiDateTimeField.hourCycle": ["null", /\bnull\b/i],
   "OrigamiDateTimeField.disabled": ["false", /\bfalse\b/i],
   "OrigamiDateTimeField.readonly": ["false", /\bfalse\b/i],
+  "OrigamiDateTimePicker.value": ["null", /\bnull\b/i],
+  "OrigamiDateTimePicker.open": ["false", /\bfalse\b/i],
+  "OrigamiDateTimePicker.locale": ["LOCALE_ID", /LOCALE_ID/],
+  "OrigamiDateTimePicker.precision": ['"minute"', /"minute"/],
+  "OrigamiDateTimePicker.hourCycle": ["null", /\bnull\b/i],
+  "OrigamiDateTimePicker.disabled": ["false", /\bfalse\b/i],
+  "OrigamiDateTimePicker.readonly": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

@@ -135,6 +135,7 @@ export class OrigamiDatePickerRangeState {
         open: options.open,
         disabled: options.disabled,
         readonly: options.readonly,
+        field: null,
       };
     }),
     DatePickerContext,

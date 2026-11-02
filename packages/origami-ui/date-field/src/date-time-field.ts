@@ -1,4 +1,5 @@
 import { Directive, LOCALE_ID, booleanAttribute, inject, input, model } from "@angular/core";
+import type { Signal } from "@angular/core";
 import { outputFromObservable } from "@angular/core/rxjs-interop";
 import type { FormValueControl } from "@angular/forms/signals";
 import { DateFieldContext } from "./date-field-context";
@@ -137,5 +138,35 @@ export class OrigamiDateTimeField
    */
   clear(): void {
     this.#context.clear();
+  }
+
+  /**
+   * @internal Package-private: the day the segments show, for `@loozo/origami-ui/date-picker`'s
+   * `ogDateTimePicker`, whose Calendar selects it. The day the draft's year, month and day name
+   * when they name a real day, else the committed value's day, else null (a value that isn't
+   * canonical names none). Not an application API.
+   */
+  readonly ɵshownDay: Signal<string | null> = this.#context.shownDay;
+
+  /**
+   * @internal Package-private: merges a day chosen in `ogDateTimePicker`'s Calendar. Writes
+   * `day`'s year, month and day into the draft and keeps the hour, minute, second and day period
+   * as they are, empty ones included; ends the typing session. The write parses as an edit: a
+   * complete draft commits at the root's precision (`valueChange` only if the value changed),
+   * anything else keeps the last value and reports `dateTimeIncomplete`. Not an application API.
+   * @param day - A canonical `YYYY-MM-DD` day.
+   * @returns Whether the draft is complete.
+   */
+  ɵchooseDay(day: string): boolean {
+    return this.#context.chooseDay(day);
+  }
+
+  /**
+   * @internal Package-private: focuses the first segment in DOM order whose unit holds no value,
+   * for `ogDateTimePicker` after a choice leaves the time incomplete; nothing when every unit
+   * holds one. Not an application API.
+   */
+  ɵfocusFirstEmpty(): void {
+    this.#context.focusFirstEmpty();
   }
 }

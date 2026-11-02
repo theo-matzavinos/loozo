@@ -9,3 +9,4 @@ export { OrigamiTimeField } from "./time-field";
 export { OrigamiTimeFieldOptions } from "./time-field-options";
 export { OrigamiDateTimeField } from "./date-time-field";
 export { OrigamiDateTimeFieldOptions } from "./date-time-field-options";
+export { hourCycleAttribute as ɵhourCycleAttribute } from "./hour-cycle-attribute";

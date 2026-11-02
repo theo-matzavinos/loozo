@@ -124,7 +124,7 @@ import { OrigamiDialogOptions, OrigamiAlertDialogOptions, OrigamiDialogTriggerOp
 import { OrigamiSelectOptions, OrigamiSelectMultipleOptions, OrigamiSelectTriggerOptions, OrigamiSelectContentOptions, OrigamiSelectOptionOptions, type OrigamiSelectState, type OrigamiSelectMultipleState, type OrigamiSelectOptionState, type OrigamiSelectOptionRecord } from '@loozo/origami-ui/select';
 import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendarRangeOptions, OrigamiMonthCalendarOptions, OrigamiCalendarCellOptions, OrigamiCalendarHeadingOptions, type OrigamiMonthCalendarState, type OrigamiCalendarPeriodRecord, type OrigamiCalendarState, type OrigamiCalendarMultipleState, type OrigamiCalendarRangeState, type OrigamiCalendarDayRecord, type OrigamiDateRange } from '@loozo/origami-ui/calendar';
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
-import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, OrigamiDatePickerMultipleOptions, OrigamiDatePickerRangeOptions, OrigamiMonthPickerOptions, type OrigamiDatePickerState, type OrigamiDatePickerMultipleState, type OrigamiDatePickerRangeState, type OrigamiMonthPickerState } from '@loozo/origami-ui/date-picker';
+import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, OrigamiDatePickerMultipleOptions, OrigamiDatePickerRangeOptions, OrigamiMonthPickerOptions, type OrigamiDatePickerState, type OrigamiDatePickerMultipleState, type OrigamiDatePickerRangeState, type OrigamiMonthPickerState, OrigamiDateTimePickerOptions, type OrigamiDateTimePickerState } from '@loozo/origami-ui/date-picker';
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
@@ -531,6 +531,21 @@ datePickerMultipleState.value.set([]);
 datePickerRangeState.open.set(true);
 // @ts-expect-error the month picker has no date field segments
 monthPickerState.segments();
+// Positive: a whole date-time picker factory, with ordinary signals.
+OrigamiDateTimePickerOptions.provideFactory(() => ({value: signal<string | null>('2026-10-27T09:30'), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB'), precision: signal<'minute' | 'second'>('second'), hourCycle: signal<12 | 24 | null>(null)}));
+// @ts-expect-error a date-time picker factory must supply precision and hourCycle
+OrigamiDateTimePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: signal(false), readonly: signal(false), locale: signal('en-US')}));
+// @ts-expect-error date-time picker precision is minute or second, not any string
+OrigamiDateTimePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: signal(false), readonly: signal(false), locale: signal('en-US'), precision: signal('hour'), hourCycle: signal<12 | 24 | null>(null)}));
+// @ts-expect-error date-time picker value must be writable
+OrigamiDateTimePickerOptions.provideFactory(() => ({value: computed<string | null>(() => null), open: signal(false), disabled: signal(false), readonly: signal(false), locale: signal('en-US'), precision: signal<'minute' | 'second'>('minute'), hourCycle: signal<12 | 24 | null>(null)}));
+declare const dateTimePickerState: OrigamiDateTimePickerState;
+const pickedDateTime: string | null = dateTimePickerState.value();
+const dateTimePickerPart: OrigamiDateFieldPart | undefined = dateTimePickerState.segments()[0];
+void pickedDateTime;
+void dateTimePickerPart;
+// @ts-expect-error date-time picker State value is readonly
+dateTimePickerState.value.set('2026-10-27T09:30');
 // Positive: whole Menu factories, with ordinary signals.
 OrigamiMenuOptions.provideFactory(() => ({open: signal(false), disabled: computed(() => false)}));
 OrigamiMenuTriggerOptions.provideFactory(() => ({id: signal('actions'), disabled: signal(false), focusableWhenDisabled: signal(false)}));

@@ -11,12 +11,27 @@ import {
 import type { Provider, Signal, WritableSignal } from "@angular/core";
 import { FORM_FIELD } from "@angular/forms/signals";
 import type { FieldState } from "@angular/forms/signals";
-import { OrigamiDateField } from "@loozo/origami-ui/date-field";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { Subject } from "rxjs";
 
 /** The Calendar modes a picker root binds. */
 export type DatePickerMode = "date" | "dates" | "range" | "month";
+
+/**
+ * The date field a single root composes, as the picker uses it in the field shape: `focus()` and
+ * what a completed choice does to it.
+ */
+export interface DatePickerField {
+  /** The root's `focus()` in the field shape: the field's first segment. */
+  focus(options?: FocusOptions): void;
+  /**
+   * A completed choice in the field shape, after the Calendar's write and before the picker
+   * closes: the field takes the chosen day.
+   * @returns A focus move to make right after the close, or null to leave focus to Popover's
+   *   return to the Trigger.
+   */
+  chosen(): (() => void) | null;
+}
 
 /**
  * @internal Configuration of the picker Context, supplied by the root that provides it: what
@@ -25,11 +40,16 @@ export type DatePickerMode = "date" | "dates" | "range" | "month";
 export abstract class DatePickerRootOptions {
   /** The Calendar root the picker binds inside its Content. */
   abstract readonly mode: DatePickerMode;
-  /** The root's effective value; only the bound Calendar's choices write it. */
+  /**
+   * The bound Calendar's value: the root's effective value, except under `ogDateTimePicker`,
+   * where it is the day the segments show; only the Calendar's choices write it.
+   */
   abstract readonly value: WritableSignal<unknown>;
   abstract readonly open: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
   abstract readonly readonly: Signal<boolean>;
+  /** The date field the root composes, or null for a root without one. */
+  abstract readonly field: DatePickerField | null;
 
   /**
    * Provides the root Options beside the Context.
@@ -67,15 +87,14 @@ export interface DatePickerTriggerRegistration {
  * @internal The picker's private owner: the registered Trigger and Calendar, the open session
  * (reset, then focus into the grid once Content is shown), completed choices, the shape's focus
  * target, and leaving the picker (touch and close). It reads the root's Signal Forms binding
- * (`FORM_FIELD` on the root's element) and the date field the root composes, if any (a single
- * day's root does).
+ * (`FORM_FIELD` on the root's element) and, through the root Options, the date field the root
+ * composes, if any (`ogDatePicker` and `ogDateTimePicker` do).
  */
 @Service({ autoProvided: false })
 export class DatePickerContext {
   readonly #root = injectDeferred(DatePickerRootOptions);
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
-  readonly #dateField = inject(OrigamiDateField, { self: true, optional: true });
   readonly #touches = new Subject<void>();
   readonly #trigger = signal<DatePickerTriggerRegistration | null>(null);
   readonly #calendar = signal<DatePickerCalendar | null>(null);
@@ -190,8 +209,10 @@ export class DatePickerContext {
       return;
     }
 
-    if (trigger.fieldShape && this.#dateField !== null) {
-      this.#dateField.focus(options);
+    const field = this.#root().field;
+
+    if (trigger.fieldShape && field !== null) {
+      field.focus(options);
 
       return;
     }
@@ -201,19 +222,28 @@ export class DatePickerContext {
 
   /**
    * The bound Calendar completed a choice, after its own write: in the field shape the date
-   * field's draft is discarded, so the segments show the value even when the choice was the
-   * value already committed; the picker closes, and Popover returns focus.
+   * field takes it first (`ogDatePicker` discards its draft, `ogDateTimePicker` merges the day
+   * into its draft); the picker closes, and Popover returns focus to the Trigger unless the
+   * field's focus move, made right after the close, takes it elsewhere.
    */
   chosen(): void {
     if (this.#destroyed) {
       return;
     }
 
-    if (untracked(this.fieldShape)) {
-      this.#dateField?.ɵdiscardDraft();
+    const field = this.#root().field;
+    let focusMove: (() => void) | null = null;
+
+    if (untracked(this.fieldShape) && field !== null) {
+      focusMove = field.chosen();
     }
 
     this.#root().open.set(false);
+
+    // Focus moving outside Content before the close's render cancels Popover's restore.
+    if (focusMove !== null) {
+      focusMove();
+    }
   }
 
   /**

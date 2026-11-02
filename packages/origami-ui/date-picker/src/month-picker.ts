@@ -128,6 +128,7 @@ export class OrigamiMonthPickerState {
         open: options.open,
         disabled: options.disabled,
         readonly: options.readonly,
+        field: null,
       };
     }),
     DatePickerContext,
