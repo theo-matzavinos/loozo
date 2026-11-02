@@ -649,7 +649,6 @@ try {
   assert.equal(response.status, 200);
 
   browser = await chromium.launch({
-    executablePath: "/usr/bin/chromium",
     headless: true,
     args: ["--no-sandbox"],
   });
