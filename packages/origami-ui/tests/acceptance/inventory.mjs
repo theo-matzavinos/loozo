@@ -82,6 +82,7 @@ export const inventory = {
     "OrigamiToolbarItem",
     "OrigamiToolbarToggle",
     "OrigamiToolbarPopoverTrigger",
+    "OrigamiToolbarMenuTrigger",
     "OrigamiToolbarToggleGroupSingle",
     "OrigamiToolbarToggleGroupMultiple",
     "OrigamiToolbarRadioGroup",

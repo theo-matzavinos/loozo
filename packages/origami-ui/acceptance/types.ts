@@ -49,6 +49,7 @@ import {
   OrigamiToolbarOptions,
   type OrigamiToolbarItem,
   type OrigamiToolbarPopoverTrigger,
+  type OrigamiToolbarMenuTrigger,
   type OrigamiToolbarToggle,
   type OrigamiToolbarRadioGroup,
   type OrigamiToolbarToggleGroupMultiple,
@@ -56,6 +57,7 @@ import {
   type OrigamiToolbarState,
   type OrigamiToolbarOrientation,
 } from "@loozo/origami-ui/toolbar";
+import type { OrigamiMenuState, OrigamiMenuTriggerOptions } from "@loozo/origami-ui/menu";
 import {
   OrigamiRadioGroupOptions,
   OrigamiRadioGroupItemOptions,
@@ -343,22 +345,28 @@ export function checkComposedStates(
 
 /**
  * The Toolbar's controls take their composed primitive's Options: an item is Button Options, a
- * Toolbar Toggle is a Toggle with its State and a Toolbar Popover Trigger is a Popover Trigger.
+ * Toolbar Toggle is a Toggle with its State, a Toolbar Popover Trigger is a Popover Trigger and
+ * a Toolbar Menu Trigger is a Menu Trigger with its Menu's State.
  */
 export function checkToolbarControls(
   item: OrigamiToolbarItem,
   toggle: OrigamiToolbarToggle,
   trigger: OrigamiToolbarPopoverTrigger,
+  menuTrigger: OrigamiToolbarMenuTrigger,
 ): void {
   const itemOptions: OrigamiButtonOptions = item;
   const toggleOptions: OrigamiToggleOptions = toggle;
   const toggleState: OrigamiToggleState = toggle.state;
   const triggerOptions: OrigamiPopoverTriggerOptions = trigger;
+  const menuTriggerOptions: OrigamiMenuTriggerOptions = menuTrigger;
+  const menuTriggerState: OrigamiMenuState = menuTrigger.state;
 
   void itemOptions;
   void toggleOptions;
   void toggleState;
   void triggerOptions;
+  void menuTriggerOptions;
+  void menuTriggerState;
 }
 
 /** Tooltip's root and Content are their own Options and expose the State they provide. */

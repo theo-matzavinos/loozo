@@ -83,8 +83,9 @@ export abstract class OrigamiMenuTriggerOptions {
  * consumer supplies the accessible name, such as `aria-label` on an icon button; the Trigger's
  * name is also the menu's.
  *
- * Inside an `ogToolbar` it stays a Toolbar control only through a Toolbar variant; don't apply
- * another button primitive to the same button.
+ * Inside an `ogToolbar`, use `ogToolbarMenuTrigger` from `@loozo/origami-ui/toolbar`, a Menu
+ * Trigger that is one Toolbar control, instead; don't apply another button primitive to the same
+ * button.
  */
 @Directive({
   selector: "button[ogMenuTrigger]",

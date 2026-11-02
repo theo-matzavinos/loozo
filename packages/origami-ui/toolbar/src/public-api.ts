@@ -7,3 +7,4 @@ export { OrigamiToolbarPopoverTrigger } from "./toolbar-popover-trigger";
 export { OrigamiToolbarToggleGroupSingle } from "./toolbar-toggle-group-single";
 export { OrigamiToolbarToggleGroupMultiple } from "./toolbar-toggle-group-multiple";
 export { OrigamiToolbarRadioGroup } from "./toolbar-radio-group";
+export { OrigamiToolbarMenuTrigger } from "./toolbar-menu-trigger";

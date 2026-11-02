@@ -114,8 +114,8 @@ export class OrigamiPopoverTrigger implements OrigamiPopoverTriggerOptions {
   protected readonly contentId = this.#context.contentId;
   /**
    * @internal Package-private: focus is inside this Trigger's own registered Content, from the
-   * Content's own focus events; false without Content. Read by `ogToolbarPopoverTrigger`. Not an
-   * application API.
+   * Content's own focus events; false without Content. Read by `ogToolbarPopoverTrigger` and, through
+   * the Menu Trigger it composes, `ogToolbarMenuTrigger`. Not an application API.
    */
   readonly ɵcontentHasFocus: Signal<boolean> = this.#context.contentHasFocus;
   /**

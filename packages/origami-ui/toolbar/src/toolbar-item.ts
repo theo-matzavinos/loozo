@@ -17,7 +17,8 @@ import { ɵOrigamiToolbarControl } from "./toolbar-control";
  * consumer's own `(click)` listeners still run, so they check the disabled state themselves. If a
  * focused item is removed or natively disabled while focus has not moved elsewhere, focus moves
  * to the new tab stop without activating. Requires a nearest Toolbar. Don't apply another button
- * primitive to the same button: use `ogToolbarToggle` or `ogToolbarPopoverTrigger`, and don't
+ * primitive to the same button: use `ogToolbarToggle`, `ogToolbarPopoverTrigger` or
+ * `ogToolbarMenuTrigger`, and don't
  * apply it to a ToggleGroup or RadioGroup item, which registers on its own.
  */
 @Directive({
