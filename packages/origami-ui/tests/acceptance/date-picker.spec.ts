@@ -507,7 +507,7 @@ test("DP9 a Calendar of another mode inside Content is reported through ErrorHan
   runtimeErrors,
 }, info) => {
   const message =
-    "ogCalendarRange inside ogDatePicker Content isn't bound to the picker; author an ogCalendar there.";
+    "ogCalendarRange inside ogDatePickerContent isn't bound to its picker, which binds an ogCalendar; author one there.";
 
   runtimeErrors.expectExactly([
     {
@@ -1384,7 +1384,7 @@ test("DP25 a Calendar of another mode inside a month picker's Content is reporte
   runtimeErrors,
 }, info) => {
   const message =
-    "ogCalendar inside ogMonthPicker Content isn't bound to the picker; author an ogMonthCalendar there.";
+    "ogCalendar inside ogDatePickerContent isn't bound to its picker, which binds an ogMonthCalendar; author one there.";
 
   runtimeErrors.expectExactly([
     {

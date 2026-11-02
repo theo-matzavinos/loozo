@@ -34,6 +34,7 @@ import {
   unitWidth,
 } from "./date-field-unit";
 import type { Draft, DraftEntry, UnitContext } from "./date-field-unit";
+import { formatDate, writeDate } from "./date-value";
 
 /** One part of a root's layout with its current text, as State exposes it. */
 export interface OrigamiDateFieldPart {
@@ -167,6 +168,15 @@ export class DateFieldContext {
   });
   /** Emits synchronously when focus leaves the Input group; the root reports it as `touch`. */
   readonly touches = this.#touches.asObservable();
+  /**
+   * The day the draft's date units name when they name a real day, else the committed value's
+   * day, else null: a value that isn't canonical names none. Null for a root without date units.
+   */
+  readonly shownDay = computed(
+    () =>
+      writeDate(this.#draft().value()) ??
+      writeDate(this.#root().shape.format(this.value(), this.#unitContext())),
+  );
 
   /**
    * The layout's resolved hour cycle, 24 without an hour unit: the draft's hour is in it, and the
@@ -459,6 +469,40 @@ export class DateFieldContext {
   discardDraft(): void {
     this.#draft().refresh();
     this.#typing = null;
+  }
+
+  /**
+   * The root's `ɵchooseDay()`: writes `day`'s year, month and day into the draft, keeps every
+   * other unit as it is, empty ones included, and ends the typing session. The write parses as
+   * an edit does: a complete draft commits, anything else keeps the value and sets its parse
+   * error. Returns whether the draft is complete, so nothing is left to type.
+   */
+  chooseDay(day: string): boolean {
+    const draft = this.#draft();
+
+    draft.value.set({ ...draft.value(), ...formatDate(day) });
+    this.#typing = null;
+
+    return draft.parseErrors().length === 0;
+  }
+
+  /**
+   * The root's `ɵfocusFirstEmpty()`: focuses the first mounted segment in DOM order whose unit
+   * holds no value (empty, or a lone `0` waiting for its next digit); nothing when every unit
+   * holds one.
+   */
+  focusFirstEmpty(): void {
+    const draft = this.#draft().value();
+
+    for (const segment of this.#ordered()) {
+      const unit = segment.unit();
+
+      if (unitValue(unit, draft[unit] ?? "") === null) {
+        segment.element.focus();
+
+        return;
+      }
+    }
   }
 
   /** Up (+1) or Down (−1), wrapping within the unit; an empty year starts at this year. */

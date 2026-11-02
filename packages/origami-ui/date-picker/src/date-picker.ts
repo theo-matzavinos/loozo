@@ -169,6 +169,7 @@ export class OrigamiDatePickerState {
     OrigamiDatePickerOptions.provideExisting(() => OrigamiDatePicker),
     DatePickerRootOptions.provideFactory(() => {
       const options = inject(OrigamiDatePickerOptions);
+      const dateField = inject(OrigamiDateField, { self: true });
 
       return {
         mode: "date",
@@ -176,6 +177,15 @@ export class OrigamiDatePickerState {
         open: options.open,
         disabled: options.disabled,
         readonly: options.readonly,
+        field: {
+          focus: (focusOptions) => dateField.focus(focusOptions),
+          // The segments show the value again, even the value already committed.
+          chosen: () => {
+            dateField.ɵdiscardDraft();
+
+            return null;
+          },
+        },
       };
     }),
     DatePickerContext,

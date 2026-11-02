@@ -65,8 +65,8 @@ export abstract class OrigamiDatePickerTriggerOptions {
 }
 
 /**
- * The Trigger of a picker root (`ogDatePicker`, `ogDatePickerMultiple`, `ogDatePickerRange` or
- * `ogMonthPicker`): a native `type="button"` with `aria-haspopup="dialog"` that opens and closes
+ * The Trigger of a picker root (`ogDatePicker`, `ogDateTimePicker`, `ogDatePickerMultiple`,
+ * `ogDatePickerRange` or `ogMonthPicker`): a native `type="button"` with `aria-haspopup="dialog"` that opens and closes
  * Content by click, Enter or Space. It composes the Popover Trigger and Anchor, so Content is
  * positioned against it, `aria-expanded` reports whether Content is shown and `aria-controls`
  * names mounted Content. Focus returns to it after a choice and Escape.
@@ -87,7 +87,8 @@ export abstract class OrigamiDatePickerTriggerOptions {
  * `aria-invalid="true"`, `aria-required="true"` and `aria-readonly="true"` follow the Field's
  * shown errors and the bound field.
  *
- * In the field shape, inside an `ogDatePicker`'s `ogDateFieldInput`, it is an action button
+ * In the field shape, inside an `ogDatePicker`'s or `ogDateTimePicker`'s `ogDateFieldInput`
+ * (`ogDateTimePicker` has only this shape), it is an action button
  * beside the segments: the Input group is the Field's control and supplies the field's name, and
  * the Trigger joins no Field. Name it with an `aria-label` ("Choose date"); a static
  * `aria-labelledby`, `aria-describedby`, `aria-invalid`, `aria-required` or `aria-readonly`

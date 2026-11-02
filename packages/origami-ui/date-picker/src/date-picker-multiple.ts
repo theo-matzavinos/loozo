@@ -131,6 +131,7 @@ export class OrigamiDatePickerMultipleState {
         open: options.open,
         disabled: options.disabled,
         readonly: options.readonly,
+        field: null,
       };
     }),
     DatePickerContext,

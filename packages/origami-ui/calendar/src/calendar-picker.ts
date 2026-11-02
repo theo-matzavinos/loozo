@@ -4,12 +4,15 @@ import type { DestroyRef, Signal, WritableSignal } from "@angular/core";
 /** The Calendar modes a picker binds: one root each. */
 export type CalendarPickerMode = "date" | "dates" | "range" | "month";
 
-/** Each mode's Calendar root and picker root, for the mismatch report. */
-const selectors: Record<CalendarPickerMode, { calendar: string; picker: string }> = {
-  date: { calendar: "ogCalendar", picker: "ogDatePicker" },
-  dates: { calendar: "ogCalendarMultiple", picker: "ogDatePickerMultiple" },
-  range: { calendar: "ogCalendarRange", picker: "ogDatePickerRange" },
-  month: { calendar: "ogMonthCalendar", picker: "ogMonthPicker" },
+/**
+ * Each mode's Calendar root, for the mismatch report. Two picker roots bind `date`
+ * (`ogDatePicker` and `ogDateTimePicker`), so the report names the Calendar, not the picker.
+ */
+const calendars: Record<CalendarPickerMode, string> = {
+  date: "ogCalendar",
+  dates: "ogCalendarMultiple",
+  range: "ogCalendarRange",
+  month: "ogMonthCalendar",
 };
 
 /** What a Calendar registers with its picker: the picker resets and focuses it on open. */
@@ -82,12 +85,9 @@ export class CalendarPickerRegistration {
     }
 
     if (picker.mode !== this.mode) {
-      const own = selectors[this.mode];
-      const expected = selectors[picker.mode];
-
       this.#errors.handleError(
         new Error(
-          `${own.calendar} inside ${expected.picker} Content isn't bound to the picker; author an ${expected.calendar} there.`,
+          `${calendars[this.mode]} inside ogDatePickerContent isn't bound to its picker, which binds an ${calendars[picker.mode]}; author one there.`,
         ),
       );
 
