@@ -15,12 +15,20 @@ import {
   OrigamiToolbarPopoverTrigger,
   OrigamiToolbarToggleGroupSingle,
   OrigamiToolbarToggleGroupMultiple,
+  OrigamiToolbarMenuTrigger,
 } from "@loozo/origami-ui/toolbar";
+import {
+  OrigamiMenu,
+  OrigamiMenuContent,
+  OrigamiMenuItem,
+  OrigamiMenuSub,
+  OrigamiMenuSubTrigger,
+} from "@loozo/origami-ui/menu";
 
 // K2 keyboard, vertical and reading direction, the K3 Toolbar groups, the K4 focus repair, the K7
 // standalone group in Popover Content, the K10 disabled Toolbar Popover Trigger and the K12–K14
-// tab stop while focus is in a Toolbar Popover Trigger's own Content, beside the core seed's
-// Toolbar. Each case is identified by `data-toolbar-case`.
+// tab stop while focus is in a Toolbar Popover Trigger's own Content, and the K15 and MN52 Toolbar
+// Menu Triggers, beside the core seed's Toolbar. Each case is identified by `data-toolbar-case`.
 
 /** A Toolbar group's effective orientation, read from its State. */
 @Directive({ selector: "[toolbarGroupProbe]", exportAs: "toolbarGroupProbe" })
@@ -63,6 +71,12 @@ export class ToolbarAlignment {
     OrigamiPopoverContent,
     ToolbarGroupProbe,
     ToolbarAlignment,
+    OrigamiToolbarMenuTrigger,
+    OrigamiMenu,
+    OrigamiMenuContent,
+    OrigamiMenuItem,
+    OrigamiMenuSub,
+    OrigamiMenuSubTrigger,
   ],
   template: `
     <h2>Toolbar keyboard</h2>
@@ -288,6 +302,89 @@ export class ToolbarAlignment {
       </div>
     </div>
     <button type="button" data-testid="toolbar-outside-after">After the outside toolbars</button>
+
+    <h2>Toolbar with a Menu Trigger</h2>
+    <button type="button" data-testid="toolbar-menu-before">Before the menu toolbar</button>
+    <div ogToolbar aria-label="Menu" data-toolbar-case="menu">
+      <button ogToolbarItem data-role="copy">Copy</button>
+      <div ogMenu [(open)]="menuOpen" [disabled]="menuDisabled()">
+        <button
+          ogToolbarMenuTrigger
+          [focusableWhenDisabled]="menuFocusable()"
+          data-role="trigger"
+        >
+          More
+        </button>
+        <div ogMenuContent data-role="content">
+          <button ogMenuItem data-role="one" (select)="logMenu('one')">One</button>
+          <div ogMenuSub>
+            <button ogMenuSubTrigger data-role="sub-trigger">Sub</button>
+            <div ogMenuContent data-role="sub-content">
+              <button ogMenuItem data-role="deep" (select)="logMenu('deep')">Deep</button>
+            </div>
+          </div>
+          <button ogMenuItem data-role="two" (select)="logMenu('two')">Two</button>
+        </div>
+      </div>
+      <button ogToolbarItem data-role="paste">Paste</button>
+    </div>
+    <button type="button" data-testid="toolbar-menu-after">After the menu toolbar</button>
+    <output data-testid="toolbar-menu-log">{{ menuLog().join(" ") }}</output>
+    <output data-testid="toolbar-menu-open">{{ menuOpen() }}</output>
+    <button
+      type="button"
+      data-testid="toolbar-menu-disable"
+      (click)="menuDisabled.set(!menuDisabled())"
+    >
+      Toggle the menu's disabled
+    </button>
+    <button
+      type="button"
+      data-testid="toolbar-menu-focusable"
+      (click)="menuFocusable.set(!menuFocusable())"
+    >
+      Toggle the menu Trigger's focusableWhenDisabled
+    </button>
+
+    <h2>Vertical Toolbar with a Menu Trigger</h2>
+    <button type="button" data-testid="toolbar-menu-vertical-before">
+      Before the vertical menu toolbar
+    </button>
+    <div
+      ogToolbar
+      orientation="vertical"
+      aria-label="Vertical menu"
+      data-toolbar-case="menu-vertical"
+    >
+      <button ogToolbarItem data-role="copy">Copy</button>
+      <div ogMenu>
+        <button ogToolbarMenuTrigger data-role="trigger">More</button>
+        <div ogMenuContent data-role="content">
+          <button ogMenuItem data-role="one">One</button>
+          <button ogMenuItem data-role="two">Two</button>
+        </div>
+      </div>
+      <button ogToolbarItem data-role="paste">Paste</button>
+    </div>
+
+    <h2>Toolbar whose Menu wraps it, Content authored after it</h2>
+    <button type="button" data-testid="toolbar-menu-outside-before">
+      Before the wrapped menu toolbar
+    </button>
+    <div ogMenu data-toolbar-case="menu-outside">
+      <div ogToolbar aria-label="Wrapped menu" data-role="toolbar">
+        <button ogToolbarItem data-role="copy">Copy</button>
+        <button ogToolbarMenuTrigger data-role="trigger">More</button>
+        <button ogToolbarItem data-role="paste">Paste</button>
+      </div>
+      <div ogMenuContent data-role="content">
+        <button ogMenuItem data-role="one">One</button>
+        <button ogMenuItem data-role="two">Two</button>
+      </div>
+    </div>
+    <button type="button" data-testid="toolbar-menu-outside-after">
+      After the wrapped menu toolbar
+    </button>
   `,
 })
 export class ToolbarCases {
@@ -308,6 +405,10 @@ export class ToolbarCases {
   readonly pasteOpen = signal(false);
   readonly pasteMounted = signal(true);
   readonly pasteRemovable = signal(true);
+  readonly menuOpen = signal(false);
+  readonly menuDisabled = signal(false);
+  readonly menuFocusable = signal(false);
+  readonly menuLog = signal<readonly string[]>([]);
   readonly increment = (value: number): number => value + 1;
   readonly changeDetector = inject(ChangeDetectorRef);
 
@@ -327,6 +428,13 @@ export class ToolbarCases {
 
       return [...keys, key];
     });
+  }
+
+  /** Records an item's `(select)` with the element focused while it runs. */
+  logMenu(name: string): void {
+    const focused = document.activeElement?.getAttribute("data-role") ?? "none";
+
+    this.menuLog.update((log) => [...log, `${name}@${focused}`]);
   }
 
   restorePaste(): void {

@@ -967,17 +967,19 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   wrongOutput(value: number): void { void value; }`,
   },
   toolbar: {
-    imports: `import { OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger } from "@loozo/origami-ui/toolbar";
+    imports: `import { OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger, OrigamiToolbarMenuTrigger } from "@loozo/origami-ui/toolbar";
 import { OrigamiPopover } from "@loozo/origami-ui/popover";
+import { OrigamiMenu, OrigamiMenuState } from "@loozo/origami-ui/menu";
 import { OrigamiToggleState } from "@loozo/origami-ui/toggle";
 import { OrigamiToggleGroupMultiple, OrigamiToggleGroupItem } from "@loozo/origami-ui/toggle-group";`,
     directives:
-      "OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger, OrigamiPopover, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
+      "OrigamiToolbar, OrigamiToolbarItem, OrigamiToolbarToggle, OrigamiToolbarPopoverTrigger, OrigamiToolbarMenuTrigger, OrigamiPopover, OrigamiMenu, OrigamiToggleGroupMultiple, OrigamiToggleGroupItem",
     members: `
   readonly checked = signal(false);
   readonly wrongChecked = signal("pressed");
   readonly marks = signal<readonly string[]>([]);
   observeToggle(state: OrigamiToggleState): void { void state; }
+  observeMenu(state: OrigamiMenuState): void { void state; }
   observeString(value: string): void { void value; }`,
   },
   button: {
@@ -1375,7 +1377,7 @@ const templates = [
   {
     name: "toolbar-positive",
     family: "toolbar",
-    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled focusableWhenDisabled>Undo</button><button ogToolbarToggle #spelling="ogToolbarToggle" [(checked)]="checked" [disabled]="false" focusableWhenDisabled id="spelling" (click)="observeToggle(spelling.state)">Spell check</button><span ogPopover><button ogToolbarPopoverTrigger id="insert" disabled focusableWhenDisabled>Insert</button></span><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold" focusableWhenDisabled>Bold</button></div></div>`,
+    template: `<div ogToolbar orientation="vertical" aria-label="Editing"><button ogToolbarItem disabled focusableWhenDisabled>Undo</button><button ogToolbarToggle #spelling="ogToolbarToggle" [(checked)]="checked" [disabled]="false" focusableWhenDisabled id="spelling" (click)="observeToggle(spelling.state)">Spell check</button><span ogPopover><button ogToolbarPopoverTrigger id="insert" disabled focusableWhenDisabled>Insert</button></span><div ogMenu><button ogToolbarMenuTrigger #more="ogToolbarMenuTrigger" id="more" disabled focusableWhenDisabled (click)="observeMenu(more.state)">More</button></div><div ogToggleGroupMultiple [(value)]="marks"><button ogToggleGroupItem value="bold" focusableWhenDisabled>Bold</button></div></div>`,
   },
   {
     name: "toolbar-toggle-model",
@@ -1405,6 +1407,26 @@ const templates = [
       code: 2322,
       span: "id",
       message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "toolbar-menu-trigger-id",
+    family: "toolbar",
+    template: `<div ogToolbar aria-label="Editing"><div ogMenu><button ogToolbarMenuTrigger [id]="4">More</button></div></div>`,
+    expected: {
+      code: 2322,
+      span: "id",
+      message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "toolbar-menu-trigger-state",
+    family: "toolbar",
+    template: `<div ogToolbar aria-label="Editing"><div ogMenu><button ogToolbarMenuTrigger #more="ogToolbarMenuTrigger" (click)="observeString(more.state)">More</button></div></div>`,
+    expected: {
+      code: 2345,
+      span: "state",
+      message: /'OrigamiMenuState' is not assignable to parameter of type 'string'/,
     },
   },
   {

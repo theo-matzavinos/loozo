@@ -197,7 +197,7 @@ The sub-trigger has no `(select)`: opening a submenu isn't an activation. Its `s
 
 Inside a [Dialog](../dialog/README.md) or Popover Content, the first Escape closes only the innermost open menu, a click elsewhere in it closes only the menu and its submenus, and activating an item keeps the enclosing layer open. A [Tooltip](../tooltip/README.md) Trigger can share the button with `ogMenuTrigger`; the Tooltip closes when the menu takes focus.
 
-A menu's items have their own focus, separate from an `ogToolbar`'s arrows, but `ogMenuTrigger` isn't a Toolbar control: there's no Toolbar variant of it yet.
+A menu's items have their own focus, separate from an `ogToolbar`'s arrows. Inside a Toolbar, use [`ogToolbarMenuTrigger`](../toolbar/README.md#toolbar-menu-trigger) instead of `ogMenuTrigger`: it's one of the Toolbar's controls and keeps the Toolbar's tab stop while focus is in the menu, and in a vertical Toolbar ArrowDown and ArrowUp move between the controls instead of opening the menu.
 
 ## Items that come and go
 

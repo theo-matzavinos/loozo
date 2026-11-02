@@ -10,15 +10,16 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 | `ogToolbarItem`                | as [`ogButton`](../button/README.md): `disabled`, `focusableWhenDisabled` (both default `false`); must be a `<button>`                     |
 | `ogToolbarToggle`              | as [`ogToggle`](../toggle/README.md): `checked` model, `disabled`, `focusableWhenDisabled`, `id`; must be a `<button>`; not a form control |
 | `ogToolbarPopoverTrigger`      | as [`ogPopoverTrigger`](../popover/README.md): `id`, `disabled`, `focusableWhenDisabled`; must be a `<button>` in a Popover                |
+| `ogToolbarMenuTrigger`         | as [`ogMenuTrigger`](../menu/README.md): `id`, `disabled`, `focusableWhenDisabled`; must be a `<button>` in a Menu                         |
 | `ogToolbarToggleGroupSingle`   | as [`ogToggleGroupSingle`](../toggle-group/README.md); `orientation` has no effect; not a form control                                     |
 | `ogToolbarToggleGroupMultiple` | as [`ogToggleGroupMultiple`](../toggle-group/README.md); `orientation` has no effect; not a form control                                   |
 | `ogToolbarRadioGroup`          | as [`ogRadioGroup`](../radio-group/README.md); not a form control                                                                          |
 
-- Toolbar never activates a control: a click, Enter or Space runs only your button's own listeners, and a Toolbar Toggle's or Toolbar Popover Trigger's own behavior.
+- Toolbar never activates a control: a click, Enter or Space runs only your button's own listeners, and a Toolbar Toggle's, Toolbar Popover Trigger's or Toolbar Menu Trigger's own behavior.
 - Controls are buttons only. Don't use text inputs, sliders or other controls that need the arrow keys as controls. Other focusable content inside the Toolbar that isn't a control, such as a search field, keeps its own Tab stop and its own arrow keys.
 - A disabled control is natively disabled: arrows skip it and it's never the tab stop. With `focusableWhenDisabled` it stays in the arrow sequence instead and keeps focus, and your own `(click)` listeners on it still run (see [Button](../button/README.md#focusable-when-disabled)). There's no Toolbar-wide `disabled`; disable controls, or a group's own `disabled`.
 - A Toolbar Toggle isn't a form control: it never joins a [Field](../field/README.md), and `[formField]` on it is unsupported. Signal Forms would bind its `checked` model, but the Toolbar Toggle emits no `touch`, so the field would never be marked touched. Bind `[(checked)]` instead.
-- Each control is one directive. Don't combine `ogToolbarItem` with `ogToggle`, `ogPopoverTrigger` or another button primitive on one button: use `ogToolbarToggle` or `ogToolbarPopoverTrigger`. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
+- Each control is one directive. Don't combine `ogToolbarItem` with `ogToggle`, `ogPopoverTrigger` or another button primitive on one button: use `ogToolbarToggle`, `ogToolbarPopoverTrigger` or `ogToolbarMenuTrigger`. Don't put `ogToolbarItem` on a ToggleGroup or RadioGroup item, which registers on its own.
 
 ## Keyboard
 
@@ -28,15 +29,25 @@ Toolbar groups controls, such as formatting buttons, into one tab stop with arro
 | ArrowDown / ArrowUp    | nothing                                                 | next / previous control |
 | Home / End             | first / last control                                    | first / last control    |
 
-Controls are the Toolbar's items, Toolbar Toggles and Toolbar Popover Triggers and the items of its Toolbar groups. Moves skip disabled controls that aren't focusable, wrap at both ends and never activate, press or check. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
+Controls are the Toolbar's items, Toolbar Toggles, Toolbar Popover Triggers and Toolbar Menu Triggers and the items of its Toolbar groups. Moves skip disabled controls that aren't focusable, wrap at both ends and never activate, press or check. Keys with Alt, Ctrl, Meta or Shift, keys already `defaultPrevented` and keys during IME composition are ignored.
 
-Only one control is in the Tab order (`tabindex="0"`): the focused one while focus is in the Toolbar, otherwise an enabled Toolbar Popover Trigger while focus is in its own Popover Content, otherwise the first enabled control, otherwise the first focusable disabled one. So Shift+Tab out of a Toolbar Popover Trigger's Content authored right after it returns to the Trigger rather than the Toolbar's first control. Tab order stays the authored DOM order: Tab out of Content authored right before the Toolbar reaches the Trigger, and a focusable element authored between the Content and the Trigger takes focus first. Tabbing back into the Toolbar from elsewhere lands on its first enabled control, not the last one you focused. Focus moving into a nested Popover's Content authored outside the outer Content's element counts as leaving the outer Content. If your code removes the focused element from the Content outside an Angular render, some browsers fire no `focusout`, so the Trigger stays the tab stop until the next render. "First" reads DOM order whenever controls mount or unmount or focus or disabled state change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the control in every browser, so the next arrow key moves from there. If the focused control is removed or natively disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without activating it; one that becomes disabled but stays focusable keeps focus.
+Only one control is in the Tab order (`tabindex="0"`): the focused one while focus is in the Toolbar, otherwise an enabled Toolbar Popover Trigger or Toolbar Menu Trigger while focus is in its own Popover Content or menu, submenus included, otherwise the first enabled control, otherwise the first focusable disabled one. So Shift+Tab out of a Toolbar Popover Trigger's Content authored right after it returns to the Trigger rather than the Toolbar's first control. Tab order stays the authored DOM order: Tab out of Content authored right before the Toolbar reaches the Trigger, and a focusable element authored between the Content and the Trigger takes focus first. Tabbing back into the Toolbar from elsewhere lands on its first enabled control, not the last one you focused. Focus moving into a nested Popover's Content authored outside the outer Content's element counts as leaving the outer Content. If your code removes the focused element from the Content outside an Angular render, some browsers fire no `focusout`, so the Trigger stays the tab stop until the next render. "First" reads DOM order whenever controls mount or unmount or focus or disabled state change; a keyed reorder alone doesn't move the tab stop, while arrow keys always follow the current order. A click focuses the control in every browser, so the next arrow key moves from there. If the focused control is removed or natively disabled and focus hasn't moved elsewhere, focus moves to the new tab stop without activating it; one that becomes disabled but stays focusable keeps focus.
 
 ## Toolbar Toggle and Toolbar Popover Trigger
 
 `ogToolbarToggle` is a Toggle and `ogToolbarPopoverTrigger` a Popover Trigger that are also Toolbar controls: each has the inputs, Options and behavior of the primitive it's built on, and takes one stop in the Toolbar's arrow sequence. `ogToolbarToggle` exposes Toggle's State as `state` (`#spelling="ogToolbarToggle"`). A Toolbar Popover Trigger is disabled in the Toolbar while it's disabled as a Trigger, by its own `disabled` or its Popover's.
 
 [src/toolbar/insert-toolbar.ts](../snippets/src/toolbar/insert-toolbar.ts)
+
+## Toolbar Menu Trigger
+
+`ogToolbarMenuTrigger` is a [Menu](../menu/README.md) Trigger that is also a Toolbar control, with the inputs, Options and behavior of `ogMenuTrigger`. It exposes the Menu's State as `state` (`#more="ogToolbarMenuTrigger"`), and is disabled in the Toolbar while it's disabled as a Trigger, by its own `disabled` or its Menu's.
+
+[src/toolbar/menu-toolbar.ts](../snippets/src/toolbar/menu-toolbar.ts)
+
+- The Toolbar's arrows win on its axis. In a horizontal Toolbar, ArrowLeft, ArrowRight, Home and End move between controls, and ArrowDown and ArrowUp open the menu on its first or last item. In a vertical Toolbar, ArrowDown and ArrowUp move past the Trigger and don't open the menu; Enter, Space or a click opens it. The Toolbar ignores Shift-modified arrows, so Shift+ArrowDown and Shift+ArrowUp still open the menu, as on `ogMenuTrigger`. Inside the open menu, the keys are the menu's.
+- While focus is in the menu, or one of its submenus, the Trigger keeps the Toolbar's tab stop. Tab and Shift+Tab from an item close the menu and continue from the Trigger, so they leave the Toolbar, wherever you author the menu's Content.
+- A click focuses the Trigger first, then opens or closes the menu, which focuses its first item once it's shown.
 
 ## Toolbar groups
 
@@ -53,7 +64,7 @@ Only one control is in the Tab order (`tabindex="0"`): the focused one while foc
 
 ## Replacing Options
 
-The root has its own Options; an item takes Button's (`OrigamiButtonOptions`), a Toolbar Toggle Toggle's and a Toolbar Popover Trigger the Popover Trigger's. Here the application owns the orientation, each command's disabled state comes from the domain, and a separator follows the orientation through State:
+The root has its own Options; an item takes Button's (`OrigamiButtonOptions`), a Toolbar Toggle Toggle's, a Toolbar Popover Trigger the Popover Trigger's and a Toolbar Menu Trigger the Menu Trigger's (`OrigamiMenuTriggerOptions`). Here the application owns the orientation, each command's disabled state comes from the domain, and a separator follows the orientation through State:
 
 [src/toolbar/editor-toolbar.ts](../snippets/src/toolbar/editor-toolbar.ts)
 
@@ -63,10 +74,10 @@ Other controls read a control's Options only after Angular has set its inputs, s
 
 `OrigamiToolbarState` has `orientation()`, the effective value from the root Options. The root exposes it as `state`, and descendants can inject it.
 
-| Element | Attributes                                                                                                                                                                                                                                |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `role="toolbar"`, `aria-orientation`, `data-orientation`                                                                                                                                                                                  |
-| Control | `type="button"`, `tabindex`; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled`; a Toolbar Toggle adds Toggle's and a Toolbar Popover Trigger the Popover Trigger's attributes |
+| Element | Attributes                                                                                                                                                                                                                                                                           |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Root    | `role="toolbar"`, `aria-orientation`, `data-orientation`                                                                                                                                                                                                                             |
+| Control | `type="button"`, `tabindex`; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled`; a Toolbar Toggle adds Toggle's, a Toolbar Popover Trigger the Popover Trigger's and a Toolbar Menu Trigger the Menu Trigger's attributes |
 
 ## Accessibility
 

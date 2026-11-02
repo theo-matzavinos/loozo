@@ -3535,3 +3535,130 @@ test("MN51: a submenu written open while focus is inside a sibling submenu in an
   await expect(send).toBeFocused();
   await expect(state).toHaveText("true false true");
 });
+
+test("MN52: a Toolbar Menu Trigger stays in the Toolbar's roving focus and its items never join it; the Toolbar's arrows win on its axis, so a horizontal Toolbar's ArrowDown and ArrowUp open the menu and a vertical one's move past it, while Shift-modified ones still open it; Tab and Shift+Tab from a submenu leave the Toolbar; (select) runs with focus on the Trigger", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const part = (role: string) => page.locator(`[data-toolbar-case="menu"] [data-role="${role}"]`);
+  const toolbar = page.locator('[data-toolbar-case="menu"]');
+  const trigger = part("trigger");
+  const content = part("content");
+  const log = page.getByTestId("toolbar-menu-log");
+
+  /** The Trigger is the Toolbar's only tab stop; no item is one. */
+  async function expectTriggerStop(): Promise<void> {
+    await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(1);
+    await expect(trigger).toHaveAttribute("tabindex", "0");
+  }
+
+  // Horizontal: ArrowDown opens on the first item and ArrowUp on the last, without focus touching
+  // the body. Inside the menu the Toolbar's keys are the menu's: ArrowLeft and ArrowRight move
+  // nothing, Home and End reach the menu's ends, never Copy or Paste.
+  await part("copy").focus();
+  await watchBody(page);
+  await page.keyboard.press("ArrowRight");
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(trigger, content);
+  await expect(part("one")).toBeFocused();
+  await expectTriggerStop();
+
+  for (const key of ["ArrowLeft", "ArrowRight"]) {
+    await page.keyboard.press(key);
+    await expect(part("one")).toBeFocused();
+  }
+
+  await page.keyboard.press("End");
+  await expect(part("two")).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(part("one")).toBeFocused();
+  await expectTriggerStop();
+  await page.keyboard.press("Escape");
+  await expectClosed(trigger, content);
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(part("two")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(part("one")).toBeFocused();
+  await page.keyboard.press("Escape");
+  expect(await stopBodyWatch(page)).toBe(false);
+
+  // A submenu keeps the Trigger the stop; Tab and Shift+Tab from it close the tree and continue
+  // from the Trigger, past the Toolbar's other controls.
+  for (const [key, landing] of [
+    ["Tab", "toolbar-menu-after"],
+    ["Shift+Tab", "toolbar-menu-before"],
+  ] as const) {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(part("one")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(part("sub-trigger")).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(part("deep")).toBeFocused();
+    await expectTriggerStop();
+    await page.keyboard.press(key);
+    await expect(page.getByTestId(landing)).toBeFocused();
+    await expectClosed(trigger, content);
+    await expect(part("sub-content")).toBeHidden();
+    await expect(toolbar.locator('button[tabindex="0"]')).toHaveCount(1);
+    await expect(part("copy")).toHaveAttribute("tabindex", "0");
+  }
+
+  // Activation, also in the submenu: (select) runs with focus already on the Trigger, which keeps
+  // the stop.
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(part("one")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(log).toHaveText("one@trigger");
+  await expect(trigger).toBeFocused();
+  await expectTriggerStop();
+  await page.keyboard.press("ArrowDown");
+  await expect(part("one")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await expect(part("deep")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(log).toHaveText("one@trigger deep@trigger");
+  await expect(trigger).toBeFocused();
+  await expectClosed(trigger, content);
+
+  // Vertical: ArrowDown and ArrowUp move past the Trigger and don't open its menu; Enter does,
+  // and inside it ArrowDown moves between items.
+  const vertical = (role: string) =>
+    page.locator(`[data-toolbar-case="menu-vertical"] [data-role="${role}"]`);
+
+  await page.getByTestId("toolbar-menu-vertical-before").focus();
+  await page.keyboard.press("Tab");
+  await expect(vertical("copy")).toBeFocused();
+
+  for (const [key, role] of [
+    ["ArrowDown", "trigger"],
+    ["ArrowDown", "paste"],
+    ["ArrowUp", "trigger"],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expect(vertical(role)).toBeFocused();
+    await frames(page);
+    await expectClosed(vertical("trigger"), vertical("content"));
+  }
+
+  await page.keyboard.press("Enter");
+  await expect(vertical("one")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(vertical("two")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(vertical("trigger")).toBeFocused();
+
+  // The Toolbar ignores Shift-modified arrows, so they reach the Menu Trigger and open the menu.
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect(vertical("one")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("toolbar-menu-vertical-before")).toBeFocused();
+  await expectClosed(vertical("trigger"), vertical("content"));
+});

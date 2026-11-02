@@ -62,7 +62,8 @@ export class OrigamiToolbarState {
 /**
  * A row or column of controls with one tab stop: static `role="toolbar"` (a consumer's static
  * `role` overrides it), `aria-orientation` and `data-orientation` from effective Options. Its
- * controls (`OrigamiToolbarItem`, `OrigamiToolbarToggle`, `OrigamiToolbarPopoverTrigger`) and
+ * controls (`OrigamiToolbarItem`, `OrigamiToolbarToggle`, `OrigamiToolbarPopoverTrigger`,
+ * `OrigamiToolbarMenuTrigger`) and
  * the items of the Toolbar groups inside it (`OrigamiToolbarToggleGroupSingle`,
  * `OrigamiToolbarToggleGroupMultiple`, `OrigamiToolbarRadioGroup`) share its one tab stop, held
  * by the focused control, else the first enabled one, else the first focusable disabled one, and

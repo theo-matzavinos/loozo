@@ -6,9 +6,9 @@ import { injectDeferred } from "@loozo/origami-ui/utils";
 import { ToolbarContext, contentFocusValue } from "./toolbar";
 
 /**
- * A control variant's own Content, provided on the control's element by the variant that has
- * one (`ogToolbarPopoverTrigger`). While focus is inside it the control keeps the Toolbar's tab
- * stop. Internal to `/toolbar`, not exported.
+ * A control variant's own Content, provided on the control's element by the variants that have
+ * one (`ogToolbarPopoverTrigger`, `ogToolbarMenuTrigger`). While focus is inside it the control
+ * keeps the Toolbar's tab stop. Internal to `/toolbar`, not exported.
  */
 export abstract class ToolbarControlContent {
   /** Focus is inside the control's own Content. */
@@ -17,11 +17,11 @@ export abstract class ToolbarControlContent {
 
 /**
  * @internal Package-private Toolbar control behavior, composed by `ogToolbarItem`,
- * `ogToolbarToggle` and `ogToolbarPopoverTrigger` beside the button primitive each composes. It
- * registers its button with the nearest Toolbar's roving focus in `ngOnInit`, with the disabled
- * state and disabled focusability of the `OrigamiButtonOptions` on its own element, and binds
- * the roving `tabindex`, arrow keys and click focus. It never activates its button. Requires a
- * nearest Toolbar. Not an application API.
+ * `ogToolbarToggle`, `ogToolbarPopoverTrigger` and `ogToolbarMenuTrigger` beside the button
+ * primitive each composes. It registers its button with the nearest Toolbar's roving focus in
+ * `ngOnInit`, with the disabled state and disabled focusability of the `OrigamiButtonOptions` on
+ * its own element, and binds the roving `tabindex`, arrow keys and click focus. It never
+ * activates its button. Requires a nearest Toolbar. Not an application API.
  */
 @Directive({
   host: {
@@ -87,7 +87,8 @@ export class ɵOrigamiToolbarControl {
    * @internal Not every engine focuses a clicked button, so a click focuses this control to make
    * it the roving position, also while it is disabled but focusable. Listeners that ran before it,
    * such as the composed Toggle's and its output listeners, may have removed or disabled it, so
-   * the guard reads live state.
+   * the guard reads live state. `ogToolbarMenuTrigger` composes the control first, so there it runs
+   * before the Menu Trigger's listeners.
    */
   protected clicked(): void {
     if (this.#destroyed || (this.#disabled() && !this.#focusable())) {

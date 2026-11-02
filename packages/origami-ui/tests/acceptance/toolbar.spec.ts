@@ -775,3 +775,137 @@ test("K14: focus leaving both the Toolbar and its Trigger's own Content, by any 
   await expectTabStop(toolbar, part("copy"));
   await expectReentryOnCopy();
 });
+
+test("K15: a Toolbar Menu Trigger shares the Toolbar's tab stop in server HTML and after hydration, keeps it while focus is in its own menu, opened by keys or a click, so Tab and Shift+Tab out of the menu leave the Toolbar; disabling the Menu takes it out of the arrows unless it stays focusable", async ({
+  page,
+}, info) => {
+  const toolbar = page.locator('[data-toolbar-case="menu"]');
+  const part = (role: string) => casePart(page, "menu", role);
+  const before = page.getByTestId("toolbar-menu-before");
+  const after = page.getByTestId("toolbar-menu-after");
+
+  /** One tab stop, on Copy; the Trigger is a closed menu button and no menu item is a stop. */
+  async function expectClosedToolbar(): Promise<void> {
+    await expectTabStop(toolbar, part("copy"));
+    await expect(part("trigger")).toHaveAttribute("type", "button");
+    await expect(part("trigger")).toHaveAttribute("aria-haspopup", "menu");
+    await expect(part("trigger")).toHaveAttribute("aria-expanded", "false");
+
+    for (const role of ["one", "sub-trigger", "two"]) {
+      await expect(part(role)).toHaveAttribute("tabindex", "-1");
+    }
+  }
+
+  await fixture(page, "core", info, expectClosedToolbar);
+  await expectClosedToolbar();
+
+  // Keyboard: arrow onto the Trigger and open; the Trigger keeps the stop while an item has focus.
+  await before.focus();
+  await page.keyboard.press("Tab");
+  await expect(part("copy")).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(part("trigger")).toBeFocused();
+  await expectTabStop(toolbar, part("trigger"));
+  await page.keyboard.press("ArrowDown");
+  await expect(part("one")).toBeFocused();
+  await expectTabStop(toolbar, part("trigger"));
+
+  // Shift+Tab out of the menu continues from the Trigger, before the Toolbar, not onto Copy.
+  await page.keyboard.press("Shift+Tab");
+  await expect(before).toBeFocused();
+  await expect(part("content")).toBeHidden();
+  await expectTabStop(toolbar, part("copy"));
+
+  // Re-entry lands on Copy; Tab out of the menu continues past Paste.
+  await page.keyboard.press("Tab");
+  await expect(part("copy")).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowUp");
+  await expect(part("two")).toBeFocused();
+  await expectTabStop(toolbar, part("trigger"));
+  await page.keyboard.press("Tab");
+  await expect(after).toBeFocused();
+  await expect(part("content")).toBeHidden();
+  await expectTabStop(toolbar, part("copy"));
+
+  // Escape returns focus to the Trigger, which keeps the stop; the Toolbar's keys then move on.
+  await part("trigger").focus();
+  await page.keyboard.press("Enter");
+  await expect(part("one")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(part("trigger")).toBeFocused();
+  await expect(part("content")).toBeHidden();
+  await expectTabStop(toolbar, part("trigger"));
+  await page.keyboard.press("End");
+  await expect(part("paste")).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(part("copy")).toBeFocused();
+
+  // A click from another control opens on the first item, also in an engine that doesn't focus a
+  // clicked button; a click while open closes it with focus on the Trigger.
+  for (const unfocused of [false, true]) {
+    await part("copy").focus();
+
+    if (unfocused) {
+      await preventNextMousedownFocus(page);
+    }
+
+    await part("trigger").click();
+    await expect(part("one")).toBeFocused();
+    await expectTabStop(toolbar, part("trigger"));
+
+    if (unfocused) {
+      await preventNextMousedownFocus(page);
+    }
+
+    await part("trigger").click();
+    await expect(part("content")).toBeHidden();
+    await expect(part("trigger")).toBeFocused();
+    await expectTabStop(toolbar, part("trigger"));
+  }
+
+  // Content authored after the Toolbar, its Menu wrapping both: Tab and Shift+Tab out of the menu
+  // still continue from the Trigger.
+  const wrapped = (role: string) => casePart(page, "menu-outside", role);
+
+  await wrapped("trigger").click();
+  await expect(wrapped("one")).toBeFocused();
+  await expectTabStop(wrapped("toolbar"), wrapped("trigger"));
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("toolbar-menu-outside-after")).toBeFocused();
+  await expect(wrapped("content")).toBeHidden();
+  await expectTabStop(wrapped("toolbar"), wrapped("copy"));
+  await wrapped("trigger").click();
+  await expect(wrapped("one")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("toolbar-menu-outside-before")).toBeFocused();
+  await expect(wrapped("content")).toBeHidden();
+
+  // A disabled Menu takes its Trigger out of the arrows; focusable, it stays in them but opens
+  // nothing.
+  await page.getByTestId("toolbar-menu-disable").click();
+  await expect(part("trigger")).toHaveAttribute("disabled", "");
+  await expect(part("trigger")).toHaveAttribute("tabindex", "-1");
+  await part("copy").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(part("paste")).toBeFocused();
+
+  await page.getByTestId("toolbar-menu-focusable").click();
+  await expect(part("trigger")).not.toHaveAttribute("disabled", /.*/);
+  await expect(part("trigger")).toHaveAttribute("aria-disabled", "true");
+  await part("copy").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(part("trigger")).toBeFocused();
+  // The click goes first: an ArrowDown the disabled Trigger leaves alone scrolls the page, and a
+  // click during that scroll can land elsewhere.
+  await part("trigger").click({ force: true });
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowDown");
+  await settle(page);
+  await expect(part("trigger")).toBeFocused();
+  await expect(part("content")).toBeHidden();
+  await expect(page.getByTestId("toolbar-menu-open")).toHaveText("false");
+  await expectTabStop(toolbar, part("trigger"));
+  await page.keyboard.press("ArrowRight");
+  await expect(part("paste")).toBeFocused();
+});
