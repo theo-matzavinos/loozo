@@ -459,3 +459,67 @@ test("native takeRecords flush at stop keeps undelivered same-turn entrance evid
     entered: ["B:presence:0"],
   });
 });
+
+test("same-value attribute writes around same-turn transients keep every transient", async ({
+  page,
+}, info) => {
+  const final = await page.evaluate(() => {
+    const unit = document.querySelector('[data-unit="A"]')!;
+    const host = document.querySelector("#a-host")!;
+    const child = document.querySelector("#b-child")!;
+
+    // Hydration's pattern: attributes rewritten to the value they already have.
+    host.setAttribute("id", "a-host");
+    host.setAttribute("data-testid", "presence");
+    child.setAttribute("id", "a-child");
+    child.setAttribute("id", "a-child");
+    child.setAttribute("id", "b-child");
+    unit.setAttribute("data-testid", "child");
+    unit.setAttribute("data-testid", "child");
+    unit.removeAttribute("data-testid");
+    host.setAttribute("data-entering", "");
+    host.setAttribute("data-entering", "");
+    host.removeAttribute("data-entering");
+    host.setAttribute("id", "a-host");
+
+    return {
+      childId: child.id,
+      unitTestId: unit.getAttribute("data-testid"),
+      entering: host.hasAttribute("data-entering"),
+    };
+  });
+
+  expect(final).toEqual({ childId: "b-child", unitTestId: null, entering: false });
+  expect(await journal(page)).toEqual({
+    removed: [],
+    duplicateIds: ["a-child"],
+    duplicateLabels: ["A:child:0"],
+    entered: ["A:presence:0"],
+  });
+  await expect(assertReferences(page, info)).rejects.toThrow();
+});
+
+test("a removed original doesn't count toward duplicates of its identical replacement", async ({
+  page,
+}, info) => {
+  const final = await page.evaluate(() => {
+    const original = document.querySelector("#a-child")!;
+    const replacement = original.cloneNode(true);
+
+    original.replaceWith(replacement);
+
+    return {
+      originalConnected: original.isConnected,
+      connectedIdCount: document.querySelectorAll("#a-child").length,
+    };
+  });
+
+  expect(final).toEqual({ originalConnected: false, connectedIdCount: 1 });
+  expect(await journal(page)).toEqual({
+    removed: ["A:child:0"],
+    duplicateIds: [],
+    duplicateLabels: [],
+    entered: [],
+  });
+  await expect(assertReferences(page, info, { removed: ["A:child:0"] })).resolves.toBeUndefined();
+});
