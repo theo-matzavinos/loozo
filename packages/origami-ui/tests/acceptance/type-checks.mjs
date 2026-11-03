@@ -126,6 +126,7 @@ import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendar
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
 import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, OrigamiDatePickerMultipleOptions, OrigamiDatePickerRangeOptions, OrigamiMonthPickerOptions, type OrigamiDatePickerState, type OrigamiDatePickerMultipleState, type OrigamiDatePickerRangeState, type OrigamiMonthPickerState, OrigamiDateTimePickerOptions, type OrigamiDateTimePickerState } from '@loozo/origami-ui/date-picker';
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
+import { OrigamiToaster, OrigamiToastRegionOptions, OrigamiToastOptions, OrigamiToastCloseOptions, type OrigamiToastRegionState, type OrigamiToastState, type OrigamiToastRecord } from '@loozo/origami-ui/toast';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -391,6 +392,35 @@ void selectRecordStrings;
 declare const selectOptionState: OrigamiSelectOptionState;
 // @ts-expect-error Select Option State is readonly
 selectOptionState.selected.set(true);
+interface TypedToast { title: string; kind: 'success' | 'error' }
+class TypedToasts extends OrigamiToaster<TypedToast> {}
+declare const typedToasts: TypedToasts;
+const toastId: string = typedToasts.add({title: 'Saved', kind: 'success'}, {duration: Infinity});
+typedToasts.close(toastId);
+// @ts-expect-error a toast's data is the toaster's T: 'sucess' isn't a kind
+typedToasts.add({title: 'Saved', kind: 'sucess'});
+// @ts-expect-error add's options are timing only
+typedToasts.add({title: 'Saved', kind: 'success'}, {title: 'Saved'});
+// @ts-expect-error the abstract toaster isn't a service on its own: it can't be constructed
+new OrigamiToaster<TypedToast>();
+// @ts-expect-error OrigamiToaster has no default T: a subclass must name it
+abstract class UntypedToasts extends OrigamiToaster {}
+declare const toastRegionState: OrigamiToastRegionState<TypedToast>;
+const toastRecords: readonly OrigamiToastRecord<TypedToast>[] = toastRegionState.toasts();
+// @ts-expect-error a record's data has the toaster's fields only
+void toastRecords[0]?.data.titel;
+// @ts-expect-error Region State is readonly
+toastRegionState.toasts.set([]);
+declare const toastState: OrigamiToastState;
+// @ts-expect-error Toast State is readonly
+toastState.open.set(false);
+// @ts-expect-error a region factory must supply limit
+OrigamiToastRegionOptions.provideFactory(() => ({toaster: signal(typedToasts), duration: signal(5000)}));
+// @ts-expect-error a Toast factory supplies a record, not its data
+OrigamiToastOptions.provideFactory(() => ({toast: signal({title: 'Saved', kind: 'success'})}));
+// @ts-expect-error a Close factory must supply focusableWhenDisabled
+OrigamiToastCloseOptions.provideFactory(() => ({disabled: signal(false)}));
+void UntypedToasts;
 // Positive: a whole Calendar factory, with ordinary signals and readonly bounds.
 OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: computed<string | null>(() => '2026-01-01'), maxDate: signal<string | null>(null), dateDisabled: signal((date: string) => date.endsWith('-13')), weekStart: signal<1 | 2 | 3 | 4 | 5 | 6 | 7 | null>(7), locale: signal('en-GB'), today: signal('2026-10-27'), fixedWeeks: signal(true), columns: signal(3), disabled: signal(false), readonly: signal(false)}));
 // @ts-expect-error Calendar value must be writable
@@ -817,6 +847,14 @@ abstract class AbstractRadioGroupItem {
   abstract readonly disabled: Signal<boolean>;
   abstract readonly focusableWhenDisabled: Signal<boolean>;
 }
+abstract class AbstractToastRegion {
+  abstract readonly toaster: Signal<TypedToasts>;
+  abstract readonly duration: Signal<number>;
+  abstract readonly limit: Signal<number>;
+}
+abstract class AbstractToast {
+  abstract readonly toast: Signal<OrigamiToastRecord<TypedToast>>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -897,6 +935,12 @@ export const providers: Provider[] = [
   OrigamiDialogDescriptionOptions.provideExisting(() => AbstractIdentity),
   OrigamiDialogCloseOptions.provideFactory(() => ({disabled: signal(false), focusableWhenDisabled: signal(true)})),
   OrigamiDialogCloseOptions.provideExisting(() => AbstractButton),
+  OrigamiToastRegionOptions.provideFactory(() => ({toaster: signal(typedToasts), duration: computed(() => 8000), limit: signal(Infinity)})),
+  OrigamiToastRegionOptions.provideExisting(() => AbstractToastRegion),
+  OrigamiToastOptions.provideFactory(() => ({toast: signal<OrigamiToastRecord<TypedToast>>({id: 'og-toast-1', data: {title: 'Saved', kind: 'success'}})})),
+  OrigamiToastOptions.provideExisting(() => AbstractToast),
+  OrigamiToastCloseOptions.provideFactory(() => ({disabled: signal(false), focusableWhenDisabled: signal(true)})),
+  OrigamiToastCloseOptions.provideExisting(() => AbstractButton),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1056,6 +1100,22 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   openOutput(value: boolean): void { void value; }
   observeDialog(state: OrigamiDialogState): void { void state; }
   observeContent(state: OrigamiDialogContentState): void { void state; }
+  observeString(value: string): void { void value; }`,
+  },
+  toast: {
+    imports: `import { Service, inject } from "@angular/core";
+import { OrigamiToaster, OrigamiToastRegion, OrigamiToast, OrigamiToastClose, OrigamiToastState, type OrigamiToastRecord } from "@loozo/origami-ui/toast";
+interface TypedToast { title: string; kind: "success" | "error" }
+interface OtherToast { message: string }
+@Service()
+class TypedToasts extends OrigamiToaster<TypedToast> {}`,
+    directives: "OrigamiToastRegion, OrigamiToast, OrigamiToastClose",
+    members: `
+  readonly toasts = inject(TypedToasts);
+  observeRecords(records: readonly OrigamiToastRecord<TypedToast>[]): void { void records; }
+  observeOther(records: readonly OrigamiToastRecord<OtherToast>[]): void { void records; }
+  observeToast(state: OrigamiToastState): void { void state; }
+  observeKind(kind: "success" | "error"): void { void kind; }
   observeString(value: string): void { void value; }`,
   },
   select: {
@@ -1903,6 +1963,42 @@ const templates = [
       code: -998002,
       span: '[weekStart]="1"',
       message: /Can't bind to 'weekStart' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "toast-positive",
+    family: "toast",
+    template: `<section [ogToastRegion]="toasts" #region="ogToastRegion" [duration]="8000" [limit]="2" aria-label="Notifications" (click)="observeRecords(region.state.toasts())"><ol>@for (toast of region.state.toasts(); track toast.id) {<li [ogToast]="toast" #item="ogToast" (click)="observeToast(item.state); observeKind(toast.data.kind); observeString(toast.id)">{{ toast.data.title }}<button ogToastClose disabled focusableWhenDisabled aria-label="Close">×</button></li>}</ol></section>`,
+  },
+  {
+    name: "toast-data-field",
+    family: "toast",
+    template: `<section [ogToastRegion]="toasts" #region="ogToastRegion">@for (toast of region.state.toasts(); track toast.id) {<p [ogToast]="toast">{{ toast.data.titel }}</p>}</section>`,
+    expected: {
+      code: 2551,
+      span: "titel",
+      message: /Property 'titel' does not exist on type 'TypedToast'/,
+    },
+  },
+  {
+    name: "toast-region-inferred",
+    family: "toast",
+    template: `<section [ogToastRegion]="toasts" #region="ogToastRegion" (click)="observeOther(region.state.toasts())"></section>`,
+    expected: {
+      code: 2345,
+      span: "toasts",
+      message:
+        /OrigamiToastRecord<TypedToast>\[\].*not assignable to parameter of type 'readonly OrigamiToastRecord<OtherToast>\[\]'/s,
+    },
+  },
+  {
+    name: "toast-region-toaster",
+    family: "toast",
+    template: `<section [ogToastRegion]="'notifications'"></section>`,
+    expected: {
+      code: 2322,
+      span: "ogToastRegion",
+      message: /'string' is not assignable to type 'OrigamiToaster/,
     },
   },
   {

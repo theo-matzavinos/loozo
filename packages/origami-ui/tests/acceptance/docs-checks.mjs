@@ -61,6 +61,7 @@ for (const directory of [
   "date-field/src",
   "date-picker/src",
   "menu/src",
+  "toast/src",
 ]) {
   await collect(directory);
 }
@@ -310,6 +311,10 @@ const directiveDefaults = {
   "OrigamiDateTimePicker.hourCycle": ["null", /\bnull\b/i],
   "OrigamiDateTimePicker.disabled": ["false", /\bfalse\b/i],
   "OrigamiDateTimePicker.readonly": ["false", /\bfalse\b/i],
+  "OrigamiToastRegion.duration": ["5000", /\b5000\b/],
+  "OrigamiToastRegion.limit": ["3", /\b3\b/],
+  "OrigamiToastClose.disabled": ["false", /\bfalse\b/i],
+  "OrigamiToastClose.focusableWhenDisabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];

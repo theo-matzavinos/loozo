@@ -248,6 +248,19 @@ export const inventory = {
     "OrigamiMenuSubTrigger",
     "OrigamiMenuSubTriggerOptions",
   ],
+  toast: [
+    "OrigamiToaster",
+    "OrigamiToastAddOptions",
+    "OrigamiToastRecord",
+    "OrigamiToastRegion",
+    "OrigamiToastRegionOptions",
+    "OrigamiToastRegionState",
+    "OrigamiToast",
+    "OrigamiToastOptions",
+    "OrigamiToastState",
+    "OrigamiToastClose",
+    "OrigamiToastCloseOptions",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -270,4 +283,6 @@ export const typeOnly = new Set([
   "OrigamiDateRange",
   "OrigamiDateFieldPart",
   "OrigamiDateFieldSegmentType",
+  "OrigamiToastAddOptions",
+  "OrigamiToastRecord",
 ]);

@@ -93,6 +93,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/menu.js").then((module) => module.MenuFixture),
   },
   {
+    path: "toast",
+    loadComponent: () => import("./fixtures/toast.js").then((module) => module.ToastFixture),
+  },
+  {
     path: "date-time-field",
     loadComponent: () =>
       import("./fixtures/date-field-date-time.js").then((module) => module.DateTimeFieldFixture),
