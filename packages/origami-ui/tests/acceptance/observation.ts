@@ -484,29 +484,44 @@ export function captureDomRetention(): void {
       return false;
     }
 
-    function owner(candidate: Node): Element | null {
-      let current: Node | null = candidate;
-
-      while (current) {
-        if (
-          current instanceof Element &&
-          (originalUnits.has(current) || graph.get(current)!.attributes.get("data-unit") !== null)
-        ) {
-          return current;
-        }
-
-        current = graph.get(current)!.parent;
-      }
-
-      return null;
-    }
-
     function scan(): void {
       const ids = new Map<string, number>();
       const counts = new Map<Element | null, Map<string, number>>();
+      // Whether each node is in the document and its nearest unit, resolved once per scan from its
+      // parent's, so a scan costs one pass over the graph instead of one ancestor walk per node.
+      const placements = new Map<Node, { connected: boolean; unit: Element | null }>();
+
+      function place(node: Node): { connected: boolean; unit: Element | null } {
+        let placement = placements.get(node);
+
+        if (placement) {
+          return placement;
+        }
+
+        const state = graph.get(node)!;
+        let above: { connected: boolean; unit: Element | null } | undefined;
+
+        if (state.parent) {
+          above = place(state.parent);
+        }
+
+        let unit = above?.unit ?? null;
+
+        if (
+          node instanceof Element &&
+          (originalUnits.has(node) || state.attributes.get("data-unit") !== null)
+        ) {
+          unit = node;
+        }
+
+        placement = { connected: node === document || (above?.connected ?? false), unit };
+        placements.set(node, placement);
+
+        return placement;
+      }
 
       for (const [node, state] of graph) {
-        if (!(node instanceof Element) || !contains(document, node)) {
+        if (!(node instanceof Element) || !place(node).connected) {
           continue;
         }
 
@@ -517,7 +532,7 @@ export function captureDomRetention(): void {
         }
 
         let testid = state.attributes.get("data-testid");
-        let unit = owner(node);
+        let unit = place(node).unit;
         const original = originals.get(node);
 
         if (original && original.testid !== null) {
@@ -587,9 +602,15 @@ export function captureDomRetention(): void {
       }
 
       if (record.type === "attributes" && record.attributeName) {
-        graph
-          .get(record.target)!
-          .attributes.set(record.attributeName, attributeAfter.get(record) ?? null);
+        const after = attributeAfter.get(record) ?? null;
+
+        graph.get(record.target)!.attributes.set(record.attributeName, after);
+
+        // Hydration rewrites most attributes to the value they already had. Such a record leaves
+        // the graph exactly as the previous scan saw it, so scanning again can't find anything new.
+        if (after === record.oldValue) {
+          continue;
+        }
       }
 
       scan();
