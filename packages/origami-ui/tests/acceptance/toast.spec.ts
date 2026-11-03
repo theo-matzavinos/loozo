@@ -67,10 +67,45 @@ type Exit = {
   stateAtLeaving: string | null;
 };
 
+/** What the page saw of the AlertDialog's delete flow, sampled in the page. */
+type DeleteFlow = {
+  /** One sample per animation frame from the Delete activation until the toast's removal. */
+  frames: { at: number; open: boolean; leaving: boolean; toasts: number; state: string }[];
+  /** When the dialog's first `toggle` or `close` after its native `close()` reached the window. */
+  closedAt: number | null;
+  /** How many frames had been sampled by then. */
+  closedFrame: number | null;
+  /** The toast element's insertion, and what the page was like then. */
+  rendered: {
+    at: number;
+    frame: number;
+    open: boolean;
+    modal: boolean;
+    focus: string | null;
+  } | null;
+  /** When the toast element was removed. */
+  removedAt: number | null;
+};
+
+/** What the page saw of a held toast's release around a modal dialog's removal, sampled in the page. */
+type RemovedRelease = {
+  /** One sample per animation frame, from the watch until three frames after the toast's insertion. */
+  frames: { at: number; connected: boolean; toasts: number }[];
+  /** How many frames had been sampled when the dialog left the document. */
+  removedFrame: number | null;
+  /** Whether a closing `toggle` or a `close` event of the dialog reached the window. */
+  eventReached: boolean;
+  /** The toast element's insertion, and what the page was like then. */
+  rendered: { frame: number; connected: boolean; modal: boolean; focus: string | null } | null;
+};
+
 declare global {
   interface Window {
     toastExits?: Map<string, Promise<Exit>>;
     toastsRendered?: string[];
+    toastDeleteFlow?: Promise<DeleteFlow>;
+    toastRemovedRelease?: Promise<RemovedRelease>;
+    dialogClosedAt?: Record<string, number>;
   }
 }
 
@@ -857,4 +892,535 @@ test("TO7: the abstract toaster isn't injectable; factory and existing Options r
   // The first region keeps working.
   await page.getByTestId("add").click();
   await expect(page.getByTestId("region-state")).toHaveText("T1");
+});
+
+/** Whether the dialog is in a modal session (`:modal`). */
+function modal(dialog: Locator): Promise<boolean> {
+  return dialog.evaluate((element) => element.matches(":modal"));
+}
+
+/** Chromium's accessibility tree: whether the node `selector` matches is ignored. */
+async function ignored(page: Page, selector: string): Promise<boolean> {
+  const cdp = await page.context().newCDPSession(page);
+
+  try {
+    const { root } = await cdp.send("DOM.getDocument", { depth: 0 });
+    const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+    const { nodes } = await cdp.send("Accessibility.getPartialAXTree", {
+      nodeId,
+      fetchRelatives: false,
+    });
+
+    return nodes[0]!.ignored;
+  } finally {
+    await cdp.detach();
+  }
+}
+
+/**
+ * Records, from now on, the page time (`performance.now()`, the page clock's once installed) of
+ * each dialog's first `toggle` or `close` after it stopped being open, by test ID, captured at the
+ * window before the region's own listeners on the document.
+ */
+async function watchDialogCloses(page: Page): Promise<(testId: string) => Promise<number | null>> {
+  await page.evaluate(() => {
+    const closedAt: Record<string, number> = {};
+    const closed = (event: Event): void => {
+      const dialog = event.target;
+
+      if (!(dialog instanceof HTMLDialogElement) || dialog.open) {
+        return;
+      }
+
+      const testId = dialog.getAttribute("data-testid") ?? "";
+
+      closedAt[testId] ??= performance.now();
+    };
+
+    window.dialogClosedAt = closedAt;
+    window.addEventListener("toggle", closed, true);
+    window.addEventListener("close", closed, true);
+  });
+
+  return (testId) => page.evaluate((testId) => window.dialogClosedAt![testId] ?? null, testId);
+}
+
+test("TO8: falsifier — a toast an AlertDialog's Delete adds as it requests close is held through the dialog's 300 ms exit and renders at its native close(), with focus back on the opener, and its time runs from then; Chromium's accessibility tree has the region ignored under the modal and the region and the toast not ignored after", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-modal", info);
+
+  const chromium = info.project.use.browserName === "chromium";
+  const content = page.getByTestId("delete-content");
+
+  await page.getByTestId("delete-trigger").click();
+  await expect.poll(() => modal(content)).toBe(true);
+  await expect(page.getByTestId("delete-cancel")).toBeFocused();
+
+  // The premise: under the modal the region is inert and out of the accessibility tree.
+  if (chromium) {
+    expect(await ignored(page, '[data-testid="region"]')).toBe(true);
+  }
+
+  // Sampled in the page on every frame, so no round trip can straddle the exit's end.
+  await page.evaluate(() => {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-testid="delete-content"]')!;
+    const region = document.querySelector('[data-testid="region"]')!;
+    const state = document.querySelector('[data-testid="region-state"]')!;
+
+    window.toastDeleteFlow = new Promise<DeleteFlow>((resolve) => {
+      const flow: DeleteFlow = {
+        frames: [],
+        closedAt: null,
+        closedFrame: null,
+        rendered: null,
+        removedAt: null,
+      };
+      const start = performance.now();
+      const closed = (event: Event): void => {
+        if (event.target === dialog && !dialog.open && flow.closedAt === null) {
+          flow.closedAt = performance.now();
+          flow.closedFrame = flow.frames.length;
+        }
+      };
+
+      window.addEventListener("toggle", closed, true);
+      window.addEventListener("close", closed, true);
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node instanceof HTMLLIElement && flow.rendered === null) {
+              flow.rendered = {
+                at: performance.now(),
+                frame: flow.frames.length,
+                open: dialog.open,
+                modal: document.querySelector("dialog:modal") !== null,
+                focus: document.activeElement?.getAttribute("data-testid") ?? null,
+              };
+            }
+          }
+
+          for (const node of record.removedNodes) {
+            if (node instanceof HTMLLIElement) {
+              flow.removedAt = performance.now();
+            }
+          }
+        }
+      }).observe(region, { childList: true, subtree: true });
+
+      function frame(): void {
+        flow.frames.push({
+          at: performance.now(),
+          open: dialog.open,
+          leaving: dialog.hasAttribute("data-leaving"),
+          toasts: region.querySelectorAll("li").length,
+          state: state.textContent?.trim() ?? "",
+        });
+
+        if (flow.removedAt !== null || performance.now() - start > 8000) {
+          resolve(flow);
+
+          return;
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      requestAnimationFrame(frame);
+    });
+  });
+
+  await page.getByTestId("delete-action").click();
+
+  const toastElement = toast(page, "Deleted1");
+
+  await expect(toastElement).toHaveAttribute("data-open", "true");
+  await expect(page.getByTestId("delete-trigger")).toBeFocused();
+
+  // Released into a region that isn't inert any more: both are in the accessibility tree.
+  if (chromium) {
+    expect(await ignored(page, '[data-testid="region"]')).toBe(false);
+    expect(await ignored(page, '[data-testid="toast-Deleted1"]')).toBe(false);
+  }
+
+  const flow = await page.evaluate(() => window.toastDeleteFlow!);
+
+  await info.attach("delete-flow", {
+    body: JSON.stringify(flow, null, 2),
+    contentType: "application/json",
+  });
+
+  // The exit ran for its 300 ms while the dialog stayed open, and no toast was shown in it.
+  const exit = flow.frames.filter((frame) => frame.leaving && frame.open);
+
+  expect(exit.length).toBeGreaterThan(2);
+  expect(exit[exit.length - 1]!.at - exit[0]!.at).toBeGreaterThanOrEqual(200);
+
+  for (const frame of flow.frames) {
+    if (frame.open) {
+      expect(frame).toEqual({ ...frame, toasts: 0, state: "" });
+    }
+  }
+
+  // Rendered at the native close(): after the dialog left the top layer, within two frames.
+  expect(flow.closedAt).not.toBeNull();
+  expect(flow.rendered).toEqual({
+    at: flow.rendered!.at,
+    frame: flow.rendered!.frame,
+    open: false,
+    modal: false,
+    focus: "delete-trigger",
+  });
+  expect(flow.rendered!.at).toBeGreaterThanOrEqual(flow.closedAt!);
+  expect(flow.rendered!.frame - flow.closedFrame!).toBeLessThanOrEqual(2);
+
+  // Its 2000 ms ran from the close, not from the Delete 300 ms earlier.
+  expect(flow.removedAt).not.toBeNull();
+  expect(flow.removedAt! - flow.closedAt!).toBeGreaterThanOrEqual(1995);
+  await expect(toastElement).toHaveCount(0);
+});
+
+test("TO9: a toast added while a dialog stays open is held, using no time, until no modal dialog is left: nested dialogs hold it until the last closes, a non-Origami showModal() holds it too; a toast shown before the modal stays open under it and keeps its time", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-modal", info);
+
+  const rendered = await watchRendered(page);
+  const editor = page.getByTestId("editor-content");
+  const nested = page.getByTestId("nested-content");
+  const native = page.getByTestId("native-content");
+  const state = page.getByTestId("region-state");
+
+  await page.clock.install();
+
+  const closedAt = await watchDialogCloses(page);
+
+  /** Runs the page clock to `ms` milliseconds after `from`, page time. */
+  async function runTo(from: number, ms: number): Promise<void> {
+    const now = await page.evaluate(() => performance.now());
+
+    await page.clock.runFor(Math.round(from + ms - now));
+  }
+
+  await paused(page, async () => {
+    // T1 is shown before the editor opens: under it, it stays and closes at its 1000 ms.
+    await script(page, "add");
+    await page.clock.runFor(100);
+    await expect(toast(page, "T1")).toHaveAttribute("data-open", "true");
+    await script(page, "editor-trigger");
+    await page.clock.runFor(100);
+    expect(await modal(editor)).toBe(true);
+
+    // E1, added inside, is held: it isn't in State and never renders while a dialog is modal.
+    await script(page, "editor-add");
+    await page.clock.runFor(799);
+    await expect(toast(page, "T1")).toHaveAttribute("data-open", "true");
+    await expect(state).toHaveText("T1");
+    await page.clock.runFor(1);
+    await page.clock.runFor(200);
+    await expect(toast(page, "T1")).toHaveCount(0);
+    expect(await modal(editor)).toBe(true);
+    await page.clock.runFor(5000);
+    await expect(state).toHaveText("");
+
+    // A nested dialog: N1 added in it; closing it leaves the editor modal, so both stay held.
+    await script(page, "nested-trigger");
+    await page.clock.runFor(100);
+    expect(await modal(nested)).toBe(true);
+    await script(page, "nested-add");
+    await page.clock.runFor(100);
+    await expect(state).toHaveText("");
+    await script(page, "nested-close");
+    await page.clock.runFor(100);
+    await expect.poll(() => closedAt("nested-content")).not.toBeNull();
+    expect(await modal(nested)).toBe(false);
+    expect(await modal(editor)).toBe(true);
+    await page.clock.runFor(2000);
+    await expect(state).toHaveText("");
+
+    // The last modal dialog closes: both are shown, newest first, and run 1000 ms from then.
+    await script(page, "editor-close");
+    await page.clock.runFor(100);
+    await expect.poll(() => closedAt("editor-content")).not.toBeNull();
+
+    const editorClosed = (await closedAt("editor-content"))!;
+
+    await runTo(editorClosed, 100);
+    await expect(state).toHaveText("N1 E1");
+    await expect(toast(page, "N1")).toHaveAttribute("data-open", "true");
+    await expect(toast(page, "E1")).toHaveAttribute("data-open", "true");
+    await runTo(editorClosed, 999);
+    await expect(toast(page, "E1")).toHaveAttribute("data-open", "true");
+    await expect(toast(page, "N1")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(200);
+    await expect(state).toHaveText("");
+
+    // A dialog Origami doesn't own, shown with showModal(), holds X1 the same way.
+    await script(page, "native-open");
+    expect(await modal(native)).toBe(true);
+    await script(page, "native-add");
+    await page.clock.runFor(100);
+    await expect(state).toHaveText("");
+    await page.clock.runFor(2900);
+    await expect(state).toHaveText("");
+    await script(page, "native-close");
+    await expect.poll(() => closedAt("native-content")).not.toBeNull();
+
+    const nativeClosed = (await closedAt("native-content"))!;
+
+    await runTo(nativeClosed, 100);
+    await expect(toast(page, "X1")).toHaveAttribute("data-open", "true");
+    await runTo(nativeClosed, 999);
+    await expect(toast(page, "X1")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(200);
+    await expect(toast(page, "X1")).toHaveCount(0);
+  });
+
+  // No held toast ever rendered early: each first appeared only after its release.
+  expect(await rendered()).toEqual(["toast-T1", "toast-N1", "toast-E1", "toast-X1"]);
+});
+
+/**
+ * Watches, from now on, the open dialog `testId` and the main region's toast `title`, sampled in
+ * the page on every frame: whether the dialog's closing events reach the window, when it leaves
+ * the document and when the toast is inserted. The returned function waits for the result, at
+ * most 5 s.
+ */
+async function watchRemovedRelease(
+  page: Page,
+  testId: string,
+  title: string,
+): Promise<() => Promise<RemovedRelease>> {
+  await page.getByTestId(testId).evaluate((dialog, title) => {
+    const region = document.querySelector('[data-testid="region"]')!;
+    const selector = `li[data-testid="toast-${title}"]`;
+
+    window.toastRemovedRelease = new Promise<RemovedRelease>((resolve) => {
+      const flow: RemovedRelease = {
+        frames: [],
+        removedFrame: null,
+        eventReached: false,
+        rendered: null,
+      };
+      const start = performance.now();
+      const reached = (event: Event): void => {
+        const closing =
+          event.type === "close" || (event instanceof ToggleEvent && event.newState === "closed");
+
+        if (event.target === dialog && closing) {
+          flow.eventReached = true;
+        }
+      };
+
+      window.addEventListener("toggle", reached, true);
+      window.addEventListener("close", reached, true);
+      new MutationObserver(() => {
+        if (flow.removedFrame === null && !dialog.isConnected) {
+          flow.removedFrame = flow.frames.length;
+        }
+
+        if (flow.rendered === null && region.querySelector(selector) !== null) {
+          flow.rendered = {
+            frame: flow.frames.length,
+            connected: dialog.isConnected,
+            modal: document.querySelector("dialog:modal") !== null,
+            focus: document.activeElement?.getAttribute("data-testid") ?? null,
+          };
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+
+      function frame(): void {
+        flow.frames.push({
+          at: performance.now(),
+          connected: dialog.isConnected,
+          toasts: region.querySelectorAll(selector).length,
+        });
+
+        const settled = flow.rendered !== null && flow.frames.length > flow.rendered.frame + 3;
+
+        if (settled || performance.now() - start > 5000) {
+          resolve(flow);
+
+          return;
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      requestAnimationFrame(frame);
+    });
+  }, title);
+
+  return () => page.evaluate(() => window.toastRemovedRelease!);
+}
+
+/**
+ * The toast was held while the dialog was in the document and released within a few frames of
+ * its removal, though none of the dialog's closing events reached the document.
+ */
+function expectReleasedAtRemoval(flow: RemovedRelease, focus?: string): void {
+  // The premise: the document never heard the dialog close.
+  expect(flow.eventReached).toBe(false);
+  expect(flow.removedFrame).not.toBeNull();
+
+  for (const frame of flow.frames) {
+    if (frame.connected) {
+      expect(frame).toEqual({ ...frame, toasts: 0 });
+    }
+  }
+
+  expect(flow.rendered).toEqual({
+    frame: flow.rendered!.frame,
+    connected: false,
+    modal: false,
+    focus: focus ?? flow.rendered!.focus,
+  });
+  expect(flow.rendered!.frame - flow.removedFrame!).toBeLessThanOrEqual(4);
+}
+
+test("TO10: falsifier — a held toast is released within a few frames once its modal dialog leaves the document before its closing events reach it: an opened AlertDialog the opener removes after its exit, a plain dialog closed and removed in one task, and one removed without close()", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-modal", info);
+
+  const state = page.getByTestId("region-state");
+
+  // The delete flow through injectOrigamiDialogOpener: Delete adds the toast, then requests
+  // close; after the 300 ms exit the opener closes the dialog natively and removes it in the same
+  // render, before its queued events dispatch.
+  await page.getByTestId("opened-delete-open").focus();
+  await page.keyboard.press("Enter");
+
+  const opened = page.getByTestId("opened-delete-content");
+
+  await expect.poll(() => modal(opened)).toBe(true);
+  await expect(page.getByTestId("opened-delete-cancel")).toBeFocused();
+
+  const deleteFlow = await watchRemovedRelease(page, "opened-delete-content", "Opened1");
+
+  await script(page, "opened-delete-action");
+  await expect(toast(page, "Opened1")).toHaveAttribute("data-open", "true");
+
+  const flow = await deleteFlow();
+
+  await info.attach("opened-delete-flow", {
+    body: JSON.stringify(flow, null, 2),
+    contentType: "application/json",
+  });
+  expectReleasedAtRemoval(flow, "opened-delete-open");
+
+  // Its exit ran with the dialog in the document and the toast held.
+  const exit = flow.frames.filter((frame) => frame.connected);
+
+  expect(exit[exit.length - 1]!.at - exit[0]!.at).toBeGreaterThanOrEqual(200);
+
+  // A plain modal dialog closed and removed in one task.
+  const removable = page.getByTestId("removable-content");
+
+  await script(page, "removable-open");
+  expect(await modal(removable)).toBe(true);
+  await script(page, "removable-add");
+  await page.waitForTimeout(100);
+  await expect(state).toHaveText("Opened1");
+
+  const closeRemoveFlow = await watchRemovedRelease(page, "removable-content", "R1");
+
+  await script(page, "removable-close-remove");
+  await expect(toast(page, "R1")).toHaveAttribute("data-open", "true");
+  expectReleasedAtRemoval(await closeRemoveFlow());
+
+  // The same dialog, shown again and removed without close().
+  await script(page, "removable-open");
+  expect(await modal(removable)).toBe(true);
+  await script(page, "removable-add");
+  await page.waitForTimeout(100);
+  await expect(toast(page, "R2")).toHaveCount(0);
+
+  const removeFlow = await watchRemovedRelease(page, "removable-content", "R2");
+
+  await script(page, "removable-remove");
+  await expect(toast(page, "R2")).toHaveAttribute("data-open", "true");
+  expectReleasedAtRemoval(await removeFlow());
+});
+
+test("TO11: falsifier — a modal's close releases two held toasts into a lifetime region with a limit of 1, whose limit close moves focus to the region host, whose listener destroys the region: the destroyed region shows nothing more and a later region shows both with their full duration; a replacement registered in that listener shows both the same way", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast", info);
+
+  const lifetime = page.getByTestId("lifetime-region");
+  const state = page.getByTestId("lifetime-region-state");
+  const dialog = page.getByTestId("lifetime-dialog");
+
+  await page.mouse.move(0, 0);
+  await page.clock.install();
+
+  const rendered = await watchRendered(page);
+
+  await paused(page, async () => {
+    // L1 is open and focused; the dialog opened from it holds L2 and L3.
+    await script(page, "lifetime-mount-limited");
+    await script(page, "lifetime-add");
+    await page.clock.runFor(100);
+    await expect(page.getByTestId("lifetime-toast-1-L1")).toHaveAttribute("data-open", "true");
+    await page.getByTestId("lifetime-close-L1").focus();
+    await script(page, "lifetime-arm-host-destroy");
+    await script(page, "lifetime-dialog-open");
+    expect(await modal(dialog)).toBe(true);
+    await script(page, "lifetime-dialog-add");
+    await script(page, "lifetime-dialog-add");
+    await page.clock.runFor(100);
+    await expect(state).toHaveText("L1");
+
+    // Closing it returns focus to L1 and releases L2, which closes L1 for the limit; its focus
+    // move to the host destroys the region before L3's turn.
+    await script(page, "lifetime-dialog-close");
+    await expect(lifetime).toHaveCount(0);
+
+    await script(page, "lifetime-mount");
+    await page.clock.runFor(100);
+    await expect(lifetime).toHaveAttribute("data-generation", "2");
+    await expect(state).toHaveText("L3 L2");
+    await expect(page.getByTestId("lifetime-toast-2-L2")).toHaveAttribute("data-open", "true");
+    await expect(page.getByTestId("lifetime-toast-2-L3")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(800);
+    await expect(state).toHaveText("L3 L2");
+    await page.clock.runFor(300);
+    await expect(state).toHaveText("");
+
+    // Again, with the host's listener replacing the region inside that close.
+    await script(page, "lifetime-mount-limited");
+    await script(page, "lifetime-add");
+    await page.clock.runFor(100);
+    await expect(lifetime).toHaveAttribute("data-generation", "3");
+    await expect(page.getByTestId("lifetime-toast-3-L4")).toHaveAttribute("data-open", "true");
+    await page.getByTestId("lifetime-close-L4").focus();
+    await script(page, "lifetime-arm-host-replace");
+    await script(page, "lifetime-dialog-open");
+    expect(await modal(dialog)).toBe(true);
+    await script(page, "lifetime-dialog-add");
+    await script(page, "lifetime-dialog-add");
+    await page.clock.runFor(100);
+    await expect(state).toHaveText("L4");
+    await script(page, "lifetime-dialog-close");
+    await page.clock.runFor(100);
+    await expect(lifetime).toHaveAttribute("data-generation", "4");
+    await expect(state).toHaveText("L6 L5");
+    await page.clock.runFor(800);
+    await expect(state).toHaveText("L6 L5");
+    await page.clock.runFor(300);
+    await expect(state).toHaveText("");
+  });
+
+  // No toast rendered in a region after it was destroyed.
+  expect((await rendered()).sort()).toEqual([
+    "lifetime-toast-1-L1",
+    "lifetime-toast-2-L2",
+    "lifetime-toast-2-L3",
+    "lifetime-toast-3-L4",
+    "lifetime-toast-4-L5",
+    "lifetime-toast-4-L6",
+  ]);
 });

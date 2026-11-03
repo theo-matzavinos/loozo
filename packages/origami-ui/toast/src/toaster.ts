@@ -232,8 +232,9 @@ export function toastStore<T>(toaster: OrigamiToaster<T>): ToastStore<T> {
  *
  * A toast outlives what raised it: the caller's destruction and router navigation don't close
  * it. Toasts added before the region mounts or hydrates wait for it and are shown then; with no
- * region, they wait for the application's lifetime. On the server `add` keeps nothing: server
- * HTML never contains a toast.
+ * region, they wait for the application's lifetime. Toasts added while a modal dialog blocks the
+ * page wait until it closes. On the server `add` keeps nothing: server HTML never contains a
+ * toast.
  *
  * @example
  * ```ts
@@ -259,9 +260,9 @@ export abstract class OrigamiToaster<T> {
 
   /**
    * Adds a toast. Its region shows it at once, newest first, or once the region mounts or
-   * hydrates; its time starts then. When that takes the open toasts over the region's `limit`,
-   * the oldest open one closes. Callable from any context, also inside an effect; writes are
-   * untracked.
+   * hydrates, and while a modal dialog blocks the page, once none is left; its time starts then.
+   * When that takes the open toasts over the region's `limit`, the oldest open one closes.
+   * Callable from any context, also inside an effect; writes are untracked.
    * @param data - What the toast shows, kept by reference as the record's `data`.
    * @param options - Timing: a `duration` of its own instead of the region's.
    * @returns The toast's id, for `close`. On the server nothing is kept and the id matches

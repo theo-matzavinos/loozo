@@ -53,7 +53,7 @@ The region gets `role="region"`, `aria-live="polite"`, `aria-relevant="additions
 
 One region per toaster: a second region bound to the same toaster throws when it registers. The region reads its toaster once, when it registers; binding another toaster later isn't followed.
 
-- **Waiting.** A toast added before the region mounts, or while the region is still dehydrated in a `@defer` block, waits and is shown once the region registers. Its time starts then.
+- **Waiting.** A toast added before the region mounts, or while the region is still dehydrated in a `@defer` block, waits and is shown once the region registers. Its time starts then. A toast added while a modal dialog is open waits too; see [Modal dialogs](#modal-dialogs).
 - **Region destroyed.** Its shown toasts go back to waiting, with their full duration, and toasts running their exit are dropped: a region mounted again doesn't show them.
 
 ## Timers and pausing
@@ -93,7 +93,27 @@ Toasts compose [Presence](../presence/README.md): animate `[data-entering]` and 
 
 ## Modal dialogs
 
-The browser makes everything outside a modal dialog inert, toasts included: a toast raised while a dialog is open, or shown when one opens, renders behind the backdrop, isn't announced and can't be clicked or focused until the dialog closes. Under a fullscreen element, toasts are inert the same way.
+The browser makes everything outside a modal dialog inert, the region included: a toast shown there would sit behind the backdrop, unannounced, and couldn't be hovered, focused or clicked. So while a modal `<dialog>` is open, the region holds the toasts you add: they wait, using no time, and are shown once no modal dialog is left, with their full duration from then. The region finds modal dialogs in the page (`dialog:modal`), so Origami's Dialog and AlertDialog, a `<dialog>` you open with `showModal()` and nested dialogs all hold toasts, until the last one closes.
+
+That makes the usual flow work: add the toast and close the dialog in the same handler.
+
+```ts
+protected delete(): void {
+  this.toasts.add({ title: "Invoice deleted", kind: "success" });
+  this.open.set(false);
+}
+```
+
+The Dialog stays modal through its exit animation, so the toast appears right after the dialog's native `close()`, when focus is back on the button that opened it. The same goes for a dialog opened with [`injectOrigamiDialogOpener`](../dialog/README.md#opening-from-code).
+
+The region looks again whenever a dialog opens or closes and, while it holds toasts, on every animation frame. So the toasts are shown within a frame of the last modal dialog leaving the page, also when it's removed before its `close` event arrives, as the opener does after the exit, or without `close()`.
+
+- A toast you add while a dialog stays open waits until it closes, however long that takes.
+- A toast added in the same turn you request a Dialog open, before Angular renders it and the dialog becomes modal, is shown at once and then made inert by the dialog: it may not be announced.
+- Toasts already shown when a dialog opens stay, inert under it, and keep their time: they can close before the dialog does.
+- Whether a screen reader announces a toast shown as a dialog closes, in the same task as focus returning, hasn't been verified yet.
+- A fullscreen element also makes the page inert, but doesn't hold toasts: under it they're shown inert and unannounced.
+- Browsers don't run animation frames in a hidden tab: toasts held by a dialog removed while the tab is hidden are shown once it's visible again.
 
 ## Replacing Options
 
