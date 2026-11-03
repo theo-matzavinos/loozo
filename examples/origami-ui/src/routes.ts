@@ -105,6 +105,11 @@ export const routes: Routes = [
       import("./fixtures/menu-deferred.js").then((module) => module.MenuDeferred),
   },
   {
+    path: "toast",
+    loadComponent: () =>
+      import("./fixtures/toast-deferred.js").then((module) => module.ToastDeferred),
+  },
+  {
     path: "date-time-field",
     loadComponent: () =>
       import("./fixtures/date-field-date-time-deferred.js").then(

@@ -35,7 +35,8 @@
       "@loozo/origami-ui/calendar": ["./calendar/src/public-api.ts"],
       "@loozo/origami-ui/date-field": ["./date-field/src/public-api.ts"],
       "@loozo/origami-ui/date-picker": ["./date-picker/src/public-api.ts"],
-      "@loozo/origami-ui/menu": ["./menu/src/public-api.ts"]
+      "@loozo/origami-ui/menu": ["./menu/src/public-api.ts"],
+      "@loozo/origami-ui/toast": ["./toast/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -66,6 +67,7 @@
     "calendar/src/**/*.ts",
     "date-field/src/**/*.ts",
     "date-picker/src/**/*.ts",
-    "menu/src/**/*.ts"
+    "menu/src/**/*.ts",
+    "toast/src/**/*.ts"
   ]
 }
