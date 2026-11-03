@@ -97,6 +97,11 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/toast.js").then((module) => module.ToastFixture),
   },
   {
+    path: "toast-modal",
+    loadComponent: () =>
+      import("./fixtures/toast-modal.js").then((module) => module.ToastModalFixture),
+  },
+  {
     path: "date-time-field",
     loadComponent: () =>
       import("./fixtures/date-field-date-time.js").then((module) => module.DateTimeFieldFixture),

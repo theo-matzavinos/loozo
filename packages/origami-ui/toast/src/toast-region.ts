@@ -16,7 +16,13 @@ import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { assertDuration, toastStore } from "./toaster";
-import type { OrigamiToastRecord, OrigamiToaster, ToastStore, ToasterRegion } from "./toaster";
+import type {
+  OrigamiToastRecord,
+  OrigamiToaster,
+  ToastEntry,
+  ToastStore,
+  ToasterRegion,
+} from "./toaster";
 
 /**
  * Effective region configuration, replaced as a whole rather than merged with unused defaults.
@@ -103,6 +109,8 @@ export class ToastRegionContext<T> {
    * window's reactivation restoring focus, keeps it.
    */
   #returnTarget: HTMLElement | null = null;
+  /** The pending per-frame check of a hold, while records are held. */
+  #frame: number | null = null;
   #destroyed = false;
 
   readonly #region: ToasterRegion = {
@@ -138,6 +146,11 @@ export class ToastRegionContext<T> {
     destroyRef.onDestroy(() => {
       this.#destroyed = true;
 
+      if (this.#frame !== null) {
+        cancelAnimationFrame(this.#frame);
+        this.#frame = null;
+      }
+
       for (const timer of this.#timers.values()) {
         this.#stop(timer);
       }
@@ -147,10 +160,20 @@ export class ToastRegionContext<T> {
 
     if (this.#browser) {
       const visibilityChanged = (): void => this.#synchronizePause();
+      // `toggle` and `close` don't bubble: captured, they come from any dialog in the document.
+      const dialogChanged = (event: Event): void => {
+        if (event.target instanceof HTMLDialogElement) {
+          this.#release();
+        }
+      };
 
       this.#document.addEventListener("visibilitychange", visibilityChanged);
+      this.#document.addEventListener("toggle", dialogChanged, true);
+      this.#document.addEventListener("close", dialogChanged, true);
       destroyRef.onDestroy(() => {
         this.#document.removeEventListener("visibilitychange", visibilityChanged);
+        this.#document.removeEventListener("toggle", dialogChanged, true);
+        this.#document.removeEventListener("close", dialogChanged, true);
       });
     }
   }
@@ -316,7 +339,9 @@ export class ToastRegionContext<T> {
 
   /**
    * Shows every waiting record, oldest first, with its duration, then closes the oldest open
-   * ones past the limit. Runs when the toaster offers a record and when the region registers.
+   * ones past the limit; while a modal dialog blocks the page, it holds them instead. Runs when
+   * the toaster offers a record, when the region registers, on any dialog's `toggle` and `close`
+   * and, while records are held, on every animation frame.
    */
   #release(): void {
     const store = untracked(this.#store);
@@ -325,15 +350,27 @@ export class ToastRegionContext<T> {
       return;
     }
 
+    const entries: ToastEntry<T>[] = [];
+
+    for (const entry of store.entries()) {
+      if (entry.status === "waiting") {
+        entries.push(entry);
+      }
+    }
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    if (this.#held()) {
+      return;
+    }
+
     const waiting: string[] = [];
     const durations = new Map<string, number>();
     let fallback: number | null = null;
 
-    for (const entry of store.entries()) {
-      if (entry.status !== "waiting") {
-        continue;
-      }
-
+    for (const entry of entries) {
       if (entry.duration === null && fallback === null) {
         fallback = untracked(() => this.#options().duration());
         assertDuration(fallback, "A toast region's");
@@ -343,28 +380,55 @@ export class ToastRegionContext<T> {
       durations.set(entry.record.id, entry.duration ?? fallback!);
     }
 
-    if (waiting.length === 0) {
-      return;
-    }
-
     const limit = untracked(() => this.#options().limit());
 
     assertLimit(limit);
 
-    const paused = this.#paused();
-
     for (const id of waiting) {
+      // A previous record's limit close moves focus, whose listeners may destroy or replace the
+      // region, close this record, open a modal dialog or move focus out of the region.
+      if (this.#destroyed || this.#held()) {
+        return;
+      }
+
+      if (store.find(id)?.status !== "waiting") {
+        continue;
+      }
+
       const timer: Timer = { remaining: durations.get(id)!, startedAt: 0, handle: null };
 
       store.setStatus(id, "shown");
       this.#timers.set(id, timer);
 
-      if (!paused) {
+      if (!this.#paused()) {
         this.#start(id, timer);
       }
 
       this.#enforceLimit(store, limit);
     }
+  }
+
+  /**
+   * Whether a modal dialog blocks the page, which holds every waiting record. Everything outside
+   * the topmost modal dialog is inert, this region too: a toast shown now would be unannounced
+   * and out of reach, so it waits, with no time used, until none is left. While it holds, the
+   * check runs again each frame: a dialog removed before its queued `toggle` and `close`
+   * dispatch, as a closed Dialog's opener does, or removed without `close()`, sends none to the
+   * document.
+   */
+  #held(): boolean {
+    if (this.#document.querySelector("dialog:modal") === null) {
+      return false;
+    }
+
+    if (this.#frame === null) {
+      this.#frame = requestAnimationFrame(() => {
+        this.#frame = null;
+        this.#release();
+      });
+    }
+
+    return true;
   }
 
   /**
@@ -518,6 +582,13 @@ export class OrigamiToastRegionState<T> {
  *   before its exit: to what had focus before focus entered the region, when no other toast
  *   stays open and it takes focus; otherwise to the region, from which Tab reaches the other
  *   toasts' controls. A closing toast is `inert` while its exit runs, so Tab skips it.
+ * - **Modal dialogs.** While a modal `<dialog>` blocks the page (`dialog:modal` matches), the
+ *   page and this region are inert, so toasts added then wait, using no time, and are shown once
+ *   no modal dialog is left, checked again on every dialog's `toggle` and `close` and, while
+ *   toasts wait, on every animation frame, which also catches a dialog removed from the
+ *   document. A Dialog's exit keeps it modal, so a toast added as it closes appears after its
+ *   native `close()`, when focus is back. Toasts shown before a dialog opens stay, inert under
+ *   it, and keep their time.
  * - **Lifetime.** Toasts added before the region registers, or while it is still dehydrated in
  *   a `@defer` block, are shown once it registers. Destroying the region sends its shown toasts
  *   back to waiting, with their full duration, and drops the ones running their exit. A second

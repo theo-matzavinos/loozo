@@ -33,6 +33,7 @@ export class LifetimeToasts extends OrigamiToaster<LifetimeToast> {}
       [ogToastRegion]="toasts"
       #region="ogToastRegion"
       [duration]="1000"
+      [limit]="limit()"
       aria-label="Lifetime notifications"
       data-testid="lifetime-region"
       [attr.data-generation]="generation()"
@@ -63,6 +64,7 @@ export class LifetimeToasts extends OrigamiToaster<LifetimeToast> {}
 })
 export class ToastLifetimeRegion {
   readonly generation = input.required<number>();
+  readonly limit = input(3);
   readonly toasts = inject(LifetimeToasts);
   onHostFocus: (() => void) | null = null;
 
@@ -87,7 +89,8 @@ export class ToastLifetimeRegion {
 /**
  * Mounts lifetime regions on demand and arms a focus listener, on the return target or on the
  * region host, that destroys the region synchronously inside its close's focus move, and with
- * a replacement mounts a new region on the same toaster that registers at once.
+ * a replacement mounts a new region on the same toaster that registers at once. A plain modal
+ * `<dialog>` holds the toasts added from inside it.
  */
 @Component({
   selector: "acceptance-toast-lifetime",
@@ -95,6 +98,9 @@ export class ToastLifetimeRegion {
     <h2>Region lifetime</h2>
     <button type="button" data-testid="lifetime-mount" (click)="mount()">
       Mount a lifetime region
+    </button>
+    <button type="button" data-testid="lifetime-mount-limited" (click)="mount(1)">
+      Mount a lifetime region with a limit of 1
     </button>
     <button type="button" data-testid="lifetime-add" (click)="add()">
       Add to the lifetime toaster
@@ -108,9 +114,23 @@ export class ToastLifetimeRegion {
     <button type="button" data-testid="lifetime-arm-return-replace" (click)="arm('return', true)">
       Replace in the return target's focus
     </button>
+    <button type="button" data-testid="lifetime-arm-host-destroy" (click)="arm('host', false)">
+      Destroy in the region host's focus
+    </button>
     <button type="button" data-testid="lifetime-arm-host-replace" (click)="arm('host', true)">
       Replace in the region host's focus
     </button>
+    <button type="button" data-testid="lifetime-dialog-open" (click)="dialog.showModal()">
+      Open a modal dialog
+    </button>
+    <dialog #dialog data-testid="lifetime-dialog">
+      <button type="button" data-testid="lifetime-dialog-add" (click)="add()">
+        Add to the lifetime toaster
+      </button>
+      <button type="button" data-testid="lifetime-dialog-close" (click)="dialog.close()">
+        Close
+      </button>
+    </dialog>
     <ng-template #slot />
   `,
 })
@@ -123,7 +143,7 @@ export class ToastLifetime {
   #count = 0;
   #onReturnFocus: (() => void) | null = null;
 
-  mount(): ComponentRef<ToastLifetimeRegion> {
+  mount(limit = 3): ComponentRef<ToastLifetimeRegion> {
     this.#current?.destroy();
 
     const reference = this.slot().createComponent(ToastLifetimeRegion, {
@@ -132,6 +152,7 @@ export class ToastLifetime {
 
     this.#generation += 1;
     reference.setInput("generation", this.#generation);
+    reference.setInput("limit", limit);
     this.#current = reference;
 
     return reference;
