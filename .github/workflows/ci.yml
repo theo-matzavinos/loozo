@@ -1,8 +1,8 @@
 name: CI
 
 # Required checks for pull requests into main: every package's build, check, typecheck
-# and test, Origami's commit gate (test:commit), the router's browser tests and fold's
-# consumer check.
+# and test, the docs-content tool's typecheck and test, Origami's commit gate
+# (test:commit), the router's browser tests and fold's consumer check.
 on:
   pull_request:
   workflow_dispatch:
@@ -34,6 +34,9 @@ jobs:
       - run: pnpm run check
       - run: pnpm run typecheck
       - run: pnpm test
+      # The docs-content tool sits outside packages/*; its tests read Origami's dist/.
+      - run: pnpm --filter @loozo/docs-content run typecheck
+      - run: pnpm --filter @loozo/docs-content run test
 
   origami-commit-gate:
     runs-on: ubuntu-latest
