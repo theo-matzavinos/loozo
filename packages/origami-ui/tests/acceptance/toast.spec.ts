@@ -1424,3 +1424,46 @@ test("TO11: falsifier — a modal's close releases two held toasts into a lifeti
     "lifetime-toast-4-L6",
   ]);
 });
+
+test("TO12: falsifier — a modal's close releases two held toasts into a lifetime region with a limit of 1 while focus is in the first toast; the limit close's focus move to the region host sends focus outside, while the first toast's exit still runs: the third toast's time runs and it closes on time", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast", info);
+  await page.addStyleTag({
+    content: `
+      @keyframes to12-exit { to { opacity: 0.2; } }
+      [data-testid="lifetime-toast-1-L1"][data-leaving] { animation: to12-exit 10s linear forwards; }
+    `,
+  });
+  await page.mouse.move(0, 0);
+  await page.clock.install();
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+
+  const click = async (id: string): Promise<void> => {
+    await page.getByTestId(id).evaluate((node: HTMLButtonElement) => node.click());
+  };
+
+  await click("lifetime-mount-limited");
+  await click("lifetime-add");
+  await page.clock.runFor(100);
+  await page.getByTestId("lifetime-close-L1").focus();
+  await page.getByTestId("lifetime-region").evaluate((region) => {
+    region.addEventListener("focus", () => {
+      document.querySelector<HTMLButtonElement>('[data-testid="lifetime-return"]')!.focus();
+    });
+  });
+
+  await click("lifetime-dialog-open");
+  await click("lifetime-dialog-add");
+  await click("lifetime-dialog-add");
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-region-state")).toHaveText("L1");
+
+  await click("lifetime-dialog-close");
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-return")).toBeFocused();
+  await expect(page.getByTestId("lifetime-region-state")).toHaveText("L3 L1");
+
+  await page.clock.runFor(2000);
+  await expect(page.getByTestId("lifetime-toast-1-L3")).toHaveCount(0, { timeout: 500 });
+});

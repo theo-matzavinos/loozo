@@ -384,11 +384,9 @@ export class ToastRegionContext<T> {
 
     assertLimit(limit);
 
-    const paused = this.#paused();
-
     for (const id of waiting) {
       // A previous record's limit close moves focus, whose listeners may destroy or replace the
-      // region, close this record or open a modal dialog.
+      // region, close this record, open a modal dialog or move focus out of the region.
       if (this.#destroyed || this.#held()) {
         return;
       }
@@ -402,7 +400,7 @@ export class ToastRegionContext<T> {
       store.setStatus(id, "shown");
       this.#timers.set(id, timer);
 
-      if (!paused) {
+      if (!this.#paused()) {
         this.#start(id, timer);
       }
 
