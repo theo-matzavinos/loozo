@@ -5,9 +5,10 @@ import { isPlatformServer } from "@angular/common";
 /** Origami's own per-toast options: timing only. Everything a toast shows is its `data`. */
 export interface OrigamiToastAddOptions {
   /**
-   * How long the toast stays open once its region shows it, in milliseconds: a positive number,
-   * or `Infinity` to stay until it's closed. Default: the region's `duration`, read when the
-   * region shows the toast. The time runs only while the region isn't paused.
+   * How long the toast stays open once its region shows it, in milliseconds: a positive number
+   * up to 2147483647 (about 24.8 days, the longest `setTimeout` delay), or `Infinity` to stay
+   * until it's closed. Another value throws a `RangeError`. Default: the region's `duration`, read
+   * when the region shows the toast. The time runs only while the region isn't paused.
    */
   duration?: number;
 }
@@ -48,11 +49,21 @@ export interface ToasterRegion {
 /** Application-wide, so a toast id never matches a toast of another toaster. */
 let allocated = 0;
 
-/** Throws a `RangeError` unless `duration` is a positive number of milliseconds or `Infinity`. */
+/** The longest delay `setTimeout` runs as given; a longer one overflows and runs at once. */
+const maximumDuration = 2_147_483_647;
+
+/**
+ * Throws a `RangeError` unless `duration` is a positive number of milliseconds up to
+ * 2147483647, the longest `setTimeout` delay, or `Infinity`.
+ */
 export function assertDuration(duration: number, owner: string): void {
-  if (typeof duration !== "number" || !(duration > 0)) {
+  const valid =
+    typeof duration === "number" &&
+    (duration === Infinity || (duration > 0 && duration <= maximumDuration));
+
+  if (!valid) {
     throw new RangeError(
-      `${owner} duration must be a positive number of milliseconds or Infinity, not ${String(duration)}.`,
+      `${owner} duration must be a positive number of milliseconds up to ${maximumDuration}, or Infinity, not ${String(duration)}.`,
     );
   }
 }
@@ -255,9 +266,9 @@ export abstract class OrigamiToaster<T> {
    * @param options - Timing: a `duration` of its own instead of the region's.
    * @returns The toast's id, for `close`. On the server nothing is kept and the id matches
    *   nothing.
-   * @throws `RangeError` for a `duration` that isn't a positive number or `Infinity`, also on the
-   *   server, and for a registered region's invalid `duration` or `limit`. A throwing `add` keeps
-   *   nothing.
+   * @throws `RangeError` for a `duration` that isn't a positive number up to 2147483647 or
+   *   `Infinity`, also on the server, and for a registered region's invalid `duration` or
+   *   `limit`. A throwing `add` keeps nothing.
    */
   add(data: T, { duration }: OrigamiToastAddOptions = {}): string {
     return this.#store.add(data, duration ?? null);

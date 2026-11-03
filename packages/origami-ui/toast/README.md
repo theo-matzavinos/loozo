@@ -37,7 +37,7 @@ const id = toasts.add({ title: "Uploading…", kind: "info" }, { duration: Infin
 toasts.close(id);
 ```
 
-- **`add(data, options?)`** returns the toast's id, `og-toast-<n>`, unique in the application. `data` is kept by reference as the record's `data`: Origami never reads, copies or freezes it, so don't mutate it after adding. The only option is `duration`, in milliseconds, a positive number or `Infinity`; anything else throws a `RangeError`. With a registered region, `add` also throws the region's `RangeError` for an invalid `duration` or `limit`; a throwing `add` keeps nothing. A wrong `data` shape is a compile error.
+- **`add(data, options?)`** returns the toast's id, `og-toast-<n>`, unique in the application. `data` is kept by reference as the record's `data`: Origami never reads, copies or freezes it, so don't mutate it after adding. The only option is `duration`, in milliseconds, a positive number up to 2147483647 (about 24.8 days, the longest browser timer) or `Infinity`; anything else throws a `RangeError`. With a registered region, `add` also throws the region's `RangeError` for an invalid `duration` or `limit`; a throwing `add` keeps nothing. A wrong `data` shape is a compile error.
 - **`close(id)`** closes that toast with its exit. An unknown id, or one already closing, does nothing.
 - On the server `add` keeps nothing and returns an id that matches nothing, so an HTTP interceptor that adds error toasts doesn't break server rendering. Server HTML never contains a toast.
 
@@ -58,7 +58,7 @@ One region per toaster: a second region bound to the same toaster throws when it
 
 ## Timers and pausing
 
-Each toast closes after its `duration`: its own, else the region's, read when the region shows it. `Infinity` never closes.
+Each toast closes after its `duration`: its own, else the region's, read when the region shows it. `Infinity` never closes. The region's `duration` has the same range as a toast's, a positive number up to 2147483647 or `Infinity`; anything else throws a `RangeError` when the region shows a toast.
 
 The region pauses every toast while the pointer is over it, while focus is inside it and while the document is hidden, such as in a background tab. When it resumes, each toast continues with the time it had left. A window that merely loses focus, with another window in front, doesn't pause it. Hover is tracked by `pointerenter` and `pointerleave`, so when the toast under a still pointer is removed, the region stays paused until the pointer moves. Focus inside is checked again when your template removes an `ogToast` or an `ogToastClose` holding it, unless an Angular leave animation (`animate.leave`) keeps the element in the page past that check; when it removes another focused element inside a toast, the region stays paused until the next pointer, focus or visibility change on it.
 
@@ -80,7 +80,7 @@ There is no Escape, swipe or hotkey.
 
 A toast never takes focus. When a toast that contains focus closes, focus moves right after its State `open()` turns false, before its exit starts:
 
-- to what had focus before focus entered the region, when no other toast stays open and that element still takes focus;
+- to what had focus before focus entered the region, when no other toast stays open and that element still takes focus. Switching to another window and back keeps it; moving focus from the region to another element outside forgets it;
 - otherwise to the region, from which Tab reaches the other toasts' controls: the closing toast is `inert` through its exit, so Tab skips it.
 
 A focus listener there that destroys the region finds the toast already closing, so a region mounted afterwards, also inside that listener, doesn't show it.

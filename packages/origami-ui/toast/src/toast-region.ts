@@ -29,9 +29,10 @@ export abstract class OrigamiToastRegionOptions<T> {
    */
   abstract readonly toaster: Signal<OrigamiToaster<T>>;
   /**
-   * How long a toast without its own `duration` stays open, in milliseconds: a positive number or
-   * `Infinity`. Direct input default 5000. Read when the region shows a toast; another value
-   * throws a `RangeError` then, and a throwing `add` keeps nothing.
+   * How long a toast without its own `duration` stays open, in milliseconds: a positive number up
+   * to 2147483647, the longest `setTimeout` delay, or `Infinity`. Direct input default 5000. Read
+   * when the region shows a toast; another value throws a `RangeError` then, and a throwing `add`
+   * keeps nothing.
    */
   abstract readonly duration: Signal<number>;
   /**
@@ -96,7 +97,11 @@ export class ToastRegionContext<T> {
   readonly #timers = new Map<string, Timer>();
   readonly #toasts: ToastPart[] = [];
   #hovering = false;
-  /** What had focus before focus entered the region, recorded on a `focusin` from outside. */
+  /**
+   * What had focus before focus entered the region: recorded on a `focusin` from an element
+   * outside, cleared on a `focusout` to one. A focus event without a `relatedTarget`, such as the
+   * window's reactivation restoring focus, keeps it.
+   */
   #returnTarget: HTMLElement | null = null;
   #destroyed = false;
 
@@ -282,7 +287,7 @@ export class ToastRegionContext<T> {
   focusIn(event: FocusEvent): void {
     const previous = event.relatedTarget;
 
-    if (!(previous instanceof Node) || !this.#host.contains(previous)) {
+    if (previous instanceof Node && !this.#host.contains(previous)) {
       this.#returnTarget = null;
 
       if (previous instanceof HTMLElement) {
@@ -299,6 +304,11 @@ export class ToastRegionContext<T> {
 
     if (next instanceof Node && this.#host.contains(next)) {
       return;
+    }
+
+    // Focus left for another element; without one, as on a window blur, it may come back.
+    if (next instanceof Node) {
+      this.#returnTarget = null;
     }
 
     this.#synchronizePause(false);
@@ -556,7 +566,7 @@ export class OrigamiToastRegion<T> implements OrigamiToastRegionOptions<T> {
   readonly toaster = input.required<OrigamiToaster<T>>({ alias: "ogToastRegion" });
   /**
    * Own input: the duration of a toast without its own, in milliseconds, default 5000; a positive
-   * number or `Infinity`. Replaced Options supply the effective duration instead.
+   * number up to 2147483647 or `Infinity`. Replaced Options supply the effective duration instead.
    */
   readonly duration = input(5000);
   /**

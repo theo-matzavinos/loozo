@@ -205,7 +205,7 @@ async function center(locator: Locator): Promise<{ x: number; y: number }> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-test("TO1: the region is a polite live region with its attributes and an empty list in server HTML, both kept through hydration; add on the server keeps nothing and returns an id; a bad duration, the toast's or the region's, or a bad limit throws a RangeError and keeps nothing", async ({
+test("TO1: the region is a polite live region with its attributes and an empty list in server HTML, both kept through hydration; add on the server keeps nothing and returns an id; a bad duration, the toast's or the region's, a finite one above the 2147483647 ms timer maximum included, or a bad limit throws a RangeError and keeps nothing; 2147483647 is accepted", async ({
   page,
 }, info) => {
   const region = page.getByTestId("region");
@@ -236,11 +236,22 @@ test("TO1: the region is a polite live region with its attributes and an empty l
 
   await page.getByTestId("bad-duration").click();
   await expect(page.getByTestId("bad-duration-error")).toHaveText(
-    /^RangeError: A toast's duration must be a positive number of milliseconds or Infinity/,
+    "RangeError: A toast's duration must be a positive number of milliseconds up to 2147483647, or Infinity, not 0.",
   );
   await expect(page.getByTestId("region-state")).toHaveText("T1");
 
-  // The region's limit 0, then its duration -1: add throws, T2 and T3 are kept nowhere.
+  // Above the longest setTimeout delay, which would overflow and run at once: rejected. The
+  // maximum itself is accepted, and T2 stays open through the rest of the test.
+  await page.getByTestId("huge-duration").click();
+  await expect(page.getByTestId("bad-duration-error")).toHaveText(
+    "RangeError: A toast's duration must be a positive number of milliseconds up to 2147483647, or Infinity, not 2147483648.",
+  );
+  await expect(page.getByTestId("region-state")).toHaveText("T1");
+  await page.getByTestId("add-max").click();
+  await expect(page.getByTestId("region-state")).toHaveText("T2 T1");
+
+  // The region's limit 0, its duration -1, then 2147483648: add throws, T3 to T5 are kept
+  // nowhere. Its duration 2147483647 shows T6.
   await page.getByTestId("break-limit").click();
   await expect(page.getByTestId("main-config")).toHaveText("60000 0");
   await page.getByTestId("try-add").click();
@@ -252,16 +263,29 @@ test("TO1: the region is a polite live region with its attributes and an empty l
   await expect(page.getByTestId("main-config")).toHaveText("-1 3");
   await page.getByTestId("try-add").click();
   await expect(page.getByTestId("config-error")).toHaveText(
-    /^RangeError: A toast region's duration must be a positive number of milliseconds or Infinity, not -1/,
+    "RangeError: A toast region's duration must be a positive number of milliseconds up to 2147483647, or Infinity, not -1.",
   );
-  await expect(page.getByTestId("region-state")).toHaveText("T1");
+  await page.getByTestId("huge-region-duration").click();
+  await expect(page.getByTestId("main-config")).toHaveText("2147483648 3");
+  await page.getByTestId("try-add").click();
+  await expect(page.getByTestId("config-error")).toHaveText(
+    "RangeError: A toast region's duration must be a positive number of milliseconds up to 2147483647, or Infinity, not 2147483648.",
+  );
+  await expect(page.getByTestId("region-state")).toHaveText("T2 T1");
+  await page.getByTestId("max-region-duration").click();
+  await expect(page.getByTestId("main-config")).toHaveText("2147483647 3");
+  await page.getByTestId("try-add").click();
+  await expect(page.getByTestId("region-state")).toHaveText("T6 T2 T1");
 
-  // Fixed, the next add shows exactly one toast: neither failed add comes back.
+  // Fixed, the next add shows exactly one toast, and the limit of 3 closes T1: no failed add
+  // comes back, and the two toasts at the maximum are still open.
   await page.getByTestId("fix-config").click();
   await expect(page.getByTestId("main-config")).toHaveText("60000 3");
   await page.getByTestId("add").click();
-  await expect(page.getByTestId("region-state")).toHaveText("T4 T1");
-  expect(await order(page)).toEqual(["toast-T4", "toast-T1"]);
+  await expect(page.getByTestId("region-state")).toHaveText("T7 T6 T2");
+  expect(await order(page)).toEqual(["toast-T7", "toast-T6", "toast-T2"]);
+  await expect(toast(page, "T6")).toHaveAttribute("data-open", "true");
+  await expect(toast(page, "T2")).toHaveAttribute("data-open", "true");
 });
 
 test("TO2: add renders newest first with its data by reference in State toasts(); a toast outlives the caller that added it and a router navigation", async ({
@@ -557,8 +581,13 @@ test("TO6: a new toast doesn't take focus; closing the focused last toast return
   await expect(toast(page, "T1")).toHaveAttribute("data-open", "true");
   await expect(add).toBeFocused();
 
-  // Close on the last toast: focus is back on the button before the exit starts.
+  // Close on the last toast: focus is back on the button before the exit starts, also after the
+  // window's reactivation restored focus to the Close, a focusin without a relatedTarget.
+  // Playwright's focus emulation masks a real window round trip, so the focusin is synthetic.
   await page.getByTestId("close-T1").focus();
+  await page.getByTestId("close-T1").evaluate((node) => {
+    node.dispatchEvent(new FocusEvent("focusin", { bubbles: true, relatedTarget: null }));
+  });
 
   const last = await watchExit(page, "toast-T1");
 
@@ -615,6 +644,22 @@ test("TO6: a new toast doesn't take focus; closing the focused last toast return
   expect(await limited()).toMatchObject({ exit: expect.any(Number), focusAtLeaving: "region" });
   await expect(region).toBeFocused();
   await expect(page.getByTestId("region-state")).toHaveText("T7 T6 T5");
+
+  // Focus that left the region for another element forgets the button: entering again from
+  // nothing, the last toast's close moves focus to the region.
+  await script(page, "close-T5");
+  await script(page, "close-T6");
+  await script(page, "close-T7");
+  await expect(page.getByTestId("region-state")).toHaveText("");
+  await add.focus();
+  await script(page, "add");
+  await page.getByTestId("close-T8").focus();
+  await page.getByTestId("outside").focus();
+  await page.getByTestId("outside").blur();
+  await page.getByTestId("close-T8").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("region-state")).toHaveText("");
+  await expect(region).toBeFocused();
 });
 
 test("TO7: the abstract toaster isn't injectable; factory and existing Options replace the region's, a Toast's and a Close's through hostDirectives; toasters are independent and a second region on one throws; toasts wait for a region that mounts later, comes back or hydrates later, and one closing when its region is destroyed is dropped", async ({

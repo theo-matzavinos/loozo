@@ -232,14 +232,26 @@ export class ToastCaller {
       <button type="button" data-testid="close-unknown" (click)="toasts.close('og-toast-unknown')">
         Close an unknown id
       </button>
-      <button type="button" data-testid="bad-duration" (click)="badDuration()">
+      <button type="button" data-testid="bad-duration" (click)="badDuration(0)">
         Add with duration 0
+      </button>
+      <button type="button" data-testid="huge-duration" (click)="badDuration(2147483648)">
+        Add with duration 2147483648
+      </button>
+      <button type="button" data-testid="add-max" (click)="add({}, 2147483647)">
+        Add 2147483647 ms
       </button>
       <button type="button" data-testid="break-limit" (click)="mainLimit.set(0)">
         Set the region's limit to 0
       </button>
       <button type="button" data-testid="break-duration" (click)="mainDuration.set(-1)">
         Set the region's duration to -1
+      </button>
+      <button type="button" data-testid="huge-region-duration" (click)="mainDuration.set(2147483648)">
+        Set the region's duration to 2147483648
+      </button>
+      <button type="button" data-testid="max-region-duration" (click)="mainDuration.set(2147483647)">
+        Set the region's duration to 2147483647
       </button>
       <button type="button" data-testid="fix-config" (click)="fixConfig()">
         Restore the region's duration and limit
@@ -573,9 +585,10 @@ export class ToastFixture {
     }
   }
 
-  badDuration(): void {
+  /** Adds with an invalid duration of its own: the RangeError is shown. */
+  badDuration(duration: number): void {
     try {
-      this.toasts.add({ title: "Bad" }, { duration: 0 });
+      this.toasts.add({ title: "Bad" }, { duration });
     } catch (error) {
       if (error instanceof RangeError) {
         this.badDurationError.set(`RangeError: ${error.message}`);
