@@ -308,7 +308,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/toggle-group"].length, 8);
   assert.equal(names["@loozo/origami-ui/collection"].includes("ɵOrigamiRovingFocusOptions"), false);
   assert.equal(names["@loozo/origami-ui/toggle-group"].includes("ɵOrigamiToggleGroupRoot"), false);
-  assert.equal(names["@loozo/origami-ui/toolbar"].length, 11);
+  assert.equal(names["@loozo/origami-ui/toolbar"].length, 12);
   assert.equal(names["@loozo/origami-ui/toolbar"].includes("ɵOrigamiToolbarControl"), false);
   assert.deepEqual(names["@loozo/origami-ui/button"], ["OrigamiButton", "OrigamiButtonOptions"]);
   assert.equal(names["@loozo/origami-ui/radio-group"].length, 5);
