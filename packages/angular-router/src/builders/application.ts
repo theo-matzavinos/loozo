@@ -4,6 +4,22 @@ import { message, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
 
+// The conditions @angular/build 22.2's bundler uses when none are configured, chosen from the
+// normalized optimization as it chooses them.
+function defaultConditions(optimization: JsonObject[string] = true): string[] {
+  let scripts = optimization;
+
+  if (typeof optimization === "object" && optimization !== null && !Array.isArray(optimization)) {
+    scripts = optimization.scripts;
+  }
+
+  if (scripts) {
+    return ["module", "production"];
+  }
+
+  return ["module", "development"];
+}
+
 export default createBuilder<JsonObject>(async (options, context): Promise<BuilderOutput> => {
   let stopped = false;
   let acquisition: Promise<BuilderRun> | undefined;
@@ -32,6 +48,12 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
 
     if (official.watch === true) {
       throw new Error("The application builder runs once; it does not support watch: true");
+    }
+
+    // The schema's false marks an omitted conditions (scripts/builder-schemas.mjs). Omitting it
+    // here would reach Angular as an explicit [] again, so Angular's default list goes instead.
+    if (official.conditions === false) {
+      official.conditions = defaultConditions(official.optimization);
     }
 
     generation = generate(context.workspaceRoot, router, () => stopped);

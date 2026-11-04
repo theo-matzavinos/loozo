@@ -43,6 +43,39 @@ await test("the committed builder schemas match the installed @angular/build", a
   assert.equal(committedServe, expectedServe, "Regenerate with node scripts/builder-schemas.mjs");
 });
 
+await test("the application schema is Angular's with the router options and a false conditions default", async () => {
+  const angular = await angularSchema("application");
+  const { tsconfig, scanDirectories, outDirectory, autoDefineRoutes, check, ...properties } =
+    application.properties;
+  const { default: conditionsDefault, ...conditions } = properties.conditions;
+
+  assert.ok(tsconfig && scanDirectories && outDirectory && autoDefineRoutes && check);
+  assert.equal(conditionsDefault, false);
+  assert.deepEqual({ ...properties, conditions }, angular.schema.properties);
+});
+
+// The CLI fills an omitted array with [] for builders outside @angular/build, and Angular reads []
+// as replacing its default conditions, so omitted must stay apart from an explicit [].
+await test("an omitted conditions validates to false and explicit conditions stay as written", async () => {
+  const omitted = await validate(router);
+
+  assert.equal(omitted.success, true, JSON.stringify(omitted.errors));
+  assert.equal(omitted.data.conditions, false);
+
+  for (const conditions of [[], ["production"], ["module", "custom"]]) {
+    const result = await validate({ ...router, conditions });
+
+    assert.equal(result.success, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.data.conditions, conditions);
+  }
+
+  for (const conditions of [false, null, "production", [1]]) {
+    const result = await validate({ ...router, conditions });
+
+    assert.equal(result.success, false, JSON.stringify(conditions));
+  }
+});
+
 await test("Angular's defaults apply to the application options, including nested ones", async () => {
   const result = await validate({
     ...router,
