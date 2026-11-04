@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/@angular-devkit/architect/src/builders-schema.json",
+  "builders": {
+    "application": {
+      "implementation": "./dist/builders/application.js",
+      "schema": "./schemas/application.json",
+      "description": "Generate/check Launch and router files, then run @angular/build:application with the remaining options."
+    },
+    "serve": {
+      "implementation": "./dist/builders/serve.js",
+      "schema": "./schemas/serve.json",
+      "description": "Watch Launch sources, then run @angular/build:dev-server with the remaining options."
+    }
+  }
+}

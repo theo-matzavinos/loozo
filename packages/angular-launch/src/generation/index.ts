@@ -23,6 +23,7 @@ import {
   AnchorState,
 } from "@loozo/angular-router/_generation";
 import type { Declaration, Sources, LaunchDeclaration } from "@loozo/angular-router/_generation";
+import { contextFiles } from "./context-file.js";
 
 /** Options for {@link generate} and {@link createGenerationSession}. */
 export interface GenerationOptions {
@@ -794,6 +795,7 @@ async function runGeneration(
   options: GenerationOptions,
   stopped: () => boolean,
   compiler?: GenerationCompilerState,
+  discovered: (contextFile: string) => void = () => undefined,
 ): Promise<void> {
   // The built package root (dist/ in the workspace, the tarball root when installed).
   const root = fileURLToPath(new URL("../", import.meta.url));
@@ -857,6 +859,8 @@ async function runGeneration(
   }
 
   const { context, groups } = await groupsOf(sources);
+
+  discovered(context.file);
 
   const appManifest = JSON.parse(await readFile(resolve(application, "package.json"), "utf8"));
 
@@ -1007,7 +1011,7 @@ export function createGenerationSession(
     }
   }
 
-  return {
+  const session: GenerationSession = {
     async generate({ check = false } = {}, stopped = () => false): Promise<void> {
       if (closed) {
         throw new Error("Generation session is disposed");
@@ -1037,7 +1041,9 @@ export function createGenerationSession(
         return false;
       }
 
-      const work = runGeneration(application, { ...fixed, check }, isStopped, compiler);
+      const work = runGeneration(application, { ...fixed, check }, isStopped, compiler, (file) => {
+        contextFiles.set(session, file);
+      });
 
       active = work;
 
@@ -1061,4 +1067,6 @@ export function createGenerationSession(
       clear();
     },
   };
+
+  return session;
 }

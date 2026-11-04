@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "node generate.mjs",
-    "build": "pnpm generate && ng run todos:build",
+    "build": "ng run todos:build",
+    "check": "ng run todos:build:check",
+    "serve": "ng serve",
     "typecheck": "tsc -p tsconfig.app.json --noEmit"
   },
   "dependencies": {
