@@ -65,7 +65,7 @@ export default context(async (request: Request) => ({ request, user: null as {id
   await put(
     root,
     "src/routes/+auth/rpc.ts",
-    `import { defineRpc as rpc, query as read } from '@loozo/angular-launch/server'; export default rpc('session', {current: read({handler: ({context}) => context.value})});`,
+    `import { defineRpc as rpc } from '@loozo/angular-launch/server'; export default rpc('session', ({query}) => ({current: query({handler: ({context}) => context.value})}));`,
   );
 
   for (const [name, namespace] of [
@@ -86,7 +86,7 @@ export default context(async (request: Request) => ({ request, user: null as {id
     await put(
       root,
       `src/routes/${name}/rpc.ts`,
-      `import { defineRpc, query } from '@loozo/angular-launch/server'; export default defineRpc('${namespace}', {list: query({handler: async ({context}) => ({value: context.value})})});`,
+      `import { defineRpc } from '@loozo/angular-launch/server'; export default defineRpc('${namespace}', ({query}) => ({list: query({handler: async ({context}) => ({value: context.value})})}));`,
     );
   }
 
@@ -138,16 +138,20 @@ return {value: {length: value.length}};
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import { defineRpc, query } from '@loozo/angular-launch/server'; import {schema} from '../../schema';
-export default defineRpc('todos', {
+    `import { defineRpc, middleware, type MiddlewareArgs } from '@loozo/angular-launch/server'; import {schema} from '../../schema';
+const checked = middleware(async ({context,request,input,signal,next}: MiddlewareArgs<{value:number}, {length:number}>) => {
+if (!(request instanceof Request) || signal.aborted || input.length === 0 || context.value === 0) { throw new Error('unexpected'); }
+return next();
+});
+export default defineRpc('todos', ({query}) => ({
 list: query({handler: async ({context}) => ({value: context.value})}),
-length: query({input:schema, canActivate:[({context,request,input}) => request instanceof Request && input.length > 0 && context.value > 0], handler: ({input,context}) => {
-// @ts-expect-error ordinary nullable context; guard does not narrow
+length: query({input:schema, use:[checked], handler: ({input,context}) => {
+// @ts-expect-error ordinary nullable context; middleware that adds nothing does not narrow
 context.user.id;
 // @ts-expect-error transformed input is not caller string
 input.toUpperCase();
 return {length:input.length};
-}})});`,
+}})}));`,
   );
   await put(
     root,
@@ -247,12 +251,12 @@ export function tuple():readonly [string,number]{return ['one',1];}`,
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server';
+    `import {defineRpc,middleware,type MiddlewareArgs} from '@loozo/angular-launch/server';
 import {schema,identity,mutableIdentity,aliasIdentity,aliasTodo,functionInput,undefinedInput,dateSchema,list,readonlyList,tuple} from '../../dto';
 import type {Input,Transformed,Todo} from '../../dto';
-export default defineRpc('todos',{
+export default defineRpc('todos',({query}) => ({
 list:query({handler:list}),readonlyList:query({handler:readonlyList}),tuple:query({handler:tuple}),
-get:query({input:schema,canActivate:[({input})=>{const transformed:Transformed=input;return transformed.length>0;}],handler:async({input,context})=>{
+get:query({input:schema,use:[middleware(async({input,next}:MiddlewareArgs<unknown,Transformed>)=>{const transformed:Transformed=input;void transformed;return next();})],handler:async({input,context})=>{
 const exact:Transformed=input;const value:number=context.value;
 // @ts-expect-error handler sees transformed output, not caller string
 const wrong:string=input;
@@ -279,7 +283,7 @@ badInput:query({input:dateSchema,handler:()=>null}),
 badFunctionInput:query({input:functionInput,handler:()=>null}),
 // @ts-expect-error undefined caller field is not JSON
 badUndefinedInput:query({input:undefinedInput,handler:()=>null}),
-});`,
+}));`,
   );
   await put(
     root,
@@ -347,7 +351,7 @@ test("generated context and every group payload import reject native suffix redi
       await put(
         root,
         "src/routes/left/rpc.fake.ts",
-        `const kind:'query'='query';export default {name:'todos',canActivate:[],procedures:{list:{kind,input:undefined,canActivate:[],handler:async()=>({value:999})}}};`,
+        `const kind:'query'='query';export default {name:'todos',use:[],procedures:{list:{kind,input:undefined,use:[],handler:async()=>({value:999})}}};`,
       );
     }
 
@@ -417,7 +421,7 @@ test("nonwriting check and stop; namespace wire IDs stable across relocation", a
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('renamed', {different:query({handler:()=>8})});`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('renamed', ({query}) => ({different:query({handler:()=>8})}));`,
   );
   await generate(root, options);
   assert.match((await snapshot(root))["generated/server.generated.ts"].bytes, /"renamed": group/);
@@ -445,13 +449,13 @@ test("combined semantic preflight is strict and prevents all router and Launch w
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{list:query({handler:({context})=>context.nonexistent})});`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({list:query({handler:({context})=>context.nonexistent})}));`,
   );
   await rejectUnchanged(root, /nonexistent/);
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{list:query({handler:()=>7})});`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({list:query({handler:()=>7})}));`,
   );
 
   const route = await readFile(resolve(root, "src/routes/left/route.ts"), "utf8");
@@ -480,7 +484,7 @@ test("combined semantic preflight is strict and prevents all router and Launch w
   await put(
     stale,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{list:query({handler:({context})=>context.nonexistent})});`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({list:query({handler:({context})=>context.nonexistent})}));`,
   );
   await rejectUnchanged(stale, /nonexistent/);
 });
@@ -517,20 +521,20 @@ test("final check covers generated outputs, declarations and direct importers bu
 test("only __proto__ namespace/procedure is reserved before cold publication, updates or check", async () => {
   for (const [body, diagnostic] of [
     [
-      "defineRpc('__proto__',{list:query({handler:()=>1})})",
+      "defineRpc('__proto__',({query}) => ({list:query({handler:()=>1})}))",
       "RPC namespace '__proto__' is reserved",
     ],
     [
-      "defineRpc('todos',{__proto__:query({handler:()=>1})})",
+      "defineRpc('todos',({query}) => ({__proto__:query({handler:()=>1})}))",
       "RPC procedure '__proto__' is reserved",
     ],
     [
-      "defineRpc('todos',{'__proto__':query({handler:()=>1})})",
+      "defineRpc('todos',({query}) => ({'__proto__':query({handler:()=>1})}))",
       "RPC procedure '__proto__' is reserved",
     ],
   ]) {
     const root = await fixture();
-    const authored = `import {defineRpc,query} from '@loozo/angular-launch/server';export default ${body};`;
+    const authored = `import {defineRpc} from '@loozo/angular-launch/server';export default ${body};`;
     const expected = (error) =>
       error.message.includes("src/routes/left/rpc.ts:") && error.message.includes(diagnostic);
 
@@ -542,7 +546,7 @@ test("only __proto__ namespace/procedure is reserved before cold publication, up
     await put(
       root,
       "src/routes/left/rpc.ts",
-      `import {defineRpc,query} from '@loozo/angular-launch/server';export default defineRpc('todos',{list:query({handler:()=>1})});`,
+      `import {defineRpc} from '@loozo/angular-launch/server';export default defineRpc('todos',({query}) => ({list:query({handler:()=>1})}));`,
     );
     await generate(root, options);
     await put(root, "src/routes/left/rpc.ts", authored);
@@ -570,20 +574,20 @@ return {value:{text:String(value)}};
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server';import {schema} from '../../schema';
-export default defineRpc('constructor',{
+    `import {defineRpc} from '@loozo/angular-launch/server';import {schema} from '../../schema';
+export default defineRpc('constructor',({query}) => ({
 constructor:query({input:schema,handler:({input})=>{
 const text:string=input.text;
 // @ts-expect-error transformed input is not the caller union
 const caller:string|number=input;
 return {text};
-}}),toString:query({handler:()=>1})});`,
+}}),toString:query({handler:()=>1})}));`,
   );
   await put(
     root,
     "src/routes/right/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server';
-export default defineRpc('toString',{constructor:query({handler:()=>1}),toString:query({handler:()=>2})});`,
+    `import {defineRpc} from '@loozo/angular-launch/server';
+export default defineRpc('toString',({query}) => ({constructor:query({handler:()=>1}),toString:query({handler:()=>2})}));`,
   );
   await put(
     root,
@@ -630,8 +634,8 @@ export const optionalSchema:Schema<string,string>|undefined=Math.random()>0.5?sc
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import {defineRpc,query} from '@loozo/angular-launch/server';import {optionalSchema} from '../../schema';
-export default defineRpc('todos',{list:query({input:optionalSchema,handler:()=>1})});`,
+    `import {defineRpc} from '@loozo/angular-launch/server';import {optionalSchema} from '../../schema';
+export default defineRpc('todos',({query}) => ({list:query({input:optionalSchema,handler:()=>1})}));`,
   );
 
   const native = ts.readConfigFile(resolve(root, "tsconfig.json"), ts.sys.readFile);
@@ -683,7 +687,7 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
         put(
           root,
           "src/routes/missing/rpc.ts",
-          `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('missing',{x:query({handler:()=>7})});`,
+          `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('missing',({query}) => ({x:query({handler:()=>7})}));`,
         ),
       /colocated retained/,
     ],
@@ -705,7 +709,7 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
         put(
           root,
           "src/routes/left/rpc.ts",
-          `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('session',{x:query({handler:()=>7})});`,
+          `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('session',({query}) => ({x:query({handler:()=>7})}));`,
         ),
       /Duplicate RPC namespace: session/,
     ],
@@ -715,7 +719,7 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
         put(
           root,
           "src/routes/right/rpc.ts",
-          `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{x:query({handler:()=>7})});`,
+          `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({x:query({handler:()=>7})}));`,
         ),
       /Duplicate RPC namespace: todos/,
     ],
@@ -725,7 +729,7 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
         put(
           root,
           "src/routes/left/another.ts",
-          `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('another',{x:query({handler:()=>1})});`,
+          `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('another',({query}) => ({x:query({handler:()=>1})}));`,
         ),
       /one RPC group/,
     ],
@@ -766,28 +770,403 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
   }
 });
 
-test("unsupported shapes and fake/namespace/wrapper/type-only/path/ambient factories reject", async () => {
+// Type-checks the fixture project with `text` as an extra file, src/checks-extra.ts,
+// returning the diagnostics' messages.
+function diagnostics(root, text) {
+  const file = resolve(root, "src/checks-extra.ts");
+  const config = ts.readConfigFile(resolve(root, "tsconfig.json"), (name) => ts.sys.readFile(name));
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
+  const host = ts.createCompilerHost(parsed.options);
+  const readFile = host.readFile;
+
+  host.readFile = (name) => {
+    if (resolve(name) === file) {
+      return text;
+    }
+
+    return readFile(name);
+  };
+  host.fileExists = (name) => resolve(name) === file || ts.sys.fileExists(name);
+
+  const program = ts.createProgram([...parsed.fileNames, file], parsed.options, host);
+  const messages = [];
+
+  for (const diagnostic of ts.getPreEmitDiagnostics(program)) {
+    messages.push(ts.flattenDiagnosticMessageText(diagnostic.messageText, " "));
+  }
+
+  return messages;
+}
+
+test("middleware narrows through the group, takes procedure input and fails on the offending use entry", async () => {
+  const root = await fixture();
+
+  await put(
+    root,
+    "src/auth.ts",
+    `import { forbidden, middleware, type MiddlewareArgs, type Schema } from '@loozo/angular-launch/server';
+export const idSchema: Schema<{id:string}> = {'~standard': {version:1,vendor:'test',validate: value => {
+if (typeof value !== 'object' || value === null || !('id' in value) || typeof value.id !== 'string') { return {issues:[{message:'id'}]}; }
+return {value: {id: value.id}};
+}}};
+export const lengthSchema: Schema<string, {id:string;length:number}> = {'~standard': {version:1,vendor:'test',validate: value => {
+if (typeof value !== 'string') { return {issues:[{message:'string'}]}; }
+return {value: {id: value, length: value.length}};
+}}};
+export const titleSchema: Schema<{title:string}> = {'~standard': {version:1,vendor:'test',validate: value => {
+if (typeof value !== 'object' || value === null || !('title' in value) || typeof value.title !== 'string') { return {issues:[{message:'title'}]}; }
+return {value: {title: value.title}};
+}}};
+export const signedIn = middleware(async ({ context, next }) => {
+if (context.user === null) { throw forbidden(); }
+return next({ user: context.user });
+});
+export const timing = middleware(async ({ next }) => {
+try { return await next(); } finally { void 0; }
+});
+export const owned = middleware(async ({ context, input, next }: MiddlewareArgs<{ user: { id: string } }, { id: string }>) => {
+if (input.id !== context.user.id) { throw forbidden(); }
+return next({ owner: context.user.id });
+});`,
+  );
+  await put(
+    root,
+    "src/routes/left/rpc.ts",
+    `import { defineRpc } from '@loozo/angular-launch/server';
+import { idSchema, lengthSchema, owned, signedIn, timing } from '../../auth';
+export default defineRpc('todos', ({ query, mutation }) => ({
+list: query({ handler: ({ context, request, signal }) => {
+const user: { id: string } = context.user;
+return { id: user.id, url: request.url, aborted: signal.aborted, value: context.value };
+} }),
+get: query({ input: idSchema, use: [owned], handler: ({ context }) => {
+const owner: string = context.owner;
+return owner;
+} }),
+length: mutation({ input: lengthSchema, use: [owned], handler: ({ context, input }) => context.owner.length + input.length }),
+}), { use: [timing, signedIn] });`,
+  );
+  await put(
+    root,
+    "src/checks.ts",
+    `import { injectRpc } from './routes/left/rpc.generated';
+const rpc = injectRpc();
+const list: Promise<{ id: string; url: string; aborted: boolean; value: number }> = rpc.todos.list();
+const get: Promise<string> = rpc.todos.get({ id: '1' });
+const length: Promise<number> = rpc.todos.length('abc');
+// @ts-expect-error callers pass the schema's input, not middleware values
+rpc.todos.get({ owner: '1' });
+void list; void get; void length;`,
+  );
+  await generate(root, options);
+
+  const left = await readFile(resolve(root, "src/routes/left/rpc.generated.ts"), "utf8");
+
+  assert.match(
+    left,
+    /"todos":\{"methods":\[\{"name":"list","input":false,"kind":"query","errors":\[\]\},\{"name":"get","input":true,"kind":"query","errors":\[\]\},\{"name":"length","input":true,"kind":"mutation","errors":\[\]\}\]\}/,
+  );
+
+  // Generation only accepts default-exported groups, so the misfits compile on their own
+  // against the registered context.
+  const misfits = `import { defineRpc, middleware, type MiddlewareArgs } from '@loozo/angular-launch/server';
+import { idSchema, owned, signedIn, titleSchema } from './auth';
+defineRpc('needsEarlierValue', ({ query }) => ({
+// @ts-expect-error owned needs user, which no earlier middleware adds
+get: query({ input: idSchema, use: [owned], handler: () => null }),
+}));
+// @ts-expect-error owned needs input, which group middleware doesn't get
+defineRpc('needsInputAtGroup', ({ query }) => ({ get: query({ handler: () => null }) }), { use: [signedIn, owned] });
+defineRpc('mismatchedInput', ({ query }) => ({
+get: query({ input: titleSchema,
+// @ts-expect-error owned needs { id }, the schema gives { title }
+use: [owned], handler: () => null }),
+}), { use: [signedIn] });
+defineRpc('wrongOrder', ({ query }) => ({
+get: query({ input: idSchema,
+// @ts-expect-error owned runs before signedIn adds user
+use: [owned, signedIn], handler: () => null }),
+}));
+defineRpc('notNarrowed', ({ query }) => ({
+get: query({ handler: ({ context }) => {
+// @ts-expect-error without signedIn, user stays nullable
+const user: { id: string } = context.user;
+return user.id;
+} }),
+}));
+const optionalUser = middleware(async ({ next }) => {
+const added: { user?: { id: string } } = {};
+// @ts-expect-error a missing optional value would leave the earlier user in place
+return next(added);
+});
+const readsUser = middleware(async ({ context, next }: MiddlewareArgs<{ user?: { id: string } }>) => {
+if (context.user !== undefined) { void context.user.id; }
+return next();
+});
+// @ts-expect-error optionalUser's addition has an optional key, so the chain can't follow it
+defineRpc('optionalAddition', ({ query }) => ({ get: query({ handler: () => null }) }), { use: [optionalUser, readsUser] });
+const maybeUser = middleware(async ({ context, next }) => next({ user: context.user }));
+defineRpc('maybeAddition', ({ query }) => ({
+get: query({ handler: ({ context }) => {
+const user: { id: string } | null = context.user;
+// @ts-expect-error the added user may be null
+const present: { id: string } = context.user;
+return [user, present];
+} }),
+}), { use: [maybeUser] });
+type Patch = { mode: 'optional'; user?: { id: string } } | { mode: 'unchanged' };
+const unionPatch = middleware(async ({ next }) => {
+// @ts-expect-error a union could hide an optional key in one of its members
+return next<Patch>({ mode: 'optional' });
+});
+const readsMode = middleware(async ({ context, next }: MiddlewareArgs<{ mode: 'optional'; user: { id: string } } | { mode: 'unchanged'; user: { id: string } | null }>) => {
+if (context.mode === 'optional') { void context.user.id; }
+return next();
+});
+// @ts-expect-error unionPatch's addition is a union, so the chain can't follow it
+defineRpc('unionAddition', ({ query }) => ({ get: query({ handler: () => null }) }), { use: [unionPatch, readsMode] });
+declare const flag: boolean;
+const eitherKey = middleware(async ({ next }) =>
+// @ts-expect-error alternatives inferred from a conditional are a union too
+next(flag ? { a: 1 } : { b: 2 }));
+void eitherKey;
+declare const anonymous: boolean;
+const needsUser = middleware(async ({ next }: MiddlewareArgs<{ user: { id: string } }>) => next());
+// @ts-expect-error next({ user: null }) and next() add different keys
+const maybeAnonymous = middleware(async ({ next }) => {
+if (anonymous) { return next({ user: null }); }
+return next();
+});
+defineRpc('maybeAnonymous', ({ query }) => ({ current: query({ handler: ({ context }) => context.user.id }) }), { use: [signedIn, maybeAnonymous, needsUser] });
+// @ts-expect-error { traceId } and { traceId, user } are different keys
+const maybeTraced = middleware(async ({ next }) => {
+if (anonymous) { return next({ traceId: 'a', user: null }); }
+return next({ traceId: 'b' });
+});
+defineRpc('maybeTraced', ({ query }) => ({ current: query({ handler: ({ context }) => context.user.id }) }), { use: [signedIn, maybeTraced, needsUser] });
+const sameKeys = middleware(async ({ context, next }) => {
+if (anonymous) { return next({ user: null }); }
+return next({ user: context.user });
+});
+defineRpc('sameKeys', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+const user: { id: string } | null = context.user;
+// @ts-expect-error either branch may have added a null user
+const present: { id: string } = context.user;
+return [user, present];
+} }),
+}), { use: [signedIn, sameKeys] });
+const previewUser = middleware(async ({ context, request, next }: MiddlewareArgs<{ user: { id: string } }>) =>
+next({ user: request.headers.has('x-preview') ? null : context.user }));
+defineRpc('previewUser', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+const user: { id: string } | null = context.user;
+// @ts-expect-error the preview branch adds a null user
+const present: { id: string } = context.user;
+return [user, present];
+} }),
+}), { use: [signedIn, previewUser] });
+// @ts-expect-error known limit: separate branches with disjoint values don't infer a union
+const disjointBranches = middleware(async ({ context, request, next }: MiddlewareArgs<{ user: { id: string } }>) => {
+if (request.headers.has('x-preview')) { return next({ user: null }); }
+return next({ user: context.user });
+});
+void disjointBranches;
+const anonymousPreview = middleware(async ({ context, request, next }) => {
+if (request.headers.get('x-preview') === 'anonymous') {
+// @ts-expect-error the context is read-only at the top level, so a write can't undo signedIn's narrowing
+context.user = null;
+}
+return next();
+});
+defineRpc('anonymousPreview', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+// @ts-expect-error handlers get the same read-only context
+context.value = 0;
+return context.user.id;
+} }),
+}), { use: [signedIn, anonymousPreview, needsUser] });
+const withStats = middleware(async ({ next }) => next({ stats: { calls: 0 } }));
+const countCalls = middleware(async ({ context, next }: MiddlewareArgs<{ stats: { calls: number } }>) => {
+context.stats.calls += 1;
+return next();
+});
+defineRpc('nestedWrite', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+context.stats.calls += 1;
+return context.stats.calls;
+} }),
+}), { use: [withStats, countCalls] });`;
+
+  assert.deepEqual(diagnostics(root, misfits), []);
+
+  // Each expectation is load-bearing: a fitting chain leaves its directives unused.
+  const unused = "Unused '@ts-expect-error' directive.";
+
+  for (const [misfit, fit, expected = [unused]] of [
+    ["get: query({ input: idSchema, use: [owned]", "get: query({ input: idSchema, use: []"],
+    ["{ use: [signedIn, owned] }", "{ use: [signedIn] }"],
+    ["input: titleSchema", "input: idSchema"],
+    ["use: [owned, signedIn]", "use: [signedIn, owned]"],
+    ["const user: { id: string } = context.user;", "const user = context.user ?? { id: '' };"],
+    // A required user fits both the next() call and the chain.
+    [
+      "const added: { user?: { id: string } } = {};",
+      "const added: { user: { id: string } } = { user: { id: '' } };",
+      [unused, unused],
+    ],
+    ["use: [optionalUser, readsUser]", "use: [signedIn, readsUser]"],
+    ["next({ user: context.user })", "next({ user: context.user ?? { id: '' } })"],
+    // A single object type fits both the next() call and the chain.
+    [
+      "next<Patch>({ mode: 'optional' })",
+      "next({ mode: 'optional' as const, user: { id: '' } })",
+      [unused, unused],
+    ],
+    ["next(flag ? { a: 1 } : { b: 2 })", "next({ a: flag ? 1 : 2 })"],
+    // Branches that add the same keys fit, so the chain and handler see what runs.
+    ["if (anonymous) { return next({ user: null }); }\nreturn next();", "return next();"],
+    ["next({ traceId: 'a', user: null })", "next({ traceId: 'a' })"],
+    // Without the null branch, the added user is the signed-in one.
+    [
+      "if (anonymous) { return next({ user: null }); }\nreturn next({ user: context.user });",
+      "return next({ user: context.user ?? { id: '' } });",
+    ],
+    // The single-call form adds the null user only on the preview branch.
+    [
+      "next({ user: request.headers.has('x-preview') ? null : context.user })",
+      "next({ user: context.user })",
+    ],
+    // One next() with a union value is the documented form of the same middleware.
+    [
+      "if (request.headers.has('x-preview')) { return next({ user: null }); }\nreturn next({ user: context.user });",
+      "return next({ user: request.headers.has('x-preview') ? null : context.user });",
+    ],
+    ["context.user = null;", "void context.user;"],
+    ["context.value = 0;", "void context.value;"],
+  ]) {
+    assert.ok(misfits.includes(misfit), misfit);
+    assert.deepEqual(diagnostics(root, misfits.replace(misfit, fit)), expected, misfit);
+  }
+});
+
+test("a discriminated-union context keeps its correlation through empty and non-empty next()", async () => {
+  const root = await fixture();
+
+  await put(
+    root,
+    "src/context.ts",
+    `import { defineContext } from '@loozo/angular-launch/server';
+export type Session =
+  | { signedIn: true; user: { id: string }; value: number }
+  | { signedIn: false; user: null; value: number };
+export default defineContext(async (request: Request): Promise<Session> =>
+  request.headers.has('cookie') ? { signedIn: true, user: { id: 'a' }, value: 7 } : { signedIn: false, user: null, value: 7 });`,
+  );
+  await generate(root, options);
+
+  const checks = `import { defineRpc, middleware, type MiddlewareArgs } from '@loozo/angular-launch/server';
+import type { Session } from './context';
+const timing = middleware(async ({ next }) => next());
+const needsSession = middleware(async ({ context, next }: MiddlewareArgs<Session>) => {
+if (context.signedIn) { void context.user.id; }
+return next();
+});
+const withDb = middleware(async ({ next }) => next({ db: 1 }));
+defineRpc('unchanged', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+if (context.signedIn) { return context.user.id; }
+const none: null = context.user;
+return none;
+} }),
+}), { use: [timing, needsSession] });
+defineRpc('added', ({ query }) => ({
+current: query({ use: [needsSession], handler: ({ context }) => {
+const db: number = context.db;
+if (context.signedIn) { return context.user.id + db; }
+const none: null = context.user;
+return none;
+} }),
+}), { use: [withDb] });`;
+
+  assert.deepEqual(diagnostics(root, checks), []);
+});
+
+test("defineRpc's builder callback rejects renames, defaults, rest, non-arrows, block bodies, foreign calls and unknown keys", async () => {
+  const header = `import { defineRpc } from '@loozo/angular-launch/server';`;
+  const shape = /arrow function destructuring query and\/or mutation/;
+  const binding = /may only destructure query and mutation, without renaming/;
   const cases = [
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; const name='todos'; export default defineRpc(name,{x:query({handler:()=>1})});`,
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{x:query({handler:()=>1,kind:'mutation'})});`,
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; const methods={x:query({handler:()=>1})}; export default defineRpc('todos',methods);`,
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; const options={}; export default defineRpc('todos',{x:query({handler:()=>1})},options);`,
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{x:query({handler:()=>1}),x:query({handler:()=>2})});`,
-    `import * as launch from '@loozo/angular-launch/server'; export default launch.defineRpc('todos',{x:launch.query({handler:()=>1})});`,
-    `import {defineRpc,query} from '@loozo/angular-launch/server'; const wrapped=query; export default defineRpc('todos',{x:wrapped({handler:()=>1})});`,
-    `import type {defineRpc} from '@loozo/angular-launch/server'; import {query} from '@loozo/angular-launch/server'; export default defineRpc('todos',{x:query({handler:()=>1})});`,
+    [`defineRpc('todos', ({ query: read }) => ({ x: read({ handler: () => 1 }) }))`, binding],
+    [
+      `defineRpc('todos', ({ query = undefined as never }) => ({ x: query({ handler: () => 1 }) }))`,
+      binding,
+    ],
+    [
+      `defineRpc('todos', ({ ...builders }) => ({ x: builders.query({ handler: () => 1 }) }))`,
+      binding,
+    ],
+    [`defineRpc('todos', ({ query, other }: any) => ({ x: query({ handler: () => 1 }) }))`, shape],
+    [
+      `defineRpc('todos', function ({ query }) { return { x: query({ handler: () => 1 }) }; })`,
+      shape,
+    ],
+    [`defineRpc('todos', build)`, shape],
+    [`defineRpc('todos', async ({ query }) => ({ x: query({ handler: () => 1 }) }))`, shape],
+    [`defineRpc('todos', (builders) => ({ x: builders.query({ handler: () => 1 }) }))`, shape],
+    [`defineRpc('todos', ({ query }) => { return { x: query({ handler: () => 1 }) }; })`, shape],
+    [`defineRpc('todos', ({ query }) => (procedures))`, /RPC procedures must be an inline object/],
+    [
+      `defineRpc('todos', ({ query }) => ({ x: helper({ handler: () => 1 }) }))`,
+      /callback's query or mutation/,
+    ],
+    [
+      `defineRpc('todos', ({ query }) => ({ x: (query)({ handler: () => 1 }) }))`,
+      /callback's query or mutation/,
+    ],
+    [
+      `defineRpc('todos', ({ query }) => ({ x: query({ handler: () => 1, canActivate: [] }) }))`,
+      /Unsupported Launch option: canActivate/,
+    ],
+    [
+      `defineRpc('todos', ({ query }) => ({ x: query({ handler: () => 1 }) }), { canActivate: [] })`,
+      /Unsupported Launch option: canActivate/,
+    ],
+  ];
+
+  for (const [call, expected] of cases) {
+    const root = await fixture();
+
+    await put(
+      root,
+      "src/routes/left/rpc.ts",
+      `${header}
+const build = ({ query }: any) => ({ x: query({ handler: () => 1 }) });
+const helper = (options: unknown) => options;
+const procedures = {};
+void build; void helper; void procedures;
+export default ${call};`,
+    );
+    await rejectUnchanged(root, expected);
+  }
+});
+
+test("unsupported shapes and fake/namespace/type-only/path/ambient factories reject", async () => {
+  const cases = [
+    `import {defineRpc} from '@loozo/angular-launch/server'; const name='todos'; export default defineRpc(name,({query}) => ({x:query({handler:()=>1})}));`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({x:query({handler:()=>1,kind:'mutation'})}));`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; const options={}; export default defineRpc('todos',({query}) => ({x:query({handler:()=>1})}),options);`,
+    `import {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({x:query({handler:()=>1}),x:query({handler:()=>2})}));`,
+    `import * as launch from '@loozo/angular-launch/server'; export default launch.defineRpc('todos',({query}) => ({x:query({handler:()=>1})}));`,
+    `import type {defineRpc} from '@loozo/angular-launch/server'; export default defineRpc('todos',({query}) => ({x:query({handler:()=>1})}));`,
     `function defineRpc(...args:unknown[]){return args;} export default defineRpc('todos',{});`,
-    `import {defineRpc,query} from '../../fake'; export default defineRpc('todos',{x:query({handler:()=>1})});`,
+    `import {defineRpc} from '../../fake'; export default defineRpc('todos',({query}) => ({x:query({handler:()=>1})}));`,
   ];
 
   for (const source of cases) {
     const root = await fixture();
 
-    await put(
-      root,
-      "src/fake.ts",
-      "export function defineRpc(...args:unknown[]){return args;} export const query=defineRpc;",
-    );
+    await put(root, "src/fake.ts", "export function defineRpc(...args:unknown[]){return args;}");
     await put(root, "src/routes/left/rpc.ts", source);
     await rejectUnchanged(
       root,
@@ -803,7 +1182,7 @@ test("unsupported shapes and fake/namespace/wrapper/type-only/path/ambient facto
       await put(
         root,
         "src/fake.d.ts",
-        `declare module '@loozo/angular-launch/server' { export function defineRpc(...args:any[]):any; export function query(...args:any[]):any; export function defineContext(...args:any[]):any; }`,
+        `declare module '@loozo/angular-launch/server' { export function defineRpc(...args:any[]):any; export function defineContext(...args:any[]):any; }`,
       );
     } else {
       config.compilerOptions.paths = { "@loozo/angular-launch/server": ["src/fake.ts"] };
@@ -811,7 +1190,7 @@ test("unsupported shapes and fake/namespace/wrapper/type-only/path/ambient facto
       await put(
         root,
         "src/fake.ts",
-        "export function defineContext(...args:unknown[]){return args;} export const defineRpc=defineContext; export const query=defineContext;",
+        "export function defineContext(...args:unknown[]){return args;} export const defineRpc=defineContext;",
       );
     }
 
@@ -878,7 +1257,7 @@ test("exact ownership markers, excluded stale facade inventory, standalone isola
   assert.deepEqual((await snapshot(root))["src/routes/left/rpc.generated.ts"], launchBefore);
 });
 
-test("genuine mutation aliases and declared errors preserve exact inputs, awaited outputs, code/data narrowing and browser-only metadata", async () => {
+test("mutations and declared errors preserve exact inputs, awaited outputs, code/data narrowing and browser-only metadata", async () => {
   const root = await fixture();
 
   await put(
@@ -919,11 +1298,11 @@ export const nullSchema: Schema<null> = {
     root,
     "src/routes/left/rpc.ts",
     `
-import { defineRpc, query, mutation as write } from '@loozo/angular-launch/server';
+import { defineRpc } from '@loozo/angular-launch/server';
 import { schema, nullSchema, dateInputSchema } from '../../schema';
-export default defineRpc('todos', {
+export default defineRpc('todos', ({ query, mutation }) => ({
   list: query({ handler: () => ({ value: 1 }) }),
-  complete: write({
+  complete: mutation({
     input: schema,
     errors: {
       NOT_FOUND: { status: 404, message: 'Todo does not exist', data: schema },
@@ -948,7 +1327,7 @@ export default defineRpc('todos', {
       return { id: input.id, length };
     },
   }),
-});
+}));
 `,
   );
   await put(
@@ -1061,7 +1440,7 @@ test("declared error static DSL and schema/type/provenance failures reject cold,
   const root = await fixture();
   const original = await readFile(resolve(root, "src/routes/left/rpc.ts"), "utf8");
   const imports = `
-import { defineRpc, mutation } from '@loozo/angular-launch/server';
+import { defineRpc } from '@loozo/angular-launch/server';
 import type { Schema } from '@loozo/angular-launch/server';
 const schema: Schema<string> = { '~standard': { version: 1, vendor: 'contracts', validate(value) {
   if (typeof value !== 'string') { return { issues: [{ message: 'string' }] }; }
@@ -1091,7 +1470,7 @@ const otherErrors = { OTHER: { status: 404, message: 'Missing', data: schema } }
         root,
         "src/routes/left/rpc.ts",
         `${imports}
-export default defineRpc('todos', { write: mutation({ errors: { ${fields} }, handler: () => 1 }) });`,
+export default defineRpc('todos', ({mutation}) => ({ write: mutation({ errors: { ${fields} }, handler: () => 1 }) }));`,
       );
 
       const before = await snapshot(root);
@@ -1106,7 +1485,7 @@ export default defineRpc('todos', { write: mutation({ errors: { ${fields} }, han
         root,
         "src/routes/left/rpc.ts",
         `${imports}
-export default defineRpc('todos', { write: mutation({ handler: ${handler} }) });`,
+export default defineRpc('todos', ({mutation}) => ({ write: mutation({ handler: ${handler} }) }));`,
       );
 
       const before = await snapshot(root);
@@ -1116,17 +1495,15 @@ export default defineRpc('todos', { write: mutation({ handler: ${handler} }) });
     }
   }
 
-  for (const invocation of ["wrapped", "fake", "namespace.mutation"]) {
+  for (const invocation of ["fake", "(mutation)"]) {
     await put(
       root,
       "src/routes/left/rpc.ts",
       `${imports}
-import * as namespace from '@loozo/angular-launch/server';
-const wrapped = mutation;
 const fake = (options: unknown) => options;
-export default defineRpc('todos', { write: ${invocation}({ handler: () => 1 }) });`,
+export default defineRpc('todos', ({ mutation }) => ({ write: ${invocation}({ handler: () => 1 }) }));`,
     );
-    await rejectUnchanged(root, /genuine|factory|Factory/);
+    await rejectUnchanged(root, /callback's query or mutation/);
   }
 });
 
@@ -1148,7 +1525,7 @@ test("effective TS 6 strict checking rejects false overrides and noCheck before 
   );
 
   const unsafe = `
-import { defineRpc, mutation } from '@loozo/angular-launch/server';
+import { defineRpc } from '@loozo/angular-launch/server';
 import type { Schema } from '@loozo/angular-launch/server';
 const data: Schema<string, string | undefined> = {
   '~standard': { version: 1, vendor: 'strict-contracts', validate(value) {
@@ -1156,14 +1533,14 @@ const data: Schema<string, string | undefined> = {
     return { value: undefined };
   } },
 };
-export default defineRpc('todos', {
+export default defineRpc('todos', ({mutation}) => ({
   complete: mutation({
     errors: { NOT_FOUND: { status: 404, message: 'Unsafe updated contract', data } },
     handler: ({ errors }): string => { throw errors.NOT_FOUND('id'); },
   }),
-});`;
+}));`;
   const implicitAny = `
-import { defineRpc, mutation } from '@loozo/angular-launch/server';
+import { defineRpc } from '@loozo/angular-launch/server';
 import type { Schema } from '@loozo/angular-launch/server';
 function identity(value) { return value; }
 const data: Schema<string, string> = {
@@ -1172,12 +1549,12 @@ const data: Schema<string, string> = {
     return { value: identity(undefined) };
   } },
 };
-export default defineRpc('todos', {
+export default defineRpc('todos', ({mutation}) => ({
   complete: mutation({
     errors: { NOT_FOUND: { status: 404, message: 'Unsafe updated contract', data } },
     handler: ({ errors }): string => { throw errors.NOT_FOUND('id'); },
   }),
-});`;
+}));`;
 
   for (const mode of ["cold", "update", "check"]) {
     const root = await fixture();
@@ -1296,13 +1673,13 @@ return {value: {length: value.length}};
   await put(
     root,
     "src/routes/left/rpc.ts",
-    `import { defineRpc, mutation, query } from '@loozo/angular-launch/server'; import {schema} from '../../schema';
-export default defineRpc('todos', {
+    `import { defineRpc } from '@loozo/angular-launch/server'; import {schema} from '../../schema';
+export default defineRpc('todos', ({query, mutation}) => ({
 list: query({handler: async ({context}) => ({value: context.value})}),
 length: query({input:schema, handler: ({input}) => ({length:input.length})}),
 write: mutation({input:schema, handler: ({input}) => input.length}),
 clear: mutation({handler: () => null}),
-});`,
+}));`,
   );
   await generate(root, options);
 

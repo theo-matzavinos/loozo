@@ -87,7 +87,7 @@ async function fixture() {
       put(
         root,
         `src/routes/${name}/rpc.ts`,
-        `import {defineRpc,query} from '@loozo/angular-launch/server';import {schema} from '../../schema';export default defineRpc('${namespace}',{read:query({input:schema,handler:({input,context})=>({length:input.length,value:context.value})})});`,
+        `import {defineRpc} from '@loozo/angular-launch/server';import {schema} from '../../schema';export default defineRpc('${namespace}',({query}) => ({read:query({input:schema,handler:({input,context})=>({length:input.length,value:context.value})})}));`,
       ),
     );
   }
@@ -445,10 +445,7 @@ test("warm genuine aliases/facades, lookalike/ambient factories, underlying rout
     await put(
       root,
       "src/routes/left/rpc.ts",
-      rpc
-        .replace("defineRpc,query", "defineRpc as rpc,query as read")
-        .replace("default defineRpc", "default rpc")
-        .replace("read:query", "read:read"),
+      rpc.replace("{defineRpc}", "{defineRpc as rpc}").replace("default defineRpc", "default rpc"),
     );
     await session.generate();
     await generate(root, options);
@@ -457,16 +454,16 @@ test("warm genuine aliases/facades, lookalike/ambient factories, underlying rout
       root,
       "src/routes/left/rpc.ts",
       rpc
-        .replace("defineRpc,query", "defineRpc")
-        .replace("import {schema}", "import {query} from '../../fake';import {schema}"),
+        .replace("read:query(", "read:fake(")
+        .replace("import {schema}", "import {query as fake} from '../../fake';import {schema}"),
     );
-    await rejectsUnchanged(root, session, /genuine|canonical|concrete/);
+    await rejectsUnchanged(root, session, /callback's query or mutation/);
     await put(root, "src/routes/left/rpc.ts", rpc);
     await session.generate();
     await put(
       root,
       "src/ambient.d.ts",
-      "declare module '@loozo/angular-launch/server' {export function defineContext(...args:any[]):any;export function defineRpc(...args:any[]):any;export function query(...args:any[]):any;}",
+      "declare module '@loozo/angular-launch/server' {export function defineContext(...args:any[]):any;export function defineRpc(...args:any[]):any;}",
     );
     await rejectsUnchanged(root, session, /canonical|concrete/);
     await rm(resolve(root, "src/ambient.d.ts"));
@@ -510,7 +507,7 @@ test("warm genuine aliases/facades, lookalike/ambient factories, underlying rout
     await put(
       root,
       "src/routes/left/rpc.fake.ts",
-      "const kind:'query'='query';export default {name:'todos',canActivate:[],procedures:{read:{kind,input:undefined,canActivate:[],handler:()=>({length:1,value:999})}}};",
+      "const kind:'query'='query';export default {name:'todos',use:[],procedures:{read:{kind,input:undefined,use:[],handler:()=>({length:1,value:999})}}};",
     );
     await rejectsUnchanged(root, session, /Generated payload import must resolve/);
     await rm(resolve(root, "src/routes/left/rpc.fake.ts"));
@@ -547,7 +544,7 @@ test("metadata-only export swaps block warm/cold generate/check and app-identity
     put(
       root,
       "src/routes/left/rpc.ts",
-      "import {defineRpc,query} from '@loozo/angular-launch/server';export default defineRpc('todos',{read:query({handler:({context}):number=>context.value})});",
+      "import {defineRpc} from '@loozo/angular-launch/server';export default defineRpc('todos',({query}) => ({read:query({handler:({context}):number=>context.value})}));",
     ),
     put(
       root,

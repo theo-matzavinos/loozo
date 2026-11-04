@@ -26,7 +26,7 @@ src/
                 └── rpc.generated.ts
 ```
 
-The filenames above are organizational examples. Discovery authenticates imported factory identity statically, like the router's existing declaration discovery. It does not execute authored modules. A default `defineRpc()` declaration is associated with its colocated discovered route declaration. The bounded slices support one group per retained ordinary route owner; multiple groups per owner are rejected.
+The filenames above are organizational examples. Discovery authenticates imported `defineContext` and `defineRpc` identity statically, like the router's existing declaration discovery, and recognizes `query` / `mutation` as the bindings of `defineRpc`'s builder callback. It does not execute authored modules. A default `defineRpc()` declaration is associated with its colocated discovered route declaration. The bounded slices support one group per retained ordinary route owner; multiple groups per owner are rejected.
 
 ### One application context
 
@@ -62,24 +62,44 @@ Generation bootstraps this registration before semantic checking. Registrations 
 ### Named groups and explicit policy
 
 ```ts
-import { defineRpc, query, mutation } from "@loozo/angular-launch/server";
+import {
+  defineRpc,
+  forbidden,
+  middleware,
+  type MiddlewareArgs,
+} from "@loozo/angular-launch/server";
 import { todoIdSchema } from "./todo-inputs";
-import { isSignedIn, canCompleteTodos, requireUser } from "./auth";
+
+export const signedIn = middleware(async ({ context, next }) => {
+  if (context.user === null) {
+    throw forbidden();
+  }
+
+  return next({ user: context.user });
+});
+
+export const ownTodo = middleware(
+  async ({ context, input, next }: MiddlewareArgs<{ user: User; db: Db }, { id: string }>) => {
+    const todo = await context.db.todos.findForUser(context.user.id, input.id);
+
+    if (todo === null) {
+      throw forbidden();
+    }
+
+    return next({ todo });
+  },
+);
 
 export default defineRpc(
   "todos",
-  {
+  ({ query, mutation }) => ({
     list: query({
-      handler: ({ context }) => {
-        const user = requireUser(context);
-
-        return context.db.todos.listForUser(user.id);
-      },
+      handler: ({ context, signal }) => context.db.todos.listForUser(context.user.id, { signal }),
     }),
 
     complete: mutation({
       input: todoIdSchema,
-      canActivate: [canCompleteTodos],
+      use: [ownTodo],
       errors: {
         NOT_FOUND: {
           status: 404,
@@ -87,42 +107,42 @@ export default defineRpc(
           data: todoIdSchema,
         },
       },
-      handler: async ({ input, context, errors }) => {
-        const user = requireUser(context);
-        const todo = await context.db.todos.findForUser(user.id, input.id);
+      handler: async ({ context, errors }) => {
+        const todo = await context.db.todos.complete(context.todo.id);
 
         if (todo === null) {
-          throw errors.NOT_FOUND({ id: input.id });
+          throw errors.NOT_FOUND({ id: context.todo.id });
         }
 
-        return context.db.todos.complete(todo.id);
+        return todo;
       },
     }),
-  },
-  {
-    canActivate: [isSignedIn],
-  },
+  }),
+  { use: [signedIn] },
 );
 ```
 
-- `defineRpc` is the group discovery marker; `query` / `mutation` express read/write semantics without a `kind` field in authored config.
+- `defineRpc` is the group discovery marker. Its second argument is a builder callback: an arrow function whose single parameter destructures `query` and/or `mutation` without renames, defaults or rest, and whose body is a parenthesized object literal of procedures, each a direct call of one of those bindings with one inline options object. The binding name gives the kind; there's no `kind` field in authored config. Procedure option keys are `handler`, `input`, `use` and `errors`; the only group option key is `use`. Generation doesn't read `use` contents; TypeScript checks them.
 - Namespaces prevent procedure-name collisions. Each namespace is unique across the app, because it names the group on the wire (§Wire identity); a duplicate anywhere is a generation error.
 - The existing route tree determines available groups: local plus ancestor groups, including pathless nodes. No sibling/descendant traversal API is required.
-- Availability is not authorization. An HTTP caller who knows another group's identity still encounters that group's declared guards.
-- Guards are explicit on a group and/or procedure; they do not inherit through route ancestry. A call runs the owning group's guards and its own guards, independent of the calling page.
-- Input validation precedes group guards, which precede procedure guards and then the handler. Initial guards return boolean/Promise<boolean>; false is the framework's forbidden failure. A guard does not magically narrow callback context types.
+- Availability is not authorization. An HTTP caller who knows another group's identity still encounters that group's middleware.
+- Middleware is explicit on a group (`defineRpc`'s `use`) and/or a procedure (its `use`); it doesn't inherit through route ancestry. Because the group's procedures are built inside its callback, a procedure can't miss its group's middleware, and handlers are typed with what it adds. There's no dedupe: middleware listed on both runs twice.
+- A call runs: group middleware with no input (`input` is `undefined`), input validation, procedure middleware with the validated input, then the handler. Group middleware therefore refuses an unauthenticated caller with `FORBIDDEN` before its input is validated.
+- `middleware(run)`: `run` receives `{ context, input, request, signal, next }`. `next()` or `next(added)` continues the call, merging `added` into the context by spread (the context must be a plain object), and resolves to an opaque token `run` must return; it rejects when anything after it throws, so middleware can wrap the rest of the call. Calling `next` twice, or returning anything other than its result, fails the call with `INTERNAL`, logged. Middleware and handlers see `context` as read-only at the top level (type-only; the object isn't frozen), so changes go through `next()`. A middleware needs the registered `Context` and `unknown` input unless its argument is annotated `MiddlewareArgs<Needs, Input>`. Each `use` entry must accept the context and input accumulated before it, and handlers see the final context; a misfit fails type checking on the offending entry. Group-level input is `unknown`, so a middleware that needs input only fits on a procedure.
+- `forbidden()` returns an `Error` branded with a non-enumerable `Symbol.for("@loozo/angular-launch/outcome/v1")` property, which survives duplicate module copies in the entry and render bundles and can't come from JSON. Thrown from middleware or a handler it becomes the `FORBIDDEN` frame. Declared errors stay handler-only; anything else thrown becomes `INTERNAL`.
+- Handlers receive `{ context, input, errors, request, signal }`. `request` is the live request the call runs in: the scope's copy of the RPC HTTP request, or the page request during rendering. Middleware runs during rendering too, so request-shaped checks (method, `Sec-Fetch-Site`) don't belong in middleware.
 - There are no Launch resolvers, inherited resolver data, or RPC `parent` references. Fetch data with ordinary typed functions in handlers. Native Angular route resolvers remain available.
 - Route params/search values are explicit procedure inputs, never automatically bound or trusted.
 
 ## Validation, values and errors
 
-Input uses Standard Schema V1. The caller supplies the schema's input type; handlers and procedure guards receive its validated/transformed output. Async validators are supported. Launch does not choose a schema library or invent a schema system. Schemas remain server implementation values unless the app independently imports them.
+Input uses Standard Schema V1. The caller supplies the schema's input type; procedure middleware and handlers receive its validated/transformed output. Async validators are supported. Launch does not choose a schema library or invent a schema system. Schemas remain server implementation values unless the app independently imports them.
 
 Results and transmitted inputs are strict JSON-safe. Direct SSR and HTTP apply the same encoding and decoding, not raw server values on only one path. Dates require explicit conversion. Undefined/void, nonfinite numbers, custom prototypes, sparse arrays and cycles are rejected rather than silently advertised as client DTOs. Optional/undefined output fields must be converted to an explicit JSON shape.
 
 Public errors are implemented as procedure-local inline literal declarations: identifier code, nonempty literal message, integer literal status 400–599 and explicit concrete Standard Schema data (including `Schema<null>` for no data). A handler's inferred `errors.NOT_FOUND()` accepts schema input and synchronously creates a throwable, **not** already-validated public data. Shared dispatch awaits validation/transformation and strict-JSON-checks the schema output before publishing. The actual registered procedure owns the factory-failure identity and original declaration, including across native entry/render module duplication. Foreign factory failures, lookalikes, plain exceptions, schema issues/throws and non-JSON schema results produce generic `INTERNAL` and server-only diagnostics.
 
-Input validation failures are field-addressable. `INVALID_INPUT` carries `InvalidInputData` (`{ issues: readonly InputIssue[] }`, both root exports), where each `InputIssue` is exactly `{ path: readonly (string | number)[], message: string }`. Dispatch normalizes the input schema's Standard Schema V1 issues in order: a path segment may be a property key or a `{ key }` segment; strings and finite numbers are kept; an issue with a symbol or any other unrepresentable segment gets the root path `[]` and is never stringified into an invented field. Only path and message are published, never vendor issue fields, input values or stacks, so input schema messages are public and written for users. Malformed requests and envelopes (such as a wrong method, media type or query string, non-JSON bodies, envelopes other than exactly `{ input }`, non-null input without a schema) carry `{ issues: [] }`. Direct SSR and HTTP publish identical issues. `FORBIDDEN`, `RPC_NOT_FOUND` and `INTERNAL` keep `null` data. Validation still precedes guards, so input schemas must be pure public shape checks; sensitive checks belong after authorization in the handler.
+Input validation failures are field-addressable. `INVALID_INPUT` carries `InvalidInputData` (`{ issues: readonly InputIssue[] }`, both root exports), where each `InputIssue` is exactly `{ path: readonly (string | number)[], message: string }`. Dispatch normalizes the input schema's Standard Schema V1 issues in order: a path segment may be a property key or a `{ key }` segment; strings and finite numbers are kept; an issue with a symbol or any other unrepresentable segment gets the root path `[]` and is never stringified into an invented field. Only path and message are published, never vendor issue fields, input values or stacks, so input schema messages are public and written for users. Malformed requests and envelopes (such as a wrong method, media type or query string, non-JSON bodies, envelopes other than exactly `{ input }`, non-null input without a schema) carry `{ issues: [] }`. Direct SSR and HTTP publish identical issues. `FORBIDDEN`, `RPC_NOT_FOUND` and `INTERNAL` keep `null` data. Group middleware precedes validation, so a caller it refuses can't probe input schemas; procedure middleware follows validation and receives the validated input.
 
 **Approved unpublished migration:** the fixed endpoint lookup code changes from `NOT_FOUND` to `RPC_NOT_FOUND`, preserving 404 and `"RPC not found"`. Reserve `INVALID_INPUT`, `FORBIDDEN`, `INTERNAL` and `RPC_NOT_FOUND` against business declarations; the object-literal key `__proto__` is also unavailable. Business `NOT_FOUND` remains ordinary typed data. No origin discriminator or blanket reservation of normal business identifiers is added.
 
@@ -158,7 +178,7 @@ await rpc.todos.list({ signal });
 await rpc.todo.get({ id: "123" }, { signal });
 ```
 
-Callables return promises. Input procedures take input then optional call options; no-input procedures take optional options only. Client cancellation unsubscribes HttpClient and rejects with `AbortError`. Server work may continue; a cancelled mutation may already have committed. Server disconnect/handler signals are deferred.
+Callables return promises. Input procedures take input then optional call options; no-input procedures take optional options only. Client cancellation unsubscribes HttpClient and rejects with `AbortError`. On the server, the call's middleware and handler see their `signal` abort; "SSR, hydration and prerendering" describes that signal over HTTP and during rendering. Cancellation is advisory: work that doesn't pass the signal on still finishes, and a cancelled mutation may already have committed.
 
 Server implementation modules/context are not runtime imports of browser facades. Actual browser dependency-graph verification must enforce the boundary; names or type-only imports alone are not a complete isolation implementation.
 
@@ -195,9 +215,11 @@ Generated callable → HttpClient → Angular interceptors/transfer cache → ba
   Browser backend: real HTTP request, fresh server context
 ```
 
-A server-only backend adapter keeps Angular's public HTTP pipeline and PendingTasks tracking. It emits ordinary HttpResponse/HttpErrorResponse events. Direct backend execution must use the same validated JSON envelope, serialization and guard/error pipeline as HTTP.
+A server-only backend adapter keeps Angular's public HTTP pipeline and PendingTasks tracking. It emits ordinary HttpResponse/HttpErrorResponse events. Direct backend execution must use the same validated JSON envelope, serialization and middleware/error pipeline as HTTP.
 
-The live server request creates context and passes it to Angular's app engine. Angular exposes it via `REQUEST_CONTEXT` in the render-local application. SSR calls reuse that value; later browser HTTP calls create new context. Mutations through rendering transport are rejected with the fixed `FORBIDDEN` frame before input schema, group/procedure guards, handler or writes. Both marked generated calls and unmarked local HttpClient calls use actual registry kind, without HTTP fallback or context recreation; caller relabeling or forced transfer-cache options cannot authorize a write. Manual server dispatch defaults to HTTP semantics and has an explicit final `'rendering'` mode. This is not a guarantee that arbitrary application code or external HTTP calls cannot write during rendering.
+The live server request creates context and passes it to Angular's app engine. Angular exposes it via `REQUEST_CONTEXT` in the render-local application. SSR calls reuse that value; later browser HTTP calls create new context. Mutations through rendering transport are rejected with the fixed `FORBIDDEN` frame before any middleware, input schema, handler or writes. Both marked generated calls and unmarked local HttpClient calls use actual registry kind, without HTTP fallback or context recreation; caller relabeling or forced transfer-cache options cannot authorize a write. Manual server dispatch defaults to HTTP semantics and has an explicit final `'rendering'` mode. This is not a guarantee that arbitrary application code or external HTTP calls cannot write during rendering.
+
+Middleware and handlers get an abort `signal`. Over HTTP it is the scope request's signal, a clone of the incoming request's, so it aborts when the host's `request.signal` does; Angular's Node `createWebRequestFromNodeRequest` signal doesn't abort once the body has been read, so the documented Node server entries link a signal that aborts when the response closes unfinished. During rendering it is `AbortSignal.any([pageRequest.signal, perCall.signal])`, where the per-call signal aborts when HttpClient unsubscribes before the call settled. Aborting is advisory: a handler that ignores it still finishes, and a write may already have committed.
 
 Queries default to HttpClient transfer caching and preserve opt-out. Mutation options accept only `transferCache:false`; the generated helper forces false even for untyped callers. Matching requests during hydration reuse the transferred response without network. Angular disables this HTTP cache after browser stability; it is not an ongoing query cache. POST body, URL, method, response type and params must match. Auth/credential/noncacheable-header exclusions and origin mapping require deliberate handling. Only intentionally browser-visible DTOs transfer; request context never does. Personalized HTML must not be published through a shared/public cache.
 
@@ -268,10 +290,10 @@ Verification results for the original proof remain in its README and task-owned 
 
 ## Implemented bounded slices
 
-- `packages/angular-launch`: genuine `defineContext`, `defineRpc`, `query`, `mutation`, inferred JSON-safe clients, async Standard Schema validation for inputs and declared error data, explicit guards, fixed framework errors, strict wire encoding, HTTP host and same-origin checks and native HttpClient transport.
+- `packages/angular-launch`: genuine `defineContext` and `defineRpc` with builder-callback `query` / `mutation`, inferred JSON-safe clients, async Standard Schema validation for inputs and declared error data, typed group and procedure middleware with `forbidden()`, abort signals over HTTP and during rendering, fixed framework errors, strict wire encoding, HTTP host and same-origin checks and native HttpClient transport.
 - `examples/angular-launch`: authored todo reads/writes with producer-generated context registration, route-local facades and server metadata. Native SSR queries dispatch locally with one live request context; hydration reuses the original DOM/transfer response; subsequent reads and browser writes use HTTP.
 - Labelled native add form trims titles to 1–200 characters. Complete idempotently sets owned rows true, returning declared `NOT_FOUND` for absent/foreign IDs without modifying either user's rows. The private in-memory store persists across browser refresh only, not server restart. Pending controls/status, readable completion and error feedback preserve failed input; successful writes explicitly invalidate the todos group, which reads the list again. No optimistic writes or automatic invalidation.
-- Final strict semantic/provenance checks cover both genuine factory kinds and declared error schemas before any cold/update/check publication. Semantic checking covers generation's own domain: generated outputs, discovered route/Launch declarations and application TypeScript files that directly import a generated output (static import, `export … from`, `import()`, `import()` type or `import =`). Other application files and dependencies get no semantic diagnostics here (the application's own build reports them); source syntax, module-reference and provenance checks still run before publication. Effective TS 6 `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` and `useUnknownInCatchVariables` must be on, with `noCheck` off. Explicit/inherited false overrides are rejected even with `strict:true`; TS 6 defaults and explicit per-flag true overrides are accepted without rewriting consumer configs or the router seam. Literal error maps cannot contain duplicate/reserved/invalid codes, invalid fields or nonconcrete schemas. Actual registered kind supplies browser metadata and rendering denial, not authored kind fields.
+- Final strict semantic/provenance checks cover genuine `defineContext` / `defineRpc` provenance, the builder-callback shape and declared error schemas before any cold/update/check publication. Semantic checking covers generation's own domain: generated outputs, discovered route/Launch declarations and application TypeScript files that directly import a generated output (static import, `export … from`, `import()`, `import()` type or `import =`). Other application files and dependencies get no semantic diagnostics here (the application's own build reports them); source syntax, module-reference and provenance checks still run before publication. Effective TS 6 `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` and `useUnknownInCatchVariables` must be on, with `noCheck` off. Explicit/inherited false overrides are rejected even with `strict:true`; TS 6 defaults and explicit per-flag true overrides are accepted without rewriting consumer configs or the router seam. Literal error maps cannot contain duplicate/reserved/invalid codes, invalid fields or nonconcrete schemas. Actual registered kind supplies browser metadata and rendering denial, not authored kind fields.
 - Generated app identity plus a private per-request token bind scope to native Angular `REQUEST`, including proxy-sanitization clones and separate entry/render bundles. Server wiring must use `angular.handle(scope.request, scope)`. This catches pairing mistakes, not incorrect authentication or arbitrary server code.
 - One genuine default context across application TypeScript roots; local/ancestor RPC availability follows real route ancestry. Names are ASCII identifiers; `__proto__` is reserved. Explicit schema expressions cannot contain absent/nullish branches.
 - Optional TanStack Query integration (`tanstackQuery` generation option, `@loozo/angular-launch/tanstack-query`): the example's todos page reads through `injectQuery` and writes through `injectMutation` with group invalidation; native SSR dehydrates the query once, hydration with `staleTime: 0` makes no RPC, and a failed SSR query loads in the browser.

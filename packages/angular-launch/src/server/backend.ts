@@ -175,6 +175,10 @@ export function provideLaunchServer(
                 return;
               }
 
+              // Aborts when the page request does, or when HttpClient unsubscribes first.
+              const call = new AbortController();
+              let settled = false;
+
               void dispatch(
                 registry,
                 target.pathname,
@@ -183,7 +187,17 @@ export function provideLaunchServer(
                 application,
                 nativeRequest,
                 "rendering",
-              ).then(deliver);
+                AbortSignal.any([nativeRequest.signal, call.signal]),
+              ).then((reply) => {
+                settled = true;
+                deliver(reply);
+              });
+
+              return () => {
+                if (!settled) {
+                  call.abort(new DOMException("RPC call aborted", "AbortError"));
+                }
+              };
             });
           },
         } satisfies HttpBackend;

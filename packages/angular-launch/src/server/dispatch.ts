@@ -2,7 +2,6 @@ import { frameworkFailures, type FrameworkCode } from "../client.js";
 import { serializeJson } from "../json.js";
 import { inputIssues, type InputIssue } from "../input-issues.js";
 import type {
-  Context,
   ContextDefinition,
   ContextOf,
   Group,
@@ -13,6 +12,7 @@ import type {
 
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
+import { outcomeOf } from "./outcomes.js";
 
 /**
  * The application's RPC groups, keyed by namespace.
@@ -183,13 +183,141 @@ export function isJsonMediaType(contentType: string | null): boolean {
 interface RuntimeProcedure extends ProcedureDefinition {
   readonly input: Schema | undefined;
   readonly errors: ErrorDefinitions;
+  readonly use: readonly ChainMiddleware[];
   readonly [declaredFailures]?: WeakMap<object, DeclaredFailure>;
-  readonly canActivate: readonly ((args: {
-    context: Context;
-    request: Request;
-    input: unknown;
-  }) => boolean | Promise<boolean>)[];
-  readonly handler: (args: { context: Context; input: unknown }) => unknown;
+  readonly handler: (args: object) => unknown;
+}
+
+// The runtime view of a middleware; `runChain` checks what `run` returns.
+interface ChainMiddleware {
+  readonly run: (args: never) => Promise<unknown>;
+}
+
+interface ChainArgs {
+  readonly input: unknown;
+  readonly request: Request;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Runs `chain` in order around `last`, passing each middleware the context the previous
+ * one continued with.
+ *
+ * @remarks
+ * Rejects when a middleware throws, calls `next` twice (whether it then returns or
+ * throws) or returns anything other than its `next` result. A misused `next` never causes
+ * an unhandled rejection: each promise it returns is observed here. When the rest of the
+ * call a middleware started fails, that failure is logged unless the middleware rejected
+ * with that same value, as an awaited rethrow does: the middleware may have left it
+ * detached, or replaced it with another error such as `forbidden()`.
+ */
+async function runChain(
+  chain: readonly ChainMiddleware[],
+  context: unknown,
+  args: ChainArgs,
+  last: (context: unknown) => Promise<void>,
+): Promise<void> {
+  async function step(index: number, current: unknown): Promise<void> {
+    if (index === chain.length) {
+      await last(current);
+
+      return;
+    }
+
+    const token = {};
+    let calls = 0;
+    let rest: Promise<object> | undefined;
+
+    function next(added?: object): Promise<object> {
+      calls += 1;
+
+      let continued: Promise<object>;
+
+      if (calls > 1) {
+        continued = Promise.reject(new Error("Launch middleware called next() more than once"));
+      } else {
+        let merged = current;
+
+        if (added !== undefined) {
+          merged = { ...(current as object), ...added };
+        }
+
+        continued = step(index + 1, merged).then(() => token);
+        rest = continued;
+      }
+
+      // A middleware that doesn't await this promise can't leave its rejection unhandled;
+      // one that awaits it still sees the rejection.
+      continued.catch(() => undefined);
+
+      return continued;
+    }
+
+    const run = chain[index].run as (args: object) => Promise<unknown>;
+    let returned: unknown;
+    let thrown: { readonly error: unknown } | undefined;
+
+    try {
+      returned = await run({ ...args, context: current, next });
+    } catch (error) {
+      thrown = { error };
+    }
+
+    // Whether it already failed or fails later, a failure the middleware didn't rethrow
+    // reaches nothing else.
+    rest?.catch((error: unknown) => {
+      if (thrown === undefined || error !== thrown.error) {
+        console.error(
+          "Launch RPC failed inside next(), and its middleware didn't rethrow it",
+          error,
+        );
+      }
+    });
+
+    if (calls > 1 || (thrown === undefined && returned !== token)) {
+      throw new Error(
+        "Launch middleware must call next() once and return its result",
+        thrown === undefined ? undefined : { cause: thrown.error },
+      );
+    }
+
+    if (thrown !== undefined) {
+      throw thrown.error;
+    }
+  }
+
+  await step(0, context);
+}
+
+async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promise<Reply> {
+  let declared: DeclaredFailure | undefined;
+
+  if (typeof error === "object" && error !== null) {
+    declared = procedure[declaredFailures]?.get(error);
+  }
+
+  if (!declared || !Object.hasOwn(procedure.errors, declared.code)) {
+    throw error;
+  }
+
+  const definition = procedure.errors[declared.code];
+
+  if (definition !== declared.definition) {
+    throw error;
+  }
+
+  const parsed = await definition.data["~standard"].validate(declared.data);
+
+  if (parsed.issues) {
+    throw new Error("Declared RPC error data failed validation", { cause: error });
+  }
+
+  const data: unknown = JSON.parse(serializeJson(parsed.value));
+
+  return {
+    status: definition.status,
+    body: { error: { code: declared.code, message: definition.message, data } },
+  };
 }
 
 /**
@@ -205,12 +333,14 @@ interface RuntimeProcedure extends ProcedureDefinition {
  * path must be `/_rpc/<namespace>/<procedure>` for a registered procedure
  * (`RPC_NOT_FOUND`); a mutation in `"rendering"` mode is refused (`FORBIDDEN`); the
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
- * a cycle or an accessor); it must then be exactly `{ input }` (`INVALID_INPUT` with no
- * issues) with input that passes the schema (`INVALID_INPUT` with the schema's issues),
- * or `null` without one (`INVALID_INPUT` with no issues); the group's
- * guards and then the procedure's guards must return `true` (`FORBIDDEN`). The
- * handler's strict JSON result is returned with status 200, and its declared errors
- * with their status.
+ * a cycle or an accessor), and exactly `{ input }` (`INVALID_INPUT` with no issues);
+ * the group's middleware runs with no input; the input must pass the schema
+ * (`INVALID_INPUT` with the schema's issues), or be `null` without one (`INVALID_INPUT`
+ * with no issues); the procedure's middleware runs with the validated input; then the
+ * handler. The handler's strict JSON result is returned with status 200, and its
+ * declared errors with their status. `forbidden()` thrown from middleware or the
+ * handler gives `FORBIDDEN`; a middleware that calls `next` twice or doesn't return its
+ * result gives `INTERNAL`.
  *
  * @param registry - The application's RPC groups.
  * @param path - The request path.
@@ -220,6 +350,7 @@ interface RuntimeProcedure extends ProcedureDefinition {
  * @param request - The request the scope must be bound to.
  * @param mode - `"http"` for browser requests (the default) or `"rendering"` for calls
  * made during server rendering.
+ * @param signal - The call's abort signal. Defaults to `request`'s signal.
  * @returns The reply to send.
  */
 export async function dispatch(
@@ -230,6 +361,7 @@ export async function dispatch(
   application: ApplicationBinding,
   request: Request,
   mode: "http" | "rendering" = "http",
+  signal: AbortSignal = request.signal,
 ): Promise<Reply> {
   try {
     assertBoundScope(scope, application, request);
@@ -271,70 +403,60 @@ export async function dispatch(
       return invalidInput();
     }
 
-    let input: unknown;
-
-    if (procedure.input) {
-      const parsed = await procedure.input["~standard"].validate(normalized.input);
-
-      if (parsed.issues) {
-        return invalidInput(inputIssues(parsed.issues));
-      }
-
-      input = parsed.value;
-    } else if (normalized.input !== null) {
-      return invalidInput();
-    }
-
-    const context = scope.value as Context;
-
-    for (const guard of group.canActivate) {
-      if (!(await guard({ context, request }))) {
-        return failure("FORBIDDEN");
-      }
-    }
-
-    for (const guard of procedure.canActivate) {
-      if (!(await guard({ context, request, input }))) {
-        return failure("FORBIDDEN");
-      }
-    }
-
-    let output: unknown;
+    let reply: Reply | undefined;
 
     try {
-      output = await procedure.handler({ context, input });
+      // Group middleware runs before validation, so it never sees the raw input.
+      await runChain(
+        group.use,
+        scope.value,
+        { input: undefined, request, signal },
+        async (groupContext) => {
+          let input: unknown;
+
+          if (procedure.input) {
+            const parsed = await procedure.input["~standard"].validate(normalized.input);
+
+            if (parsed.issues) {
+              reply = invalidInput(inputIssues(parsed.issues));
+
+              return;
+            }
+
+            input = parsed.value;
+          } else if (normalized.input !== null) {
+            reply = invalidInput();
+
+            return;
+          }
+
+          await runChain(
+            procedure.use,
+            groupContext,
+            { input, request, signal },
+            async (context) => {
+              const output = await procedure.handler({ context, input, request, signal });
+
+              reply = { status: 200, body: JSON.parse(serializeJson(output)) };
+            },
+          );
+        },
+      );
     } catch (error) {
-      let declared: DeclaredFailure | undefined;
+      const outcome = outcomeOf(error);
 
-      if (typeof error === "object" && error !== null) {
-        declared = procedure[declaredFailures]?.get(error);
+      if (outcome?.kind === "forbidden") {
+        return failure("FORBIDDEN");
       }
 
-      if (!declared || !Object.hasOwn(procedure.errors, declared.code)) {
-        throw error;
-      }
-
-      const definition = procedure.errors[declared.code];
-
-      if (definition !== declared.definition) {
-        throw error;
-      }
-
-      const parsed = await definition.data["~standard"].validate(declared.data);
-
-      if (parsed.issues) {
-        throw new Error("Declared RPC error data failed validation", { cause: error });
-      }
-
-      const data: unknown = JSON.parse(serializeJson(parsed.value));
-
-      return {
-        status: definition.status,
-        body: { error: { code: declared.code, message: definition.message, data } },
-      };
+      return await declaredReply(procedure, error);
     }
 
-    return { status: 200, body: JSON.parse(serializeJson(output)) };
+    if (!reply) {
+      throw new Error("Launch call finished without a reply");
+    }
+
+    return reply;
   } catch (error) {
     console.error("Launch RPC failed", error);
 

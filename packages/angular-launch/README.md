@@ -6,7 +6,7 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, guards and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no subscriptions, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, middleware and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no subscriptions, optimistic updates, automatic invalidation or storage adapters.
 
 ## Requirements
 
@@ -56,7 +56,7 @@ The [todos example](../../examples/angular-launch/) is a complete app, and the s
 
 ### 1. Define the context
 
-One file anywhere in your app's TypeScript sources default-exports `defineContext`. It runs once per live server request and its return value is what every handler and guard receives as `context`:
+One file anywhere in your app's TypeScript sources default-exports `defineContext`. It runs once per live server request and its return value is the `context` every middleware and handler starts from:
 
 ```ts
 // src/context.ts
@@ -77,25 +77,26 @@ Generation registers the awaited return type, so `Context` from `@loozo/angular-
 
 ```ts
 // src/routes/+authenticated/todos/rpc.ts
-import { defineRpc, mutation, query } from "@loozo/angular-launch/server";
-import { isSignedIn, requireUser } from "../../../auth.server";
+import { defineRpc } from "@loozo/angular-launch/server";
+import { signedIn } from "../../../auth.server";
 import { idSchema, titleSchema } from "../../../todo-input.server";
 
 export default defineRpc(
   "todos",
-  {
+  ({ query, mutation }) => ({
     list: query({
-      handler: ({ context }) => context.db.todos.listForUser(requireUser(context).id),
+      handler: ({ context }) => context.db.todos.listForUser(context.user.id),
     }),
     add: mutation({
       input: titleSchema,
-      handler: ({ input, context }) =>
-        context.db.todos.addForUser(requireUser(context).id, input.title),
+      handler: ({ input, context }) => context.db.todos.addForUser(context.user.id, input.title),
     }),
-  },
-  { canActivate: [isSignedIn] },
+  }),
+  { use: [signedIn] },
 );
 ```
+
+`signedIn` is a [middleware](#middleware) that refuses calls without a user and narrows `context.user` for the handlers.
 
 ### 3. Generate
 
@@ -174,7 +175,7 @@ export default async function bootstrap(context: BootstrapContext) {
 }
 ```
 
-In the server entry, let `handleRequest` answer RPC requests (it returns `null` for anything else), and render pages with a request scope from `createContext`. Give `handleRequest` and Angular the same `allowedHosts` list (see [Hosts](#hosts)). This is the Express server that Angular's SSR setup generates, with Launch added:
+In the server entry, let `handleRequest` answer RPC requests (it returns `null` for anything else), and render pages with a request scope from `createContext`. Give `handleRequest` and Angular the same `allowedHosts` list (see [Hosts](#hosts)), and give the web request a signal that aborts when the client goes away (see [Aborted requests](#aborted-requests)). This is the Express server that Angular's SSR setup generates, with Launch added:
 
 ```ts
 // src/server.ts
@@ -199,7 +200,17 @@ app.use(express.static(browser, { maxAge: "1y", index: false, redirect: false })
 
 app.use(async (request, response, next) => {
   try {
-    const web = createWebRequestFromNodeRequest(request);
+    // Angular's helper only aborts while the body is still arriving; abort on a closed response.
+    const closed = new AbortController();
+
+    response.once("close", () => {
+      if (!response.writableFinished) {
+        closed.abort();
+      }
+    });
+
+    const native = createWebRequestFromNodeRequest(request);
+    const web = new Request(native, { signal: AbortSignal.any([native.signal, closed.signal]) });
     const rpc = await handleRequest(web, { allowedHosts });
 
     if (rpc) {
@@ -244,36 +255,93 @@ Always pass `scope.request` together with `scope`, not your original request. Th
 
 ## Defining RPCs
 
-`defineRpc(namespace, procedures, options?)` declares a group. Each procedure is a `query` (a read) or a `mutation` (a write):
+`defineRpc(namespace, build, options?)` declares a group. `build` receives the `query` (a read) and `mutation` (a write) builders and returns the group's procedures:
 
 ```ts
-query({ input?, canActivate?, errors?, handler });
-mutation({ input?, canActivate?, errors?, handler });
+defineRpc(
+  "todos",
+  ({ query, mutation }) => ({
+    list: query({ input?, use?, errors?, handler }),
+    add: mutation({ input?, use?, errors?, handler }),
+  }),
+  { use? },
+);
 ```
 
-The handler receives `{ context, input, errors }` and returns a value or a promise.
+The handler receives `{ context, input, errors, request, signal }` and returns a value or a promise. `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs).
 
 - **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route, and each namespace is unique across the app because it names the group's URL.
-- **Inputs** are [Standard Schema](https://standardschema.dev) V1 schemas, from any library or written by hand. Validation can be async and can transform the value: callers pass the schema's input type, and guards and handlers receive its output. The `input` schema must have a concrete type without `undefined` or `null` branches, though its caller input type may be a union such as `Schema<string | number, …>`. Omit `input` for a procedure without input.
-- **Guards** return `boolean` or `Promise<boolean>`; `false` fails the call with `FORBIDDEN`. Group guards (in `defineRpc` options) get `{ context, request }`; procedure guards also get the validated `input`. Guards are never inherited through the route tree. A call runs input validation, then the group's guards, then the procedure's guards, then the handler.
-- Guards don't narrow types. Use an ordinary function to narrow, such as the example's `requireUser`:
+- **The callback** is read without running it: an arrow function that destructures `query` and/or `mutation` without renaming, returning a parenthesized object literal in which each procedure is a direct `query(...)` or `mutation(...)` call with inline options.
+- **Inputs** are [Standard Schema](https://standardschema.dev) V1 schemas, from any library or written by hand. Validation can be async and can transform the value: callers pass the schema's input type, and procedure middleware and handlers receive its output. The `input` schema must have a concrete type without `undefined` or `null` branches, though its caller input type may be a union such as `Schema<string | number, …>`. Omit `input` for a procedure without input.
+
+Availability isn't authorization: anyone who can reach your server can call any procedure, so protect every group and procedure that needs it with middleware. Route params aren't passed to procedures automatically; pass what you need as input and validate it.
+
+### Middleware
+
+Middleware runs around a call to refuse it, add typed values to its context, or wrap the rest of it:
 
 ```ts
 // src/auth.server.ts
-import type { Context, Guard } from "@loozo/angular-launch/server";
+import { forbidden, middleware } from "@loozo/angular-launch/server";
 
-export const isSignedIn: Guard = ({ context }) => context.user !== null;
-
-export function requireUser(context: Context): { id: string } {
+export const signedIn = middleware(async ({ context, next }) => {
   if (context.user === null) {
-    throw new Error("User required");
+    throw forbidden();
   }
 
-  return context.user;
-}
+  return next({ user: context.user }); // later middleware and handlers see a non-null user
+});
 ```
 
-Availability isn't authorization: anyone who can reach your server can call any procedure, so every group and procedure needs its own guards. Route params aren't passed to procedures automatically; pass what you need as input and validate it.
+List middleware in the group's `use` to run it for every procedure in the group, or in a procedure's `use` to run it for that procedure. A call runs, in order:
+
+1. the group's middleware, with no input;
+2. input validation;
+3. the procedure's middleware, with the validated input;
+4. the handler.
+
+So a caller that group middleware refuses gets `FORBIDDEN` even when its input is invalid, and can't probe your schemas.
+
+- **`next()`** continues the call. `next(values)` also merges `values` into the context by spread, so the context must be a plain object: a class instance would lose its prototype. An addition is a single object type with required keys, since a missing optional value would leave the earlier one in place, and a union could hide such a key in one of its members. Write a value that may be missing as `next({ user: maybeUser })` with a type such as `User | null`, and alternatives as a union value, such as `next({ session: a | b })`. Every `next(...)` in a middleware adds the same keys, so `next({ user: null })` in one branch and `next()` in another is a type error. A value that differs per branch goes in one `next()` call with a union-typed value, such as `next({ user: preview ? null : context.user })` or a variable typed `User | null`. The context is read-only at the top level, so `context.user = null` is a type error: add and replace values through `next()`, where later middleware and handlers see their types. A middleware must call `next` exactly once and return its result; calling it twice or returning anything else fails the call with `INTERNAL`.
+- **Wrapping:** `next()` rejects when anything after it throws, declared errors included, so a middleware can time, log or run the rest of the call in a transaction that rolls back:
+
+  ```ts
+  export const timing = middleware(async ({ next }) => {
+    const start = performance.now();
+
+    try {
+      return await next();
+    } finally {
+      console.log(`RPC took ${(performance.now() - start).toFixed(1)} ms`);
+    }
+  });
+  ```
+
+- **Refusing:** `throw forbidden()` fails the call with `FORBIDDEN`; a handler can throw it too. Any other exception fails the call with `INTERNAL`. Declared errors belong to handlers.
+- **Needs:** a middleware without an annotation needs your `Context` and accepts any input, so it fits anywhere. Annotate its argument with `MiddlewareArgs<Needs, Input>` to require values that earlier middleware adds, or an input shape:
+
+  ```ts
+  export const ownTodo = middleware(
+    async ({ context, input, next }: MiddlewareArgs<{ user: User; db: Db }, { id: string }>) => {
+      const todo = await context.db.todos.findForUser(context.user.id, input.id);
+
+      if (todo === null) {
+        throw forbidden();
+      }
+
+      return next({ todo });
+    },
+  );
+  ```
+
+  Each `use` entry must accept the context and input accumulated before it, and the error lands on the entry that doesn't (`… is not assignable to type 'never'`). Group middleware gets no input, so a middleware that needs input only fits on a procedure.
+
+- **Server rendering:** middleware runs for every call, also during server rendering, where `request` is the page request: usually a `GET` navigation with `Sec-Fetch-Site: none` or `cross-site`. Request-shaped checks, such as on the method or `Sec-Fetch-Site`, misfire there, which is why Launch's own [cross-origin check](#cross-origin-requests) isn't middleware and runs over HTTP only.
+- There's no dedupe: middleware listed in both the group and a procedure runs twice. Middleware isn't inherited through the route tree.
+- **Known limits:**
+  - Casting an addition to `object` or `{}`, or deliberately widening a middleware's result type, hides the keys it adds, so the context type no longer matches what runs.
+  - Only the top level of the context is read-only. Writing to a nested object, such as `context.session.user = null`, can still invalidate a narrowing nested inside it.
+  - Separate `next({ user: null })` and `next({ user: context.user })` calls don't infer `User | null` when `context.user` is a `User`; write the single-call form above.
 
 ### JSON values
 
@@ -290,7 +358,7 @@ complete: mutation({
     NOT_FOUND: { status: 404, message: "Todo does not exist", data: idSchema },
   },
   handler: async ({ input, context, errors }) => {
-    const todo = await context.db.todos.completeForUser(requireUser(context).id, input.id);
+    const todo = await context.db.todos.completeForUser(context.user.id, input.id);
 
     if (todo === null) {
       throw errors.NOT_FOUND({ id: input.id });
@@ -305,12 +373,12 @@ Each error needs an identifier code, an integer literal `status` from 400 to 599
 
 Launch itself uses four codes, which you can't declare:
 
-| Code            | Status | When                                                                                |
-| --------------- | ------ | ----------------------------------------------------------------------------------- |
-| `INVALID_INPUT` | 400    | The request is malformed, or its input failed schema validation                     |
-| `FORBIDDEN`     | 403    | A guard returned `false`, or a mutation was called during server rendering          |
-| `RPC_NOT_FOUND` | 404    | No such procedure                                                                   |
-| `INTERNAL`      | 500    | Anything else: an unexpected exception, an invalid error payload, a non-JSON result |
+| Code            | Status | When                                                                                                              |
+| --------------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
+| `INVALID_INPUT` | 400    | The request is malformed, or its input failed schema validation                                                   |
+| `FORBIDDEN`     | 403    | `forbidden()` was thrown, the request wasn't proven same-origin, or a mutation was called during server rendering |
+| `RPC_NOT_FOUND` | 404    | No such procedure                                                                                                 |
+| `INTERNAL`      | 500    | Anything else: an unexpected exception, an invalid error payload, a non-JSON result                               |
 
 `INTERNAL` never exposes details to the client; they go to the server log. Your own `NOT_FOUND` is fine, but `__proto__` can't be an error code.
 
@@ -361,10 +429,10 @@ await rpc.todos.list({ signal, transferCache: false });
 await rpc.todos.add({ title }, { signal });
 ```
 
-| Option          | Effect                                                                                                                  |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `signal`        | Abort the HTTP request; the call rejects with an `AbortError`. The server may still finish the work, including a write. |
-| `transferCache` | Queries default to `true`. Mutations only accept `false` and never use the transfer cache.                              |
+| Option          | Effect                                                                                                                                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal`        | Abort the HTTP request; the call rejects with an `AbortError`. The server's middleware and handler see their `signal` abort, but aborting is advisory: work that ignores it finishes, and a write may already have committed. |
+| `transferCache` | Queries default to `true`. Mutations only accept `false` and never use the transfer cache.                                                                                                                                    |
 
 `isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures and aborts are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"` or `"mutation"`.
 
@@ -400,7 +468,9 @@ The reuse has limits, all of them Angular's transfer cache behaving as designed:
 - The cache serves calls made before the app first becomes stable. RPCs called later, for example from a `@defer` block that hydrates on interaction or when it enters the viewport, go over HTTP.
 - Launch relies on your app's transfer cache settings. `withNoHttpTransferCache()`, or a `withHttpTransferCacheOptions` `filter` that rejects `/_rpc/` requests, turns reuse off without any error, and every query runs again in the browser.
 
-Mutations are refused during server rendering with `FORBIDDEN`, before validation, guards or the handler run. Rendering should only read.
+Mutations are refused during server rendering with `FORBIDDEN`, before any middleware, validation or the handler runs. Rendering should only read.
+
+Middleware and handlers run during server rendering too, with the page request as `request`. Their `signal` aborts when the page request aborts, or when `HttpClient` unsubscribes from the call before it settled.
 
 RPCs need a live request. Prerendering a page that calls an RPC fails the build (with `finishLaunchRendering` in place); static pages that don't call RPCs prerender normally. Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported.
 
@@ -488,6 +558,25 @@ export const reqHandler = createRequestHandler(async (request: Request) => {
 - The bundle neither serves the `browser` files nor starts a server. Point your platform's static hosting at `dist/<app>/browser` and its request handler at the exported `reqHandler`.
 - Nothing polyfills Node modules for you, so your context, handlers and their dependencies must run on the platform. In-memory state lasts only as long as the platform keeps an instance alive.
 
+### Aborted requests
+
+Launch passes `request.signal` on to middleware and handlers as `signal`. Angular's `createWebRequestFromNodeRequest` gives a signal that only aborts while the request body is still arriving, so by the time an RPC handler runs, a client that disconnects no longer aborts it. That's why the server entry above links a signal that aborts when the Node response closes before it finished:
+
+```ts
+const closed = new AbortController();
+
+response.once("close", () => {
+  if (!response.writableFinished) {
+    closed.abort();
+  }
+});
+
+const native = createWebRequestFromNodeRequest(request);
+const web = new Request(native, { signal: AbortSignal.any([native.signal, closed.signal]) });
+```
+
+Pass `web` to both `handleRequest` and `createContext`, so page renders get the same signal. Without this wiring everything works, but handlers never see an abort over HTTP.
+
 ### Other server frameworks
 
 `handleRequest` and `createContext` take a web `Request`, so any framework that gives you one works. `AngularNodeAppEngine` also accepts a web `Request`. With [Hono](https://hono.dev) on Node:
@@ -534,7 +623,7 @@ if (isMainModule(import.meta.url)) {
 export const reqHandler = createRequestHandler(app.fetch);
 ```
 
-Export the handler as `reqHandler`; Angular's dev server and build don't look for a default export. Under `ng serve`, `serveStatic` logs that the `browser` directory doesn't exist. That's expected: the dev server serves those files itself.
+Export the handler as `reqHandler`; Angular's dev server and build don't look for a default export. Whether `@hono/node-server` aborts `c.req.raw.signal` when a client disconnects is unverified, so don't rely on handlers seeing an abort there. Under `ng serve`, `serveStatic` logs that the `browser` directory doesn't exist. That's expected: the dev server serves those files itself.
 
 ## Generation
 
@@ -627,7 +716,8 @@ The options are fixed when the session is created. Edits inside the app, includi
 - No subscriptions, optimistic updates or automatic invalidation. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
-- Server work isn't cancelled when the client aborts, and nothing is rolled back.
+- Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
+- Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
 - One RPC group per route, and one context per application.
 
 ## Further reading

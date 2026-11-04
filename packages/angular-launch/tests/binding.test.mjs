@@ -13,7 +13,12 @@ import {
   HttpResponse,
 } from "@angular/common/http";
 import { firstValueFrom, of } from "rxjs";
-import { defineContext, defineRpc, query, finishLaunchRendering } from "../dist/server/index.js";
+import {
+  defineContext,
+  defineRpc,
+  finishLaunchRendering,
+  middleware,
+} from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
 import { dispatch } from "../dist/server/dispatch.js";
 import { RPC_CALL } from "../dist/generated.js";
@@ -51,7 +56,7 @@ function backend(registry, application, scope, nativeRequest, fallback) {
 
 test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without poisoning rendering; local/marked RPC fails", async () => {
   let factories = 0;
-  let guards = 0;
+  let middlewareRuns = 0;
   let handlers = 0;
   const application = {
     id: "without-native-request",
@@ -64,7 +69,7 @@ test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without
   const registry = {
     [id]: defineRpc(
       "test",
-      {
+      ({ query }) => ({
         read: query({
           handler: () => {
             handlers += 1;
@@ -72,14 +77,14 @@ test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without
             return "unexpected";
           },
         }),
-      },
+      }),
       {
-        canActivate: [
-          () => {
-            guards += 1;
+        use: [
+          middleware(async ({ next }) => {
+            middlewareRuns += 1;
 
-            return true;
-          },
+            return next();
+          }),
         ],
       },
     ),
@@ -148,7 +153,7 @@ test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without
     await assert.rejects(finishLaunchRendering(rendering), /live request context/);
     assert.equal(destroyed, true);
     assert.equal(factories, 0);
-    assert.equal(guards, 0);
+    assert.equal(middlewareRuns, 0);
     assert.equal(handlers, 0);
   } finally {
     absent.destroy();
@@ -175,14 +180,14 @@ test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without
       /live request context/,
     );
     assert.equal(factories, 1);
-    assert.equal(guards, 0);
+    assert.equal(middlewareRuns, 0);
     assert.equal(handlers, 0);
   } finally {
     scopeOnly.destroy();
   }
 });
 
-test("scope matches native request and generated application across Angular sanitization clones; mismatches reject before guards/handlers", async () => {
+test("scope matches native request and generated application across Angular sanitization clones; mismatches reject before middleware/handlers", async () => {
   let factories = 0;
   const calls = [];
   const context = defineContext((request) => {
@@ -229,7 +234,7 @@ test("scope matches native request and generated application across Angular sani
   const registry = {
     [id]: defineRpc(
       "test",
-      {
+      ({ query }) => ({
         read: query({
           handler: ({ context }) => {
             calls.push("handler");
@@ -237,15 +242,15 @@ test("scope matches native request and generated application across Angular sani
             return context.user;
           },
         }),
-      },
+      }),
       {
-        canActivate: [
-          ({ request }) => {
-            calls.push("guard");
+        use: [
+          middleware(async ({ request, next }) => {
+            calls.push("middleware");
             assert.equal(request, native);
 
-            return true;
-          },
+            return next();
+          }),
         ],
       },
     ),
@@ -263,7 +268,7 @@ test("scope matches native request and generated application across Angular sani
     "alice",
   );
   valid.destroy();
-  assert.deepEqual(calls, ["guard", "handler"]);
+  assert.deepEqual(calls, ["middleware", "handler"]);
   assert.equal(factories, 1, "backend never creates another context");
   controller.abort();
   assert.equal(scope.request.signal.aborted, true);
@@ -322,7 +327,7 @@ test("scope matches native request and generated application across Angular sani
     console.error = previousError;
   }
 
-  assert.deepEqual(calls, ["guard", "handler"]);
+  assert.deepEqual(calls, ["middleware", "handler"]);
   assert.equal(fallbackCalls, 0);
   assert.equal(logs.length, 7);
 });
@@ -357,7 +362,9 @@ test("binding clone preserves original body and signal, and HTTP dispatcher crea
   assert.equal(factories, 1);
 
   const registry = {
-    [id]: defineRpc("test", { read: query({ handler: ({ context }) => context.body }) }),
+    [id]: defineRpc("test", ({ query }) => ({
+      read: query({ handler: ({ context }) => context.body }),
+    })),
   };
   const reply = await handleRpc(
     registry,
@@ -377,7 +384,7 @@ test("binding clone preserves original body and signal, and HTTP dispatcher crea
 
 test("native params/setParams marked/unmarked targets use effective URLs and match real HTTP rejection without fallback", async () => {
   let factories = 0;
-  let guards = 0;
+  let middlewareRuns = 0;
   let handlers = 0;
   let fallbackCalls = 0;
   const app = {
@@ -392,7 +399,7 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
   const registry = {
     [id]: defineRpc(
       "test",
-      {
+      ({ query }) => ({
         read: query({
           handler: () => {
             handlers += 1;
@@ -400,14 +407,14 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
             return "ok";
           },
         }),
-      },
+      }),
       {
-        canActivate: [
-          () => {
-            guards += 1;
+        use: [
+          middleware(async ({ next }) => {
+            middlewareRuns += 1;
 
-            return true;
-          },
+            return next();
+          }),
         ],
       },
     ),
@@ -459,7 +466,7 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
   }
 
   assert.equal(factories, 1);
-  assert.equal(guards, 0);
+  assert.equal(middlewareRuns, 0);
   assert.equal(handlers, 0);
   assert.equal(fallbackCalls, 0);
   direct.destroy();
