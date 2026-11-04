@@ -68,6 +68,11 @@ if (!existsSync(speechDirectory)) {
     for (const record of records) {
       if (record.versions !== null) {
         versions = `${record.versions.os}, ${record.browser} ${record.versions.browser}, Guidepup ${record.versions.guidepup}`;
+
+        if (record.readerSettings !== undefined) {
+          versions = `${versions}; reader settings ${JSON.stringify(record.readerSettings)}`;
+        }
+
         break;
       }
     }
