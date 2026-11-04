@@ -433,7 +433,7 @@ Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even w
 
 Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
 
-Launch has been verified on Node only.
+Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally.
 
 ### Hosts
 
@@ -457,6 +457,36 @@ const rpc = await handleRequest(web, { allowedHosts, origins: ["https://app.exam
 ```
 
 List a sibling site's origin the same way to let it call. Only HTTP requests are checked: calls made during server rendering carry the page request, whose `Sec-Fetch-Site` is `cross-site` or `none` on an ordinary navigation, and run without these checks.
+
+### Other runtimes
+
+`ng build` can also write a server bundle that doesn't depend on Node, for edge and serverless platforms: set `"platform": "neutral"` in the build target's `ssr` option, next to `entry`. Launch's server code uses only web `Request` and `Response`, so only your server entry changes:
+
+```ts
+// src/server.ts
+import { AngularAppEngine, createRequestHandler } from "@angular/ssr";
+import { createContext, handleRequest } from "../generated/server.generated";
+
+const allowedHosts = ["app.example.com"];
+const angular = new AngularAppEngine({ allowedHosts });
+
+export const reqHandler = createRequestHandler(async (request: Request) => {
+  const rpc = await handleRequest(request, { allowedHosts });
+
+  if (rpc) {
+    return rpc;
+  }
+
+  const scope = await createContext(request);
+  const page = await angular.handle(scope.request, scope);
+
+  return page ?? new Response("Not found", { status: 404 });
+});
+```
+
+- Import from `@angular/ssr`, not `@angular/ssr/node`. `AngularAppEngine` doesn't read `NG_ALLOWED_HOSTS` or `NG_TRUST_PROXY_HEADERS`: pass `allowedHosts`, and `trustProxyHeaders` if you're behind a proxy (it's off by default), to its constructor, and the same hosts to `handleRequest`. List them in the entry as above, or read them from your platform's configuration.
+- The bundle neither serves the `browser` files nor starts a server. Point your platform's static hosting at `dist/<app>/browser` and its request handler at the exported `reqHandler`.
+- Nothing polyfills Node modules for you, so your context, handlers and their dependencies must run on the platform. In-memory state lasts only as long as the platform keeps an instance alive.
 
 ### Other server frameworks
 
