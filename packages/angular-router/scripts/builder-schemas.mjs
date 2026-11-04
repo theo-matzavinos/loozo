@@ -1,7 +1,8 @@
 // Generates the builder schemas from @angular/build's own, so they carry Angular's options, defaults
 // and checks, and the CLI offers every option as a flag:
 // - schemas/application.json: the application schema plus the router options from
-//   router-options.json. Angular's dev server validates the build target against it.
+//   router-options.json, with a default that keeps an omitted conditions apart from []. Angular's
+//   dev server validates the build target against it.
 // - schemas/serve.json: the dev-server schema with the router's poll. Its defaults equal the ones the
 //   dev server applies itself when serve schedules it, so applying them first changes nothing.
 // Run by the package build; tests/schema.test.mjs fails when a committed file is stale.
@@ -49,11 +50,28 @@ export async function applicationSchema() {
     }
   }
 
+  const conditions = angular.schema.properties.conditions;
+
+  if (conditions?.type !== "array" || Object.hasOwn(conditions, "default")) {
+    throw new Error(
+      `@angular/build ${angular.version} changed the conditions option; revisit its default`,
+    );
+  }
+
   const schema = {
     $schema: angular.$schema,
     $comment: angular.$comment,
     ...angular.schema,
-    properties: { ...router.properties, ...angular.schema.properties },
+    properties: {
+      ...router.properties,
+      ...angular.schema.properties,
+      // The CLI fills an omitted array option with [] for every builder outside @angular/build,
+      // and Angular reads an empty conditions as replacing its default ones. Defaults apply after
+      // validation, so this false is never valid input: it marks an omitted conditions, which
+      // Angular's bundler reads as unset and the application builder replaces with Angular's
+      // default list.
+      conditions: { ...conditions, default: false },
+    },
     required: [...router.required, ...angular.schema.required],
   };
 
