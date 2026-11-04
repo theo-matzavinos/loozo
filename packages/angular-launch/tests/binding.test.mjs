@@ -364,9 +364,10 @@ test("binding clone preserves original body and signal, and HTTP dispatcher crea
     app,
     new Request(`http://127.0.0.1${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
       body: '{"input":null}',
     }),
+    { allowedHosts: ["127.0.0.1"] },
   );
 
   assert.equal(reply.status, 200);
@@ -447,9 +448,10 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
         app,
         new Request(`http://127.0.0.1${request.urlWithParams}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
           body: '{"input":null}',
         }),
+        { allowedHosts: ["127.0.0.1"] },
       );
 
       assert.equal(http.status, 400);

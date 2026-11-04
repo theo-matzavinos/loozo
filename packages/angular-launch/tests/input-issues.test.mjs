@@ -111,9 +111,10 @@ async function http(registry, body) {
     application,
     new Request(`http://127.0.0.1${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
       body,
     }),
+    { allowedHosts: ["127.0.0.1"] },
   );
 
   return { status: response.status, body: await response.json() };
@@ -219,9 +220,10 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
     application,
     new Request(`http://127.0.0.1${path}`, {
       method: "POST",
-      headers: { "content-type": "text/plain" },
+      headers: { "content-type": "text/plain", origin: "http://127.0.0.1" },
       body: '{"input":"invalid"}',
     }),
+    { allowedHosts: ["127.0.0.1"] },
   );
 
   assert.deepEqual({ status: wrongType.status, body: await wrongType.json() }, expected);
@@ -261,9 +263,10 @@ test("other framework failures keep null data", async () => {
         application,
         new Request(`http://127.0.0.1${target}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
           body: '{"input":null}',
         }),
+        { allowedHosts: ["127.0.0.1"] },
       );
       const body = await response.json();
 

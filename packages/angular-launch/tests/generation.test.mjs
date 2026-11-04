@@ -288,7 +288,14 @@ badUndefinedInput:query({input:undefinedInput,handler:()=>null}),
 import type {Todo,ReadonlyTodo,Input,MutableInput,AliasTodo} from './dto';
 import context from './context';
 import {createRequestScope,provideLaunchServer} from '@loozo/angular-launch/_server';
+import {handleRequest} from '../generated/server.generated';
 const binding={id:'compile-app',context};
+const handled:Promise<Response|null>=handleRequest(new Request('http://test'),{allowedHosts:['test'],origins:['https://public.test']});
+// @ts-expect-error handleRequest requires options
+handleRequest(new Request('http://test'));
+// @ts-expect-error allowedHosts is required
+handleRequest(new Request('http://test'),{origins:[]});
+void handled;
 const scope=createRequestScope(binding,new Request('http://test'));
 // @ts-expect-error no unbound factory-only fallback
 createRequestScope(context,new Request('http://test'));
