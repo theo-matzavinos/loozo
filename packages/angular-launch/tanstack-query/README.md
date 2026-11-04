@@ -12,19 +12,15 @@ Install the adapter. Launch supports `@tanstack/angular-query` `^5.0.0-rc.5` as 
 pnpm add @tanstack/angular-query@5.0.0-rc.5
 ```
 
-Turn on the `tanstackQuery` generation option:
+Turn on the `tanstackQuery` generation option in your `@loozo/angular-launch:application` build target (or pass `tanstackQuery: true` to `generate`):
 
-```js
-// generate.mjs
-import { generate } from "@loozo/angular-launch/generation";
-
-await generate(import.meta.dirname, {
-  tsconfig: "tsconfig.app.json",
-  scanDirectories: ["src/routes"],
-  outDirectory: "generated",
-  tanstackQuery: true,
-  check: process.argv.includes("--check"),
-});
+```json
+"options": {
+  "tsconfig": "tsconfig.app.json",
+  "scanDirectories": ["src/routes"],
+  "outDirectory": "generated",
+  "tanstackQuery": true
+}
 ```
 
 Each `rpc.generated.ts` then also exports `injectQueries()` and its type `Queries`, for the same groups as its `injectRpc()`. With the option off, generated files are exactly as without this entry point.

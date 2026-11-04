@@ -8,8 +8,12 @@
       "sourceRoot": "src",
       "architect": {
         "build": {
-          "builder": "@angular/build:application",
+          "builder": "@loozo/angular-launch:application",
           "options": {
+            "tsconfig": "tsconfig.app.json",
+            "scanDirectories": ["src/routes"],
+            "outDirectory": "generated",
+            "tanstackQuery": true,
             "browser": "src/main.ts",
             "server": "src/main.server.ts",
             "ssr": { "entry": "src/server.ts" },
@@ -23,6 +27,7 @@
             "security": { "allowedHosts": ["127.0.0.1", "localhost"] }
           },
           "configurations": {
+            "check": { "check": true },
             "verification": {
               "outputPath": "dist/todos",
               "fileReplacements": [{ "replace": "src/main.ts", "with": "src/main.verification.ts" }]
@@ -40,6 +45,10 @@
               ]
             }
           }
+        },
+        "serve": {
+          "builder": "@loozo/angular-launch:serve",
+          "options": { "buildTarget": "todos:build" }
         }
       }
     }

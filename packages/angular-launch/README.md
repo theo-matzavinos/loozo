@@ -6,11 +6,12 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, guards and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys. There's no builder or watch mode yet, and no subscriptions, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, guards and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no subscriptions, optimistic updates, automatic invalidation or storage adapters.
 
 ## Requirements
 
 - Angular 22 with SSR: `@angular/core` and `@angular/common` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/router`, `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.2.2.
+- `@angular/build` `~22.2.0`, for the builders. The range is narrow on purpose: the application builder's options schema is Angular's own at the version Launch was built against, so an option added in a later Angular minor is rejected until Launch is rebuilt against that minor.
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
@@ -98,30 +99,32 @@ export default defineRpc(
 
 ### 3. Generate
 
-Generation is a Node function. The example calls it from a small script:
-
-```js
-// generate.mjs
-import { generate } from "@loozo/angular-launch/generation";
-
-await generate(import.meta.dirname, {
-  tsconfig: "tsconfig.app.json",
-  scanDirectories: ["src/routes"],
-  outDirectory: "generated",
-  check: process.argv.includes("--check"),
-});
-```
-
-Run it before the Angular build. Launch apps use Angular's own `@angular/build:application` builder, not the router's companion builders, which don't accept Launch files:
+Generation runs inside two Angular builders that replace your project's `build` and `serve` builders. Both run Angular's official builders (`@angular/build:application` and `@angular/build:dev-server`) after generating, so everything else about your build stays the same. Use them instead of the router's builders, which don't accept Launch files. In `angular.json`:
 
 ```json
-"scripts": {
-  "generate": "node generate.mjs",
-  "build": "pnpm generate && ng build"
+"build": {
+  "builder": "@loozo/angular-launch:application",
+  "options": {
+    "tsconfig": "tsconfig.app.json",
+    "scanDirectories": ["src/routes"],
+    "outDirectory": "generated",
+    "browser": "src/main.ts",
+    "server": "src/main.server.ts",
+    "ssr": { "entry": "src/server.ts" },
+    "outputMode": "server",
+    "tsConfig": "tsconfig.app.json"
+  },
+  "configurations": { "check": { "check": true } }
+},
+"serve": {
+  "builder": "@loozo/angular-launch:serve",
+  "options": { "buildTarget": "my-app:build" }
 }
 ```
 
-Include the generated files, declarations included, in your app tsconfig: `"include": ["src/**/*.ts", "generated/**/*.ts"]`. See [Generation](#generation) for the options and what gets written.
+`ng build` and `ng serve` then generate first, and `ng serve` regenerates as you edit. `ng run my-app:build:check` verifies the generated files without writing them, for CI. `tsconfig` is the TypeScript config generation reads; `tsConfig` is Angular's own compilation config. They can be the same file.
+
+Include the generated files, declarations included, in your app tsconfig: `"include": ["src/**/*.ts", "generated/**/*.ts"]`. See [Builders](#builders) for the builder options and [Generation](#generation) for what gets written.
 
 ### 4. Wire the browser and server apps
 
@@ -505,6 +508,8 @@ Export the handler as `reqHandler`; Angular's dev server and build don't look fo
 
 ## Generation
 
+The [builders](#builders) run generation for you. Underneath, it's a Node function you can also call from your own tools:
+
 ```ts
 generate(workspace: string, options: GenerationOptions, stopped?: () => boolean): Promise<void>;
 ```
@@ -535,9 +540,32 @@ Generated browser code contains only names, kinds and error metadata, never your
 
 `server.generated.ts` binds Launch's internal `createRequestScope`, `handleRpc` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name, the generation tsconfig's path within the app, and the context file's path and contents, so moving the whole app directory doesn't change it.
 
-RPC URLs are `/_rpc/<namespace>/<procedure>`, so they change only when you rename a namespace or procedure. Moving an `rpc.ts` or the generation tsconfig doesn't change them. The example doesn't commit generated files: it regenerates before every build, and `node generate.mjs --check` verifies them without writing.
+RPC URLs are `/_rpc/<namespace>/<procedure>`, so they change only when you rename a namespace or procedure. Moving an `rpc.ts` or the generation tsconfig doesn't change them. The example doesn't commit generated files: every build regenerates them, and its `check` configuration (`ng run todos:build:check`) verifies them without writing.
 
 `@loozo/angular-launch/generation` is Node-only.
+
+### Builders
+
+#### `@loozo/angular-launch:application`
+
+All `@angular/build:application` options, plus the generation options above (`tsconfig`, `scanDirectories`, `outDirectory`, `tanstackQuery` and `check`, which default to `false`). It takes those out and passes every other option through unchanged.
+
+The builder runs generation once, then the official application build. Invalid options stop the build before generation starts. Generation errors, including drift with `check: true`, are logged and fail the build before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
+
+#### `@loozo/angular-launch:serve`
+
+All `@angular/build:dev-server` options, set in `angular.json` or on the command line (`ng serve --port 4300`), plus:
+
+| Option        | Type              | Default  | Description                                                                              |
+| ------------- | ----------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `buildTarget` | `string`          | required | A target that uses `@loozo/angular-launch:application`. Generation options come from it. |
+| `poll`        | `number \| false` | `1000`   | The dev server's file-watch polling interval in milliseconds, or `false` for no default. |
+
+Invalid options stop the serve builder before it generates anything, and so does an invalid build target. The build target must not resolve `check: true`, because serving always writes generated files. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build.
+
+The builder then watches the scan directory and the context file, wherever the last generation found it, and regenerates when files are added, changed or removed there. Passes run one at a time; changes during a pass cause one more. A failed pass is logged and the server keeps running; the next change retries. When it starts watching a context file outside the scan directory, it runs one more pass once that watch is live, so an edit made while the file was being found isn't lost. A plain rename of the context file is followed, but a move that passes through a missing or broken context, such as delete-then-create or a file that's broken at its new path, is picked up only on the next change in the scan directory or a restart. Other files, such as a module your context imports, don't trigger generation; Angular's build still checks them.
+
+Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. It costs some idle CPU. Set `"poll": false` in the serve target to go back to native file events; Angular's own configuration then applies, including a `poll` on the build target. A positive number overrides the build target's `poll`; `0` is rejected. On the command line, `--poll` accepts milliseconds only. `poll` configures Angular's dev-server watcher; Launch's own watcher uses native file events.
 
 ### Generation sessions
 
@@ -566,7 +594,6 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
-- No Angular builder or watch mode for Launch yet; run generation yourself before `ng build` or `ng serve`.
 - No subscriptions, optimistic updates or automatic invalidation. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
@@ -583,10 +610,10 @@ The options are fixed when the session is created. Edits inside the app, includi
 ## Developing this package
 
 ```sh
-pnpm run build       # tsc
+pnpm run build       # builder schemas, then tsc
 pnpm run typecheck
 pnpm run test        # node --test
 node tests/packed.mjs /absolute/new-directory   # packed consumer check; directory must not exist
 ```
 
-The packed check keeps its consumer, pnpm store and temporary files inside the directory you pass.
+The packed check keeps its consumer, pnpm store and temporary files inside the directory you pass. The build regenerates the builder schemas in `schemas/` from the installed `@angular/build`; `tests/schema.test.mjs` fails when a committed schema is stale.
