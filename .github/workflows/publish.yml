@@ -53,7 +53,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: package.json
-          cache: pnpm
       - id: bump
         run: |
           node scripts/bump-version.mjs "$PACKAGE"
@@ -96,7 +95,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: package.json
-          cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
         env:
