@@ -27,19 +27,19 @@ declare global {
   }
 }
 
-/** A toast whose insertion a step samples the page at, and the dialog host to check for. */
-export interface InsertionWatch {
-  toast: string;
-  host?: string;
-}
+/**
+ * What a step samples the page at: a toast's insertion into Origami's region, with the dialog host
+ * to check for, or the first text written into the plain live region with test ID `liveRegion`.
+ */
+export type InsertionWatch = { toast: string; host?: string } | { liveRegion: string };
 
 export interface Run {
   /** Opens a fixture route, attaches it and moves the reader into the page, once per test. */
   open(path: string): Promise<void>;
   /**
    * Performs `action` inside one full capture and records the step. With `insertion`, an observer
-   * installed before the capture samples the page when that toast is inserted, and the step waits
-   * for that sample after the capture ends, since the toast itself may have expired by then.
+   * installed before the capture samples the page when that toast or text is inserted, and the step
+   * waits for that sample after the capture ends, since the toast itself may have expired by then.
    */
   step(
     label: string,
@@ -59,6 +59,7 @@ interface RunContext {
   page: Page;
   browser: Browser;
   browserName: SpeechRecord["browser"];
+  readerSettings?: Record<string, unknown>;
 }
 
 const selectedReader = process.env.ORIGAMI_SR;
@@ -74,6 +75,10 @@ const guidepupManifest: { version: string } = createRequire(import.meta.url)(
 );
 // Waits for a capture in flight, which may never settle; the record is written before and after.
 const logTimeout = 10_000;
+// VoiceOver's spoken instructions (VoiceOver Utility › Verbosity › Hints), off so "You are currently
+// on…" hints don't crowd the captures. The key's mapping to that checkbox is unverified; each
+// record holds the value VoiceOver ended up with.
+const voiceOverHints = "SCRShouldOutputVOInstructions";
 
 /** What the page looks like once a step's capture ended. */
 function readAfter(): SpeechStep["after"] {
@@ -112,27 +117,41 @@ function readAfter(): SpeechStep["after"] {
   return { activeElement, toasts, modalOpen: document.querySelector("dialog:modal") !== null };
 }
 
-/** Samples the page, in the page, when `toast` is first inserted into the region. */
-function watchInsertion({ toast, host }: InsertionWatch): void {
-  const region = document.querySelector('[data-testid="region"]');
+/** Samples the page, in the page, when the watched toast or text is first inserted. */
+function watchInsertion(watch: InsertionWatch): void {
+  let regionId = "region";
   let hostElement: Element | null = null;
 
-  if (region === null) {
-    throw new Error("The page has no toast region");
+  if ("liveRegion" in watch) {
+    regionId = watch.liveRegion;
   }
 
-  if (host !== undefined) {
-    hostElement = document.querySelector(`[data-testid="${host}"]`);
+  const region = document.querySelector(`[data-testid="${regionId}"]`);
+
+  if (region === null) {
+    throw new Error(`The page has no ${regionId}`);
+  }
+
+  if ("host" in watch && watch.host !== undefined) {
+    hostElement = document.querySelector(`[data-testid="${watch.host}"]`);
 
     if (hostElement === null) {
-      throw new Error(`The page has no ${host}`);
+      throw new Error(`The page has no ${watch.host}`);
     }
   }
+
+  const inserted = (): boolean => {
+    if ("liveRegion" in watch) {
+      return (region.textContent ?? "").trim() !== "";
+    }
+
+    return region.querySelector(`li[data-testid="${watch.toast}"]`) !== null;
+  };
 
   window.speechInsertion = null;
 
   const observer = new MutationObserver(() => {
-    if (region.querySelector(`li[data-testid="${toast}"]`) === null) {
+    if (!inserted()) {
       return;
     }
 
@@ -150,11 +169,11 @@ function watchInsertion({ toast, host }: InsertionWatch): void {
     window.speechInsertion = state;
   });
 
-  observer.observe(region, { childList: true, subtree: true });
+  observer.observe(region, { childList: true, subtree: true, characterData: true });
 }
 
 async function useRun(
-  { speechReader, page, browser, browserName }: RunContext,
+  { speechReader, page, browser, browserName, readerSettings }: RunContext,
   use: (run: Run) => Promise<void>,
   testInfo: TestInfo,
 ): Promise<void> {
@@ -175,6 +194,10 @@ async function useRun(
     checks: [],
     log: null,
   };
+
+  if (readerSettings !== undefined) {
+    record.readerSettings = readerSettings;
+  }
 
   const run: Run = {
     async open(path) {
@@ -270,8 +293,17 @@ const nvdaRunTest: ReaderTest = nvdaTest.extend<{ run: Run }>({
 });
 
 const voiceOverRunTest: ReaderTest = voiceOverTest.extend<{ run: Run }>({
+  // Applied by start() to Guidepup's mounted preferences before VoiceOver launches.
+  voiceOverStartOptions: { capture: "initial", settings: { [voiceOverHints]: false } },
   run: async ({ voiceOver, page, browser, browserName }, use, testInfo) => {
-    await useRun({ speechReader: voiceOver, page, browser, browserName }, use, testInfo);
+    const settings = voiceOver.getSettings();
+    const readerSettings = { [voiceOverHints]: settings[voiceOverHints] };
+
+    await useRun(
+      { speechReader: voiceOver, page, browser, browserName, readerSettings },
+      use,
+      testInfo,
+    );
   },
 });
 

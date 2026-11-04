@@ -43,6 +43,8 @@ export interface SpeechRecord {
   browser: "chromium" | "firefox" | "webkit";
   /** Null when the attempt never got a running reader and browser to ask. */
   versions: { os: string; browser: string; guidepup: string } | null;
+  /** The reader settings the harness changes, as the reader reported them; VoiceOver only. */
+  readerSettings?: Record<string, unknown>;
   /** Playwright's test status; absent while the attempt is still running. */
   status: TestInfo["status"];
   error?: string;

@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/screen-reader.yml
       - packages/origami-ui/tests/screen-reader/**
+      - examples/origami-ui/src/fixtures/toast-speech.ts
   workflow_dispatch:
 
 permissions:
@@ -50,8 +51,8 @@ jobs:
     needs: build
     name: ${{ matrix.reader }} · ${{ matrix.browser }}
     runs-on: ${{ matrix.os }}
-    # A reader can hang a run for hours; a whole job normally takes minutes.
-    timeout-minutes: 60
+    # A reader can hang a run for hours; VoiceOver normally takes up to about an hour for both specs.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
