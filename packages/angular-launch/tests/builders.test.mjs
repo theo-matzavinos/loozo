@@ -318,6 +318,8 @@ await test("application generates, then runs Angular's builder with every other 
   assert.deepEqual(call.options.ssr, { entry: "src/server.ts", platform: "neutral" });
   assert.equal(call.options.browser, "src/main.ts");
   assert.equal(call.options.outputMode, "server");
+  // An omitted conditions reaches Angular as its default list, never as an explicit [].
+  assert.deepEqual(call.options.conditions, ["module", "production"]);
 
   for (const key of ["tsconfig", "scanDirectories", "outDirectory", "tanstackQuery", "check"]) {
     assert.equal(Object.hasOwn(call.options, key), false, key);
