@@ -11,5 +11,8 @@ overrides:
 allowBuilds:
   "@parcel/watcher": true
   esbuild: true
+  # Downloads an ffmpeg binary for Guidepup's recorder; only the screen-reader workflow's macOS
+  # job needs it, and runs its install script itself.
+  ffmpeg-static: false
   lmdb: true
   msgpackr-extract: true

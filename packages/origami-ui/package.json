@@ -119,7 +119,7 @@
     "build": "rm -rf dist && ng-packagr -p ng-package.json -c tsconfig.lib.json && node ../../scripts/finish-package.mjs .",
     "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "check": "vp check",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tests/acceptance/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tests/acceptance/tsconfig.json --noEmit && tsc -p tests/screen-reader/tsconfig.json --noEmit",
     "test": "pnpm run acceptance:skips && pnpm run acceptance:sync && pnpm run typecheck && pnpm run snippets:check && pnpm run acceptance:typecheck && pnpm run acceptance:types && pnpm run acceptance:node",
     "test:fast": "pnpm run test && pnpm run acceptance:browser-readiness:fast && pnpm run acceptance:observer-calibration:fast && pnpm run acceptance:test:fast",
     "test:commit": "ORIGAMI_TIER=commit pnpm run test:full",
@@ -150,7 +150,8 @@
     "acceptance:test:fast": "ORIGAMI_MATRIX_TARGET=development-eager ORIGAMI_BROWSER=chromium sh tests/acceptance/gate-lock.sh playwright test --config tests/acceptance/playwright.config.ts --project=chromium-development-eager-no-preference",
     "acceptance:matrix": "node tests/acceptance/matrix-summary.mjs --reset && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=development-eager pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=development-incremental pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=production-eager pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=production-incremental pnpm run acceptance:test && node tests/acceptance/matrix-summary.mjs",
     "acceptance:webkit-setup": "python3 tests/acceptance/setup-webkit.py",
-    "acceptance:forensic": "ORIGAMI_FORENSIC=1 pnpm run test:full"
+    "acceptance:forensic": "ORIGAMI_FORENSIC=1 pnpm run test:full",
+    "screen-reader:test": "playwright test --config tests/screen-reader/playwright.config.ts"
   },
   "dependencies": {
     "@floating-ui/dom": "1.8.0",
@@ -168,6 +169,10 @@
     "@angular/platform-server": "22.2.2",
     "@angular/router": "22.2.2",
     "@angular/ssr": "22.2.2",
+    "@guidepup/guidepup": "0.40.0",
+    "@guidepup/playwright": "0.21.0",
+    "@guidepup/setup": "0.29.3",
+    "@playwright/test": "1.63.0",
     "@types/express": "5.0.6",
     "@types/node": "24.13.3",
     "ng-packagr": "22.2.4",
