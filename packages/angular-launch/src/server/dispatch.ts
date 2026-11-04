@@ -353,7 +353,8 @@ export async function dispatch(
  * `INVALID_INPUT` with no issues and no context is created. A fresh context is then
  * created before the body is parsed; if that fails the reply is `INTERNAL`, even when the
  * body isn't JSON. Otherwise a body that isn't JSON gives `INVALID_INPUT` with no issues.
- * Responses are JSON with `Cache-Control: private, no-store` and `Vary: Cookie`.
+ * Responses are JSON with `Cache-Control: private, no-store`, `Vary: Cookie` and
+ * `X-Content-Type-Options: nosniff`.
  *
  * @typeParam Definition - The application's context definition.
  * @param registry - The application's RPC groups.
@@ -408,6 +409,7 @@ function response(reply: Reply): Response {
       "content-type": "application/json",
       "cache-control": "private, no-store",
       vary: "Cookie",
+      "x-content-type-options": "nosniff",
     },
   });
 }

@@ -238,6 +238,7 @@ test("HTTP/direct JSON parity and generic exception/context failures with server
 
       assert.equal(direct.status, 500);
       assert.deepEqual(await http.json(), direct.body);
+      assert.equal(http.headers.get("x-content-type-options"), "nosniff");
       assert.equal(JSON.stringify(direct.body).includes("detail"), false);
     }
 
@@ -365,6 +366,7 @@ test("native backend direct dispatch, exact MIME/origin/method/credentials and u
     );
 
     assert.equal(response.status, 400);
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   }
 
   assert.equal(
