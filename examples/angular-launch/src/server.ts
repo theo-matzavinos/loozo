@@ -12,7 +12,10 @@ import {
 import { createContext, handleRequest } from "../generated/server.generated";
 import { stats } from "./database.server";
 
-const angular = new AngularNodeAppEngine();
+// Loopback-only proof server. One list for pages and RPCs; angular.json's
+// security.allowedHosts covers pages only.
+const allowedHosts = ["127.0.0.1", "localhost"];
+const angular = new AngularNodeAppEngine({ allowedHosts });
 const browser = resolve(dirname(fileURLToPath(import.meta.url)), "../browser");
 export const reqHandler = createNodeRequestHandler(async (request, response) => {
   try {
@@ -27,7 +30,7 @@ export const reqHandler = createNodeRequestHandler(async (request, response) => 
       return;
     }
 
-    const rpc = await handleRequest(web);
+    const rpc = await handleRequest(web, { allowedHosts });
 
     if (rpc) {
       await writeResponseToNodeResponse(rpc, response);

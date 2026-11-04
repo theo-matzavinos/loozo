@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import { request as httpRequest } from "node:http";
 
 const require = createRequire(
   new URL("../../packages/angular-launch/package.json", import.meta.url),
@@ -15,6 +16,10 @@ if (!base || !evidence || !isAbsolute(evidence)) {
 }
 
 await mkdir(evidence);
+
+// Node's fetch sends neither Origin nor Sec-Fetch-Site, so RPC calls from here name the
+// app's own origin, as any non-browser caller must.
+const origin = new URL(base).origin;
 
 const checks = [];
 const requests = [];
@@ -154,7 +159,7 @@ try {
     [{}, "alice", 400],
     [{ input: null }, undefined, 403],
   ]) {
-    const headers = { "content-type": "application/json" };
+    const headers = { "content-type": "application/json", origin };
 
     if (cookie) {
       headers.cookie = `proof-user=${cookie}`;
@@ -170,6 +175,64 @@ try {
   }
 
   checks.push("genuine HTTP no-input validation and group denial");
+
+  const beforeRefused = await stats();
+
+  for (const [headers, label] of [
+    [{}, "neither Origin nor Sec-Fetch-Site"],
+    [{ "sec-fetch-site": "cross-site", origin }, "Sec-Fetch-Site cross-site"],
+    [{ origin: "https://evil.example" }, "foreign Origin"],
+  ]) {
+    const response = await fetch(`${base}/_rpc/todos/list`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: "proof-user=alice", ...headers },
+      body: JSON.stringify({ input: null }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 403, label);
+    assert.equal(body.error.code, "FORBIDDEN", label);
+  }
+
+  // fetch can't override Host, so this sends a foreign one through node:http.
+  const foreignHost = await new Promise((resolve, reject) => {
+    const sent = httpRequest(
+      `${base}/_rpc/todos/list`,
+      {
+        method: "POST",
+        headers: {
+          host: "evil.example",
+          "content-type": "application/json",
+          "sec-fetch-site": "same-origin",
+          cookie: "proof-user=alice",
+        },
+      },
+      (response) => {
+        let text = "";
+
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          text += chunk;
+        });
+        response.on("end", () => {
+          resolve({ status: response.statusCode, text });
+        });
+      },
+    );
+
+    sent.on("error", reject);
+    sent.end(JSON.stringify({ input: null }));
+  });
+
+  assert.deepEqual(foreignHost, { status: 400, text: "Host not allowed" });
+
+  const afterRefused = await stats();
+
+  assert.equal(afterRefused.contexts, beforeRefused.contexts);
+  assert.equal(afterRefused.httpQueries, beforeRefused.httpQueries);
+  checks.push(
+    "built server refuses RPCs with neither Origin nor Sec-Fetch-Site, a cross-site Sec-Fetch-Site or a foreign Origin (FORBIDDEN), and a foreign Host (400 text), creating no context",
+  );
   browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true });
 
   const context = await browser.newContext();
@@ -428,7 +491,7 @@ try {
   );
 
   async function rpcRequest(method, input, user) {
-    const headers = { "content-type": "application/json" };
+    const headers = { "content-type": "application/json", origin };
 
     if (user) {
       headers.cookie = `proof-user=${user}`;

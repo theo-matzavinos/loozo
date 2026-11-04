@@ -61,10 +61,10 @@ async function reply(registry, name = "write", input = null, mode = "http") {
 async function httpReply(registry, name = "write", input = null) {
   const request = new Request(`http://test/_rpc/${id}/${name}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", origin: "http://test" },
     body: JSON.stringify({ input }),
   });
-  const response = await handleRpc(registry, application, request);
+  const response = await handleRpc(registry, application, request, { allowedHosts: ["test"] });
 
   return { status: response.status, body: await response.json() };
 }
@@ -553,9 +553,10 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
     binding,
     new Request(`http://test${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", origin: "http://test" },
       body: JSON.stringify({ input: "input" }),
     }),
+    { allowedHosts: ["test"] },
   );
 
   assert.equal(response.status, 200);
