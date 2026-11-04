@@ -28,6 +28,8 @@ the commit and release gates run in CI, not on loozo's machine. match the run to
 
 local browser and AOT build steps take a machine-wide lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`), so a run started while another holds it waits instead of contending; never bypass it. don't overlap two runs in one checkout: they share its scratch consumer and evidence.
 
+the Screen reader workflow records what NVDA and VoiceOver are asked to say during Toast's scenarios. dispatch it when an assistive-technology question needs evidence; it's optional, never a gate, and runs only in CI: local screen-reader runs are unsupported.
+
 ## pull requests
 
 each signed-off slice ships as its own pull request into `main`; a slice that depends on an unmerged one stacks on its branch and is rebased onto `main` once that one merges. commits on the branch keep their attribution trailers. the pull request title becomes `main`'s commit subject, so it's a conventional commit subject. merge only when loozo says so, and only with `gh pr merge <number> --squash --subject "<title> (#<number>)" --body ""`, which keeps `Co-Authored-By` trailers off `main`.

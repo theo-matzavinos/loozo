@@ -1,0 +1,108 @@
+name: Screen reader
+
+# Optional evidence, not a required check: runs Origami's Toast scenarios under NVDA and VoiceOver
+# through Guidepup and saves what each reader was asked to say. It never asserts speech; a job
+# fails only when the reader or the fixture misbehaves. Pull requests run it when they change it.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/screen-reader.yml
+      - packages/origami-ui/tests/screen-reader/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screen-reader-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One production-eager SSR build; the reader jobs only serve it with Node.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NG_BUILD_MAX_WORKERS: 2
+    defaults:
+      run:
+        working-directory: packages/origami-ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - run: pnpm run acceptance:prepare
+      - run: sh tests/acceptance/gate-lock.sh sh -c 'cd .scratch/consumer && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration production-eager'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: consumer-eager
+          path: packages/origami-ui/.scratch/consumer/dist/consumer-eager/
+          if-no-files-found: error
+
+  speech:
+    needs: build
+    name: ${{ matrix.reader }} · ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    # A reader can hang a run for hours; a whole job normally takes minutes.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, reader: nvda, browser: chromium }
+          - { os: windows-2025, reader: nvda, browser: firefox }
+          - { os: macos-26, reader: voiceover, browser: webkit }
+    env:
+      ORIGAMI_SR: ${{ matrix.reader }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/origami-ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - uses: actions/download-artifact@v8
+        with:
+          name: consumer-eager
+          path: packages/origami-ui/.scratch/consumer/dist/consumer-eager/
+      # The workspace doesn't run ffmpeg-static's download (pnpm-workspace.yaml); setup's
+      # --macos-record needs the binary, so this job runs it.
+      - if: runner.os == 'macOS'
+        run: >-
+          node -e "const { createRequire } = require('node:module');
+          const setup = createRequire(require.resolve('@guidepup/setup/package.json'));
+          const record = createRequire(setup.resolve('@guidepup/record/package.json'));
+          require(record.resolve('ffmpeg-static/install.js'));"
+      - if: runner.os == 'macOS'
+        run: pnpm exec guidepup setup --ci --macos-record
+      - if: runner.os == 'Windows'
+        run: pnpm exec guidepup setup --ci
+      - run: pnpm exec playwright install ${{ matrix.browser }}
+      - run: pnpm exec guidepup install
+      - run: pnpm run screen-reader:test --project ${{ matrix.reader }}-${{ matrix.browser }}
+      - if: always()
+        run: node tests/screen-reader/summary.ts
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speech-${{ matrix.reader }}-${{ matrix.browser }}
+          path: |
+            packages/origami-ui/.acceptance-evidence/screen-reader/
+            packages/origami-ui/recordings/
+          include-hidden-files: true
+          if-no-files-found: ignore
