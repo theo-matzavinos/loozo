@@ -175,6 +175,18 @@ Content-Type: application/json
 
 The envelope keeps primitive schema inputs JSON-encoded consistently by HttpClient. Version stability and request/error payload limits remain implementation details to qualify, not a promised cross-version protocol.
 
+### HTTP request checks
+
+The generated `handleRequest(request, { allowedHosts, origins = [] })` (`HandleOptions`, exported from `/server`) answers HTTP RPCs in this order, creating no context before step 5:
+
+1. A path not starting with `/_rpc/` returns `null`.
+2. The hostname of `request.url` must match `allowedHosts` as Angular matches its own: exactly, `*.example.com` for subdomains only, or `*`. `allowedHosts` is required and an empty list refuses everything. Otherwise: 400, `text/plain`, `X-Content-Type-Options: nosniff`, body `Host not allowed` (Angular's page behavior, not a Launch frame); the hostname is logged.
+3. `POST`, `application/json` and no query string, otherwise `INVALID_INPUT` with no issues.
+4. Same origin, otherwise `FORBIDDEN`, logged with the reason: an `Origin` listed in `origins` (exact serialized origins) passes; otherwise a present `Sec-Fetch-Site` must be exactly `same-origin` (`same-site`, `cross-site`, `none` and anything else refuse); otherwise a present `Origin` must equal `request.url`'s origin (`Origin: null` refuses); a request with neither header is refused. No `Referer` fallback and no opt-out.
+5. Context creation, envelope parsing and dispatch, unchanged.
+
+Non-browser callers (curl, scripts, Node `fetch`, server-to-server) must send `Origin`. Browsers send `Sec-Fetch-Site` only to potentially trustworthy origins, so plain-HTTP deployments on other hostnames rely on `Origin`, and behind a proxy that rewrites `Host` the public origin must be listed in `origins`. The same `allowedHosts` array is passed to `AngularNodeAppEngine`, whose explicit list replaces its `NG_ALLOWED_HOSTS` read; `angular.json`'s `security.allowedHosts` stays page-only. Steps 2 and 4 are HTTP-only: server-rendering dispatch carries the page request (`Sec-Fetch-Site` `cross-site` or `none` on ordinary navigations) and isn't checked.
+
 ## SSR, hydration and prerendering
 
 ```text
@@ -256,7 +268,7 @@ Verification results for the original proof remain in its README and task-owned 
 
 ## Implemented bounded slices
 
-- `packages/angular-launch`: genuine `defineContext`, `defineRpc`, `query`, `mutation`, inferred JSON-safe clients, async Standard Schema validation for inputs and declared error data, explicit guards, fixed framework errors, strict wire encoding and native HttpClient transport.
+- `packages/angular-launch`: genuine `defineContext`, `defineRpc`, `query`, `mutation`, inferred JSON-safe clients, async Standard Schema validation for inputs and declared error data, explicit guards, fixed framework errors, strict wire encoding, HTTP host and same-origin checks and native HttpClient transport.
 - `examples/angular-launch`: authored todo reads/writes with producer-generated context registration, route-local facades and server metadata. Native SSR queries dispatch locally with one live request context; hydration reuses the original DOM/transfer response; subsequent reads and browser writes use HTTP.
 - Labelled native add form trims titles to 1–200 characters. Complete idempotently sets owned rows true, returning declared `NOT_FOUND` for absent/foreign IDs without modifying either user's rows. The private in-memory store persists across browser refresh only, not server restart. Pending controls/status, readable completion and error feedback preserve failed input; successful writes explicitly invalidate the todos group, which reads the list again. No optimistic writes or automatic invalidation.
 - Final strict semantic/provenance checks cover both genuine factory kinds and declared error schemas before any cold/update/check publication. Semantic checking covers generation's own domain: generated outputs, discovered route/Launch declarations and application TypeScript files that directly import a generated output (static import, `export … from`, `import()`, `import()` type or `import =`). Other application files and dependencies get no semantic diagnostics here (the application's own build reports them); source syntax, module-reference and provenance checks still run before publication. Effective TS 6 `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` and `useUnknownInCatchVariables` must be on, with `noCheck` off. Explicit/inherited false overrides are rejected even with `strict:true`; TS 6 defaults and explicit per-flag true overrides are accepted without rewriting consumer configs or the router seam. Literal error maps cannot contain duplicate/reserved/invalid codes, invalid fields or nonconcrete schemas. Actual registered kind supplies browser metadata and rendering denial, not authored kind fields.
@@ -269,4 +281,4 @@ The qualified consumer uses ordinary `provideRouter` with hydration. A fresh nat
 
 Original read-slice verification/review receipts live under `.scratch/angular-launch-read-slice/`. The next mutation/error slice is qualified against its seeded read-slice overlay, not initial Git HEAD; current receipts are supplied with that incremental checkpoint. This remains uncommitted and unpublished. Packed consumption qualifies paired unpublished Launch/router artifacts, not the registry's existing router version (which lacks the new seam).
 
-Remaining scope: storage adapters/server-restart durability, subscriptions, optimistic writes, automatic invalidation, generic browser-boundary enforcement, broader compatibility and production auth/CSRF/CORS/cache/deployment policy. No full framework or release approval is implied.
+Remaining scope: storage adapters/server-restart durability, subscriptions, optimistic writes, automatic invalidation, generic browser-boundary enforcement, broader compatibility and production auth/CORS/cache/deployment policy. HTTP RPCs are host-checked and refused unless proven same-origin (see HTTP request checks); there is no CSRF token scheme. No full framework or release approval is implied.

@@ -21,5 +21,5 @@ export type {
 } from "./definitions.js";
 export type { DeclaredFailure } from "./errors.js";
 export type { JsonShape } from "../json.js";
-export type { RequestScope } from "./dispatch.js";
+export type { HandleOptions, RequestScope } from "./dispatch.js";
 export { finishLaunchRendering } from "./backend.js";

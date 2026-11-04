@@ -361,6 +361,7 @@ function emitLaunch(
   const server = [
     launchMarkers["server.generated.ts"],
     payloadImport(registry, context.file, "context"),
+    `import type { HandleOptions } from '@loozo/angular-launch/server';`,
     `import { createRequestScope, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
   ];
 
@@ -372,7 +373,7 @@ function emitLaunch(
     `export const registry = { ${groups.map((group, index) => `${JSON.stringify(group.namespace)}: group${index}`).join(", ")} };`,
     `export const appBinding = { id: ${JSON.stringify(appId)}, context };`,
     `export const createContext = (request: Request) => createRequestScope(appBinding, request);`,
-    `export const handleRequest = (request: Request) => handleRpc(registry, appBinding, request);`,
+    `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(registry, appBinding, request, options);`,
     `export const provideServer = () => provideLaunchServer(registry, appBinding);`,
     "",
   );

@@ -174,7 +174,7 @@ export default async function bootstrap(context: BootstrapContext) {
 }
 ```
 
-In the server entry, let `handleRequest` answer RPC requests (it returns `null` for anything else), and render pages with a request scope from `createContext`. This is the Express server that Angular's SSR setup generates, with Launch added:
+In the server entry, let `handleRequest` answer RPC requests (it returns `null` for anything else), and render pages with a request scope from `createContext`. Give `handleRequest` and Angular the same `allowedHosts` list (see [Hosts](#hosts)). This is the Express server that Angular's SSR setup generates, with Launch added:
 
 ```ts
 // src/server.ts
@@ -190,7 +190,9 @@ import express from "express";
 import { createContext, handleRequest } from "../generated/server.generated";
 
 const browser = join(import.meta.dirname, "../browser");
-const angular = new AngularNodeAppEngine();
+// An explicit list stops Angular reading NG_ALLOWED_HOSTS, so read it here.
+const allowedHosts = (process.env["NG_ALLOWED_HOSTS"] ?? "localhost").split(",");
+const angular = new AngularNodeAppEngine({ allowedHosts });
 const app = express();
 
 app.use(express.static(browser, { maxAge: "1y", index: false, redirect: false }));
@@ -198,7 +200,7 @@ app.use(express.static(browser, { maxAge: "1y", index: false, redirect: false })
 app.use(async (request, response, next) => {
   try {
     const web = createWebRequestFromNodeRequest(request);
-    const rpc = await handleRequest(web);
+    const rpc = await handleRequest(web, { allowedHosts });
 
     if (rpc) {
       await writeResponseToNodeResponse(rpc, response);
@@ -420,14 +422,12 @@ Copy `dist/<app>` to the host and start the server with Node:
 PORT=8080 NG_ALLOWED_HOSTS=example.com node dist/<app>/server/server.mjs
 ```
 
-The server bundle includes your dependencies by default, so the host doesn't need `node_modules`. `AngularNodeAppEngine` reads two environment variables:
+The server bundle includes your dependencies by default, so the host doesn't need `node_modules`. The server reads two environment variables:
 
-| Variable                 | Effect                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `NG_ALLOWED_HOSTS`       | Comma-separated hostnames allowed to render pages, in addition to `security.allowedHosts` in `angular.json`. Pages for other hosts get a 400.                |
-| `NG_TRUST_PROXY_HEADERS` | Comma-separated `Forwarded` and `X-Forwarded-*` headers that Angular should trust. Set it only behind a proxy that overwrites those headers. Off by default. |
-
-The host check covers page rendering only. `handleRequest` runs before Angular and answers RPC requests for any host.
+| Variable                 | Effect                                                                                                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NG_ALLOWED_HOSTS`       | Comma-separated hostnames allowed for pages and RPCs. The server entry above reads it and passes the list to both; it defaults to `localhost` there. Other hosts get a 400.                  |
+| `NG_TRUST_PROXY_HEADERS` | Read by `AngularNodeAppEngine`: comma-separated `Forwarded` and `X-Forwarded-*` headers that Angular should trust. Set it only behind a proxy that overwrites those headers. Off by default. |
 
 Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even when the app has a different `<base href>`. If the app is served under a path prefix, route `/_rpc/` to the same server.
 
@@ -435,9 +435,32 @@ Browser tabs opened before a deploy keep calling the procedures they were built 
 
 Launch has been verified on Node only.
 
+### Hosts
+
+`handleRequest` checks the hostname of the request URL before anything else, matching `allowedHosts` the way Angular does: exactly, `*.example.com` for subdomains only, or `*` for any host. RPCs for other hosts get a plain-text 400 `Host not allowed`, as Angular answers pages, and the hostname is logged. An empty list refuses every RPC.
+
+Passing `allowedHosts` to `AngularNodeAppEngine` replaces its own read of `NG_ALLOWED_HOSTS`, which is why the server entry reads the variable itself. `security.allowedHosts` in `angular.json` still applies to pages only: Angular builds it into an internal manifest that `handleRequest` can't read, so list RPC hosts in the server entry. Under `ng serve`, Vite's host check covers `/_rpc/` as well.
+
+### Cross-origin requests
+
+`handleRequest` answers only RPCs it can prove come from the app's own origin. The rest get `FORBIDDEN` (403), logged with the reason, before a context is created:
+
+1. An `Origin` listed in `origins` passes.
+2. Otherwise, if the request has `Sec-Fetch-Site`, it must be `same-origin`. `same-site` (a sibling subdomain), `cross-site` and `none` are refused.
+3. Otherwise, if it has `Origin`, that must equal the request URL's origin.
+4. A request with neither header is refused. There's no `Referer` fallback and no opt-out.
+
+Launch's browser client always sends one of the two headers. curl, scripts, Node's `fetch` and server-to-server callers send neither, so they must send `Origin` with the app's origin. Browsers send `Sec-Fetch-Site` only to HTTPS and `localhost`, so a plain-HTTP deployment on any other hostname relies on `Origin` matching the request URL. Behind a proxy that rewrites `Host`, that URL isn't the public one, and those calls are refused until you list the public origin:
+
+```ts
+const rpc = await handleRequest(web, { allowedHosts, origins: ["https://app.example.com"] });
+```
+
+List a sibling site's origin the same way to let it call. Only HTTP requests are checked: calls made during server rendering carry the page request, whose `Sec-Fetch-Site` is `cross-site` or `none` on an ordinary navigation, and run without these checks.
+
 ### Other server frameworks
 
-`handleRequest` and `createContext` take a web `Request`, so any framework that gives you one works. `AngularNodeAppEngine` also accepts a web `Request`, and keeps the environment variables above. With [Hono](https://hono.dev) on Node:
+`handleRequest` and `createContext` take a web `Request`, so any framework that gives you one works. `AngularNodeAppEngine` also accepts a web `Request`. With [Hono](https://hono.dev) on Node:
 
 ```ts
 // src/server.ts
@@ -450,13 +473,15 @@ import { Hono } from "hono";
 import { createContext, handleRequest } from "../generated/server.generated";
 
 const browser = fileURLToPath(new URL("../browser", import.meta.url));
-const angular = new AngularNodeAppEngine();
+// An explicit list stops Angular reading NG_ALLOWED_HOSTS, so read it here.
+const allowedHosts = (process.env["NG_ALLOWED_HOSTS"] ?? "localhost").split(",");
+const angular = new AngularNodeAppEngine({ allowedHosts });
 const app = new Hono();
 
 app.use("*", serveStatic({ root: browser }));
 
 app.all("*", async (c) => {
-  const rpc = await handleRequest(c.req.raw);
+  const rpc = await handleRequest(c.req.raw, { allowedHosts });
 
   if (rpc) {
     return rpc;
@@ -571,7 +596,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 - No subscriptions, optimistic updates or automatic invalidation. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
-- No production authentication, CSRF, CORS or caching policy. You provide those.
+- No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
 - Server work isn't cancelled when the client aborts, and nothing is rolled back.
 - One RPC group per route, and one context per application.
 

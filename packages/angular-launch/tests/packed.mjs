@@ -198,8 +198,8 @@ const registry = { [id]: defineRpc('packed', { write: mutation({
 }) }) };
 const expected = { error: { code: 'NOT_FOUND', message: 'Missing packed todo', data: { id: 'packed-id' } } };
 const response = await handleRpc(registry, binding, new Request('http://test/_rpc/'+id+'/write', {
-  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input: null }),
-}));
+  method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://test' }, body: JSON.stringify({ input: null }),
+}), { allowedHosts: ['test'] });
 assert.equal(response.status, 404); assert.deepEqual(await response.json(), expected);
 const scope = await createRequestScope(binding, new Request('http://test'));
 assert.equal(scope.appId, binding.id); assert.equal(scope.value.value, 1);

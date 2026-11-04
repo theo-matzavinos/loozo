@@ -231,13 +231,15 @@ test("HTTP/direct JSON parity and generic exception/context failures with server
         application,
         new Request(`http://127.0.0.1${path}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
           body: '{"input":null}',
         }),
+        { allowedHosts: ["127.0.0.1"] },
       );
 
       assert.equal(direct.status, 500);
       assert.deepEqual(await http.json(), direct.body);
+      assert.equal(http.headers.get("x-content-type-options"), "nosniff");
       assert.equal(JSON.stringify(direct.body).includes("detail"), false);
     }
 
@@ -258,9 +260,10 @@ test("HTTP/direct JSON parity and generic exception/context failures with server
       },
       new Request(`http://test${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: "http://test" },
         body: '{"input":null}',
       }),
+      { allowedHosts: ["test"] },
     );
 
     assert.equal(failure.status, 500);
@@ -359,12 +362,14 @@ test("native backend direct dispatch, exact MIME/origin/method/credentials and u
       application,
       new Request(`http://test${path}`, {
         method: "POST",
-        headers: { "content-type": contentType },
+        headers: { "content-type": contentType, origin: "http://test" },
         body: '{"input":null}',
       }),
+      { allowedHosts: ["test"] },
     );
 
     assert.equal(response.status, 400);
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   }
 
   assert.equal(

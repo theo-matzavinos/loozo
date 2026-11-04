@@ -343,28 +343,99 @@ export async function dispatch(
 }
 
 /**
+ * Options for the generated `handleRequest` in `server.generated.ts`.
+ */
+export interface HandleOptions {
+  /**
+   * Hostnames RPCs are answered for, matched like Angular's `allowedHosts`: exactly,
+   * `*.example.com` for subdomains only, or `*` for any host. An empty list refuses every
+   * RPC. Pass the same array to `AngularNodeAppEngine`.
+   */
+  readonly allowedHosts: readonly string[];
+  /**
+   * Further origins allowed to call, as exact serialized origins such as
+   * `https://app.example.com`: a public origin behind a proxy that rewrites `Host`, or a
+   * sibling site. Defaults to none.
+   */
+  readonly origins?: readonly string[];
+}
+
+function hostAllowed(hostname: string, allowedHosts: readonly string[]): boolean {
+  for (const allowed of allowedHosts) {
+    if (allowed === "*" || allowed === hostname) {
+      return true;
+    }
+
+    if (allowed.startsWith("*.") && hostname.endsWith(allowed.slice(1))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Why `request` can't be proven same-origin, or `undefined` when it can. */
+function crossSiteReason(request: Request, origins: readonly string[]): string | undefined {
+  const site = request.headers.get("sec-fetch-site");
+  const origin = request.headers.get("origin");
+
+  if (origin !== null && origins.includes(origin)) {
+    return undefined;
+  }
+
+  if (site !== null) {
+    if (site === "same-origin") {
+      return undefined;
+    }
+
+    return `Sec-Fetch-Site is ${site}`;
+  }
+
+  if (origin !== null) {
+    const own = new URL(request.url).origin;
+
+    if (origin === own) {
+      return undefined;
+    }
+
+    return `Origin ${origin} isn't ${own}`;
+  }
+
+  return "neither Sec-Fetch-Site nor Origin was sent";
+}
+
+/**
  * Answers an RPC HTTP request, or returns `null` for any other request.
  *
  * @remarks
  * Internal: exported only from `@loozo/angular-launch/_server` for the generated
  * `handleRequest` in `server.generated.ts`; call that instead.
- * Any path starting with `/_rpc/` is treated as an RPC request. It must be a `POST`
- * with an `application/json` content type and no query string, otherwise the reply is
- * `INVALID_INPUT` with no issues and no context is created. A fresh context is then
- * created before the body is parsed; if that fails the reply is `INTERNAL`, even when the
- * body isn't JSON. Otherwise a body that isn't JSON gives `INVALID_INPUT` with no issues.
- * Responses are JSON with `Cache-Control: private, no-store` and `Vary: Cookie`.
+ * Any path starting with `/_rpc/` is treated as an RPC request. Its URL's hostname must
+ * be in `allowedHosts`, otherwise the reply is a plain-text 400 `Host not allowed`. It
+ * must then be a `POST` with an `application/json` content type and no query string,
+ * otherwise the reply is `INVALID_INPUT` with no issues. It must then come from the
+ * app's own origin, otherwise the reply is `FORBIDDEN`: an `Origin` listed in `origins`
+ * passes; otherwise `Sec-Fetch-Site`, when sent, must be `same-origin`; otherwise
+ * `Origin`, when sent, must equal the request URL's origin; a request with neither
+ * header is refused. No context is created for any of these refusals. A fresh context
+ * is then created before the body is parsed; if that fails the reply is `INTERNAL`, even
+ * when the body isn't JSON. Otherwise a body that isn't JSON gives `INVALID_INPUT` with
+ * no issues.
+ * JSON responses carry `Cache-Control: private, no-store`, `Vary: Cookie` and
+ * `X-Content-Type-Options: nosniff`.
  *
  * @typeParam Definition - The application's context definition.
  * @param registry - The application's RPC groups.
  * @param application - The application binding.
  * @param request - The incoming server request.
+ * @param options - The allowed hosts and further allowed origins.
  * @returns The RPC response, or `null` when the path doesn't start with `/_rpc/`.
  */
 export async function handleRpc<Definition extends ContextDefinition<unknown>>(
   registry: Registry,
   application: ApplicationBinding<Definition>,
   request: Request,
+  { allowedHosts, origins = [] }: HandleOptions,
 ): Promise<Response | null> {
   const url = new URL(request.url);
 
@@ -372,30 +443,47 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
     return null;
   }
 
-  let reply: Reply;
+  if (!hostAllowed(url.hostname, allowedHosts)) {
+    console.error(`Launch refused an RPC for host ${url.hostname}`);
+
+    return new Response("Host not allowed", {
+      status: 400,
+      headers: { "content-type": "text/plain", "x-content-type-options": "nosniff" },
+    });
+  }
 
   if (
     request.method !== "POST" ||
     !isJsonMediaType(request.headers.get("content-type")) ||
     url.search !== ""
   ) {
-    reply = invalidInput();
-  } else {
+    return response(invalidInput());
+  }
+
+  const crossSite = crossSiteReason(request, origins);
+
+  if (crossSite !== undefined) {
+    console.error(`Launch refused a cross-origin RPC: ${crossSite}`);
+
+    return response(failure("FORBIDDEN"));
+  }
+
+  let reply: Reply;
+
+  try {
+    const scope = await createRequestScope(application, request);
+    let envelope: unknown;
+
     try {
-      const scope = await createRequestScope(application, request);
-      let envelope: unknown;
-
-      try {
-        envelope = await request.json();
-      } catch {
-        return response(invalidInput());
-      }
-
-      reply = await dispatch(registry, url.pathname, envelope, scope, application, scope.request);
-    } catch (error) {
-      console.error("Launch context failed", error);
-      reply = failure("INTERNAL");
+      envelope = await request.json();
+    } catch {
+      return response(invalidInput());
     }
+
+    reply = await dispatch(registry, url.pathname, envelope, scope, application, scope.request);
+  } catch (error) {
+    console.error("Launch context failed", error);
+    reply = failure("INTERNAL");
   }
 
   return response(reply);
@@ -408,6 +496,7 @@ function response(reply: Reply): Response {
       "content-type": "application/json",
       "cache-control": "private, no-store",
       vary: "Cookie",
+      "x-content-type-options": "nosniff",
     },
   });
 }
