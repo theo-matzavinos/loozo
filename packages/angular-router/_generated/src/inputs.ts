@@ -9,7 +9,7 @@ export interface RouteSet {
   readonly records: Readonly<Record<string, RecordBinding>>;
   readonly destinations: Readonly<Record<string, () => AnyRoute>>;
   readonly absolute: Readonly<Record<string, string>>;
-  readonly relative: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  readonly parents: Readonly<Record<string, string>>;
 }
 export interface Parsed {
   readonly params: Readonly<Record<string, unknown>>;

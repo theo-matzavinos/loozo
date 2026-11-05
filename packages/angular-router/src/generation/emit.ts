@@ -3,7 +3,7 @@ import ts from "typescript";
 import { markers } from "./files.js";
 import { resolveModule, type Declaration, type Sources } from "./sources.js";
 import { authoredPath } from "./validate.js";
-import { relativeSelections } from "./selectors.js";
+import { parentTargets } from "./selectors.js";
 
 export function specifier(from: string, file: string): string {
   let name = relative(dirname(from), file).split(sep).join("/").replace(/\.ts$/, ".js");
@@ -283,32 +283,30 @@ export const routes: Routes = [${[...before, ...ordinary, ...after].map(record).
     shared.push(`${JSON.stringify(path)}: ${JSON.stringify(declaration.id)};`);
   }
 
-  const relativeTargets = relativeSelections(sources, selected);
+  const parents = parentTargets(sources, selected);
 
-  shared.push("};\nexport type RelativeTargets = {");
+  shared.push("};\nexport type Parents = {");
 
-  for (const [id, expressions] of relativeTargets) {
-    shared.push(`${JSON.stringify(id)}: {`);
+  for (const [id, target] of parents) {
+    shared.push(`${JSON.stringify(id)}: ${JSON.stringify(target)};`);
+  }
 
-    for (const [expression, target] of expressions) {
-      shared.push(`${JSON.stringify(expression)}: ${JSON.stringify(target)};`);
-    }
+  shared.push("};\n/** Declarations with a colocated facade. */\nexport type Retained =");
 
-    shared.push("};");
+  for (const declaration of retained) {
+    shared.push(`| ${JSON.stringify(declaration.id)}`);
   }
 
   shared.push(
-    `};
+    `;
 export type AbsoluteSelected = {
   readonly [Expression in keyof AbsoluteTargets]: Definitions[AbsoluteTargets[Expression] & keyof Definitions];
 };
-export type Selected<Id extends keyof RelativeTargets> = AbsoluteSelected & {
-  readonly [Expression in keyof RelativeTargets[Id]]: Definitions[RelativeTargets[Id][Expression] & keyof Definitions];
-};
+type ParentOf<Id extends Retained> = Id extends keyof Parents ? Definitions[Parents[Id] & keyof Definitions] : never;
 /** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
-export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+export type Handle<Id extends Retained> = GeneratedHandle<Definitions[Id], AbsoluteSelected, ParentOf<Id>, typeof setIdentity, Pick<Definitions, Retained>>;
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
-export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
+export type Destination<Id extends Retained> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {`,
   );
 
@@ -333,18 +331,18 @@ const routeSet: RouteSet = { records: {`,
   }
 
   const absoluteSelectors: Record<string, string> = Object.create(null);
-  const relativeSelectors: Record<string, Record<string, string>> = Object.create(null);
+  const parentSelectors: Record<string, string> = Object.create(null);
 
   for (const [path, declaration] of selected) {
     absoluteSelectors[path] = declaration.id;
   }
 
-  for (const [id, expressions] of relativeTargets) {
-    relativeSelectors[id] = Object.fromEntries(expressions);
+  for (const [id, target] of parents) {
+    parentSelectors[id] = target;
   }
 
   shared.push(
-    `}, absolute: ${JSON.stringify(absoluteSelectors)}, relative: ${JSON.stringify(relativeSelectors)} };\nexport function getRouteSet(): RouteSet { return routeSet; }\n`,
+    `}, absolute: ${JSON.stringify(absoluteSelectors)}, parents: ${JSON.stringify(parentSelectors)} };\nexport function getRouteSet(): RouteSet { return routeSet; }\n`,
   );
   desired.set(sharedFile, shared.join("\n"));
 

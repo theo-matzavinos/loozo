@@ -26,101 +26,32 @@ export type AbsoluteTargets = {
 "/$segments[]": "src/routes/$segments[]/route.ts";
 "/": "src/routes/+home/route.ts";
 };
-export type RelativeTargets = {
-"src/routes/$package/+overview/route.ts": {
-"./": "src/routes/$package/+overview/route.ts";
-"./api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"./generated-api": "src/routes/$package/generated-api/route.ts";
-"./guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../$package": "src/routes/$package/+overview/route.ts";
-"../$package/api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../$package/generated-api": "src/routes/$package/generated-api/route.ts";
-"../$package/guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../$segments[]": "src/routes/$segments[]/route.ts";
-"..": "src/routes/+home/route.ts";
-"../": "src/routes/+home/route.ts";
+export type Parents = {
+"src/routes/$package/+overview/route.ts": "src/routes/+home/route.ts";
+"src/routes/$package/api/$symbol/route.ts": "src/routes/$package/+overview/route.ts";
+"src/routes/$package/generated-api/route.ts": "src/routes/$package/+overview/route.ts";
+"src/routes/$package/guide/$guide/route.ts": "src/routes/$package/+overview/route.ts";
+"src/routes/$package/route.ts": "src/routes/+home/route.ts";
+"src/routes/$segments[]/route.ts": "src/routes/+home/route.ts";
 };
-"src/routes/$package/api/$symbol/route.ts": {
-"./": "src/routes/$package/api/$symbol/route.ts";
-"../$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../..": "src/routes/$package/+overview/route.ts";
-"../../": "src/routes/$package/+overview/route.ts";
-"../../api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../../generated-api": "src/routes/$package/generated-api/route.ts";
-"../../guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../../../$package": "src/routes/$package/+overview/route.ts";
-"../../../$package/api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../../../$package/generated-api": "src/routes/$package/generated-api/route.ts";
-"../../../$package/guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../../../$segments[]": "src/routes/$segments[]/route.ts";
-"../../..": "src/routes/+home/route.ts";
-"../../../": "src/routes/+home/route.ts";
-};
-"src/routes/$package/generated-api/route.ts": {
-"./": "src/routes/$package/generated-api/route.ts";
-"..": "src/routes/$package/+overview/route.ts";
-"../": "src/routes/$package/+overview/route.ts";
-"../api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../generated-api": "src/routes/$package/generated-api/route.ts";
-"../guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../../$package": "src/routes/$package/+overview/route.ts";
-"../../$package/api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../../$package/generated-api": "src/routes/$package/generated-api/route.ts";
-"../../$package/guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../../$segments[]": "src/routes/$segments[]/route.ts";
-"../..": "src/routes/+home/route.ts";
-"../../": "src/routes/+home/route.ts";
-};
-"src/routes/$package/guide/$guide/route.ts": {
-"./": "src/routes/$package/guide/$guide/route.ts";
-"../$guide": "src/routes/$package/guide/$guide/route.ts";
-"../..": "src/routes/$package/+overview/route.ts";
-"../../": "src/routes/$package/+overview/route.ts";
-"../../api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../../generated-api": "src/routes/$package/generated-api/route.ts";
-"../../guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../../../$package": "src/routes/$package/+overview/route.ts";
-"../../../$package/api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../../../$package/generated-api": "src/routes/$package/generated-api/route.ts";
-"../../../$package/guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../../../$segments[]": "src/routes/$segments[]/route.ts";
-"../../..": "src/routes/+home/route.ts";
-"../../../": "src/routes/+home/route.ts";
-};
-"src/routes/$package/route.ts": {
-"./": "src/routes/$package/+overview/route.ts";
-"./api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"./generated-api": "src/routes/$package/generated-api/route.ts";
-"./guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../$package": "src/routes/$package/+overview/route.ts";
-"../$package/api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"../$package/generated-api": "src/routes/$package/generated-api/route.ts";
-"../$package/guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"../$segments[]": "src/routes/$segments[]/route.ts";
-"..": "src/routes/+home/route.ts";
-"../": "src/routes/+home/route.ts";
-};
-"src/routes/$segments[]/route.ts": {
-};
-"src/routes/+home/route.ts": {
-"./$package": "src/routes/$package/+overview/route.ts";
-"./$package/api/$symbol": "src/routes/$package/api/$symbol/route.ts";
-"./$package/generated-api": "src/routes/$package/generated-api/route.ts";
-"./$package/guide/$guide": "src/routes/$package/guide/$guide/route.ts";
-"./$segments[]": "src/routes/$segments[]/route.ts";
-"./": "src/routes/+home/route.ts";
-};
-};
+/** Declarations with a colocated facade. */
+export type Retained =
+| "src/routes/$package/+overview/route.ts"
+| "src/routes/$package/api/$symbol/route.ts"
+| "src/routes/$package/generated-api/route.ts"
+| "src/routes/$package/guide/$guide/route.ts"
+| "src/routes/$package/route.ts"
+| "src/routes/$segments[]/route.ts"
+| "src/routes/+home/route.ts"
+;
 export type AbsoluteSelected = {
   readonly [Expression in keyof AbsoluteTargets]: Definitions[AbsoluteTargets[Expression] & keyof Definitions];
 };
-export type Selected<Id extends keyof RelativeTargets> = AbsoluteSelected & {
-  readonly [Expression in keyof RelativeTargets[Id]]: Definitions[RelativeTargets[Id][Expression] & keyof Definitions];
-};
+type ParentOf<Id extends Retained> = Id extends keyof Parents ? Definitions[Parents[Id] & keyof Definitions] : never;
 /** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
-export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+export type Handle<Id extends Retained> = GeneratedHandle<Definitions[Id], AbsoluteSelected, ParentOf<Id>, typeof setIdentity, Pick<Definitions, Retained>>;
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
-export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
+export type Destination<Id extends Retained> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
 "src/routes/$package/+overview/route.ts": { definition: () => definition0, owners: ["src/routes/$package/route.ts","src/routes/$package/+overview/route.ts"] },
 "src/routes/$package/api/$symbol/route.ts": { definition: () => definition1, owners: ["src/routes/$package/route.ts","src/routes/$package/api/$symbol/route.ts"] },
@@ -137,5 +68,5 @@ const routeSet: RouteSet = { records: {
 "src/routes/$package/route.ts": () => definition4,
 "src/routes/$segments[]/route.ts": () => definition5,
 "src/routes/+home/route.ts": () => definition6,
-}, absolute: {"/$package":"src/routes/$package/+overview/route.ts","/$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","/$package/generated-api":"src/routes/$package/generated-api/route.ts","/$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","/$segments[]":"src/routes/$segments[]/route.ts","/":"src/routes/+home/route.ts"}, relative: {"src/routes/$package/+overview/route.ts":{"./":"src/routes/$package/+overview/route.ts","./api/$symbol":"src/routes/$package/api/$symbol/route.ts","./generated-api":"src/routes/$package/generated-api/route.ts","./guide/$guide":"src/routes/$package/guide/$guide/route.ts","../$package":"src/routes/$package/+overview/route.ts","../$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","../$package/generated-api":"src/routes/$package/generated-api/route.ts","../$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","../$segments[]":"src/routes/$segments[]/route.ts","..":"src/routes/+home/route.ts","../":"src/routes/+home/route.ts"},"src/routes/$package/api/$symbol/route.ts":{"./":"src/routes/$package/api/$symbol/route.ts","../$symbol":"src/routes/$package/api/$symbol/route.ts","../..":"src/routes/$package/+overview/route.ts","../../":"src/routes/$package/+overview/route.ts","../../api/$symbol":"src/routes/$package/api/$symbol/route.ts","../../generated-api":"src/routes/$package/generated-api/route.ts","../../guide/$guide":"src/routes/$package/guide/$guide/route.ts","../../../$package":"src/routes/$package/+overview/route.ts","../../../$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","../../../$package/generated-api":"src/routes/$package/generated-api/route.ts","../../../$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","../../../$segments[]":"src/routes/$segments[]/route.ts","../../..":"src/routes/+home/route.ts","../../../":"src/routes/+home/route.ts"},"src/routes/$package/generated-api/route.ts":{"./":"src/routes/$package/generated-api/route.ts","..":"src/routes/$package/+overview/route.ts","../":"src/routes/$package/+overview/route.ts","../api/$symbol":"src/routes/$package/api/$symbol/route.ts","../generated-api":"src/routes/$package/generated-api/route.ts","../guide/$guide":"src/routes/$package/guide/$guide/route.ts","../../$package":"src/routes/$package/+overview/route.ts","../../$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","../../$package/generated-api":"src/routes/$package/generated-api/route.ts","../../$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","../../$segments[]":"src/routes/$segments[]/route.ts","../..":"src/routes/+home/route.ts","../../":"src/routes/+home/route.ts"},"src/routes/$package/guide/$guide/route.ts":{"./":"src/routes/$package/guide/$guide/route.ts","../$guide":"src/routes/$package/guide/$guide/route.ts","../..":"src/routes/$package/+overview/route.ts","../../":"src/routes/$package/+overview/route.ts","../../api/$symbol":"src/routes/$package/api/$symbol/route.ts","../../generated-api":"src/routes/$package/generated-api/route.ts","../../guide/$guide":"src/routes/$package/guide/$guide/route.ts","../../../$package":"src/routes/$package/+overview/route.ts","../../../$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","../../../$package/generated-api":"src/routes/$package/generated-api/route.ts","../../../$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","../../../$segments[]":"src/routes/$segments[]/route.ts","../../..":"src/routes/+home/route.ts","../../../":"src/routes/+home/route.ts"},"src/routes/$package/route.ts":{"./":"src/routes/$package/+overview/route.ts","./api/$symbol":"src/routes/$package/api/$symbol/route.ts","./generated-api":"src/routes/$package/generated-api/route.ts","./guide/$guide":"src/routes/$package/guide/$guide/route.ts","../$package":"src/routes/$package/+overview/route.ts","../$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","../$package/generated-api":"src/routes/$package/generated-api/route.ts","../$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","../$segments[]":"src/routes/$segments[]/route.ts","..":"src/routes/+home/route.ts","../":"src/routes/+home/route.ts"},"src/routes/$segments[]/route.ts":{},"src/routes/+home/route.ts":{"./$package":"src/routes/$package/+overview/route.ts","./$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","./$package/generated-api":"src/routes/$package/generated-api/route.ts","./$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","./$segments[]":"src/routes/$segments[]/route.ts","./":"src/routes/+home/route.ts"}} };
+}, absolute: {"/$package":"src/routes/$package/+overview/route.ts","/$package/api/$symbol":"src/routes/$package/api/$symbol/route.ts","/$package/generated-api":"src/routes/$package/generated-api/route.ts","/$package/guide/$guide":"src/routes/$package/guide/$guide/route.ts","/$segments[]":"src/routes/$segments[]/route.ts","/":"src/routes/+home/route.ts"}, parents: {"src/routes/$package/+overview/route.ts":"src/routes/+home/route.ts","src/routes/$package/api/$symbol/route.ts":"src/routes/$package/+overview/route.ts","src/routes/$package/generated-api/route.ts":"src/routes/$package/+overview/route.ts","src/routes/$package/guide/$guide/route.ts":"src/routes/$package/+overview/route.ts","src/routes/$package/route.ts":"src/routes/+home/route.ts","src/routes/$segments[]/route.ts":"src/routes/+home/route.ts"} };
 export function getRouteSet(): RouteSet { return routeSet; }

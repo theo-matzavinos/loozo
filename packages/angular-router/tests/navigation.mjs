@@ -206,15 +206,16 @@ import { destination as middle } from './routes/middle/route.generated.js';
 import { destination as nonleaf } from './routes/nonleaf/route.generated.js';
 import { destination as twin } from './routes/twin/route.generated.js';
 import { injectRoute as docsRoute } from './routes/docs/route.generated.js';
+import { injectRoute as deepRoute } from './routes/deep/route.generated.js';
 import { injectRoute as optionalRoute, destination as optional } from './routes/optional/route.generated.js';
 import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
 import definition from './routes/scope/definition.js';
 const h = multiRoute();
 const link: UrlTree = h.link('/enum/$kind', { params: { kind: 'a' } });
-const nativePromise: Promise<boolean> = h.navigate('../../../../../', {});
-h.link('../../..', { params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'leaf' });
-h.link('../../../', { params: { scopeId: 'x' }, search: { leaf: 'a' } });
-h.link('../../../projects/$projectId/detail', { params: { scopeId: 'x', projectId: 'p' } });
+const nativePromise: Promise<boolean> = h.navigate('/', {});
+// The parent route: the pathless parent shares /scope/$scopeId, so .. selects that path's canonical terminal.
+h.link('..', { params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'leaf' });
+h.navigate('..', { params: { scopeId: 'x' } });
 h.link('/docs/$parts[]', { params: { parts: [] } });
 h.link('/old/alias/$id', { params: { id: 1 } });
 h.link('/literal?/#', {});
@@ -282,7 +283,8 @@ h.navigate(conditionalIdenticalReference, {});
 const own = scopeRoute();
 own.link({ params: { scopeId: 'x' }, fragment: 'own' });
 own.link('.', { params: { scopeId: 'x' } });
-own.link('./', { params: { scopeId: 'x' }, search: { leaf: 'a' } });
+// A top-level route's parent is the root.
+own.link('..', {});
 const opt = optionalRoute();
 opt.link({ params: { id: 1 }, search: { label: 'x' } });
 opt.link('.', { params: { id: 1 }, search: { label: '', constructor: 2, toString: 3, valueOf: '' }, fragment: 'summary' });
@@ -323,13 +325,21 @@ h.link('/enum/$kind', { params: { kind: 'a' }, extra: 1 });
 // @ts-expect-error wrong fragment target
 h.link(terminal, { params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'own' });
 // @ts-expect-error canonical terminal, not exact scope: only scope declares 'own'
-own.link('./', { params: { scopeId: 'x' }, fragment: 'own' });
-// @ts-expect-error unknown intermediate prefix
+own.link('/scope/$scopeId', { params: { scopeId: 'x' }, fragment: 'own' });
+// @ts-expect-error parent values are the parent's
 h.link('..', { params: { scopeId: 'x', projectId: 'p' } });
-// @ts-expect-error segment traversal not authored-parent traversal
+// @ts-expect-error .. is the only relative selector
 h.link('../..', { params: { scopeId: 'x' } });
-// @ts-expect-error above root
+// @ts-expect-error no trailing-slash form
+h.link('../', { params: { scopeId: 'x' } });
+// @ts-expect-error no ./ form
+own.link('./', { params: { scopeId: 'x' } });
+// @ts-expect-error no relative extension
+h.link('../projects/$projectId/detail', { params: { scopeId: 'x', projectId: 'p' } });
+// @ts-expect-error multi-level traversal
 h.link('../../../../../../', {});
+// @ts-expect-error the parent path /unresolved has no destination
+deepRoute().link('..', {});
 // @ts-expect-error unresolved shared path
 h.link('/unresolved', {});
 // @ts-expect-error pruned owner not destination
@@ -368,7 +378,9 @@ h.link('./../', {});
 const docs = docsRoute();
 docs.link('.', { params: { parts: ['a/b'] } });
 docs.link('/', {});
-// @ts-expect-error unknown catchall depth
+// A catchall route's parent is its parent route's path, here the root.
+docs.link('..', {});
+// @ts-expect-error parent values are the parent's
  docs.link('..', { params: { parts: [] } });
 // @ts-expect-error no extension from catchall origin
  docs.link('./index', {});
@@ -481,7 +493,7 @@ try {
     const results = [];
     const link = (...args) => p.link(...args);
 
-    results.push(link("../../..", { params: { scopeId: "a/b" }, search: { leaf: "winner" } }));
+    results.push(link("..", { params: { scopeId: "a/b" }, search: { leaf: "winner" } }));
     results.push(link(p.references.scope, { params: { scopeId: "exact" } }));
     results.push(
       link(p.references.terminal, { params: { scopeId: "leaf" }, search: { leaf: "required" } }),
@@ -500,7 +512,9 @@ try {
     const parses = p.calls.parse.length;
     const navigations = p.calls.navigate.length;
     const invalid = [
-      ["..", { params: { scopeId: "x", projectId: "p" } }],
+      ["../..", { params: { scopeId: "x" } }],
+      ["../", { params: { scopeId: "x" } }],
+      ["./", { params: { scopeId: "x", projectId: "p" } }],
       ["../../../../../../", {}],
       ["/unresolved", {}],
       ["/old", {}],

@@ -24,92 +24,26 @@ export type AbsoluteTargets = {
 "/teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
 "/teams/$teamId": "src/routes/teams/$teamId/route.ts";
 };
-export type RelativeTargets = {
-"src/routes/products/$productId/route.ts": {
-"./": "src/routes/products/$productId/route.ts";
-"../$productId": "src/routes/products/$productId/route.ts";
-"../../products/$productId": "src/routes/products/$productId/route.ts";
-"../../reports/$reportId": "src/routes/reports/$reportId/route.ts";
-"../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../teams/$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
+export type Parents = {
+"src/routes/teams/$teamId/items/$id/route.ts": "src/routes/teams/$teamId/route.ts";
+"src/routes/teams/$teamId/members/$memberId/route.ts": "src/routes/teams/$teamId/route.ts";
 };
-"src/routes/reports/$reportId/route.ts": {
-"./": "src/routes/reports/$reportId/route.ts";
-"../$reportId": "src/routes/reports/$reportId/route.ts";
-"../../products/$productId": "src/routes/products/$productId/route.ts";
-"../../reports/$reportId": "src/routes/reports/$reportId/route.ts";
-"../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../teams/$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-"src/routes/teams/$teamId/items/$id/route.ts": {
-"./": "src/routes/teams/$teamId/items/$id/route.ts";
-"../$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../..": "src/routes/teams/$teamId/route.ts";
-"../../": "src/routes/teams/$teamId/route.ts";
-"../../../$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../../$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../../$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../../$teamId": "src/routes/teams/$teamId/route.ts";
-"../../../../products/$productId": "src/routes/products/$productId/route.ts";
-"../../../../reports/$reportId": "src/routes/reports/$reportId/route.ts";
-"../../../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../../../teams/$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-"src/routes/teams/$teamId/members/$memberId/route.ts": {
-"./": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../..": "src/routes/teams/$teamId/route.ts";
-"../../": "src/routes/teams/$teamId/route.ts";
-"../../../$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../../$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../../$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../../$teamId": "src/routes/teams/$teamId/route.ts";
-"../../../../products/$productId": "src/routes/products/$productId/route.ts";
-"../../../../reports/$reportId": "src/routes/reports/$reportId/route.ts";
-"../../../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../../../teams/$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-"src/routes/teams/$teamId/route.ts": {
-"./items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"./members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"./old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"./": "src/routes/teams/$teamId/route.ts";
-"../$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../$teamId": "src/routes/teams/$teamId/route.ts";
-"../../products/$productId": "src/routes/products/$productId/route.ts";
-"../../reports/$reportId": "src/routes/reports/$reportId/route.ts";
-"../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../teams/$teamId/members/$memberId": "src/routes/teams/$teamId/members/$memberId/route.ts";
-"../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-};
+/** Declarations with a colocated facade. */
+export type Retained =
+| "src/routes/products/$productId/route.ts"
+| "src/routes/reports/$reportId/route.ts"
+| "src/routes/teams/$teamId/items/$id/route.ts"
+| "src/routes/teams/$teamId/members/$memberId/route.ts"
+| "src/routes/teams/$teamId/route.ts"
+;
 export type AbsoluteSelected = {
   readonly [Expression in keyof AbsoluteTargets]: Definitions[AbsoluteTargets[Expression] & keyof Definitions];
 };
-export type Selected<Id extends keyof RelativeTargets> = AbsoluteSelected & {
-  readonly [Expression in keyof RelativeTargets[Id]]: Definitions[RelativeTargets[Id][Expression] & keyof Definitions];
-};
+type ParentOf<Id extends Retained> = Id extends keyof Parents ? Definitions[Parents[Id] & keyof Definitions] : never;
 /** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
-export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+export type Handle<Id extends Retained> = GeneratedHandle<Definitions[Id], AbsoluteSelected, ParentOf<Id>, typeof setIdentity, Pick<Definitions, Retained>>;
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
-export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
+export type Destination<Id extends Retained> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
 "src/routes/products/$productId/route.ts": { definition: () => definition0, owners: ["src/routes/products/$productId/route.ts"] },
 "src/routes/reports/$reportId/route.ts": { definition: () => definition1, owners: ["src/routes/reports/$reportId/route.ts"] },
@@ -123,5 +57,5 @@ const routeSet: RouteSet = { records: {
 "src/routes/teams/$teamId/members/$memberId/route.ts": () => definition3,
 "src/routes/teams/$teamId/old-items/$id/route.ts": () => definition4,
 "src/routes/teams/$teamId/route.ts": () => definition5,
-}, absolute: {"/products/$productId":"src/routes/products/$productId/route.ts","/reports/$reportId":"src/routes/reports/$reportId/route.ts","/teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","/teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","/teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","/teams/$teamId":"src/routes/teams/$teamId/route.ts"}, relative: {"src/routes/products/$productId/route.ts":{"./":"src/routes/products/$productId/route.ts","../$productId":"src/routes/products/$productId/route.ts","../../products/$productId":"src/routes/products/$productId/route.ts","../../reports/$reportId":"src/routes/reports/$reportId/route.ts","../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/reports/$reportId/route.ts":{"./":"src/routes/reports/$reportId/route.ts","../$reportId":"src/routes/reports/$reportId/route.ts","../../products/$productId":"src/routes/products/$productId/route.ts","../../reports/$reportId":"src/routes/reports/$reportId/route.ts","../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/teams/$teamId/items/$id/route.ts":{"./":"src/routes/teams/$teamId/items/$id/route.ts","../$id":"src/routes/teams/$teamId/items/$id/route.ts","../../items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../..":"src/routes/teams/$teamId/route.ts","../../":"src/routes/teams/$teamId/route.ts","../../../$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../../$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../../$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../../$teamId":"src/routes/teams/$teamId/route.ts","../../../../products/$productId":"src/routes/products/$productId/route.ts","../../../../reports/$reportId":"src/routes/reports/$reportId/route.ts","../../../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../../../teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../../../teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/teams/$teamId/members/$memberId/route.ts":{"./":"src/routes/teams/$teamId/members/$memberId/route.ts","../$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../..":"src/routes/teams/$teamId/route.ts","../../":"src/routes/teams/$teamId/route.ts","../../../$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../../$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../../$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../../$teamId":"src/routes/teams/$teamId/route.ts","../../../../products/$productId":"src/routes/products/$productId/route.ts","../../../../reports/$reportId":"src/routes/reports/$reportId/route.ts","../../../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../../../teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../../../teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/teams/$teamId/route.ts":{"./items/$id":"src/routes/teams/$teamId/items/$id/route.ts","./members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","./old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","./":"src/routes/teams/$teamId/route.ts","../$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../$teamId":"src/routes/teams/$teamId/route.ts","../../products/$productId":"src/routes/products/$productId/route.ts","../../reports/$reportId":"src/routes/reports/$reportId/route.ts","../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../teams/$teamId":"src/routes/teams/$teamId/route.ts"}} };
+}, absolute: {"/products/$productId":"src/routes/products/$productId/route.ts","/reports/$reportId":"src/routes/reports/$reportId/route.ts","/teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","/teams/$teamId/members/$memberId":"src/routes/teams/$teamId/members/$memberId/route.ts","/teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","/teams/$teamId":"src/routes/teams/$teamId/route.ts"}, parents: {"src/routes/teams/$teamId/items/$id/route.ts":"src/routes/teams/$teamId/route.ts","src/routes/teams/$teamId/members/$memberId/route.ts":"src/routes/teams/$teamId/route.ts"} };
 export function getRouteSet(): RouteSet { return routeSet; }

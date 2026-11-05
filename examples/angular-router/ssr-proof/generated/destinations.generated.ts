@@ -21,66 +21,26 @@ export type AbsoluteTargets = {
 "/teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
 "/teams/$teamId": "src/routes/teams/$teamId/route.ts";
 };
-export type RelativeTargets = {
-"src/routes/+home/route.ts": {
-"./": "src/routes/+home/route.ts";
-"./handle-only/$id": "src/routes/handle-only/$id/route.ts";
-"./teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"./teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"./teams/$teamId": "src/routes/teams/$teamId/route.ts";
+export type Parents = {
+"src/routes/handle-only/$id/route.ts": "src/routes/+home/route.ts";
+"src/routes/teams/$teamId/items/$id/route.ts": "src/routes/teams/$teamId/route.ts";
+"src/routes/teams/$teamId/route.ts": "src/routes/+home/route.ts";
 };
-"src/routes/handle-only/$id/route.ts": {
-"./": "src/routes/handle-only/$id/route.ts";
-"../$id": "src/routes/handle-only/$id/route.ts";
-"../..": "src/routes/+home/route.ts";
-"../../": "src/routes/+home/route.ts";
-"../../handle-only/$id": "src/routes/handle-only/$id/route.ts";
-"../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-"src/routes/teams/$teamId/items/$id/route.ts": {
-"./": "src/routes/teams/$teamId/items/$id/route.ts";
-"../$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../..": "src/routes/teams/$teamId/route.ts";
-"../../": "src/routes/teams/$teamId/route.ts";
-"../../../$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../../$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../../$teamId": "src/routes/teams/$teamId/route.ts";
-"../../../..": "src/routes/+home/route.ts";
-"../../../../": "src/routes/+home/route.ts";
-"../../../../handle-only/$id": "src/routes/handle-only/$id/route.ts";
-"../../../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-"src/routes/teams/$teamId/route.ts": {
-"./items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"./old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"./": "src/routes/teams/$teamId/route.ts";
-"../$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../$teamId": "src/routes/teams/$teamId/route.ts";
-"../..": "src/routes/+home/route.ts";
-"../../": "src/routes/+home/route.ts";
-"../../handle-only/$id": "src/routes/handle-only/$id/route.ts";
-"../../teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts";
-"../../teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts";
-"../../teams/$teamId": "src/routes/teams/$teamId/route.ts";
-};
-};
+/** Declarations with a colocated facade. */
+export type Retained =
+| "src/routes/+home/route.ts"
+| "src/routes/handle-only/$id/route.ts"
+| "src/routes/teams/$teamId/items/$id/route.ts"
+| "src/routes/teams/$teamId/route.ts"
+;
 export type AbsoluteSelected = {
   readonly [Expression in keyof AbsoluteTargets]: Definitions[AbsoluteTargets[Expression] & keyof Definitions];
 };
-export type Selected<Id extends keyof RelativeTargets> = AbsoluteSelected & {
-  readonly [Expression in keyof RelativeTargets[Id]]: Definitions[RelativeTargets[Id][Expression] & keyof Definitions];
-};
+type ParentOf<Id extends Retained> = Id extends keyof Parents ? Definitions[Parents[Id] & keyof Definitions] : never;
 /** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
-export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+export type Handle<Id extends Retained> = GeneratedHandle<Definitions[Id], AbsoluteSelected, ParentOf<Id>, typeof setIdentity, Pick<Definitions, Retained>>;
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
-export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
+export type Destination<Id extends Retained> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
 "src/routes/+home/route.ts": { definition: () => definition0, owners: ["src/routes/+home/route.ts"] },
 "src/routes/handle-only/$id/route.ts": { definition: () => definition1, owners: ["src/routes/handle-only/$id/route.ts"] },
@@ -92,5 +52,5 @@ const routeSet: RouteSet = { records: {
 "src/routes/teams/$teamId/items/$id/route.ts": () => definition2,
 "src/routes/teams/$teamId/old-items/$id/route.ts": () => definition3,
 "src/routes/teams/$teamId/route.ts": () => definition4,
-}, absolute: {"/":"src/routes/+home/route.ts","/handle-only/$id":"src/routes/handle-only/$id/route.ts","/teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","/teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","/teams/$teamId":"src/routes/teams/$teamId/route.ts"}, relative: {"src/routes/+home/route.ts":{"./":"src/routes/+home/route.ts","./handle-only/$id":"src/routes/handle-only/$id/route.ts","./teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","./teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","./teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/handle-only/$id/route.ts":{"./":"src/routes/handle-only/$id/route.ts","../$id":"src/routes/handle-only/$id/route.ts","../..":"src/routes/+home/route.ts","../../":"src/routes/+home/route.ts","../../handle-only/$id":"src/routes/handle-only/$id/route.ts","../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/teams/$teamId/items/$id/route.ts":{"./":"src/routes/teams/$teamId/items/$id/route.ts","../$id":"src/routes/teams/$teamId/items/$id/route.ts","../../items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../..":"src/routes/teams/$teamId/route.ts","../../":"src/routes/teams/$teamId/route.ts","../../../$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../../$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../../$teamId":"src/routes/teams/$teamId/route.ts","../../../..":"src/routes/+home/route.ts","../../../../":"src/routes/+home/route.ts","../../../../handle-only/$id":"src/routes/handle-only/$id/route.ts","../../../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../../../teams/$teamId":"src/routes/teams/$teamId/route.ts"},"src/routes/teams/$teamId/route.ts":{"./items/$id":"src/routes/teams/$teamId/items/$id/route.ts","./old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","./":"src/routes/teams/$teamId/route.ts","../$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../$teamId":"src/routes/teams/$teamId/route.ts","../..":"src/routes/+home/route.ts","../../":"src/routes/+home/route.ts","../../handle-only/$id":"src/routes/handle-only/$id/route.ts","../../teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","../../teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","../../teams/$teamId":"src/routes/teams/$teamId/route.ts"}} };
+}, absolute: {"/":"src/routes/+home/route.ts","/handle-only/$id":"src/routes/handle-only/$id/route.ts","/teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","/teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","/teams/$teamId":"src/routes/teams/$teamId/route.ts"}, parents: {"src/routes/handle-only/$id/route.ts":"src/routes/+home/route.ts","src/routes/teams/$teamId/items/$id/route.ts":"src/routes/teams/$teamId/route.ts","src/routes/teams/$teamId/route.ts":"src/routes/+home/route.ts"} };
 export function getRouteSet(): RouteSet { return routeSet; }

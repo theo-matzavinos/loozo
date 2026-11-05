@@ -4,7 +4,7 @@ Status: **revised after loozo's scope review; not frozen or launch authorization
 
 This document is the intended product target for the experiment: retained implemented application behavior plus the explicitly agreed changes below, not the unfinished Version 1 roadmap. Use generation-first Angular integration, small justified helpers, and private generation internals. Requirements below are normative unless explicitly marked as examples, limitations, or unspecified behavior. Structure and algorithms remain free within that boundary.
 
-Agreed differences from the reference: no standalone generation CLI or public graph-library API; named terminal catchalls using `$segments[]`; native behavioral route options and phase-specific typed guards; declared-only fragment names; URL-segment-relative navigation; generated destination-reference overloads; filesystem route definitions by default: directories give paths and parents, and the builder seeds editable definitions and synchronizes only the specified structural fields (§12); `autoDefineRoutes: false` selects explicit mode, where paths and parents are authored and definition files are never created or rewritten. The catchall notation is directory-safe. **Authored route/page candidates are `.ts` only**. Historical `.mts`, `.cts`, and `.tsx` discovery does not establish a product need or an authoring-interoperability requirement. Evaluation separates retained behavior from these intentional target differences.
+Agreed differences from the reference: no standalone generation CLI or public graph-library API; named terminal catchalls using `$segments[]`; native behavioral route options and phase-specific typed guards; declared-only fragment names; a parent-route `..` selector as the only relative navigation; generated destination-reference overloads; filesystem route definitions by default: directories give paths and parents, and the builder seeds editable definitions and synchronizes only the specified structural fields (§12); `autoDefineRoutes: false` selects explicit mode, where paths and parents are authored and definition files are never created or rewritten. The catchall notation is directory-safe. **Authored route/page candidates are `.ts` only**. Historical `.mts`, `.cts`, and `.tsx` discovery does not establish a product need or an authoring-interoperability requirement. Evaluation separates retained behavior from these intentional target differences.
 
 ## 1. Product and compatibility boundary [P]
 
@@ -275,13 +275,13 @@ Values are the committed snapshot's and are available on the first read, includi
 route.navigate(values); // Promise<boolean>, exact bound declaration
 route.navigate(".", values); // same exact bound declaration
 route.navigate("/teams/$teamId/items/$id", destinationValues);
-route.navigate("../elsewhere/$siblingId", destinationValues);
+route.navigate("..", parentValues); // parent route
 route.navigate(otherDestination, destinationValues);
 
 route.link(values); // UrlTree, no navigation
 route.link(".", values);
 route.link("/teams/$teamId/items/$id", destinationValues);
-route.link("../elsewhere/$siblingId", destinationValues);
+route.link("..", parentValues);
 route.link(otherDestination, destinationValues);
 ```
 
@@ -301,20 +301,14 @@ If one effective path belongs to an ancestor/pathless-descendant chain, the sele
 
 Selection controls typing and serialization, not exclusive activation: parent and pathless child may activate together. Query values do not choose a winner. Nonleaf pathless records must not receive full matching that blocks longer descendants.
 
-### URL-segment-relative expressions
+### Exact-current and parent selectors
 
 - Bare `"."` selects the exact bound declaration, identical to the values-only overload, not a canonical pathless descendant.
-- For fixed-width effective paths, each leading `..` removes **one URL-template segment**, regardless of authored parent boundaries. Pathless records add no segment; scalar placeholders occupy one segment even when their value contains an encoded slash.
-- `./suffix` appends to the bound effective path. A leading chain such as `../..` may have a suffix; `..`, `../..`, and legacy empty trailing-slash forms are admitted only when their result resolves to a known typed destination.
-- Resolve the resulting effective authored expression during generation. Except for exact-current `"."`, use the same winner as an absolute selector. Legacy `./` remains a canonical effective-path lookup, not an alias promising exact pathless-record identity.
-- Generated literal sets exclude above-root traversal and unresolved prefixes/suffixes. An intermediate prefix without a known destination is not admitted even if it stays under `/`. No anonymous destination/value schema is invented.
-- Destination values remain explicit and use the selected target's effective params/search and declared fragment names; traversal never implicitly reuses current values.
+- `".."` selects the parent route: the nearest ancestor declaration whose effective path is shorter than the bound declaration's, or the root path `/` for a declaration without one. Pathless ancestors share their child's path, so they are skipped. The target is that path's absolute-selector winner; when the path has no destination, or the bound declaration has the root path itself, `".."` is not admitted. Catchall-bound handles have a parent like any other.
+- No other relative expression exists. `../`, `./`, `./suffix`, `../..` and `../suffix` fail typing and throw synchronously like other unknown selectors. Each handle admits at most one relative selector, so generated selector data stays linear in the number of routes.
+- Destination values remain explicit and use the selected target's effective params/search and declared fragment names; `..` never implicitly reuses current values.
 
-For `/teams/$teamId/projects/$projectId`, `..` addresses `/teams/$teamId/projects`, while `../..` addresses `/teams/$teamId`. The former can be excluded while the latter is admitted. Parent links spanning several segments and pathless parents do not change that count.
-
-A catchall is **not one URL segment**. On a catchall-bound handle, depth-dependent relative climbs and extensions are excluded rather than guessing the captured length or adding a dynamic target interpreter. Use `"."`/values-only for that declaration or a known absolute selector/generated destination reference. Fixed-width handles may target a known catchall declaration with explicit array values.
-
-Reject mixed `./../` prefixes, empty interior suffix segments, internal dot/dotdot traversal, query/fragment characters in suffixes, unknown destinations, and concrete values replacing placeholders. Static `?/#` routes remain eligible for absolute selectors but not relative suffixes. Serialize resolved targets as root-relative URLs; no Angular `relativeTo` command surface is added.
+For `/teams/$teamId/members/$memberId` declared under `teams/$teamId`, `..` addresses `/teams/$teamId`, however many segments the child adds. A top-level `/projects` addresses `/` when a root route exists. Serialize resolved targets as root-relative URLs; no Angular `relativeTo` command surface is added.
 
 ### Generated object targets
 
@@ -684,7 +678,7 @@ This is development-server Chromium proof, not production serving, cross-engine 
 
 ## 15. Deliberate exclusions and unspecified edges [E]
 
-Excluded: replacing Angular Router; a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support, or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches; server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; named outlets, unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; dynamic catchall-relative traversal, arbitrary URL/object-target/query-merge APIs beyond §6; release/publication; unfinished broader Version 1 integration; original implementation/module reuse; preserving private helper APIs or exact old emitter bytes.
+Excluded: replacing Angular Router; a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support, or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches; server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; named outlets, unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; relative selectors other than `..`, arbitrary URL/object-target/query-merge APIs beyond §6; release/publication; unfinished broader Version 1 integration; original implementation/module reuse; preserving private helper APIs or exact old emitter bytes.
 
 Unspecified rather than new requirements: exotic Proxy/property-descriptor behavior; every malformed untyped codec invocation; enum duplicate/empty-list mutation policies; every wrapper-of-wrapper combination beyond §4; arbitrary any/unknown/thenable type tricks; exhaustive custom serializers/LocationStrategies/detached-route reuse; arbitrary invalid module cycles; total diagnostic accumulation policy; byte-level BOM/line-ending/trivia compatibility with the old emitter; crash-durable or concurrent-writer filesystem publication.
 

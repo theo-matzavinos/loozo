@@ -8,6 +8,6 @@ export function itemLinks() {
   route.link({ params: { teamId: 7, id: 8 } }); // this route
   route.link(".", { params: { teamId: 7, id: 8 } }); // same as above
   route.link("/teams/$teamId/items/$id", { params: { teamId: 7, id: 9 } }); // absolute
-  route.link("../..", { params: { teamId: 7 } }); // relative
+  route.link("..", { params: { teamId: 7 } }); // parent route
   void route.navigate(report, { params: { reportId: 42 } }); // another route's destination
 }
