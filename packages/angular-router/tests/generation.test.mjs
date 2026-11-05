@@ -374,8 +374,8 @@ test("session-backed generation follows edits across passes and recovers after a
   // A native option is read from the definition itself, which is then imported.
   await writeFile(definition, seeded.replace("{}", "{ providers: [] }"));
   await pass();
-  assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition1\)/);
-  assert.match(await readFile(routes, "utf8"), /import definition1 from/);
+  assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition_docs_route\)/);
+  assert.match(await readFile(routes, "utf8"), /import definition_docs_route from/);
   assert.doesNotMatch(await readFile(routes, "utf8"), /callbacks/);
 
   // Session passes leave exactly what stateless generation would publish.
@@ -458,6 +458,49 @@ async function filesystemProject(overrides = {}) {
     generate: () => generate(root, options, () => false),
   };
 }
+
+test("definition bindings follow paths, so adding or removing a route changes only its own lines", async () => {
+  const project = await filesystemProject();
+  const destinations = () => project.read("generated/destinations.generated.ts");
+
+  for (const directory of ["teams/$teamId", "old-items", "old_items", "zeta"]) {
+    await project.page(directory);
+  }
+
+  await project.generate();
+
+  const before = await destinations();
+
+  assert.ok(
+    before.includes(
+      'import definition_teams_$teamId_route from "../src/routes/teams/$teamId/route.js";',
+    ),
+  );
+  // Paths that sanitize alike keep distinct bindings.
+  assert.ok(before.includes("import definition_old_items_route from"));
+  assert.ok(before.includes("import definition_old_items_route_2 from"));
+
+  // Every line that remains is unchanged: an addition only adds lines, a removal only removes them.
+  function onlyAdded(from, to) {
+    const lines = new Set(to.split("\n"));
+
+    for (const line of from.split("\n")) {
+      assert.ok(lines.has(line), `changed: ${line}`);
+    }
+  }
+
+  // "about" sorts before every existing route.
+  await project.page("about");
+  await project.generate();
+
+  const added = await destinations();
+
+  onlyAdded(before, added);
+
+  await rm(resolve(project.root, "src/routes/teams"), { recursive: true });
+  await project.generate();
+  onlyAdded(await destinations(), added);
+});
 
 test("omitted autoDefineRoutes enables filesystem mode; false keeps explicit authoring", async () => {
   const project = await filesystemProject();

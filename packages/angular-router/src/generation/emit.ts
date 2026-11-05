@@ -1,4 +1,4 @@
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, extname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import { markers } from "./files.js";
 import { resolveModule, type Declaration, type Sources } from "./sources.js";
@@ -57,9 +57,23 @@ export function emit(
   const routesFile = resolve(sources.output, "routes.generated.ts");
   const sharedFile = resolve(sources.output, "destinations.generated.ts");
   const names = new Map<Declaration, string>();
+  const taken = new Set<string>();
+  const byId = [...declarations].sort((a, b) => a.id.localeCompare(b.id, "en"));
 
-  for (let index = 0; index < declarations.length; index += 1) {
-    names.set(declarations[index], `definition${index}`);
+  // Path-derived bindings, so adding or removing a declaration doesn't rename the others.
+  // Sanitized paths that collide take numeric suffixes in id order.
+  for (const declaration of byId) {
+    const local = relative(sources.roots[0], declaration.file).split(sep).join("/");
+    const stem = local.slice(0, local.length - extname(local).length);
+    const base = `definition_${stem.replace(/[^A-Za-z0-9_$]/g, "_")}`;
+    let name = base;
+
+    for (let suffix = 2; taken.has(name); suffix += 1) {
+      name = `${base}_${suffix}`;
+    }
+
+    taken.add(name);
+    names.set(declaration, name);
   }
 
   const routes: string[] = [
@@ -330,20 +344,20 @@ const routeSet: RouteSet = { records: {`,
     shared.push(`${JSON.stringify(declaration.id)}: () => ${names.get(declaration)},`);
   }
 
-  const absoluteSelectors: Record<string, string> = Object.create(null);
-  const parentSelectors: Record<string, string> = Object.create(null);
+  // One entry per line, so adding or removing a destination changes only its own lines.
+  shared.push("}, absolute: {");
 
   for (const [path, declaration] of selected) {
-    absoluteSelectors[path] = declaration.id;
+    shared.push(`${JSON.stringify(path)}: ${JSON.stringify(declaration.id)},`);
   }
+
+  shared.push("}, parents: {");
 
   for (const [id, target] of parents) {
-    parentSelectors[id] = target;
+    shared.push(`${JSON.stringify(id)}: ${JSON.stringify(target)},`);
   }
 
-  shared.push(
-    `}, absolute: ${JSON.stringify(absoluteSelectors)}, parents: ${JSON.stringify(parentSelectors)} };\nexport function getRouteSet(): RouteSet { return routeSet; }\n`,
-  );
+  shared.push("} };\nexport function getRouteSet(): RouteSet { return routeSet; }\n");
   desired.set(sharedFile, shared.join("\n"));
 
   for (const declaration of retained) {

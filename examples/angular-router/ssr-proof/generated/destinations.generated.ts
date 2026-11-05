@@ -1,17 +1,17 @@
 // @loozo/angular-router routegen: owned destinations.generated.ts
 import type { RouteSet, Handle as GeneratedHandle, Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
-import definition0 from "../src/routes/+home/route.js";
-import definition1 from "../src/routes/handle-only/$id/route.js";
-import definition2 from "../src/routes/teams/$teamId/items/$id/route.js";
-import definition3 from "../src/routes/teams/$teamId/old-items/$id/route.js";
-import definition4 from "../src/routes/teams/$teamId/route.js";
+import definition__home_route from "../src/routes/+home/route.js";
+import definition_handle_only_$id_route from "../src/routes/handle-only/$id/route.js";
+import definition_teams_$teamId_items_$id_route from "../src/routes/teams/$teamId/items/$id/route.js";
+import definition_teams_$teamId_old_items_$id_route from "../src/routes/teams/$teamId/old-items/$id/route.js";
+import definition_teams_$teamId_route from "../src/routes/teams/$teamId/route.js";
 
 export type Definitions = {
-"src/routes/+home/route.ts": typeof definition0;
-"src/routes/handle-only/$id/route.ts": typeof definition1;
-"src/routes/teams/$teamId/items/$id/route.ts": typeof definition2;
-"src/routes/teams/$teamId/old-items/$id/route.ts": typeof definition3;
-"src/routes/teams/$teamId/route.ts": typeof definition4;
+"src/routes/+home/route.ts": typeof definition__home_route;
+"src/routes/handle-only/$id/route.ts": typeof definition_handle_only_$id_route;
+"src/routes/teams/$teamId/items/$id/route.ts": typeof definition_teams_$teamId_items_$id_route;
+"src/routes/teams/$teamId/old-items/$id/route.ts": typeof definition_teams_$teamId_old_items_$id_route;
+"src/routes/teams/$teamId/route.ts": typeof definition_teams_$teamId_route;
 };
 declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {
@@ -42,15 +42,25 @@ export type Handle<Id extends Retained> = GeneratedHandle<Definitions[Id], Absol
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
 export type Destination<Id extends Retained> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
-"src/routes/+home/route.ts": { definition: () => definition0, owners: ["src/routes/+home/route.ts"] },
-"src/routes/handle-only/$id/route.ts": { definition: () => definition1, owners: ["src/routes/handle-only/$id/route.ts"] },
-"src/routes/teams/$teamId/items/$id/route.ts": { definition: () => definition2, owners: ["src/routes/teams/$teamId/route.ts","src/routes/teams/$teamId/items/$id/route.ts"] },
-"src/routes/teams/$teamId/route.ts": { definition: () => definition4, owners: ["src/routes/teams/$teamId/route.ts"] },
+"src/routes/+home/route.ts": { definition: () => definition__home_route, owners: ["src/routes/+home/route.ts"] },
+"src/routes/handle-only/$id/route.ts": { definition: () => definition_handle_only_$id_route, owners: ["src/routes/handle-only/$id/route.ts"] },
+"src/routes/teams/$teamId/items/$id/route.ts": { definition: () => definition_teams_$teamId_items_$id_route, owners: ["src/routes/teams/$teamId/route.ts","src/routes/teams/$teamId/items/$id/route.ts"] },
+"src/routes/teams/$teamId/route.ts": { definition: () => definition_teams_$teamId_route, owners: ["src/routes/teams/$teamId/route.ts"] },
 }, destinations: {
-"src/routes/+home/route.ts": () => definition0,
-"src/routes/handle-only/$id/route.ts": () => definition1,
-"src/routes/teams/$teamId/items/$id/route.ts": () => definition2,
-"src/routes/teams/$teamId/old-items/$id/route.ts": () => definition3,
-"src/routes/teams/$teamId/route.ts": () => definition4,
-}, absolute: {"/":"src/routes/+home/route.ts","/handle-only/$id":"src/routes/handle-only/$id/route.ts","/teams/$teamId/items/$id":"src/routes/teams/$teamId/items/$id/route.ts","/teams/$teamId/old-items/$id":"src/routes/teams/$teamId/old-items/$id/route.ts","/teams/$teamId":"src/routes/teams/$teamId/route.ts"}, parents: {"src/routes/handle-only/$id/route.ts":"src/routes/+home/route.ts","src/routes/teams/$teamId/items/$id/route.ts":"src/routes/teams/$teamId/route.ts","src/routes/teams/$teamId/route.ts":"src/routes/+home/route.ts"} };
+"src/routes/+home/route.ts": () => definition__home_route,
+"src/routes/handle-only/$id/route.ts": () => definition_handle_only_$id_route,
+"src/routes/teams/$teamId/items/$id/route.ts": () => definition_teams_$teamId_items_$id_route,
+"src/routes/teams/$teamId/old-items/$id/route.ts": () => definition_teams_$teamId_old_items_$id_route,
+"src/routes/teams/$teamId/route.ts": () => definition_teams_$teamId_route,
+}, absolute: {
+"/": "src/routes/+home/route.ts",
+"/handle-only/$id": "src/routes/handle-only/$id/route.ts",
+"/teams/$teamId/items/$id": "src/routes/teams/$teamId/items/$id/route.ts",
+"/teams/$teamId/old-items/$id": "src/routes/teams/$teamId/old-items/$id/route.ts",
+"/teams/$teamId": "src/routes/teams/$teamId/route.ts",
+}, parents: {
+"src/routes/handle-only/$id/route.ts": "src/routes/+home/route.ts",
+"src/routes/teams/$teamId/items/$id/route.ts": "src/routes/teams/$teamId/route.ts",
+"src/routes/teams/$teamId/route.ts": "src/routes/+home/route.ts",
+} };
 export function getRouteSet(): RouteSet { return routeSet; }
