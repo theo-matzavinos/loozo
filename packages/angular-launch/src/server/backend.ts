@@ -49,7 +49,10 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  *
  * Cookies an intercepted call sets are appended to `RESPONSE_INIT`'s headers when the
  * call settles, whatever its outcome, so they reach the page response; its other headers
- * are dropped. Without `RESPONSE_INIT`, a call that set cookies fails with `INTERNAL`.
+ * are dropped. Angular copies those headers into the page response once the app is first
+ * stable, so cookies from a call that settles later, such as one awaited in a
+ * `BEFORE_APP_SERIALIZED` hook, are lost. Without `RESPONSE_INIT`, a call that set cookies
+ * fails with `INTERNAL`.
  *
  * Without a live request, as during prerendering, calls from generated clients and
  * requests to a relative `/_rpc/` path fail and the fault is recorded for
