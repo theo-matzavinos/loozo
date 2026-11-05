@@ -9,24 +9,23 @@ declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {
 "/": "src/routes/+home/route.ts";
 };
-export type RelativeTargets = {
-"src/routes/+home/route.ts": {
-"./": "src/routes/+home/route.ts";
+export type Parents = {
 };
-};
+/** Declarations with a colocated facade. */
+export type Retained =
+| "src/routes/+home/route.ts"
+;
 export type AbsoluteSelected = {
   readonly [Expression in keyof AbsoluteTargets]: Definitions[AbsoluteTargets[Expression] & keyof Definitions];
 };
-export type Selected<Id extends keyof RelativeTargets> = AbsoluteSelected & {
-  readonly [Expression in keyof RelativeTargets[Id]]: Definitions[RelativeTargets[Id][Expression] & keyof Definitions];
-};
+type ParentOf<Id extends Retained> = Id extends keyof Parents ? Definitions[Parents[Id] & keyof Definitions] : never;
 /** A declaration-bound handle; obtain it through its colocated injectRoute facade. */
-export type Handle<Id extends keyof RelativeTargets> = GeneratedHandle<Definitions[Id], Selected<Id>, typeof setIdentity, Pick<Definitions, keyof RelativeTargets>>;
+export type Handle<Id extends Retained> = GeneratedHandle<Definitions[Id], AbsoluteSelected, ParentOf<Id>, typeof setIdentity, Pick<Definitions, Retained>>;
 /** A same-set nominal reference; use the destination exported by a colocated facade. */
-export type Destination<Id extends keyof RelativeTargets> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
+export type Destination<Id extends Retained> = GeneratedDestination<Definitions[Id], typeof setIdentity, Id>;
 const routeSet: RouteSet = { records: {
 "src/routes/+home/route.ts": { definition: () => definition0, owners: ["src/routes/+home/route.ts"] },
 }, destinations: {
 "src/routes/+home/route.ts": () => definition0,
-}, absolute: {"/":"src/routes/+home/route.ts"}, relative: {"src/routes/+home/route.ts":{"./":"src/routes/+home/route.ts"}} };
+}, absolute: {"/":"src/routes/+home/route.ts"}, parents: {} };
 export function getRouteSet(): RouteSet { return routeSet; }

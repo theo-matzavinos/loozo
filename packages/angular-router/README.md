@@ -190,7 +190,7 @@ Reading `params` or `search` throws only if a path codec rejects a value it acce
 
 [src/routes/teams/$teamId/items/$id/links.ts](snippets/src/routes/teams/$teamId/items/$id/links.ts)
 
-The first argument, when given, is a string literal selecting a route by its full authored path, never a concrete URL. Absolute selectors start with `/`. Relative selectors start with `.`, `./` or `..`; each `..` removes one segment of the path template, not one directory or parent. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
+The first argument, when given, is a string literal selecting a route by its full authored path, never a concrete URL. Absolute selectors start with `/`. `"."` selects this route, and `".."` its parent route: the nearest route above it with a shorter path, or the root route for a top-level route. There are no other relative selectors. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
 
 Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. There is no extras argument; use `RouterLink` inputs such as `replaceUrl` or `state` for those.
 

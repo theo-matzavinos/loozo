@@ -87,14 +87,15 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  * rejects a value it accepted while matching, a programming error.
  *
  * Selectors are single known authored literals, not concrete URLs or string
- * unions. `.` is exact-current; other absolute/relative selections use generated
- * canonical targets. Relative climbs count URL-template segments, not parent
- * edges. Catchall origins permit exact-current, absolute and reference targets,
- * not depth-dependent relative traversal. Every call supplies all target values;
- * there is no current-value reuse, extras argument or implicit query merge.
+ * unions. `.` is exact-current; `..` selects the parent route: the nearest
+ * ancestor with a shorter path, or the root for a top-level route. It and
+ * absolute selectors use generated canonical targets. Every call supplies all
+ * target values; there is no current-value reuse, extras argument or implicit
+ * query merge.
  *
  * @typeParam Target - The bound declaration's schema.
- * @typeParam Selected - Statically admitted literal selectors and target schemas.
+ * @typeParam Absolute - Absolute literal selectors and their target schemas.
+ * @typeParam Parent - The `..` target's schema, or never when there is none.
  * @typeParam Set - The generator's nominal route-set identity.
  * @typeParam References - Exact declarations addressable by same-set references.
  *
@@ -110,7 +111,8 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  */
 export interface Handle<
   Target extends AnyRoute,
-  Selected extends Record<string, AnyRoute> = {},
+  Absolute extends Record<string, AnyRoute> = {},
+  Parent extends AnyRoute = never,
   Set = unknown,
   References extends Record<string, AnyRoute> = {},
 > {
@@ -141,7 +143,7 @@ export interface Handle<
     values: UrlValues<Target, Keys>,
   ): UrlTree;
   /**
-   * Creates a UrlTree for a statically admitted absolute/relative authored selector.
+   * Creates a UrlTree for a statically admitted absolute authored selector.
    *
    * @param selector - A single known template literal, never a concrete URL.
    * @param values - The selected target's complete explicit values.
@@ -149,11 +151,23 @@ export interface Handle<
    * @throws Synchronously for unknown selectors or invalid URL values.
    */
   link<
-    const Selector extends keyof Selected & string,
-    Keys extends keyof SearchOf<NoInfer<Selected[Selector]>> = never,
+    const Selector extends keyof Absolute & string,
+    Keys extends keyof SearchOf<NoInfer<Absolute[Selector]>> = never,
   >(
     selector: Selector & (IsUnion<Selector> extends true ? never : unknown),
-    values: UrlValues<NoInfer<Selected[Selector]>, Keys>,
+    values: UrlValues<NoInfer<Absolute[Selector]>, Keys>,
+  ): UrlTree;
+  /**
+   * Creates a UrlTree for the parent route, when the bound declaration has one.
+   *
+   * @param selector - The literal `..`.
+   * @param values - The parent route's complete explicit values.
+   * @returns Router.parseUrl's result without navigating.
+   * @throws Synchronously for invalid URL values.
+   */
+  link<Keys extends keyof SearchOf<Parent> = never>(
+    selector: [Parent] extends [never] ? never : "..",
+    values: UrlValues<Parent, Keys>,
   ): UrlTree;
   /**
    * Creates a UrlTree for a generated reference's own exact declaration.
@@ -194,7 +208,7 @@ export interface Handle<
     values: UrlValues<Target, Keys>,
   ): Promise<boolean>;
   /**
-   * Navigates to a statically admitted absolute/relative authored selector.
+   * Navigates to a statically admitted absolute authored selector.
    *
    * @param selector - A single known template literal, never a concrete URL.
    * @param values - The selected target's complete explicit values.
@@ -202,11 +216,23 @@ export interface Handle<
    * @throws Synchronously for unknown selectors or invalid URL values.
    */
   navigate<
-    const Selector extends keyof Selected & string,
-    Keys extends keyof SearchOf<NoInfer<Selected[Selector]>> = never,
+    const Selector extends keyof Absolute & string,
+    Keys extends keyof SearchOf<NoInfer<Absolute[Selector]>> = never,
   >(
     selector: Selector & (IsUnion<Selector> extends true ? never : unknown),
-    values: UrlValues<NoInfer<Selected[Selector]>, Keys>,
+    values: UrlValues<NoInfer<Absolute[Selector]>, Keys>,
+  ): Promise<boolean>;
+  /**
+   * Navigates to the parent route, when the bound declaration has one.
+   *
+   * @param selector - The literal `..`.
+   * @param values - The parent route's complete explicit values.
+   * @returns Angular's identical Router.navigateByUrl Promise.
+   * @throws Synchronously for invalid URL values.
+   */
+  navigate<Keys extends keyof SearchOf<Parent> = never>(
+    selector: [Parent] extends [never] ? never : "..",
+    values: UrlValues<Parent, Keys>,
   ): Promise<boolean>;
   /**
    * Navigates to a generated reference's own exact declaration.
@@ -241,10 +267,11 @@ export function nativeOptions(definition: AnyRoute): Record<string, unknown> {
 
 export function injectGeneratedRoute<
   Target extends AnyRoute,
-  Selected extends Record<string, AnyRoute>,
+  Absolute extends Record<string, AnyRoute>,
+  Parent extends AnyRoute,
   Set,
   References extends Record<string, AnyRoute>,
->(set: RouteSet, id: string): Handle<Target, Selected, Set, References> {
+>(set: RouteSet, id: string): Handle<Target, Absolute, Parent, Set, References> {
   const router = inject(Router);
   const view = observeRoute(set, id);
 
@@ -265,8 +292,8 @@ export function injectGeneratedRoute<
         if (selector !== ".") {
           if (Object.hasOwn(set.absolute, selector)) {
             target = set.absolute[selector];
-          } else if (Object.hasOwn(set.relative[id], selector)) {
-            target = set.relative[id][selector];
+          } else if (selector === ".." && Object.hasOwn(set.parents, id)) {
+            target = set.parents[id];
           } else {
             throw new TypeError(`Unknown generated selector: ${selector}`);
           }
@@ -299,13 +326,15 @@ export function injectGeneratedRoute<
     data: view.data as Signal<DataOf<Target>>,
     link: ((...args: unknown[]) => router.parseUrl(url(args))) as Handle<
       Target,
-      Selected,
+      Absolute,
+      Parent,
       Set,
       References
     >["link"],
     navigate: ((...args: unknown[]) => router.navigateByUrl(url(args))) as Handle<
       Target,
-      Selected,
+      Absolute,
+      Parent,
       Set,
       References
     >["navigate"],
