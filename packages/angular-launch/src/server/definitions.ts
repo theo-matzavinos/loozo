@@ -2,6 +2,7 @@ import type { JsonShape } from "../json.js";
 import type { FrameworkCode } from "../client.js";
 import { createErrors, declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
+import type { ResponseControl } from "./response-effects.js";
 
 /**
  * Registration point for the application's context type.
@@ -352,6 +353,11 @@ export interface CallArgs<ContextValue, Input> {
    * unsubscribes before the call settled. Advisory: pass it on to work that accepts one.
    */
   readonly signal: AbortSignal;
+  /**
+   * The call's cookies and headers. Over HTTP they go on the RPC response; during server
+   * rendering, cookies go on the page response and headers are dropped.
+   */
+  readonly response: ResponseControl;
 }
 
 /**
@@ -653,10 +659,10 @@ export interface ProcedureBuilder<ContextValue> {
    * Defines a procedure that reads data.
    *
    * @remarks
-   * The handler receives `{ context, input, errors, request, signal }`: the context
-   * after the group's and the procedure's middleware, the validated input (`undefined`
-   * without an input schema), the error factories for the declared errors, the request
-   * the call runs in and its abort signal. Inputs and results must be strict JSON; a
+   * The handler receives `{ context, input, errors, request, signal, response }`: the
+   * context after the group's and the procedure's middleware, the validated input
+   * (`undefined` without an input schema), the error factories for the declared errors,
+   * the request the call runs in, its abort signal and its response cookies and headers. Inputs and results must be strict JSON; a
    * result that isn't fails the call with `INTERNAL`. Throwing an error created by
    * `errors` returns that declared error, and throwing `forbidden()` fails the call with
    * `FORBIDDEN`; any other exception fails the call with `INTERNAL` and is logged on the
@@ -737,6 +743,10 @@ export interface ProcedureBuilder<ContextValue> {
    * Takes the same options as `query`, except that the handler returns an async iterable,
    * usually written as `handler: async function* ({ context, input, signal }) { … }`. Each
    * value it yields reaches the caller as soon as it's yielded.
+   *
+   * The stream's response starts once the handler returned its iterable, so cookies must
+   * be set before that: in middleware before `next()`, or in a handler that isn't a
+   * generator. Setting one later throws, and later header changes are ignored.
    *
    * @example
    * ```ts

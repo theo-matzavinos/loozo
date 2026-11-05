@@ -14,6 +14,11 @@ import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
 import { eventStream, type StreamStart } from "./event-stream.js";
 import { outcomeOf } from "./outcomes.js";
+import {
+  createResponseEffects,
+  type ResponseControl,
+  type ResponseEffects,
+} from "./response-effects.js";
 
 /**
  * The application's RPC groups, keyed by namespace.
@@ -198,6 +203,7 @@ interface ChainArgs {
   readonly input: unknown;
   readonly request: Request;
   readonly signal: AbortSignal;
+  readonly response: ResponseControl;
 }
 
 /**
@@ -348,6 +354,9 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * `null` body, or the failure the stream ended with. Without `start`, a stream fails
  * with `INTERNAL`.
  *
+ * Middleware and handlers set cookies and headers through `effects.control`; the caller
+ * commits and applies them.
+ *
  * @param registry - The application's RPC groups.
  * @param path - The request path.
  * @param envelope - The parsed request body.
@@ -357,6 +366,8 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * @param mode - `"http"` for browser requests (the default) or `"rendering"` for calls
  * made during server rendering.
  * @param signal - The call's abort signal. Defaults to `request`'s signal.
+ * @param effects - Collects the call's cookies and headers. Defaults to fresh effects
+ * nothing reads.
  * @param start - Receives a stream's iterator once its handler returned it.
  * @returns The reply to send.
  */
@@ -369,6 +380,7 @@ export async function dispatch(
   request: Request,
   mode: "http" | "rendering" = "http",
   signal: AbortSignal = request.signal,
+  effects: ResponseEffects = createResponseEffects(),
   start?: (stream: StreamStart) => void,
 ): Promise<Reply> {
   try {
@@ -417,13 +429,14 @@ export async function dispatch(
     }
 
     let reply: Reply | undefined;
+    const response = effects.control;
 
     try {
       // Group middleware runs before validation, so it never sees the raw input.
       await runChain(
         group.use,
         scope.value,
-        { input: undefined, request, signal },
+        { input: undefined, request, signal, response },
         async (groupContext) => {
           let input: unknown;
 
@@ -446,9 +459,15 @@ export async function dispatch(
           await runChain(
             procedure.use,
             groupContext,
-            { input, request, signal },
+            { input, request, signal, response },
             async (context) => {
-              const output = await procedure.handler({ context, input, request, signal });
+              const output = await procedure.handler({
+                context,
+                input,
+                request,
+                signal,
+                response,
+              });
 
               if (procedure.kind !== "stream") {
                 reply = { status: 200, body: JSON.parse(serializeJson(output)) };
@@ -574,11 +593,17 @@ function crossSiteReason(request: Request, origins: readonly string[]): string |
  * JSON responses carry `Cache-Control: private, no-store`, `Vary: Cookie` and
  * `X-Content-Type-Options: nosniff`.
  *
+ * Once the call reached `dispatch`, its response carries the headers and cookies the
+ * call set, whatever its outcome. Launch's own headers replace the call's headers of the
+ * same name, and each cookie adds a `Set-Cookie` header.
+ *
  * A stream answers like any call until its handler returns its iterable. From then on the
  * response is a 200 `text/event-stream` (see `eventStream`) with
  * `Cache-Control: private, no-store, no-transform`, `Vary: Cookie`,
  * `X-Content-Type-Options: nosniff` and `X-Accel-Buffering: no`, and the call's signal
- * also aborts when the host cancels the body.
+ * also aborts when the host cancels the body. The response's cookies and headers are the
+ * ones set when the handler returned its iterable: setting a cookie later throws, and
+ * later header changes are ignored.
  *
  * @typeParam Definition - The application's context definition.
  * @param registry - The application's RPC groups.
@@ -624,6 +649,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
     return response(failure("FORBIDDEN"));
   }
 
+  const effects = createResponseEffects();
   let reply: Reply;
 
   try {
@@ -649,13 +675,17 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
       scope.request,
       "http",
       signal,
+      effects,
       started.resolve,
     );
     // Failures before a stream's handler returned are ordinary replies.
     const first = await Promise.race([outcome, started.promise]);
 
     if ("iterator" in first) {
-      return streamResponse(eventStream(first, outcome, cancel, signal));
+      // The response starts now; the rest of the call is the stream itself.
+      effects.commit();
+
+      return streamResponse(eventStream(first, outcome, cancel, signal), effects);
     }
 
     reply = first;
@@ -664,13 +694,32 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
     reply = failure("INTERNAL");
   }
 
-  return response(reply);
+  effects.commit();
+
+  return response(reply, effects);
 }
 
-function streamResponse(body: ReadableStream<Uint8Array>): Response {
-  return new Response(body, {
-    status: 200,
-    headers: {
+/** The call's headers, then Launch's own over them, then the call's cookies. */
+function responseHeaders(
+  own: Readonly<Record<string, string>>,
+  effects: ResponseEffects | undefined,
+): Headers {
+  const headers = new Headers(effects?.headers);
+
+  for (const [name, value] of Object.entries(own)) {
+    headers.set(name, value);
+  }
+
+  for (const cookie of effects?.cookies ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+
+  return headers;
+}
+
+function streamResponse(body: ReadableStream<Uint8Array>, effects: ResponseEffects): Response {
+  const headers = responseHeaders(
+    {
       "content-type": "text/event-stream",
       "cache-control": "private, no-store, no-transform",
       vary: "Cookie",
@@ -678,17 +727,22 @@ function streamResponse(body: ReadableStream<Uint8Array>): Response {
       // nginx buffers proxied responses unless told not to.
       "x-accel-buffering": "no",
     },
-  });
+    effects,
+  );
+
+  return new Response(body, { status: 200, headers });
 }
 
-function response(reply: Reply): Response {
-  return new Response(serializeJson(reply.body), {
-    status: reply.status,
-    headers: {
+function response(reply: Reply, effects?: ResponseEffects): Response {
+  const headers = responseHeaders(
+    {
       "content-type": "application/json",
       "cache-control": "private, no-store",
       vary: "Cookie",
       "x-content-type-options": "nosniff",
     },
-  });
+    effects,
+  );
+
+  return new Response(serializeJson(reply.body), { status: reply.status, headers });
 }

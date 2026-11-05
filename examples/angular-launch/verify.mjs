@@ -154,6 +154,44 @@ try {
     "concurrent HTML with a slow list handler: one context per document, the resolver and injectQuery reuse it, isolated users, each user's todos in the rendered list markup, TanStack hydration state without a duplicate HTTP transfer entry, zero loopback",
   );
 
+  // Response control: cookies and headers on the RPC response; during server rendering
+  // cookies go on the page response and headers are dropped.
+  const sessionCall = await fetch(`${base}/_rpc/session/current`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin, cookie: "proof-user=alice" },
+    body: JSON.stringify({ input: null }),
+  });
+  const sessionBody = await sessionCall.json();
+
+  assert.equal(sessionCall.status, 200);
+  assert.deepEqual(sessionCall.headers.getSetCookie(), [
+    `proof-seen=${sessionBody.requestId}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+  ]);
+  assert.match(sessionCall.headers.get("server-timing") ?? "", /^rpc;dur=\d+\.\d$/);
+  assert.equal(sessionCall.headers.get("cache-control"), "private, no-store");
+
+  const refused = await fetch(`${base}/_rpc/session/current`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ input: null }),
+  });
+
+  assert.equal(refused.status, 403);
+  assert.deepEqual(refused.headers.getSetCookie(), []);
+  assert.match(refused.headers.get("server-timing") ?? "", /^rpc;dur=/);
+
+  const renderedPage = await fetch(`${base}/todos`, { headers: { cookie: "proof-user=alice" } });
+  const pageCookies = renderedPage.headers.getSetCookie();
+
+  assert.equal(renderedPage.status, 200);
+  await renderedPage.text();
+  assert.equal(pageCookies.length, 1);
+  assert.match(pageCookies[0], /^proof-seen=\d+; Path=\/; HttpOnly; Secure; SameSite=Lax$/);
+  assert.equal(renderedPage.headers.get("server-timing"), null);
+  checks.push(
+    "response control: an RPC carries its cookie and server-timing header, also when refused (header only), and a rendered page carries the cookie its resolver's query set but not the header",
+  );
+
   const beforeDenial = await stats();
 
   // The group's signedIn middleware runs before validation, so a caller without a user

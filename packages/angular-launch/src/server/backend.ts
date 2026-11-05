@@ -3,6 +3,7 @@ import {
   InjectionToken,
   REQUEST,
   REQUEST_CONTEXT,
+  RESPONSE_INIT,
   makeEnvironmentProviders,
 } from "@angular/core";
 import type { ApplicationRef, EnvironmentProviders } from "@angular/core";
@@ -20,6 +21,7 @@ import {
   type Registry,
   type Reply,
 } from "./dispatch.js";
+import { createResponseEffects } from "./response-effects.js";
 
 const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch render faults");
 
@@ -45,6 +47,10 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  * method other than `POST`, a non-JSON content type, its own `Authorization`,
  * `Proxy-Authorization` or `Cookie` header, or its own credentials setting.
  *
+ * Cookies an intercepted call sets are appended to `RESPONSE_INIT`'s headers when the
+ * call settles, whatever its outcome, so they reach the page response; its other headers
+ * are dropped. Without `RESPONSE_INIT`, a call that set cookies fails with `INTERNAL`.
+ *
  * Without a live request, as during prerendering, calls from generated clients and
  * requests to a relative `/_rpc/` path fail and the fault is recorded for
  * {@link finishLaunchRendering}; other requests still go to `FetchBackend`.
@@ -64,6 +70,7 @@ export function provideLaunchServer(
       useFactory: () => {
         const context: unknown = inject(REQUEST_CONTEXT);
         const nativeRequest = inject(REQUEST);
+        const responseInit = inject(RESPONSE_INIT, { optional: true });
         const fallback = inject(FetchBackend);
         const faults = inject(renderFaults);
 
@@ -177,6 +184,7 @@ export function provideLaunchServer(
 
               // Aborts when the page request does, or when HttpClient unsubscribes first.
               const call = new AbortController();
+              const effects = createResponseEffects();
               let settled = false;
 
               void dispatch(
@@ -188,8 +196,39 @@ export function provideLaunchServer(
                 nativeRequest,
                 "rendering",
                 AbortSignal.any([nativeRequest.signal, call.signal]),
+                effects,
               ).then((reply) => {
                 settled = true;
+                effects.commit();
+
+                if (effects.cookies.length === 0) {
+                  deliver(reply);
+
+                  return;
+                }
+
+                if (responseInit === null) {
+                  console.error(
+                    "Launch can't send cookies set during rendering without RESPONSE_INIT",
+                  );
+                  deliver(failure("INTERNAL"));
+
+                  return;
+                }
+
+                // Angular builds the page response, and its redirects, from these headers. It
+                // creates them as Headers; keep that object for anyone holding it.
+                let headers = responseInit.headers;
+
+                if (!(headers instanceof Headers)) {
+                  headers = new Headers(headers);
+                  responseInit.headers = headers;
+                }
+
+                for (const cookie of effects.cookies) {
+                  headers.append("set-cookie", cookie);
+                }
+
                 deliver(reply);
               });
 
