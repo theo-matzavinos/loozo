@@ -485,12 +485,19 @@ export function middleware<Needs = Context, Added extends object = {}, Input = u
   return { run };
 }
 
+// Both spellings of a property key: JavaScript stores `1` and `"1"` as one property, so
+// adding either replaces the other.
+type KeySpellings<Key> = Key extends number
+  ? Key | `${Key}`
+  : Key extends `${infer Numeric extends number}`
+    ? Key | Numeric
+    : Key;
 // Spreads `Added` over each member of `Base`, so a union context keeps its correlation;
 // an empty addition leaves `Base` as it is.
 type Merge<Base, Added> = [keyof Added] extends [never]
   ? Base
   : Base extends unknown
-    ? Omit<Base, keyof Added> & Added
+    ? Omit<Base, KeySpellings<keyof Added>> & Added
     : never;
 type Flat<Value> = { [Key in keyof Value]: Value[Key] } & {};
 // The context after running `Use` in order on top of `Base`.

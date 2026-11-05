@@ -966,6 +966,32 @@ const present: { id: string } = context.user;
 return [user, present];
 } }),
 }), { use: [signedIn, previewUser] });
+const stringOne = middleware(async ({ next }) => next({ '1': 'old' }));
+const numericOne = middleware(async ({ next }) => next({ 1: 42 }));
+const needsStringOne = middleware(async ({ next }: MiddlewareArgs<{ '1': string }>) => next());
+defineRpc('numericOverwrite', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+const value: number = context[1];
+// @ts-expect-error the numeric key replaced the string one
+const old: string = context['1'];
+return [value, old];
+} }),
+}), { use: [stringOne, numericOne] });
+// @ts-expect-error after numericOne, '1' is a number, not the string needsStringOne needs
+defineRpc('numericOverwriteChain', ({ query }) => ({ get: query({ handler: () => null }) }), { use: [stringOne, numericOne, needsStringOne] });
+const numericTwo = middleware(async ({ next }) => next({ 2: 42 }));
+const stringTwo = middleware(async ({ next }) => next({ '2': 'new' }));
+const needsNumericTwo = middleware(async ({ next }: MiddlewareArgs<{ 2: number }>) => next());
+defineRpc('stringOverwrite', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+const value: string = context['2'];
+// @ts-expect-error the string key replaced the numeric one
+const old: number = context[2];
+return [value, old];
+} }),
+}), { use: [numericTwo, stringTwo] });
+// @ts-expect-error after stringTwo, 2 is a string, not the number needsNumericTwo needs
+defineRpc('stringOverwriteChain', ({ query }) => ({ get: query({ handler: () => null }) }), { use: [numericTwo, stringTwo, needsNumericTwo] });
 // @ts-expect-error known limit: separate branches with disjoint values don't infer a union
 const disjointBranches = middleware(async ({ context, request, next }: MiddlewareArgs<{ user: { id: string } }>) => {
 if (request.headers.has('x-preview')) { return next({ user: null }); }
