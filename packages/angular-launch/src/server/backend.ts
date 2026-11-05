@@ -34,7 +34,7 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  *
  * It replaces Angular's `HttpBackend` on the server. Calls from generated clients, and
  * any other request to `/_rpc/` on the current request's origin, are intercepted and
- * run in-process in `"rendering"` mode, so mutations are refused with `FORBIDDEN`. All
+ * run in-process in `"rendering"` mode, so mutations and streams are refused with `FORBIDDEN`. All
  * other requests, including ones to `/_rpc/` on another origin that don't come from a
  * generated client, go to Angular's `FetchBackend`.
  *

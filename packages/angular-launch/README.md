@@ -1,12 +1,12 @@
 # @loozo/angular-launch
 
-Typed server functions for Angular applications built with [`@loozo/angular-router`](../angular-router/README.md). You define queries and mutations in an `rpc.ts` file next to a route, and call them from that route's pages and resolvers through a generated, fully typed client.
+Typed server functions for Angular applications built with [`@loozo/angular-router`](../angular-router/README.md). You define queries, mutations and streams in an `rpc.ts` file next to a route, and call them from that route's pages and resolvers through a generated, fully typed client.
 
 Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP requests. During server rendering they run in-process with the current request's context, and hydration reuses their responses through Angular's transfer cache. Errors you declare on a procedure come back typed on the client.
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, middleware and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no subscriptions, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), middleware and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no websockets, optimistic updates, automatic invalidation or storage adapters.
 
 ## Requirements
 
@@ -255,23 +255,24 @@ Always pass `scope.request` together with `scope`, not your original request. Th
 
 ## Defining RPCs
 
-`defineRpc(namespace, build, options?)` declares a group. `build` receives the `query` (a read) and `mutation` (a write) builders and returns the group's procedures:
+`defineRpc(namespace, build, options?)` declares a group. `build` receives the `query` (a read), `mutation` (a write) and `stream` (a read that sends values while it runs) builders and returns the group's procedures:
 
 ```ts
 defineRpc(
   "todos",
-  ({ query, mutation }) => ({
+  ({ query, mutation, stream }) => ({
     list: query({ input?, use?, errors?, handler }),
     add: mutation({ input?, use?, errors?, handler }),
+    watch: stream({ input?, use?, errors?, handler }),
   }),
   { use? },
 );
 ```
 
-The handler receives `{ context, input, errors, request, signal }` and returns a value or a promise. `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs).
+The handler receives `{ context, input, errors, request, signal }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs).
 
 - **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route, and each namespace is unique across the app because it names the group's URL.
-- **The callback** is read without running it: an arrow function that destructures `query` and/or `mutation` without renaming, returning a parenthesized object literal in which each procedure is a direct `query(...)` or `mutation(...)` call with inline options.
+- **The callback** is read without running it: an arrow function that destructures any of `query`, `mutation` and `stream` without renaming, returning a parenthesized object literal in which each procedure is a direct `query(...)`, `mutation(...)` or `stream(...)` call with inline options.
 - **Inputs** are [Standard Schema](https://standardschema.dev) V1 schemas, from any library or written by hand. Validation can be async and can transform the value: callers pass the schema's input type, and procedure middleware and handlers receive its output. The `input` schema must have a concrete type without `undefined` or `null` branches, though its caller input type may be a union such as `Schema<string | number, …>`. Omit `input` for a procedure without input.
 
 Availability isn't authorization: anyone who can reach your server can call any procedure, so protect every group and procedure that needs it with middleware. Route params aren't passed to procedures automatically; pass what you need as input and validate it.
@@ -373,12 +374,12 @@ Each error needs an identifier code, an integer literal `status` from 400 to 599
 
 Launch itself uses four codes, which you can't declare:
 
-| Code            | Status | When                                                                                                              |
-| --------------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
-| `INVALID_INPUT` | 400    | The request is malformed, or its input failed schema validation                                                   |
-| `FORBIDDEN`     | 403    | `forbidden()` was thrown, the request wasn't proven same-origin, or a mutation was called during server rendering |
-| `RPC_NOT_FOUND` | 404    | No such procedure                                                                                                 |
-| `INTERNAL`      | 500    | Anything else: an unexpected exception, an invalid error payload, a non-JSON result                               |
+| Code            | Status | When                                                                                                                        |
+| --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `INVALID_INPUT` | 400    | The request is malformed, or its input failed schema validation                                                             |
+| `FORBIDDEN`     | 403    | `forbidden()` was thrown, the request wasn't proven same-origin, or a mutation or stream was called during server rendering |
+| `RPC_NOT_FOUND` | 404    | No such procedure                                                                                                           |
+| `INTERNAL`      | 500    | Anything else: an unexpected exception, an invalid error payload, a non-JSON result                                         |
 
 `INTERNAL` never exposes details to the client; they go to the server log. Your own `NOT_FOUND` is fine, but `__proto__` can't be an error code.
 
@@ -394,6 +395,42 @@ try {
     }
   }
 }
+```
+
+### Streams
+
+A stream sends values while it runs, such as a list that changes or an answer that's still being written. Its handler returns an async iterable, usually written as an `async function*`:
+
+```ts
+export default defineRpc(
+  "live",
+  ({ stream }) => ({
+    watch: stream({
+      handler: async function* ({ context, signal }) {
+        yield* context.db.todos.watchForUser(context.user.id, signal);
+      },
+    }),
+  }),
+  { use: [signedIn] },
+);
+```
+
+Write the handler as `handler: async function* (…) { … }`: generation doesn't accept method shorthand (`async *handler() { … }`). A stream takes the same `input`, `use` and `errors` options as a query. It's a read, and it doesn't run during server rendering (see [Calling streams](#calling-streams)).
+
+- **Values** must be strict JSON, like results, and each reaches the caller as soon as it's yielded. A value that isn't ends the stream with `INTERNAL`. The handler returns nothing: returning a value is a type error.
+- **Yield the current state first.** A caller that reconnects starts a new call and the handler starts over, so a stream of snapshots loses nothing across a reconnect, while a stream of changes loses those made in between.
+- **Middleware** runs once per stream, before the handler, with one context. `next()` settles when the stream ends: it resolves when the handler finishes or the caller goes away, and rejects when the handler throws. Wrapping middleware therefore spans the whole stream; one that opens a transaction keeps it open as long as the stream runs. Nothing is checked again while the stream runs, so a handler that must notice a revoked session checks before each value.
+- **Failures** before the handler returns its iterable, such as a refusing middleware or invalid input, are ordinary responses with their status, as for a query. After that the response has started: a declared error, `forbidden()` or any other exception ends the stream with that error.
+- **Cancellation:** when the caller stops reading or goes away, the handler's `signal` aborts and the generator is asked to return, which runs its `finally` blocks once it next yields. A generator waiting on something that ignores the signal finishes that wait first, and middleware's `next()` resolves only once the generator has returned. Hosts cancel a response body when its client goes away while it's being sent, but a client that leaves earlier, while the context or middleware still run, is noticed only through the request's signal. Keep the server entry's [abort wiring](#aborted-requests), or such a stream runs until it ends by itself.
+
+A stream is called with a `POST` like any procedure. Its response is `text/event-stream`: one `value` event per value, then one `end` or `error` event, and a `: keep-alive` comment every 15 seconds so proxies don't close an idle connection. Every `data` line is strict JSON:
+
+```text
+event: value
+data: [{"id":"1","title":"Review todos","completed":false}]
+
+event: error
+data: {"status":404,"error":{"code":"NOT_FOUND","message":"Todo does not exist","data":{"id":"1"}}}
 ```
 
 ## Calling RPCs
@@ -421,7 +458,7 @@ export default class Todos {
 }
 ```
 
-Every call returns a promise. Procedures with input take the input first and options second; procedures without input take only options:
+Every query and mutation call returns a promise; [streams](#calling-streams) return an async iterable. Procedures with input take the input first and options second; procedures without input take only options:
 
 ```ts
 await rpc.todos.list();
@@ -434,7 +471,7 @@ await rpc.todos.add({ title }, { signal });
 | `signal`        | Abort the HTTP request; the call rejects with an `AbortError`. The server's middleware and handler see their `signal` abort, but aborting is advisory: work that ignores it finishes, and a write may already have committed. |
 | `transferCache` | Queries default to `true`. Mutations only accept `false` and never use the transfer cache.                                                                                                                                    |
 
-`isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures and aborts are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"` or `"mutation"`.
+`isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures and aborts are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"`, `"mutation"` or `"stream"`.
 
 Route resolvers can call RPCs too, which is how a page gets its data during SSR:
 
@@ -454,6 +491,57 @@ export default defineRoute("todos", {
 
 `Client<typeof group>` from `@loozo/angular-launch` gives you the client type for a group, for example to type a result: `Awaited<ReturnType<Client<typeof group>["list"]>>`. Import the group with `import type` so server code stays out of the browser bundle.
 
+### Calling streams
+
+A stream's callable returns an async iterable instead of a promise, and takes only `signal` as an option:
+
+```ts
+for await (const todos of rpc.live.watch({ signal })) {
+  this.todos.set(todos);
+}
+```
+
+Each iteration sends a new request; leaving the loop early or aborting `signal` closes it. Iteration:
+
+- ends after the stream's last value;
+- throws an `RpcError` that the callable's `isError` recognizes, for a framework or declared error, whether the stream was refused or ended with it;
+- throws an `AbortError` when `signal` aborts;
+- throws a `TypeError` when the connection fails or closes before the stream ended.
+
+Nothing reconnects for you. To reconnect, iterate again, typically after a `TypeError` and a pause; retrying doesn't help after an `RpcError`. Each reconnect is a new call with a fresh context, and the stream starts over from the handler's first value.
+
+Streams use the browser's `fetch`, not `HttpClient`, so HTTP interceptors don't see them. An `HttpClient` request keeps the app from becoming stable until it completes and keeps its whole response in memory, which an open stream would do for as long as it runs. Cookies are sent as for any same-origin request.
+
+Streams don't run during server rendering: there, iterating one fails at once with `FORBIDDEN`, before any middleware runs. Render the page from a query, then follow the stream in the browser, for example from `afterNextRender`. An open stream doesn't keep the app from becoming stable:
+
+```ts
+@Component({/* … */})
+export default class Live {
+  readonly #rpc = injectRpc();
+  readonly #route = injectRoute();
+  readonly #stop = new AbortController();
+  // The route's resolver reads the list with a query, during server rendering too.
+  protected readonly todos = linkedSignal(() => this.#route.data().todos);
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.#stop.abort());
+    afterNextRender(() => void this.#follow());
+  }
+
+  async #follow(): Promise<void> {
+    try {
+      for await (const todos of this.#rpc.live.watch({ signal: this.#stop.signal })) {
+        this.todos.set(todos);
+      }
+    } catch (error) {
+      // Show that the list stopped updating, or iterate again after a TypeError.
+    }
+  }
+}
+```
+
+TanStack Query options aren't generated for streams; see the [TanStack Query guide](tanstack-query/README.md#limitations).
+
 ### With TanStack Query
 
 With the `tanstackQuery` generation option, each `rpc.generated.ts` also exports `injectQueries()`: typed query and mutation options and keys for the same groups, for `@tanstack/angular-query`. See the [TanStack Query guide](tanstack-query/README.md) for setup, keys, invalidation and hydration.
@@ -468,7 +556,7 @@ The reuse has limits, all of them Angular's transfer cache behaving as designed:
 - The cache serves calls made before the app first becomes stable. RPCs called later, for example from a `@defer` block that hydrates on interaction or when it enters the viewport, go over HTTP.
 - Launch relies on your app's transfer cache settings. `withNoHttpTransferCache()`, or a `withHttpTransferCacheOptions` `filter` that rejects `/_rpc/` requests, turns reuse off without any error, and every query runs again in the browser.
 
-Mutations are refused during server rendering with `FORBIDDEN`, before any middleware, validation or the handler runs. Rendering should only read.
+Mutations are refused during server rendering with `FORBIDDEN`, before any middleware, validation or the handler runs. Rendering should only read. Streams are refused the same way, since they don't finish; see [Calling streams](#calling-streams).
 
 Middleware and handlers run during server rendering too, with the page request as `request`. Their `signal` aborts when the page request aborts, or when `HttpClient` unsubscribes from the call before it settled.
 
@@ -503,7 +591,11 @@ Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even w
 
 Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
 
-Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally.
+Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally. Streams have been verified on Node, under `ng serve` and on Deno.
+
+### Streams behind proxies
+
+Stream responses carry `Cache-Control: private, no-store, no-transform` and `X-Accel-Buffering: no`, which tell compression middleware that honors `no-transform` and buffering proxies such as nginx to pass them through as they're written. Go's reverse proxy, which Tailscale Serve uses, passes `text/event-stream` responses through as they're written anyway. Each open stream holds a connection: over HTTP/1.1, browsers open at most 6 per origin, so several open streams can hold up other requests. Over HTTP/2, usually with HTTPS, they share one connection.
 
 ### Hosts
 
@@ -575,7 +667,7 @@ const native = createWebRequestFromNodeRequest(request);
 const web = new Request(native, { signal: AbortSignal.any([native.signal, closed.signal]) });
 ```
 
-Pass `web` to both `handleRequest` and `createContext`, so page renders get the same signal. Without this wiring everything works, but handlers never see an abort over HTTP.
+Pass `web` to both `handleRequest` and `createContext`, so page renders get the same signal. Without this wiring everything works, but query and mutation handlers never see an abort over HTTP, and a [stream](#streams) whose client left before it started runs until it ends by itself. A stream that's already being sent stops either way, since Angular's helper cancels its body when the response closes.
 
 ### Other server frameworks
 
@@ -713,7 +805,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
-- No subscriptions, optimistic updates or automatic invalidation. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
+- No websockets, optimistic updates or automatic invalidation. Streams don't reconnect or resume on their own, and HTTP interceptors don't see them. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.

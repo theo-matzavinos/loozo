@@ -9,7 +9,19 @@ export const stats = {
   addCalls: 0,
   completeCalls: 0,
   writes: 0,
+  streamsStarted: 0,
+  streamsAborted: 0,
+  streamsReturned: 0,
 };
+
+// Called whenever a user's todos change, for the live list.
+const listeners = new Map<string, Set<() => void>>();
+
+function changed(user: string): void {
+  for (const listener of listeners.get(user) ?? []) {
+    listener();
+  }
+}
 
 interface Todo {
   id: string;
@@ -51,8 +63,40 @@ export const db = {
 
       todosForUser(user).push(todo);
       stats.writes += 1;
+      changed(user);
 
       return todo;
+    },
+    async snapshotForUser(user: string): Promise<Todo[]> {
+      return todosForUser(user).map((todo) => ({ ...todo }));
+    },
+    // Yields the user's todos now and after every change, until `signal` aborts.
+    async *watchForUser(user: string, signal: AbortSignal): AsyncGenerator<Todo[], void> {
+      let wake: (() => void) | undefined;
+      const notify = () => wake?.();
+      let own = listeners.get(user);
+
+      if (!own) {
+        own = new Set();
+        listeners.set(user, own);
+      }
+
+      own.add(notify);
+      signal.addEventListener("abort", notify);
+
+      try {
+        while (!signal.aborted) {
+          const next = new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+
+          yield todosForUser(user).map((todo) => ({ ...todo }));
+          await next;
+        }
+      } finally {
+        own.delete(notify);
+        signal.removeEventListener("abort", notify);
+      }
     },
     async completeForUser(user: string, id: string): Promise<Todo | null> {
       stats.completeCalls += 1;
@@ -65,6 +109,7 @@ export const db = {
         if (!todo.completed) {
           todo.completed = true;
           stats.writes += 1;
+          changed(user);
         }
 
         return todo;

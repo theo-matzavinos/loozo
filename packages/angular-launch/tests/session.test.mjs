@@ -457,7 +457,7 @@ test("warm genuine aliases/facades, lookalike/ambient factories, underlying rout
         .replace("read:query(", "read:fake(")
         .replace("import {schema}", "import {query as fake} from '../../fake';import {schema}"),
     );
-    await rejectsUnchanged(root, session, /callback's query or mutation/);
+    await rejectsUnchanged(root, session, /callback's query, mutation or stream/);
     await put(root, "src/routes/left/rpc.ts", rpc);
     await session.generate();
     await put(

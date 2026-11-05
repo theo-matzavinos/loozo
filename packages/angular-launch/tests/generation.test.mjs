@@ -1132,8 +1132,8 @@ return none;
 
 test("defineRpc's builder callback rejects renames, defaults, rest, non-arrows, block bodies, foreign calls and unknown keys", async () => {
   const header = `import { defineRpc } from '@loozo/angular-launch/server';`;
-  const shape = /arrow function destructuring query and\/or mutation/;
-  const binding = /may only destructure query and mutation, without renaming/;
+  const shape = /arrow function destructuring query, mutation and\/or stream/;
+  const binding = /may only destructure query, mutation and stream, without renaming/;
   const cases = [
     [`defineRpc('todos', ({ query: read }) => ({ x: read({ handler: () => 1 }) }))`, binding],
     [
@@ -1156,11 +1156,11 @@ test("defineRpc's builder callback rejects renames, defaults, rest, non-arrows, 
     [`defineRpc('todos', ({ query }) => (procedures))`, /RPC procedures must be an inline object/],
     [
       `defineRpc('todos', ({ query }) => ({ x: helper({ handler: () => 1 }) }))`,
-      /callback's query or mutation/,
+      /callback's query, mutation or stream/,
     ],
     [
       `defineRpc('todos', ({ query }) => ({ x: (query)({ handler: () => 1 }) }))`,
-      /callback's query or mutation/,
+      /callback's query, mutation or stream/,
     ],
     [
       `defineRpc('todos', ({ query }) => ({ x: query({ handler: () => 1, canActivate: [] }) }))`,
@@ -1447,6 +1447,103 @@ void result; void query;
   assert.deepEqual(await snapshot(root), first);
 });
 
+test("streams yield strict JSON, type their client as an async iterable and stay out of injectQueries()", async () => {
+  const root = await fixture();
+
+  await put(
+    root,
+    "src/schema.ts",
+    `
+import type { Schema } from '@loozo/angular-launch/server';
+export interface IdInput { readonly id: string; }
+export const schema: Schema<IdInput> = {
+  '~standard': { version: 1, vendor: 'contracts', validate(value) {
+    if (typeof value !== 'object' || value === null || !('id' in value) || typeof value.id !== 'string') {
+      return { issues: [{ message: 'id required' }] };
+    }
+    return { value: { id: value.id } };
+  } },
+};
+export const nullSchema: Schema<null> = {
+  '~standard': { version: 1, vendor: 'contracts', validate(value) {
+    if (value !== null) { return { issues: [{ message: 'null required' }] }; }
+    return { value: null };
+  } },
+};
+`,
+  );
+  await put(
+    root,
+    "src/routes/left/rpc.ts",
+    `
+import { defineRpc } from '@loozo/angular-launch/server';
+import { schema, nullSchema } from '../../schema';
+async function* numbers(signal: AbortSignal) { if (!signal.aborted) { yield 1; } }
+export default defineRpc('todos', ({ query, stream }) => ({
+  list: query({ handler: () => ({ value: 1 }) }),
+  watch: stream({
+    input: schema,
+    errors: { GONE: { status: 410, message: 'Gone', data: nullSchema } },
+    handler: async function* ({ input, context, errors, signal }) {
+      const value: number = context.value;
+      const gone: Error = errors.GONE(null);
+      void gone; void signal;
+      yield { id: input.id, value };
+    },
+  }),
+  numbers: stream({ handler: ({ signal }) => numbers(signal) }),
+  // @ts-expect-error yielded values must be strict JSON
+  dates: stream({ handler: async function* () { yield new Date(); } }),
+  // @ts-expect-error a returned value would be lost
+  returns: stream({ handler: async function* () { yield 1; return 2; } }),
+}));
+`,
+  );
+  await put(
+    root,
+    "src/stream-checks.ts",
+    `
+import { injectQueries, injectRpc } from './routes/left/rpc.generated';
+const rpc = injectRpc();
+const watched: AsyncIterable<{ id: string; value: number }> = rpc.todos.watch({ id: 'a' }, { signal: AbortSignal.timeout(1) });
+const numbers: AsyncIterable<number> = rpc.todos.numbers();
+const kind: 'stream' = rpc.todos.watch.kind;
+declare const error: unknown;
+if (rpc.todos.watch.isError(error) && error.code === 'GONE') {
+  const data: null = error.data;
+  void data;
+}
+// @ts-expect-error streams don't use the transfer cache
+rpc.todos.numbers({ transferCache: false });
+// @ts-expect-error stream requires input
+rpc.todos.watch();
+// @ts-expect-error a stream isn't a promise
+rpc.todos.numbers().then;
+const queries = injectQueries();
+queries.todos.list.queryOptions();
+// @ts-expect-error streams have no TanStack options
+queries.todos.watch;
+void watched; void numbers; void kind;
+`,
+  );
+  await generate(root, { ...options, tanstackQuery: true });
+  await generate(root, { ...options, tanstackQuery: true, check: true });
+
+  const files = await snapshot(root);
+  const facade = files["src/routes/left/rpc.generated.ts"].bytes;
+
+  assert.match(
+    facade,
+    /\{"name":"watch","input":true,"kind":"stream","errors":\[\{"code":"GONE","status":410,"message":"Gone"\}\]\}/,
+  );
+  assert.match(facade, /\{"name":"numbers","input":false,"kind":"stream","errors":\[\]\}/);
+  // injectQueries() metadata lists the group's query only.
+  assert.match(
+    facade,
+    /"todos":\{"list":\{"kind":"query","input":false\}\}\} as const\) as Queries/,
+  );
+});
+
 test("declared error static DSL and schema/type/provenance failures reject cold, update and check without any publication", async () => {
   const cases = [
     "NOT_FOUND: { status: 399, message: 'Missing', data: schema }",
@@ -1541,7 +1638,7 @@ export default defineRpc('todos', ({mutation}) => ({ write: mutation({ handler: 
 const fake = (options: unknown) => options;
 export default defineRpc('todos', ({ mutation }) => ({ write: ${invocation}({ handler: () => 1 }) }));`,
     );
-    await rejectUnchanged(root, /callback's query or mutation/);
+    await rejectUnchanged(root, /callback's query, mutation or stream/);
   }
 });
 

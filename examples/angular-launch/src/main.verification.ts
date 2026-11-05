@@ -4,6 +4,7 @@ import { runInInjectionContext } from "@angular/core";
 import { Router } from "@angular/router";
 import { App } from "./app";
 import { config } from "./config";
+import { injectRpc as injectLiveRpc } from "./routes/+authenticated/+live/live/rpc.generated";
 import { injectRpc } from "./routes/+authenticated/todos/rpc.generated";
 
 declare global {
@@ -13,10 +14,21 @@ declare global {
   var __launchFrameworkError: (() => Promise<string>) | undefined;
   var __launchCompleteMissing: ((id: string) => Promise<{ code: string; id: string }>) | undefined;
   var __launchNavigate: ((url: string) => Promise<boolean>) | undefined;
+  var __launchStable: Promise<true> | undefined;
+  var __launchTicks:
+    | ((
+        input: { count: number; everyMs: number; fail: boolean },
+        stopAfter?: number,
+      ) => Promise<{ values: unknown[]; outcome: string }>)
+    | undefined;
 }
 
 const app = await bootstrapApplication(App, config);
+
+// An open stream must not keep the app unstable.
+globalThis.__launchStable = app.whenStable().then(() => true);
 const rpc = runInInjectionContext(app.injector, injectRpc);
+const live = runInInjectionContext(app.injector, injectLiveRpc);
 
 globalThis.__launchNavigate = (url) => app.injector.get(Router).navigateByUrl(url);
 
@@ -66,4 +78,27 @@ globalThis.__launchBeginCancellation = () => {
         throw error;
       },
     );
+};
+
+// Reads the ticks stream, stopping after `stopAfter` values when given.
+globalThis.__launchTicks = async (input, stopAfter) => {
+  const values: unknown[] = [];
+
+  try {
+    for await (const value of live.live.ticks(input)) {
+      values.push(value);
+
+      if (values.length === stopAfter) {
+        break;
+      }
+    }
+
+    return { values, outcome: "ended" };
+  } catch (error) {
+    if (live.live.ticks.isError(error)) {
+      return { values, outcome: `${error.name}:${error.code}:${error.status}:${error.message}` };
+    }
+
+    throw error;
+  }
 };

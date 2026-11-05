@@ -173,6 +173,8 @@ export type RpcQueries<Value> =
          */
         $key(): GroupKey<Namespace>;
       } & {
-        readonly [Name in keyof Procedures]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
+        readonly [Name in keyof Procedures as Procedures[Name] extends { readonly kind: "stream" }
+          ? never
+          : Name]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
       }
     : never;

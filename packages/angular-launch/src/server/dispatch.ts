@@ -12,6 +12,7 @@ import type {
 
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
+import { eventStream, type StreamStart } from "./event-stream.js";
 import { outcomeOf } from "./outcomes.js";
 
 /**
@@ -331,7 +332,7 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  *
  * In order: the scope must belong to `application` and `request` (`INTERNAL`); the
  * path must be `/_rpc/<namespace>/<procedure>` for a registered procedure
- * (`RPC_NOT_FOUND`); a mutation in `"rendering"` mode is refused (`FORBIDDEN`); the
+ * (`RPC_NOT_FOUND`); a mutation or stream in `"rendering"` mode is refused (`FORBIDDEN`); the
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
  * a cycle or an accessor), and exactly `{ input }` (`INVALID_INPUT` with no issues);
  * the group's middleware runs with no input; the input must pass the schema
@@ -342,6 +343,11 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * handler gives `FORBIDDEN`; a middleware that calls `next` twice or doesn't return its
  * result gives `INTERNAL`.
  *
+ * A stream's handler returns an iterable instead of a result. Its iterator goes to
+ * `start`, and the call goes on until the stream ends: the reply is then a 200 with
+ * `null` body, or the failure the stream ended with. Without `start`, a stream fails
+ * with `INTERNAL`.
+ *
  * @param registry - The application's RPC groups.
  * @param path - The request path.
  * @param envelope - The parsed request body.
@@ -351,6 +357,7 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * @param mode - `"http"` for browser requests (the default) or `"rendering"` for calls
  * made during server rendering.
  * @param signal - The call's abort signal. Defaults to `request`'s signal.
+ * @param start - Receives a stream's iterator once its handler returned it.
  * @returns The reply to send.
  */
 export async function dispatch(
@@ -362,6 +369,7 @@ export async function dispatch(
   request: Request,
   mode: "http" | "rendering" = "http",
   signal: AbortSignal = request.signal,
+  start?: (stream: StreamStart) => void,
 ): Promise<Reply> {
   try {
     assertBoundScope(scope, application, request);
@@ -380,13 +388,18 @@ export async function dispatch(
 
     const procedure = group.procedures[parts[2]] as RuntimeProcedure;
 
-    if (procedure.kind !== "query" && procedure.kind !== "mutation") {
+    if (
+      procedure.kind !== "query" &&
+      procedure.kind !== "mutation" &&
+      procedure.kind !== "stream"
+    ) {
       throw new Error("Launch registry contains an unsupported procedure");
     }
 
     // Rendering never performs writes, even for unmarked HttpClient calls or
-    // callers/interceptors that relabel a generated method or enable caching.
-    if (mode === "rendering" && procedure.kind === "mutation") {
+    // callers/interceptors that relabel a generated method or enable caching. Streams
+    // don't finish, so they don't run during rendering either.
+    if (mode === "rendering" && procedure.kind !== "query") {
       return failure("FORBIDDEN");
     }
 
@@ -437,7 +450,22 @@ export async function dispatch(
             async (context) => {
               const output = await procedure.handler({ context, input, request, signal });
 
-              reply = { status: 200, body: JSON.parse(serializeJson(output)) };
+              if (procedure.kind !== "stream") {
+                reply = { status: 200, body: JSON.parse(serializeJson(output)) };
+
+                return;
+              }
+
+              if (!start) {
+                throw new Error("Launch streams need an HTTP response to run in");
+              }
+
+              const iterator = (output as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+              const finished = Promise.withResolvers<void>();
+
+              start({ iterator, finished });
+              await finished.promise;
+              reply = { status: 200, body: null };
             },
           );
         },
@@ -546,6 +574,12 @@ function crossSiteReason(request: Request, origins: readonly string[]): string |
  * JSON responses carry `Cache-Control: private, no-store`, `Vary: Cookie` and
  * `X-Content-Type-Options: nosniff`.
  *
+ * A stream answers like any call until its handler returns its iterable. From then on the
+ * response is a 200 `text/event-stream` (see `eventStream`) with
+ * `Cache-Control: private, no-store, no-transform`, `Vary: Cookie`,
+ * `X-Content-Type-Options: nosniff` and `X-Accel-Buffering: no`, and the call's signal
+ * also aborts when the host cancels the body.
+ *
  * @typeParam Definition - The application's context definition.
  * @param registry - The application's RPC groups.
  * @param application - The application binding.
@@ -602,13 +636,49 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
       return response(invalidInput());
     }
 
-    reply = await dispatch(registry, url.pathname, envelope, scope, application, scope.request);
+    // Hosts cancel a streaming body when its client goes away; that aborts the call too.
+    const cancel = new AbortController();
+    const signal = AbortSignal.any([scope.request.signal, cancel.signal]);
+    const started = Promise.withResolvers<StreamStart>();
+    const outcome = dispatch(
+      registry,
+      url.pathname,
+      envelope,
+      scope,
+      application,
+      scope.request,
+      "http",
+      signal,
+      started.resolve,
+    );
+    // Failures before a stream's handler returned are ordinary replies.
+    const first = await Promise.race([outcome, started.promise]);
+
+    if ("iterator" in first) {
+      return streamResponse(eventStream(first, outcome, cancel, signal));
+    }
+
+    reply = first;
   } catch (error) {
     console.error("Launch context failed", error);
     reply = failure("INTERNAL");
   }
 
   return response(reply);
+}
+
+function streamResponse(body: ReadableStream<Uint8Array>): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "private, no-store, no-transform",
+      vary: "Cookie",
+      "x-content-type-options": "nosniff",
+      // nginx buffers proxied responses unless told not to.
+      "x-accel-buffering": "no",
+    },
+  });
 }
 
 function response(reply: Reply): Response {

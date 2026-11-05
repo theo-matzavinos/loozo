@@ -90,7 +90,7 @@ interface RpcGroup {
   methods: {
     name: string;
     input: boolean;
-    kind: "query" | "mutation";
+    kind: "query" | "mutation" | "stream";
     errors: ErrorMetadata[];
   }[];
 }
@@ -104,7 +104,7 @@ function directCall(node: ts.Expression, label: string): ts.CallExpression {
 }
 
 const builderShape =
-  "defineRpc requires an arrow function destructuring query and/or mutation, returning a parenthesized object of procedures";
+  "defineRpc requires an arrow function destructuring query, mutation and/or stream, returning a parenthesized object of procedures";
 
 // `({ query, mutation }) => ({ ... })`: the builder names it binds and its procedures.
 function builderCallback(node: ts.Expression): {
@@ -140,12 +140,14 @@ function builderCallback(node: ts.Expression): {
       element.initializer ||
       element.dotDotDotToken ||
       !ts.isIdentifier(element.name) ||
-      (element.name.text !== "query" && element.name.text !== "mutation") ||
+      (element.name.text !== "query" &&
+        element.name.text !== "mutation" &&
+        element.name.text !== "stream") ||
       bound.has(element.name.text)
     ) {
       fail(
         element,
-        "defineRpc's callback may only destructure query and mutation, without renaming",
+        "defineRpc's callback may only destructure query, mutation and stream, without renaming",
       );
     }
 
@@ -324,14 +326,14 @@ async function groupsOf(
         fail(value, "RPC procedure '__proto__' is reserved");
       }
 
-      const procedure = directCall(value, "query/mutation");
+      const procedure = directCall(value, "query/mutation/stream");
 
       // The callback's own binding: its body is an object literal, so nothing can shadow it.
       if (!ts.isIdentifier(procedure.expression) || !bound.has(procedure.expression.text)) {
-        fail(procedure, "Procedure must directly call the callback's query or mutation");
+        fail(procedure, "Procedure must directly call the callback's query, mutation or stream");
       }
 
-      const kind = procedure.expression.text as "query" | "mutation";
+      const kind = procedure.expression.text as "query" | "mutation" | "stream";
 
       if (procedure.arguments.length !== 1) {
         fail(procedure, `${kind} requires one inline options object`);
@@ -469,7 +471,10 @@ function emitLaunch(
       queriesMetadata[group.namespace] = Object.create(null);
 
       for (const { name, kind, input } of group.methods) {
-        queriesMetadata[group.namespace][name] = { kind, input };
+        // Streams have no TanStack options.
+        if (kind !== "stream") {
+          queriesMetadata[group.namespace][name] = { kind, input };
+        }
       }
     }
 
