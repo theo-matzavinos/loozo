@@ -144,16 +144,17 @@ The limits follow from TanStack's hydration:
 - Only successful queries reach the browser. A query that fails during server rendering, with a declared error or a framework code, runs again over HTTP in the browser, with a fresh context. The handler runs twice, and the page shows whatever the second call returns.
 - Queries are part of the HTML: only return data the user may see, and serve personalized pages with `Cache-Control: private, no-store`.
 - Mutations are refused during server rendering with `FORBIDDEN`, as for direct calls.
+- A query that rejects with `RpcRedirect` or `RpcNotFound` doesn't navigate: only guards and resolvers do, through [`rpcNavigationErrors`](../README.md#navigating-on-outcomes). Read the error and act on it in the page.
 - Prerendering a page that runs a query fails the build, as for direct calls.
 
 ## Defaults
 
-| Option           | Default                                                                                                                                         |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `retry`          | No retry for an `RpcError` (a framework failure or declared error); for anything else, your `QueryClient` default for the key, or three retries |
-| `refetchOnMount` | `false` while hydrating; then your `QueryClient` default for the key, or `true`                                                                 |
+| Option           | Default                                                                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retry`          | No retry for an `RpcError` (a framework failure or declared error), an `RpcRedirect` or an `RpcNotFound`; for anything else, your `QueryClient` default for the key, or three retries |
+| `refetchOnMount` | `false` while hydrating; then your `QueryClient` default for the key, or `true`                                                                                                       |
 
-Everything else is TanStack's or your `QueryClient`'s. Overrides replace either default per call. Your `QueryClient` defaults still apply through them: a default `retry` decides retries for errors other than an `RpcError`, and a default `refetchOnMount` applies after hydration. On the server, TanStack's adapter defaults `retry` to `false`, so a failed query doesn't retry during server rendering.
+Everything else is TanStack's or your `QueryClient`'s. Overrides replace either default per call. Your `QueryClient` defaults still apply through them: a default `retry` decides retries for errors other than those three, and a default `refetchOnMount` applies after hydration. On the server, TanStack's adapter defaults `retry` to `false`, so a failed query doesn't retry during server rendering.
 
 ## Limitations
 

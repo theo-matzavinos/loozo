@@ -1,5 +1,5 @@
 export { defineContext, defineRpc, middleware } from "./definitions.js";
-export { forbidden } from "./outcomes.js";
+export { forbidden, notFound, redirect } from "./outcomes.js";
 export type {
   Register,
   CallArgs,

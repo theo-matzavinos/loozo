@@ -184,10 +184,10 @@ const router=JSON.parse(await readFile(require.resolve('@loozo/angular-router/pa
 const entry=new URL(router.exports['./_generation'].types,'file://'+require.resolve('@loozo/angular-router/package.json'));
 assert.ok((await readFile(entry,'utf8')).includes('prepareLaunchRoutes'));
 assert.equal(typeof prepareLaunchRoutes,'function');assert.equal(typeof createValidationProgram,'function');assert.equal(typeof injectClient,'function');assert.equal(new RpcError('FORBIDDEN',403).code,'FORBIDDEN');
-assert.deepEqual(Object.keys(client).sort(),['RpcError','frameworkFailures']);
+assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedirect','frameworkFailures','rpcNavigationErrors']);
 // The optional peer isn't installed here: the root and generated entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
-assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','forbidden','middleware']);
+assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','forbidden','middleware','notFound','redirect']);
 assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleRpc','provideLaunchServer']);
 const binding={id:'packed-test-app',context:defineContext(()=>({value:1}))};
 const id = 'packed';

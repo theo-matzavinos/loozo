@@ -98,6 +98,15 @@ export const db = {
         signal.removeEventListener("abort", notify);
       }
     },
+    async findForUser(user: string, id: string): Promise<Todo | null> {
+      for (const todo of todosForUser(user)) {
+        if (todo.id === id) {
+          return { ...todo };
+        }
+      }
+
+      return null;
+    },
     async completeForUser(user: string, id: string): Promise<Todo | null> {
       stats.completeCalls += 1;
 

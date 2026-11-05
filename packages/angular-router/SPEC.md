@@ -217,7 +217,7 @@ createUrl(product, {
 // /products/42?tab=reviews#summary
 ```
 
-`createUrl(route, values)` synchronously returns a root-relative string and never calls parsers.
+`createUrl(route, values)` synchronously returns a root-relative string, typed `` `/${string}` ``, and never calls parsers.
 
 ### Input typing and runtime boundary
 

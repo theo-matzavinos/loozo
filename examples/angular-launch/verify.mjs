@@ -170,13 +170,15 @@ try {
   assert.match(sessionCall.headers.get("server-timing") ?? "", /^rpc;dur=\d+\.\d$/);
   assert.equal(sessionCall.headers.get("cache-control"), "private, no-store");
 
+  // Signed out, signInFirst redirects before the handler sets the cookie.
   const refused = await fetch(`${base}/_rpc/session/current`, {
     method: "POST",
     headers: { "content-type": "application/json", origin },
     body: JSON.stringify({ input: null }),
   });
 
-  assert.equal(refused.status, 403);
+  assert.equal(refused.status, 303);
+  assert.equal(refused.headers.get("location"), null);
   assert.deepEqual(refused.headers.getSetCookie(), []);
   assert.match(refused.headers.get("server-timing") ?? "", /^rpc;dur=/);
 
@@ -189,7 +191,7 @@ try {
   assert.match(pageCookies[0], /^proof-seen=\d+; Path=\/; HttpOnly; Secure; SameSite=Lax$/);
   assert.equal(renderedPage.headers.get("server-timing"), null);
   checks.push(
-    "response control: an RPC carries its cookie and server-timing header, also when refused (header only), and a rendered page carries the cookie its resolver's query set but not the header",
+    "response control: an RPC carries its cookie and server-timing header, also when redirected (header only), and a rendered page carries the cookie its resolver's query set but not the header",
   );
 
   const beforeDenial = await stats();
@@ -220,6 +222,55 @@ try {
   assert.equal((await stats()).signedInChecks - beforeDenial.signedInChecks, 3);
   checks.push(
     "genuine HTTP no-input validation and group middleware denial, before validation for callers without a user",
+  );
+
+  // Outcomes over HTTP are frames, never followed: a 303 without Location, or a 404.
+  for (const [path, input, cookie, status, body] of [
+    ["/_rpc/todo/get", { id: "missing" }, "alice", 404, { notFound: null }],
+    ["/_rpc/todo/get", { id: "bob-initial" }, "alice", 404, { notFound: null }],
+    ["/_rpc/todo/get", { id: "alice-initial" }, undefined, 303, { redirect: { to: "/sign-in" } }],
+    ["/_rpc/session/current", null, undefined, 303, { redirect: { to: "/sign-in" } }],
+  ]) {
+    const headers = { "content-type": "application/json", origin };
+
+    if (cookie) {
+      headers.cookie = `proof-user=${cookie}`;
+    }
+
+    const response = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ input }),
+    });
+
+    assert.equal(response.status, status, path);
+    assert.equal(response.headers.get("location"), null, path);
+    assert.deepEqual(await response.json(), body, path);
+  }
+
+  // During server rendering, rpcNavigationErrors turns them into a 302 or the not-found page.
+  const signedOutPage = await fetch(`${base}/todos`, { redirect: "manual" });
+
+  assert.equal(signedOutPage.status, 302);
+  assert.equal(signedOutPage.headers.get("location"), "/sign-in");
+
+  for (const [user, id, status, title] of [
+    ["alice", "alice-initial", 200, '<h1 id="todo-title">alice: Review todos</h1>'],
+    ["alice", "bob-initial", 404, '<h1 id="not-found-title">Not found</h1>'],
+    ["alice", "missing", 404, '<h1 id="not-found-title">Not found</h1>'],
+  ]) {
+    const response = await fetch(`${base}/todo/${id}`, {
+      headers: { cookie: `proof-user=${user}` },
+      redirect: "manual",
+    });
+    const text = await response.text();
+
+    assert.equal(response.status, status, id);
+    assert.ok(text.includes(title), id);
+  }
+
+  checks.push(
+    "redirect() and notFound() are 303 and 404 frames over HTTP; server-rendered pages answer 302 to /sign-in for visitors without a user and the not-found page with 404 for foreign or missing todos",
   );
 
   const beforeRefused = await stats();
@@ -365,6 +416,52 @@ try {
   assert.equal((await stats()).contexts - beforeUncached.contexts, 2);
   assert.equal(requests.at(-1).method, "POST");
   checks.push("transfer cache opt-out uses real hydration HTTP");
+
+  // A server-rendered not-found page keeps its URL; hydration calls the procedure again,
+  // since only successes transfer. Client navigation handles both outcomes the same way.
+  // Chromium logs each 404 response itself: the page and two of the todo calls.
+  const consoleErrors = [];
+  let notFoundResponses = 0;
+  const onConsole = (message) => {
+    if (message.type() !== "error") {
+      return;
+    }
+
+    if (message.text().endsWith("status of 404 (Not Found)")) {
+      notFoundResponses += 1;
+
+      return;
+    }
+
+    consoleErrors.push(message.text());
+  };
+
+  page.on("console", onConsole);
+  mark = requests.length;
+
+  const missingPage = await page.goto(`${base}/todo/missing`, { waitUntil: "networkidle" });
+
+  assert.equal(missingPage.status(), 404);
+  await page.waitForSelector("#not-found-title");
+  assert.equal(new URL(page.url()).pathname, "/todo/missing");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todo/get"]);
+  await page.waitForFunction(() => typeof globalThis.__launchNavigate === "function");
+  await page.evaluate(() => globalThis.__launchNavigate("/todo/alice-initial"));
+  await page.waitForSelector("#todo-title");
+  await page.evaluate(() => globalThis.__launchNavigate("/todo/bob-initial"));
+  await page.waitForSelector("#not-found-title");
+  assert.equal(new URL(page.url()).pathname, "/todo/bob-initial");
+  await context.addCookies([{ name: "proof-user", value: "nobody", url: base }]);
+  await page.evaluate(() => globalThis.__launchNavigate("/todo/alice-initial"));
+  await page.waitForSelector("#sign-in-title");
+  assert.equal(new URL(page.url()).pathname, "/sign-in");
+  await context.addCookies([{ name: "proof-user", value: "alice", url: base }]);
+  page.off("console", onConsole);
+  assert.deepEqual(consoleErrors, []);
+  assert.equal(notFoundResponses, 3);
+  checks.push(
+    "a server-rendered 404 page hydrates at its URL with one /_rpc/todo/get call; client navigation renders not-found at the requested URL and follows the sign-in redirect",
+  );
   await context.addCookies([{ name: "proof-user", value: "nobody", url: base }]);
   assert.equal(
     await page.evaluate(() => globalThis.__launchFrameworkError()),

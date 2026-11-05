@@ -27,7 +27,8 @@ export interface StreamStart {
  * @remarks
  * Internal. Sends one `value` event per yielded value, then, once the whole call settled
  * (`outcome`, middleware included), one `end` event or one `error` event whose data is
- * `{ status, error }`. A comment goes out every {@link keepAliveMs}.
+ * the reply's frame with its status: `{ status, error }`, `{ status, redirect }` or
+ * `{ status, notFound }`. A comment goes out every {@link keepAliveMs}.
  *
  * Pull-based, so a slow reader pauses the handler. A yielded value that isn't strict JSON
  * fails the call. The stream stops when `signal` aborts, which it does when the host

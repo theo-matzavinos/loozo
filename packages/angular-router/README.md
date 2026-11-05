@@ -159,7 +159,7 @@ The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `num
 
 ## Building URLs
 
-`createUrl` builds a root-relative URL from a declaration, synchronously and without running any parsers:
+`createUrl` builds a root-relative URL from a declaration, synchronously and without running any parsers. It's typed `` `/${string}` ``, so it fits APIs that take only root-relative URLs, such as Launch's `redirect()`:
 
 [src/product-url.ts](snippets/src/product-url.ts)
 

@@ -2,6 +2,7 @@ import { inject } from "@angular/core";
 import { QueryClient, skipToken } from "@tanstack/angular-query";
 import type { DefaultError, Query, QueryFunctionContext } from "@tanstack/angular-query";
 import { RpcError } from "../client.js";
+import { RpcNotFound, RpcRedirect } from "../outcomes.js";
 import { hydrationWindow } from "./hydration.js";
 
 export interface QueriesMethod {
@@ -50,10 +51,14 @@ export function createQueries(
   };
 
   // Resolved per call, in query-core's merge order, so the client's default (the adapter's
-  // `false` on the server) applies to everything but an RpcError.
+  // `false` on the server) applies to everything but the server's answers.
   function retryFor(queryKey: readonly unknown[]) {
     return (failures: number, error: DefaultError): boolean => {
-      if (error instanceof RpcError) {
+      if (
+        error instanceof RpcError ||
+        error instanceof RpcRedirect ||
+        error instanceof RpcNotFound
+      ) {
         return false;
       }
 

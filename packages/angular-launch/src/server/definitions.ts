@@ -399,7 +399,7 @@ export interface MiddlewareArgs<Needs = Context, Input = unknown> extends CallAr
      * Continues the call with the context unchanged.
      *
      * @returns The result to return from the middleware. It rejects with whatever the
-     * rest of the call threw, including declared errors and `forbidden()`.
+     * rest of the call threw, including declared errors and outcomes such as `forbidden()`.
      */
     (): Promise<MiddlewareResult<{}>>;
     /**
@@ -415,7 +415,7 @@ export interface MiddlewareArgs<Needs = Context, Input = unknown> extends CallAr
      *
      * @param added - The values to add or replace.
      * @returns The result to return from the middleware. It rejects with whatever the
-     * rest of the call threw, including declared errors and `forbidden()`.
+     * rest of the call threw, including declared errors and outcomes such as `forbidden()`.
      */
     <Added extends object>(added: Added & AdditionRule<Added>): Promise<MiddlewareResult<Added>>;
   };
@@ -466,9 +466,9 @@ type AnyMiddleware = {
  * a `User`. `next()` rejects when anything after it throws, so `await next()` in a `try`
  * wraps the rest of the call.
  *
- * Refuse a call with `throw forbidden()`, which fails it with `FORBIDDEN`. Any other
- * exception fails it with `INTERNAL` and is logged on the server. Declared errors belong
- * to handlers.
+ * Refuse a call with `throw forbidden()`, which fails it with `FORBIDDEN`, or answer it
+ * with `throw notFound()` or `throw redirect(to)`. Any other exception fails it with
+ * `INTERNAL` and is logged on the server. Declared errors belong to handlers.
  *
  * @example
  * ```ts
@@ -664,9 +664,9 @@ export interface ProcedureBuilder<ContextValue> {
    * (`undefined` without an input schema), the error factories for the declared errors,
    * the request the call runs in, its abort signal and its response cookies and headers. Inputs and results must be strict JSON; a
    * result that isn't fails the call with `INTERNAL`. Throwing an error created by
-   * `errors` returns that declared error, and throwing `forbidden()` fails the call with
-   * `FORBIDDEN`; any other exception fails the call with `INTERNAL` and is logged on the
-   * server.
+   * `errors` returns that declared error, throwing `forbidden()` fails the call with
+   * `FORBIDDEN`, and throwing `notFound()` or `redirect(to)` answers it with that outcome;
+   * any other exception fails the call with `INTERNAL` and is logged on the server.
    *
    * An explicit `input` schema must have a concrete type, without `undefined`, `null`,
    * `any` or `unknown` branches, or generation fails: `Schema<string> | undefined` is

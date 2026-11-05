@@ -112,7 +112,8 @@ export function provideLaunchServer(
 
             return new Observable((subscriber) => {
               function deliver(reply: Reply): void {
-                if (reply.status >= 400) {
+                // Only 200 is a result: a redirect's 303 frame must not reach the caller as data.
+                if (reply.status !== 200) {
                   subscriber.error(
                     new HttpErrorResponse({
                       status: reply.status,

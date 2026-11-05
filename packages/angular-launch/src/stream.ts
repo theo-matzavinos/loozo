@@ -1,5 +1,6 @@
 import { RpcError, recognizedError, type ErrorMetadata, type StreamCallOptions } from "./client.js";
 import { serializeJson } from "./json.js";
+import { recognizedOutcome } from "./outcomes.js";
 
 /** One parsed `text/event-stream` event: its name and its data line. */
 interface Event {
@@ -49,19 +50,23 @@ function eventData(data: string): unknown {
   }
 }
 
-/** The `RpcError` for an error frame, or `undefined` when it isn't one of `declared`'s. */
-function recognizedRpcError(
+/**
+ * The rejection for a failure frame: an `RpcError` passed through `own`, an `RpcRedirect`
+ * or an `RpcNotFound`, or `undefined` when the frame is none of them.
+ */
+function recognizedFailure(
   body: unknown,
   status: number,
   declared: readonly ErrorMetadata[],
-): RpcError<string, unknown> | undefined {
+  own: (error: RpcError<string, unknown>) => RpcError<string, unknown>,
+): Error | undefined {
   const frame = recognizedError(body, status, declared);
 
-  if (!frame) {
-    return undefined;
+  if (frame) {
+    return own(new RpcError(frame.code, status, frame.data, frame.message));
   }
 
-  return new RpcError(frame.code, status, frame.data, frame.message);
+  return recognizedOutcome(body, status);
 }
 
 /**
@@ -73,7 +78,8 @@ function recognizedRpcError(
  * the app unstable and grow without bound.
  *
  * Ends after the `end` event. Throws an `RpcError`, passed through `own`, for an error
- * event or a recognized error response; an `AbortError` when `signal` aborts; and a
+ * event or a recognized error response, and an `RpcRedirect` or `RpcNotFound` for a
+ * redirect or not-found one; an `AbortError` when `signal` aborts; and a
  * `TypeError` when the connection fails, the body ends without its `end` event or an
  * event is malformed. Returning early, as `break` does, closes the request.
  *
@@ -124,13 +130,13 @@ export async function* openStream(
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
       }
 
-      const error = recognizedRpcError(body, response.status, declared);
+      const error = recognizedFailure(body, response.status, declared, own);
 
       if (!error) {
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
       }
 
-      throw own(error);
+      throw error;
     }
 
     const mediaType = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
@@ -176,13 +182,13 @@ export async function* openStream(
         }
 
         const frame = eventData(event.data);
-        let error: RpcError<string, unknown> | undefined;
+        let error: Error | undefined;
 
         if (typeof frame === "object" && frame !== null && "status" in frame) {
           const { status, ...body } = frame;
 
           if (typeof status === "number") {
-            error = recognizedRpcError(body, status, declared);
+            error = recognizedFailure(body, status, declared, own);
           }
         }
 
@@ -190,7 +196,7 @@ export async function* openStream(
           throw new TypeError("Launch stream sent an unrecognized error");
         }
 
-        throw own(error);
+        throw error;
       }
     }
   } finally {
