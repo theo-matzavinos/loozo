@@ -175,7 +175,13 @@ test("router's Handle groups link/navigate overloads with per-overload params", 
     }
 
     assert.equal(member.kind, "method");
-    assert.deepEqual(params, ["values", "selector,values", "selector,values", "selector,values"]);
+    assert.deepEqual(params, [
+      "values",
+      "selector,values",
+      "selector,values",
+      "selector,values",
+      "selector,values",
+    ]);
   }
 
   // Each selector overload documents its own selector.
@@ -185,7 +191,7 @@ test("router's Handle groups link/navigate overloads with per-overload params", 
     selectors.add(signature.params[0].descriptionHtml);
   }
 
-  assert.equal(selectors.size, 3);
+  assert.equal(selectors.size, 4);
 });
 
 test("router's Handle and Destination list their documented type params", () => {
@@ -204,7 +210,7 @@ test("router's Handle and Destination list their documented type params", () => 
     }
   }
 
-  assert.deepEqual(typeParams.Handle, ["Target", "Selected", "Set", "References"]);
+  assert.deepEqual(typeParams.Handle, ["Target", "Absolute", "Parent", "Set", "References"]);
   assert.deepEqual(typeParams.Destination, ["Target", "Set", "Id"]);
 });
 
