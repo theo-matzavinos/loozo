@@ -115,7 +115,12 @@ export async function* openStream(
 
       try {
         body = await response.json();
-      } catch {
+      } catch (error) {
+        // Aborting while the body arrives isn't a transport failure.
+        if (request.signal.aborted) {
+          throw error;
+        }
+
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
       }
 

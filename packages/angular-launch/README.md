@@ -421,7 +421,7 @@ Write the handler as `handler: async function* (…) { … }`: generation doesn'
 - **Yield the current state first.** A caller that reconnects starts a new call and the handler starts over, so a stream of snapshots loses nothing across a reconnect, while a stream of changes loses those made in between.
 - **Middleware** runs once per stream, before the handler, with one context. `next()` settles when the stream ends: it resolves when the handler finishes or the caller goes away, and rejects when the handler throws. Wrapping middleware therefore spans the whole stream; one that opens a transaction keeps it open as long as the stream runs. Nothing is checked again while the stream runs, so a handler that must notice a revoked session checks before each value.
 - **Failures** before the handler returns its iterable, such as a refusing middleware or invalid input, are ordinary responses with their status, as for a query. After that the response has started: a declared error, `forbidden()` or any other exception ends the stream with that error.
-- **Cancellation:** when the caller stops reading or goes away, the handler's `signal` aborts and the generator is asked to return, which runs its `finally` blocks once it next yields. A generator waiting on something that ignores the signal finishes that wait first, and middleware's `next()` resolves only once the generator has returned. Unlike for queries, this doesn't need the server entry's [abort wiring](#aborted-requests): hosts cancel a response body when its client goes away.
+- **Cancellation:** when the caller stops reading or goes away, the handler's `signal` aborts and the generator is asked to return, which runs its `finally` blocks once it next yields. A generator waiting on something that ignores the signal finishes that wait first, and middleware's `next()` resolves only once the generator has returned. Hosts cancel a response body when its client goes away while it's being sent, but a client that leaves earlier, while the context or middleware still run, is noticed only through the request's signal. Keep the server entry's [abort wiring](#aborted-requests), or such a stream runs until it ends by itself.
 
 A stream is called with a `POST` like any procedure. Its response is `text/event-stream`: one `value` event per value, then one `end` or `error` event, and a `: keep-alive` comment every 15 seconds so proxies don't close an idle connection. Every `data` line is strict JSON:
 
@@ -667,7 +667,7 @@ const native = createWebRequestFromNodeRequest(request);
 const web = new Request(native, { signal: AbortSignal.any([native.signal, closed.signal]) });
 ```
 
-Pass `web` to both `handleRequest` and `createContext`, so page renders get the same signal. Without this wiring everything works, but handlers never see an abort over HTTP.
+Pass `web` to both `handleRequest` and `createContext`, so page renders get the same signal. Without this wiring everything works, but query and mutation handlers never see an abort over HTTP, and a [stream](#streams) whose client left before it started runs until it ends by itself. A stream that's already being sent stops either way, since Angular's helper cancels its body when the response closes.
 
 ### Other server frameworks
 

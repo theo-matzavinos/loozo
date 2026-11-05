@@ -309,6 +309,150 @@ test("cancelling the body aborts the call's signal, and next() resolves once the
   assert.deepEqual(seen, ["work finished", "returned", "next resolved"]);
 });
 
+test("a failure in the handler's pending step reaches middleware even when the body is cancelled meanwhile", async () => {
+  const seen = [];
+  const gate = Promise.withResolvers();
+  const registry = {
+    live: defineRpc(
+      "live",
+      ({ stream }) => ({
+        failing: stream({
+          handler: async function* () {
+            try {
+              yield 0;
+              await gate.promise;
+              yield 1;
+            } finally {
+              seen.push("returned");
+            }
+          },
+        }),
+      }),
+      {
+        use: [
+          middleware(async ({ next }) => {
+            try {
+              return await next();
+            } catch (error) {
+              seen.push(`next rejected: ${error.message}`);
+
+              throw error;
+            }
+          }),
+        ],
+      },
+    ),
+  };
+  const response = await handle(registry, post("/_rpc/live/failing", null));
+  const reader = response.body.getReader();
+
+  await reader.read();
+  await new Promise((resolve) => setImmediate(resolve));
+  await reader.cancel(new Error("client went away"));
+
+  const log = await logged(async () => {
+    gate.reject(new Error("database failed"));
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+
+  assert.deepEqual(seen, ["returned", "next rejected: database failed"]);
+  assert.match(String(log[0][1]), /database failed/);
+});
+
+test("a request aborted before its stream is read stops the stream, also before the handler started", async () => {
+  const seen = [];
+  const gate = Promise.withResolvers();
+  let signal;
+  const registry = {
+    live: defineRpc(
+      "live",
+      ({ stream }) => ({
+        waiting: stream({
+          handler: async function* (args) {
+            signal = args.signal;
+            seen.push("handler started");
+
+            try {
+              // An abort-aware wait, such as for the next change.
+              await new Promise((resolve) => args.signal.addEventListener("abort", resolve));
+              yield "late";
+            } finally {
+              seen.push("returned");
+            }
+          },
+        }),
+      }),
+      {
+        use: [
+          middleware(async ({ next }) => {
+            await gate.promise;
+
+            const result = await next();
+
+            seen.push("next resolved");
+
+            return result;
+          }),
+        ],
+      },
+    ),
+  };
+
+  // The client leaves after the stream started but before anything read its body.
+  {
+    const client = new AbortController();
+    const request = new Request(post("/_rpc/live/waiting", null), { signal: client.signal });
+
+    gate.resolve();
+
+    const response = await handle(registry, request);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(seen, ["handler started"]);
+    client.abort();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(signal.aborted, true);
+    assert.deepEqual(seen, ["handler started", "returned", "next resolved"]);
+    await assert.rejects(response.body.getReader().read());
+  }
+
+  // The client leaves while middleware still runs: the body is already over when it exists.
+  {
+    seen.length = 0;
+
+    const client = new AbortController();
+    const request = new Request(post("/_rpc/live/waiting", null), { signal: client.signal });
+    const later = Promise.withResolvers();
+    const pausing = {
+      live: defineRpc("live", () => ({ waiting: registry.live.procedures.waiting }), {
+        use: [
+          middleware(async ({ next }) => {
+            await later.promise;
+
+            const result = await next();
+
+            seen.push("next resolved");
+
+            return result;
+          }),
+        ],
+      }),
+    };
+    const pending = handle(pausing, request);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    client.abort();
+    later.resolve();
+
+    const response = await pending;
+
+    await new Promise((resolve) => setImmediate(resolve));
+    await assert.rejects(response.body.getReader().read());
+    // The generator was returned before its body ever ran.
+    assert.deepEqual(seen, ["next resolved"]);
+  }
+});
+
 test("an idle stream sends a keep-alive comment every 15 s", async () => {
   mock.timers.enable({ apis: ["setInterval"] });
 
@@ -390,6 +534,14 @@ const rawBodies = {
 // connection closes, as Angular's writeResponseToNodeResponse does.
 async function serve(registry) {
   const server = createServer(async (incoming, outgoing) => {
+    // A refusal whose body never finishes arriving.
+    if (incoming.url === "/_rpc/raw/slowRefusal") {
+      outgoing.writeHead(403, { "content-type": "application/json" });
+      outgoing.write('{"error":');
+
+      return;
+    }
+
     const chunks = [];
 
     for await (const chunk of incoming) {
@@ -489,6 +641,7 @@ function client(platform = "browser") {
           { name: "truncated", input: false, kind: "stream", errors: [] },
           { name: "batch", input: false, kind: "stream", errors: [] },
           { name: "garbled", input: false, kind: "stream", errors: [] },
+          { name: "slowRefusal", input: false, kind: "stream", errors: [] },
         ],
       },
     }),
@@ -623,6 +776,13 @@ test("the browser client yields values, ends, reconnects by iterating again and 
       name: "TypeError",
       message: "Launch stream sent an event whose data isn't JSON",
     });
+
+    // Aborting while a refusal's body arrives is still an abort, not a transport failure.
+    const refusal = new AbortController();
+    const refused = collect(rpc.raw.slowRefusal({ signal: refusal.signal }));
+
+    setTimeout(() => refusal.abort(), 50);
+    await assert.rejects(refused, { name: "AbortError" });
 
     // A body that ends without its end event is a transport failure, not a clean end.
     await assert.rejects(collect(rpc.raw.truncated()), {

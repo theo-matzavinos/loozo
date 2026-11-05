@@ -638,6 +638,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
 
     // Hosts cancel a streaming body when its client goes away; that aborts the call too.
     const cancel = new AbortController();
+    const signal = AbortSignal.any([scope.request.signal, cancel.signal]);
     const started = Promise.withResolvers<StreamStart>();
     const outcome = dispatch(
       registry,
@@ -647,14 +648,14 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
       application,
       scope.request,
       "http",
-      AbortSignal.any([scope.request.signal, cancel.signal]),
+      signal,
       started.resolve,
     );
     // Failures before a stream's handler returned are ordinary replies.
     const first = await Promise.race([outcome, started.promise]);
 
     if ("iterator" in first) {
-      return streamResponse(eventStream(first, outcome, cancel));
+      return streamResponse(eventStream(first, outcome, cancel, signal));
     }
 
     reply = first;
