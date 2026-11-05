@@ -1,6 +1,8 @@
-export { defineContext, defineRpc, query, mutation } from "./definitions.js";
+export { defineContext, defineRpc, middleware } from "./definitions.js";
+export { forbidden } from "./outcomes.js";
 export type {
   Register,
+  CallArgs,
   Context,
   ContextOf,
   ContextDefinition,
@@ -9,12 +11,14 @@ export type {
   ErrorFactories,
   ErrorStatus,
   Group,
-  Guard,
   InputOf,
+  MiddlewareDefinition,
+  MiddlewareArgs,
+  MiddlewareResult,
   OutputOf,
   Procedure,
+  ProcedureBuilder,
   ProcedureDefinition,
-  ProcedureGuard,
   ProcedureKind,
   ProcedureOptions,
   Schema,

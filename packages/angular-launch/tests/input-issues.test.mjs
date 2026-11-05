@@ -16,7 +16,7 @@ import {
   HttpResponse,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import { defineContext, defineRpc, query } from "../dist/server/index.js";
+import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
 import { dispatch } from "../dist/server/dispatch.js";
 import { injectClient } from "../dist/generated.js";
@@ -73,7 +73,7 @@ const emptyFrame = {
 
 function routes(calls) {
   return {
-    commitments: defineRpc("commitments", {
+    commitments: defineRpc("commitments", ({ query }) => ({
       save: query({
         input: {
           "~standard": {
@@ -88,12 +88,12 @@ function routes(calls) {
             },
           },
         },
-        canActivate: [
-          () => {
-            calls.push("guard");
+        use: [
+          middleware(async ({ next }) => {
+            calls.push("middleware");
 
-            return true;
-          },
+            return next();
+          }),
         ],
         handler: () => {
           calls.push("handler");
@@ -101,7 +101,7 @@ function routes(calls) {
           return "saved";
         },
       }),
-    }),
+    })),
   };
 }
 
@@ -160,7 +160,7 @@ async function renderingReply(backend, httpRequest) {
   }
 }
 
-test("schema failures send normalized path-indexed issues before guards, identically over HTTP, rendering and direct dispatch", async () => {
+test("schema failures send normalized path-indexed issues before procedure middleware, identically over HTTP, rendering and direct dispatch", async () => {
   const calls = [];
   const registry = routes(calls);
   const expected = { status: 400, body: invalidFrame };
@@ -183,7 +183,7 @@ test("schema failures send normalized path-indexed issues before guards, identic
   assert.deepEqual(await http(registry, '{"input":"invalid"}'), expected);
   assert.deepEqual(calls, []);
   assert.deepEqual(await http(registry, '{"input":"valid"}'), { status: 200, body: "saved" });
-  assert.deepEqual(calls, ["guard", "handler"]);
+  assert.deepEqual(calls, ["middleware", "handler"]);
 });
 
 test("malformed envelopes and requests send INVALID_INPUT with no issues on every transport", async () => {
@@ -229,7 +229,9 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
   assert.deepEqual({ status: wrongType.status, body: await wrongType.json() }, expected);
 
   const noInput = {
-    commitments: defineRpc("commitments", { save: query({ handler: () => "saved" }) }),
+    commitments: defineRpc("commitments", ({ query }) => ({
+      save: query({ handler: () => "saved" }),
+    })),
   };
 
   assert.deepEqual(await http(noInput, '{"input":"unexpected"}'), expected);
@@ -238,14 +240,21 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
 
 test("other framework failures keep null data", async () => {
   const registry = {
-    commitments: defineRpc("commitments", {
-      save: query({ canActivate: [() => false], handler: () => "saved" }),
+    commitments: defineRpc("commitments", ({ query }) => ({
+      save: query({
+        use: [
+          middleware(async () => {
+            throw forbidden();
+          }),
+        ],
+        handler: () => "saved",
+      }),
       fail: query({
         handler: () => {
           throw new Error("private failure");
         },
       }),
-    }),
+    })),
   };
   const previous = console.error;
 

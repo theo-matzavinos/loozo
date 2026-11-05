@@ -1,11 +1,13 @@
 import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defineContext, defineRpc, query } from "../dist/server/index.js";
+import { defineContext, defineRpc } from "../dist/server/index.js";
 import { handleRpc } from "../dist/server/generated.js";
 
 const id = "checks";
-const registry = { [id]: defineRpc(id, { read: query({ handler: () => "read" }) }) };
+const registry = {
+  [id]: defineRpc(id, ({ query }) => ({ read: query({ handler: () => "read" }) })),
+};
 
 let contexts = 0;
 

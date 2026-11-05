@@ -1,15 +1,12 @@
-import type { Context, Guard } from "@loozo/angular-launch/server";
+import { forbidden, middleware } from "@loozo/angular-launch/server";
 
-export const isSignedIn: Guard = ({ context }) => {
-  context.stats.groupGuards += 1;
+// Refuses calls without a user, and narrows `user` for everything after it.
+export const signedIn = middleware(async ({ context, next }) => {
+  context.stats.signedInChecks += 1;
 
-  return context.user !== null;
-};
-
-export function requireUser(context: Context): { id: string } {
   if (context.user === null) {
-    throw new Error("User required");
+    throw forbidden();
   }
 
-  return context.user;
-}
+  return next({ user: context.user });
+});

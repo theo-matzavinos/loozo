@@ -16,8 +16,9 @@ export interface CallOptions {
    * `DOMException` named `AbortError`.
    *
    * @remarks
-   * An already aborted signal rejects without sending a request. Aborting doesn't
-   * cancel server work that has already started.
+   * An already aborted signal rejects without sending a request. On the server, the
+   * call's middleware and handler see their `signal` abort. That's advisory: work that
+   * doesn't pass the signal on still finishes.
    */
   readonly signal?: AbortSignal;
   /**
@@ -34,8 +35,9 @@ export interface MutationCallOptions {
    * `DOMException` named `AbortError`.
    *
    * @remarks
-   * Aborting doesn't cancel server work that has already started, so the write may
-   * still complete.
+   * On the server, the call's middleware and handler see their `signal` abort. That's
+   * advisory: work that doesn't pass the signal on still finishes, and the write may
+   * already have committed.
    */
   readonly signal?: AbortSignal;
   /** Only `false` is accepted: mutations never use the HTTP transfer cache. */
@@ -65,8 +67,9 @@ export interface ErrorMetadata {
  * @remarks
  * - `INVALID_INPUT` (400): the request or its input failed validation. Its data is
  *   {@link InvalidInputData}: the input schema's issues, or none for a malformed request.
- * - `FORBIDDEN` (403): a guard returned `false`, or a mutation was called during
- *   server rendering.
+ * - `FORBIDDEN` (403): middleware or a handler threw `forbidden()`, the request wasn't
+ *   proven to come from the app's own origin, or a mutation was called during server
+ *   rendering.
  * - `RPC_NOT_FOUND` (404): no procedure exists at the requested path.
  * - `INTERNAL` (500): anything else. Details go to the server log, never to the client.
  *

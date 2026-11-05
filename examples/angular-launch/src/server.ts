@@ -19,7 +19,17 @@ const angular = new AngularNodeAppEngine({ allowedHosts });
 const browser = resolve(dirname(fileURLToPath(import.meta.url)), "../browser");
 export const reqHandler = createNodeRequestHandler(async (request, response) => {
   try {
-    const web = createWebRequestFromNodeRequest(request);
+    // Angular's helper only aborts while the body is still arriving; abort on a closed response.
+    const closed = new AbortController();
+
+    response.once("close", () => {
+      if (!response.writableFinished) {
+        closed.abort();
+      }
+    });
+
+    const native = createWebRequestFromNodeRequest(request);
+    const web = new Request(native, { signal: AbortSignal.any([native.signal, closed.signal]) });
     const url = new URL(web.url);
 
     // Loopback-only test diagnostics; deliberately not a production server.

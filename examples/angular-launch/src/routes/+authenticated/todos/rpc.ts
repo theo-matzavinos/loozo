@@ -1,35 +1,35 @@
-import { defineRpc, mutation, query } from "@loozo/angular-launch/server";
-import { isSignedIn, requireUser } from "../../../auth.server";
+import { defineRpc } from "@loozo/angular-launch/server";
+import { signedIn } from "../../../auth.server";
 import { idSchema, titleSchema } from "../../../todo-input.server";
 export default defineRpc(
   "todos",
-  {
+  ({ query, mutation }) => ({
     list: query({
-      handler: async ({ context }) => {
-        const user = requireUser(context);
-
+      handler: async ({ context, request, signal }) => {
         // Loopback proof fixture for the generic unexpected-failure boundary.
         if (context.failing) {
           throw new Error("Private database failure fixture");
         }
 
-        if (new URL(context.request.url).pathname.startsWith("/_rpc/")) {
+        if (new URL(request.url).pathname.startsWith("/_rpc/")) {
           context.stats.httpQueries += 1;
         } else {
           context.stats.directQueries += 1;
         }
 
-        return {
-          user: user.id,
-          requestId: context.requestId,
-          todos: await context.db.todos.listForUser(user.id, context.delayed),
-        };
+        const todos = await context.db.todos.listForUser(context.user.id, context.delayed);
+
+        // The read isn't cancellable; record that the caller went away meanwhile.
+        if (signal.aborted) {
+          context.stats.abortedQueries += 1;
+        }
+
+        return { user: context.user.id, requestId: context.requestId, todos };
       },
     }),
     add: mutation({
       input: titleSchema,
-      handler: ({ input, context }) =>
-        context.db.todos.addForUser(requireUser(context).id, input.title),
+      handler: ({ input, context }) => context.db.todos.addForUser(context.user.id, input.title),
     }),
     complete: mutation({
       input: idSchema,
@@ -37,7 +37,7 @@ export default defineRpc(
         NOT_FOUND: { status: 404, message: "Todo does not exist", data: idSchema },
       },
       handler: async ({ input, context, errors }) => {
-        const todo = await context.db.todos.completeForUser(requireUser(context).id, input.id);
+        const todo = await context.db.todos.completeForUser(context.user.id, input.id);
 
         if (todo === null) {
           throw errors.NOT_FOUND({ id: input.id });
@@ -46,6 +46,6 @@ export default defineRpc(
         return todo;
       },
     }),
-  },
-  { canActivate: [isSignedIn] },
+  }),
+  { use: [signedIn] },
 );

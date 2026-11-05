@@ -23,11 +23,11 @@ const calls = [];
 
 globalThis.launchBuilderTestCalls = calls;
 
-const rpc = `import { defineRpc, query } from "@loozo/angular-launch/server";
+const rpc = `import { defineRpc } from "@loozo/angular-launch/server";
 
-export default defineRpc("todos", {
+export default defineRpc("todos", ({ query }) => ({
   list: query({ handler: ({ context }) => [context.user] }),
-});
+}));
 `;
 const context = `import { defineContext } from "@loozo/angular-launch/server";
 

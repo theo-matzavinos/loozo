@@ -154,10 +154,15 @@ try {
     "concurrent HTML with a slow list handler: one context per document, the resolver and injectQuery reuse it, isolated users, each user's todos in the rendered list markup, TanStack hydration state without a duplicate HTTP transfer entry, zero loopback",
   );
 
+  const beforeDenial = await stats();
+
+  // The group's signedIn middleware runs before validation, so a caller without a user
+  // gets FORBIDDEN even for invalid input; a malformed envelope fails before it runs.
   for (const [body, cookie, status] of [
     [{ input: 7 }, "alice", 400],
     [{}, "alice", 400],
     [{ input: null }, undefined, 403],
+    [{ input: 7 }, undefined, 403],
   ]) {
     const headers = { "content-type": "application/json", origin };
 
@@ -174,7 +179,10 @@ try {
     assert.equal(response.status, status);
   }
 
-  checks.push("genuine HTTP no-input validation and group denial");
+  assert.equal((await stats()).signedInChecks - beforeDenial.signedInChecks, 3);
+  checks.push(
+    "genuine HTTP no-input validation and group middleware denial, before validation for callers without a user",
+  );
 
   const beforeRefused = await stats();
 
@@ -361,13 +369,14 @@ try {
   }
 
   assert.equal(finished.finishedQueries - beforeCancellation.finishedQueries, 1);
+  assert.equal(finished.abortedQueries - beforeCancellation.abortedQueries, 1);
   assert.ok(requestFailures.some((request) => request.url.endsWith("/list")));
   await writeFile(
     join(evidence, "cancellation.json"),
     JSON.stringify({ beforeCancellation, started, finished, requestFailures }, null, 2),
   );
   checks.push(
-    "generated client AbortSignal unsubscribes native HttpClient and aborts genuine HTTP; server read still finishes",
+    "generated client AbortSignal unsubscribes native HttpClient and aborts genuine HTTP; the handler's signal aborts through the server entry's wiring, and the read still finishes",
   );
   await context.clearCookies();
   await context.addCookies([{ name: "proof-user", value: "alice", url: base }]);

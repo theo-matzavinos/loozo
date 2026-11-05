@@ -92,7 +92,6 @@ interface RpcGroup {
     input: boolean;
     kind: "query" | "mutation";
     errors: ErrorMetadata[];
-    call: ts.CallExpression;
   }[];
 }
 
@@ -104,10 +103,60 @@ function directCall(node: ts.Expression, label: string): ts.CallExpression {
   return node;
 }
 
-function guards(node: ts.Expression | undefined): void {
-  if (node && (!ts.isArrayLiteralExpression(node) || node.elements.some(ts.isSpreadElement))) {
-    fail(node, "canActivate must be an explicit inline array without spreads");
+const builderShape =
+  "defineRpc requires an arrow function destructuring query and/or mutation, returning a parenthesized object of procedures";
+
+// `({ query, mutation }) => ({ ... })`: the builder names it binds and its procedures.
+function builderCallback(node: ts.Expression): {
+  bound: Set<string>;
+  procedures: Map<string, ts.Expression>;
+} {
+  if (
+    !ts.isArrowFunction(node) ||
+    node.modifiers?.length ||
+    node.typeParameters?.length ||
+    node.type ||
+    node.parameters.length !== 1
+  ) {
+    fail(node, builderShape);
   }
+
+  const [parameter] = node.parameters;
+
+  if (
+    !ts.isObjectBindingPattern(parameter.name) ||
+    parameter.type ||
+    parameter.initializer ||
+    parameter.dotDotDotToken
+  ) {
+    fail(parameter, builderShape);
+  }
+
+  const bound = new Set<string>();
+
+  for (const element of parameter.name.elements) {
+    if (
+      element.propertyName ||
+      element.initializer ||
+      element.dotDotDotToken ||
+      !ts.isIdentifier(element.name) ||
+      (element.name.text !== "query" && element.name.text !== "mutation") ||
+      bound.has(element.name.text)
+    ) {
+      fail(
+        element,
+        "defineRpc's callback may only destructure query and mutation, without renaming",
+      );
+    }
+
+    bound.add(element.name.text);
+  }
+
+  if (!ts.isParenthesizedExpression(node.body)) {
+    fail(node.body, builderShape);
+  }
+
+  return { bound, procedures: properties(node.body.expression, "RPC procedures") };
 }
 
 function onlyKeys(fields: Map<string, ts.Expression>, allowed: string[], node: ts.Node): void {
@@ -226,7 +275,7 @@ async function groupsOf(
     owners.add(owner);
 
     const call = directCall(declaration.call, "defineRpc");
-    const [namespace, methodsNode, options] = call.arguments;
+    const [namespace, build, options] = call.arguments;
 
     if (
       call.arguments.length < 2 ||
@@ -234,11 +283,11 @@ async function groupsOf(
       !namespace ||
       !ts.isStringLiteral(namespace) ||
       !/^[A-Za-z_][A-Za-z0-9_]*$/.test(namespace.text) ||
-      !methodsNode
+      !build
     ) {
       fail(
         call,
-        "defineRpc requires a literal identifier namespace, inline methods and optional inline options",
+        "defineRpc requires a literal identifier namespace, a procedure callback and optional inline options",
       );
     }
 
@@ -260,13 +309,13 @@ async function groupsOf(
     if (options) {
       const fields = properties(options, "RPC group options");
 
-      onlyKeys(fields, ["canActivate"], options);
-      guards(fields.get("canActivate"));
+      onlyKeys(fields, ["use"], options);
     }
 
+    const { bound, procedures } = builderCallback(build);
     const methods: RpcGroup["methods"] = [];
 
-    for (const [name, value] of properties(methodsNode, "RPC methods")) {
+    for (const [name, value] of procedures) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
         fail(value, "RPC methods must be identifier names");
       }
@@ -276,22 +325,13 @@ async function groupsOf(
       }
 
       const procedure = directCall(value, "query/mutation");
-      let kind: "query" | "mutation" | undefined;
 
-      for (const candidate of ["query", "mutation"] as const) {
-        const imported = namedImport(value.getSourceFile(), procedure.expression, candidate);
-
-        if (imported && (await genuineImport(imported, launch.typeEntry, sources.parsed.options))) {
-          kind = candidate;
-        }
+      // The callback's own binding: its body is an object literal, so nothing can shadow it.
+      if (!ts.isIdentifier(procedure.expression) || !bound.has(procedure.expression.text)) {
+        fail(procedure, "Procedure must directly call the callback's query or mutation");
       }
 
-      if (!kind) {
-        fail(
-          procedure,
-          "Procedure must directly call a genuine named query import or mutation import",
-        );
-      }
+      const kind = procedure.expression.text as "query" | "mutation";
 
       if (procedure.arguments.length !== 1) {
         fail(procedure, `${kind} requires one inline options object`);
@@ -299,19 +339,17 @@ async function groupsOf(
 
       const fields = properties(procedure.arguments[0], "Procedure options");
 
-      onlyKeys(fields, ["handler", "input", "canActivate", "errors"], procedure);
+      onlyKeys(fields, ["handler", "input", "use", "errors"], procedure);
 
       if (!fields.has("handler")) {
         fail(procedure, `${kind} requires handler`);
       }
 
-      guards(fields.get("canActivate"));
       methods.push({
         name,
         input: fields.has("input"),
         kind,
         errors: errorMetadata(fields.get("errors")),
-        call: procedure,
       });
     }
 
@@ -532,7 +570,7 @@ async function validateBindings(
   };
   const anchor = await (compiler?.launchAnchor ?? new AnchorState()).anchor(
     entryFile,
-    ["defineContext", "defineRpc", "query", "mutation"],
+    ["defineContext", "defineRpc"],
     canonicalOptions,
   );
   const actualEntry = program.getSourceFile(entryFile)!;
@@ -547,10 +585,6 @@ async function validateBindings(
 
   for (const group of groups) {
     expectedCalls.set(key(group.declaration.call), "defineRpc");
-
-    for (const method of group.methods) {
-      expectedCalls.set(key(method.call), method.kind);
-    }
   }
 
   const promises: Promise<void>[] = [];
@@ -566,7 +600,7 @@ async function validateBindings(
         let spelling: string | undefined;
         const invoked = unalias(checker, checker.getSymbolAtLocation(node.expression));
 
-        for (const name of ["defineContext", "defineRpc", "query", "mutation"]) {
+        for (const name of ["defineContext", "defineRpc"]) {
           const exported = unalias(
             checker,
             checker.getExportsOfModule(actualModule).find((symbol) => symbol.name === name),
@@ -583,10 +617,7 @@ async function validateBindings(
 
         if (expected || spelling) {
           if (!expected || spelling !== expected) {
-            fail(
-              node,
-              "Launch factory calls must be default declarations or inline group procedures",
-            );
+            fail(node, "defineContext and defineRpc calls must be default declarations");
           }
 
           const imported = namedImport(source, node.expression, expected)!;
@@ -643,7 +674,7 @@ async function validateBindings(
     const assignment = source.statements.find(ts.isExportAssignment)!;
     const call = assignment.expression as ts.CallExpression;
 
-    for (const expression of properties(call.arguments[1], "RPC methods").values()) {
+    for (const expression of builderCallback(call.arguments[1]).procedures.values()) {
       const procedure = expression as ts.CallExpression;
       const fields = properties(procedure.arguments[0], "Procedure options");
       const input = fields.get("input");

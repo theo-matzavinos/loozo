@@ -18,7 +18,7 @@ import {
   HttpErrorResponse,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import { defineContext, defineRpc, query } from "../dist/server/index.js";
+import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
 import { isRequestScope, dispatch } from "../dist/server/dispatch.js";
 import { injectClient, RPC_CALL } from "../dist/generated.js";
@@ -28,8 +28,8 @@ import { serializeJson } from "../dist/json.js";
 const id = "test";
 const path = `/_rpc/${id}/read`;
 
-function registry(procedures, canActivate = []) {
-  return { [id]: defineRpc("test", procedures, { canActivate }) };
+function registry(build, use = []) {
+  return { [id]: defineRpc("test", build, { use }) };
 }
 
 function schema(order) {
@@ -57,7 +57,7 @@ const context = defineContext(async (request) => ({
 const application = { id: "launch-runtime-test-app", context };
 const request = new Request("http://127.0.0.1/todos", { headers: { cookie: "alice" } });
 
-test("async validation, guards and handler ordering; false denies explicitly, no inheritance; no-input envelopes", async () => {
+test("group middleware, async validation, procedure middleware and handler run in order; refusals; no-input envelopes", async () => {
   const order = [];
   const scope = await createRequestScope(application, request);
 
@@ -65,18 +65,19 @@ test("async validation, guards and handler ordering; false denies explicitly, no
   assert.equal(isRequestScope({ request, value: {} }), false);
 
   const routes = registry(
-    {
+    ({ query }) => ({
       read: query({
         input: schema(order),
-        canActivate: [
-          ({ input, context, request }) => {
+        use: [
+          middleware(async ({ input, context, request, signal, next }) => {
             order.push("procedure");
             assert.equal(input.length, 3);
             assert.equal(context.user, "alice");
             assert.equal(request, scope.request);
+            assert.equal(signal, scope.request.signal);
 
-            return true;
-          },
+            return next();
+          }),
         ],
         handler: ({ input }) => {
           order.push("handler");
@@ -84,19 +85,20 @@ test("async validation, guards and handler ordering; false denies explicitly, no
           return { length: input.length };
         },
       }),
-    },
+    }),
     [
-      () => {
+      middleware(async ({ input, next }) => {
         order.push("group");
+        assert.equal(input, undefined);
 
-        return true;
-      },
+        return next();
+      }),
     ],
   );
   const reply = await dispatch(routes, path, { input: "abc" }, scope, application, scope.request);
 
   assert.deepEqual(reply, { status: 200, body: { length: 3 } });
-  assert.deepEqual(order, ["validation", "group", "procedure", "handler"]);
+  assert.deepEqual(order, ["group", "validation", "procedure", "handler"]);
   order.length = 0;
 
   const invalid = await dispatch(routes, path, { input: 1 }, scope, application, scope.request);
@@ -111,32 +113,45 @@ test("async validation, guards and handler ordering; false denies explicitly, no
       },
     },
   });
-  assert.deepEqual(order, ["validation"]);
+  assert.deepEqual(order, ["group", "validation"]);
 
   const denied = registry(
-    {
+    ({ query }) => ({
       read: query({
+        input: schema(order),
         handler: () => {
           throw new Error("must not run");
         },
       }),
-    },
-    [() => false],
+    }),
+    [
+      middleware(async () => {
+        throw forbidden();
+      }),
+    ],
   );
 
+  order.length = 0;
+
+  // Group middleware refuses before validation, so invalid input still gets FORBIDDEN.
   assert.equal(
-    (await dispatch(denied, path, { input: null }, scope, application, scope.request)).status,
+    (await dispatch(denied, path, { input: 1 }, scope, application, scope.request)).status,
     403,
   );
+  assert.deepEqual(order, []);
 
-  const deniedProcedure = registry({
+  const deniedProcedure = registry(({ query }) => ({
     read: query({
-      canActivate: [() => false],
+      use: [
+        middleware(async () => {
+          throw forbidden();
+        }),
+      ],
       handler: () => {
         throw new Error("must not run");
       },
     }),
-  });
+  }));
 
   assert.equal(
     (await dispatch(deniedProcedure, path, { input: null }, scope, application, scope.request))
@@ -144,7 +159,7 @@ test("async validation, guards and handler ordering; false denies explicitly, no
     403,
   );
 
-  const noInput = registry({
+  const noInput = registry(({ query }) => ({
     read: query({
       handler: ({ input }) => {
         assert.equal(input, undefined);
@@ -152,7 +167,7 @@ test("async validation, guards and handler ordering; false denies explicitly, no
         return 7;
       },
     }),
-  });
+  }));
 
   assert.equal(
     (await dispatch(noInput, path, { input: null }, scope, application, scope.request)).status,
@@ -216,7 +231,7 @@ test("HTTP/direct JSON parity and generic exception/context failures with server
 
   try {
     for (const value of values) {
-      const routes = registry({ read: query({ handler: () => value }) });
+      const routes = registry(({ query }) => ({ read: query({ handler: () => value }) }));
       const scope = await createRequestScope(application, request);
       const direct = await dispatch(
         routes,
@@ -243,13 +258,13 @@ test("HTTP/direct JSON parity and generic exception/context failures with server
       assert.equal(JSON.stringify(direct.body).includes("detail"), false);
     }
 
-    const routes = registry({
+    const routes = registry(({ query }) => ({
       read: query({
         handler: () => {
           throw new Error("hidden exception");
         },
       }),
-    });
+    }));
     const failure = await handleRpc(
       routes,
       {
@@ -312,7 +327,7 @@ test("native backend direct dispatch, exact MIME/origin/method/credentials and u
         },
       },
       provideLaunchServer(
-        registry({ read: query({ handler: ({ context }) => context.user }) }),
+        registry(({ query }) => ({ read: query({ handler: ({ context }) => context.user }) })),
         application,
       ),
     ],
@@ -358,7 +373,7 @@ test("native backend direct dispatch, exact MIME/origin/method/credentials and u
 
   for (const contentType of ["application/json-fake", "text/plain", ""]) {
     const response = await handleRpc(
-      registry({ read: query({ handler: () => 1 }) }),
+      registry(({ query }) => ({ read: query({ handler: () => 1 }) })),
       application,
       new Request(`http://test${path}`, {
         method: "POST",
@@ -391,10 +406,10 @@ test("constructor/toString namespaces and own procedures work through native Htt
 
   for (const namespace of ["constructor", "toString"]) {
     const routes = {
-      [namespace]: defineRpc(namespace, {
+      [namespace]: defineRpc(namespace, ({ query }) => ({
         constructor: query({ handler: () => `${namespace}.constructor` }),
         toString: query({ handler: () => `${namespace}.toString` }),
-      }),
+      })),
     };
     const http = new HttpClient({
       handle: (request) =>

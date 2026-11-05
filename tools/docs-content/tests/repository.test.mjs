@@ -242,7 +242,14 @@ test("launch's ./server entry point extracts", () => {
     names.add(apiSymbol.name);
   }
 
-  for (const name of ["defineRpc", "defineContext", "query", "mutation", "finishLaunchRendering"]) {
+  for (const name of [
+    "defineRpc",
+    "defineContext",
+    "middleware",
+    "forbidden",
+    "MiddlewareArgs",
+    "finishLaunchRendering",
+  ]) {
     assert.equal(names.has(name), true, `${name} is extracted`);
   }
 

@@ -19,7 +19,7 @@ import {
   withInterceptors,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import { defineContext, defineRpc, mutation, query } from "../dist/server/index.js";
+import { defineContext, defineRpc, middleware } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
 import { dispatch } from "../dist/server/dispatch.js";
 import { injectClient } from "../dist/generated.js";
@@ -28,6 +28,14 @@ import { RpcError, frameworkFailures } from "../dist/client.js";
 const id = "todos";
 const path = `/_rpc/${id}/write`;
 const application = { id: "mutation-contracts", context: defineContext(() => ({})) };
+let mutation;
+
+// The builder defineRpc passes to its callback, for procedures swapped into a registry.
+defineRpc("builders", (builders) => {
+  mutation = builders.mutation;
+
+  return {};
+});
 const declaration = { status: 404, message: "Todo does not exist" };
 
 const transformed = {
@@ -83,7 +91,7 @@ test("declared factories are synchronous throwables; async schema output crosses
   };
   let saved;
   const registry = {
-    [id]: defineRpc("todos", {
+    [id]: defineRpc("todos", ({ mutation }) => ({
       write: mutation({
         errors: { NOT_FOUND: { ...declaration, data } },
         handler: ({ errors }) => {
@@ -97,7 +105,7 @@ test("declared factories are synchronous throwables; async schema output crosses
           throw saved;
         },
       }),
-    }),
+    })),
   };
   const expected = {
     status: 404,
@@ -127,7 +135,7 @@ test("declared factories are synchronous throwables; async schema output crosses
   // Standard Schema may accept Date internally while publishing JSON output.
   const timestamp = new Date("2026-01-01T00:00:00.000Z");
   const dates = {
-    [id]: defineRpc("todos", {
+    [id]: defineRpc("todos", ({ mutation }) => ({
       write: mutation({
         errors: {
           NOT_FOUND: {
@@ -153,7 +161,7 @@ test("declared factories are synchronous throwables; async schema output crosses
           throw errors.NOT_FOUND(timestamp);
         },
       }),
-    }),
+    })),
   };
   const dated = {
     status: 404,
@@ -186,7 +194,7 @@ test("current procedure identity, not code/class/lookalike, controls declared fa
         throw foreign;
       },
     });
-    const registry = { [id]: defineRpc("todos", { source }) };
+    const registry = { [id]: defineRpc("todos", () => ({ source })) };
 
     assert.equal((await reply(registry, "source")).status, 404);
 
@@ -363,7 +371,7 @@ test("client mutation kind/cache, legitimate framework errors and declared trans
   }
 });
 
-test("native SSR denies admitted registry mutations before schema/guards/handler/writes for generated and unmarked calls, even with forced cache", async () => {
+test("native SSR denies admitted registry mutations before middleware/schema/handler/writes for generated and unmarked calls, even with forced cache", async () => {
   const require = createRequire(
     new URL("../../../examples/angular-launch/package.json", import.meta.url),
   );
@@ -371,7 +379,7 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
   const { renderApplication, provideServerRendering } = await import(
     require.resolve("@angular/platform-server")
   );
-  const counts = { contexts: 0, schemas: 0, guards: 0, handlers: 0, writes: 0, fallback: 0 };
+  const counts = { contexts: 0, schemas: 0, middleware: 0, handlers: 0, writes: 0, fallback: 0 };
   const binding = {
     id: "native-mutation-denial",
     context: defineContext(() => {
@@ -383,7 +391,7 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
   const registry = {
     [id]: defineRpc(
       "todos",
-      {
+      ({ query, mutation }) => ({
         write: mutation({
           input: {
             "~standard": {
@@ -396,12 +404,12 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
               },
             },
           },
-          canActivate: [
-            () => {
-              counts.guards += 1;
+          use: [
+            middleware(async ({ next }) => {
+              counts.middleware += 1;
 
-              return true;
-            },
+              return next();
+            }),
           ],
           handler: () => {
             counts.handlers += 1;
@@ -411,14 +419,14 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
           },
         }),
         read: query({ handler: () => "read works" }),
-      },
+      }),
       {
-        canActivate: [
-          () => {
-            counts.guards += 1;
+        use: [
+          middleware(async ({ next }) => {
+            counts.middleware += 1;
 
-            return true;
-          },
+            return next();
+          }),
         ],
       },
     ),
@@ -540,7 +548,7 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
   assert.deepEqual(counts, {
     contexts: 1,
     schemas: 0,
-    guards: 0,
+    middleware: 0,
     handlers: 0,
     writes: 0,
     fallback: 0,
@@ -564,7 +572,7 @@ test("native SSR denies admitted registry mutations before schema/guards/handler
   assert.deepEqual(counts, {
     contexts: 2,
     schemas: 1,
-    guards: 2,
+    middleware: 2,
     handlers: 1,
     writes: 1,
     fallback: 0,

@@ -1,11 +1,11 @@
-import { defineRpc, query } from "@loozo/angular-launch/server";
-import { isSignedIn, requireUser } from "../../auth.server";
+import { defineRpc } from "@loozo/angular-launch/server";
+import { signedIn } from "../../auth.server";
 export default defineRpc(
   "session",
-  {
+  ({ query }) => ({
     current: query({
-      handler: ({ context }) => ({ user: requireUser(context).id, requestId: context.requestId }),
+      handler: ({ context }) => ({ user: context.user.id, requestId: context.requestId }),
     }),
-  },
-  { canActivate: [isSignedIn] },
+  }),
+  { use: [signedIn] },
 );
