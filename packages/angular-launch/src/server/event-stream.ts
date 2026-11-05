@@ -62,8 +62,11 @@ export function eventStream(
     signal.removeEventListener("abort", stopped!);
   }
 
-  // After the stream stopped: let the handler's pending step finish, then return it.
+  // After the stream stopped: let the handler's pending step finish, then return it. The
+  // step's failure, if any, settles the call, but only after that cleanup ran.
   async function settleStopped(): Promise<void> {
+    let failure: { readonly error: unknown } | undefined;
+
     try {
       const step = await pending;
 
@@ -72,11 +75,24 @@ export function eventStream(
 
         return;
       }
-
-      await start.iterator.return?.();
-      start.finished.resolve();
     } catch (error) {
-      start.finished.reject(error);
+      failure = { error };
+    }
+
+    try {
+      await start.iterator.return?.();
+    } catch (error) {
+      if (failure === undefined) {
+        failure = { error };
+      } else {
+        console.error("Launch stream failed while returning", error);
+      }
+    }
+
+    if (failure === undefined) {
+      start.finished.resolve();
+    } else {
+      start.finished.reject(failure.error);
     }
   }
 
@@ -128,7 +144,10 @@ export function eventStream(
       }, keepAliveMs);
     },
     async pull(controller) {
-      const next = start.iterator.next();
+      // A custom iterator's next() may throw instead of rejecting.
+      const next = new Promise<IteratorResult<unknown>>((resolve) => {
+        resolve(start.iterator.next());
+      });
       let step: IteratorResult<unknown>;
 
       pending = next;

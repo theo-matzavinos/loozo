@@ -359,6 +359,92 @@ test("a failure in the handler's pending step reaches middleware even when the b
   assert.match(String(log[0][1]), /database failed/);
 });
 
+test("custom iterators: a next() that throws fails the stream, and a cancelled stream runs return() before reporting its failure", async () => {
+  const seen = [];
+  const wrapping = middleware(async ({ next }) => {
+    try {
+      return await next();
+    } catch (error) {
+      seen.push(`next rejected: ${error.message}`);
+
+      throw error;
+    }
+  });
+  const step = Promise.withResolvers();
+  const cleanup = Promise.withResolvers();
+  const registry = {
+    live: defineRpc(
+      "live",
+      ({ stream }) => ({
+        throwing: stream({
+          handler: () => ({
+            [Symbol.asyncIterator]: () => ({
+              next() {
+                throw new Error("sync failed");
+              },
+            }),
+          }),
+        }),
+        cleaning: stream({
+          handler: () => {
+            let calls = 0;
+
+            return {
+              [Symbol.asyncIterator]: () => ({
+                next() {
+                  calls += 1;
+
+                  if (calls === 1) {
+                    return Promise.resolve({ done: false, value: 0 });
+                  }
+
+                  return step.promise;
+                },
+                async return() {
+                  seen.push("return started");
+                  await cleanup.promise;
+                  seen.push("return finished");
+
+                  return { done: true, value: undefined };
+                },
+              }),
+            };
+          },
+        }),
+      }),
+      { use: [wrapping] },
+    ),
+  };
+
+  let thrown;
+  const log = await logged(async () => {
+    thrown = await events(await handle(registry, post("/_rpc/live/throwing", null)));
+  });
+
+  assert.deepEqual(thrown, [
+    'event: error\ndata: {"status":500,"error":{"code":"INTERNAL","message":"Internal server error","data":null}}',
+  ]);
+  assert.deepEqual(seen, ["next rejected: sync failed"]);
+  assert.match(String(log[0][1]), /sync failed/);
+
+  seen.length = 0;
+
+  const response = await handle(registry, post("/_rpc/live/cleaning", null));
+  const reader = response.body.getReader();
+
+  await reader.read();
+  await new Promise((resolve) => setImmediate(resolve));
+  await reader.cancel(new Error("client went away"));
+  await logged(async () => {
+    step.reject(new Error("database failed"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(seen, ["return started"]);
+    cleanup.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+  assert.deepEqual(seen, ["return started", "return finished", "next rejected: database failed"]);
+});
+
 test("a request aborted before its stream is read stops the stream, also before the handler started", async () => {
   const seen = [];
   const gate = Promise.withResolvers();
