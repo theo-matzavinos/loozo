@@ -992,6 +992,18 @@ return [value, old];
 }), { use: [numericTwo, stringTwo] });
 // @ts-expect-error after stringTwo, 2 is a string, not the number needsNumericTwo needs
 defineRpc('stringOverwriteChain', ({ query }) => ({ get: query({ handler: () => null }) }), { use: [numericTwo, stringTwo, needsNumericTwo] });
+const numericSeed = middleware(async ({ next }) => next({ 3: 'keep' }));
+const needsNumericThree = middleware(async ({ next }: MiddlewareArgs<{ 3: string }>) => next());
+const leadingZero = middleware(async ({ next }) => next({ '03': 42 }));
+const decimal = middleware(async ({ next }) => next({ '3.0': 42 }));
+const exponent = middleware(async ({ next }) => next({ '3e0': 42 }));
+defineRpc('distinctSpellings', ({ query }) => ({
+current: query({ handler: ({ context }) => {
+const kept: string = context[3];
+const added: number = context['03'] + context['3.0'] + context['3e0'];
+return [kept.toUpperCase(), added];
+} }),
+}), { use: [numericSeed, leadingZero, decimal, exponent, needsNumericThree] });
 // @ts-expect-error known limit: separate branches with disjoint values don't infer a union
 const disjointBranches = middleware(async ({ context, request, next }: MiddlewareArgs<{ user: { id: string } }>) => {
 if (request.headers.has('x-preview')) { return next({ user: null }); }

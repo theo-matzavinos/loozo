@@ -486,11 +486,16 @@ export function middleware<Needs = Context, Added extends object = {}, Input = u
 }
 
 // Both spellings of a property key: JavaScript stores `1` and `"1"` as one property, so
-// adding either replaces the other.
+// adding either replaces the other. Only a number's canonical spelling counts: `"01"`,
+// `"1.0"` and `"1e0"` are separate properties, and TypeScript infers them as `number`.
 type KeySpellings<Key> = Key extends number
   ? Key | `${Key}`
   : Key extends `${infer Numeric extends number}`
-    ? Key | Numeric
+    ? number extends Numeric
+      ? Key
+      : `${Numeric}` extends Key
+        ? Key | Numeric
+        : Key
     : Key;
 // Spreads `Added` over each member of `Base`, so a union context keeps its correlation;
 // an empty addition leaves `Base` as it is.
