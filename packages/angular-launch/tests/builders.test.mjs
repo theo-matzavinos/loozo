@@ -600,3 +600,101 @@ await test("serve regenerates after rpc.ts and context edits, follows a moved co
     await served.stop();
   }
 });
+
+await test("serve runs one pass for a burst of watcher events", async () => {
+  const fsPromises = require("node:fs/promises");
+  const readManifest = fsPromises.readFile;
+  const manifest = resolve(packageDirectory, "dist/package.json");
+  const todos = resolve(fixture, "src/routes/todos");
+  const tasks = resolve(fixture, "src/routes/tasks");
+  const page = await read("src/routes/todos/page.ts");
+  let passes = 0;
+
+  // Counts each pass when the builder starts it, as in the context watch test above.
+  fsPromises.readFile = function (path, ...rest) {
+    if (typeof path === "string" && resolve(path) === manifest) {
+      passes += 1;
+    }
+
+    return readManifest.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+
+  // A pass queued behind another starts as soon as it finishes, so a second without a new pass
+  // means none is left to run.
+  async function quiet() {
+    let seen;
+
+    do {
+      seen = passes;
+      await new Promise((done) => setTimeout(done, 1000));
+    } while (passes !== seen);
+  }
+
+  async function passesFor(change, landed, description) {
+    const before = passes;
+
+    await change();
+    await waitFor(landed, `${description} didn't regenerate`);
+    await quiet();
+
+    return passes - before;
+  }
+
+  try {
+    await put("src/routes/todos/rpc.ts", rpc);
+
+    const served = await start("serve");
+
+    try {
+      await waitFor(
+        () => served.outputs.some((output) => output.success),
+        "dev server never started",
+      );
+      // The followed context's readiness pass can still be running.
+      await quiet();
+
+      // Two files saved together reach the watcher as two events on different paths.
+      const saved = await passesFor(
+        () =>
+          Promise.all([
+            put(
+              "src/routes/todos/rpc.ts",
+              rpc.replace("list:", "ping: query({ handler: () => 1 }),\n  list:"),
+            ),
+            put("src/routes/todos/page.ts", page.replace('template: "todos"', 'template: "all"')),
+          ]),
+        async () => /\bping\b/.test(await read("src/routes/todos/rpc.generated.ts")),
+        "saving two files",
+      );
+
+      assert.equal(saved, 1, "one pass for two files saved together");
+
+      // A rename reports its re-adds at once and its unlinks about 100 ms later.
+      const renamed = await passesFor(
+        () => rename(todos, tasks),
+        async () => (await read("src/routes/tasks/route.generated.ts")).includes("tasks"),
+        "renaming a route directory",
+      );
+
+      assert.equal(renamed, 1, "one pass for a directory rename");
+    } finally {
+      await served.stop();
+    }
+  } finally {
+    fsPromises.readFile = readManifest;
+    syncBuiltinESMExports();
+
+    const moved = await stat(tasks).then(
+      () => true,
+      () => false,
+    );
+
+    if (moved) {
+      await rename(tasks, todos);
+    }
+
+    await put("src/routes/todos/rpc.ts", rpc);
+    await put("src/routes/todos/page.ts", page);
+  }
+});

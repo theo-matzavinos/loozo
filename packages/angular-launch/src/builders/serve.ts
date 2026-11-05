@@ -17,6 +17,10 @@ import { buildTargetOptions, message, type JsonObject } from "./options.js";
 // inside a renamed directory, which otherwise leave the dev server serving stale output.
 const defaultPoll = 1000;
 const devServerBuilder = "@angular/build:dev-server";
+// One change can reach the watcher as a burst of events: a save of several files, or a directory
+// rename, whose unlinks chokidar holds back 100 ms to pair them with re-adds. A pass waits for the
+// burst to go quiet, so it runs once and reads the finished change.
+const settleDelay = 150;
 
 // Generation's own marked outputs in the scan directory; their events need no further pass. The
 // output directory can't overlap the scan directory, so its files never reach the watcher. The
@@ -52,6 +56,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       let active: Promise<unknown> | undefined;
       let cleanup: Promise<void> | undefined;
       let cancelReady: (() => void) | undefined;
+      let settling: NodeJS.Timeout | undefined;
       // Resolved before the watcher starts.
       let scanRoot: string;
       let watchedContext: string | undefined;
@@ -125,8 +130,12 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        dirty = true;
-        pump();
+        clearTimeout(settling);
+        settling = setTimeout(() => {
+          settling = undefined;
+          dirty = true;
+          pump();
+        }, settleDelay);
       }
 
       // A failed or stopped pass leaves the session clean; the next pass starts fresh.
@@ -141,6 +150,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       function stop(): Promise<void> {
         stopped = true;
         dirty = false;
+        clearTimeout(settling);
         cancelReady?.();
         forwarding?.unsubscribe();
 
