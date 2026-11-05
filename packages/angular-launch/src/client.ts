@@ -44,6 +44,19 @@ export interface MutationCallOptions {
   readonly transferCache?: false;
 }
 
+/** Per-call options for a generated stream callable. */
+export interface StreamCallOptions {
+  /**
+   * Aborts the stream: its request is cancelled and iteration rejects with a
+   * `DOMException` named `AbortError`.
+   *
+   * @remarks
+   * Ending iteration early, such as with `break`, also closes the request. On the server,
+   * the stream's middleware and handler see their `signal` abort.
+   */
+  readonly signal?: AbortSignal;
+}
+
 /**
  * Browser-safe metadata for one declared error of a procedure.
  *
@@ -334,11 +347,16 @@ export type ClientRpcError<Value> =
 
 type Options<Kind extends ProcedureKind> = Kind extends "mutation"
   ? MutationCallOptions
-  : CallOptions;
+  : Kind extends "stream"
+    ? StreamCallOptions
+    : CallOptions;
+type Result<Output, Kind extends ProcedureKind> = Kind extends "stream"
+  ? AsyncIterable<Output extends AsyncIterable<infer Item> ? Item : never>
+  : Promise<Awaited<Output>>;
 type Callable<Input, Output, Kind extends ProcedureKind> =
   Input extends Schema<infer Caller, unknown>
-    ? (input: Caller, options?: Options<Kind>) => Promise<Output>
-    : (options?: Options<Kind>) => Promise<Output>;
+    ? (input: Caller, options?: Options<Kind>) => Result<Output, Kind>
+    : (options?: Options<Kind>) => Result<Output, Kind>;
 /**
  * The generated client callable for a procedure.
  *
@@ -353,8 +371,8 @@ type Callable<Input, Output, Kind extends ProcedureKind> =
  */
 export type ClientProcedure<Value> =
   Value extends Procedure<infer Input, infer Output, infer Kind, infer Errors>
-    ? Callable<Input, Awaited<Output>, Kind> & {
-        /** Whether the procedure is a `"query"` or a `"mutation"`. */
+    ? Callable<Input, Output, Kind> & {
+        /** Whether the procedure is a `"query"`, a `"mutation"` or a `"stream"`. */
         readonly kind: Kind;
         /**
          * Whether `error` is an {@link RpcError} returned by this exact procedure.

@@ -655,6 +655,81 @@ try {
     "a query that fails during server rendering isn't dehydrated and loads over HTTP in the browser",
   );
 
+  // Streams: /live renders from a query on the server, then follows a stream in the browser.
+  const liveHtml = await (
+    await fetch(`${base}/live`, { headers: { cookie: "proof-user=alice" } })
+  ).text();
+
+  await writeFile(join(evidence, "alice-live-ssr.html"), liveHtml);
+  assert.ok(liveHtml.includes("alice: Review todos"));
+
+  const livePage = await context.newPage();
+
+  livePage.on("pageerror", (error) => errors.push(String(error)));
+  await livePage.goto(`${base}/live`);
+  await livePage.waitForFunction(() => globalThis.__liveUpdates === 1);
+  assert.equal(await livePage.locator("#live-status").textContent(), "Live");
+  assert.equal(await livePage.evaluate(() => globalThis.__launchStable), true);
+
+  const liveTitle = `Streamed ${crypto.randomUUID()}`;
+  const liveAdd = await fetch(`${base}/_rpc/todos/add`, {
+    method: "POST",
+    headers: { origin, "content-type": "application/json", cookie: "proof-user=alice" },
+    body: JSON.stringify({ input: { title: liveTitle } }),
+  });
+
+  assert.equal(liveAdd.status, 200);
+  await livePage.waitForFunction(() => globalThis.__liveUpdates === 2);
+  assert.ok((await livePage.locator("#live-list").textContent()).includes(liveTitle));
+  checks.push(
+    "a stream page renders its query on the server, follows the stream after hydration without keeping the app unstable, and shows a write from elsewhere",
+  );
+
+  assert.deepEqual(
+    await livePage.evaluate(() => globalThis.__launchTicks({ count: 3, everyMs: 10, fail: false })),
+    {
+      values: [
+        { tick: 0, user: "alice" },
+        { tick: 1, user: "alice" },
+        { tick: 2, user: "alice" },
+      ],
+      outcome: "ended",
+    },
+  );
+  assert.deepEqual(
+    await livePage.evaluate(() => globalThis.__launchTicks({ count: 1, everyMs: 10, fail: true })),
+    {
+      values: [{ tick: 0, user: "alice" }],
+      outcome: "RpcError:STOPPED:409:The ticks stopped",
+    },
+  );
+
+  const beforeBreak = await stats();
+  const broken = await livePage.evaluate(() =>
+    globalThis.__launchTicks({ count: 100, everyMs: 50, fail: false }, 1),
+  );
+
+  assert.equal(broken.values.length, 1);
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const current = await stats();
+
+    if (current.streamsReturned > beforeBreak.streamsReturned) {
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  const afterBreak = await stats();
+
+  assert.equal(afterBreak.streamsAborted - beforeBreak.streamsAborted, 1);
+  assert.equal(afterBreak.streamsReturned - beforeBreak.streamsReturned, 1);
+  await livePage.close();
+  checks.push(
+    "the browser stream client yields typed values, ends cleanly, rejects with the procedure's declared error, and break closes the request so the handler sees its signal abort and returns",
+  );
+
   // One batched desktop+narrow visual pass against genuine native browser UI.
   await page.locator("#todo-title").fill("");
   await page.setViewportSize({ width: 1280, height: 800 });

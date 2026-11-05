@@ -21,6 +21,7 @@ export type {
   ProcedureDefinition,
   ProcedureKind,
   ProcedureOptions,
+  StreamOptions,
   Schema,
 } from "./definitions.js";
 export type { DeclaredFailure } from "./errors.js";

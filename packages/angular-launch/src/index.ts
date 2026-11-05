@@ -2,6 +2,7 @@ export { RpcError, frameworkFailures } from "./client.js";
 export type {
   CallOptions,
   MutationCallOptions,
+  StreamCallOptions,
   Client,
   ClientProcedure,
   ClientRpcError,

@@ -263,8 +263,14 @@ type ErrorContract<Definitions extends ErrorDefinitions> = {
 type JsonResult<Value> =
   Value extends Promise<infer Result> ? Promise<JsonShape<Result>> : JsonShape<Value>;
 
-/** Whether a procedure reads (`"query"`) or writes (`"mutation"`). */
-export type ProcedureKind = "query" | "mutation";
+/**
+ * Whether a procedure reads (`"query"`), writes (`"mutation"`) or streams values while it
+ * runs (`"stream"`).
+ */
+export type ProcedureKind = "query" | "mutation" | "stream";
+// A stream handler yields strict JSON and returns nothing: a returned value would be lost.
+type StreamResult<Value> =
+  Value extends AsyncIterable<infer Item> ? AsyncIterable<JsonShape<Item>, void> : never;
 
 declare const middlewareResult: unique symbol;
 
@@ -612,6 +618,29 @@ export interface ProcedureOptions<
 }
 
 /**
+ * The options a group's `stream` builder takes: those of `query`, with a handler that
+ * returns an async iterable, usually an `async function*`.
+ */
+export interface StreamOptions<
+  ContextValue,
+  Input,
+  Use extends readonly AnyMiddleware[],
+  Output,
+  Errors extends ErrorDefinitions,
+> extends Omit<ProcedureOptions<ContextValue, Input, Use, Output, Errors>, "handler"> {
+  /**
+   * Runs the stream: each value it yields is sent to the caller as strict JSON, until it
+   * returns or throws.
+   */
+  readonly handler: (
+    args: CallArgs<ContextAfter<ContextValue, Use>, OutputOf<Input>> & {
+      /** One factory per declared error code, creating an error to `throw`. */
+      readonly errors: ErrorFactories<Errors>;
+    },
+  ) => Output & StreamResult<NoInfer<Output>>;
+}
+
+/**
  * The `query` and `mutation` builders `defineRpc` passes to its callback.
  *
  * @remarks
@@ -701,6 +730,34 @@ export interface ProcedureBuilder<ContextValue> {
   >(
     options: ProcedureOptions<ContextValue, Input, Use, Output, Errors>,
   ) => Procedure<Input, Output, "mutation", Errors>;
+  /**
+   * Defines a procedure that sends values while it runs: a stream.
+   *
+   * @remarks
+   * Takes the same options as `query`, except that the handler returns an async iterable,
+   * usually written as `handler: async function* ({ context, input, signal }) { … }`. Each
+   * value it yields reaches the caller as soon as it's yielded.
+   *
+   * @example
+   * ```ts
+   * watch: stream({
+   *   input: idSchema,
+   *   handler: async function* ({ context, input, signal }) {
+   *     for await (const chat of context.chats.changes(input.id, { signal })) {
+   *       yield chat;
+   *     }
+   *   },
+   * }),
+   * ```
+   */
+  readonly stream: <
+    Input extends Schema | undefined = undefined,
+    const Use extends readonly AnyMiddleware[] = [],
+    Output extends AsyncIterable<unknown> = AsyncIterable<unknown>,
+    const Errors extends ErrorDefinitions = {},
+  >(
+    options: StreamOptions<ContextValue, Input, Use, Output, Errors>,
+  ) => Procedure<Input, Output, "stream", Errors>;
 }
 
 // The runtime view of any builder's options; their types are checked at the call site.
@@ -732,6 +789,7 @@ function procedure(
 const builder: ProcedureBuilder<never> = {
   query: (options) => procedure("query", options) as never,
   mutation: (options) => procedure("mutation", options) as never,
+  stream: (options) => procedure("stream", options) as never,
 };
 
 /**
