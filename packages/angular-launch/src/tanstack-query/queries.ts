@@ -145,10 +145,10 @@ type ProcedureQueries<Namespace, Name, Value> =
  * `signal` and `transferCache: false`, since TanStack transfers the data itself. Errors are
  * typed `unknown`: narrow them with the callable's `isError`.
  *
- * Query options default `retry` to never for an `RpcError` and to your `QueryClient`
- * default, or three retries, for anything else, and `refetchOnMount` to `false` while the
- * app hydrates and to your `QueryClient` default, or `true`, after. Overrides replace
- * either default.
+ * Query options default `retry` to never for an `RpcError`, `RpcRedirect` or
+ * `RpcNotFound` and to your `QueryClient` default, or three retries, for anything else,
+ * and `refetchOnMount` to `false` while the app hydrates and to your `QueryClient`
+ * default, or `true`, after. Overrides replace either default.
  *
  * @example
  * ```ts

@@ -6,11 +6,11 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), middleware and declared errors, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no websockets, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no websockets, optimistic updates, automatic invalidation or storage adapters.
 
 ## Requirements
 
-- Angular 22 with SSR: `@angular/core` and `@angular/common` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/router`, `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.2.2.
+- Angular 22 with SSR: `@angular/core`, `@angular/common` and `@angular/router` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.2.2.
 - `@angular/build` `~22.2.0`, for the builders. The range is narrow on purpose: the application builder's options schema is Angular's own at the version Launch was built against, so an option added in a later Angular minor is rejected until Launch is rebuilt against that minor.
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
@@ -144,6 +144,8 @@ export const config: ApplicationConfig = {
 };
 ```
 
+To have pages follow a procedure's [`redirect()` and `notFound()`](#redirects-and-not-found), add [`rpcNavigationErrors`](#navigating-on-outcomes) to `provideRouter`.
+
 The server config adds the generated `provideServer()`, after `provideHttpClient()`:
 
 ```ts
@@ -269,7 +271,7 @@ defineRpc(
 );
 ```
 
-The handler receives `{ context, input, errors, request, signal, response }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs). `response` sets cookies and headers; see [Cookies and headers](#cookies-and-headers).
+The handler receives `{ context, input, errors, request, signal, response }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. It can also throw a [declared error](#declared-errors) or an [outcome](#redirects-and-not-found). `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs). `response` sets cookies and headers; see [Cookies and headers](#cookies-and-headers).
 
 - **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route, and each namespace is unique across the app because it names the group's URL.
 - **The callback** is read without running it: an arrow function that destructures any of `query`, `mutation` and `stream` without renaming, returning a parenthesized object literal in which each procedure is a direct `query(...)`, `mutation(...)` or `stream(...)` call with inline options.
@@ -318,7 +320,7 @@ So a caller that group middleware refuses gets `FORBIDDEN` even when its input i
   });
   ```
 
-- **Refusing:** `throw forbidden()` fails the call with `FORBIDDEN`; a handler can throw it too. Any other exception fails the call with `INTERNAL`. Declared errors belong to handlers.
+- **Refusing:** `throw forbidden()` fails the call with `FORBIDDEN`, and `throw notFound()` or `throw redirect(to)` answer it with that [outcome](#redirects-and-not-found); a handler can throw them too. Any other exception fails the call with `INTERNAL`. Declared errors belong to handlers.
 - **Needs:** a middleware without an annotation needs your `Context` and accepts any input, so it fits anywhere. Annotate its argument with `MiddlewareArgs<Needs, Input>` to require values that earlier middleware adds, or an input shape:
 
   ```ts
@@ -465,6 +467,49 @@ try {
 }
 ```
 
+### Redirects and not found
+
+A page that can't be shown, because the visitor must sign in first or the thing it shows doesn't exist, is answered with an outcome from `@loozo/angular-launch/server` instead of an error code. Middleware and handlers throw them:
+
+```ts
+// src/auth.server.ts
+import { createUrl } from "@loozo/angular-router";
+import { middleware, redirect } from "@loozo/angular-launch/server";
+import signIn from "./routes/sign-in/route";
+
+// For reads that pages load while navigating.
+export const signInFirst = middleware(async ({ context, next }) => {
+  if (context.user === null) {
+    throw redirect(createUrl(signIn, {}));
+  }
+
+  return next({ user: context.user });
+});
+```
+
+```ts
+import { notFound } from "@loozo/angular-launch/server";
+
+get: query({
+  input: idSchema,
+  handler: async ({ input, context }) => {
+    const todo = await context.db.todos.findForUser(context.user.id, input.id);
+
+    // Another user's todo is missing too.
+    if (todo === null) {
+      throw notFound();
+    }
+
+    return todo;
+  },
+}),
+```
+
+- **`redirect(to)`** takes a root-relative app URL, such as `createUrl` builds. `redirect("https://…")` is a type error, and a URL that leaves the app, such as `//example.com`, throws a `TypeError`. An external redirect, such as to an OAuth provider, is data your page acts on.
+- **On the wire** a redirect is a 303 with `{ "redirect": { "to": "/sign-in" } }` and no `Location` header, so `fetch` hands it to the client instead of following it, and not-found is a 404 with `{ "notFound": null }`. Only status 200 is a result: a handler that returns `{ redirect: { to } }` returns data.
+- **On the client** the call rejects with `RpcRedirect` (with its `to`) or `RpcNotFound` from `@loozo/angular-launch`. They aren't `RpcError`s, so `isError` is false for them. Nothing navigates for you, except in a guard or resolver with [`rpcNavigationErrors`](#navigating-on-outcomes).
+- **Not-found isn't `RPC_NOT_FOUND`**, which means no such procedure, and it doesn't take a declared `NOT_FOUND` code. Use `notFound()` when the page can't be shown, and a declared error when the page handles the case itself, as the example's `complete` does.
+
 ### Streams
 
 A stream sends values while it runs, such as a list that changes or an answer that's still being written. Its handler returns an async iterable, usually written as an `async function*`:
@@ -489,7 +534,7 @@ Write the handler as `handler: async function* (…) { … }`: generation doesn'
 - **Yield the current state first.** A caller that reconnects starts a new call and the handler starts over, so a stream of snapshots loses nothing across a reconnect, while a stream of changes loses those made in between.
 - **Middleware** runs once per stream, before the handler, with one context. `next()` settles when the stream ends: it resolves when the handler finishes or the caller goes away, and rejects when the handler throws. Wrapping middleware therefore spans the whole stream; one that opens a transaction keeps it open as long as the stream runs. Nothing is checked again while the stream runs, so a handler that must notice a revoked session checks before each value.
 - **Cookies and headers** are sent with the stream's response, which starts once the handler returned its iterable. Set them in middleware before `next()`, or in a handler that isn't a generator, before it returns one: an `async function*` handler's body runs after the response started, so setting a cookie there throws and ends the stream with `INTERNAL`. See [Cookies and headers](#cookies-and-headers).
-- **Failures** before the handler returns its iterable, such as a refusing middleware or invalid input, are ordinary responses with their status, as for a query. After that the response has started: a declared error, `forbidden()` or any other exception ends the stream with that error.
+- **Failures** before the handler returns its iterable, such as a refusing middleware or invalid input, are ordinary responses with their status, as for a query. After that the response has started: a declared error, an outcome or any other exception ends the stream with that error. An `async function*` handler's body only runs once the response has started, so outcomes it throws arrive as an `error` event, such as `{"status":404,"notFound":null}`.
 - **Cancellation:** when the caller stops reading or goes away, the handler's `signal` aborts and the generator is asked to return, which runs its `finally` blocks once it next yields. A generator waiting on something that ignores the signal finishes that wait first, and middleware's `next()` resolves only once the generator has returned. Hosts cancel a response body when its client goes away while it's being sent, but a client that leaves earlier, while the context or middleware still run, is noticed only through the request's signal. Keep the server entry's [abort wiring](#aborted-requests), or such a stream runs until it ends by itself.
 
 A stream is called with a `POST` like any procedure. Its response is `text/event-stream`: one `value` event per value, then one `end` or `error` event, and a `: keep-alive` comment every 15 seconds so proxies don't close an idle connection. Every `data` line is strict JSON:
@@ -540,7 +585,7 @@ await rpc.todos.add({ title }, { signal });
 | `signal`        | Abort the HTTP request; the call rejects with an `AbortError`. The server's middleware and handler see their `signal` abort, but aborting is advisory: work that ignores it finishes, and a write may already have committed. |
 | `transferCache` | Queries default to `true`. Mutations only accept `false` and never use the transfer cache.                                                                                                                                    |
 
-`isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures and aborts are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"`, `"mutation"` or `"stream"`.
+`isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures, aborts and the [outcomes](#redirects-and-not-found) `RpcRedirect` and `RpcNotFound` are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"`, `"mutation"` or `"stream"`.
 
 Route resolvers can call RPCs too, which is how a page gets its data during SSR:
 
@@ -560,6 +605,29 @@ export default defineRoute("todos", {
 
 `Client<typeof group>` from `@loozo/angular-launch` gives you the client type for a group, for example to type a result: `Awaited<ReturnType<Client<typeof group>["list"]>>`. Import the group with `import type` so server code stays out of the browser bundle.
 
+### Navigating on outcomes
+
+`rpcNavigationErrors({ notFound })` from `@loozo/angular-launch` is a navigation error handler for Angular's `withNavigationErrorHandler`:
+
+```ts
+// src/config.ts
+import { provideRouter, withNavigationErrorHandler } from "@angular/router";
+import { rpcNavigationErrors } from "@loozo/angular-launch";
+import { createUrl } from "@loozo/angular-router";
+import notFound from "./routes/not-found/route";
+
+provideRouter(
+  routes,
+  withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFound, {}) })),
+);
+```
+
+When a guard or resolver's call rejects with `RpcRedirect`, the navigation goes to its `to` instead; during server rendering Angular answers the page request with a 302 to it. When it rejects with `RpcNotFound`, the `notFound` page is rendered while the address bar keeps the requested URL; during server rendering the page is answered with status 404. Other errors are left to Angular.
+
+- Only navigation acts on outcomes. A call from a component, a click handler or a TanStack query just rejects.
+- Angular takes one navigation error handler. If your app has its own, call the function `rpcNavigationErrors` returns from it, inside that handler's injection context, and return its result.
+- The 404 needs the route's `RenderMode.Server`, which RPC pages need anyway.
+
 ### Calling streams
 
 A stream's callable returns an async iterable instead of a promise, and takes only `signal` as an option:
@@ -573,7 +641,7 @@ for await (const todos of rpc.live.watch({ signal })) {
 Each iteration sends a new request; leaving the loop early or aborting `signal` closes it. Iteration:
 
 - ends after the stream's last value;
-- throws an `RpcError` that the callable's `isError` recognizes, for a framework or declared error, whether the stream was refused or ended with it;
+- throws an `RpcError` that the callable's `isError` recognizes, for a framework or declared error, and an `RpcRedirect` or `RpcNotFound` for an outcome, whether the stream was refused or ended with it;
 - throws an `AbortError` when `signal` aborts;
 - throws a `TypeError` when the connection fails or closes before the stream ended.
 
@@ -624,6 +692,11 @@ The reuse has limits, all of them Angular's transfer cache behaving as designed:
 - Only successful responses transfer. A query that fails during server rendering, with a declared error or a framework code, runs again over HTTP during hydration, with a fresh context. The handler runs twice, and the browser shows whatever the second call returns.
 - The cache serves calls made before the app first becomes stable. RPCs called later, for example from a `@defer` block that hydrates on interaction or when it enters the viewport, go over HTTP.
 - Launch relies on your app's transfer cache settings. `withNoHttpTransferCache()`, or a `withHttpTransferCacheOptions` `filter` that rejects `/_rpc/` requests, turns reuse off without any error, and every query runs again in the browser.
+
+Outcomes in a guard or resolver become a 302 or a 404 page with [`rpcNavigationErrors`](#navigating-on-outcomes), and both have caveats:
+
+- A server-rendered not-found page calls the procedure again over HTTP during hydration, because only successes transfer, so its handler runs twice. A redirect doesn't: the browser follows the 302.
+- Any other failure of a guard or resolver during server rendering, such as `FORBIDDEN`, `INTERNAL`, a declared error, or an outcome without `rpcNavigationErrors`, fails the initial navigation. Angular then renders no page and `angular.handle` returns `null`, so your server's fallback answers, such as the example's plain 404. Handle such errors in the route if the page should show something, or throw an outcome instead.
 
 Mutations are refused during server rendering with `FORBIDDEN`, before any middleware, validation or the handler runs. Rendering should only read. Streams are refused the same way, since they don't finish; see [Calling streams](#calling-streams).
 
@@ -880,6 +953,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 - No cookie reader, and no success status other than 200. During server rendering, a cookie set by one call isn't visible to later calls in the same render, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
+- Redirects are root-relative only, and outcomes act only in navigation, through `rpcNavigationErrors`. Nothing maps `FORBIDDEN` to a page.
 - One RPC group per route, and one context per application.
 
 ## Further reading

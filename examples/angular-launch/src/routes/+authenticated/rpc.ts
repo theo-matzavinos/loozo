@@ -1,5 +1,5 @@
 import { defineRpc } from "@loozo/angular-launch/server";
-import { signedIn } from "../../auth.server";
+import { signInFirst } from "../../auth.server";
 import { timing } from "../../timing.server";
 export default defineRpc(
   "session",
@@ -14,5 +14,5 @@ export default defineRpc(
       },
     }),
   }),
-  { use: [timing, signedIn] },
+  { use: [timing, signInFirst] },
 );

@@ -40,7 +40,8 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
  * not a generated destination, spread/copy or structural lookalike.
  * @param values - Explicit destination-typed params, search and optional fragment.
  * Pass an empty object when the route needs no values.
- * @returns A root-relative URL string; this does not navigate or return a UrlTree.
+ * @returns A root-relative URL string, typed `` `/${string}` ``; this does not navigate or
+ * return a UrlTree.
  * @throws TypeError for invalid routes/records, missing or unknown keys,
  * undeclared fragments, nonarray catchalls, nonstring codec output, or empty/dot
  * path output. Application stringifier failures propagate unchanged.
@@ -59,9 +60,9 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
 export function createUrl<
   Target extends AnyRoute,
   SearchKeys extends keyof SearchOf<NoInfer<Target>> = never,
->(route: Target, values: UrlValues<NoInfer<Target>, SearchKeys>): string;
+>(route: Target, values: UrlValues<NoInfer<Target>, SearchKeys>): `/${string}`;
 
-export function createUrl(route: unknown, values: unknown): string {
+export function createUrl(route: unknown, values: unknown): `/${string}` {
   const metadata = routeMetadata(route);
   const options = ownRecord(values, "URL options");
 
@@ -127,7 +128,7 @@ export function createUrl(route: unknown, values: unknown): string {
     }
   }
 
-  let url = `/${parts.join("/")}`;
+  let url: `/${string}` = `/${parts.join("/")}`;
   const query: string[] = [];
 
   for (const key of searchKeys) {
@@ -141,11 +142,11 @@ export function createUrl(route: unknown, values: unknown): string {
   }
 
   if (query.length > 0) {
-    url += `?${query.join("&")}`;
+    url = `${url}?${query.join("&")}`;
   }
 
   if (has(options, "fragment")) {
-    url += `#${encode(options.fragment as string)}`;
+    url = `${url}#${encode(options.fragment as string)}`;
   }
 
   return url;

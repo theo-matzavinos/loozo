@@ -10,6 +10,7 @@ import {
   type StreamCallOptions,
 } from "./client.js";
 import { serializeJson } from "./json.js";
+import { recognizedOutcome } from "./outcomes.js";
 import { openStream } from "./stream.js";
 
 export const RPC_CALL = new HttpContextToken(() => false);
@@ -86,6 +87,14 @@ function call(
 
               errorOwners.set(converted, { group, method: method.name });
               reject(converted);
+
+              return;
+            }
+
+            const outcome = recognizedOutcome(error.error, error.status);
+
+            if (outcome) {
+              reject(outcome);
 
               return;
             }

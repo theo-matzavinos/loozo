@@ -13,7 +13,7 @@ import type {
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
 import { eventStream, type StreamStart } from "./event-stream.js";
-import { outcomeOf } from "./outcomes.js";
+import { outcomeOf, type Outcome } from "./outcomes.js";
 import {
   createResponseEffects,
   type ResponseControl,
@@ -157,12 +157,34 @@ export function assertBoundScope(
   }
 }
 
-/** The HTTP status and JSON body {@link dispatch} produces for one call. Internal. */
+/**
+ * The HTTP status and JSON body {@link dispatch} produces for one call. Internal.
+ *
+ * @remarks
+ * Only status 200 is a result; every other status carries a frame dispatch built itself,
+ * so a result shaped like a frame stays data.
+ */
 export interface Reply {
-  /** The HTTP status: 200 for a result, otherwise the error's status. */
+  /** 200 for a result, 303 for a redirect, otherwise the error's or not-found's status. */
   readonly status: number;
-  /** The result, or an `{ error: { code, message, data } }` frame. */
+  /**
+   * The result, an `{ error: { code, message, data } }` frame, `{ redirect: { to } }` or
+   * `{ notFound: null }`.
+   */
   readonly body: unknown;
+}
+
+function outcomeReply(outcome: Outcome): Reply {
+  if (outcome.kind === "forbidden") {
+    return failure("FORBIDDEN");
+  }
+
+  if (outcome.kind === "notFound") {
+    return { status: 404, body: { notFound: null } };
+  }
+
+  // No Location header: fetch then hands the 303 to the client instead of following it.
+  return { status: 303, body: { redirect: { to: outcome.to } } };
 }
 
 export function failure(code: Exclude<FrameworkCode, "INVALID_INPUT">): Reply {
@@ -346,8 +368,9 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * with no issues); the procedure's middleware runs with the validated input; then the
  * handler. The handler's strict JSON result is returned with status 200, and its
  * declared errors with their status. `forbidden()` thrown from middleware or the
- * handler gives `FORBIDDEN`; a middleware that calls `next` twice or doesn't return its
- * result gives `INTERNAL`.
+ * handler gives `FORBIDDEN`, `notFound()` a 404 with `{ notFound: null }` and
+ * `redirect(to)` a 303 with `{ redirect: { to } }`; a middleware that calls `next` twice
+ * or doesn't return its result gives `INTERNAL`.
  *
  * A stream's handler returns an iterable instead of a result. Its iterator goes to
  * `start`, and the call goes on until the stream ends: the reply is then a 200 with
@@ -492,8 +515,8 @@ export async function dispatch(
     } catch (error) {
       const outcome = outcomeOf(error);
 
-      if (outcome?.kind === "forbidden") {
-        return failure("FORBIDDEN");
+      if (outcome !== undefined) {
+        return outcomeReply(outcome);
       }
 
       return await declaredReply(procedure, error);
