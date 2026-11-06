@@ -120,6 +120,11 @@ export const routes: Routes = [
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),
   },
   {
+    path: "menu-speech",
+    loadComponent: () =>
+      import("./fixtures/menu-speech.js").then((module) => module.MenuSpeechFixture),
+  },
+  {
     path: "date-time-field",
     loadComponent: () =>
       import("./fixtures/date-field-date-time-deferred.js").then(
