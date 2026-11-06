@@ -25,6 +25,7 @@ export type {
   Schema,
 } from "./definitions.js";
 export type { DeclaredFailure } from "./errors.js";
+export type { CookieOptions, ResponseControl } from "./response-effects.js";
 export type { JsonShape } from "../json.js";
 export type { HandleOptions, RequestScope } from "./dispatch.js";
 export { finishLaunchRendering } from "./backend.js";

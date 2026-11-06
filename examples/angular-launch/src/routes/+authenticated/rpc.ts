@@ -1,11 +1,18 @@
 import { defineRpc } from "@loozo/angular-launch/server";
 import { signedIn } from "../../auth.server";
+import { timing } from "../../timing.server";
 export default defineRpc(
   "session",
   ({ query }) => ({
     current: query({
-      handler: ({ context }) => ({ user: context.user.id, requestId: context.requestId }),
+      handler: ({ context, response }) => {
+        // Test-only: records which context answered. During server rendering the cookie
+        // goes on the page response.
+        response.setCookie("proof-seen", String(context.requestId));
+
+        return { user: context.user.id, requestId: context.requestId };
+      },
     }),
   }),
-  { use: [signedIn] },
+  { use: [timing, signedIn] },
 );

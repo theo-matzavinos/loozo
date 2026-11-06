@@ -269,7 +269,7 @@ defineRpc(
 );
 ```
 
-The handler receives `{ context, input, errors, request, signal }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs).
+The handler receives `{ context, input, errors, request, signal, response }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs). `response` sets cookies and headers; see [Cookies and headers](#cookies-and-headers).
 
 - **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route, and each namespace is unique across the app because it names the group's URL.
 - **The callback** is read without running it: an arrow function that destructures any of `query`, `mutation` and `stream` without renaming, returning a parenthesized object literal in which each procedure is a direct `query(...)`, `mutation(...)` or `stream(...)` call with inline options.
@@ -343,6 +343,74 @@ So a caller that group middleware refuses gets `FORBIDDEN` even when its input i
   - Casting an addition to `object` or `{}`, or deliberately widening a middleware's result type, hides the keys it adds, so the context type no longer matches what runs.
   - Only the top level of the context is read-only. Writing to a nested object, such as `context.session.user = null`, can still invalidate a narrowing nested inside it.
   - Separate `next({ user: null })` and `next({ user: context.user })` calls don't infer `User | null` when `context.user` is a `User`; write the single-call form above.
+
+### Cookies and headers
+
+Middleware and handlers set cookies and headers through `response`:
+
+```ts
+login: mutation({
+  input: credentialsSchema,
+  errors: { WRONG_CREDENTIALS: { status: 401, message: "Wrong email or password", data: nullSchema } },
+  handler: async ({ input, context, response, errors }) => {
+    const session = await context.sessions.signIn(input.email, input.password);
+
+    if (session === null) {
+      throw errors.WRONG_CREDENTIALS(null);
+    }
+
+    // Defaults: Path=/; HttpOnly; Secure; SameSite=Lax
+    response.setCookie("session", session.token, { maxAge: 60 * 60 * 24 * 30 });
+
+    return { user: session.userId };
+  },
+}),
+logout: mutation({
+  handler: async ({ context, response }) => {
+    await context.sessions.end(context.sessionToken);
+    response.deleteCookie("session");
+
+    return null;
+  },
+}),
+```
+
+- **`response.setCookie(name, value, options?)`** adds a `Set-Cookie` header. Options are `path` (default `/`), `domain`, `maxAge` in whole seconds, `expires`, `httpOnly` (default `true`), `secure` (default `true`) and `sameSite` (`"lax"` by default, `"strict"` or `"none"`, which needs `secure`). Browsers keep `Secure` cookies from `http://localhost`, so the defaults work in development; a plain-HTTP deployment on another hostname needs `secure: false`. Values aren't encoded for you: encode anything outside printable ASCII, or with spaces, `"`, `,`, `;` or `\`, first. An invalid name, value or option throws a `TypeError`, which fails the call with `INTERNAL`.
+- **`response.deleteCookie(name, options?)`** expires a cookie. Pass the `path`, `domain` and security options it was set with, or the browser keeps it.
+- **`response.headers`** is a `Headers` object for the RPC response. Launch's own headers (`Content-Type`, `Cache-Control`, `Vary`, `X-Content-Type-Options`) replace any you set, and the status comes from the call's outcome, never from `response`. Use `setCookie` for cookies: a `Set-Cookie` header written here is dropped during server rendering like any other header.
+- **Every outcome** carries them, failures included: a cookie set before a declared error, `forbidden()` or an `INTERNAL` failure is still sent.
+- **During server rendering**, cookies go on the page response, including a redirect Angular answers with, and headers are dropped, since a page's headers mustn't depend on which queries it ran. Angular copies the page's headers once the app is first stable, so only calls that settle before then send their cookies: those from guards, resolvers and rendering do, while a call made later, such as one awaited in a `BEFORE_APP_SERIALIZED` hook, still runs but its cookies are lost. Hydration reuses transferred results without calling the server, so the page response is the only chance to send such a cookie. Later calls in the same render still read the page request's original cookies. A failed initial navigation, such as a resolver whose RPC fails, makes `angular.handle` return `null`, and the cookies set during that render are lost with the page.
+- **When they're sent:** once the call settled, or for a [stream](#streams) once its handler returned its iterable. After that, setting a cookie throws and header changes are ignored, so a wrapping middleware can add a header after `await next()` for queries and mutations, and it's ignored for streams:
+
+  ```ts
+  export const timing = middleware(async ({ next, response }) => {
+    const start = performance.now();
+
+    try {
+      return await next();
+    } finally {
+      response.headers.append("server-timing", `rpc;dur=${(performance.now() - start).toFixed(1)}`);
+    }
+  });
+  ```
+
+A middleware can refresh a session cookie for every call in its group, during server rendering too:
+
+```ts
+export const session = middleware(async ({ context, response, next }) => {
+  const current = await context.sessions.read(context.sessionToken);
+
+  if (current !== null && current.expiresSoon) {
+    response.setCookie("session", await context.sessions.extend(current), {
+      maxAge: 60 * 60 * 24 * 30,
+    });
+  }
+
+  return next({ user: current?.user ?? null });
+});
+```
+
+There's no cookie reader: your context parses the request's `Cookie` header, as in the [example](../../examples/angular-launch/src/context.ts).
 
 ### JSON values
 
@@ -420,6 +488,7 @@ Write the handler as `handler: async function* (…) { … }`: generation doesn'
 - **Values** must be strict JSON, like results, and each reaches the caller as soon as it's yielded. A value that isn't ends the stream with `INTERNAL`. The handler returns nothing: returning a value is a type error.
 - **Yield the current state first.** A caller that reconnects starts a new call and the handler starts over, so a stream of snapshots loses nothing across a reconnect, while a stream of changes loses those made in between.
 - **Middleware** runs once per stream, before the handler, with one context. `next()` settles when the stream ends: it resolves when the handler finishes or the caller goes away, and rejects when the handler throws. Wrapping middleware therefore spans the whole stream; one that opens a transaction keeps it open as long as the stream runs. Nothing is checked again while the stream runs, so a handler that must notice a revoked session checks before each value.
+- **Cookies and headers** are sent with the stream's response, which starts once the handler returned its iterable. Set them in middleware before `next()`, or in a handler that isn't a generator, before it returns one: an `async function*` handler's body runs after the response started, so setting a cookie there throws and ends the stream with `INTERNAL`. See [Cookies and headers](#cookies-and-headers).
 - **Failures** before the handler returns its iterable, such as a refusing middleware or invalid input, are ordinary responses with their status, as for a query. After that the response has started: a declared error, `forbidden()` or any other exception ends the stream with that error.
 - **Cancellation:** when the caller stops reading or goes away, the handler's `signal` aborts and the generator is asked to return, which runs its `finally` blocks once it next yields. A generator waiting on something that ignores the signal finishes that wait first, and middleware's `next()` resolves only once the generator has returned. Hosts cancel a response body when its client goes away while it's being sent, but a client that leaves earlier, while the context or middleware still run, is noticed only through the request's signal. Keep the server entry's [abort wiring](#aborted-requests), or such a stream runs until it ends by itself.
 
@@ -558,7 +627,7 @@ The reuse has limits, all of them Angular's transfer cache behaving as designed:
 
 Mutations are refused during server rendering with `FORBIDDEN`, before any middleware, validation or the handler runs. Rendering should only read. Streams are refused the same way, since they don't finish; see [Calling streams](#calling-streams).
 
-Middleware and handlers run during server rendering too, with the page request as `request`. Their `signal` aborts when the page request aborts, or when `HttpClient` unsubscribes from the call before it settled.
+Middleware and handlers run during server rendering too, with the page request as `request`. Their `signal` aborts when the page request aborts, or when `HttpClient` unsubscribes from the call before it settled. Cookies they set go on the page response through Angular's `RESPONSE_INIT`, and headers are dropped; see [Cookies and headers](#cookies-and-headers).
 
 RPCs need a live request. Prerendering a page that calls an RPC fails the build (with `finishLaunchRendering` in place); static pages that don't call RPCs prerender normally. Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported.
 
@@ -808,6 +877,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 - No websockets, optimistic updates or automatic invalidation. Streams don't reconnect or resume on their own, and HTTP interceptors don't see them. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
+- No cookie reader, and no success status other than 200. During server rendering, a cookie set by one call isn't visible to later calls in the same render, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
 - One RPC group per route, and one context per application.
