@@ -79,6 +79,10 @@ const logTimeout = 10_000;
 // on…" hints don't crowd the captures. The key's mapping to that checkbox is unverified; each
 // record holds the value VoiceOver ended up with.
 const voiceOverHints = "SCRShouldOutputVOInstructions";
+// Recorded as found, unchanged: which of VoiceOver's settings make it move the mouse pointer
+// (VoiceOver Utility › Navigation › Mouse pointer) isn't documented, so every key naming the mouse
+// or the cursor is kept.
+const voiceOverPointerKeys = /mouse|cursor/i;
 
 /** What the page looks like once a step's capture ended. */
 function readAfter(): SpeechStep["after"] {
@@ -297,7 +301,13 @@ const voiceOverRunTest: ReaderTest = voiceOverTest.extend<{ run: Run }>({
   voiceOverStartOptions: { capture: "initial", settings: { [voiceOverHints]: false } },
   run: async ({ voiceOver, page, browser, browserName }, use, testInfo) => {
     const settings = voiceOver.getSettings();
-    const readerSettings = { [voiceOverHints]: settings[voiceOverHints] };
+    const readerSettings: Record<string, unknown> = { [voiceOverHints]: settings[voiceOverHints] };
+
+    for (const [key, value] of Object.entries(settings)) {
+      if (voiceOverPointerKeys.test(key)) {
+        readerSettings[key] = value;
+      }
+    }
 
     await useRun(
       { speechReader: voiceOver, page, browser, browserName, readerSettings },

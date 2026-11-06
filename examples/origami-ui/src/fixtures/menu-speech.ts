@@ -1,4 +1,4 @@
-import { Component, signal } from "@angular/core";
+import { Component, DOCUMENT, afterNextRender, inject, signal } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import {
   OrigamiAlertDialog,
@@ -26,6 +26,84 @@ import {
 // reader's capture holds only what focus and the menus' own changes caused. Actions has a group
 // with a disabled item, a link, a submenu and Delete…, which opens an AlertDialog; View has
 // checkbox items and a radio group.
+//
+// The page also logs what reached it, with the page's clock, into `window.menuSpeechEvents`, never
+// the DOM: pointer moves over and out of elements, focus, keys and the menus' popover toggles, so a
+// run can tell whether a reader moved the real mouse pointer onto an item.
+
+/** One logged event: `target` is the nearest test ID. */
+export interface MenuSpeechEvent {
+  type: string;
+  target: string | null;
+  at: number;
+  x?: number;
+  y?: number;
+  key?: string;
+  state?: string;
+}
+
+declare global {
+  interface Window {
+    menuSpeechEvents?: MenuSpeechEvent[];
+  }
+}
+
+const logged = [
+  "pointerover",
+  "pointerout",
+  "pointermove",
+  "focusin",
+  "keydown",
+  "keyup",
+  "toggle",
+];
+
+function log(document: Document): void {
+  const events: MenuSpeechEvent[] = [];
+  const window = document.defaultView;
+
+  if (window === null) {
+    return;
+  }
+
+  window.menuSpeechEvents = events;
+
+  for (const type of logged) {
+    // Capturing, so toggle, which doesn't bubble, is seen too.
+    document.addEventListener(
+      type,
+      (event) => {
+        let target: string | null = null;
+
+        if (event.target instanceof Element) {
+          target = event.target.closest("[data-testid]")?.getAttribute("data-testid") ?? null;
+        }
+
+        const entry: MenuSpeechEvent = { type, target, at: Math.round(event.timeStamp) };
+        const last = events.at(-1);
+
+        if (event instanceof PointerEvent) {
+          // Consecutive moves over one element are one entry, with the latest position.
+          if (type === "pointermove" && last?.type === type && last.target === target) {
+            last.x = event.clientX;
+            last.y = event.clientY;
+            return;
+          }
+
+          entry.x = event.clientX;
+          entry.y = event.clientY;
+        } else if (event instanceof KeyboardEvent) {
+          entry.key = event.key;
+        } else if (event instanceof ToggleEvent) {
+          entry.state = event.newState;
+        }
+
+        events.push(entry);
+      },
+      { capture: true },
+    );
+  }
+}
 
 @Component({
   selector: "acceptance-menu-speech-fixture",
@@ -186,4 +264,10 @@ export class MenuSpeechFixture {
   readonly showOwner = signal(true);
   readonly showDue = signal(false);
   readonly density = signal<string | null>("comfortable");
+
+  constructor() {
+    const document = inject(DOCUMENT);
+
+    afterNextRender(() => log(document));
+  }
 }

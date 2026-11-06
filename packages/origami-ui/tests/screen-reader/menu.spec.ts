@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { expect, test } from "./reader-test.js";
 import type { Page } from "@playwright/test";
 import type { Run } from "./reader-test.js";
@@ -9,7 +10,28 @@ import type { Run } from "./reader-test.js";
 // toast.spec.ts: speech is never asserted, every key and focus is its own captured step, a step's
 // action waits only for the first DOM change proving it happened, and state is checked outside
 // the captures. The keys are Playwright's, sent to the page: the readers' own key handling, such
-// as NVDA's browse mode, isn't exercised.
+// as NVDA's browse mode, isn't exercised. Each attempt also saves the page's event log (pointer
+// moves, focus, keys, popover toggles; see menu-speech.ts) as events.json in its results folder,
+// which shows whether a reader moved the real mouse pointer onto an item.
+
+declare global {
+  interface Window {
+    /** The fixture's event log; the spec only saves it. */
+    menuSpeechEvents?: unknown[];
+  }
+}
+
+test.afterEach(async ({ page }, testInfo) => {
+  let events: unknown = null;
+
+  try {
+    events = await page.evaluate(() => window.menuSpeechEvents ?? null);
+  } catch (error) {
+    events = { error: String(error) };
+  }
+
+  writeFileSync(testInfo.outputPath("events.json"), `${JSON.stringify(events, null, 2)}\n`);
+});
 
 /** Presses `key` in one captured step and waits for focus to land on `focused`. */
 async function press(run: Run, page: Page, key: string, focused: string): Promise<void> {
@@ -35,7 +57,7 @@ test("m1-navigate", async ({ page, run }) => {
 
   await press(run, page, "Escape", "actions-trigger");
   await run.check("Actions closed", async () => {
-    expect(await shown(page, "actions-menu")).toBe(false);
+    await expect.poll(() => shown(page, "actions-menu")).toBe(false);
   });
 });
 
@@ -66,14 +88,17 @@ test("m3-checkbox", async ({ page, run }) => {
     await expect(page.getByTestId("owner")).toHaveAttribute("aria-checked", "false");
   });
   await run.check("View stays open on Owner", async () => {
-    expect(await shown(page, "view-menu")).toBe(true);
+    await expect.poll(() => shown(page, "view-menu")).toBe(true);
     await expect(page.getByTestId("owner")).toBeFocused();
   });
+  // Back to Owner: is its new state read once focus arrives again?
+  await press(run, page, "ArrowDown", "due");
+  await press(run, page, "ArrowUp", "owner");
   await press(run, page, "ArrowDown", "due");
   await press(run, page, "Enter", "view-trigger");
   await run.check("Due date checked and View closed", async () => {
     await expect(page.getByTestId("due")).toHaveAttribute("aria-checked", "true");
-    expect(await shown(page, "view-menu")).toBe(false);
+    await expect.poll(() => shown(page, "view-menu")).toBe(false);
   });
 });
 
@@ -87,15 +112,18 @@ test("m4-radio", async ({ page, run }) => {
     await expect(page.getByTestId("compact")).toHaveAttribute("aria-checked", "true");
   });
   await run.check("View stays open on Compact", async () => {
-    expect(await shown(page, "view-menu")).toBe(true);
+    await expect.poll(() => shown(page, "view-menu")).toBe(true);
     await expect(page.getByTestId("compact")).toBeFocused();
   });
+  // Back to Compact: is its new state read once focus arrives again?
+  await press(run, page, "ArrowDown", "comfortable");
+  await press(run, page, "ArrowUp", "compact");
   await press(run, page, "ArrowDown", "comfortable");
   await press(run, page, "Enter", "view-trigger");
   await run.check("Comfortable checked and View closed", async () => {
     await expect(page.getByTestId("comfortable")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("compact")).toHaveAttribute("aria-checked", "false");
-    expect(await shown(page, "view-menu")).toBe(false);
+    await expect.poll(() => shown(page, "view-menu")).toBe(false);
   });
 });
 
@@ -109,14 +137,14 @@ test("m5-submenu", async ({ page, run }) => {
   await press(run, page, "ArrowDown", "later");
   await press(run, page, "ArrowLeft", "move");
   await run.check("Move to closed, Actions open", async () => {
-    expect(await shown(page, "move-menu")).toBe(false);
-    expect(await shown(page, "actions-menu")).toBe(true);
+    await expect.poll(() => shown(page, "move-menu")).toBe(false);
+    await expect.poll(() => shown(page, "actions-menu")).toBe(true);
   });
   await press(run, page, "Enter", "inbox");
   await press(run, page, "Enter", "actions-trigger");
   await run.check("both menus closed", async () => {
-    expect(await shown(page, "move-menu")).toBe(false);
-    expect(await shown(page, "actions-menu")).toBe(false);
+    await expect.poll(() => shown(page, "move-menu")).toBe(false);
+    await expect.poll(() => shown(page, "actions-menu")).toBe(false);
   });
 });
 
@@ -129,7 +157,7 @@ test("m6-dialog", async ({ page, run }) => {
   await press(run, page, "End", "delete");
   await press(run, page, "Enter", "delete-cancel");
   await run.check("Actions closed and the dialog modal", async () => {
-    expect(await shown(page, "actions-menu")).toBe(false);
+    await expect.poll(() => shown(page, "actions-menu")).toBe(false);
     expect(
       await page.getByTestId("delete-dialog").evaluate((dialog) => dialog.matches(":modal")),
     ).toBe(true);
