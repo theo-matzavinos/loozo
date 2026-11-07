@@ -1,8 +1,9 @@
 name: Screen reader
 
-# Optional evidence, not a required check: runs Origami's Toast and Menu scenarios under NVDA and
-# VoiceOver through Guidepup and saves what each reader was asked to say. It never asserts speech; a
-# job fails only when the reader or the fixture misbehaves. Pull requests run it when they change it.
+# Optional evidence, not a required check: runs Origami's Toast, Menu, Calendar and date field
+# scenarios under NVDA and VoiceOver through Guidepup and saves what each reader was asked to say.
+# It never asserts speech; a job fails only when the reader or the fixture misbehaves. Pull
+# requests run it when they change it.
 on:
   pull_request:
     paths:
@@ -10,6 +11,8 @@ on:
       - packages/origami-ui/tests/screen-reader/**
       - examples/origami-ui/src/fixtures/toast-speech.ts
       - examples/origami-ui/src/fixtures/menu-speech.ts
+      - examples/origami-ui/src/fixtures/calendar-speech.ts
+      - examples/origami-ui/src/fixtures/date-field-speech.ts
   workflow_dispatch:
 
 permissions:
