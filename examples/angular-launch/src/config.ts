@@ -17,23 +17,33 @@ export const config: ApplicationConfig = {
       routes,
       withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFound, {}) })),
     ),
-    provideTanStackQuery(
-      () =>
-        new QueryClient({
-          mutationCache: new MutationCache({
-            // After a write, succeeded or not, read every Launch query on screen again. Wait
-            // for the last pending write, so an earlier read doesn't replace a later write's
-            // optimistic data. Returning the promise keeps the write pending until the read.
-            onSettled: (_data, _error, _input, _result, _mutation, { client }) => {
-              if (client.isMutating({ mutationKey: ["launch"] }) > 1) {
-                return undefined;
-              }
+    provideTanStackQuery(() => {
+      // Writes whose onSettled has run: their server call is done.
+      const settled = new WeakSet<object>();
 
-              return client.invalidateQueries({ queryKey: ["launch"] });
-            },
-          }),
+      return new QueryClient({
+        mutationCache: new MutationCache({
+          // After a write, succeeded or not, read every Launch query on screen again, once no
+          // other write is still on its way, so a read can't replace a later write's
+          // optimistic data. Returning the promise keeps the write pending until the read.
+          onSettled: (_data, _error, _input, _result, mutation, { client }) => {
+            settled.add(mutation);
+
+            const unsettled = client.getMutationCache().findAll({
+              mutationKey: ["launch"],
+              status: "pending",
+              predicate: (other) => !settled.has(other),
+            });
+
+            if (unsettled.length > 0) {
+              return undefined;
+            }
+
+            return client.invalidateQueries({ queryKey: ["launch"] });
+          },
         }),
-    ),
+      });
+    }),
     provideLaunchQueries(),
   ],
 };

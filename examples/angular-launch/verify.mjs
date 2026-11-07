@@ -594,8 +594,16 @@ try {
   await heldComplete.reached;
   await added.locator(".completed").waitFor();
   assert.equal(await page.locator("#add").isDisabled(), false);
+  // The row and Refresh wait for the write: another write to the row, or a read, would
+  // undo its optimistic state.
+  const addedDelete = added.getByRole("button", { name: "Delete Alice browser todo", exact: true });
+
+  assert.equal(await addedDelete.isDisabled(), true);
+  assert.equal(await page.locator("#refresh").isDisabled(), true);
   heldComplete.release();
   await waitForStatus(page, "Todo completed");
+  assert.equal(await addedDelete.isDisabled(), false);
+  assert.equal(await page.locator("#refresh").isDisabled(), false);
   assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/complete", "/_rpc/todos/list"]);
   assert.equal(await added.getByRole("button", { name: /^Complete / }).count(), 0);
   assert.equal((await stats()).writes - beforeWrites.writes, 2);
@@ -630,6 +638,7 @@ try {
     "Alice first todo",
     "Alice second todo",
     "Alice unrefreshed todo",
+    "Alice overlap todo",
   ]) {
     const result = await rpcRequest("add", { title }, "alice");
 
@@ -726,8 +735,30 @@ try {
     "/_rpc/todos/list",
   ]);
   assert.equal((await stats()).writes - beforeConcurrent.writes, 2);
+
+  // Writes in different scopes, settling together, still read the list once, after both.
+  const overlap = todoRow(page, "Alice overlap todo");
+  const heldAdd = await hold(page, "add");
+  const heldOverlap = await hold(page, "complete");
+
+  mark = requests.length;
+  await page.locator("#todo-title").fill("Alice overlapping add");
+  await page.locator("#todo-title").press("Enter");
+  await heldAdd.reached;
+  await overlap.getByRole("button", { name: "Complete Alice overlap todo", exact: true }).click();
+  await heldOverlap.reached;
+  heldAdd.release();
+  heldOverlap.release();
+  await page.waitForFunction(() => document.getElementById("refresh")?.disabled === false);
+  assert.deepEqual(rpcPaths(requests.slice(mark)), [
+    "/_rpc/todos/add",
+    "/_rpc/todos/complete",
+    "/_rpc/todos/list",
+  ]);
+  assert.equal(await todoRow(page, "Alice overlapping add").count(), 1);
+  assert.ok((await overlap.textContent()).includes("Completed"));
   checks.push(
-    "two optimistic writes started together reach the server in order and the list is read once, after the last",
+    "two optimistic writes started together reach the server in order and the list is read once, after the last; an add and a complete in different scopes settling together also read it once, after both; a row's controls and Refresh are disabled while a write to it is pending",
   );
 
   // A write whose list read fails keeps its row and says the list may be stale.
@@ -736,9 +767,14 @@ try {
 
   await context.addCookies([{ name: "proof-failure", value: "1", url: base }]);
   mark = requests.length;
+
+  // The status already reads "Todo completed": wait for the failed read instead.
+  const failedRead = page.waitForResponse((response) => response.url().endsWith("/todos/list"));
+
   await unrefreshed
     .getByRole("button", { name: "Complete Alice unrefreshed todo", exact: true })
     .click();
+  await failedRead;
   await waitForStatus(page, "Todo completed");
   // An RpcError isn't retried: one write, one failed read.
   assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/complete", "/_rpc/todos/list"]);

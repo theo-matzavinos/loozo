@@ -41,6 +41,7 @@ type Todo = Awaited<ReturnType<Client<typeof todos>["list"]>>["todos"][number];
             } @else {
               <button
                 type="button"
+                [disabled]="rowsWriting().has(todo.id)"
                 [attr.aria-label]="'Complete ' + todo.title"
                 (click)="complete(todo.id)"
               >
@@ -49,6 +50,7 @@ type Todo = Awaited<ReturnType<Client<typeof todos>["list"]>>["todos"][number];
             }
             <button
               type="button"
+              [disabled]="rowsWriting().has(todo.id)"
               [attr.aria-label]="'Delete ' + todo.title"
               (click)="remove(todo.id)"
             >
@@ -65,7 +67,9 @@ type Todo = Awaited<ReturnType<Client<typeof todos>["list"]>>["todos"][number];
     } @else {
       <p id="list-pending">Loading todos…</p>
     }
-    <button type="button" id="refresh" [disabled]="pending()" (click)="refresh()">Refresh</button>
+    <button type="button" id="refresh" [disabled]="refreshBlocked()" (click)="refresh()">
+      Refresh
+    </button>
     <p id="status" role="status" aria-live="polite">{{ status() }}</p>
   `,
 })
@@ -154,6 +158,11 @@ export default class Todos {
   );
   readonly #refreshing = signal(false);
   readonly pending = computed(() => this.#add.isPending() || this.#refreshing());
+  // Rows with a write on its way. A second write to the same row would save the first's
+  // optimistic row for its rollback, so the row waits.
+  readonly rowsWriting = signal<ReadonlySet<string>>(new Set());
+  // A read while a write is on its way would replace the write's optimistic row.
+  readonly refreshBlocked = computed(() => this.pending() || this.rowsWriting().size > 0);
   readonly title = signal("");
   readonly status = signal("ready");
 
@@ -185,6 +194,8 @@ export default class Todos {
   }
 
   async complete(id: string): Promise<void> {
+    this.#startWrite(id);
+
     try {
       await this.#complete.mutateAsync({ id });
       this.status.set("Todo completed");
@@ -194,10 +205,14 @@ export default class Todos {
       } else {
         this.status.set("Could not complete todo. Try again.");
       }
+    } finally {
+      this.#endWrite(id);
     }
   }
 
   async remove(id: string): Promise<void> {
+    this.#startWrite(id);
+
     try {
       await this.#remove.mutateAsync({ id });
       this.status.set("Todo deleted");
@@ -207,7 +222,23 @@ export default class Todos {
       } else {
         this.status.set("Could not delete todo. Try again.");
       }
+    } finally {
+      this.#endWrite(id);
     }
+  }
+
+  #startWrite(id: string): void {
+    this.rowsWriting.update((ids) => new Set(ids).add(id));
+  }
+
+  #endWrite(id: string): void {
+    this.rowsWriting.update((ids) => {
+      const next = new Set(ids);
+
+      next.delete(id);
+
+      return next;
+    });
   }
 
   // Changes the cached list's todos; does nothing while the list hasn't loaded.
@@ -234,7 +265,7 @@ export default class Todos {
   }
 
   async refresh(): Promise<void> {
-    if (this.pending()) {
+    if (this.refreshBlocked()) {
       return;
     }
 
