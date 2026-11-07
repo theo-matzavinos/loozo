@@ -116,7 +116,7 @@ Full query keys are tagged with the procedure's output type, so `client.getQuery
 
 ## Invalidation
 
-Nothing is invalidated for you. Invalidate in a mutation's `onSuccess`, by group, procedure or input:
+Launch invalidates nothing itself; TanStack does, with the keys above. Invalidate in a mutation's `onSuccess`, by group, procedure or input:
 
 ```ts
 onSuccess: () => client.invalidateQueries({ queryKey: queries.todos.$key() }),
@@ -129,7 +129,96 @@ onSuccess: () =>
   client.invalidateQueries({ queryKey: queries.todos.$key() }, { throwOnError: true }),
 ```
 
-`mutateAsync` then rejects with the refetch's error, although the write itself succeeded.
+`mutateAsync` then rejects with the refetch's error, although the write itself succeeded, and TanStack runs the mutation's `onError` for it. Don't combine this with an [optimistic update](#optimistic-updates): its rollback would undo a write that succeeded.
+
+### After every write
+
+To read every Launch query on screen again after any write, give the `QueryClient` a `MutationCache`, as the example does:
+
+```ts
+provideTanStackQuery(() => {
+  // Writes whose onSettled has run: their server call is done.
+  const settled = new WeakSet<object>();
+
+  return new QueryClient({
+    mutationCache: new MutationCache({
+      onSettled: (_data, _error, _input, _result, mutation, { client }) => {
+        settled.add(mutation);
+
+        const unsettled = client.getMutationCache().findAll({
+          mutationKey: ["launch"],
+          status: "pending",
+          predicate: (other) => !settled.has(other),
+        });
+
+        // A write still on its way reads for this one when it settles.
+        if (unsettled.length > 0) {
+          return undefined;
+        }
+
+        return client.invalidateQueries({ queryKey: ["launch"] });
+      },
+    }),
+  });
+}),
+```
+
+- Every Launch key starts with `"launch"`, so this matches every Launch query and mutation, of every group, and nothing else in the cache. Only active queries, ones a component observes, refetch; the others are marked stale and refetch when they next mount.
+- `onSettled` also runs after a failed write, which can still mean the data changed: a declared `NOT_FOUND` for a todo deleted elsewhere does.
+- TanStack awaits the cache's callbacks, before the mutation's own, so the mutation stays pending until the read finishes.
+- Skipping while another write is still on its way keeps an earlier write's read from replacing a later write's optimistic data, and the last write reads once for all. Count only writes that haven't reached `onSettled`: a mutation stays pending until its callbacks finish, so with `isMutating() > 1` two writes that settle together, in different scopes, each see the other and both skip the read.
+- Don't pass `throwOnError` here, for the reason above. To tell the user the read failed, show the query's own error next to its data: `todos.isError()` while `todos.data()` is still there.
+
+## Optimistic updates
+
+Launch adds nothing here either: TanStack's `onMutate` and `onError` work on the generated options, typed by the procedure. The [todos example](../../../examples/angular-launch/src/routes/+authenticated/todos/page.ts) completes and deletes todos this way:
+
+```ts
+const key = queries.todos.list.key();
+
+injectMutation(() =>
+  queries.todos.complete.mutationOptions({
+    scope: { id: "todos" },
+    onMutate: async ({ id }, { client }) => {
+      // A read in flight would replace the optimistic data when it lands.
+      await client.cancelQueries({ queryKey: key });
+
+      const before = client.getQueryData(key)?.todos.find((todo) => todo.id === id);
+
+      client.setQueryData(key, (list) => markCompleted(list, id));
+
+      return { before };
+    },
+    onError: (error, { id }, result, { client }) => {
+      // The server says it's gone: show that instead of the todo as it was.
+      if (rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+        client.setQueryData(key, (list) => withoutTodo(list, id));
+
+        return;
+      }
+
+      const before = result?.before;
+
+      if (before !== undefined) {
+        client.setQueryData(key, (list) => withTodo(list, before));
+      }
+    },
+  }),
+);
+```
+
+`markCompleted`, `withoutTodo` and `withTodo` stand for updates of your procedure's output; the example's are on its page. The list is read again by the [`MutationCache` above](#after-every-write), or by your own `onSettled`.
+
+- The key is tagged with the procedure's output, so `getQueryData` and `setQueryData` are typed, and `onMutate`'s result reaches `onError` typed, without annotations. `context.client` is the `QueryClient`.
+- `cancelQueries` aborts the query's HTTP request, since generated queries pass TanStack's `signal`, so the handler sees its `signal` abort.
+- The declared errors decide the rollback. The rejection is the callable's own, so `isError` recognizes the write's declared errors and framework codes, and nothing else: not a failed read of the list. Anything it doesn't recognize, such as a network failure, leaves the write's outcome unknown; restore the row and let the read tell.
+- Undo the row you changed, not a snapshot of the whole list: with two writes pending, restoring the first's snapshot would also undo the second's change.
+- Mutations with the same `scope` id reach the server one at a time, in order. TanStack still runs each `onMutate` at once, so the page shows every pending write.
+- Don't let two pending writes change the same row: the second's `onMutate` saves the first's optimistic row, and if both fail, its rollback restores that. The example disables a row's controls while a write to it is pending.
+- A read that starts while a write is pending replaces its optimistic data with the server's older state. The example disables Refresh while any write is pending. A refetch on window focus can do the same; the read after the last write corrects it.
+- During server rendering, mutations are refused with `FORBIDDEN`, so none of this runs. A click made before the app hydrates is replayed by Angular's event replay, which `provideClientHydration()` turns on with incremental hydration, and the write then runs as above. Until then there's no feedback.
+
+For an add, which needs the id the server gives it, TanStack's other approach fits better: render the pending mutation's `variables()` instead of writing to the cache.
 
 ## Server rendering and hydration
 
@@ -158,7 +247,7 @@ Everything else is TanStack's or your `QueryClient`'s. Overrides replace either 
 
 ## Limitations
 
-- No infinite queries, optimistic-update helpers, automatic invalidation, mutation cancellation or persistence.
+- No infinite queries, mutation cancellation or persistence. Optimistic updates and invalidation are TanStack's, as [above](#invalidation): Launch adds no helpers for them.
 - No options for [streams](../README.md#calling-streams): `injectQueries()` leaves them out. TanStack's `streamedQuery` keeps a query fetching until its stream ends, and the Angular adapter keeps the app from becoming stable while a query is fetching, which would hold hydration open as long as the stream runs. It's also still `experimental_streamedQuery` in query-core 5.104. Call the stream directly instead.
 - Errors aren't dehydrated: a failed server query runs again in the browser.
 - Only `@tanstack/angular-query`, not `@tanstack/angular-query-experimental`.

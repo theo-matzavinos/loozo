@@ -8,6 +8,7 @@ export const stats = {
   abortedQueries: 0,
   addCalls: 0,
   completeCalls: 0,
+  removeCalls: 0,
   writes: 0,
   streamsStarted: 0,
   streamsAborted: 0,
@@ -125,6 +126,22 @@ export const db = {
       }
 
       return null;
+    },
+    async removeForUser(user: string, id: string): Promise<boolean> {
+      stats.removeCalls += 1;
+
+      const todos = todosForUser(user);
+      const index = todos.findIndex((todo) => todo.id === id);
+
+      if (index === -1) {
+        return false;
+      }
+
+      todos.splice(index, 1);
+      stats.writes += 1;
+      changed(user);
+
+      return true;
     },
   },
 };

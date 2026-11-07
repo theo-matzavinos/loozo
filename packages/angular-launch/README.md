@@ -6,7 +6,7 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no websockets, optimistic updates, automatic invalidation or storage adapters.
+**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no websockets or storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
 
 ## Requirements
 
@@ -686,7 +686,7 @@ TanStack Query options aren't generated for streams; see the [TanStack Query gui
 
 ### With TanStack Query
 
-With the `tanstackQuery` generation option, each `rpc.generated.ts` also exports `injectQueries()`: typed query and mutation options and keys for the same groups, for `@tanstack/angular-query`. See the [TanStack Query guide](tanstack-query/README.md) for setup, keys, invalidation and hydration.
+With the `tanstackQuery` generation option, each `rpc.generated.ts` also exports `injectQueries()`: typed query and mutation options and keys for the same groups, for `@tanstack/angular-query`. See the [TanStack Query guide](tanstack-query/README.md) for setup, keys, invalidation, optimistic updates and hydration.
 
 ## Server rendering and hydration
 
@@ -952,7 +952,8 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
-- No websockets, optimistic updates or automatic invalidation. Streams don't reconnect or resume on their own, and HTTP interceptors don't see them. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
+- No websockets. Streams don't reconnect or resume on their own, and HTTP interceptors don't see them.
+- Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
 - No cookie reader, and no success status other than 200. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.

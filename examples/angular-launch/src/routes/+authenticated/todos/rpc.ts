@@ -46,6 +46,21 @@ export default defineRpc(
         return todo;
       },
     }),
+    remove: mutation({
+      input: idSchema,
+      errors: {
+        NOT_FOUND: { status: 404, message: "Todo does not exist", data: idSchema },
+      },
+      handler: async ({ input, context, errors }) => {
+        const removed = await context.db.todos.removeForUser(context.user.id, input.id);
+
+        if (!removed) {
+          throw errors.NOT_FOUND({ id: input.id });
+        }
+
+        return { id: input.id };
+      },
+    }),
   }),
   { use: [signedIn] },
 );

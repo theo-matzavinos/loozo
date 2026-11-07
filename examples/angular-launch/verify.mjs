@@ -103,6 +103,54 @@ function waitForStatus(page, text) {
   );
 }
 
+async function rpcRequest(method, input, user) {
+  const headers = { "content-type": "application/json", origin };
+
+  if (user) {
+    headers.cookie = `proof-user=${user}`;
+  }
+
+  const response = await fetch(`${base}/_rpc/todos/${method}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ input }),
+  });
+
+  return { status: response.status, body: await response.json() };
+}
+
+// Holds the page's next call to a todos procedure until release().
+async function hold(page, procedure) {
+  let arrive;
+  let release;
+  const reached = new Promise((resolve) => {
+    arrive = resolve;
+  });
+  const released = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  await page.route(
+    `**/_rpc/todos/${procedure}`,
+    async (route) => {
+      arrive();
+      await released;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+
+  return { reached, release };
+}
+
+function todoRow(page, title) {
+  return page.locator("#todo-list li").filter({ hasText: title });
+}
+
+function todoTitles(page) {
+  return page.locator("#todo-list li > span:first-child").allTextContents();
+}
+
 let browser;
 
 try {
@@ -528,20 +576,36 @@ try {
   assert.equal(await page.locator("#refresh").isDisabled(), true);
   await waitForStatus(page, "Todo added");
   assert.equal(await page.locator("#todo-title").inputValue(), "");
-  // The mutation's onSuccess invalidates the group key, which refetches the list.
+  // The add invalidates nothing itself: config.ts's MutationCache reads the list again.
   assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/add", "/_rpc/todos/list"]);
 
-  const added = page.locator("#todo-list li").filter({ hasText: "Alice browser todo" });
+  const added = todoRow(page, "Alice browser todo");
   const addedId = await added.getAttribute("data-todo-id");
 
   assert.ok(addedId);
   assert.equal((await stats()).writes - beforeWrites.writes, 1);
+
+  // Optimistic: the row shows Completed while the write is still on its way, and the
+  // other controls stay usable.
+  const heldComplete = await hold(page, "complete");
+
   mark = requests.length;
   await added.getByRole("button", { name: "Complete Alice browser todo", exact: true }).click();
+  await heldComplete.reached;
+  await added.locator(".completed").waitFor();
+  assert.equal(await page.locator("#add").isDisabled(), false);
+  // The row and Refresh wait for the write: another write to the row, or a read, would
+  // undo its optimistic state.
+  const addedDelete = added.getByRole("button", { name: "Delete Alice browser todo", exact: true });
+
+  assert.equal(await addedDelete.isDisabled(), true);
+  assert.equal(await page.locator("#refresh").isDisabled(), true);
+  heldComplete.release();
   await waitForStatus(page, "Todo completed");
+  assert.equal(await addedDelete.isDisabled(), false);
+  assert.equal(await page.locator("#refresh").isDisabled(), false);
   assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/complete", "/_rpc/todos/list"]);
-  assert.ok((await added.textContent()).includes("Completed"));
-  assert.equal(await added.locator("button").count(), 0);
+  assert.equal(await added.getByRole("button", { name: /^Complete / }).count(), 0);
   assert.equal((await stats()).writes - beforeWrites.writes, 2);
   await context.clearCookies();
   await context.addCookies([{ name: "proof-user", value: "alice", url: base }]);
@@ -553,19 +617,8 @@ try {
     true,
   );
   checks.push(
-    "native form keyboard add → complete → browser reload persists per-user state; pending controls disabled; each mutation's invalidation refetches the list over HTTP",
+    "native form keyboard add → optimistic complete → browser reload persists per-user state; add disables the form while pending; complete shows its row before the response and leaves the controls usable; the app's MutationCache reads the list again after each write",
   );
-
-  // A write that succeeds while its list refetch fails isn't reported as success.
-  async function controlsEnabled() {
-    const [title, add, refresh] = await Promise.all([
-      page.locator("#todo-title").isDisabled(),
-      page.locator("#add").isDisabled(),
-      page.locator("#refresh").isDisabled(),
-    ]);
-
-    return !title && !add && !refresh;
-  }
 
   async function refreshWithoutFault() {
     await context.clearCookies();
@@ -576,79 +629,218 @@ try {
     assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/list"]);
   }
 
-  const beforeFaultyAdd = await stats();
+  const seeded = {};
 
-  await page.locator("#todo-title").fill("Alice unrefreshed todo");
-  await context.addCookies([{ name: "proof-failure", value: "1", url: base }]);
-  mark = requests.length;
-  await page.locator("#todo-title").press("Enter");
-  await waitForStatus(page, "Could not add todo. Refresh to check before retrying.");
-  // An RpcError isn't retried: one write, one failed read.
-  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/add", "/_rpc/todos/list"]);
+  for (const title of [
+    "Alice gone todo",
+    "Alice removed elsewhere",
+    "Alice kept todo",
+    "Alice first todo",
+    "Alice second todo",
+    "Alice unrefreshed todo",
+    "Alice overlap todo",
+  ]) {
+    const result = await rpcRequest("add", { title }, "alice");
 
-  const afterFaultyAdd = await stats();
+    assert.equal(result.status, 200);
+    seeded[title] = result.body.id;
+  }
 
-  const titleAfterFaultyAdd = await page.locator("#todo-title").inputValue();
-  const enabledAfterFaultyAdd = await controlsEnabled();
-
-  assert.equal(afterFaultyAdd.writes - beforeFaultyAdd.writes, 1);
-  assert.equal(titleAfterFaultyAdd, "");
-  assert.equal(enabledAfterFaultyAdd, true);
-
-  const unrefreshed = page.locator("#todo-list li").filter({ hasText: "Alice unrefreshed todo" });
-  const rowsBeforeRefresh = await unrefreshed.count();
-
-  assert.equal(rowsBeforeRefresh, 0);
   await refreshWithoutFault();
 
-  const rowsAfterRefresh = await unrefreshed.count();
+  // The declared error decides the rollback. A todo deleted elsewhere leaves the list as soon
+  // as its write answers NOT_FOUND, before the list is read again.
+  const gone = todoRow(page, "Alice gone todo");
 
-  assert.equal(rowsAfterRefresh, 1);
+  assert.equal(
+    (await rpcRequest("remove", { id: seeded["Alice gone todo"] }, "alice")).status,
+    200,
+  );
 
+  let heldWrite = await hold(page, "complete");
+  let heldRead = await hold(page, "list");
+
+  mark = requests.length;
+  await gone.getByRole("button", { name: "Complete Alice gone todo", exact: true }).click();
+  await heldWrite.reached;
+  await gone.locator(".completed").waitFor();
+  heldWrite.release();
+  await heldRead.reached;
+  await gone.waitFor({ state: "detached" });
+  heldRead.release();
+  await waitForStatus(page, "This todo no longer exists.");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/complete", "/_rpc/todos/list"]);
+
+  const removedElsewhere = todoRow(page, "Alice removed elsewhere");
+
+  assert.equal(
+    (await rpcRequest("remove", { id: seeded["Alice removed elsewhere"] }, "alice")).status,
+    200,
+  );
+  heldWrite = await hold(page, "remove");
+  heldRead = await hold(page, "list");
+  mark = requests.length;
+  await removedElsewhere
+    .getByRole("button", { name: "Delete Alice removed elsewhere", exact: true })
+    .click();
+  await heldWrite.reached;
+  await removedElsewhere.waitFor({ state: "detached" });
+  heldWrite.release();
+  await heldRead.reached;
+  assert.equal(await removedElsewhere.count(), 0);
+  heldRead.release();
+  await waitForStatus(page, "This todo no longer exists.");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/remove", "/_rpc/todos/list"]);
+
+  // Any other failure puts the row back where it was before the list is read again.
+  const kept = todoRow(page, "Alice kept todo");
+  const titlesBeforeFailure = await todoTitles(page);
+  const beforeAbortedDelete = await stats();
+
+  await page.route("**/_rpc/todos/remove", (route) => route.abort(), { times: 1 });
+  heldRead = await hold(page, "list");
+  mark = requests.length;
+  await kept.getByRole("button", { name: "Delete Alice kept todo", exact: true }).click();
+  await heldRead.reached;
+  assert.deepEqual(await todoTitles(page), titlesBeforeFailure);
+  heldRead.release();
+  await waitForStatus(page, "Could not delete todo. Try again.");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/remove", "/_rpc/todos/list"]);
+  assert.equal((await stats()).removeCalls, beforeAbortedDelete.removeCalls);
+
+  mark = requests.length;
+  await kept.getByRole("button", { name: "Delete Alice kept todo", exact: true }).click();
+  await waitForStatus(page, "Todo deleted");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/remove", "/_rpc/todos/list"]);
+  assert.equal(await kept.count(), 0);
+  checks.push(
+    "optimistic writes roll back by declared error: complete or delete of a todo deleted elsewhere drops its row on NOT_FOUND, before the list is read again; a failed delete puts the row back in place; a delete removes the row",
+  );
+
+  // Writes in one task share a scope: the server gets them in order, the page shows both at
+  // once, and the list is read once, after the last.
+  const beforeConcurrent = await stats();
+
+  mark = requests.length;
+  await page.evaluate(() => {
+    document.querySelector('[aria-label="Complete Alice first todo"]').click();
+    document.querySelector('[aria-label="Delete Alice second todo"]').click();
+  });
+  await todoRow(page, "Alice second todo").waitFor({ state: "detached" });
+  assert.ok((await todoRow(page, "Alice first todo").textContent()).includes("Completed"));
+  await waitForStatus(page, "Todo deleted");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), [
+    "/_rpc/todos/complete",
+    "/_rpc/todos/remove",
+    "/_rpc/todos/list",
+  ]);
+  assert.equal((await stats()).writes - beforeConcurrent.writes, 2);
+
+  // Writes in different scopes, settling together, still read the list once, after both.
+  const overlap = todoRow(page, "Alice overlap todo");
+  const heldAdd = await hold(page, "add");
+  const heldOverlap = await hold(page, "complete");
+
+  mark = requests.length;
+  await page.locator("#todo-title").fill("Alice overlapping add");
+  await page.locator("#todo-title").press("Enter");
+  await heldAdd.reached;
+  await overlap.getByRole("button", { name: "Complete Alice overlap todo", exact: true }).click();
+  await heldOverlap.reached;
+  heldAdd.release();
+  heldOverlap.release();
+  await page.waitForFunction(() => document.getElementById("refresh")?.disabled === false);
+  assert.deepEqual(rpcPaths(requests.slice(mark)), [
+    "/_rpc/todos/add",
+    "/_rpc/todos/complete",
+    "/_rpc/todos/list",
+  ]);
+  assert.equal(await todoRow(page, "Alice overlapping add").count(), 1);
+  assert.ok((await overlap.textContent()).includes("Completed"));
+  checks.push(
+    "two optimistic writes started together reach the server in order and the list is read once, after the last; an add and a complete in different scopes settling together also read it once, after both; a row's controls and Refresh are disabled while a write to it is pending",
+  );
+
+  // A write whose list read fails keeps its row and says the list may be stale.
+  const unrefreshed = todoRow(page, "Alice unrefreshed todo");
   const beforeFaultyComplete = await stats();
 
   await context.addCookies([{ name: "proof-failure", value: "1", url: base }]);
   mark = requests.length;
+
+  // The status already reads "Todo completed": wait for the failed read instead.
+  const failedRead = page.waitForResponse((response) => response.url().endsWith("/todos/list"));
+
   await unrefreshed
     .getByRole("button", { name: "Complete Alice unrefreshed todo", exact: true })
     .click();
-  await waitForStatus(page, "Could not complete todo. Refresh to check before retrying.");
+  await failedRead;
+  await waitForStatus(page, "Todo completed");
+  // An RpcError isn't retried: one write, one failed read.
   assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/complete", "/_rpc/todos/list"]);
-
-  const afterFaultyComplete = await stats();
-
-  const enabledAfterFaultyComplete = await controlsEnabled();
-  const buttonsBeforeRefresh = await unrefreshed.locator("button").count();
-
-  assert.equal(afterFaultyComplete.writes - beforeFaultyComplete.writes, 1);
-  assert.equal(enabledAfterFaultyComplete, true);
-  assert.equal(buttonsBeforeRefresh, 1);
+  assert.equal((await stats()).writes - beforeFaultyComplete.writes, 1);
+  assert.ok((await unrefreshed.textContent()).includes("Completed"));
+  await page.locator("#list-stale").waitFor();
   await refreshWithoutFault();
+  assert.equal(await page.locator("#list-stale").count(), 0);
+  assert.ok((await unrefreshed.textContent()).includes("Completed"));
 
-  const completedText = await unrefreshed.textContent();
-  const buttonsAfterRefresh = await unrefreshed.locator("button").count();
+  // An add isn't optimistic: its row appears with the next successful read.
+  const unread = todoRow(page, "Alice unread todo");
+  const beforeFaultyAdd = await stats();
 
-  assert.ok(completedText.includes("Completed"));
-  assert.equal(buttonsAfterRefresh, 0);
+  await page.locator("#todo-title").fill("Alice unread todo");
+  await context.addCookies([{ name: "proof-failure", value: "1", url: base }]);
+  mark = requests.length;
+  await page.locator("#todo-title").press("Enter");
+  await waitForStatus(page, "Todo added");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/todos/add", "/_rpc/todos/list"]);
+  assert.equal((await stats()).writes - beforeFaultyAdd.writes, 1);
+  assert.equal(await page.locator("#todo-title").inputValue(), "");
+  assert.equal(await unread.count(), 0);
+  await page.locator("#list-stale").waitFor();
+  await refreshWithoutFault();
+  assert.equal(await unread.count(), 1);
+  assert.equal(await page.locator("#list-stale").count(), 0);
   checks.push(
-    "a write whose invalidation refetch fails reports the refresh warning, not success: one write, controls recover, Refresh recovers the list after the fault is removed",
+    "a write whose list read fails reports success with a stale-list notice: complete keeps its optimistic row, add's row waits for Refresh, which clears the notice once the fault is removed",
   );
 
-  async function rpcRequest(method, input, user) {
-    const headers = { "content-type": "application/json", origin };
+  // A click on the server-rendered page before the app runs is replayed after hydration.
+  const earlyContext = await browser.newContext();
+  const earlyRequests = [];
 
-    if (user) {
-      headers.cookie = `proof-user=${user}`;
+  await earlyContext.addCookies([{ name: "proof-user", value: "alice", url: base }]);
+  assert.equal((await rpcRequest("add", { title: "Alice early todo" }, "alice")).status, 200);
+
+  const earlyPage = await earlyContext.newPage();
+
+  earlyPage.on("pageerror", (error) => errors.push(String(error)));
+  earlyPage.on("request", (request) => {
+    if (request.url().includes("/_rpc/")) {
+      earlyRequests.push({ method: request.method(), url: request.url() });
     }
+  });
+  // Hold the app's scripts back, so the click lands before bootstrap.
+  await earlyPage.route(/\/(main|chunk)[^/]*\.js$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
+  await earlyPage.goto(`${base}/todos`, { waitUntil: "commit" });
 
-    const response = await fetch(`${base}/_rpc/todos/${method}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ input }),
-    });
+  const early = todoRow(earlyPage, "Alice early todo");
+  const earlyButton = early.getByRole("button", { name: "Complete Alice early todo", exact: true });
 
-    return { status: response.status, body: await response.json() };
-  }
+  await earlyButton.waitFor();
+  assert.equal(await earlyPage.evaluate(() => globalThis.__launchStable), undefined);
+  await earlyButton.click();
+  await waitForStatus(earlyPage, "Todo completed");
+  assert.ok((await early.textContent()).includes("Completed"));
+  assert.deepEqual(rpcPaths(earlyRequests), ["/_rpc/todos/complete", "/_rpc/todos/list"]);
+  await earlyContext.close();
+  checks.push(
+    "a click before the app bootstraps is replayed after hydration: one write and one list read, with no load-time read",
+  );
 
   const beforeRejected = await stats();
 
@@ -669,6 +861,7 @@ try {
     ],
     ["add", { title: "Denied" }, undefined, "FORBIDDEN", 403, null],
     ["complete", { id: addedId }, undefined, "FORBIDDEN", 403, null],
+    ["remove", { id: addedId }, undefined, "FORBIDDEN", 403, null],
   ]) {
     const result = await rpcRequest(method, input, user);
 
@@ -682,6 +875,7 @@ try {
   assert.equal(afterRejected.writes, beforeRejected.writes);
   assert.equal(afterRejected.addCalls, beforeRejected.addCalls);
   assert.equal(afterRejected.completeCalls, beforeRejected.completeCalls);
+  assert.equal(afterRejected.removeCalls, beforeRejected.removeCalls);
   assert.equal((await rpcRequest("complete", { id: addedId }, "alice")).status, 200);
   assert.equal((await stats()).writes, beforeRejected.writes);
   checks.push(
