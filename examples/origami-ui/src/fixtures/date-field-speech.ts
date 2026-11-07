@@ -20,8 +20,9 @@ import { DateSegments } from "./date-field.js";
 // probes compare what an empty segment announces: probe one is Origami's default placeholder,
 // probe two Origami with an "mm/dd/yyyy" placeholder, probe three static segments with
 // aria-valuetext "Empty" (React Aria's choice), probe four static segments with the placeholder as
-// aria-valuetext, and probe five an empty 12-hour time field. The static segments copy Origami's
-// attributes otherwise and do nothing when typed into: only focus is driven on them.
+// aria-valuetext, and probe five an empty 12-hour time field. The static segments copy an empty
+// Origami segment's attributes otherwise, with no value or bounds, and do nothing when typed into:
+// only focus is driven on them.
 
 const placeholders: Record<string, string> = { month: "mm", day: "dd", year: "yyyy" };
 
@@ -123,8 +124,6 @@ const errorMessages: Record<string, string> = {
           inputmode="numeric"
           aria-label="month"
           aria-labelledby="probe3-label probe3-month"
-          aria-valuemin="1"
-          aria-valuemax="12"
           aria-valuetext="Empty"
           data-segment="month"
           >––</span
@@ -137,8 +136,6 @@ const errorMessages: Record<string, string> = {
           inputmode="numeric"
           aria-label="day"
           aria-labelledby="probe3-label probe3-day"
-          aria-valuemin="1"
-          aria-valuemax="31"
           aria-valuetext="Empty"
           data-segment="day"
           >––</span
@@ -151,8 +148,6 @@ const errorMessages: Record<string, string> = {
           inputmode="numeric"
           aria-label="year"
           aria-labelledby="probe3-label probe3-year"
-          aria-valuemin="1"
-          aria-valuemax="9999"
           aria-valuetext="Empty"
           data-segment="year"
           >––––</span
@@ -169,8 +164,6 @@ const errorMessages: Record<string, string> = {
           inputmode="numeric"
           aria-label="month"
           aria-labelledby="probe4-label probe4-month"
-          aria-valuemin="1"
-          aria-valuemax="12"
           aria-valuetext="mm"
           data-segment="month"
           >mm</span
@@ -183,8 +176,6 @@ const errorMessages: Record<string, string> = {
           inputmode="numeric"
           aria-label="day"
           aria-labelledby="probe4-label probe4-day"
-          aria-valuemin="1"
-          aria-valuemax="31"
           aria-valuetext="dd"
           data-segment="day"
           >dd</span
@@ -197,8 +188,6 @@ const errorMessages: Record<string, string> = {
           inputmode="numeric"
           aria-label="year"
           aria-labelledby="probe4-label probe4-year"
-          aria-valuemin="1"
-          aria-valuemax="9999"
           aria-valuetext="yyyy"
           data-segment="year"
           >yyyy</span
