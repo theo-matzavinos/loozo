@@ -380,8 +380,8 @@ logout: mutation({
 - **`response.setCookie(name, value, options?)`** adds a `Set-Cookie` header. Options are `path` (default `/`), `domain`, `maxAge` in whole seconds, `expires`, `httpOnly` (default `true`), `secure` (default `true`) and `sameSite` (`"lax"` by default, `"strict"` or `"none"`, which needs `secure`). Browsers keep `Secure` cookies from `http://localhost`, so the defaults work in development; a plain-HTTP deployment on another hostname needs `secure: false`. Values aren't encoded for you: encode anything outside printable ASCII, or with spaces, `"`, `,`, `;` or `\`, first. An invalid name, value or option throws a `TypeError`, which fails the call with `INTERNAL`.
 - **`response.deleteCookie(name, options?)`** expires a cookie. Pass the `path`, `domain` and security options it was set with, or the browser keeps it.
 - **`response.headers`** is a `Headers` object for the RPC response. Launch's own headers (`Content-Type`, `Cache-Control`, `Vary`, `X-Content-Type-Options`) replace any you set, and the status comes from the call's outcome, never from `response`. Use `setCookie` for cookies: a `Set-Cookie` header written here is dropped during server rendering like any other header.
-- **Every outcome** carries them, failures included: a cookie set before a declared error, `forbidden()` or an `INTERNAL` failure is still sent.
-- **During server rendering**, cookies go on the page response, including a redirect Angular answers with, and headers are dropped, since a page's headers mustn't depend on which queries it ran. Angular copies the page's headers once the app is first stable, so only calls that settle before then send their cookies: those from guards, resolvers and rendering do, while a call made later, such as one awaited in a `BEFORE_APP_SERIALIZED` hook, still runs but its cookies are lost. Hydration reuses transferred results without calling the server, so the page response is the only chance to send such a cookie. Later calls in the same render still read the page request's original cookies. A failed initial navigation, such as a resolver whose RPC fails, makes `angular.handle` return `null`, and the cookies set during that render are lost with the page.
+- **Every outcome** carries them, failures included: a cookie set before a declared error, `forbidden()` or an `INTERNAL` failure is still sent. What a cookie records has usually happened by then, such as a session a middleware refreshed before the handler failed. So set a cookie after the steps that make it true, as `login` above does: a failure before that sends none.
+- **During server rendering**, cookies go on the page response, including a redirect Angular answers with, and headers are dropped, since a page's headers mustn't depend on which queries it ran. Angular copies the page's headers once the app is first stable, so only calls that settle before then send their cookies: those from guards, resolvers and rendering do, while a call made later, such as one awaited in a `BEFORE_APP_SERIALIZED` hook, still runs but its cookies are lost. Hydration reuses transferred results without calling the server, so the page response is the only chance to send such a cookie. Every call in a render gets the same context, created from the page request's cookies, so a cookie one call sets isn't visible to later calls; see the session example below. A failed initial navigation, such as a resolver whose RPC fails, makes `angular.handle` return `null`, and the cookies set during that render are lost with the page. Handle the failure in the route if they matter, so the page renders and carries them.
 - **When they're sent:** once the call settled, or for a [stream](#streams) once its handler returned its iterable. After that, setting a cookie throws and header changes are ignored, so a wrapping middleware can add a header after `await next()` for queries and mutations, and it's ignored for streams:
 
   ```ts
@@ -396,14 +396,17 @@ logout: mutation({
   });
   ```
 
-A middleware can refresh a session cookie for every call in its group, during server rendering too:
+A middleware can refresh a session cookie for every call in its group, during server rendering too. Every call in a render gets the same context, and each RPC request its own, so a cell in the context makes the refresh run once per page or RPC request instead of once per call:
 
 ```ts
+// The context factory returns `refresh: { pending: null as Promise<string> | null }` too.
 export const session = middleware(async ({ context, response, next }) => {
   const current = await context.sessions.read(context.sessionToken);
 
-  if (current !== null && current.expiresSoon) {
-    response.setCookie("session", await context.sessions.extend(current), {
+  // Calls in one render share the context: only the first refreshes.
+  if (current !== null && current.expiresSoon && context.refresh.pending === null) {
+    context.refresh.pending = context.sessions.extend(current);
+    response.setCookie("session", await context.refresh.pending, {
       maxAge: 60 * 60 * 24 * 30,
     });
   }
@@ -411,6 +414,8 @@ export const session = middleware(async ({ context, response, next }) => {
   return next({ user: current?.user ?? null });
 });
 ```
+
+Concurrent RPC requests from the browser each have their own context, so each can still refresh. Your session store has to accept that, with a sliding expiry or by keeping the old token valid for a short while. That also keeps the session usable when a refreshed cookie never arrives, as after a failed render.
 
 There's no cookie reader: your context parses the request's `Cookie` header, as in the [example](../../examples/angular-launch/src/context.ts).
 
@@ -696,7 +701,7 @@ The reuse has limits, all of them Angular's transfer cache behaving as designed:
 Outcomes in a guard or resolver become a 302 or a 404 page with [`rpcNavigationErrors`](#navigating-on-outcomes), and both have caveats:
 
 - A server-rendered not-found page calls the procedure again over HTTP during hydration, because only successes transfer, so its handler runs twice. A redirect doesn't: the browser follows the 302.
-- Any other failure of a guard or resolver during server rendering, such as `FORBIDDEN`, `INTERNAL`, a declared error, or an outcome without `rpcNavigationErrors`, fails the initial navigation. Angular then renders no page and `angular.handle` returns `null`, so your server's fallback answers, such as the example's plain 404. Handle such errors in the route if the page should show something, or throw an outcome instead.
+- Any other failure of a guard or resolver during server rendering, such as `FORBIDDEN`, `INTERNAL`, a declared error, or an outcome without `rpcNavigationErrors`, fails the initial navigation. Angular then renders no page and `angular.handle` returns `null`, so your server's fallback answers, such as the example's plain 404, without the cookies calls set during the render. Handle such errors in the route if the page should show something, or throw an outcome instead.
 
 Mutations are refused during server rendering with `FORBIDDEN`, before any middleware, validation or the handler runs. Rendering should only read. Streams are refused the same way, since they don't finish; see [Calling streams](#calling-streams).
 
@@ -950,7 +955,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 - No websockets, optimistic updates or automatic invalidation. Streams don't reconnect or resume on their own, and HTTP interceptors don't see them. Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
-- No cookie reader, and no success status other than 200. During server rendering, a cookie set by one call isn't visible to later calls in the same render, and headers are dropped.
+- No cookie reader, and no success status other than 200. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
 - Redirects are root-relative only, and outcomes act only in navigation, through `rpcNavigationErrors`. Nothing maps `FORBIDDEN` to a page.
