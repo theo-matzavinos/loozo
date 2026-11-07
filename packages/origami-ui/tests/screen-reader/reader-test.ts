@@ -88,6 +88,7 @@ const voiceOverPointerKeys = /mouse|cursor/i;
 function readAfter(): SpeechStep["after"] {
   const active = document.activeElement;
   let activeElement = "none";
+  const aria: Record<string, string> = {};
 
   if (active === document.body) {
     activeElement = "body";
@@ -101,6 +102,26 @@ function readAfter(): SpeechStep["after"] {
 
     if (testId !== null) {
       activeElement = `${active.localName}[data-testid=${testId}] "${name}"`;
+    }
+
+    // Kept inside this function: Playwright serializes it into the page on its own.
+    for (const attribute of [
+      "role",
+      "aria-valuenow",
+      "aria-valuetext",
+      "aria-selected",
+      "aria-current",
+      "aria-expanded",
+      "aria-checked",
+      "aria-invalid",
+      "aria-required",
+      "aria-disabled",
+    ]) {
+      const value = active.getAttribute(attribute);
+
+      if (value !== null) {
+        aria[attribute] = value;
+      }
     }
   }
 
@@ -118,7 +139,12 @@ function readAfter(): SpeechStep["after"] {
     toasts.push(description);
   }
 
-  return { activeElement, toasts, modalOpen: document.querySelector("dialog:modal") !== null };
+  return {
+    activeElement,
+    aria,
+    toasts,
+    modalOpen: document.querySelector("dialog:modal") !== null,
+  };
 }
 
 /** Samples the page, in the page, when the watched toast or text is first inserted. */

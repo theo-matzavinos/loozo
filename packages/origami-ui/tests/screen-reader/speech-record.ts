@@ -22,7 +22,13 @@ export interface SpeechStep {
   endedAt: number;
   /** Guidepup's capture of the step: the phrases it saw, joined with ". ". */
   spoken: string;
-  after: { activeElement: string; toasts: string[]; modalOpen: boolean };
+  after: {
+    activeElement: string;
+    /** The focused element's role and state attributes, those it has, as the reader could see them. */
+    aria: Record<string, string>;
+    toasts: string[];
+    modalOpen: boolean;
+  };
   /** The page when the step's watched toast was inserted; null until it was. */
   atInsertion?: InsertionState | null;
 }
