@@ -69,7 +69,7 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";
                 }
               </tbody>
             </table>
-            <p class="hint">
+            <p class="hint" aria-live="polite">
               {{ cal.state.anchor() ? "Choose the last day" : "Choose the first day" }}
             </p>
           </div>

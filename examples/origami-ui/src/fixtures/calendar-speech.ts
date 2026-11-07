@@ -14,8 +14,8 @@ import { OrigamiField, OrigamiFieldDescription, OrigamiFieldLabel } from "@loozo
 import { CalendarViewRows } from "./calendar-views.js";
 
 // The Screen reader workflow's speech-only Calendar page (calendar.spec.ts): nothing on it is
-// live except each Calendar's own Heading, so a reader's capture holds only what focus and the
-// Calendars' own changes caused. Today is 27 October 2026 everywhere, and every cell carries its
+// live except each Calendar's own Heading and Trip's prompt, as the range README shows it, so a
+// reader's capture holds only what focus and the Calendars' own changes caused. Today is 27 October 2026 everywhere, and every cell carries its
 // date as `data-date`. Appeal date is a day in a Field with a lower bound and 28 October
 // disabled; Departure switches between the days, months and years views; Delivery days, Trip and
 // Card expiry are the multiple, range and month roots.
@@ -185,7 +185,9 @@ const stepLabels = {
         </div>
       </div>
       <!-- The README's prompt: plain text, not live. -->
-      <p>{{ trip.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
+      <p aria-live="polite">
+        {{ trip.state.anchor() ? "Choose the last day" : "Choose the first day" }}
+      </p>
       <button type="button" data-testid="trip-after">After the trip</button>
     </section>
 
