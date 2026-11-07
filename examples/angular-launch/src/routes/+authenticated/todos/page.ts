@@ -1,6 +1,10 @@
-import { Component, computed, inject, signal } from "@angular/core";
-import { injectMutation, injectQuery, QueryClient } from "@tanstack/angular-query";
+import { Component, computed, signal } from "@angular/core";
+import { injectMutation, injectQuery, type QueryClient } from "@tanstack/angular-query";
+import type { Client } from "@loozo/angular-launch";
+import type todos from "./rpc";
 import { injectQueries, injectRpc } from "./rpc.generated";
+
+type Todo = Awaited<ReturnType<Client<typeof todos>["list"]>>["todos"][number];
 
 @Component({
   selector: "launch-todos",
@@ -37,16 +41,25 @@ import { injectQueries, injectRpc } from "./rpc.generated";
             } @else {
               <button
                 type="button"
-                [disabled]="pending()"
                 [attr.aria-label]="'Complete ' + todo.title"
                 (click)="complete(todo.id)"
               >
                 Complete
               </button>
             }
+            <button
+              type="button"
+              [attr.aria-label]="'Delete ' + todo.title"
+              (click)="remove(todo.id)"
+            >
+              Delete
+            </button>
           </li>
         }
       </ul>
+      @if (todos.isError()) {
+        <p id="list-stale">Could not read the list again. Refresh to check it.</p>
+      }
     } @else if (todos.isError()) {
       <p id="list-error">Could not load todos. Refresh to try again.</p>
     } @else {
@@ -59,30 +72,88 @@ import { injectQueries, injectRpc } from "./rpc.generated";
 export default class Todos {
   readonly #rpc = injectRpc();
   readonly #queries = injectQueries();
-  readonly #client = inject(QueryClient);
   readonly todos = injectQuery(() => this.#queries.todos.list.queryOptions());
-  // Returning the invalidation keeps the mutation pending until the list is read again.
-  // throwOnError fails the mutation when that read fails, so the page doesn't report
-  // success next to a stale list.
   readonly #add = injectMutation(() =>
     this.#queries.todos.add.mutationOptions({
       onSuccess: () => {
-        // The write succeeded: clear the title even if the list can't be read again.
         this.title.set("");
-
-        return this.#invalidateTodos();
       },
     }),
   );
+  // Optimistic writes: each changes the cached list at once and undoes its own row if it
+  // fails. config.ts reads the list again after the last pending write. The shared scope sends
+  // the writes to the server one at a time, in order.
   readonly #complete = injectMutation(() =>
     this.#queries.todos.complete.mutationOptions({
-      onSuccess: () => this.#invalidateTodos(),
+      scope: { id: "todos" },
+      onMutate: async ({ id }, { client }) => {
+        const key = this.#queries.todos.list.key();
+
+        await client.cancelQueries({ queryKey: key });
+
+        const before = client.getQueryData(key)?.todos.find((todo) => todo.id === id);
+
+        if (before !== undefined) {
+          this.#replaceTodo(client, { ...before, completed: true });
+        }
+
+        return { before };
+      },
+      onError: (error, { id }, result, { client }) => {
+        // The server says it's gone: show that instead of the row as it was.
+        if (this.#rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+          this.#updateTodos(client, (todos) => todos.filter((todo) => todo.id !== id));
+
+          return;
+        }
+
+        const before = result?.before;
+
+        if (before !== undefined) {
+          this.#replaceTodo(client, before);
+        }
+      },
+    }),
+  );
+  readonly #remove = injectMutation(() =>
+    this.#queries.todos.remove.mutationOptions({
+      scope: { id: "todos" },
+      onMutate: async ({ id }, { client }) => {
+        const key = this.#queries.todos.list.key();
+
+        await client.cancelQueries({ queryKey: key });
+
+        const todos = client.getQueryData(key)?.todos ?? [];
+        const index = todos.findIndex((todo) => todo.id === id);
+
+        if (index === -1) {
+          return undefined;
+        }
+
+        this.#updateTodos(client, (current) => current.filter((todo) => todo.id !== id));
+
+        return { removed: todos[index], index };
+      },
+      onError: (error, _input, result, { client }) => {
+        // Already gone: nothing to put back.
+        if (this.#rpc.todos.remove.isError(error) && error.code === "NOT_FOUND") {
+          return;
+        }
+
+        if (result === undefined) {
+          return;
+        }
+
+        const { removed, index } = result;
+
+        this.#updateTodos(client, (todos) =>
+          todos.toSpliced(Math.min(index, todos.length), 0, removed),
+        );
+      },
     }),
   );
   readonly #refreshing = signal(false);
-  readonly pending = computed(
-    () => this.#add.isPending() || this.#complete.isPending() || this.#refreshing(),
-  );
+  readonly pending = computed(() => this.#add.isPending() || this.#refreshing());
   readonly title = signal("");
   readonly status = signal("ready");
 
@@ -114,28 +185,51 @@ export default class Todos {
   }
 
   async complete(id: string): Promise<void> {
-    if (this.pending()) {
-      return;
-    }
-
-    this.status.set("Completing todo…");
-
     try {
       await this.#complete.mutateAsync({ id });
       this.status.set("Todo completed");
     } catch (error) {
       if (this.#rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
-        this.status.set("This todo no longer exists. Refresh the list.");
+        this.status.set("This todo no longer exists.");
       } else {
-        this.status.set("Could not complete todo. Refresh to check before retrying.");
+        this.status.set("Could not complete todo. Try again.");
       }
     }
   }
 
-  #invalidateTodos(): Promise<void> {
-    return this.#client.invalidateQueries(
-      { queryKey: this.#queries.todos.$key() },
-      { throwOnError: true },
+  async remove(id: string): Promise<void> {
+    try {
+      await this.#remove.mutateAsync({ id });
+      this.status.set("Todo deleted");
+    } catch (error) {
+      if (this.#rpc.todos.remove.isError(error) && error.code === "NOT_FOUND") {
+        this.status.set("This todo no longer exists.");
+      } else {
+        this.status.set("Could not delete todo. Try again.");
+      }
+    }
+  }
+
+  // Changes the cached list's todos; does nothing while the list hasn't loaded.
+  #updateTodos(client: QueryClient, update: (todos: readonly Todo[]) => Todo[]): void {
+    client.setQueryData(this.#queries.todos.list.key(), (list) => {
+      if (list === undefined) {
+        return list;
+      }
+
+      return { ...list, todos: update(list.todos) };
+    });
+  }
+
+  #replaceTodo(client: QueryClient, replacement: Todo): void {
+    this.#updateTodos(client, (todos) =>
+      todos.map((todo) => {
+        if (todo.id === replacement.id) {
+          return replacement;
+        }
+
+        return todo;
+      }),
     );
   }
 
