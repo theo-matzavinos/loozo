@@ -20,8 +20,9 @@ export abstract class OrigamiDateFieldSegmentOptions {
   /** The unit this segment edits; required on the direct directive. */
   abstract readonly segment: Signal<OrigamiDateFieldSegmentType>;
   /**
-   * The text shown while the unit is empty, or null (the direct directive's default) for one `–`
-   * per digit of the unit's width: `––––` for a year, `––` otherwise.
+   * The text shown and announced (`aria-valuetext`) while the unit is empty, or null (the direct
+   * directive's default) for one `–` per digit of the unit's width: `––––` for a year, `––`
+   * otherwise.
    */
   abstract readonly placeholder: Signal<string | null>;
 
@@ -97,8 +98,9 @@ function flag(value: boolean): "true" | null {
  * the Input group's labels, from a Field or the group's own static `aria-labelledby`, then the
  * segment itself, so a screen reader hears "Date of birth, day"; absent while the group names
  * none. `aria-valuenow`, `aria-valuemin` and `aria-valuemax` follow the unit's value and bounds,
- * absent while it is empty; a month's `aria-valuetext` is its localized name, the day period's
- * its localized AM or PM (`aria-valuenow` 0 or 1). `aria-invalid` and `aria-required` follow the
+ * absent while it is empty. `aria-valuetext` is a month's localized name, the day period's
+ * localized AM or PM (`aria-valuenow` 0 or 1), and on every other unit the segment's text: its
+ * digits, else its placeholder, which is what an empty segment is announced as. `aria-invalid` and `aria-required` follow the
  * Input group's Field. `inputmode="numeric"`, the day period's `"text"`, `enterkeyhint="next"`,
  * `spellcheck="false"` and `autocorrect="off"`. Readonly: it focuses and moves but never edits,
  * `aria-readonly="true"`, not `contenteditable`. Disabled: out of the tab order, not editable,
@@ -146,7 +148,10 @@ export class OrigamiDateFieldSegment implements OrigamiDateFieldSegmentOptions {
    * date-time field.
    */
   readonly segment = input.required<OrigamiDateFieldSegmentType>({ alias: "ogDateFieldSegment" });
-  /** Own placeholder input, default null: one `–` per digit of the unit's width. */
+  /**
+   * Own placeholder input, shown and announced while the unit is empty; default null: one `–` per
+   * digit of the unit's width.
+   */
   readonly placeholder = input<string | null>(null);
 
   readonly #options = injectDeferred(OrigamiDateFieldSegmentOptions);
@@ -214,8 +219,11 @@ export class OrigamiDateFieldSegment implements OrigamiDateFieldSegmentOptions {
   protected readonly valueMin = computed(() => this.#value()?.min ?? null);
   /** @internal */
   protected readonly valueMax = computed(() => this.#value()?.max ?? null);
-  /** @internal */
-  protected readonly valueText = computed(() => this.#value()?.text ?? null);
+  /**
+   * @internal The month's and day period's names, else the segment's text: VoiceOver reads a
+   * spinbutton without one as a percentage of its range.
+   */
+  protected readonly valueText = computed(() => this.#value()?.text ?? this.text());
   /** @internal */
   protected readonly ariaReadonly = computed(() => flag(this.#context.readonly()));
   /** @internal */

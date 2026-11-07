@@ -198,10 +198,10 @@ test("DF37 server HTML and hydration: an en-US date-time in a Field lays out mon
   const segments = attached["segments"] as Record<string, unknown>[];
   const expected = [
     ["month", "10", "month", "10", "1", "12", "October", "numeric"],
-    ["day", "27", "day", "27", "1", "31", null, "numeric"],
-    ["year", "2026", "year", "2026", "1", "9999", null, "numeric"],
-    ["hour", "09", "hour", "9", "1", "12", null, "numeric"],
-    ["minute", "30", "minute", "30", "0", "59", null, "numeric"],
+    ["day", "27", "day", "27", "1", "31", "27", "numeric"],
+    ["year", "2026", "year", "2026", "1", "9999", "2026", "numeric"],
+    ["hour", "09", "hour", "9", "1", "12", "09", "numeric"],
+    ["minute", "30", "minute", "30", "0", "59", "30", "numeric"],
     ["dayPeriod", "AM", "AM/PM", "0", "0", "1", "AM", "text"],
   ];
 

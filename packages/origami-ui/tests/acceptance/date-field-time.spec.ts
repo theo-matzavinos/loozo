@@ -168,8 +168,8 @@ test("DF23 server HTML and hydration: a 12-hour time in a Field has hour, minute
 
   const segments = attached["segments"] as Record<string, unknown>[];
   const expected = [
-    ["hour", "09", "hour", "9", "1", "12", null, "numeric"],
-    ["minute", "30", "minute", "30", "0", "59", null, "numeric"],
+    ["hour", "09", "hour", "9", "1", "12", "09", "numeric"],
+    ["minute", "30", "minute", "30", "0", "59", "30", "numeric"],
     ["dayPeriod", "AM", "AM/PM", "0", "0", "1", "AM", "text"],
   ];
 
