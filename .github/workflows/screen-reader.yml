@@ -1,8 +1,9 @@
 name: Screen reader
 
-# Optional evidence, not a required check: runs Origami's Toast and Menu scenarios under NVDA and
-# VoiceOver through Guidepup and saves what each reader was asked to say. It never asserts speech; a
-# job fails only when the reader or the fixture misbehaves. Pull requests run it when they change it.
+# Optional evidence, not a required check: runs Origami's Toast, Menu, Calendar and date field
+# scenarios under NVDA and VoiceOver through Guidepup and saves what each reader was asked to say.
+# It never asserts speech; a job fails only when the reader or the fixture misbehaves. Pull
+# requests run it when they change it.
 on:
   pull_request:
     paths:
@@ -10,6 +11,8 @@ on:
       - packages/origami-ui/tests/screen-reader/**
       - examples/origami-ui/src/fixtures/toast-speech.ts
       - examples/origami-ui/src/fixtures/menu-speech.ts
+      - examples/origami-ui/src/fixtures/calendar-speech.ts
+      - examples/origami-ui/src/fixtures/date-field-speech.ts
   workflow_dispatch:
 
 permissions:
@@ -50,17 +53,23 @@ jobs:
 
   speech:
     needs: build
-    name: ${{ matrix.reader }} · ${{ matrix.browser }}
+    name: ${{ matrix.reader }} · ${{ matrix.browser }} · ${{ matrix.group }}
     runs-on: ${{ matrix.os }}
-    # A reader can hang a run for hours; VoiceOver normally takes up to about an hour for all specs.
+    # A reader can hang a run for hours. The specs are split in two groups so each job stays well
+    # inside the timeout: VoiceOver took 89 minutes for all of them in one job.
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
+        target: [nvda-chromium, nvda-firefox, voiceover-webkit]
+        group: [toast-menu, calendar-date-field]
         include:
-          - { os: windows-2025, reader: nvda, browser: chromium }
-          - { os: windows-2025, reader: nvda, browser: firefox }
-          - { os: macos-26, reader: voiceover, browser: webkit }
+          - { target: nvda-chromium, os: windows-2025, reader: nvda, browser: chromium }
+          - { target: nvda-firefox, os: windows-2025, reader: nvda, browser: firefox }
+          - { target: voiceover-webkit, os: macos-26, reader: voiceover, browser: webkit }
+          # Playwright file filters: the specs each group runs.
+          - { group: toast-menu, specs: toast menu }
+          - { group: calendar-date-field, specs: calendar date-field }
     env:
       ORIGAMI_SR: ${{ matrix.reader }}
     defaults:
@@ -96,13 +105,13 @@ jobs:
         run: pnpm exec guidepup setup --ci
       - run: pnpm exec playwright install ${{ matrix.browser }}
       - run: pnpm exec guidepup install
-      - run: pnpm run screen-reader:test --project ${{ matrix.reader }}-${{ matrix.browser }}
+      - run: pnpm run screen-reader:test ${{ matrix.specs }} --project ${{ matrix.target }}
       - if: always()
         run: node tests/screen-reader/summary.ts
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speech-${{ matrix.reader }}-${{ matrix.browser }}
+          name: speech-${{ matrix.target }}-${{ matrix.group }}
           path: |
             packages/origami-ui/.acceptance-evidence/screen-reader/
             packages/origami-ui/recordings/

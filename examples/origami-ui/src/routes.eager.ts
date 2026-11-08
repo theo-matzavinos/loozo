@@ -112,6 +112,16 @@ export const routes: Routes = [
       import("./fixtures/menu-speech.js").then((module) => module.MenuSpeechFixture),
   },
   {
+    path: "calendar-speech",
+    loadComponent: () =>
+      import("./fixtures/calendar-speech.js").then((module) => module.CalendarSpeechFixture),
+  },
+  {
+    path: "date-field-speech",
+    loadComponent: () =>
+      import("./fixtures/date-field-speech.js").then((module) => module.DateFieldSpeechFixture),
+  },
+  {
     path: "date-time-field",
     loadComponent: () =>
       import("./fixtures/date-field-date-time.js").then((module) => module.DateTimeFieldFixture),
