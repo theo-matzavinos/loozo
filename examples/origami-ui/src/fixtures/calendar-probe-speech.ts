@@ -25,13 +25,14 @@ import { CalendarViewRows } from "./calendar-views.js";
 // L, Previous and the view switch don't speak the Heading (V3): L0 Origami; L1 the Heading with
 // aria-atomic; L2 a Heading that isn't live and a polite region written at once; L3 the same
 // written 500 ms later; L4 a clone of React Aria's announcer, an assertive log with a node per
-// change.
+// change; L5 Origami's Heading outside a view switch with its own name; L6 L5 with the view switch
+// named by the Heading through aria-labelledby.
 
 type CalendarView = "days" | "months" | "years";
 
 type SelectionProbe = "s1" | "s2" | "s3" | "s4";
 
-type StepProbe = "l0" | "l1" | "l2" | "l3" | "l4";
+type StepProbe = "l0" | "l1" | "l2" | "l3" | "l4" | "l5" | "l6";
 
 const probeDays = [
   { date: "2026-10-26", name: "Monday, October 26, 2026", number: "26" },
@@ -202,7 +203,8 @@ export class ProbeKeptDayRows {
 
 /**
  * An `ogCalendar` with Previous, Next and a view switch holding its Heading, as Departure on
- * /calendar-speech, for the L probes: how the displayed period is told differs by `probe`.
+ * /calendar-speech, for the L probes: how the displayed period is told differs by `probe`. L5 and
+ * L6 move the Heading out of the view switch, between Previous and the switch.
  */
 @Component({
   selector: "probe-step-calendar",
@@ -230,13 +232,29 @@ export class ProbeKeptDayRows {
       >
         ‹
       </button>
-      <button type="button" [attr.data-testid]="probe() + '-switch'" (click)="switchView()">
+      @if (probe() === "l5" || probe() === "l6") {
+        <h3 ogCalendarHeading [id]="probe() + '-heading'" [attr.data-testid]="probe() + '-heading'">
+          {{ calendar.state.heading() }}
+        </h3>
+      }
+      <button
+        type="button"
+        [attr.data-testid]="probe() + '-switch'"
+        [attr.aria-labelledby]="probe() === 'l6' ? 'l6-heading' : null"
+        (click)="switchView()"
+      >
         @switch (probe()) {
           @case ("l0") {
             <span ogCalendarHeading>{{ calendar.state.heading() }}</span>
           }
           @case ("l1") {
             <span ogCalendarHeading aria-atomic="true">{{ calendar.state.heading() }}</span>
+          }
+          @case ("l5") {
+            Change view
+          }
+          @case ("l6") {
+            ▾
           }
           @default {
             <span>{{ calendar.state.heading() }}</span>
@@ -519,6 +537,8 @@ export class ProbeStepCalendar {
       <probe-step-calendar probe="l2" label="Probe L2" />
       <probe-step-calendar probe="l3" label="Probe L3" />
       <probe-step-calendar probe="l4" label="Probe L4" />
+      <probe-step-calendar probe="l5" label="Probe L5" />
+      <probe-step-calendar probe="l6" label="Probe L6" />
     </section>
   `,
   styles: `

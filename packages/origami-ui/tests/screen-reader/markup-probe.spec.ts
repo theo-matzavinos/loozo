@@ -74,19 +74,22 @@ test("p2-month-key", async ({ page, run }) => {
 test("p3-step", async ({ page, run }) => {
   await run.open("/calendar-probe-speech");
 
-  for (const probe of ["l0", "l1", "l2", "l3", "l4"]) {
+  for (const probe of ["l0", "l1", "l2", "l3", "l4", "l5", "l6"]) {
     const previous = page.getByTestId(`${probe}-previous`);
     const viewSwitch = page.getByTestId(`${probe}-switch`);
+    // L5 and L6 keep the Heading outside the view switch.
+    const heading =
+      probe === "l5" || probe === "l6" ? page.getByTestId(`${probe}-heading`) : viewSwitch;
 
     await run.step(`${probe}: focus Previous month`, () => previous.focus());
     await run.step(`${probe}: Enter on Previous month`, async () => {
       await page.keyboard.press("Enter");
-      await expect(viewSwitch).toHaveText("September 2026");
+      await expect(heading).toHaveText("September 2026");
     });
     await press(run, page, "Tab", viewSwitch, `${probe}: the view switch`);
     await run.step(`${probe}: Enter on the view switch`, async () => {
       await page.keyboard.press("Enter");
-      await expect(viewSwitch).toHaveText("2016 – 2027");
+      await expect(heading).toHaveText("2016 – 2027");
     });
   }
 });
