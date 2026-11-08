@@ -285,6 +285,86 @@ test("prerendering fails the render for a call that doesn't answer 200, sets a c
   }
 });
 
+// Angular checks nothing after bootstrap returns: BEFORE_APP_SERIALIZED callbacks run later,
+// and their errors only reach the ErrorHandler.
+test("native prerendering fails for calls before the page is first stable, not ones made while it's serialized", async () => {
+  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
+  const { renderApplication, provideServerRendering, BEFORE_APP_SERIALIZED } = await import(
+    require.resolve("@angular/platform-server")
+  );
+  const { Component, inject } = await import(require.resolve("@angular/core"));
+  const { HttpClient, provideHttpClient } = await import(require.resolve("@angular/common/http"));
+  const { provideRouter, RouterOutlet } = await import(require.resolve("@angular/router"));
+
+  class Page {}
+
+  Component({ selector: "prerendered-page", template: "prerendered" })(Page);
+
+  class Root {}
+
+  Component({ selector: "prerender-root", imports: [RouterOutlet], template: "<router-outlet />" })(
+    Root,
+  );
+
+  function post(url) {
+    return firstValueFrom(inject(HttpClient).post(url, { input: null }));
+  }
+
+  function prerender(resolved, serialized) {
+    const { application, registry } = prerenderFixture();
+
+    return renderApplication(
+      async (context) => {
+        const app = await bootstrapApplication(
+          Root,
+          {
+            providers: [
+              provideServerRendering(),
+              provideHttpClient(),
+              provideLaunchServer(registry, application),
+              provideRouter([
+                { path: "about", component: Page, resolve: { result: () => post(resolved) } },
+              ]),
+              {
+                provide: BEFORE_APP_SERIALIZED,
+                multi: true,
+                useFactory: () => {
+                  const http = inject(HttpClient);
+
+                  return async () => {
+                    if (serialized) {
+                      serialized.result = await firstValueFrom(
+                        http.post(serialized.url, { input: null }),
+                      );
+                    }
+                  };
+                },
+              },
+            ],
+          },
+          context,
+        );
+
+        return finishLaunchRendering(app);
+      },
+      {
+        document: "<prerender-root></prerender-root>",
+        url: prerenderedPage,
+        allowedHosts: ["localhost"],
+      },
+    );
+  }
+
+  await assert.rejects(prerender("/_rpc/test/refuse"), /\/_rpc\/test\/refuse answered 403/);
+  await assert.rejects(prerender("/_rpc/test/remember"), /\/_rpc\/test\/remember set a cookie/);
+
+  const serialized = { url: "/_rpc/test/remember" };
+  const html = await prerender(path, serialized);
+
+  assert.match(html, /prerendered/);
+  assert.equal(serialized.result, null);
+});
+
 test("a prerendering call's signal aborts when the render's application is destroyed", async () => {
   const { application, registry } = prerenderFixture();
   const rendering = backend(registry, application, null, null, () => {

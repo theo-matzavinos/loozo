@@ -363,7 +363,8 @@ export interface CallArgs<ContextValue, Input> {
   /**
    * The call's cookies and headers. Over HTTP they go on the RPC response; during server
    * rendering, cookies go on the page response and headers are dropped. A prerendered page
-   * has no response, so a cookie set while Angular prerenders it fails the build.
+   * has no response, so a cookie set while Angular prerenders it fails the build, unless
+   * it's set after the app is first stable, such as in a `BEFORE_APP_SERIALIZED` hook.
    */
   readonly response: ResponseControl;
 }

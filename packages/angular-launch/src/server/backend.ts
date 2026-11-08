@@ -63,7 +63,8 @@ const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults
  * the render's context from a cookie-less `GET` of the page's URL, and every call in the
  * render shares it. Its signal aborts when the application is destroyed. A call that
  * doesn't answer 200, or sets a cookie, records a fault for
- * {@link finishLaunchRendering}, as does a context factory that throws.
+ * {@link finishLaunchRendering}, as does a context factory that throws. Only faults
+ * recorded before the app is first stable fail the build.
  *
  * @param registry - The application's RPC groups.
  * @param application - The application binding.
@@ -313,6 +314,11 @@ export function provideLaunchServer(
  * from your server bootstrap to fail the build instead of producing a broken page. The
  * application must include the generated `provideServer()`. Server-rendered pages are
  * unaffected: their failures reach the caller as usual.
+ *
+ * It checks once the app is first stable, which covers calls from guards, resolvers and
+ * rendering. Angular runs `BEFORE_APP_SERIALIZED` hooks afterwards and only logs their
+ * errors, so a call made in one isn't checked and the page is still written; don't make
+ * Launch calls there.
  *
  * @example
  * ```ts

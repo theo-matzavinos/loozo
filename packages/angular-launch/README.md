@@ -725,6 +725,8 @@ Angular prerenders without a request, so Launch creates the page's context from 
 
 Every call made while prerendering must succeed. With [`finishLaunchRendering`](#4-wire-the-browser-and-server-apps) in place, the build fails and names the call when one answers with anything but a result: a declared error, a framework code (such as `FORBIDDEN` from middleware, or for a mutation or stream), `notFound()` or `redirect()`. It also fails when a call sets a cookie, since a prerendered page is a file with no response to carry it, and when the context factory throws. Without it, Angular can write the page with the failure rendered into it, or skip the page and still report success.
 
+Launch checks once the app is first stable, which covers calls from guards, resolvers and rendering. That's the last point where a render can still fail: Angular runs `BEFORE_APP_SERIALIZED` hooks afterwards and only logs their errors. So a call made later, such as one awaited in such a hook, isn't checked, and the page is written whether it fails or sets a cookie. Don't make Launch calls there.
+
 The results reach the browser inside the page, as during server rendering: through Angular's transfer cache, or TanStack's hydration. Loading the page makes no RPC. Every call after that, such as a refetch, an invalidation or a client-side navigation to the page, is an ordinary HTTP request to your server, with the visitor's own context. So:
 
 - Queries on a prerendered page should answer the same for everyone. One that reads the user shows the anonymous answer in the HTML, then the visitor's after its next call.
