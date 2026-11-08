@@ -2473,7 +2473,19 @@ test("CA49: the Heading is silent while a cell has focus, through a move into an
   await expect(cell(page, "a", "2026-12-01")).toBeFocused();
   await expect(heading).toHaveAttribute("aria-live", "off");
 
+  // A month you write removes the focused cell with no request pending: Firefox fires no
+  // `focusout` for that, and the Heading is live again all the same.
+  await page.getByTestId("a-january-2028").evaluate((element) => (element as HTMLElement).click());
+  await expect(heading).toHaveText("January 2028");
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await expect(heading).toHaveAttribute("aria-live", "polite");
+  await page.getByTestId("a-january-2026").evaluate((element) => (element as HTMLElement).click());
+  await expect(heading).toHaveText("January 2026");
+  await expect(heading).toHaveAttribute("aria-live", "polite");
+
   // Focus falling to nothing with no request pending, as a click on Next does in macOS Safari.
-  await cell(page, "a", "2026-12-01").evaluate((element) => (element as HTMLElement).blur());
+  await cell(page, "a", "2026-01-05").focus();
+  await expect(heading).toHaveAttribute("aria-live", "off");
+  await cell(page, "a", "2026-01-05").evaluate((element) => (element as HTMLElement).blur());
   await expect(heading).toHaveAttribute("aria-live", "polite");
 });

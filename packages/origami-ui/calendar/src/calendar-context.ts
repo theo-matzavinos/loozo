@@ -155,8 +155,9 @@ export class CalendarContext {
   readonly #heading = signal<Signal<string> | null>(null);
   /**
    * Whether one of the root's cells has focus. Every `focusin` in the document sets it; focus
-   * falling to nothing keeps it while a focus request is pending, as when the focused cell leaves
-   * with its month, and clears it otherwise.
+   * falling to nothing, through the root's `focusout` or a focused cell's removal, keeps it while a
+   * focus request is pending, as when the focused cell leaves with its month, and clears it
+   * otherwise.
    */
   readonly #cellFocused = signal(false);
   /**
@@ -586,6 +587,15 @@ export class CalendarContext {
       }
 
       this.#cells.set(remaining);
+
+      // A focused cell removed with no request pending, as when you write `month` yourself, drops
+      // focus to nothing; Firefox fires no `focusout` for a removal, so this is where no cell has
+      // focus anymore.
+      const active = this.#document.activeElement;
+
+      if (untracked(this.#request) === null && !remaining.some((m) => m.element === active)) {
+        this.#cellFocused.set(false);
+      }
     });
   }
 
