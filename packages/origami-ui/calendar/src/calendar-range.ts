@@ -253,7 +253,7 @@ function neverDisabled(): boolean {
  *       }
  *     </tbody>
  *   </table>
- *   <p>{{ cal.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
+ *   <p aria-live="polite">{{ cal.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
  * </div>
  * ```
  */

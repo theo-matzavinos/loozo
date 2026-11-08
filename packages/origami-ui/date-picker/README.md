@@ -142,7 +142,7 @@ Swap the root and the Calendar inside Content; the Trigger and Content stay the 
     <div ogDatePickerContent>
       <div ogCalendarRange #cal="ogCalendarRange">
         <!-- header and grid exactly as an inline range Calendar -->
-        <p>{{ cal.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
+        <p aria-live="polite">{{ cal.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
       </div>
     </div>
   </div>

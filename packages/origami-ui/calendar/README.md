@@ -65,10 +65,12 @@ The grid is `aria-multiselectable="true"`, and every day has `aria-selected`, `"
 <div ogCalendarRange [formField]="filters.period" #period="ogCalendarRange">
   <!-- header and grid -->
 </div>
-<p>{{ period.state.anchor() ? "Choose the last day" : "Choose the first day" }}</p>
+<p aria-live="polite">
+  {{ period.state.anchor() ? "Choose the last day" : "Choose the first day" }}
+</p>
 ```
 
-`filters.period` is an `OrigamiDateRange | null` field. The first choice sets the anchor, `state.anchor()`, and writes nothing. While it's set, moving the pointer over a day, or focus to it, previews the range: the days from the anchor to that day get `data-preview`. The second choice writes `{ start, end }` in chronological order and clears the anchor; choosing the anchor again makes a one-day range. So the value is never half a range, and a form only ever sees whole ones.
+`filters.period` is an `OrigamiDateRange | null` field. The first choice sets the anchor, `state.anchor()`, and writes nothing. The anchor has no ARIA of its own, so a screen reader says nothing when it's set: put the prompt in a polite live region, as above, so the change is announced. While it's set, moving the pointer over a day, or focus to it, previews the range: the days from the anchor to that day get `data-preview`. The second choice writes `{ start, end }` in chronological order and clears the anchor; choosing the anchor again makes a one-day range. So the value is never half a range, and a form only ever sees whole ones.
 
 - Escape clears the anchor without writing, also while Previous or Next has focus. Without an anchor, Escape is left alone, so a Calendar in a Dialog or Popover clears the anchor on the first Escape and closes on the next.
 - Any write of the value, yours or the form's, clears it, and so does the Calendar becoming readonly or disabled. A readonly Calendar never sets one.
@@ -297,7 +299,7 @@ Style from the attributes; you don't need to read State for it.
 
 ## Accessibility
 
-Each day, month or year is one focusable `gridcell` whose `aria-label` is the full date, the month and year, or the year, because screen readers don't reliably announce column headers in a grid; the text inside is only visible text. The Heading is a polite live region, so moving to another month, year or page announces it. You supply the names of Previous and Next, and a `<th scope="col">` with `abbr` for each weekday. How NVDA, JAWS and VoiceOver announce this structure hasn't been checked with a real screen reader yet.
+Each day, month or year is one focusable `gridcell` whose `aria-label` is the full date, the month and year, or the year, because screen readers don't reliably announce column headers in a grid; the text inside is only visible text. The Heading is a polite live region, so moving to another month, year or page announces it. You supply the names of Previous and Next, and a `<th scope="col">` with `abbr` for each weekday. The Screen reader workflow records what NVDA (with Chromium and Firefox) and VoiceOver on macOS (with WebKit) say for it, with the keys sent to the page rather than through the reader. NVDA reads the cells, "selected", the disabled days and the Heading's changes. VoiceOver reads the cells but never says "selected"; after a key moves into another month it reads the new Heading but not the day focus landed on; and it doesn't announce the Heading's change after Previous, Next or a view switch. JAWS, VoiceOver on iOS and TalkBack haven't been checked.
 
 ## Server rendering and hydration
 

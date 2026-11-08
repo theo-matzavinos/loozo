@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 import type { Run } from "./reader-test.js";
 
 // Records what each reader says while the keyboard drives the Calendars on /calendar-speech, a page
-// whose only live regions are the Calendars' own Headings: entering a grid in a Field, full-date
+// whose only live regions are the Calendars' own Headings and the range's prompt: entering a grid in a Field, full-date
 // cells, today, a disabled day, moving into the next month and back, choosing; Previous, the view
 // switch and drilling down from the years; several days; a range's anchor and end; a month
 // Calendar. Same rules as menu.spec.ts: speech is never asserted, every key and focus is its own
@@ -121,7 +121,7 @@ test("c4-range", async ({ page, run }) => {
 
   await run.step("focus Next month", () => page.getByTestId("trip-next").focus());
   await press(run, page, "Tab", october27, "27 October");
-  // The anchor has no ARIA by design: only the page's plain prompt changes.
+  // The anchor has no ARIA by design: only the page's live prompt changes.
   await run.step("Enter on 27 October (anchor)", async () => {
     await page.keyboard.press("Enter");
     await expect(page.getByText("Choose the last day")).toBeVisible();
