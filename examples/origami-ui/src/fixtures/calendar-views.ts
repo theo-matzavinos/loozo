@@ -144,9 +144,8 @@ export class CalendarViewRows {
         (viewChange)="vViewOutputs.update(increment)"
       >
         <button ogCalendarPrevious aria-label="Previous" data-testid="v-previous">‹</button>
-        <button type="button" data-testid="v-switch" (click)="switchView()">
-          <span ogCalendarHeading data-testid="v-heading">{{ v.state.heading() }}</span>
-        </button>
+        <span ogCalendarHeading data-testid="v-heading">{{ v.state.heading() }}</span>
+        <button type="button" data-testid="v-switch" (click)="switchView()">Change view</button>
         <button ogCalendarNext aria-label="Next" data-testid="v-next">›</button>
         <table
           ogCalendarGrid
@@ -308,8 +307,9 @@ export class CalendarViewRows {
         (valueChange)="mcOutputs.update(increment)"
       >
         <button ogCalendarPrevious aria-label="Previous" data-testid="mc-previous">‹</button>
+        <span ogCalendarHeading data-testid="mc-heading">{{ mc.state.heading() }}</span>
         <button type="button" data-testid="mc-switch" (click)="switchMonthView()">
-          <span ogCalendarHeading data-testid="mc-heading">{{ mc.state.heading() }}</span>
+          Change view
         </button>
         <button ogCalendarNext aria-label="Next" data-testid="mc-next">›</button>
         <table

@@ -68,7 +68,7 @@ test("c2-views", async ({ page, run }) => {
   await run.step("focus Previous month", () => previous.focus());
   await run.step("Enter on Previous month", async () => {
     await page.keyboard.press("Enter");
-    await expect(viewSwitch).toHaveText("September 2026");
+    await expect(page.getByTestId("departure-heading")).toHaveText("September 2026");
   });
   await press(run, page, "Tab", viewSwitch, "the view switch");
   await run.step("Enter on the view switch", async () => {
@@ -82,7 +82,7 @@ test("c2-views", async ({ page, run }) => {
   await press(run, page, "Enter", cell(page, "departure-root", "2027-09"), "September 2027");
   await press(run, page, "Enter", cell(page, "departure-root", "2027-09-01"), "1 September 2027");
   await run.check("the days of September 2027", () =>
-    expect(viewSwitch).toHaveText("September 2027"),
+    expect(page.getByTestId("departure-heading")).toHaveText("September 2027"),
   );
 });
 
