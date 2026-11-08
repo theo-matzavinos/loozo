@@ -36,8 +36,9 @@ export abstract class OrigamiCalendarHeadingOptions {
  * `aria-labelledby` names after any Field Labels once the Heading registers, and `aria-live`:
  * `"polite"`, so Previous, Next or a view switch announce the new month, year or page, and `"off"`
  * while one of the root's cells has focus, so a key into another period speaks the focused cell,
- * whose name carries its month and year, instead of the Heading over it. It may sit inside your
- * own view-switch button. Use any element, such as an `<h2>`. One Heading per root: a second
+ * whose name carries its month and year, instead of the Heading over it. Keep it outside any
+ * button, your view switch included: VoiceOver doesn't speak a live region inside one. Use any
+ * element, such as an `<h2>`. One Heading per root: a second
  * mounted Heading fails clearly when it registers. Requires a nearest Calendar root.
  */
 @Directive({

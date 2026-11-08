@@ -106,8 +106,11 @@ const stepLabels = {
         >
           ‹
         </button>
+        <span ogCalendarHeading data-testid="departure-heading">{{
+          departure.state.heading()
+        }}</span>
         <button type="button" data-testid="departure-switch" (click)="switchDepartureView()">
-          <span ogCalendarHeading>{{ departure.state.heading() }}</span>
+          Change view
         </button>
         <button
           ogCalendarNext

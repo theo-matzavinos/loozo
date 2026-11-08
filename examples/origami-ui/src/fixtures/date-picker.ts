@@ -126,9 +126,8 @@ export class DatePickerLabel {
               [(view)]="aView"
             >
               <button ogCalendarPrevious aria-label="Previous" data-testid="a-previous">‹</button>
-              <button type="button" data-testid="a-years" (click)="aView.set('years')">
-                <span ogCalendarHeading data-testid="a-heading">{{ aCal.state.heading() }}</span>
-              </button>
+              <span ogCalendarHeading data-testid="a-heading">{{ aCal.state.heading() }}</span>
+              <button type="button" data-testid="a-years" (click)="aView.set('years')">Choose a year</button>
               <button ogCalendarNext aria-label="Next" data-testid="a-next">›</button>
               <table
                 ogCalendarGrid
@@ -332,9 +331,8 @@ export class DatePickerLabel {
               [(view)]="eView"
             >
               <button ogCalendarNext aria-label="Next" data-testid="e-next">›</button>
-              <button type="button" data-testid="e-years" (click)="eView.set('years')">
-                <span ogCalendarHeading data-testid="e-heading">{{ eCal.state.heading() }}</span>
-              </button>
+              <span ogCalendarHeading data-testid="e-heading">{{ eCal.state.heading() }}</span>
+              <button type="button" data-testid="e-years" (click)="eView.set('years')">Choose a year</button>
               <table
                 ogCalendarGrid
                 calendarViewRows
@@ -437,9 +435,8 @@ export class DatePickerLabel {
                 locale="en-US"
                 [(view)]="gView"
               >
-                <button type="button" data-testid="g-years" (click)="gView.set('years')">
-                  <span ogCalendarHeading>{{ gCal.state.heading() }}</span>
-                </button>
+                <span ogCalendarHeading>{{ gCal.state.heading() }}</span>
+                <button type="button" data-testid="g-years" (click)="gView.set('years')">Choose a year</button>
                 <table
                   ogCalendarGrid
                   calendarViewRows

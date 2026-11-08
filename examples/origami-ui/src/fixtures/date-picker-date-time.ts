@@ -216,9 +216,8 @@ function kinds(errors: readonly { readonly kind: string }[]): string {
                 locale="en-US"
                 [(view)]="gView"
               >
-                <button type="button" data-testid="g-years" (click)="gView.set('years')">
-                  <span ogCalendarHeading>{{ gCal.state.heading() }}</span>
-                </button>
+                <span ogCalendarHeading>{{ gCal.state.heading() }}</span>
+                <button type="button" data-testid="g-years" (click)="gView.set('years')">Choose a year</button>
                 <table
                   ogCalendarGrid
                   calendarViewRows

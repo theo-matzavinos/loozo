@@ -72,9 +72,8 @@ function increment(value: number): number {
               locale="en-US"
               [(view)]="raView"
             >
-              <button type="button" data-testid="ra-years" (click)="raView.set('years')">
-                <span ogCalendarHeading>{{ raCal.state.heading() }}</span>
-              </button>
+              <span ogCalendarHeading>{{ raCal.state.heading() }}</span>
+              <button type="button" data-testid="ra-years" (click)="raView.set('years')">Choose a year</button>
               <table
                 ogCalendarGrid
                 calendarViewRows
@@ -166,9 +165,8 @@ function increment(value: number): number {
               locale="en-US"
               [(view)]="moView"
             >
-              <button type="button" data-testid="mo-years" (click)="moView.set('years')">
-                <span ogCalendarHeading data-testid="mo-heading">{{ moCal.state.heading() }}</span>
-              </button>
+              <span ogCalendarHeading data-testid="mo-heading">{{ moCal.state.heading() }}</span>
+              <button type="button" data-testid="mo-years" (click)="moView.set('years')">Choose a year</button>
               <table
                 ogCalendarGrid
                 calendarViewRows

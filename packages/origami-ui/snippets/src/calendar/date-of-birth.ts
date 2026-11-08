@@ -35,13 +35,13 @@ import {
     >
       <header>
         <button ogCalendarPrevious [attr.aria-label]="labels[cal.state.view()].previous">‹</button>
+        <h2 ogCalendarHeading>{{ cal.state.heading() }}</h2>
         <button
           type="button"
-          class="view-switch"
           [disabled]="disabled()"
           (click)="view.set(cal.state.view() === 'days' ? 'years' : 'days')"
         >
-          <span ogCalendarHeading>{{ cal.state.heading() }}</span>
+          {{ labels[cal.state.view()].switch }}
         </button>
         <button ogCalendarNext [attr.aria-label]="labels[cal.state.view()].next">›</button>
       </header>
@@ -113,9 +113,12 @@ import {
       font: inherit;
     }
 
-    .view-switch {
+    h2 {
       flex: 1;
+      margin: 0;
+      font-size: inherit;
       font-weight: 600;
+      text-align: center;
     }
 
     button[data-disabled],
@@ -182,8 +185,8 @@ export class DateOfBirth {
   readonly view = signal<"days" | "months" | "years">("days");
   readonly weekStarts = { locale: null, monday: 1, sunday: 7 } as const;
   readonly labels = {
-    days: { previous: "Previous month", next: "Next month" },
-    months: { previous: "Previous year", next: "Next year" },
-    years: { previous: "Previous 12 years", next: "Next 12 years" },
+    days: { previous: "Previous month", next: "Next month", switch: "Choose a year" },
+    months: { previous: "Previous year", next: "Next year", switch: "Show the days" },
+    years: { previous: "Previous 12 years", next: "Next 12 years", switch: "Show the days" },
   };
 }

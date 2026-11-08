@@ -88,8 +88,9 @@ Every root has a `view` model: `"days"`, `"months"` or `"years"`. Choosing a yea
 <div ogCalendar [formField]="applicant.dateOfBirth" [(view)]="view" #cal="ogCalendar">
   <header>
     <button ogCalendarPrevious [attr.aria-label]="labels[cal.state.view()].previous">‹</button>
+    <h2 ogCalendarHeading>{{ cal.state.heading() }}</h2>
     <button type="button" (click)="view.set(cal.state.view() === 'days' ? 'years' : 'days')">
-      <span ogCalendarHeading>{{ cal.state.heading() }}</span>
+      {{ labels[cal.state.view()].switch }}
     </button>
     <button ogCalendarNext [attr.aria-label]="labels[cal.state.view()].next">›</button>
   </header>
@@ -135,13 +136,13 @@ Every root has a `view` model: `"days"`, `"months"` or `"years"`. Choosing a yea
 ```ts
 readonly view = signal<"days" | "months" | "years">("days");
 readonly labels = {
-  days: { previous: "Previous month", next: "Next month" },
-  months: { previous: "Previous year", next: "Next year" },
-  years: { previous: "Previous 12 years", next: "Next 12 years" },
+  days: { previous: "Previous month", next: "Next month", switch: "Choose a year" },
+  months: { previous: "Previous year", next: "Next year", switch: "Show the days" },
+  years: { previous: "Previous 12 years", next: "Next 12 years", switch: "Show the days" },
 };
 ```
 
-- The view switch is your own control writing `view`; Origami adds no part for it. Writing `view` yourself keeps focus where it is, and the grid's tab stop moves to the displayed month or year.
+- The view switch is your own control writing `view`; Origami adds no part for it. Keep the Heading outside it, as above, and give it its own name: VoiceOver doesn't speak a live region inside a button, so a Heading inside the switch is never announced, not even after Previous or Next. Writing `view` yourself keeps focus where it is, and the grid's tab stop moves to the displayed month or year.
 - `state.months()` is the displayed year's twelve months and `state.years()` a page of twelve years aligned to a multiple of 12 (2016–2027), both in rows of `columns` (default 3). Each record is `{ date, label }`: `"2026-10"` and `"Oct"`, or `"2026"` and `"2026"`. They're computed whatever the view, so render the current view's from `state.view()`: a cell's `date` must match the view, `YYYY-MM` in the months view and `YYYY` in the years view. A cell that doesn't is reported through Angular's `ErrorHandler` and inert.
 - Choosing a year writes `view` `"months"` and `month` to that year, keeping the month's number; choosing a month writes `"days"` and that month. Focus follows to the new view's tab stop. A readonly Calendar still drills down.
 - Escape in the months or years view goes back to the days without changing `month`; focus follows when it was on a cell. Under `ogCalendarRange`, a pending anchor goes first.
@@ -299,7 +300,7 @@ Style from the attributes; you don't need to read State for it.
 
 ## Accessibility
 
-Each day, month or year is one focusable `gridcell` whose `aria-label` is the full date, the month and year, or the year, because screen readers don't reliably announce column headers in a grid; the text inside is only visible text. The Heading is a polite live region, so Previous, Next and a view switch announce the new month, year or page. While a cell has focus it's silent: a key into another month speaks the cell focus lands on, whose name already carries the month and year, rather than the Heading; in the years view, a key onto another page speaks the year, not the page. You supply the names of Previous and Next, and a `<th scope="col">` with `abbr` for each weekday. The Screen reader workflow records what NVDA (with Chromium and Firefox) and VoiceOver on macOS (with WebKit) say for it, with the keys sent to the page rather than through the reader. NVDA reads the cells, "selected", the disabled days and the Heading's changes after Previous, Next and a view switch. VoiceOver reads the cells but never says "selected", and it doesn't announce the Heading's change after Previous, Next or a view switch. JAWS, VoiceOver on iOS and TalkBack haven't been checked.
+Each day, month or year is one focusable `gridcell` whose `aria-label` is the full date, the month and year, or the year, because screen readers don't reliably announce column headers in a grid; the text inside is only visible text. The Heading is a polite live region, so Previous, Next and a view switch announce the new month, year or page. While a cell has focus it's silent: a key into another month speaks the cell focus lands on, whose name already carries the month and year, rather than the Heading; in the years view, a key onto another page speaks the year, not the page. You supply the names of Previous and Next, and a `<th scope="col">` with `abbr` for each weekday. The Screen reader workflow records what NVDA (with Chromium and Firefox) and VoiceOver on macOS (with WebKit) say for it, with the keys sent to the page rather than through the reader. NVDA reads the cells, "selected", the disabled days and the Heading's changes after Previous, Next and a view switch. VoiceOver reads the cells and, with the Heading outside any button, its changes after Previous, Next and a view switch, but never says "selected". JAWS, VoiceOver on iOS and TalkBack haven't been checked.
 
 ## Server rendering and hydration
 
