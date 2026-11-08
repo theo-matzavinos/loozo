@@ -46,11 +46,19 @@ export interface Run {
     action: () => Promise<void>,
     options?: { insertion?: InsertionWatch },
   ): Promise<SpeechStep>;
+  /**
+   * Sends `key` through the reader itself (Guidepup's press: an OS key the reader handles as it
+   * handles a person's) in one full capture and records the step, then waits outside the capture
+   * for `settled`, the DOM change proving the key reached the page. The step is recorded first, so
+   * a key the reader kept, such as a digit NVDA's browse mode takes as a heading jump, still leaves
+   * what was said.
+   */
+  readerPress(label: string, key: string, settled: () => Promise<void>): Promise<SpeechStep>;
   /** Runs `assertion` outside any capture and records whether it passed. */
   check(label: string, assertion: () => Promise<void>): Promise<void>;
 }
 
-type SpeechReader = Pick<ScreenReader, "capture" | "spokenPhraseLog"> & {
+type SpeechReader = Pick<ScreenReader, "capture" | "press" | "spokenPhraseLog"> & {
   navigateToWebContent(): Promise<void>;
 };
 
@@ -267,6 +275,33 @@ async function useRun(
 
       return step;
     },
+    async readerPress(label, key, settled) {
+      // Guidepup returns its live log, so only its length is kept.
+      const logged = (await speechReader.spokenPhraseLog()).length;
+      const startedAt = elapsed();
+
+      // Not inside capture(): Guidepup queues press behind the capture in flight, so it would never
+      // run. Its own capture adds what was said to the log instead of returning it.
+      await speechReader.press(key, { capture: true });
+      const endedAt = elapsed();
+      const log = await speechReader.spokenPhraseLog();
+
+      assert.equal(log.length, logged + 1, `${label}: one capture logged`);
+
+      const step: SpeechStep = {
+        label,
+        startedAt,
+        endedAt,
+        spoken: log.at(-1) ?? "",
+        after: await page.evaluate(readAfter),
+      };
+
+      record.steps.push(step);
+      writeRecord(record);
+      await settled();
+
+      return step;
+    },
     async check(label, assertion) {
       let passed = false;
 
@@ -353,7 +388,8 @@ function readerTest(): ReaderTest {
 
 /**
  * Playwright's test with a running reader, picked by ORIGAMI_SR, and `run`. Drive the page with
- * Playwright's keyboard on the real controls; never send reader navigation between steps. A test
- * that never got its reader is recorded by the missing-records reporter.
+ * Playwright's keyboard on the real controls, or send a key through the reader with
+ * `run.readerPress`; never send reader navigation between steps. A test that never got its reader
+ * is recorded by the missing-records reporter.
  */
 export const test = readerTest();
