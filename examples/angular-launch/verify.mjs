@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
 
 const require = createRequire(
@@ -1128,20 +1129,121 @@ try {
     "actual browser graph excludes server/context/handler/database/generation/Node; sentinel exists only server-side",
   );
 
-  // Prerendering a page whose only RPC is an injectQuery still fails the build.
+  // A public page prerenders from the anonymous build context; the RPC-free one still does.
   const prerender = spawnSync("pnpm", ["exec", "ng", "run", "todos:build:prerender"], {
     cwd: import.meta.dirname,
     encoding: "utf8",
   });
 
   await writeFile(join(evidence, "prerender.log"), `${prerender.stdout}\n${prerender.stderr}`);
-  assert.notEqual(prerender.status, 0);
+  assert.equal(prerender.status, 0);
+
+  const prerendered = new URL("./dist/prerender/", import.meta.url);
+  const about = await readFile(new URL("browser/about/index.html", prerendered), "utf8");
+  const aboutEntries = transfers(about);
+  const aboutQueries = dehydrated(about);
+
   assert.match(
-    `${prerender.stdout}\n${prerender.stderr}`,
-    /prerendering route '\/identity'[\s\S]*Launch RPC requires live request context/,
+    await readFile(new URL("browser/static/index.html", prerendered), "utf8"),
+    /Static page without RPC/,
+  );
+  assert.match(visible(about), /<h1 id="about-title">Personal todos<\/h1>/);
+  assert.match(visible(about), /Titles have 1–200 characters\./);
+  assert.equal(aboutEntries.length, 1);
+  assert.equal(aboutEntries[0].u, "/_rpc/about/summary");
+  assert.equal(aboutQueries.length, 1);
+  assert.deepEqual(aboutQueries[0].queryKey, ["launch", "about", "limits"]);
+
+  const builtAt = aboutEntries[0].b.answeredAt;
+
+  assert.ok(visible(about).includes(builtAt));
+  checks.push(
+    "prerendering /about renders its resolver call and injectQuery from the build context into the file, transferred as for SSR; /static still prerenders",
+  );
+
+  // The prerendered file is served as is, hydrates without RPCs, and later calls are live.
+  const prerenderServer = spawn(
+    process.execPath,
+    [fileURLToPath(new URL("server/server.mjs", prerendered))],
+    { env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "inherit"] },
+  );
+
+  try {
+    const prerenderBase = await new Promise((resolve, reject) => {
+      prerenderServer.once("exit", (code) => reject(new Error(`prerender server exited ${code}`)));
+      prerenderServer.stdout.on("data", (chunk) => {
+        const ready = /LAUNCH_READY (\S+)/.exec(String(chunk));
+
+        if (ready) {
+          resolve(ready[1]);
+        }
+      });
+    });
+    const served = await fetch(`${prerenderBase}/about`);
+
+    assert.equal(served.status, 200);
+    assert.ok(served.headers.has("etag"), "the prerendered file is served, not rendered");
+    assert.ok((await served.text()).includes(builtAt));
+
+    const prerenderContext = await browser.newContext();
+
+    await prerenderContext.addCookies([{ name: "proof-user", value: "alice", url: prerenderBase }]);
+
+    const prerenderPage = await prerenderContext.newPage();
+    const prerenderCalls = [];
+
+    prerenderPage.on("request", (request) => {
+      if (request.url().includes("/_rpc/")) {
+        prerenderCalls.push(new URL(request.url()).pathname);
+      }
+    });
+    // Past hydration and the first stability, after which a query would refetch on mount.
+    await prerenderPage.goto(`${prerenderBase}/about`, { waitUntil: "networkidle" });
+    await prerenderPage.waitForTimeout(1000);
+    assert.equal(await prerenderPage.textContent("#about-answered"), builtAt);
+    assert.deepEqual(prerenderCalls, []);
+
+    // A client-side navigation to the page calls the server with the visitor's context.
+    await prerenderPage.evaluate(() => {
+      history.pushState(null, "", "/static");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await prerenderPage.waitForSelector("#static-title");
+    await prerenderPage.evaluate(() => {
+      history.pushState(null, "", "/about");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await prerenderPage.waitForFunction((before) => {
+      const answered = document.querySelector("#about-answered")?.textContent;
+
+      return answered !== undefined && answered !== before;
+    }, builtAt);
+    assert.deepEqual(prerenderCalls, ["/_rpc/about/summary", "/_rpc/about/limits"]);
+    await prerenderContext.close();
+    checks.push(
+      "the prerendered /about is served as a file and hydrates without RPCs; a client-side navigation to it calls the server live",
+    );
+  } finally {
+    prerenderServer.kill();
+  }
+
+  // Prerendering a page whose only RPC is an injectQuery that needs a user fails the build.
+  const signedIn = spawnSync("pnpm", ["exec", "ng", "run", "todos:build:prerender-signed-in"], {
+    cwd: import.meta.dirname,
+    encoding: "utf8",
+  });
+
+  await writeFile(
+    join(evidence, "prerender-signed-in.log"),
+    `${signedIn.stdout}\n${signedIn.stderr}`,
+  );
+  assert.notEqual(signedIn.status, 0);
+  assert.match(
+    `${signedIn.stdout}\n${signedIn.stderr}`,
+    /prerendering route '\/identity'[\s\S]*Launch can't prerender this page: \/_rpc\/session\/current answered 303 \{"redirect":\{"to":"\/sign-in"\}\}/,
   );
   checks.push(
-    "prerendering a page whose only RPC is an injectQuery fails the build through finishLaunchRendering",
+    "prerendering a page whose injectQuery is refused for the anonymous build context fails the build through finishLaunchRendering, naming the call",
   );
   await writeFile(
     join(evidence, "report.json"),

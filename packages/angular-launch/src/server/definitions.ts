@@ -154,9 +154,10 @@ export type OutputOf<S> = S extends Schema<unknown, infer Output> ? Output : und
  */
 export interface ContextDefinition<Value> {
   /**
-   * Creates the context for one live server request.
+   * Creates the context for one live server request, or for one page Angular prerenders.
    *
-   * @param request - The request bound to the new request scope.
+   * @param request - The request bound to the new request scope: a cookie-less `GET` of
+   * the page's URL when Angular prerenders it.
    * @returns The context value, or a promise of it.
    */
   readonly create: (request: Request) => Value;
@@ -174,6 +175,10 @@ export interface ContextDefinition<Value> {
  * The factory runs once per live server request, for page renders
  * and RPC requests alike, and its value is the `context` middleware and handlers start
  * from. Keep per-request state in the context rather than in module variables.
+ *
+ * When Angular prerenders a page that calls an RPC, the factory runs at build time with a
+ * cookie-less `GET` of the page's URL on a local origin Angular picks, so a prerendered
+ * page shows what an anonymous visitor would see.
  *
  * @example
  * ```ts
@@ -345,17 +350,20 @@ export interface CallArgs<ContextValue, Input> {
   /**
    * The live request the call runs in, bound to its request scope: the scope's copy of
    * the RPC HTTP request, or, during server rendering, the page request given to Angular.
+   * When Angular prerenders a page, it's a cookie-less `GET` of the page's URL.
    */
   readonly request: Request;
   /**
    * Aborts when the caller goes away: over HTTP when the incoming request's signal
    * aborts, and during server rendering when the page request aborts or `HttpClient`
-   * unsubscribes before the call settled. Advisory: pass it on to work that accepts one.
+   * unsubscribes before the call settled. When Angular prerenders a page, the page
+   * request aborts when the render's application is destroyed. Advisory: pass it on to work that accepts one.
    */
   readonly signal: AbortSignal;
   /**
    * The call's cookies and headers. Over HTTP they go on the RPC response; during server
-   * rendering, cookies go on the page response and headers are dropped.
+   * rendering, cookies go on the page response and headers are dropped. A prerendered page
+   * has no response, so a cookie set while Angular prerenders it fails the build.
    */
   readonly response: ResponseControl;
 }
@@ -453,7 +461,8 @@ type AnyMiddleware = {
  * in a procedure's `use` to run it for that procedure. A call runs the group's
  * middleware with no input, then validates the input, then runs the procedure's
  * middleware with the validated input, then the handler. Middleware runs for every
- * call, also during server rendering, where `request` is the page request.
+ * call, also during server rendering, where `request` is the page request, and when
+ * Angular prerenders a page, where it's a cookie-less `GET` of the page's URL.
  *
  * `run` must call `next()` exactly once and return its result: calling it twice or
  * returning anything else fails the call with `INTERNAL`. `next(added)` merges `added`

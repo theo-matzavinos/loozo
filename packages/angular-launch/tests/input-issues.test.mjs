@@ -2,6 +2,7 @@ import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DOCUMENT,
   createEnvironmentInjector,
   runInInjectionContext,
   REQUEST,
@@ -127,6 +128,7 @@ async function rendering(registry, callback) {
     [
       { provide: REQUEST_CONTEXT, useValue: scope },
       { provide: REQUEST, useValue: scope.request },
+      { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
       {
         provide: FetchBackend,
         useValue: {

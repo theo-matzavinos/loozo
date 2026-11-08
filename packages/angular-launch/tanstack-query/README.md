@@ -234,7 +234,7 @@ The limits follow from TanStack's hydration:
 - Queries are part of the HTML: only return data the user may see, and serve personalized pages with `Cache-Control: private, no-store`.
 - Mutations are refused during server rendering with `FORBIDDEN`, as for direct calls.
 - A query that rejects with `RpcRedirect` or `RpcNotFound` doesn't navigate: only guards and resolvers do, through [`rpcNavigationErrors`](../README.md#navigating-on-outcomes). Read the error and act on it in the page.
-- Prerendering a page that runs a query fails the build, as for direct calls.
+- A prerendered page dehydrates its queries like a server-rendered one, from an anonymous context; a query that fails while prerendering fails the build, as for direct calls. See [Prerendering](../README.md#prerendering).
 
 ## Defaults
 

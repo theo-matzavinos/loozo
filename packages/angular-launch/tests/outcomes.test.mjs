@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import {
+  DOCUMENT,
   createEnvironmentInjector,
   PLATFORM_ID,
   REQUEST,
@@ -185,6 +186,7 @@ function serverInjector(cookie = "alice") {
       [
         { provide: REQUEST_CONTEXT, useValue: scope },
         { provide: REQUEST, useValue: scope.request },
+        { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
         { provide: PLATFORM_ID, useValue: "server" },
         { provide: FetchBackend, useValue: { handle: () => assert.fail("left the server") } },
         { provide: HttpClient, useFactory: () => new HttpClient(injectBackend()) },

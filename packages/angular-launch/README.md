@@ -161,7 +161,7 @@ export const serverConfig = mergeApplicationConfig(config, {
 });
 ```
 
-Wrap the server bootstrap in `finishLaunchRendering`. If an RPC is called during prerendering, where there's no live request, this makes the build fail instead of producing a broken page:
+Wrap the server bootstrap in `finishLaunchRendering`. If an RPC fails while Angular prerenders a page, this makes the build fail instead of producing a broken page (see [Prerendering](#prerendering)):
 
 ```ts
 // src/main.server.ts
@@ -271,7 +271,7 @@ defineRpc(
 );
 ```
 
-The handler receives `{ context, input, errors, request, signal, response }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. It can also throw a [declared error](#declared-errors) or an [outcome](#redirects-and-not-found). `request` is the request the call runs in: the RPC request over HTTP, or the page request during server rendering. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs). `response` sets cookies and headers; see [Cookies and headers](#cookies-and-headers).
+The handler receives `{ context, input, errors, request, signal, response }` and returns a value or a promise; a [stream's](#streams) returns an async iterable. It can also throw a [declared error](#declared-errors) or an [outcome](#redirects-and-not-found). `request` is the request the call runs in: the RPC request over HTTP, the page request during server rendering, or a cookie-less `GET` of the page's URL while Angular [prerenders](#prerendering) it. `signal` aborts when the caller goes away; see [Calling RPCs](#calling-rpcs). `response` sets cookies and headers; see [Cookies and headers](#cookies-and-headers).
 
 - **Namespaces and procedure names** are literal ASCII identifiers. `__proto__` is not allowed; `constructor` and `toString` are fine. One `defineRpc` per route, and each namespace is unique across the app because it names the group's URL.
 - **The callback** is read without running it: an arrow function that destructures any of `query`, `mutation` and `stream` without renaming, returning a parenthesized object literal in which each procedure is a direct `query(...)`, `mutation(...)` or `stream(...)` call with inline options.
@@ -631,7 +631,7 @@ When a guard or resolver's call rejects with `RpcRedirect`, the navigation goes 
 
 - Only navigation acts on outcomes. A call from a component, a click handler or a TanStack query just rejects.
 - Angular takes one navigation error handler. If your app has its own, call the function `rpcNavigationErrors` returns from it, inside that handler's injection context, and return its result.
-- The 404 needs the route's `RenderMode.Server`, which RPC pages need anyway.
+- The 404 needs the route's `RenderMode.Server`. While Angular prerenders a page, an outcome fails the build instead; see [Prerendering](#prerendering).
 
 ### Calling streams
 
@@ -707,9 +707,34 @@ Mutations are refused during server rendering with `FORBIDDEN`, before any middl
 
 Middleware and handlers run during server rendering too, with the page request as `request`. Their `signal` aborts when the page request aborts, or when `HttpClient` unsubscribes from the call before it settled. Cookies they set go on the page response through Angular's `RESPONSE_INIT`, and headers are dropped; see [Cookies and headers](#cookies-and-headers).
 
-RPCs need a live request. Prerendering a page that calls an RPC fails the build (with `finishLaunchRendering` in place); static pages that don't call RPCs prerender normally. Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported.
-
 Transferred responses end up in the HTML. Only return data that the user may see, and serve personalized pages with `Cache-Control: private, no-store`.
+
+### Prerendering
+
+A page Angular prerenders at build time can call queries:
+
+```ts
+// src/rendering.ts
+export const rendering: ServerRoute[] = [
+  { path: "about", renderMode: RenderMode.Prerender },
+  { path: "**", renderMode: RenderMode.Server },
+];
+```
+
+Angular prerenders without a request, so Launch creates the page's context from a cookie-less `GET` of the page's URL, and every call in that render shares it. A prerendered page shows what an anonymous visitor would see: middleware that needs a signed-in user refuses, and that fails the build.
+
+Every call made while prerendering must succeed. With [`finishLaunchRendering`](#4-wire-the-browser-and-server-apps) in place, the build fails and names the call when one answers with anything but a result: a declared error, a framework code (such as `FORBIDDEN` from middleware, or for a mutation or stream), `notFound()` or `redirect()`. It also fails when a call sets a cookie, since a prerendered page is a file with no response to carry it, and when the context factory throws. Without it, Angular can write the page with the failure rendered into it, or skip the page and still report success.
+
+The results reach the browser inside the page, as during server rendering: through Angular's transfer cache, or TanStack's hydration. Loading the page makes no RPC. Every call after that, such as a refetch, an invalidation or a client-side navigation to the page, is an ordinary HTTP request to your server, with the visitor's own context. So:
+
+- Queries on a prerendered page should answer the same for everyone. One that reads the user shows the anonymous answer in the HTML, then the visitor's after its next call.
+- Everything a prerendered call returns is in a file served to every visitor.
+- The app still needs its server. A static deployment (`outputMode: "static"`) can't answer `/_rpc/`, so there, a client-side navigation to a prerendered page that calls an RPC fails.
+- The context factory runs at build time, once per prerendered page, in Angular's prerender workers, so whatever it uses, such as a database, must be reachable from the build. The request's URL has the page's path on a local origin Angular picks, such as `http://localhost:<port>`; don't build absolute links from it.
+- `ng serve` renders prerendered routes on every request the same way, with the anonymous context whatever cookies the browser sends.
+- Angular's prerender timeout doesn't reach handlers: their `signal` aborts when the render's application is destroyed, or when `HttpClient` unsubscribes from the call.
+
+Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported: Angular runs that resolver while it discovers routes, also without a request, so Launch runs the call there with an anonymous context too.
 
 ## Deploying
 

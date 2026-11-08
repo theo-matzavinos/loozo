@@ -8,6 +8,9 @@ export interface IdInput {
   readonly id: string;
 }
 
+// The length a trimmed title must have; the about page publishes it.
+export const titleLength = { min: 1, max: 200 };
+
 export const titleSchema: Schema<TitleInput> = {
   "~standard": {
     version: 1,
@@ -24,8 +27,15 @@ export const titleSchema: Schema<TitleInput> = {
 
       const title = value.title.trim();
 
-      if (title.length < 1 || title.length > 200) {
-        return { issues: [{ message: "Title must contain 1–200 characters", path: ["title"] }] };
+      if (title.length < titleLength.min || title.length > titleLength.max) {
+        return {
+          issues: [
+            {
+              message: `Title must contain ${titleLength.min}–${titleLength.max} characters`,
+              path: ["title"],
+            },
+          ],
+        };
       }
 
       return { value: { title } };
