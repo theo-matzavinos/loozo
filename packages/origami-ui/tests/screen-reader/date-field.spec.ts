@@ -255,12 +255,12 @@ test("d6-reader-type", async ({ page, run }) => {
 
 test("d7-reader-keys", async ({ page, run }) => {
   await run.open("/date-field-speech");
+  const month = segment(page, "birth-group", "month");
 
   await run.step("focus Before", () => page.getByTestId("birth-before").focus());
-  await readerPress(run, "Tab", segment(page, "birth-group", "month"), "month (empty)");
+  await readerPress(run, "Tab", month, "month (empty)");
   await readerChange(run, page, "ArrowUp", "birth-group", "month", "1");
   await readerChange(run, page, "ArrowUp", "birth-group", "month", "2");
-  await readerChange(run, page, "End", "birth-group", "month", "12");
   await readerPress(run, "ArrowRight", segment(page, "birth-group", "day"), "day (empty)");
   await readerChange(run, page, "ArrowDown", "birth-group", "day", "31");
   await readerChange(run, page, "Delete", "birth-group", "day", null);
@@ -271,4 +271,9 @@ test("d7-reader-keys", async ({ page, run }) => {
   await readerPress(run, "Tab", segment(page, "opens-group", "dayPeriod"), "AM");
   await readerChange(run, page, "p", "opens-group", "dayPeriod", "1");
   await readerChange(run, page, "ArrowUp", "opens-group", "dayPeriod", "0");
+
+  // Last: under VoiceOver, End on the month moved focus to the year and set it to 9999 instead
+  // (run 42472169162), which fails this step, so it mustn't cut off the steps before it.
+  await run.step("focus month February", () => month.focus());
+  await readerChange(run, page, "End", "birth-group", "month", "12");
 });
