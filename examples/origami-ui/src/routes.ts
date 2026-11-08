@@ -130,6 +130,13 @@ export const routes: Routes = [
       import("./fixtures/calendar-speech.js").then((module) => module.CalendarSpeechFixture),
   },
   {
+    path: "calendar-probe-speech",
+    loadComponent: () =>
+      import("./fixtures/calendar-probe-speech.js").then(
+        (module) => module.CalendarProbeSpeechFixture,
+      ),
+  },
+  {
     path: "date-field-speech",
     loadComponent: () =>
       import("./fixtures/date-field-speech.js").then((module) => module.DateFieldSpeechFixture),

@@ -1,9 +1,9 @@
 name: Screen reader
 
 # Optional evidence, not a required check: runs Origami's Toast, Menu, Calendar and date field
-# scenarios under NVDA and VoiceOver through Guidepup and saves what each reader was asked to say.
-# It never asserts speech; a job fails only when the reader or the fixture misbehaves. Pull
-# requests run it when they change it.
+# scenarios and the Calendar markup probes under NVDA and VoiceOver through Guidepup and saves
+# what each reader was asked to say. It never asserts speech; a job fails only when the reader or
+# the fixture misbehaves. Pull requests run it when they change it.
 on:
   pull_request:
     paths:
@@ -13,6 +13,7 @@ on:
       - examples/origami-ui/src/fixtures/menu-speech.ts
       - examples/origami-ui/src/fixtures/calendar-speech.ts
       - examples/origami-ui/src/fixtures/date-field-speech.ts
+      - examples/origami-ui/src/fixtures/calendar-probe-speech.ts
   workflow_dispatch:
 
 permissions:
@@ -55,14 +56,14 @@ jobs:
     needs: build
     name: ${{ matrix.reader }} · ${{ matrix.browser }} · ${{ matrix.group }}
     runs-on: ${{ matrix.os }}
-    # A reader can hang a run for hours. The specs are split in two groups so each job stays well
+    # A reader can hang a run for hours. The specs are split in groups so each job stays well
     # inside the timeout: VoiceOver took 89 minutes for all of them in one job.
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         target: [nvda-chromium, nvda-firefox, voiceover-webkit]
-        group: [toast-menu, calendar-date-field]
+        group: [toast-menu, calendar-date-field, markup-probe]
         include:
           - { target: nvda-chromium, os: windows-2025, reader: nvda, browser: chromium }
           - { target: nvda-firefox, os: windows-2025, reader: nvda, browser: firefox }
@@ -70,6 +71,7 @@ jobs:
           # Playwright file filters: the specs each group runs.
           - { group: toast-menu, specs: toast menu }
           - { group: calendar-date-field, specs: calendar date-field }
+          - { group: markup-probe, specs: markup-probe }
     env:
       ORIGAMI_SR: ${{ matrix.reader }}
     defaults:
