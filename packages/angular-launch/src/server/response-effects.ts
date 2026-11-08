@@ -36,7 +36,9 @@ export interface CookieOptions {
  * During server rendering, cookies go on the page response, a redirect included, and
  * headers are dropped: a page's headers mustn't depend on which queries it ran. Angular
  * copies the page's headers once the app is first stable, so the cookies of a call that
- * settles later, such as one awaited in a `BEFORE_APP_SERIALIZED` hook, are lost.
+ * settles later, such as one awaited in a `BEFORE_APP_SERIALIZED` hook, are lost. A page
+ * Angular prerenders has no response, so a cookie set before the app is first stable fails
+ * the build.
  *
  * The effects are sent once the call settled, or, for a stream, once its handler returned
  * its iterable. After that, setting a cookie throws, and header changes are ignored. So a

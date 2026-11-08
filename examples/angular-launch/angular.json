@@ -33,15 +33,15 @@
               "fileReplacements": [{ "replace": "src/main.ts", "with": "src/main.verification.ts" }]
             },
             "prerender": {
-              "outputPath": "dist/prerender-blocked",
+              "outputPath": "dist/prerender",
               "fileReplacements": [
                 { "replace": "src/rendering.ts", "with": "src/rendering.prerender.ts" }
               ]
             },
-            "static": {
-              "outputPath": "dist/static-supported",
+            "prerender-signed-in": {
+              "outputPath": "dist/prerender-signed-in",
               "fileReplacements": [
-                { "replace": "src/rendering.ts", "with": "src/rendering.static.ts" }
+                { "replace": "src/rendering.ts", "with": "src/rendering.signed-in.ts" }
               ]
             }
           }

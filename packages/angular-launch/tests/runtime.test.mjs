@@ -2,6 +2,7 @@ import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DOCUMENT,
   createEnvironmentInjector,
   runInInjectionContext,
   REQUEST,
@@ -313,6 +314,7 @@ test("native backend direct dispatch, exact MIME/origin/method/credentials and u
     [
       { provide: REQUEST_CONTEXT, useValue: scope },
       { provide: REQUEST, useValue: scope.request },
+      { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
       {
         provide: FetchBackend,
         useValue: {

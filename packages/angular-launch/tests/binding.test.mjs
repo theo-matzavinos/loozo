@@ -2,7 +2,7 @@ import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
-import { REQUEST, REQUEST_CONTEXT, createEnvironmentInjector } from "@angular/core";
+import { DOCUMENT, REQUEST, REQUEST_CONTEXT, createEnvironmentInjector } from "@angular/core";
 import {
   HttpBackend,
   FetchBackend,
@@ -17,6 +17,7 @@ import {
   defineContext,
   defineRpc,
   finishLaunchRendering,
+  forbidden,
   middleware,
 } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
@@ -32,12 +33,15 @@ const { sanitizeRequestHeaders } = await import(
 const id = "test";
 const path = `/_rpc/${id}/read`;
 
+const prerenderedPage = "http://localhost:4200/about";
+
 function backend(registry, application, scope, nativeRequest, fallback) {
   const parent = createEnvironmentInjector([]);
   const injector = createEnvironmentInjector(
     [
       { provide: REQUEST_CONTEXT, useValue: scope },
       { provide: REQUEST, useValue: nativeRequest },
+      { provide: DOCUMENT, useValue: { location: { href: prerenderedPage } } },
       { provide: FetchBackend, useValue: { handle: fallback } },
       provideLaunchServer(registry, application),
     ],
@@ -54,41 +58,94 @@ function backend(registry, application, scope, nativeRequest, fallback) {
   };
 }
 
-test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without poisoning rendering; local/marked RPC fails", async () => {
-  let factories = 0;
-  let middlewareRuns = 0;
-  let handlers = 0;
-  const application = {
-    id: "without-native-request",
-    context: defineContext(() => {
-      factories += 1;
+// A stand-in for the bootstrapped application finishLaunchRendering receives.
+function renderedApp(rendering) {
+  const app = {
+    injector: rendering.injector,
+    destroyed: false,
+    whenStable: async () => {},
+    destroy: () => {
+      app.destroyed = true;
+    },
+  };
 
-      return {};
+  return app;
+}
+
+function prerenderFixture() {
+  const seen = { factories: 0, middlewareRuns: 0, handlers: 0 };
+  const application = {
+    id: "prerendering",
+    context: defineContext((request) => {
+      seen.factories += 1;
+
+      return { number: seen.factories, request };
     }),
   };
+  const counted = middleware(async ({ next }) => {
+    seen.middlewareRuns += 1;
+
+    return next();
+  });
   const registry = {
     [id]: defineRpc(
       "test",
-      ({ query }) => ({
+      ({ query, mutation }) => ({
         read: query({
-          handler: () => {
-            handlers += 1;
+          handler: ({ context, request }) => {
+            seen.handlers += 1;
 
-            return "unexpected";
+            return {
+              context: context.number,
+              sameRequest: context.request === request,
+              method: request.method,
+              url: request.url,
+              cookie: request.headers.get("cookie"),
+            };
           },
         }),
-      }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            middlewareRuns += 1;
+        refuse: query({
+          handler: () => {
+            throw forbidden();
+          },
+        }),
+        remember: query({
+          handler: ({ response }) => {
+            response.setCookie("seen", "1");
 
-            return next();
-          }),
-        ],
-      },
+            return null;
+          },
+        }),
+        waitForAbort: query({
+          handler: ({ signal }) =>
+            new Promise((resolve) => {
+              signal.addEventListener("abort", () => resolve(null));
+            }),
+        }),
+        write: mutation({ handler: () => null }),
+      }),
+      { use: [counted] },
     ),
   };
+
+  return { seen, application, registry };
+}
+
+function call(rendering, url, marked = false) {
+  return firstValueFrom(
+    rendering.value.handle(
+      new HttpRequest(
+        "POST",
+        url,
+        { input: null },
+        { context: new HttpContext().set(RPC_CALL, marked) },
+      ),
+    ),
+  );
+}
+
+test("prerendering delegates foreign and non-RPC requests and runs own-origin calls with one cookie-less page context", async () => {
+  const { seen, application, registry } = prerenderFixture();
   const forwarded = [];
   const response = new HttpResponse({ status: 206, body: "ordinary external service" });
   const fallback = (request) => {
@@ -96,15 +153,8 @@ test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without
 
     return of(response);
   };
-  const absent = backend(registry, application, null, null, fallback);
-  let destroyed = false;
-  const rendering = {
-    injector: absent.injector,
-    whenStable: async () => {},
-    destroy: () => {
-      destroyed = true;
-    },
-  };
+  const rendering = backend(registry, application, null, null, fallback);
+  const app = renderedApp(rendering);
 
   try {
     for (const url of [
@@ -120,71 +170,212 @@ test("without native REQUEST foreign unmarked RPC-looking HTTP delegates without
         { params: new HttpParams().set("extra", "1") },
       );
 
-      assert.equal(await firstValueFrom(absent.value.handle(request)), response);
+      assert.equal(await firstValueFrom(rendering.value.handle(request)), response);
       assert.equal(forwarded.at(-1), request);
     }
 
-    assert.equal(forwarded.length, 4);
-    // The public finishing hook uses native DI; this minimal application double
-    // proves ordinary fallback did not set the private prerender fault.
-    assert.equal(await finishLaunchRendering(rendering), rendering);
-    assert.equal(destroyed, false);
+    assert.equal(seen.factories, 0);
 
     for (const [url, marked] of [
       [path, false],
       [path.slice(1), false],
-      [`http://launch.invalid${path}`, false],
-      [`//launch.invalid${path}`, false],
-      [`https://external.example${path}`, true],
-      [`//external.example${path}`, true],
+      [`http://localhost:4200${path}`, false],
       [path, true],
     ]) {
-      const request = new HttpRequest(
-        "POST",
-        url,
-        { input: null },
-        { context: new HttpContext().set(RPC_CALL, marked) },
-      );
+      const reply = await call(rendering, url, marked);
 
-      await assert.rejects(firstValueFrom(absent.value.handle(request)), /live request context/);
+      assert.equal(reply.status, 200);
+      assert.deepEqual(reply.body, {
+        context: 1,
+        sameRequest: true,
+        method: "GET",
+        url: prerenderedPage,
+        cookie: null,
+      });
     }
 
     assert.equal(forwarded.length, 4);
-    await assert.rejects(finishLaunchRendering(rendering), /live request context/);
-    assert.equal(destroyed, true);
-    assert.equal(factories, 0);
-    assert.equal(middlewareRuns, 0);
-    assert.equal(handlers, 0);
+    assert.equal(seen.factories, 1);
+    assert.equal(seen.middlewareRuns, 4);
+    assert.equal(seen.handlers, 4);
+    assert.equal(await finishLaunchRendering(app), app);
+    assert.equal(app.destroyed, false);
   } finally {
-    absent.destroy();
+    rendering.destroy();
+  }
+});
+
+test("prerendering fails the render for a call that doesn't answer 200, sets a cookie or has no context", async () => {
+  const cases = [
+    {
+      url: "/_rpc/test/refuse",
+      reply: 403,
+      fault: /\/_rpc\/test\/refuse answered 403 \{"error":\{"code":"FORBIDDEN"/,
+    },
+    {
+      url: "/_rpc/test/write",
+      reply: 403,
+      fault: /\/_rpc\/test\/write answered 403 \{"error":\{"code":"FORBIDDEN"/,
+    },
+    { url: "/_rpc/test/missing", reply: 404, fault: /\/_rpc\/test\/missing answered 404/ },
+    {
+      url: `https://external.example${path}`,
+      marked: true,
+      reply: 400,
+      fault: /\/_rpc\/test\/read answered 400 \{"error":\{"code":"INVALID_INPUT"/,
+    },
+    { url: "/_rpc/test/remember", reply: 200, fault: /\/_rpc\/test\/remember set a cookie/ },
+  ];
+
+  for (const { url, marked, reply, fault } of cases) {
+    const { application, registry } = prerenderFixture();
+    const rendering = backend(registry, application, null, null, () => {
+      throw new Error("Unexpected fallback");
+    });
+    const app = renderedApp(rendering);
+
+    try {
+      if (reply === 200) {
+        assert.equal((await call(rendering, url, marked)).status, 200);
+      } else {
+        await assert.rejects(
+          call(rendering, url, marked),
+          (error) => error instanceof HttpErrorResponse && error.status === reply,
+        );
+      }
+
+      // A successful call before or after doesn't clear the fault.
+      assert.equal((await call(rendering, path)).status, 200);
+      await assert.rejects(
+        finishLaunchRendering(app),
+        (error) =>
+          error.message.startsWith("Launch can't prerender this page: ") &&
+          fault.test(error.message),
+      );
+      assert.equal(app.destroyed, true);
+    } finally {
+      rendering.destroy();
+    }
   }
 
-  // A scope alone is not a live REQUEST or an origin configuration.
-  const scope = await createRequestScope(
-    application,
-    new Request("https://external.example/document"),
-  );
-  const scopeOnly = backend(registry, application, scope, null, fallback);
+  const broken = new Error("database unreachable");
+  const { registry } = prerenderFixture();
+  const throwing = {
+    id: "prerendering",
+    context: defineContext(() => {
+      throw broken;
+    }),
+  };
+  const rendering = backend(registry, throwing, null, null, () => {
+    throw new Error("Unexpected fallback");
+  });
+  const app = renderedApp(rendering);
 
   try {
-    assert.equal(
-      await firstValueFrom(
-        scopeOnly.value.handle(
-          new HttpRequest("POST", `https://external.example${path}`, { input: null }),
-        ),
-      ),
-      response,
+    await assert.rejects(
+      call(rendering, path),
+      (error) => error instanceof HttpErrorResponse && error.status === 500,
     );
     await assert.rejects(
-      firstValueFrom(scopeOnly.value.handle(new HttpRequest("POST", path, { input: null }))),
-      /live request context/,
+      finishLaunchRendering(app),
+      (error) => /its context factory threw/.test(error.message) && error.cause === broken,
     );
-    assert.equal(factories, 1);
-    assert.equal(middlewareRuns, 0);
-    assert.equal(handlers, 0);
   } finally {
-    scopeOnly.destroy();
+    rendering.destroy();
   }
+});
+
+// Angular checks nothing after bootstrap returns: BEFORE_APP_SERIALIZED callbacks run later,
+// and their errors only reach the ErrorHandler.
+test("native prerendering fails for calls before the page is first stable, not ones made while it's serialized", async () => {
+  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
+  const { renderApplication, provideServerRendering, BEFORE_APP_SERIALIZED } = await import(
+    require.resolve("@angular/platform-server")
+  );
+  const { Component, inject } = await import(require.resolve("@angular/core"));
+  const { HttpClient, provideHttpClient } = await import(require.resolve("@angular/common/http"));
+  const { provideRouter, RouterOutlet } = await import(require.resolve("@angular/router"));
+
+  class Page {}
+
+  Component({ selector: "prerendered-page", template: "prerendered" })(Page);
+
+  class Root {}
+
+  Component({ selector: "prerender-root", imports: [RouterOutlet], template: "<router-outlet />" })(
+    Root,
+  );
+
+  function post(url) {
+    return firstValueFrom(inject(HttpClient).post(url, { input: null }));
+  }
+
+  function prerender(resolved, serialized) {
+    const { application, registry } = prerenderFixture();
+
+    return renderApplication(
+      async (context) => {
+        const app = await bootstrapApplication(
+          Root,
+          {
+            providers: [
+              provideServerRendering(),
+              provideHttpClient(),
+              provideLaunchServer(registry, application),
+              provideRouter([
+                { path: "about", component: Page, resolve: { result: () => post(resolved) } },
+              ]),
+              {
+                provide: BEFORE_APP_SERIALIZED,
+                multi: true,
+                useFactory: () => {
+                  const http = inject(HttpClient);
+
+                  return async () => {
+                    if (serialized) {
+                      serialized.result = await firstValueFrom(
+                        http.post(serialized.url, { input: null }),
+                      );
+                    }
+                  };
+                },
+              },
+            ],
+          },
+          context,
+        );
+
+        return finishLaunchRendering(app);
+      },
+      {
+        document: "<prerender-root></prerender-root>",
+        url: prerenderedPage,
+        allowedHosts: ["localhost"],
+      },
+    );
+  }
+
+  await assert.rejects(prerender("/_rpc/test/refuse"), /\/_rpc\/test\/refuse answered 403/);
+  await assert.rejects(prerender("/_rpc/test/remember"), /\/_rpc\/test\/remember set a cookie/);
+
+  const serialized = { url: "/_rpc/test/remember" };
+  const html = await prerender(path, serialized);
+
+  assert.match(html, /prerendered/);
+  assert.equal(serialized.result, null);
+});
+
+test("a prerendering call's signal aborts when the render's application is destroyed", async () => {
+  const { application, registry } = prerenderFixture();
+  const rendering = backend(registry, application, null, null, () => {
+    throw new Error("Unexpected fallback");
+  });
+  const pending = call(rendering, "/_rpc/test/waitForAbort");
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  rendering.destroy();
+
+  assert.equal((await pending).status, 200);
 });
 
 test("scope matches native request and generated application across Angular sanitization clones; mismatches reject before middleware/handlers", async () => {
@@ -488,8 +679,10 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
         ),
       ),
     ),
-    /live request context/,
+    (error) => error instanceof HttpErrorResponse && error.status === 400,
   );
   assert.equal(fallbackCalls, 0);
+  // The refusal comes before a prerender context is created.
+  assert.equal(factories, 1);
   absent.destroy();
 });

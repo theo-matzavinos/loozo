@@ -2,7 +2,8 @@ import { Component } from "@angular/core";
 import { injectQuery } from "@tanstack/angular-query";
 import { injectQueries } from "./rpc.generated";
 
-// Reads only through injectQuery, so prerendering it proves queries need a live request too.
+// Reads only through injectQuery and needs a user, so prerendering it proves that a refused
+// query fails the build instead of rendering its error state into the page.
 @Component({
   selector: "launch-identity",
   template: `<h1>Query identity</h1>

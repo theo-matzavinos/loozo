@@ -1,7 +1,7 @@
 import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createEnvironmentInjector, REQUEST, REQUEST_CONTEXT } from "@angular/core";
+import { DOCUMENT, createEnvironmentInjector, REQUEST, REQUEST_CONTEXT } from "@angular/core";
 import { FetchBackend, HttpBackend, HttpRequest } from "@angular/common/http";
 import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
@@ -581,6 +581,7 @@ test("during server rendering, the signal aborts when HttpClient unsubscribes or
       [
         { provide: REQUEST_CONTEXT, useValue: scope },
         { provide: REQUEST, useValue: scope.request },
+        { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
         {
           provide: FetchBackend,
           useValue: {

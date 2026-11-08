@@ -1,4 +1,6 @@
 import {
+  DestroyRef,
+  DOCUMENT,
   inject,
   InjectionToken,
   REQUEST,
@@ -17,13 +19,15 @@ import {
   invalidInput,
   isJsonMediaType,
   assertBoundScope,
+  createRequestScope,
   type ApplicationBinding,
+  type RequestScope,
   type Registry,
   type Reply,
 } from "./dispatch.js";
 import { createResponseEffects } from "./response-effects.js";
 
-const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch render faults");
+const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults");
 
 /**
  * Provides the server-rendering transport that runs RPC calls in-process with the
@@ -35,17 +39,18 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  * after `provideHttpClient()`, instead of calling this.
  *
  * It replaces Angular's `HttpBackend` on the server. Calls from generated clients, and
- * any other request to `/_rpc/` on the current request's origin, are intercepted and
- * run in-process in `"rendering"` mode, so mutations and streams are refused with `FORBIDDEN`. All
- * other requests, including ones to `/_rpc/` on another origin that don't come from a
- * generated client, go to Angular's `FetchBackend`.
+ * any other request to `/_rpc/` on the page's origin, are intercepted and run in-process
+ * in `"rendering"` mode, so mutations and streams are refused with `FORBIDDEN`. All other
+ * requests, including ones to `/_rpc/` on another origin that don't come from a generated
+ * client, go to Angular's `FetchBackend`.
  *
- * For intercepted calls, Angular's `REQUEST_CONTEXT` must be the {@link RequestScope}
- * created for Angular's `REQUEST`, or the calls fail with `INTERNAL`. A generated-client
- * call outside `/_rpc/` on the current request's origin fails with `INVALID_INPUT` with no
- * issues, as does any intercepted call with a query string, fragment, URL credentials, a
- * method other than `POST`, a non-JSON content type, its own `Authorization`,
- * `Proxy-Authorization` or `Cookie` header, or its own credentials setting.
+ * For intercepted calls during server rendering, Angular's `REQUEST_CONTEXT` must be the
+ * {@link RequestScope} created for Angular's `REQUEST`, or the calls fail with `INTERNAL`.
+ * A generated-client call outside `/_rpc/` on the page's origin fails with
+ * `INVALID_INPUT` with no issues, as does any intercepted call with a query string,
+ * fragment, URL credentials, a method other than `POST`, a non-JSON content type, its own
+ * `Authorization`, `Proxy-Authorization` or `Cookie` header, or its own credentials
+ * setting.
  *
  * Cookies an intercepted call sets are appended to `RESPONSE_INIT`'s headers when the
  * call settles, whatever its outcome, so they reach the page response; its other headers
@@ -54,9 +59,12 @@ const renderFaults = new InjectionToken<{ unsupportedContext?: Error }>("Launch 
  * `BEFORE_APP_SERIALIZED` hook, are lost. Without `RESPONSE_INIT`, a call that set cookies
  * fails with `INTERNAL`.
  *
- * Without a live request, as during prerendering, calls from generated clients and
- * requests to a relative `/_rpc/` path fail and the fault is recorded for
- * {@link finishLaunchRendering}; other requests still go to `FetchBackend`.
+ * Without `REQUEST`, as when Angular prerenders a page, the first intercepted call creates
+ * the render's context from a cookie-less `GET` of the page's URL, and every call in the
+ * render shares it. Its signal aborts when the application is destroyed. A call that
+ * doesn't answer 200, or sets a cookie, records a fault for
+ * {@link finishLaunchRendering}, as does a context factory that throws. Only faults
+ * recorded before the app is first stable fail the build.
  *
  * @param registry - The application's RPC groups.
  * @param application - The application binding.
@@ -76,34 +84,31 @@ export function provideLaunchServer(
         const responseInit = inject(RESPONSE_INIT, { optional: true });
         const fallback = inject(FetchBackend);
         const faults = inject(renderFaults);
+        const document = inject(DOCUMENT);
+        const destroyed = new AbortController();
+        let prerenderScope: Promise<RequestScope> | undefined;
+
+        inject(DestroyRef).onDestroy(() => destroyed.abort());
+
+        // The first fault is the one the build reports.
+        function recordFault(message: string, cause?: unknown): void {
+          faults.fault ??= new Error(`Launch can't prerender this page: ${message}`, { cause });
+        }
 
         return {
           handle(request: HttpRequest<unknown>): Observable<HttpEvent<unknown>> {
             const marked = request.context.get(RPC_CALL);
-            let target: URL;
+            const prerendering = !(nativeRequest instanceof Request);
+            let page: string;
 
             if (nativeRequest instanceof Request) {
-              target = new URL(request.urlWithParams, nativeRequest.url);
+              page = nativeRequest.url;
             } else {
-              target = new URL(request.urlWithParams, "http://launch.invalid");
-
-              const localRpc =
-                target.origin === "http://launch.invalid" && target.pathname.startsWith("/_rpc/");
-
-              if (!marked && !localRpc) {
-                return fallback.handle(request);
-              }
-
-              const error = new Error(
-                "Launch RPC requires live request context; prerender RPC is unsupported",
-              );
-
-              faults.unsupportedContext = error;
-
-              return new Observable((subscriber) => subscriber.error(error));
+              page = document.location.href;
             }
 
-            const ownOrigin = target.origin === new URL(nativeRequest.url).origin;
+            const target = new URL(request.urlWithParams, page);
+            const ownOrigin = target.origin === new URL(page).origin;
             const ownRpc = ownOrigin && target.pathname.startsWith("/_rpc/");
 
             if (!marked && !ownRpc) {
@@ -112,6 +117,12 @@ export function provideLaunchServer(
 
             return new Observable((subscriber) => {
               function deliver(reply: Reply): void {
+                if (prerendering && reply.status !== 200) {
+                  recordFault(
+                    `${target.pathname} answered ${reply.status} ${JSON.stringify(reply.body)}`,
+                  );
+                }
+
                 // Only 200 is a result: a redirect's 303 frame must not reach the caller as data.
                 if (reply.status !== 200) {
                   subscriber.error(
@@ -135,13 +146,18 @@ export function provideLaunchServer(
                 subscriber.complete();
               }
 
-              try {
-                assertBoundScope(context, application, nativeRequest);
-              } catch (error) {
-                console.error("Launch SSR scope binding failed", error);
-                deliver(failure("INTERNAL"));
+              let live: { scope: RequestScope; request: Request } | undefined;
 
-                return;
+              if (nativeRequest instanceof Request) {
+                try {
+                  assertBoundScope(context, application, nativeRequest);
+                  live = { scope: context, request: nativeRequest };
+                } catch (error) {
+                  console.error("Launch SSR scope binding failed", error);
+                  deliver(failure("INTERNAL"));
+
+                  return;
+                }
               }
 
               const authOverride =
@@ -191,21 +207,56 @@ export function provideLaunchServer(
               const effects = createResponseEffects();
               let settled = false;
 
-              void dispatch(
-                registry,
-                target.pathname,
-                envelope,
-                context,
-                application,
-                nativeRequest,
-                "rendering",
-                AbortSignal.any([nativeRequest.signal, call.signal]),
-                effects,
-              ).then((reply) => {
+              async function run(): Promise<void> {
+                let scope: RequestScope;
+                let pageRequest: Request;
+
+                if (live) {
+                  scope = live.scope;
+                  pageRequest = live.request;
+                } else {
+                  prerenderScope ??= createRequestScope(
+                    application,
+                    new Request(page, { signal: destroyed.signal }),
+                  );
+
+                  try {
+                    scope = await prerenderScope;
+                  } catch (error) {
+                    recordFault("its context factory threw", error);
+                    console.error("Launch prerender context creation failed", error);
+                    deliver(failure("INTERNAL"));
+
+                    return;
+                  }
+
+                  pageRequest = scope.request;
+                }
+
+                const reply = await dispatch(
+                  registry,
+                  target.pathname,
+                  envelope,
+                  scope,
+                  application,
+                  pageRequest,
+                  "rendering",
+                  AbortSignal.any([pageRequest.signal, call.signal]),
+                  effects,
+                );
+
                 settled = true;
                 effects.commit();
 
                 if (effects.cookies.length === 0) {
+                  deliver(reply);
+
+                  return;
+                }
+
+                // A prerendered page is a file: there's no response to put a cookie on.
+                if (prerendering) {
+                  recordFault(`${target.pathname} set a cookie`);
                   deliver(reply);
 
                   return;
@@ -234,7 +285,9 @@ export function provideLaunchServer(
                 }
 
                 deliver(reply);
-              });
+              }
+
+              void run();
 
               return () => {
                 if (!settled) {
@@ -250,14 +303,22 @@ export function provideLaunchServer(
 }
 
 /**
- * Waits for the server application to become stable and fails the render if an RPC was
- * called without a live request.
+ * Waits for the server application to become stable and fails the render if a Launch call
+ * failed while Angular prerendered the page.
  *
  * @remarks
- * Angular's prerendering can swallow resolver errors and still report success. Return
- * this from your server bootstrap so a page that calls an RPC during prerendering fails
- * the build instead of producing a broken page. The application must include the
- * generated `provideServer()`.
+ * A prerendered page is written once and served to every visitor, so each Launch call it
+ * makes must answer 200 without setting a cookie; a mutation or stream is refused with
+ * `FORBIDDEN`, so it fails too. Angular's prerendering can swallow resolver errors and still
+ * report success, and a failed `injectQuery` only renders its error state, so return this
+ * from your server bootstrap to fail the build instead of producing a broken page. The
+ * application must include the generated `provideServer()`. Server-rendered pages are
+ * unaffected: their failures reach the caller as usual.
+ *
+ * It checks once the app is first stable, which covers calls from guards, resolvers and
+ * rendering. Angular runs `BEFORE_APP_SERIALIZED` hooks afterwards and only logs their
+ * errors, so a call made in one isn't checked and the page is still written; don't make
+ * Launch calls there.
  *
  * @example
  * ```ts
@@ -270,15 +331,13 @@ export function provideLaunchServer(
  *
  * @param app - The bootstrapped server application.
  * @returns The same application once it is stable.
- * @throws The recorded error when an RPC was called without a live request; the
- * application is destroyed first.
+ * @throws The first recorded fault, naming the call and its reply, the cookie or the
+ * context factory's error; the application is destroyed first.
  */
-// Native prerender can swallow resolver errors. Propagate only the unsupported
-// Launch context fault after native stability, without manufacturing a request.
 export async function finishLaunchRendering(app: ApplicationRef): Promise<ApplicationRef> {
   await app.whenStable();
 
-  const fault = app.injector.get(renderFaults).unsupportedContext;
+  const fault = app.injector.get(renderFaults).fault;
 
   if (fault) {
     app.destroy();
