@@ -262,7 +262,8 @@ test("d7-reader-keys", async ({ page, run }) => {
   await readerChange(run, page, "ArrowUp", "birth-group", "month", "1");
   await readerChange(run, page, "ArrowUp", "birth-group", "month", "2");
   await readerPress(run, "ArrowRight", segment(page, "birth-group", "day"), "day (empty)");
-  await readerChange(run, page, "ArrowDown", "birth-group", "day", "31");
+  // February without a year ends on the 29th.
+  await readerChange(run, page, "ArrowDown", "birth-group", "day", "29");
   await readerChange(run, page, "Delete", "birth-group", "day", null);
 
   await run.step("focus Before the time", () => page.getByTestId("opens-before").focus());
