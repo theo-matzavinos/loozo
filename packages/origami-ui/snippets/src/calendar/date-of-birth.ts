@@ -31,6 +31,7 @@ import {
       [fixedWeeks]="fixedWeeks()"
       [weekStart]="weekStarts[weekStart()]"
       [locale]="locale()"
+      selectedDescription="selected"
       #cal="ogCalendar"
     >
       <header>

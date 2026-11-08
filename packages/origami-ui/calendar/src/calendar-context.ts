@@ -101,6 +101,8 @@ export abstract class CalendarRootOptions {
   abstract readonly fixedWeeks: Signal<boolean>;
   abstract readonly disabled: Signal<boolean>;
   abstract readonly readonly: Signal<boolean>;
+  /** The text of the root's selected-description node; `""` describes nothing. */
+  abstract readonly selectedDescription: Signal<string>;
   /** Whether several days can be selected: the Grid's `aria-multiselectable`. */
   abstract readonly multiselectable: boolean;
   /** Whether a picker binds the root: its Grid then doesn't join a Field. */
@@ -139,10 +141,10 @@ export abstract class CalendarRootOptions {
 
 /**
  * @internal The Calendar's private owner: the effective view and displayed month, the grid
- * model's periods and labels, cell and Heading registrations, the focused and hovered dates,
- * pending focus requests, a pending range's preview, keyboard moves, choices and drill-downs,
- * Escape, Previous/Next steps and the touch notification. It reads the root's Signal Forms binding (`FORM_FIELD` on the root's
- * element) for Field membership.
+ * model's periods and labels, cell, Heading and selected-description registrations, the focused
+ * and hovered dates, pending focus requests, a pending range's preview, keyboard moves, choices
+ * and drill-downs, Escape, Previous/Next steps and the touch notification. It reads the root's
+ * Signal Forms binding (`FORM_FIELD` on the root's element) for Field membership.
  */
 @Service({ autoProvided: false })
 export class CalendarContext {
@@ -153,6 +155,8 @@ export class CalendarContext {
   readonly #touches = new Subject<void>();
   readonly #cells = signal<readonly CalendarCellRegistration[]>([]);
   readonly #heading = signal<Signal<string> | null>(null);
+  /** The root's selected-description node's ID, registered when the root creates it. */
+  readonly #selectedDescriptionId = signal<string | null>(null);
   /**
    * Whether one of the root's cells has focus. Every `focusin` in the document sets it; focus
    * falling to nothing, through the root's `focusout` or a focused cell's removal, keeps it while a
@@ -360,6 +364,21 @@ export class CalendarContext {
   });
   /** The registered Heading's effective ID, or null before it registers. */
   readonly headingId = computed(() => this.#heading()?.() ?? null);
+  /** The `selectedDescription` Option: the text of the root's selected-description node. */
+  readonly selectedDescription = computed(() => this.#root().selectedDescription());
+  /**
+   * The ID a selected cell's `aria-describedby` names: the root's selected-description node's,
+   * or null while its text is `""`.
+   */
+  readonly selectionDescribedBy = computed(() => {
+    const id = this.#selectedDescriptionId();
+
+    if (id === null || this.selectedDescription() === "") {
+      return null;
+    }
+
+    return id;
+  });
   /**
    * Whether one of the root's cells has focus, also while focus waits for the next period's cell;
    * false on the server.
@@ -618,6 +637,14 @@ export class CalendarContext {
         this.#heading.set(null);
       }
     });
+  }
+
+  /**
+   * Registers the ID of the root's selected-description node, which the root creates once at
+   * construction and which lives as long as the root.
+   */
+  registerSelectedDescription(id: string): void {
+    this.#selectedDescriptionId.set(id);
   }
 
   /** A cell took focus: it, not the pointer's last cell, is now what a pending range previews to. */
