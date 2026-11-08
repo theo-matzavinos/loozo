@@ -23,6 +23,7 @@ import { CalendarContext, CalendarRootOptions } from "./calendar-context";
 import { CalendarPickerRegistration, injectCalendarPicker } from "./calendar-picker";
 import type { CalendarDaySpan } from "./calendar-context";
 import { CalendarSeed } from "./calendar-seed";
+import { createSelectedDescription } from "./calendar-selected-description";
 
 /**
  * A range of days, `YYYY-MM-DD`, both ends included: `ogCalendarRange`'s value. A range the
@@ -107,6 +108,12 @@ export abstract class OrigamiCalendarRangeOptions {
    * default false. `[formField]` writes it from the field's `readonly()` rules.
    */
   abstract readonly readonly: Signal<boolean>;
+  /**
+   * Text of the root's hidden selected-description node, which the `aria-describedby` of every
+   * day of the range, ends included, names while it isn't empty; default `""`, as
+   * `OrigamiCalendarOptions.selectedDescription`.
+   */
+  abstract readonly selectedDescription: Signal<string>;
 
   /**
    * Replaces range Calendar Options with an existing compatible concrete or abstract provider.
@@ -233,6 +240,10 @@ function neverDisabled(): boolean {
  * host (`data-today`, `data-week-start`), and a hydrating root keeps the server's. A pending
  * first day exists only in the browser.
  *
+ * As under `ogCalendar`, the root creates a hidden selected-description node as its element's
+ * next sibling; while `selectedDescription` isn't empty, the `aria-describedby` of every day of
+ * the range names it.
+ *
  * It is an Angular Signal Forms value control for an `OrigamiDateRange | null` field:
  * `[formField]` binds its `value` model, writes its `disabled` and `readonly` inputs and listens
  * to `touch`, which it emits when focus leaves the root; `focusBoundControl()` calls `focus()`.
@@ -296,6 +307,7 @@ function neverDisabled(): boolean {
         fixedWeeks: options.fixedWeeks,
         disabled,
         readonly,
+        selectedDescription: options.selectedDescription,
         multiselectable: true,
         bridged: picker !== null,
         selected: (date) => {
@@ -405,6 +417,8 @@ export class OrigamiCalendarRange
    * from the field's `readonly()` rules. Replaced Options supply effective policy instead.
    */
   readonly readonly = input(false, { transform: booleanAttribute });
+  /** Own selected-description input, default `""`; replaced Options supply it instead. */
+  readonly selectedDescription = input("");
   /** This root's readonly effective observation, shared with its descendants. */
   readonly state = inject(OrigamiCalendarRangeState);
 
@@ -424,6 +438,10 @@ export class OrigamiCalendarRange
   protected readonly seedToday = this.#context.seedToday;
   /** @internal The locale's week start, `data-week-start`. */
   protected readonly seedWeekStart = this.#context.localeWeekStart;
+
+  constructor() {
+    createSelectedDescription();
+  }
 
   /**
    * Focuses the cell holding the grid's tab stop, at once if it is mounted, else as soon as it

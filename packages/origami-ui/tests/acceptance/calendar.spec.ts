@@ -2489,3 +2489,91 @@ test("CA49: the Heading is silent while a cell has focus, through a move into an
   await cell(page, "a", "2026-01-05").evaluate((element) => (element as HTMLElement).blur());
   await expect(heading).toHaveAttribute("aria-live", "polite");
 });
+
+/** What follows the root of the calendar marked `name`: its selected-description node. */
+async function selectedDescriptionOf(
+  page: Page,
+  name: string,
+): Promise<{ tag: string; hidden: boolean; id: string; text: string; sameId: number }> {
+  return root(page, name).evaluate((element) => {
+    const node = element.nextElementSibling!;
+
+    return {
+      tag: node.localName,
+      hidden: node.hasAttribute("hidden"),
+      id: node.id,
+      text: node.textContent ?? "",
+      sameId: element.ownerDocument.querySelectorAll(`[id="${node.id}"]`).length,
+    };
+  });
+}
+
+/** The cells of the calendar marked `name` whose `aria-describedby` is exactly `ids`. */
+async function describedDates(page: Page, name: string, ids: string): Promise<string[]> {
+  return root(page, name)
+    .locator("td[aria-describedby]")
+    .evaluateAll(
+      (cells, value) =>
+        cells
+          .filter((cell) => cell.getAttribute("aria-describedby") === value)
+          .map((cell) => cell.getAttribute("data-date") ?? ""),
+      ids,
+    );
+}
+
+test("CA50: each root's hidden selected-description node, which every aria-selected cell names while its text isn't empty, in server HTML and after hydration", async ({
+  page,
+}, info) => {
+  const roots = ["sd", "sm", "sr", "smc"];
+  const selected: Record<string, string[]> = {
+    sd: ["2026-10-15"],
+    sm: ["2026-10-06", "2026-10-20"],
+    sr: ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"],
+    smc: ["2026-05"],
+  };
+  const serverIds: Record<string, string> = {};
+
+  async function expectDescribed(): Promise<void> {
+    // Four roots in one section: exactly one node each, the root's next sibling.
+    await expect(
+      page.getByTestId("sd-root").locator("xpath=..").locator(":scope > span[hidden]"),
+    ).toHaveCount(4);
+
+    for (const name of roots) {
+      const node = await selectedDescriptionOf(page, name);
+
+      expect(node).toEqual({
+        tag: "span",
+        hidden: true,
+        id: serverIds[name] ?? expect.stringMatching(/^og-calendar-selected-s\d+$/),
+        text: "selected",
+        sameId: 1,
+      });
+      serverIds[name] = node.id;
+      await expect.poll(() => describedDates(page, name, node.id)).toEqual(selected[name]);
+      await expect.poll(() => daysWith(page, name, 'aria-selected="true"')).toEqual(selected[name]);
+    }
+
+    // Unselected cells keep a static value and add none.
+    await expect.poll(() => describedDates(page, "sd", "sd-note")).toHaveLength(34);
+    await expect(root(page, "sm").locator("td[aria-describedby]")).toHaveCount(2);
+    await expect(root(page, "sr").locator("td[aria-describedby]")).toHaveCount(5);
+    await expect(root(page, "smc").locator("td[aria-describedby]")).toHaveCount(1);
+  }
+
+  await fixture(page, "calendar", info, expectDescribed);
+  await expectDescribed();
+
+  // Choosing moves it; the day left behind gets its static value back.
+  await cell(page, "sd", "2026-10-22").click();
+  await expect.poll(() => describedDates(page, "sd", serverIds.sd!)).toEqual(["2026-10-22"]);
+  await expect(cell(page, "sd", "2026-10-15")).toHaveAttribute("aria-describedby", "sd-note");
+
+  // An empty text describes nothing.
+  await page.getByTestId("sd-clear-text").click();
+  await expect.poll(async () => (await selectedDescriptionOf(page, "sd")).text).toBe("");
+  await expect(cell(page, "sd", "2026-10-22")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => describedDates(page, "sd", serverIds.sd!)).toEqual([]);
+  await expect(cell(page, "sd", "2026-10-22")).toHaveAttribute("aria-describedby", "sd-note");
+  await expect.poll(() => describedDates(page, "sd", "sd-note")).toHaveLength(35);
+});

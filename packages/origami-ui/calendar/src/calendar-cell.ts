@@ -9,7 +9,7 @@ import {
   input,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
-import { injectDeferred } from "@loozo/origami-ui/utils";
+import { injectDeferred, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { CalendarContext } from "./calendar-context";
 import { levelOf } from "./calendar-grid-model";
 
@@ -82,7 +82,11 @@ function marker(value: boolean): "" | null {
  * `data-range-end` on the range's first and last day, `data-in-range` on every day of it, ends
  * included, and, while its first day is pending, `data-preview` on the days the next choice
  * would span: from that day to the hovered one, else the focused one. Style from these
- * attributes; no State read is needed.
+ * attributes; no State read is needed. While the cell is `aria-selected="true"` and the root's
+ * `selectedDescription` isn't empty, its `aria-describedby` names the root's hidden
+ * selected-description node, through the shared description, so VoiceOver, which ignores
+ * `aria-selected` on a focusable cell, says the text; a static `aria-describedby` is kept only
+ * while it names nothing.
  *
  * Click, Enter and Space choose the cell: a day (or `ogMonthCalendar`'s month) is written, and a
  * coarser month or year drills down to its days or months; the arrows, Home/End and
@@ -93,6 +97,7 @@ function marker(value: boolean): "" | null {
  */
 @Directive({
   selector: "[ogCalendarCell]",
+  hostDirectives: [ɵOrigamiDescribedBy],
   providers: [OrigamiCalendarCellOptions.provideExisting(() => OrigamiCalendarCell)],
   host: {
     role: "gridcell",
@@ -127,6 +132,7 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
   readonly #errorHandler = inject(ErrorHandler);
+  readonly #describedBy = inject(ɵOrigamiDescribedBy);
   /** The effective date while it is canonical at the current view's level; an inert cell's is null. */
   readonly #date = computed(() => {
     const date = this.#options().date();
@@ -193,6 +199,20 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
   });
   /** @internal Selected marker. */
   protected readonly selected = computed(() => marker(this.#selected()));
+  /** The selected-description node's ID while the cell is `aria-selected="true"`, else none. */
+  readonly #selectionDescribedBy = computed<readonly string[]>(() => {
+    if (this.ariaSelected() !== "true") {
+      return [];
+    }
+
+    const id = this.#context.selectionDescribedBy();
+
+    if (id === null) {
+      return [];
+    }
+
+    return [id];
+  });
   readonly #today = computed(() => {
     const date = this.#date();
 
@@ -283,7 +303,8 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
 
   /**
    * @internal Registers with the Calendar once Angular has set its inputs, reporting a date that
-   * isn't a canonical date of the current view's level.
+   * isn't a canonical date of the current view's level, and its selected description with the
+   * shared description.
    */
   ngOnInit(): void {
     const date = this.#options().date();
@@ -298,6 +319,7 @@ export class OrigamiCalendarCell implements OrigamiCalendarCellOptions {
     }
 
     this.#context.registerCell({ element: this.#element, date: this.#date }, this.#destroyRef);
+    this.#describedBy.register(this.#selectionDescribedBy, this.#destroyRef);
   }
 
   /** @internal The Calendar's keys. */

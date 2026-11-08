@@ -18,7 +18,8 @@ import { CalendarViewRows } from "./calendar-views.js";
 // reader's capture holds only what focus and the Calendars' own changes caused. Today is 27 October 2026 everywhere, and every cell carries its
 // date as `data-date`. Appeal date is a day in a Field with a lower bound and 28 October
 // disabled; Departure switches between the days, months and years views; Delivery days, Trip and
-// Card expiry are the multiple, range and month roots.
+// Card expiry are the multiple, range and month roots. Every Calendar describes its selected
+// cells with `selectedDescription="selected"`.
 
 type CalendarView = "days" | "months" | "years";
 
@@ -64,6 +65,7 @@ const stepLabels = {
           data-testid="appeal-root"
           today="2026-10-27"
           locale="en-US"
+          selectedDescription="selected"
           minDate="2026-10-05"
           [dateDisabled]="hearingDay"
           [(value)]="appealDate"
@@ -96,6 +98,7 @@ const stepLabels = {
         data-testid="departure-root"
         today="2026-10-27"
         locale="en-US"
+        selectedDescription="selected"
         [(value)]="departureDate"
         [(view)]="departureView"
       >
@@ -142,6 +145,7 @@ const stepLabels = {
           data-testid="delivery-root"
           today="2026-10-27"
           locale="en-US"
+          selectedDescription="selected"
           [(value)]="deliveryDays"
         >
           <button ogCalendarPrevious aria-label="Previous month">‹</button>
@@ -171,6 +175,7 @@ const stepLabels = {
           data-testid="trip-root"
           today="2026-10-27"
           locale="en-US"
+          selectedDescription="selected"
           [(value)]="tripRange"
         >
           <button ogCalendarPrevious aria-label="Previous month">‹</button>
@@ -204,6 +209,7 @@ const stepLabels = {
           data-testid="expiry-root"
           today="2026-10-27"
           locale="en-US"
+          selectedDescription="selected"
           [(value)]="expiryMonth"
         >
           <button ogCalendarPrevious aria-label="Previous year">‹</button>
