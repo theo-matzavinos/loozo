@@ -2425,3 +2425,55 @@ test("CA48: a key on the cell focus is leaving, before the next month or year re
   await expect(page.getByTestId("mc-value")).toHaveText("2027-01");
   await expect(page.getByTestId("mc-outputs")).toHaveText("1");
 });
+
+test("CA49: the Heading is silent while a cell has focus, through a move into another month, and live again once focus leaves the cells", async ({
+  page,
+}, info) => {
+  await fixture(page, "calendar", info);
+
+  const heading = page.getByTestId("a-heading");
+
+  await expect(heading).toHaveAttribute("aria-live", "polite");
+  await cell(page, "a", "2026-10-27").focus();
+  await expect(heading).toHaveAttribute("aria-live", "off");
+
+  // Every change to the Heading while November renders and focus waits for its cell.
+  await heading.evaluate((element) => {
+    const changes: string[] = [];
+    const record = (): void => {
+      changes.push(`${element.textContent?.trim()}|${element.getAttribute("aria-live")}`);
+    };
+
+    new MutationObserver(record).observe(element, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    (window as unknown as { headingChanges: string[] }).headingChanges = changes;
+  });
+  await press(page, "ArrowDown", "2026-11-03");
+  await expect(heading).toHaveText("November 2026");
+  await expect(heading).toHaveAttribute("aria-live", "off");
+
+  const changes = await page.evaluate(
+    () => (window as unknown as { headingChanges: string[] }).headingChanges,
+  );
+
+  expect(changes.length).toBeGreaterThan(0);
+  expect(changes.every((change) => change.endsWith("|off"))).toBe(true);
+
+  // Previous, Next and a view switch announce the new period from outside the cells.
+  await page.getByTestId("a-next").focus();
+  await expect(heading).toHaveAttribute("aria-live", "polite");
+  await page.keyboard.press("Enter");
+  await expect(heading).toHaveText("December 2026");
+  await expect(heading).toHaveAttribute("aria-live", "polite");
+  await page.keyboard.press("Tab");
+  await expect(cell(page, "a", "2026-12-01")).toBeFocused();
+  await expect(heading).toHaveAttribute("aria-live", "off");
+
+  // Focus falling to nothing with no request pending, as a click on Next does in macOS Safari.
+  await cell(page, "a", "2026-12-01").evaluate((element) => (element as HTMLElement).blur());
+  await expect(heading).toHaveAttribute("aria-live", "polite");
+});

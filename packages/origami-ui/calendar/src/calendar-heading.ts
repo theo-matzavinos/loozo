@@ -33,16 +33,18 @@ export abstract class OrigamiCalendarHeadingOptions {
 /**
  * The visible period of a Calendar root: render the root's `state.heading()` in it ("October
  * 2026", "2026" or "2016 – 2027", by view). It binds its effective `id`, which the Grid's
- * `aria-labelledby` names after any Field Labels once the Heading registers, and static
- * `aria-live="polite"`, so moving to another month, year or page announces it. It may sit inside
- * your own view-switch button. Use any element, such as an `<h2>`. One Heading per root: a second mounted
- * Heading fails clearly when it registers. Requires a nearest Calendar root.
+ * `aria-labelledby` names after any Field Labels once the Heading registers, and `aria-live`:
+ * `"polite"`, so Previous, Next or a view switch announce the new month, year or page, and `"off"`
+ * while one of the root's cells has focus, so a key into another period speaks the focused cell,
+ * whose name carries its month and year, instead of the Heading over it. It may sit inside your
+ * own view-switch button. Use any element, such as an `<h2>`. One Heading per root: a second
+ * mounted Heading fails clearly when it registers. Requires a nearest Calendar root.
  */
 @Directive({
   selector: "[ogCalendarHeading]",
   providers: [OrigamiCalendarHeadingOptions.provideExisting(() => OrigamiCalendarHeading)],
   host: {
-    "aria-live": "polite",
+    "[attr.aria-live]": "live()",
     "[id]": "effectiveId()",
   },
 })
@@ -56,6 +58,9 @@ export class OrigamiCalendarHeading implements OrigamiCalendarHeadingOptions {
 
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
+
+  /** @internal Silent while a cell has focus: the cell's own name tells the new period. */
+  protected readonly live = computed(() => (this.#context.cellFocused() ? "off" : "polite"));
 
   /** @internal Registers the ID with the Calendar once Angular has set its inputs; a second mounted Heading fails clearly. */
   ngOnInit(): void {

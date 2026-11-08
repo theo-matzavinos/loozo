@@ -154,6 +154,12 @@ export class CalendarContext {
   readonly #cells = signal<readonly CalendarCellRegistration[]>([]);
   readonly #heading = signal<Signal<string> | null>(null);
   /**
+   * Whether one of the root's cells has focus. Every `focusin` in the document sets it; focus
+   * falling to nothing keeps it while a focus request is pending, as when the focused cell leaves
+   * with its month, and clears it otherwise.
+   */
+  readonly #cellFocused = signal(false);
+  /**
    * The date of the cell that last took focus inside the grid, in the current view. Any change of
    * the view clears it, so a view written from outside puts the tab stop on its displayed period;
    * a drill-down or Escape sets its target after changing the view.
@@ -354,6 +360,11 @@ export class CalendarContext {
   /** The registered Heading's effective ID, or null before it registers. */
   readonly headingId = computed(() => this.#heading()?.() ?? null);
   /**
+   * Whether one of the root's cells has focus, also while focus waits for the next period's cell;
+   * false on the server.
+   */
+  readonly cellFocused = this.#cellFocused.asReadonly();
+  /**
    * The date of the cell holding the grid's tab stop in the current view; null while the root is
    * disabled. Days: the focused day while a mounted cell has it, else the selection's preferred
    * day, else today, else the first enabled day. Months and years: the focused period, else the
@@ -403,8 +414,11 @@ export class CalendarContext {
   constructor() {
     // A request is dropped for good once focus moves to another element, in or outside the root,
     // even if it comes back later. Focus falling to nothing, as when the focused cell leaves with
-    // its month, fires no `focusin`, so a keyboard move into another month still lands.
+    // its month, fires no `focusin`, so a keyboard move into another month still lands and the
+    // cell keeps counting as focused.
     const focusMoved = (event: FocusEvent): void => {
+      this.#cellFocused.set(untracked(this.#cells).some((cell) => cell.element === event.target));
+
       const request = untracked(this.#request);
 
       if (request !== null && event.target !== request.origin) {
@@ -839,7 +853,8 @@ export class CalendarContext {
   /**
    * The root element's `focusout`: a touch when focus leaves `root`, not when it moves inside it.
    * Losing focus to nothing while a focus request is pending is the focused cell leaving with its
-   * month, not the user leaving. A pending range's first day is kept.
+   * month, not the user leaving; otherwise no cell has focus anymore. A pending range's first day
+   * is kept.
    */
   focusOut(event: FocusEvent, root: HTMLElement): void {
     const next = event.relatedTarget;
@@ -850,6 +865,10 @@ export class CalendarContext {
 
     if (!(next instanceof Element) && this.#request() !== null) {
       return;
+    }
+
+    if (!(next instanceof Element)) {
+      this.#cellFocused.set(false);
     }
 
     this.#touches.next();
