@@ -165,8 +165,8 @@ test("DF2 server HTML and hydration: the Input group joins the Field; each segme
   const segments = attached["segments"] as Record<string, unknown>[];
   const expected = [
     ["month", "10", "month", "10", "1", "12", "October"],
-    ["day", "27", "day", "27", "1", "31", null],
-    ["year", "2026", "year", "2026", "1", "9999", null],
+    ["day", "27", "day", "27", "1", "31", "27"],
+    ["year", "2026", "year", "2026", "1", "9999", "2026"],
   ];
 
   for (const [index, [unit, text, label, now, min, max, valueText]] of expected.entries()) {
@@ -208,6 +208,9 @@ test("DF3 typing: digits fill the unit and advance once no digit fits; a leading
   );
   await expect(segment(page, "typing", "month")).toHaveAttribute("data-placeholder", "");
   await expect(segment(page, "typing", "month")).not.toHaveAttribute("aria-valuenow", /./);
+  // An empty unit is announced as its placeholder, a partial year as its digits.
+  await expect(segment(page, "typing", "month")).toHaveAttribute("aria-valuetext", "––");
+  await expect(segment(page, "typing", "year")).toHaveAttribute("aria-valuetext", "––––");
 
   await segment(page, "typing", "month").focus();
   await page.keyboard.type("1");
@@ -222,6 +225,8 @@ test("DF3 typing: digits fill the unit and advance once no digit fits; a leading
   await expect.poll(() => focused(page)).toBe("year");
   await page.keyboard.type("202");
   await expect(segment(page, "typing", "year")).toHaveText("202");
+  await expect(segment(page, "typing", "year")).toHaveAttribute("aria-valuetext", "202");
+  await expect(segment(page, "typing", "year")).not.toHaveAttribute("aria-valuenow", /./);
   await expect(value).toHaveText("null");
   await expect(parse).toHaveText("dateIncomplete");
   await page.keyboard.type("6");
