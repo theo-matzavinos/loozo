@@ -1,6 +1,7 @@
 import { defineRpc } from "@loozo/angular-launch/server";
 import type { Schema } from "@loozo/angular-launch/server";
 import { signedIn } from "../../../auth.server";
+import { titleSchema } from "../../../todo-input.server";
 
 interface TicksInput {
   readonly count: number;
@@ -47,7 +48,7 @@ const nullSchema: Schema<null> = {
 
 export default defineRpc(
   "live",
-  ({ query, stream }) => ({
+  ({ query, stream, channel }) => ({
     snapshot: query({
       handler: ({ context }) => context.db.todos.snapshotForUser(context.user.id),
     }),
@@ -56,6 +57,28 @@ export default defineRpc(
     watch: stream({
       handler: async function* ({ context, signal }) {
         yield* context.db.todos.watchForUser(context.user.id, signal);
+      },
+    }),
+
+    // The user's todos now, then again after each title the caller sends is added.
+    add: channel({
+      message: titleSchema,
+      handler: async function* ({ context, messages, signal }) {
+        context.stats.channelsStarted += 1;
+        signal.addEventListener("abort", () => {
+          context.stats.channelsAborted += 1;
+        });
+
+        try {
+          yield await context.db.todos.snapshotForUser(context.user.id);
+
+          for await (const { title } of messages) {
+            await context.db.todos.addForUser(context.user.id, title);
+            yield await context.db.todos.snapshotForUser(context.user.id);
+          }
+        } finally {
+          context.stats.channelsReturned += 1;
+        }
       },
     }),
 

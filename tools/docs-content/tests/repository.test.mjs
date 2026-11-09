@@ -264,6 +264,7 @@ test("launch's ./server entry point extracts", () => {
     [
       "@loozo/angular-launch",
       "@loozo/angular-launch/server",
+      "@loozo/angular-launch/node",
       "@loozo/angular-launch/generation",
       "@loozo/angular-launch/tanstack-query",
     ],

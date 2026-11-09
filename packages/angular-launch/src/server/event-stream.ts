@@ -22,6 +22,64 @@ export interface StreamStart {
 }
 
 /**
+ * Ends the handler's part of a stream or channel that stopped early, such as when its caller
+ * went away.
+ *
+ * @remarks
+ * Internal. Lets the handler's pending step finish, then asks the iterator to return, which
+ * runs a generator's `finally` blocks. The step's failure, if any, settles the call, but only
+ * after that cleanup ran.
+ *
+ * @param start - The started stream or channel.
+ * @param pending - The handler's last requested step, if any.
+ */
+export async function settleStopped(
+  start: StreamStart,
+  pending: Promise<IteratorResult<unknown>> | undefined,
+): Promise<void> {
+  let failure: { readonly error: unknown } | undefined;
+
+  try {
+    const step = await pending;
+
+    if (step?.done) {
+      start.finished.resolve();
+
+      return;
+    }
+  } catch (error) {
+    failure = { error };
+  }
+
+  try {
+    await start.iterator.return?.();
+  } catch (error) {
+    if (failure === undefined) {
+      failure = { error };
+    } else {
+      console.error("Launch stream failed while returning", error);
+    }
+  }
+
+  if (failure === undefined) {
+    start.finished.resolve();
+  } else {
+    start.finished.reject(failure.error);
+  }
+}
+
+/**
+ * The frame that ends a failed stream or channel: the reply's body with its status, as
+ * `{ status, error }`, `{ status, redirect }` or `{ status, notFound }`.
+ *
+ * @param reply - The call's failure reply.
+ * @returns The frame as strict JSON text.
+ */
+export function failureFrame(reply: Reply): string {
+  return serializeJson({ status: reply.status, ...(reply.body as object) });
+}
+
+/**
  * The `text/event-stream` body of a started stream.
  *
  * @remarks
@@ -63,40 +121,6 @@ export function eventStream(
     signal.removeEventListener("abort", stopped!);
   }
 
-  // After the stream stopped: let the handler's pending step finish, then return it. The
-  // step's failure, if any, settles the call, but only after that cleanup ran.
-  async function settleStopped(): Promise<void> {
-    let failure: { readonly error: unknown } | undefined;
-
-    try {
-      const step = await pending;
-
-      if (step?.done) {
-        start.finished.resolve();
-
-        return;
-      }
-    } catch (error) {
-      failure = { error };
-    }
-
-    try {
-      await start.iterator.return?.();
-    } catch (error) {
-      if (failure === undefined) {
-        failure = { error };
-      } else {
-        console.error("Launch stream failed while returning", error);
-      }
-    }
-
-    if (failure === undefined) {
-      start.finished.resolve();
-    } else {
-      start.finished.reject(failure.error);
-    }
-  }
-
   async function finish(controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
     const reply = await outcome;
 
@@ -107,9 +131,7 @@ export function eventStream(
     if (reply.status === 200) {
       controller.enqueue(encoder.encode("event: end\ndata: null\n\n"));
     } else {
-      const data = serializeJson({ status: reply.status, ...(reply.body as object) });
-
-      controller.enqueue(encoder.encode(`event: error\ndata: ${data}\n\n`));
+      controller.enqueue(encoder.encode(`event: error\ndata: ${failureFrame(reply)}\n\n`));
     }
 
     stop();
@@ -128,7 +150,7 @@ export function eventStream(
 
         if (!ending) {
           ending = true;
-          void settleStopped();
+          void settleStopped(start, pending);
         }
       };
 

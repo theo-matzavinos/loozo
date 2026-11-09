@@ -90,7 +90,7 @@ interface RpcGroup {
   methods: {
     name: string;
     input: boolean;
-    kind: "query" | "mutation" | "stream";
+    kind: "query" | "mutation" | "stream" | "channel";
     errors: ErrorMetadata[];
   }[];
 }
@@ -104,7 +104,8 @@ function directCall(node: ts.Expression, label: string): ts.CallExpression {
 }
 
 const builderShape =
-  "defineRpc requires an arrow function destructuring query, mutation and/or stream, returning a parenthesized object of procedures";
+  "defineRpc requires an arrow function destructuring query, mutation, stream and/or channel, returning a parenthesized object of procedures";
+const builders = ["query", "mutation", "stream", "channel"];
 
 // `({ query, mutation }) => ({ ... })`: the builder names it binds and its procedures.
 function builderCallback(node: ts.Expression): {
@@ -140,14 +141,12 @@ function builderCallback(node: ts.Expression): {
       element.initializer ||
       element.dotDotDotToken ||
       !ts.isIdentifier(element.name) ||
-      (element.name.text !== "query" &&
-        element.name.text !== "mutation" &&
-        element.name.text !== "stream") ||
+      !builders.includes(element.name.text) ||
       bound.has(element.name.text)
     ) {
       fail(
         element,
-        "defineRpc's callback may only destructure query, mutation and stream, without renaming",
+        "defineRpc's callback may only destructure query, mutation, stream and channel, without renaming",
       );
     }
 
@@ -326,14 +325,17 @@ async function groupsOf(
         fail(value, "RPC procedure '__proto__' is reserved");
       }
 
-      const procedure = directCall(value, "query/mutation/stream");
+      const procedure = directCall(value, "query/mutation/stream/channel");
 
       // The callback's own binding: its body is an object literal, so nothing can shadow it.
       if (!ts.isIdentifier(procedure.expression) || !bound.has(procedure.expression.text)) {
-        fail(procedure, "Procedure must directly call the callback's query, mutation or stream");
+        fail(
+          procedure,
+          "Procedure must directly call the callback's query, mutation, stream or channel",
+        );
       }
 
-      const kind = procedure.expression.text as "query" | "mutation" | "stream";
+      const kind = procedure.expression.text as RpcGroup["methods"][number]["kind"];
 
       if (procedure.arguments.length !== 1) {
         fail(procedure, `${kind} requires one inline options object`);
@@ -341,7 +343,15 @@ async function groupsOf(
 
       const fields = properties(procedure.arguments[0], "Procedure options");
 
-      onlyKeys(fields, ["handler", "input", "use", "errors"], procedure);
+      if (kind === "channel") {
+        onlyKeys(fields, ["handler", "input", "message", "use", "errors"], procedure);
+
+        if (!fields.has("message")) {
+          fail(procedure, "channel requires message");
+        }
+      } else {
+        onlyKeys(fields, ["handler", "input", "use", "errors"], procedure);
+      }
 
       if (!fields.has("handler")) {
         fail(procedure, `${kind} requires handler`);
@@ -402,7 +412,7 @@ function emitLaunch(
     launchMarkers["server.generated.ts"],
     payloadImport(registry, context.file, "context"),
     `import type { HandleOptions } from '@loozo/angular-launch/server';`,
-    `import { createRequestScope, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
+    `import { createRequestScope, handleChannelUpgrade, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
   ];
 
   for (let index = 0; index < groups.length; index += 1) {
@@ -414,6 +424,7 @@ function emitLaunch(
     `export const appBinding = { id: ${JSON.stringify(appId)}, context };`,
     `export const createContext = (request: Request) => createRequestScope(appBinding, request);`,
     `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(registry, appBinding, request, options);`,
+    `export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(registry, appBinding, request, options);`,
     `export const provideServer = () => provideLaunchServer(registry, appBinding);`,
     "",
   );
@@ -471,8 +482,8 @@ function emitLaunch(
       queriesMetadata[group.namespace] = Object.create(null);
 
       for (const { name, kind, input } of group.methods) {
-        // Streams have no TanStack options.
-        if (kind !== "stream") {
+        // Streams and channels have no TanStack options.
+        if (kind !== "stream" && kind !== "channel") {
           queriesMetadata[group.namespace][name] = { kind, input };
         }
       }
@@ -689,6 +700,12 @@ async function validateBindings(
           input,
           "Explicit query input must have a concrete Standard Schema type (also required for mutations)",
         );
+      }
+
+      const message = fields.get("message");
+
+      if (message && hasNonConcreteSchemaBranch(checker.getTypeAtLocation(message))) {
+        fail(message, "A channel's message must have a concrete Standard Schema type");
       }
 
       const errors = fields.get("errors");

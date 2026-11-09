@@ -1,5 +1,5 @@
 import { frameworkFailures, type FrameworkCode } from "../client.js";
-import { serializeJson } from "../json.js";
+import { parseJson, serializeJson } from "../json.js";
 import { inputIssues, type InputIssue } from "../input-issues.js";
 import type {
   ContextDefinition,
@@ -10,6 +10,7 @@ import type {
   Schema,
 } from "./definitions.js";
 
+import { channelMessages, MessageRefused, type ChannelInbox } from "./channel-messages.js";
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
 import { eventStream, type StreamStart } from "./event-stream.js";
@@ -210,6 +211,7 @@ export function isJsonMediaType(contentType: string | null): boolean {
 
 interface RuntimeProcedure extends ProcedureDefinition {
   readonly input: Schema | undefined;
+  readonly message: Schema | undefined;
   readonly errors: ErrorDefinitions;
   readonly use: readonly ChainMiddleware[];
   readonly [declaredFailures]?: WeakMap<object, DeclaredFailure>;
@@ -360,7 +362,9 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  *
  * In order: the scope must belong to `application` and `request` (`INTERNAL`); the
  * path must be `/_rpc/<namespace>/<procedure>` for a registered procedure
- * (`RPC_NOT_FOUND`); a mutation or stream in `"rendering"` mode is refused (`FORBIDDEN`); the
+ * (`RPC_NOT_FOUND`); a mutation, stream or channel in `"rendering"` mode is refused
+ * (`FORBIDDEN`); a channel in `"http"` mode, or any other kind in `"socket"` mode, is
+ * `RPC_NOT_FOUND`; the
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
  * a cycle or an accessor), and exactly `{ input }` (`INVALID_INPUT` with no issues);
  * the group's middleware runs with no input; the input must pass the schema
@@ -377,6 +381,10 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * `null` body, or the failure the stream ended with. Without `start`, a stream fails
  * with `INTERNAL`.
  *
+ * A channel runs like a stream, and its handler also receives `messages`, read from
+ * `inbox` and validated with its message schema. A message that fails validation, or a
+ * protocol violation the inbox reports, ends the call with `INVALID_INPUT`.
+ *
  * Middleware and handlers set cookies and headers through `effects.control`; the caller
  * commits and applies them.
  *
@@ -386,12 +394,13 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * @param scope - The request scope whose context the call receives.
  * @param application - The application binding the scope must belong to.
  * @param request - The request the scope must be bound to.
- * @param mode - `"http"` for browser requests (the default) or `"rendering"` for calls
- * made during server rendering.
+ * @param mode - `"http"` for browser requests (the default), `"socket"` for websocket
+ * upgrades, or `"rendering"` for calls made during server rendering.
  * @param signal - The call's abort signal. Defaults to `request`'s signal.
  * @param effects - Collects the call's cookies and headers. Defaults to fresh effects
  * nothing reads.
- * @param start - Receives a stream's iterator once its handler returned it.
+ * @param start - Receives a stream's or channel's iterator once its handler returned it.
+ * @param inbox - A channel's incoming messages.
  * @returns The reply to send.
  */
 export async function dispatch(
@@ -401,10 +410,11 @@ export async function dispatch(
   scope: RequestScope,
   application: ApplicationBinding,
   request: Request,
-  mode: "http" | "rendering" = "http",
+  mode: "http" | "socket" | "rendering" = "http",
   signal: AbortSignal = request.signal,
   effects: ResponseEffects = createResponseEffects(),
   start?: (stream: StreamStart) => void,
+  inbox?: ChannelInbox,
 ): Promise<Reply> {
   try {
     assertBoundScope(scope, application, request);
@@ -426,16 +436,24 @@ export async function dispatch(
     if (
       procedure.kind !== "query" &&
       procedure.kind !== "mutation" &&
-      procedure.kind !== "stream"
+      procedure.kind !== "stream" &&
+      procedure.kind !== "channel"
     ) {
       throw new Error("Launch registry contains an unsupported procedure");
     }
 
     // Rendering never performs writes, even for unmarked HttpClient calls or
     // callers/interceptors that relabel a generated method or enable caching. Streams
-    // don't finish, so they don't run during rendering either.
+    // and channels don't finish, so they don't run during rendering either.
     if (mode === "rendering" && procedure.kind !== "query") {
       return failure("FORBIDDEN");
+    }
+
+    // A channel exists only as a websocket, and a websocket carries only channels.
+    const isChannel = procedure.kind === "channel";
+
+    if ((mode === "http" && isChannel) || (mode === "socket" && !isChannel)) {
+      return failure("RPC_NOT_FOUND");
     }
 
     // Even direct transport crosses the exact same strict JSON boundary.
@@ -484,15 +502,27 @@ export async function dispatch(
             groupContext,
             { input, request, signal, response },
             async (context) => {
-              const output = await procedure.handler({
-                context,
-                input,
-                request,
-                signal,
-                response,
-              });
+              const args: Record<string, unknown> = { context, input, request, signal, response };
 
-              if (procedure.kind !== "stream") {
+              if (isChannel) {
+                // The caller left while the pipeline ran: the handler doesn't run, and the
+                // middleware's `next()` resolves.
+                if (signal.aborted) {
+                  reply = { status: 200, body: null };
+
+                  return;
+                }
+
+                if (!inbox || !procedure.message) {
+                  throw new Error("Launch channels need a websocket and a message schema");
+                }
+
+                args.messages = channelMessages(inbox, procedure.message);
+              }
+
+              const output = await procedure.handler(args);
+
+              if (procedure.kind !== "stream" && !isChannel) {
                 reply = { status: 200, body: JSON.parse(serializeJson(output)) };
 
                 return;
@@ -519,6 +549,11 @@ export async function dispatch(
         return outcomeReply(outcome);
       }
 
+      // The caller sent a bad message: its own fault, not an unexpected failure.
+      if (error instanceof MessageRefused) {
+        return invalidInput(error.issues);
+      }
+
       return await declaredReply(procedure, error);
     }
 
@@ -535,13 +570,13 @@ export async function dispatch(
 }
 
 /**
- * Options for the generated `handleRequest` in `server.generated.ts`.
+ * Options for the generated `handleRequest` and `handleUpgrade` in `server.generated.ts`.
  */
 export interface HandleOptions {
   /**
    * Hostnames RPCs are answered for, matched like Angular's `allowedHosts`: exactly,
    * `*.example.com` for subdomains only, or `*` for any host. An empty list refuses every
-   * RPC. Pass the same array to `AngularNodeAppEngine`.
+   * RPC. Pass the same array to `AngularNodeAppEngine`, `handleRequest` and `handleUpgrade`.
    */
   readonly allowedHosts: readonly string[];
   /**
@@ -552,7 +587,17 @@ export interface HandleOptions {
   readonly origins?: readonly string[];
 }
 
-function hostAllowed(hostname: string, allowedHosts: readonly string[]): boolean {
+/** The plain-text 400 for an RPC to a host that isn't allowed, logged. */
+export function hostRefusal(hostname: string): Response {
+  console.error(`Launch refused an RPC for host ${hostname}`);
+
+  return new Response("Host not allowed", {
+    status: 400,
+    headers: { "content-type": "text/plain", "x-content-type-options": "nosniff" },
+  });
+}
+
+export function hostAllowed(hostname: string, allowedHosts: readonly string[]): boolean {
   for (const allowed of allowedHosts) {
     if (allowed === "*" || allowed === hostname) {
       return true;
@@ -567,7 +612,7 @@ function hostAllowed(hostname: string, allowedHosts: readonly string[]): boolean
 }
 
 /** Why `request` can't be proven same-origin, or `undefined` when it can. */
-function crossSiteReason(request: Request, origins: readonly string[]): string | undefined {
+export function crossSiteReason(request: Request, origins: readonly string[]): string | undefined {
   const site = request.headers.get("sec-fetch-site");
   const origin = request.headers.get("origin");
 
@@ -648,12 +693,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
   }
 
   if (!hostAllowed(url.hostname, allowedHosts)) {
-    console.error(`Launch refused an RPC for host ${url.hostname}`);
-
-    return new Response("Host not allowed", {
-      status: 400,
-      headers: { "content-type": "text/plain", "x-content-type-options": "nosniff" },
-    });
+    return hostRefusal(url.hostname);
   }
 
   if (
@@ -680,7 +720,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
     let envelope: unknown;
 
     try {
-      envelope = await request.json();
+      envelope = parseJson(await request.text());
     } catch {
       return response(invalidInput());
     }
@@ -723,7 +763,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
 }
 
 /** The call's headers, then Launch's own over them, then the call's cookies. */
-function responseHeaders(
+export function responseHeaders(
   own: Readonly<Record<string, string>>,
   effects: ResponseEffects | undefined,
 ): Headers {
@@ -756,7 +796,7 @@ function streamResponse(body: ReadableStream<Uint8Array>, effects: ResponseEffec
   return new Response(body, { status: 200, headers });
 }
 
-function response(reply: Reply, effects?: ResponseEffects): Response {
+export function response(reply: Reply, effects?: ResponseEffects): Response {
   const headers = responseHeaders(
     {
       "content-type": "application/json",

@@ -87,3 +87,32 @@ export function serializeJson(value: unknown): string {
 
   return JSON.stringify(value);
 }
+
+/**
+ * Parses JSON text that must hold strict JSON: what `JSON.parse` accepts, without the
+ * nonfinite numbers it makes of overflowing literals such as `1e400`.
+ *
+ * @param text - The JSON text.
+ * @returns The parsed value.
+ * @throws SyntaxError when `text` isn't JSON, and TypeError when it holds a nonfinite number.
+ */
+export function parseJson(text: string): unknown {
+  const value: unknown = JSON.parse(text);
+  const pending: unknown[] = [value];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (typeof current === "number" && !Number.isFinite(current)) {
+      throw new TypeError("RPC values must be strict JSON");
+    }
+
+    if (typeof current === "object" && current !== null) {
+      for (const item of Object.values(current)) {
+        pending.push(item);
+      }
+    }
+  }
+
+  return value;
+}

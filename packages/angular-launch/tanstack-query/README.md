@@ -248,7 +248,8 @@ Everything else is TanStack's or your `QueryClient`'s. Overrides replace either 
 ## Limitations
 
 - No infinite queries, mutation cancellation or persistence. Optimistic updates and invalidation are TanStack's, as [above](#invalidation): Launch adds no helpers for them.
-- No options for [streams](../README.md#calling-streams): `injectQueries()` leaves them out. TanStack's `streamedQuery` keeps a query fetching until its stream ends, and the Angular adapter keeps the app from becoming stable while a query is fetching, which would hold hydration open as long as the stream runs. It's also still `experimental_streamedQuery` in query-core 5.104. Call the stream directly instead.
+- No options for [streams](../README.md#calling-streams): `injectQueries()` leaves them out. TanStack's `streamedQuery` keeps a query fetching until its stream ends, and the Angular adapter keeps the app from becoming stable while a query is fetching, which would hold hydration open as long as the stream runs. It's also still `experimental_streamedQuery` in query-core 5.104. Follow the stream with [`connect()`](../README.md#following-streams-and-channels-with-connect) instead.
+- No options for [channels](../README.md#calling-channels) either, for the same reasons; use `connect()`.
 - Errors aren't dehydrated: a failed server query runs again in the browser.
 - Only `@tanstack/angular-query`, not `@tanstack/angular-query-experimental`.
 - No special handling for `@defer`: queries in a deferred block follow the same window, so ones that mount after the app is stable refetch when stale.

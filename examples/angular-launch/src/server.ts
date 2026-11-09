@@ -9,7 +9,8 @@ import {
   isMainModule,
   writeResponseToNodeResponse,
 } from "@angular/ssr/node";
-import { createContext, handleRequest } from "../generated/server.generated";
+import { createUpgradeHandler } from "@loozo/angular-launch/node";
+import { createContext, handleRequest, handleUpgrade } from "../generated/server.generated";
 import { stats } from "./database.server";
 
 // Loopback-only proof server. One list for pages and RPCs; angular.json's
@@ -106,8 +107,13 @@ export const reqHandler = createNodeRequestHandler(async (request, response) => 
   }
 });
 
+// Channels arrive as websocket upgrades; create the handler once, at module level.
+const upgrade = createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }));
+
 if (isMainModule(import.meta.url)) {
   const server = createServer(reqHandler);
+
+  server.on("upgrade", upgrade);
 
   server.listen(Number(process.env.PORT ?? "0"), "127.0.0.1", () => {
     const address = server.address();

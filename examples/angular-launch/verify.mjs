@@ -120,6 +120,37 @@ async function rpcRequest(method, input, user) {
   return { status: response.status, body: await response.json() };
 }
 
+// A websocket upgrade over raw HTTP: the status and body of a refusal, or 101.
+function rawUpgrade(path, headers) {
+  return new Promise((resolve, reject) => {
+    const sent = httpRequest(`${base}${path}`, {
+      headers: {
+        connection: "Upgrade",
+        upgrade: "websocket",
+        "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+        "sec-websocket-version": "13",
+        ...headers,
+      },
+    });
+
+    sent.on("upgrade", (response, socket) => {
+      socket.destroy();
+      resolve({ status: response.statusCode, body: "" });
+    });
+    sent.on("response", async (response) => {
+      let body = "";
+
+      for await (const chunk of response) {
+        body += chunk;
+      }
+
+      resolve({ status: response.statusCode, body });
+    });
+    sent.on("error", reject);
+    sent.end();
+  });
+}
+
 // Holds the page's next call to a todos procedure until release().
 async function hold(page, procedure) {
   let arrive;
@@ -997,8 +1028,9 @@ try {
 
   livePage.on("pageerror", (error) => errors.push(String(error)));
   await livePage.goto(`${base}/live`);
-  await livePage.waitForFunction(() => globalThis.__liveUpdates === 1);
-  assert.equal(await livePage.locator("#live-status").textContent(), "Live");
+  await livePage.waitForFunction(
+    () => document.getElementById("live-status")?.textContent === "Live",
+  );
   assert.equal(await livePage.evaluate(() => globalThis.__launchStable), true);
 
   const liveTitle = `Streamed ${crypto.randomUUID()}`;
@@ -1009,10 +1041,109 @@ try {
   });
 
   assert.equal(liveAdd.status, 200);
-  await livePage.waitForFunction(() => globalThis.__liveUpdates === 2);
-  assert.ok((await livePage.locator("#live-list").textContent()).includes(liveTitle));
+  await livePage.waitForFunction(
+    (title) => document.getElementById("live-list")?.textContent.includes(title),
+    liveTitle,
+  );
   checks.push(
-    "a stream page renders its query on the server, follows the stream after hydration without keeping the app unstable, and shows a write from elsewhere",
+    "a stream page renders its query on the server, follows the stream with connect() after hydration without keeping the app unstable, and shows a write from elsewhere",
+  );
+
+  // Channels: the page's add channel opens with connect(), adds over the socket, and the
+  // stream shows the result.
+  await livePage.waitForFunction(() =>
+    document.getElementById("live-channel")?.textContent.startsWith("Add channel open: "),
+  );
+
+  const channelTitle = `Over the channel ${crypto.randomUUID()}`;
+  const beforeChannelAdd = await stats();
+
+  await livePage.locator("#live-title").fill(channelTitle);
+  await livePage.keyboard.press("Enter");
+  await livePage.waitForFunction(
+    (title) => document.getElementById("live-list")?.textContent.includes(title),
+    channelTitle,
+  );
+
+  const listed = await livePage.locator("#live-list li").count();
+
+  await livePage.waitForFunction(
+    (count) =>
+      document.getElementById("live-channel")?.textContent ===
+      `Add channel open: the server has ${count} todos.`,
+    listed,
+  );
+  assert.equal(await livePage.locator("#live-title").inputValue(), "");
+  assert.equal((await stats()).addCalls - beforeChannelAdd.addCalls, 1);
+  assert.equal(await livePage.evaluate(() => globalThis.__launchStable), true);
+  checks.push(
+    "a channel page opens its channel with connect() after hydration, adds a title over the socket, shows the channel's updated list and the stream's, and stays stable",
+  );
+
+  // The raw channel callable: the list first, then one per title sent alongside reading;
+  // break closes the socket, so the handler sees its signal abort and returns.
+  const beforeRaw = await stats();
+  const raw = await livePage.evaluate(() =>
+    globalThis.__launchChannel([`Raw ${crypto.randomUUID()}`, `Raw ${crypto.randomUUID()}`]),
+  );
+
+  assert.equal(raw.outcome, "closed");
+  assert.deepEqual(raw.lists, [listed, listed + 1, listed + 2]);
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if ((await stats()).channelsReturned > beforeRaw.channelsReturned) {
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  const afterRaw = await stats();
+
+  assert.equal(afterRaw.channelsStarted - beforeRaw.channelsStarted, 1);
+  assert.equal(afterRaw.channelsAborted - beforeRaw.channelsAborted, 1);
+  assert.equal(afterRaw.channelsReturned - beforeRaw.channelsReturned, 1);
+  assert.equal(afterRaw.addCalls - beforeRaw.addCalls, 2);
+
+  const refusedTitle = await livePage.evaluate(() => globalThis.__launchChannel(["   "]));
+
+  assert.deepEqual(refusedTitle, {
+    lists: [listed + 2],
+    outcome:
+      'RpcError:INVALID_INPUT:400:{"issues":[{"path":["title"],"message":"Title must contain 1–200 characters"}]}',
+  });
+  checks.push(
+    "the browser channel client yields typed lists, sends titles alongside reading, rejects a refused message with its own INVALID_INPUT issues, and break closes the socket so the handler's signal aborts and it returns",
+  );
+
+  // Pre-context refusals are plain HTTP answers to the upgrade, and create no context.
+  const beforeUpgradeRefusals = await stats();
+  const liveQuery = `?input=${encodeURIComponent("null")}`;
+  const foreignUpgrade = await rawUpgrade(`/_rpc/live/add${liveQuery}`, {
+    origin: "http://evil.example",
+    cookie: "proof-user=alice",
+  });
+
+  assert.equal(foreignUpgrade.status, 403);
+  assert.equal(JSON.parse(foreignUpgrade.body).error.code, "FORBIDDEN");
+
+  const malformedUpgrade = await rawUpgrade("/_rpc/live/add", {
+    origin,
+    cookie: "proof-user=alice",
+  });
+
+  assert.equal(malformedUpgrade.status, 400);
+  assert.equal(JSON.parse(malformedUpgrade.body).error.code, "INVALID_INPUT");
+  assert.equal((await stats()).contexts, beforeUpgradeRefusals.contexts);
+
+  const acceptedUpgrade = await rawUpgrade(`/_rpc/live/add${liveQuery}`, {
+    origin,
+    cookie: "proof-user=alice",
+  });
+
+  assert.equal(acceptedUpgrade.status, 101);
+  checks.push(
+    "the built server answers channel upgrades from a foreign Origin (403 FORBIDDEN) or without input (400 INVALID_INPUT) over plain HTTP without creating a context, and upgrades a same-origin one",
   );
 
   assert.deepEqual(

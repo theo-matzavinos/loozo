@@ -126,7 +126,7 @@ type MutationProcedure<Namespace, Name, Input, Output> = {
 type Variables<Input> = Input extends Schema<infer Caller, unknown> ? Caller : void;
 
 type ProcedureQueries<Namespace, Name, Value> =
-  Value extends Procedure<infer Input, infer Output, infer Kind, infer _Errors>
+  Value extends Procedure<infer Input, infer Output, infer Kind, infer _Errors, infer _Message>
     ? Kind extends "query"
       ? QueryProcedure<Namespace, Name, Input, Awaited<Output>>
       : MutationProcedure<Namespace, Name, Input, Awaited<Output>>
@@ -173,7 +173,9 @@ export type RpcQueries<Value> =
          */
         $key(): GroupKey<Namespace>;
       } & {
-        readonly [Name in keyof Procedures as Procedures[Name] extends { readonly kind: "stream" }
+        readonly [Name in keyof Procedures as Procedures[Name] extends {
+          readonly kind: "stream" | "channel";
+        }
           ? never
           : Name]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
       }
