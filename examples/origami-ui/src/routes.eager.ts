@@ -97,6 +97,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/toast.js").then((module) => module.ToastFixture),
   },
   {
+    path: "slider",
+    loadComponent: () => import("./fixtures/slider.js").then((module) => module.SliderFixture),
+  },
+  {
     path: "toast-modal",
     loadComponent: () =>
       import("./fixtures/toast-modal.js").then((module) => module.ToastModalFixture),

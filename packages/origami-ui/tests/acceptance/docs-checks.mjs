@@ -62,6 +62,7 @@ for (const directory of [
   "date-picker/src",
   "menu/src",
   "toast/src",
+  "slider/src",
 ]) {
   await collect(directory);
 }
@@ -315,6 +316,11 @@ const directiveDefaults = {
   "OrigamiToastRegion.limit": ["3", /\b3\b/],
   "OrigamiToastClose.disabled": ["false", /\bfalse\b/i],
   "OrigamiToastClose.focusableWhenDisabled": ["false", /\bfalse\b/i],
+  "OrigamiSlider.value": ["0", /\b0\b/],
+  "OrigamiSlider.min": ["undefined, which means 0", /undefined.*\b0\b/i],
+  "OrigamiSlider.max": ["undefined, which means 100", /undefined.*\b100\b/i],
+  "OrigamiSlider.step": ["1", /\b1\b/],
+  "OrigamiSlider.disabled": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];
