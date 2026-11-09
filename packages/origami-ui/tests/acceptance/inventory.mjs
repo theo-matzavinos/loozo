@@ -261,6 +261,13 @@ export const inventory = {
     "OrigamiToastClose",
     "OrigamiToastCloseOptions",
   ],
+  slider: [
+    "OrigamiSlider",
+    "OrigamiSliderOptions",
+    "OrigamiSliderState",
+    "OrigamiSliderTrack",
+    "OrigamiSliderThumb",
+  ],
 };
 
 export const typeOnly = new Set([

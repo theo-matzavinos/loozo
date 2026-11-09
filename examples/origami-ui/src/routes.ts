@@ -110,6 +110,11 @@ export const routes: Routes = [
       import("./fixtures/toast-deferred.js").then((module) => module.ToastDeferred),
   },
   {
+    path: "slider",
+    loadComponent: () =>
+      import("./fixtures/slider-deferred.js").then((module) => module.SliderDeferred),
+  },
+  {
     path: "toast-modal",
     loadComponent: () =>
       import("./fixtures/toast-modal-deferred.js").then((module) => module.ToastModalDeferred),

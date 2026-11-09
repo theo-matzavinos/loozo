@@ -127,6 +127,7 @@ import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFie
 import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, OrigamiDatePickerMultipleOptions, OrigamiDatePickerRangeOptions, OrigamiMonthPickerOptions, type OrigamiDatePickerState, type OrigamiDatePickerMultipleState, type OrigamiDatePickerRangeState, type OrigamiMonthPickerState, OrigamiDateTimePickerOptions, type OrigamiDateTimePickerState } from '@loozo/origami-ui/date-picker';
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
 import { OrigamiToaster, OrigamiToastRegionOptions, OrigamiToastOptions, OrigamiToastCloseOptions, type OrigamiToastRegionState, type OrigamiToastState, type OrigamiToastRecord } from '@loozo/origami-ui/toast';
+import { OrigamiSliderOptions, type OrigamiSliderState } from '@loozo/origami-ui/slider';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -421,6 +422,19 @@ OrigamiToastOptions.provideFactory(() => ({toast: signal({title: 'Saved', kind: 
 // @ts-expect-error a Close factory must supply focusableWhenDisabled
 OrigamiToastCloseOptions.provideFactory(() => ({disabled: signal(false)}));
 void UntypedToasts;
+declare const sliderState: OrigamiSliderState;
+const sliderPercent: number = sliderState.percent();
+void sliderPercent;
+// @ts-expect-error Slider State value is readonly
+sliderState.value.set(40);
+// @ts-expect-error Slider State dragging is readonly
+sliderState.dragging.set(true);
+// @ts-expect-error a Slider factory must supply step
+OrigamiSliderOptions.provideFactory(() => ({value: signal(0), min: signal<number | undefined>(0), max: signal<number | undefined>(100), disabled: signal(false)}));
+// @ts-expect-error a Slider's value is a number
+OrigamiSliderOptions.provideFactory(() => ({value: signal('40'), min: signal<number | undefined>(0), max: signal<number | undefined>(100), step: signal(1), disabled: signal(false)}));
+// @ts-expect-error a Slider's value must be writable
+OrigamiSliderOptions.provideFactory(() => ({value: computed(() => 0), min: signal<number | undefined>(0), max: signal<number | undefined>(100), step: signal(1), disabled: signal(false)}));
 // Positive: a whole Calendar factory, with ordinary signals and readonly bounds.
 OrigamiCalendarOptions.provideFactory(() => ({value: signal<string | null>(null), month: signal<string | null>(null), view: signal<'days' | 'months' | 'years'>('days'), minDate: computed<string | null>(() => '2026-01-01'), maxDate: signal<string | null>(null), dateDisabled: signal((date: string) => date.endsWith('-13')), weekStart: signal<1 | 2 | 3 | 4 | 5 | 6 | 7 | null>(7), locale: signal('en-GB'), today: signal('2026-10-27'), fixedWeeks: signal(true), columns: signal(3), disabled: signal(false), readonly: signal(false), selectedDescription: signal('')}));
 // @ts-expect-error Calendar value must be writable
@@ -857,6 +871,13 @@ abstract class AbstractToastRegion {
 abstract class AbstractToast {
   abstract readonly toast: Signal<OrigamiToastRecord<TypedToast>>;
 }
+abstract class AbstractSlider {
+  abstract readonly value: WritableSignal<number>;
+  abstract readonly min: Signal<number | undefined>;
+  abstract readonly max: Signal<number | undefined>;
+  abstract readonly step: Signal<number>;
+  abstract readonly disabled: Signal<boolean>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -943,6 +964,8 @@ export const providers: Provider[] = [
   OrigamiToastOptions.provideExisting(() => AbstractToast),
   OrigamiToastCloseOptions.provideFactory(() => ({disabled: signal(false), focusableWhenDisabled: signal(true)})),
   OrigamiToastCloseOptions.provideExisting(() => AbstractButton),
+  OrigamiSliderOptions.provideFactory(() => ({value: signal(40), min: computed<number | undefined>(() => 20), max: signal<number | undefined>(undefined), step: computed(() => 10), disabled: signal(false)})),
+  OrigamiSliderOptions.provideExisting(() => AbstractSlider),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1119,6 +1142,23 @@ class TypedToasts extends OrigamiToaster<TypedToast> {}`,
   observeToast(state: OrigamiToastState): void { void state; }
   observeKind(kind: "success" | "error"): void { void kind; }
   observeString(value: string): void { void value; }`,
+  },
+  slider: {
+    imports: `import { FormField, form, max, min } from "@angular/forms/signals";
+import { OrigamiSlider, OrigamiSliderTrack, OrigamiSliderThumb, OrigamiSliderState } from "@loozo/origami-ui/slider";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiSlider, OrigamiSliderTrack, OrigamiSliderThumb, OrigamiField, OrigamiFieldLabel",
+    members: `
+  readonly volume = signal(40);
+  readonly label = signal("40");
+  readonly model = signal<{ zoom: number }>({ zoom: 100 });
+  readonly form = form(this.model, (path) => { min(path.zoom, 20); max(path.zoom, 180); });
+  touched(): void {}
+  numberOutput(value: number): void { void value; }
+  stringOutput(value: string): void { void value; }
+  observeState(state: OrigamiSliderState): void { void state; }
+  observeBoolean(value: boolean): void { void value; }`,
   },
   select: {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -2001,6 +2041,51 @@ const templates = [
       code: 2322,
       span: "ogToastRegion",
       message: /'string' is not assignable to type 'OrigamiToaster/,
+    },
+  },
+  {
+    name: "slider-positive",
+    family: "slider",
+    template: `<div ogSlider #volumeSlider="ogSlider" [(value)]="volume" (valueChange)="numberOutput($event)" [min]="0" [max]="100" [step]="5" disabled (touch)="touched()"><div ogSliderTrack><div ogSliderThumb aria-label="Volume" (click)="numberOutput(volumeSlider.state.value()); numberOutput(volumeSlider.state.percent()); observeBoolean(volumeSlider.state.dragging()); observeState(volumeSlider.state); volumeSlider.focus()"></div></div></div><div ogField><span ogFieldLabel>Zoom</span><div ogSlider [formField]="form.zoom" [step]="10" (touch)="touched()"><div ogSliderTrack><div ogSliderThumb></div></div></div></div><div ogSlider [min]="undefined" [max]="null"></div><div ogSlider min="20" max="180" step="10"></div>`,
+  },
+  {
+    name: "slider-model",
+    family: "slider",
+    template: `<div ogSlider [(value)]="label"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /Type 'string' is not assignable to type 'number'/,
+    },
+  },
+  {
+    name: "slider-output",
+    family: "slider",
+    template: `<div ogSlider (valueChange)="stringOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /Argument of type 'number' is not assignable to parameter of type 'string'/,
+    },
+  },
+  {
+    name: "slider-readonly-input",
+    family: "slider",
+    template: `<div ogSlider [readonly]="true"></div>`,
+    expected: {
+      code: -998002,
+      span: `[readonly]="true"`,
+      message: /Can't bind to 'readOnly' since it isn't a known property of 'div'/,
+    },
+  },
+  {
+    name: "slider-thumb-state",
+    family: "slider",
+    template: `<div ogSlider><div ogSliderTrack><div ogSliderThumb #thumb="ogSliderThumb"></div></div></div>`,
+    expected: {
+      code: -998003,
+      span: "ogSliderThumb",
+      message: /No directive found with exportAs 'ogSliderThumb'/,
     },
   },
   {
