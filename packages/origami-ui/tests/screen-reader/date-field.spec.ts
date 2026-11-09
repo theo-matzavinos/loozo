@@ -12,7 +12,9 @@ import type { Run } from "./reader-test.js";
 // In d1–d5 the keys are Playwright's, sent to the page, which bypasses the reader. d6 and d7 send
 // them through the reader instead, as a person's keys reach it: NVDA switches to focus mode by
 // itself when focus lands on a segment, and each of their steps waits for the key's DOM change, so
-// a key NVDA kept in browse mode (a digit there jumps to a heading) fails its step.
+// a key NVDA kept in browse mode (a digit there jumps to a heading) fails its step. d8 is a probe:
+// it sends Home and End through the reader to Origami's segments and to static ones with no key
+// handling, waits for no outcome, and keeps the page's event trace of each key.
 
 type Unit = "month" | "day" | "year" | "hour" | "minute" | "dayPeriod";
 
@@ -107,6 +109,21 @@ async function readerChange(
 /** Sends `key` through the reader in one captured step and waits for `target` to show `text`. */
 async function readerShow(run: Run, key: string, target: Locator, text: string): Promise<void> {
   await run.readerPress(`${key} → shows ${text}`, key, () => expect(target).toHaveText(text));
+}
+
+/**
+ * Focuses `unit` in `group` from code, then sends `key` through the reader and waits for nothing:
+ * where the key lands and what it changes is what the step's event trace records.
+ */
+async function probeKey(
+  run: Run,
+  page: Page,
+  key: string,
+  group: string,
+  unit: Unit,
+): Promise<void> {
+  await run.step(`focus ${group} ${unit}`, () => segment(page, group, unit).focus());
+  await run.readerPress(`${key} on ${group} ${unit}`, key, async () => {});
 }
 
 test("d1-type", async ({ page, run }) => {
@@ -272,9 +289,20 @@ test("d7-reader-keys", async ({ page, run }) => {
   await readerPress(run, "Tab", segment(page, "opens-group", "dayPeriod"), "AM");
   await readerChange(run, page, "p", "opens-group", "dayPeriod", "1");
   await readerChange(run, page, "ArrowUp", "opens-group", "dayPeriod", "0");
+});
 
-  // Last: under VoiceOver, End on the month moved focus to the year and set it to 9999 instead
-  // (run 42472169162), which fails this step, so it mustn't cut off the steps before it.
-  await run.step("focus month February", () => month.focus());
-  await readerChange(run, page, "End", "birth-group", "month", "12");
+test("d8-reader-edges", async ({ page, run }) => {
+  await run.open("/date-field-speech");
+
+  // Origami's segments: V10 again, then Home and End from each position.
+  await probeKey(run, page, "End", "birth-group", "month");
+  await probeKey(run, page, "End", "birth-group", "day");
+  await probeKey(run, page, "Home", "birth-group", "year");
+  await probeKey(run, page, "Home", "birth-group", "day");
+  await probeKey(run, page, "End", "opens-group", "hour");
+  // Static segments with no key handling: editable (probe three), then not (probe six).
+  await probeKey(run, page, "End", "probe3-group", "month");
+  await probeKey(run, page, "Home", "probe3-group", "year");
+  await probeKey(run, page, "End", "probe6-group", "month");
+  await probeKey(run, page, "Home", "probe6-group", "year");
 });
