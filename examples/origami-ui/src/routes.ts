@@ -120,6 +120,11 @@ export const routes: Routes = [
       import("./fixtures/toast-modal-deferred.js").then((module) => module.ToastModalDeferred),
   },
   {
+    path: "number-field",
+    loadComponent: () =>
+      import("./fixtures/number-field-deferred.js").then((module) => module.NumberFieldDeferred),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

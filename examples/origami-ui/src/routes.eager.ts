@@ -106,6 +106,11 @@ export const routes: Routes = [
       import("./fixtures/toast-modal.js").then((module) => module.ToastModalFixture),
   },
   {
+    path: "number-field",
+    loadComponent: () =>
+      import("./fixtures/number-field.js").then((module) => module.NumberFieldFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

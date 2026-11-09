@@ -128,6 +128,7 @@ import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDateP
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
 import { OrigamiToaster, OrigamiToastRegionOptions, OrigamiToastOptions, OrigamiToastCloseOptions, type OrigamiToastRegionState, type OrigamiToastState, type OrigamiToastRecord } from '@loozo/origami-ui/toast';
 import { OrigamiSliderOptions, type OrigamiSliderState } from '@loozo/origami-ui/slider';
+import { OrigamiNumberFieldOptions, type OrigamiNumberFieldState } from '@loozo/origami-ui/number-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -527,6 +528,23 @@ const dateFieldPart: OrigamiDateFieldPart | undefined = dateFieldState.segments(
 dateFieldPart!.text = '27';
 const dateFieldErrorKind: string | undefined = dateFieldState.parseErrors()[0]?.kind;
 void dateFieldErrorKind;
+// Positive: a whole number field factory, with ordinary signals.
+OrigamiNumberFieldOptions.provideFactory(() => ({value: signal<number | null>(null), locale: signal('el-GR'), min: computed<number | undefined>(() => 0), max: signal<number | undefined>(undefined), step: signal(0.5), minimumFractionDigits: signal<number | null>(2), maximumFractionDigits: signal<number | null>(2), useGrouping: computed(() => true), disabled: computed(() => false), readonly: signal(false)}));
+// @ts-expect-error number field value must be writable
+OrigamiNumberFieldOptions.provideFactory(() => ({value: computed<number | null>(() => null), locale: signal('el-GR'), min: signal<number | undefined>(undefined), max: signal<number | undefined>(undefined), step: signal(1), minimumFractionDigits: signal<number | null>(null), maximumFractionDigits: signal<number | null>(null), useGrouping: signal(true), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error number field value is a number, never its text
+OrigamiNumberFieldOptions.provideFactory(() => ({value: signal<string | null>(null), locale: signal('el-GR'), min: signal<number | undefined>(undefined), max: signal<number | undefined>(undefined), step: signal(1), minimumFractionDigits: signal<number | null>(null), maximumFractionDigits: signal<number | null>(null), useGrouping: signal(true), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error number field bounds are undefined when absent, as Signal Forms writes them, never null
+OrigamiNumberFieldOptions.provideFactory(() => ({value: signal<number | null>(null), locale: signal('el-GR'), min: signal<number | null>(null), max: signal<number | undefined>(undefined), step: signal(1), minimumFractionDigits: signal<number | null>(null), maximumFractionDigits: signal<number | null>(null), useGrouping: signal(true), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error a number field factory must supply useGrouping
+OrigamiNumberFieldOptions.provideFactory(() => ({value: signal<number | null>(null), locale: signal('el-GR'), min: signal<number | undefined>(undefined), max: signal<number | undefined>(undefined), step: signal(1), minimumFractionDigits: signal<number | null>(null), maximumFractionDigits: signal<number | null>(null), disabled: signal(false), readonly: signal(false)}));
+declare const numberFieldState: OrigamiNumberFieldState;
+// @ts-expect-error number field State value is readonly
+numberFieldState.value.set(1);
+const numberFieldValue: number | null = numberFieldState.value();
+const numberFieldErrorKind: string | undefined = numberFieldState.parseErrors()[0]?.kind;
+void numberFieldValue;
+void numberFieldErrorKind;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
 OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
@@ -878,6 +896,18 @@ abstract class AbstractSlider {
   abstract readonly step: Signal<number>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractNumberField {
+  abstract readonly value: WritableSignal<number | null>;
+  abstract readonly locale: Signal<string>;
+  abstract readonly min: Signal<number | undefined>;
+  abstract readonly max: Signal<number | undefined>;
+  abstract readonly step: Signal<number>;
+  abstract readonly minimumFractionDigits: Signal<number | null>;
+  abstract readonly maximumFractionDigits: Signal<number | null>;
+  abstract readonly useGrouping: Signal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly readonly: Signal<boolean>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -966,6 +996,8 @@ export const providers: Provider[] = [
   OrigamiToastCloseOptions.provideExisting(() => AbstractButton),
   OrigamiSliderOptions.provideFactory(() => ({value: signal(40), min: computed<number | undefined>(() => 20), max: signal<number | undefined>(undefined), step: computed(() => 10), disabled: signal(false)})),
   OrigamiSliderOptions.provideExisting(() => AbstractSlider),
+  OrigamiNumberFieldOptions.provideFactory(() => ({value: signal<number | null>(12.5), locale: signal('el-GR'), min: signal<number | undefined>(0), max: signal<number | undefined>(1000), step: signal(1), minimumFractionDigits: signal<number | null>(2), maximumFractionDigits: signal<number | null>(2), useGrouping: signal(true), disabled: signal(false), readonly: signal(false)})),
+  OrigamiNumberFieldOptions.provideExisting(() => AbstractNumberField),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1216,6 +1248,22 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   viewOutput(value: "days" | "months" | "years"): void { void value; }
   monthViewOutput(value: "months" | "years"): void { void value; }
   observePeriods(value: readonly (readonly OrigamiCalendarPeriodRecord[])[]): void { void value; }`,
+  },
+  "number-field": {
+    imports: `import { FormField, form, max, min, required } from "@angular/forms/signals";
+import { OrigamiNumberField, OrigamiNumberFieldInput, OrigamiNumberFieldIncrement, OrigamiNumberFieldDecrement, OrigamiNumberFieldState } from "@loozo/origami-ui/number-field";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiNumberField, OrigamiNumberFieldInput, OrigamiNumberFieldIncrement, OrigamiNumberFieldDecrement, OrigamiField, OrigamiFieldLabel",
+    members: `
+  readonly count = signal<number | null>(null);
+  readonly label = signal<string | null>(null);
+  readonly model = signal<{ amount: number | null; label: string | null }>({ amount: null, label: null });
+  readonly form = form(this.model, (path) => { required(path.amount); min(path.amount, 0); max(path.amount, 1000); });
+  touched(): void {}
+  countOutput(value: number | null): void { void value; }
+  labelOutput(value: string | null): void { void value; }
+  observeState(state: OrigamiNumberFieldState): void { void state; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -2086,6 +2134,42 @@ const templates = [
       code: -998003,
       span: "ogSliderThumb",
       message: /No directive found with exportAs 'ogSliderThumb'/,
+    },
+  },
+  {
+    name: "number-field-positive",
+    family: "number-field",
+    template: `<div ogField><label ogFieldLabel>Amount</label><div ogNumberField #amount="ogNumberField" [formField]="form.amount" minimumFractionDigits="2" maximumFractionDigits="2" (touch)="touched()" (click)="amount.focus({ preventScroll: true }); countOutput(amount.state.value()); observeState(amount.state)"><button ogNumberFieldDecrement aria-label="Decrease">−</button><input ogNumberFieldInput /><button ogNumberFieldIncrement aria-label="Increase">+</button></div></div><div ogNumberField [(value)]="count" (valueChange)="countOutput($event)" min="0" max="20" step="5" maximumFractionDigits="0" useGrouping="false" locale="en-US" disabled readonly><input ogNumberFieldInput aria-label="Tickets" /></div>`,
+  },
+  {
+    name: "number-field-form-string",
+    family: "number-field",
+    template: `<div ogNumberField [formField]="form.label"><input ogNumberFieldInput /></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /string \| null.*number \| null/s,
+    },
+  },
+  {
+    name: "number-field-output",
+    family: "number-field",
+    template: `<div ogNumberField [(value)]="count" (valueChange)="labelOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "number-field-static-min",
+    family: "number-field",
+    template: `<div ogNumberField [formField]="form.amount" min="0"></div>`,
+    expected: {
+      code: -998022,
+      span: 'min="0"',
+      message:
+        /Setting the 'min' attribute is not allowed on nodes using the '\[formField\]' directive/,
     },
   },
   {

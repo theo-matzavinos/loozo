@@ -63,6 +63,7 @@ for (const directory of [
   "menu/src",
   "toast/src",
   "slider/src",
+  "number-field/src",
 ]) {
   await collect(directory);
 }
@@ -321,6 +322,16 @@ const directiveDefaults = {
   "OrigamiSlider.max": ["undefined, which means 100", /undefined.*\b100\b/i],
   "OrigamiSlider.step": ["1", /\b1\b/],
   "OrigamiSlider.disabled": ["false", /\bfalse\b/i],
+  "OrigamiNumberField.value": ["null", /\bnull\b/i],
+  "OrigamiNumberField.locale": ["LOCALE_ID", /LOCALE_ID/],
+  "OrigamiNumberField.min": ["undefined", /\bundefined\b/i],
+  "OrigamiNumberField.max": ["undefined", /\bundefined\b/i],
+  "OrigamiNumberField.step": ["1", /\b1\b/],
+  "OrigamiNumberField.minimumFractionDigits": ["null", /\bnull\b/i],
+  "OrigamiNumberField.maximumFractionDigits": ["null", /\bnull\b/i],
+  "OrigamiNumberField.useGrouping": ["true", /\btrue\b/i],
+  "OrigamiNumberField.disabled": ["false", /\bfalse\b/i],
+  "OrigamiNumberField.readonly": ["false", /\bfalse\b/i],
 };
 const subjects = [];
 const failures = [];
