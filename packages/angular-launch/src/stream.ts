@@ -1,5 +1,5 @@
 import { RpcError, recognizedError, type ErrorMetadata, type StreamCallOptions } from "./client.js";
-import { serializeJson } from "./json.js";
+import { parseJson, serializeJson } from "./json.js";
 import { recognizedOutcome } from "./outcomes.js";
 
 /** One parsed `text/event-stream` event: its name and its data line. */
@@ -41,10 +41,10 @@ function takeEvents(buffer: string, from: number): { events: Event[]; rest: stri
   return { events, rest };
 }
 
-/** Parses an event's data, which a Launch server always sends as JSON. */
+/** Parses an event's data, which a Launch server always sends as strict JSON. */
 function eventData(data: string): unknown {
   try {
-    return JSON.parse(data);
+    return parseJson(data);
   } catch {
     throw new TypeError("Launch stream sent an event whose data isn't JSON");
   }
@@ -53,8 +53,11 @@ function eventData(data: string): unknown {
 /**
  * The rejection for a failure frame: an `RpcError` passed through `own`, an `RpcRedirect`
  * or an `RpcNotFound`, or `undefined` when the frame is none of them.
+ *
+ * @remarks
+ * Internal. Streams and channels recognize their failure frames with it.
  */
-function recognizedFailure(
+export function failureRejection(
   body: unknown,
   status: number,
   declared: readonly ErrorMetadata[],
@@ -88,6 +91,7 @@ function recognizedFailure(
  * @param declared - The procedure's declared error metadata.
  * @param own - Associates a converted error with its procedure for `isError`.
  * @param options - The call options.
+ * @param opened - Called once the response turned out to be the stream's events.
  */
 export async function* openStream(
   url: string,
@@ -95,6 +99,7 @@ export async function* openStream(
   declared: readonly ErrorMetadata[],
   own: (error: RpcError<string, unknown>) => RpcError<string, unknown>,
   { signal }: StreamCallOptions,
+  opened: () => void = () => undefined,
 ): AsyncGenerator<unknown, void, undefined> {
   if (signal?.aborted) {
     throw new DOMException("RPC stream aborted", "AbortError");
@@ -130,7 +135,7 @@ export async function* openStream(
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
       }
 
-      const error = recognizedFailure(body, response.status, declared, own);
+      const error = failureRejection(body, response.status, declared, own);
 
       if (!error) {
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
@@ -145,6 +150,8 @@ export async function* openStream(
     if (!isEventStream || !response.body) {
       throw new TypeError("Launch stream response isn't an event stream");
     }
+
+    opened();
 
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";
@@ -188,7 +195,7 @@ export async function* openStream(
           const { status, ...body } = frame;
 
           if (typeof status === "number") {
-            error = recognizedFailure(body, status, declared, own);
+            error = failureRejection(body, status, declared, own);
           }
         }
 

@@ -13,6 +13,9 @@ export const stats = {
   streamsStarted: 0,
   streamsAborted: 0,
   streamsReturned: 0,
+  channelsStarted: 0,
+  channelsAborted: 0,
+  channelsReturned: 0,
 };
 
 // Called whenever a user's todos change, for the live list.

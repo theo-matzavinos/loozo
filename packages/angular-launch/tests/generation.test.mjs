@@ -1132,8 +1132,8 @@ return none;
 
 test("defineRpc's builder callback rejects renames, defaults, rest, non-arrows, block bodies, foreign calls and unknown keys", async () => {
   const header = `import { defineRpc } from '@loozo/angular-launch/server';`;
-  const shape = /arrow function destructuring query, mutation and\/or stream/;
-  const binding = /may only destructure query, mutation and stream, without renaming/;
+  const shape = /arrow function destructuring query, mutation, stream and\/or channel/;
+  const binding = /may only destructure query, mutation, stream and channel, without renaming/;
   const cases = [
     [`defineRpc('todos', ({ query: read }) => ({ x: read({ handler: () => 1 }) }))`, binding],
     [
@@ -1156,11 +1156,11 @@ test("defineRpc's builder callback rejects renames, defaults, rest, non-arrows, 
     [`defineRpc('todos', ({ query }) => (procedures))`, /RPC procedures must be an inline object/],
     [
       `defineRpc('todos', ({ query }) => ({ x: helper({ handler: () => 1 }) }))`,
-      /callback's query, mutation or stream/,
+      /callback's query, mutation, stream or channel/,
     ],
     [
       `defineRpc('todos', ({ query }) => ({ x: (query)({ handler: () => 1 }) }))`,
-      /callback's query, mutation or stream/,
+      /callback's query, mutation, stream or channel/,
     ],
     [
       `defineRpc('todos', ({ query }) => ({ x: query({ handler: () => 1, canActivate: [] }) }))`,
@@ -1544,6 +1544,156 @@ void watched; void numbers; void kind;
   );
 });
 
+test("channels type their client by yields and message schema, get handleUpgrade and stay out of injectQueries()", async () => {
+  const root = await fixture();
+
+  await put(
+    root,
+    "src/schema.ts",
+    `
+import type { Schema } from '@loozo/angular-launch/server';
+export interface RoomInput { readonly room: string; }
+export interface TextInput { readonly text: string; }
+function object<Value>(key: string): Schema<Value> {
+  return {
+    '~standard': { version: 1, vendor: 'contracts', validate(value) {
+      if (typeof value !== 'object' || value === null || !(key in value)) {
+        return { issues: [{ message: key + ' required' }] };
+      }
+      return { value: value as Value };
+    } },
+  };
+}
+export const room = object<RoomInput>('room');
+export const text = object<TextInput>('text');
+export const maybe: Schema<TextInput> | undefined = text;
+export const nullSchema: Schema<null> = {
+  '~standard': { version: 1, vendor: 'contracts', validate(value) {
+    if (value !== null) { return { issues: [{ message: 'null required' }] }; }
+    return { value: null };
+  } },
+};
+`,
+  );
+
+  const channels = `
+import { defineRpc } from '@loozo/angular-launch/server';
+import { room, text, nullSchema } from '../../schema';
+export default defineRpc('todos', ({ query, channel }) => ({
+  list: query({ handler: () => ({ value: 1 }) }),
+  talk: channel({
+    input: room,
+    message: text,
+    errors: { GONE: { status: 410, message: 'Gone', data: nullSchema } },
+    handler: async function* ({ input, messages, context, errors, signal }) {
+      const value: number = context.value;
+      const gone: Error = errors.GONE(null);
+      void gone; void signal;
+      yield { kind: 'history' as const, text: input.room, value };
+      for await (const message of messages) {
+        const said: string = message.text;
+        yield { kind: 'echo' as const, text: said, value };
+      }
+    },
+  }),
+  bare: channel({ message: text, handler: async function* () { yield 1; } }),
+  // @ts-expect-error yielded values must be strict JSON
+  dates: channel({ message: text, handler: async function* () { yield new Date(); } }),
+}));
+`;
+
+  await put(root, "src/routes/left/rpc.ts", channels);
+  await put(
+    root,
+    "src/channel-checks.ts",
+    `
+import { injectQueries, injectRpc } from './routes/left/rpc.generated';
+import type { Channel, Connection } from '@loozo/angular-launch';
+type Event = { readonly kind: 'history' | 'echo'; readonly text: string; readonly value: number };
+const rpc = injectRpc();
+const talk: Channel<Event, { readonly text: string }> = rpc.todos.talk({ room: 'a' }, { signal: AbortSignal.timeout(1) });
+void talk.send({ text: 'hi' });
+// @ts-expect-error the message schema's input type
+void talk.send({ words: 'hi' });
+const bare: Channel<number, { readonly text: string }> = rpc.todos.bare();
+const kind: 'channel' = rpc.todos.talk.kind;
+declare const error: unknown;
+if (rpc.todos.talk.isError(error) && error.code === 'GONE') {
+  const data: null = error.data;
+  void data;
+}
+// @ts-expect-error channel requires input
+rpc.todos.talk();
+// @ts-expect-error channels don't use the transfer cache
+rpc.todos.bare({ transferCache: false });
+const lines: Connection<string[], { readonly text: string }> = rpc.todos.talk.connect({
+  input: () => ({ room: 'a' }),
+  initial: () => [] as string[],
+  reduce: (state, event) => [...state, event.kind],
+});
+const latest: Connection<Event | null, { readonly text: string }> = rpc.todos.talk.connect({
+  input: () => undefined,
+  initial: () => null,
+});
+const always = rpc.todos.bare.connect({ initial: () => 0 });
+const count: number = always.value();
+// @ts-expect-error a channel with input needs the input option
+rpc.todos.talk.connect({ initial: () => null });
+// @ts-expect-error the input option follows the input schema
+rpc.todos.talk.connect({ input: () => ({ chat: 'a' }), initial: () => null });
+const queries = injectQueries();
+queries.todos.list.queryOptions();
+// @ts-expect-error channels have no TanStack options
+queries.todos.talk;
+void bare; void kind; void lines; void latest; void count;
+`,
+  );
+  await generate(root, { ...options, tanstackQuery: true });
+  await generate(root, { ...options, tanstackQuery: true, check: true });
+
+  const files = await snapshot(root);
+  const facade = files["src/routes/left/rpc.generated.ts"].bytes;
+  const server = files["generated/server.generated.ts"].bytes;
+
+  assert.match(
+    facade,
+    /\{"name":"talk","input":true,"kind":"channel","errors":\[\{"code":"GONE","status":410,"message":"Gone"\}\]\}/,
+  );
+  assert.match(facade, /\{"name":"bare","input":false,"kind":"channel","errors":\[\]\}/);
+  assert.match(
+    facade,
+    /"todos":\{"list":\{"kind":"query","input":false\}\}\} as const\) as Queries/,
+  );
+  assert.match(
+    server,
+    /export const handleUpgrade = \(request: Request, options: HandleOptions\) => handleChannelUpgrade\(registry, appBinding, request, options\);/,
+  );
+
+  // A channel needs its message schema, and only a channel takes one.
+  await rm(resolve(root, "src/channel-checks.ts"));
+  await put(
+    root,
+    "src/routes/left/rpc.ts",
+    channels.replace("bare: channel({ message: text, ", "bare: channel({ "),
+  );
+  await rejectUnchanged(root, /channel requires message/);
+  await put(
+    root,
+    "src/routes/left/rpc.ts",
+    channels.replace("list: query({ handler", "list: query({ message: text, handler"),
+  );
+  await rejectUnchanged(root, /Unsupported Launch option: message/);
+  // Its type must be concrete, as for an input schema.
+  await put(
+    root,
+    "src/routes/left/rpc.ts",
+    channels
+      .replace("import { room, text, nullSchema }", "import { room, text, maybe, nullSchema }")
+      .replace("bare: channel({ message: text, ", "bare: channel({ message: maybe, "),
+  );
+  await rejectUnchanged(root, /A channel's message must have a concrete Standard Schema type/);
+});
+
 test("declared error static DSL and schema/type/provenance failures reject cold, update and check without any publication", async () => {
   const cases = [
     "NOT_FOUND: { status: 399, message: 'Missing', data: schema }",
@@ -1638,7 +1788,7 @@ export default defineRpc('todos', ({mutation}) => ({ write: mutation({ handler: 
 const fake = (options: unknown) => options;
 export default defineRpc('todos', ({ mutation }) => ({ write: ${invocation}({ handler: () => 1 }) }));`,
     );
-    await rejectUnchanged(root, /callback's query, mutation or stream/);
+    await rejectUnchanged(root, /callback's query, mutation, stream or channel/);
   }
 });
 

@@ -13,6 +13,7 @@ import { FetchBackend, HttpBackend, HttpErrorResponse, HttpResponse } from "@ang
 import type { HttpEvent, HttpRequest } from "@angular/common/http";
 import { Observable } from "rxjs";
 import { RPC_CALL } from "../generated.js";
+import { parseJson } from "../json.js";
 import {
   dispatch,
   failure,
@@ -195,7 +196,7 @@ export function provideLaunchServer(
                   return;
                 }
 
-                envelope = JSON.parse(body);
+                envelope = parseJson(body);
               } catch {
                 deliver(invalidInput());
 

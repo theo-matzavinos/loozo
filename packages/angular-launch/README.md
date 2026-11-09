@@ -1,12 +1,12 @@
 # @loozo/angular-launch
 
-Typed server functions for Angular applications built with [`@loozo/angular-router`](../angular-router/README.md). You define queries, mutations and streams in an `rpc.ts` file next to a route, and call them from that route's pages and resolvers through a generated, fully typed client.
+Typed server functions for Angular applications built with [`@loozo/angular-router`](../angular-router/README.md). You define queries, mutations, streams and channels in an `rpc.ts` file next to a route, and call them from that route's pages and resolvers through a generated, fully typed client.
 
 Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP requests. During server rendering they run in-process with the current request's context, and hydration reuses their responses through Angular's transfer cache. Errors you declare on a procedure come back typed on the client.
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no websockets or storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
+**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on the built Node server), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
 
 ## Requirements
 
@@ -43,7 +43,7 @@ generated/
 ├── routes.generated.ts          router: routes for provideRouter
 ├── destinations.generated.ts    router
 ├── context.generated.d.ts       registers your context type
-└── server.generated.ts          createContext, handleRequest, provideServer
+└── server.generated.ts          createContext, handleRequest, handleUpgrade, provideServer
 ```
 
 Generation writes a `route.generated.ts` and an `rpc.generated.ts` beside every route that has a page or descendants with pages, with or without a local group; the tree shows only the ones for `todos`. Redirect routes, and parents left with only redirects below them, get neither.
@@ -189,8 +189,9 @@ import {
   isMainModule,
   writeResponseToNodeResponse,
 } from "@angular/ssr/node";
+import { createUpgradeHandler } from "@loozo/angular-launch/node";
 import express from "express";
-import { createContext, handleRequest } from "../generated/server.generated";
+import { createContext, handleRequest, handleUpgrade } from "../generated/server.generated";
 
 const browser = join(import.meta.dirname, "../browser");
 // An explicit list stops Angular reading NG_ALLOWED_HOSTS, so read it here.
@@ -236,28 +237,32 @@ app.use(async (request, response, next) => {
   }
 });
 
+// Channels arrive as websocket upgrades, which Express never sees.
+const upgrade = createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }));
+
 if (isMainModule(import.meta.url)) {
   const port = process.env["PORT"] || 4000;
-
-  app.listen(port, (error) => {
+  const server = app.listen(port, (error) => {
     if (error) {
       throw error;
     }
 
     console.log(`Listening on http://localhost:${port}`);
   });
+
+  server.on("upgrade", upgrade);
 }
 
 export const reqHandler = createNodeRequestHandler(app);
 ```
 
-Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks).
+Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks). The upgrade handler only matters if you define [channels](#channels); see [Channels on Node](#channels-on-node).
 
 Always pass `scope.request` together with `scope`, not your original request. The scope ties the context to the request Angular renders; if they don't match, RPC calls during rendering fail with `INTERNAL` and a server log entry. This catches wiring mistakes only; it doesn't check your authentication.
 
 ## Defining RPCs
 
-`defineRpc(namespace, build, options?)` declares a group. `build` receives the `query` (a read), `mutation` (a write) and `stream` (a read that sends values while it runs) builders and returns the group's procedures:
+`defineRpc(namespace, build, options?)` declares a group. `build` receives the `query` (a read), `mutation` (a write), `stream` (a read that sends values while it runs) and `channel` (a conversation over a websocket) builders and returns the group's procedures:
 
 ```ts
 defineRpc(
@@ -552,6 +557,52 @@ event: error
 data: {"status":404,"error":{"code":"NOT_FOUND","message":"Todo does not exist","data":{"id":"1"}}}
 ```
 
+### Channels
+
+A channel is a stream that also listens: the caller sends messages while the handler yields values, over one websocket. Use it for a conversation, such as a chat or an editor that sends edits and gets the document back. Its options are a stream's plus a required `message` schema, and its handler also receives `messages`:
+
+```ts
+export default defineRpc(
+  "live",
+  ({ channel }) => ({
+    // The user's todos now, then again after each title the caller sends is added.
+    add: channel({
+      message: titleSchema,
+      handler: async function* ({ context, messages }) {
+        yield await context.db.todos.snapshotForUser(context.user.id);
+
+        for await (const { title } of messages) {
+          await context.db.todos.addForUser(context.user.id, title);
+          yield await context.db.todos.snapshotForUser(context.user.id);
+        }
+      },
+    }),
+  }),
+  { use: [signedIn] },
+);
+```
+
+Everything in [Streams](#streams) applies: values are strict JSON, the handler is written `handler: async function* (…)`, yields the current state first and returns nothing, middleware runs once and its `next()` settles when the channel ends, cookies must be set before the handler returns its iterable, and the handler's `signal` aborts and its generator is returned when the caller goes away. `input`, if any, is read once, when the channel opens; `message` follows the same concrete-type rule as `input`, and its caller input type is what the client's `send` takes. Channels don't run during server rendering: they fail with `FORBIDDEN` before any middleware.
+
+- **Messages** are validated with `message` as the handler reads them, in the order they arrived. A message that fails validation ends the call with `INVALID_INPUT` and the schema's issues, also when the handler catches the error. `messages` has one consumer: a second iterator throws. It ends when the caller closes the channel, after the messages already received, so a handler waiting on it returns normally; its `signal` aborts at the same time.
+- **Flow control** keeps both sides bounded. The server sends at most 256 values the caller hasn't read, and the caller at most 32 messages the handler hasn't read; each side grants more as it reads half its window. A caller that stops reading pauses the handler at its `yield` (it returns at once if the caller then leaves), and a handler that stops reading `messages` makes the caller's `send` wait. The server also stops pulling values while the socket buffers more than 1 MiB of unsent data, checking every 50 ms. Throughput is about 256 values per network round trip.
+- **Failures** before the handler returns its iterable, such as a refusing middleware, invalid input or a missing procedure (`RPC_NOT_FOUND`), still upgrade the socket, which receives the failure and closes, so the client sees the procedure's own error. Host, shape and [origin](#cross-origin-requests) checks happen earlier, before a context exists, and are refused with a plain HTTP response as for any RPC; a browser doesn't expose that response, so the client sees only a `TypeError`. The server log says why.
+- **Input rides in the URL** (`?input=…`), so it's limited by the server's header size: Node refuses headers over 16 KiB with 431, which the client sees as a `TypeError`. Send large data as messages.
+- **Ending:** once the handler ends, the server sends the end or the error and closes. A message the caller sends while that's on its way is dropped.
+
+A channel is a `GET /_rpc/<namespace>/<procedure>?input=<encoded strict JSON>` upgraded to a websocket by the generated `handleUpgrade`; `handleRequest` answers a channel's path with `RPC_NOT_FOUND`, and `handleUpgrade` answers any other procedure the same way. Every frame is strict JSON text:
+
+```text
+caller → server  {"message":{"title":"Buy milk"}}   one message
+                 {"ready":128}                     "I've read 128 more values"
+server → caller  {"value":[{"id":"1","title":"Buy milk","completed":false}]}
+                 {"ready":16}                      "the handler read 16 more messages"
+                 {"end":null}, or a failure such as {"status":410,"error":{"code":"GONE","message":"Gone","data":null}}
+                 then the server closes with 1000
+```
+
+A binary or malformed frame, a message beyond the caller's credit, or a grant for more values than were sent ends the call with `INVALID_INPUT` without issues. Failure frames are exactly a stream's `error` event data.
+
 ## Calling RPCs
 
 Each route that has a page or descendants with pages gets an `rpc.generated.ts` with `injectRpc()`, even without its own group; redirect routes don't. Call it in an injection context:
@@ -577,7 +628,7 @@ export default class Todos {
 }
 ```
 
-Every query and mutation call returns a promise; [streams](#calling-streams) return an async iterable. Procedures with input take the input first and options second; procedures without input take only options:
+Every query and mutation call returns a promise; [streams](#calling-streams) return an async iterable and [channels](#calling-channels) an open channel, and both can be followed as signals with [`connect()`](#following-streams-and-channels-with-connect). Procedures with input take the input first and options second; procedures without input take only options:
 
 ```ts
 await rpc.todos.list();
@@ -590,7 +641,7 @@ await rpc.todos.add({ title }, { signal });
 | `signal`        | Abort the HTTP request; the call rejects with an `AbortError`. The server's middleware and handler see their `signal` abort, but aborting is advisory: work that ignores it finishes, and a write may already have committed. |
 | `transferCache` | Queries default to `true`. Mutations only accept `false` and never use the transfer cache.                                                                                                                                    |
 
-`isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures, aborts and the [outcomes](#redirects-and-not-found) `RpcRedirect` and `RpcNotFound` are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"`, `"mutation"` or `"stream"`.
+`isError(error)` is true only for errors returned by that exact procedure, and narrows them to its declared errors plus the four framework codes. Network failures, aborts and the [outcomes](#redirects-and-not-found) `RpcRedirect` and `RpcNotFound` are not `RpcError`s. For a type, use `ClientRpcError<typeof group.procedures.complete>` from `@loozo/angular-launch`. Each callable also has a literal `kind` of `"query"`, `"mutation"`, `"stream"` or `"channel"`.
 
 Route resolvers can call RPCs too, which is how a page gets its data during SSR:
 
@@ -635,7 +686,7 @@ When a guard or resolver's call rejects with `RpcRedirect`, the navigation goes 
 
 ### Calling streams
 
-A stream's callable returns an async iterable instead of a promise, and takes only `signal` as an option:
+In a component, follow a stream with [`connect()`](#following-streams-and-channels-with-connect), which handles rendering, reconnecting on input changes and cleanup. Underneath, a stream's callable returns an async iterable instead of a promise, and takes only `signal` as an option:
 
 ```ts
 for await (const todos of rpc.live.watch({ signal })) {
@@ -654,35 +705,103 @@ Nothing reconnects for you. To reconnect, iterate again, typically after a `Type
 
 Streams use the browser's `fetch`, not `HttpClient`, so HTTP interceptors don't see them. An `HttpClient` request keeps the app from becoming stable until it completes and keeps its whole response in memory, which an open stream would do for as long as it runs. Cookies are sent as for any same-origin request.
 
-Streams don't run during server rendering: there, iterating one fails at once with `FORBIDDEN`, before any middleware runs. Render the page from a query, then follow the stream in the browser, for example from `afterNextRender`. An open stream doesn't keep the app from becoming stable:
+Streams don't run during server rendering: there, iterating one fails at once with `FORBIDDEN`, before any middleware runs. Render the page from a query, then follow the stream in the browser; an open stream doesn't keep the app from becoming stable.
+
+TanStack Query options aren't generated for streams; see the [TanStack Query guide](tanstack-query/README.md#limitations).
+
+### Calling channels
+
+A channel's callable opens the websocket at once and returns the channel: iterate it for the handler's values and `send` messages to it. It takes only `signal` as an option:
 
 ```ts
-@Component({/* … */})
+const adding = rpc.live.add({ signal });
+
+const sending = (async () => {
+  for (const title of titles) {
+    await adding.send({ title }); // typed by the channel's message schema
+  }
+})();
+
+for await (const todos of adding) {
+  this.todos.set(todos); // typed by what the handler yields
+}
+```
+
+- **Read while you send.** Each side's window fills when the other stops reading: the server stops at 256 values you haven't read, and `send` waits once 32 messages are unread on the server. So read in a loop that runs alongside your sends, as above. Awaiting a batch of sends before reading stalls for good once both windows fill: with a handler that yields once per message, `for (const title of thousandTitles) await adding.send({ title })` followed by the read loop never gets to the loop. Its sends stop after about 290: 256 values wait unread, so the handler stops at its next `yield` and reads no more messages, and the next 32 wait unread on the server. [`connect()`](#following-streams-and-channels-with-connect) always reads, so it can't stall this way.
+- **`send`** resolves once the message is handed to the socket. Messages sent before the socket opens, or while the server has no room, wait in order. It rejects with the channel's closing error if the channel closes first (an `AbortError` after `signal` aborts, a `TypeError` after the channel ended or the connection closed), with a `TypeError` once the channel is closed, and with a `TypeError` for a message that isn't strict JSON.
+- **Iteration** works like a stream's: it ends after the handler's last value, throws the callable's own `RpcError` or an `RpcRedirect` or `RpcNotFound` for a failure, an `AbortError` when `signal` aborts and a `TypeError` when the connection closes early, the server refused the handshake or sent a malformed frame. Values that arrive before you read them are kept, up to the server's window; aborting `signal` drops the ones not read yet, also after the handler ended. Reads may overlap: each settles in order. A channel has one iterator: iterating it twice throws. Leaving the loop early, as `break` does, or aborting `signal` closes the socket, and the handler sees its `messages` end and its `signal` abort.
+- **Nothing reconnects for you,** and each call is new: a new context, the handler's first value again.
+
+Channels use the browser's `WebSocket`, with the URL resolved against the page as `ws:` or `wss:`, and send the page's cookies. HTTP interceptors don't see them, and an open channel doesn't keep the app from becoming stable. During server rendering a channel fails at once with `FORBIDDEN`, without connecting. TanStack Query options aren't generated for channels.
+
+### Following streams and channels with `connect()`
+
+A stream's or channel's callable also has `connect()`, which follows it as signals. Call it in an injection context, such as a field initializer:
+
+```ts
+@Component({
+  template: `
+    <ul>
+      @for (todo of todos.value(); track todo.id) {
+        <li>{{ todo.title }}</li>
+      }
+    </ul>
+    @if (todos.status() === "failed") {
+      <p>Lost the live list. <button (click)="todos.reconnect()">Reconnect</button></p>
+    }
+    <form (submit)="add($event, title)">
+      <input #title required maxlength="200" />
+      <button [disabled]="adding.status() !== 'open'">Add</button>
+    </form>
+  `,
+})
 export default class Live {
   readonly #rpc = injectRpc();
   readonly #route = injectRoute();
-  readonly #stop = new AbortController();
-  // The route's resolver reads the list with a query, during server rendering too.
-  protected readonly todos = linkedSignal(() => this.#route.data().todos);
+  // The server renders the resolver's list; after hydration the stream follows it.
+  protected readonly todos = this.#rpc.live.watch.connect({
+    initial: () => this.#route.data().todos,
+  });
+  protected readonly adding = this.#rpc.live.add.connect({ initial: () => null });
 
-  constructor() {
-    inject(DestroyRef).onDestroy(() => this.#stop.abort());
-    afterNextRender(() => void this.#follow());
-  }
+  protected async add(event: SubmitEvent, input: HTMLInputElement): Promise<void> {
+    event.preventDefault();
 
-  async #follow(): Promise<void> {
     try {
-      for await (const todos of this.#rpc.live.watch({ signal: this.#stop.signal })) {
-        this.todos.set(todos);
-      }
-    } catch (error) {
-      // Show that the list stopped updating, or iterate again after a TypeError.
+      await this.adding.send({ title: input.value.trim() });
+      input.value = "";
+    } catch {
+      // adding.status() and adding.error() say why.
     }
   }
 }
 ```
 
-TanStack Query options aren't generated for streams; see the [TanStack Query guide](tanstack-query/README.md#limitations).
+The options are:
+
+| Option    | Effect                                                                                                                                                                                                                                                                                                |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input`   | Read reactively. A change closes the connection and opens a new one; `undefined` keeps it closed with status `"idle"`. Required for a procedure with input, returning its input. A procedure without input connects by default; a function returning `null` connects and `undefined` keeps it closed. |
+| `initial` | The value until the first value arrives, read reactively until then; also what the server renders.                                                                                                                                                                                                    |
+| `reduce`  | Optional. `(state, value) => state` folds each value into the state, starting from `initial()` for each new call. Without it, the state is the latest value.                                                                                                                                          |
+
+It returns a connection:
+
+| Member        | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`       | A signal of the state. It's kept through failures and reconnects until a value from the new call replaces it.                                                                                                                                                                                                                                                                                                                          |
+| `status`      | A signal of `"idle"` (no input, or on the server), `"connecting"`, `"open"`, `"ended"` (the handler ended) or `"failed"`.                                                                                                                                                                                                                                                                                                              |
+| `error`       | A signal of what failed it while `"failed"`: the procedure's `RpcError` (narrow it with the callable's `isError`), an `RpcRedirect` or `RpcNotFound`, a `TypeError` for a lost or refused connection, or the `Error` `reduce` threw (anything else it throws becomes an `Error` with it as `cause`); `undefined` otherwise.                                                                                                            |
+| `reconnect()` | After `"ended"` or `"failed"`, opens a new call, starting from the handler's first value. Does nothing otherwise.                                                                                                                                                                                                                                                                                                                      |
+| `send()`      | Channels only. Waits while connecting and for the server's room while open, and resolves once the message is handed to the socket. Rejects with a `TypeError` while idle, ended or failed; with the same error `error()` shows when the connection fails while it waits, also when `reduce` throws; and with an `AbortError` when Launch closes the call first, for a new input, `reconnect()` or the injection context's destruction. |
+
+On the server it never connects: `status` is `"idle"` and `value` is `initial()`. In the browser it connects after the next render. It doesn't use `HttpClient` or Angular's pending tasks, so an open connection never keeps the app from becoming stable, and destroying the injection context closes it. It reads every value as it arrives, so channel sends never stall the way they can [when you iterate yourself](#calling-channels).
+
+- A failed connection keeps showing the last value; show `status()` or `error()` next to it so the page doesn't look current.
+- Every change of `input` reconnects, without a debounce.
+- The first render shows `initial()`, also after hydration, until the first value arrives.
+- `reduce` runs untracked and must be pure; what it throws fails the connection.
+- A `send` you don't await or catch surfaces its rejection as an unhandled rejection.
 
 ### With TanStack Query
 
@@ -765,11 +884,43 @@ Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even w
 
 Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
 
-Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally. Streams have been verified on Node, under `ng serve` and on Deno.
+Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally. Streams have been verified on Node, under `ng serve` and on Deno. Channels have been verified on the built Node server in Chromium, Firefox and WebKit; `ng serve` doesn't forward websocket upgrades to them yet, so under the dev server a channel fails with a `TypeError`.
 
 ### Streams behind proxies
 
 Stream responses carry `Cache-Control: private, no-store, no-transform` and `X-Accel-Buffering: no`, which tell compression middleware that honors `no-transform` and buffering proxies such as nginx to pass them through as they're written. Go's reverse proxy, which Tailscale Serve uses, passes `text/event-stream` responses through as they're written anyway. Each open stream holds a connection: over HTTP/1.1, browsers open at most 6 per origin, so several open streams can hold up other requests. Over HTTP/2, usually with HTTPS, they share one connection.
+
+### Channels on Node
+
+Channels arrive as websocket upgrades, which Node hands to the HTTP server's `upgrade` listeners instead of its request handler. `createUpgradeHandler` from `@loozo/angular-launch/node` turns the generated `handleUpgrade` into such a listener. Create it once, at your server module's top level, and attach it to the server that serves the app: with Express, the server `app.listen()` returns, as in the [server entry](#4-wire-the-browser-and-server-apps); with plain Node:
+
+```ts
+// src/server.ts
+import { createServer } from "node:http";
+import { createUpgradeHandler } from "@loozo/angular-launch/node";
+import { handleUpgrade } from "../generated/server.generated";
+
+const upgrade = createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }));
+
+if (isMainModule(import.meta.url)) {
+  const server = createServer(reqHandler).listen(port);
+
+  server.on("upgrade", upgrade);
+}
+```
+
+Pass `handleUpgrade` the same `allowedHosts` and `origins` as `handleRequest`: it checks [hosts](#hosts) and [origins](#cross-origin-requests) the same way, before a context exists. The listener builds a web `Request` from the upgrade (the protocol from the socket, the host from `Host`; like Angular's default, it trusts no proxy headers), writes refusals to the socket as plain HTTP responses, and accepts the rest with [`ws`](https://github.com/websockets/ws), with the call's headers and cookies on the `101`. Upgrades outside `/_rpc/` are left to the server's other `upgrade` listeners. It pings each open socket every 15 seconds and drops one that doesn't answer, and closes a socket whose message is over `maxPayload` bytes with 1009, which the client sees as a `TypeError`:
+
+```ts
+createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }), {
+  maxPayload: 64 * 1024, // defaults to 1 MiB
+});
+```
+
+- **Memory:** an open channel holds at most about 1 MiB of unsent values plus 32 unread messages of up to `maxPayload` each. How many channels may be open at once is up to your host or proxy.
+- **Leaving early:** a client that leaves while the context or middleware still run ends the call before its handler starts when its browser closes the connection (Chromium and WebKit do); Firefox's leaving isn't noticed until the upgrade is accepted, when the socket closes at once.
+- **HTTP/2:** Node's `http2` server doesn't accept websockets over HTTP/2 (RFC 8441) by default. Browsers then open the channel over HTTP/1.1, so serve that too.
+- **Other frameworks:** the listener needs the Node `upgrade` event. Express and plain Node give it as shown; Hono's `@hono/node-server` needs its own upgrade wiring, which isn't covered here.
 
 ### Hosts
 
@@ -823,6 +974,7 @@ export const reqHandler = createRequestHandler(async (request: Request) => {
 - Import from `@angular/ssr`, not `@angular/ssr/node`. `AngularAppEngine` doesn't read `NG_ALLOWED_HOSTS` or `NG_TRUST_PROXY_HEADERS`: pass `allowedHosts`, and `trustProxyHeaders` if you're behind a proxy (it's off by default), to its constructor, and the same hosts to `handleRequest`. List them in the entry as above, or read them from your platform's configuration.
 - The bundle neither serves the `browser` files nor starts a server. Point your platform's static hosting at `dist/<app>/browser` and its request handler at the exported `reqHandler`.
 - Nothing polyfills Node modules for you, so your context, handlers and their dependencies must run on the platform. In-memory state lasts only as long as the platform keeps an instance alive.
+- `handleUpgrade` takes a web `Request` and runs a channel on any standard `WebSocket` the platform accepts, sending `headers` on its `101` response, but it hasn't been verified on Deno or workerd, and neither has workerd's `bufferedAmount`, which the server's flow control reads.
 
 ### Aborted requests
 
@@ -889,7 +1041,7 @@ if (isMainModule(import.meta.url)) {
 export const reqHandler = createRequestHandler(app.fetch);
 ```
 
-Export the handler as `reqHandler`; Angular's dev server and build don't look for a default export. Whether `@hono/node-server` aborts `c.req.raw.signal` when a client disconnects is unverified, so don't rely on handlers seeing an abort there. Under `ng serve`, `serveStatic` logs that the `browser` directory doesn't exist. That's expected: the dev server serves those files itself.
+Export the handler as `reqHandler`; Angular's dev server and build don't look for a default export. [Channels](#channels-on-node) need their own upgrade wiring with Hono, which isn't covered here. Whether `@hono/node-server` aborts `c.req.raw.signal` when a client disconnects is unverified, so don't rely on handlers seeing an abort there. Under `ng serve`, `serveStatic` logs that the `browser` directory doesn't exist. That's expected: the dev server serves those files itself.
 
 ## Generation
 
@@ -915,7 +1067,7 @@ Generation reads your source without running it. It writes the router's files pl
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `rpc.generated.ts` beside each route    | `injectRpc()` with the route's own and ancestor groups, plus `injectQueries()` with `tanstackQuery`; none for redirect routes |
 | `<outDirectory>/context.generated.d.ts` | Registers your context type                                                                                                   |
-| `<outDirectory>/server.generated.ts`    | `createContext`, `handleRequest`, `provideServer`, the registry                                                               |
+| `<outDirectory>/server.generated.ts`    | `createContext`, `handleRequest`, `handleUpgrade`, `provideServer`, the registry                                              |
 
 Each file starts with an ownership marker comment. Generation only replaces or removes files with those exact names and markers, fails rather than overwrite an unmarked file or a symlink in their place, and removes stale ones. Unchanged files aren't rewritten. Everything is validated before anything is written, so a run that fails validation changes nothing. Files are then written one at a time, with no rollback: a write error partway through, such as an unwritable file, or an interrupted run can leave some files updated and others not. The next successful run repairs them.
 
@@ -923,7 +1075,7 @@ Before writing, generation type-checks the generated files, your route and RPC d
 
 Generated browser code contains only names, kinds and error metadata, never your schemas, handlers or context. Keep server-only modules out of anything a page imports at runtime; the example names them `*.server.ts`.
 
-`server.generated.ts` binds Launch's internal `createRequestScope`, `handleRpc` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name, the generation tsconfig's path within the app, and the context file's path and contents, so moving the whole app directory doesn't change it.
+`server.generated.ts` binds Launch's internal `createRequestScope`, `handleRpc`, `handleChannelUpgrade` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name, the generation tsconfig's path within the app, and the context file's path and contents, so moving the whole app directory doesn't change it.
 
 RPC URLs are `/_rpc/<namespace>/<procedure>`, so they change only when you rename a namespace or procedure. Moving an `rpc.ts` or the generation tsconfig doesn't change them. The example doesn't commit generated files: every build regenerates them, and its `check` configuration (`ng run todos:build:check`) verifies them without writing.
 
@@ -979,7 +1131,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
-- No websockets. Streams don't reconnect or resume on their own, and HTTP interceptors don't see them.
+- Streams and channels don't reconnect or resume on their own (`connect()` reconnects when asked or when its input changes), and HTTP interceptors don't see them. Channels carry strict JSON text only, one call per socket, with no acknowledgements, and don't run under `ng serve` yet.
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.

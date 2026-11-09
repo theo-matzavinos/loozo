@@ -205,6 +205,11 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
 
     for (const changed of [
       valid.clone({ body: "bad JSON" }),
+      // JSON.parse reads an overflowing number as Infinity, which isn't strict JSON.
+      valid.clone({
+        body: '{"input":{"nested":[1e400]}}',
+        setHeaders: { "content-type": "application/json" },
+      }),
       valid.clone({ body: { input: "x", extra: true } }),
       valid.clone({ method: "PUT" }),
       valid.clone({ url: `${path}?extra=1` }),
@@ -213,7 +218,13 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
     }
   });
 
-  for (const body of ["not JSON", "{}", '{"input":"x","extra":true}']) {
+  for (const body of [
+    "not JSON",
+    "{}",
+    '{"input":"x","extra":true}',
+    '{"input":1e400}',
+    '{"input":{"nested":[-1e400]}}',
+  ]) {
     assert.deepEqual(await http(registry, body), expected);
   }
 

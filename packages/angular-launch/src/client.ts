@@ -1,11 +1,19 @@
 import type {
   ErrorDefinitions,
   Group,
+  InputOf,
   OutputOf,
   Procedure,
   ProcedureKind,
   Schema,
 } from "./server/definitions.js";
+import type { Channel } from "./channel.js";
+import type {
+  ChannelConnector,
+  ConnectInput,
+  OptionalConnectInput,
+  StreamConnector,
+} from "./connect.js";
 import { serializeJson } from "./json.js";
 import { isInvalidInputData, type InvalidInputData } from "./input-issues.js";
 
@@ -53,6 +61,19 @@ export interface StreamCallOptions {
    * @remarks
    * Ending iteration early, such as with `break`, also closes the request. On the server,
    * the stream's middleware and handler see their `signal` abort.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/** Per-call options for a generated channel callable. */
+export interface ChannelCallOptions {
+  /**
+   * Aborts the channel: its socket closes, iteration rejects with a `DOMException` named
+   * `AbortError`, and messages waiting to be sent reject with it too.
+   *
+   * @remarks
+   * Ending iteration early, such as with `break`, also closes the socket. On the server, the
+   * channel's middleware and handler see their `signal` abort.
    */
   readonly signal?: AbortSignal;
 }
@@ -341,7 +362,7 @@ type DeclaredError<Errors extends ErrorDefinitions> = {
  * @typeParam Value - A procedure created by `query` or `mutation`.
  */
 export type ClientRpcError<Value> =
-  Value extends Procedure<infer _Input, infer _Output, infer _Kind, infer Errors>
+  Value extends Procedure<infer _Input, infer _Output, infer _Kind, infer Errors, infer _Message>
     ? FrameworkError | DeclaredError<Errors>
     : never;
 
@@ -349,40 +370,63 @@ type Options<Kind extends ProcedureKind> = Kind extends "mutation"
   ? MutationCallOptions
   : Kind extends "stream"
     ? StreamCallOptions
-    : CallOptions;
-type Result<Output, Kind extends ProcedureKind> = Kind extends "stream"
-  ? AsyncIterable<Output extends AsyncIterable<infer Item> ? Item : never>
-  : Promise<Awaited<Output>>;
-type Callable<Input, Output, Kind extends ProcedureKind> =
+    : Kind extends "channel"
+      ? ChannelCallOptions
+      : CallOptions;
+type Item<Output> = Output extends AsyncIterable<infer Value> ? Value : never;
+type Sent<Message> = Message extends Schema ? InputOf<Message> : never;
+type Result<Output, Kind extends ProcedureKind, Message> = Kind extends "stream"
+  ? AsyncIterable<Item<Output>>
+  : Kind extends "channel"
+    ? Channel<Item<Output>, Sent<Message>>
+    : Promise<Awaited<Output>>;
+type Callable<Input, Output, Kind extends ProcedureKind, Message> =
   Input extends Schema<infer Caller, unknown>
-    ? (input: Caller, options?: Options<Kind>) => Result<Output, Kind>
-    : (options?: Options<Kind>) => Result<Output, Kind>;
+    ? (input: Caller, options?: Options<Kind>) => Result<Output, Kind, Message>
+    : (options?: Options<Kind>) => Result<Output, Kind, Message>;
+type InputOption<Input> =
+  Input extends Schema<infer Caller, unknown> ? ConnectInput<Caller> : OptionalConnectInput;
+type Connectable<Input, Output, Kind extends ProcedureKind, Message> = Kind extends "stream"
+  ? {
+      /** Follows the stream as signals; see {@link StreamConnector}. */
+      readonly connect: StreamConnector<InputOption<Input>, Item<Output>>;
+    }
+  : Kind extends "channel"
+    ? {
+        /** Runs the channel as signals; see {@link ChannelConnector}. */
+        readonly connect: ChannelConnector<InputOption<Input>, Item<Output>, Sent<Message>>;
+      }
+    : {};
 /**
  * The generated client callable for a procedure.
  *
  * @remarks
  * The type of `Client<typeof group>["name"]`. A procedure with an input schema is called as
  * `(input, options?)`, where `input` is the schema's input type; one without input is
- * called as `(options?)`. Every call
- * returns a promise of the handler's awaited result. Queries take {@link CallOptions}
- * and mutations take {@link MutationCallOptions}.
+ * called as `(options?)`. A query or mutation call returns a promise of the handler's
+ * awaited result, a stream call an async iterable of its values, and a channel call an open
+ * {@link Channel}. Queries take {@link CallOptions}, mutations
+ * {@link MutationCallOptions}, streams {@link StreamCallOptions} and channels
+ * {@link ChannelCallOptions}. Streams and channels also have `connect()`, which follows them
+ * as signals.
  *
- * @typeParam Value - A procedure created by `query` or `mutation`.
+ * @typeParam Value - A procedure created by `query`, `mutation`, `stream` or `channel`.
  */
 export type ClientProcedure<Value> =
-  Value extends Procedure<infer Input, infer Output, infer Kind, infer Errors>
-    ? Callable<Input, Output, Kind> & {
-        /** Whether the procedure is a `"query"`, a `"mutation"` or a `"stream"`. */
-        readonly kind: Kind;
-        /**
-         * Whether `error` is an {@link RpcError} returned by this exact procedure.
-         *
-         * @param error - A value caught from a call.
-         * @returns `true` only for errors this procedure's calls rejected with, narrowed to
-         * its framework failures and declared errors.
-         */
-        isError(error: unknown): error is FrameworkError | DeclaredError<Errors>;
-      }
+  Value extends Procedure<infer Input, infer Output, infer Kind, infer Errors, infer Message>
+    ? Callable<Input, Output, Kind, Message> &
+        Connectable<Input, Output, Kind, Message> & {
+          /** Whether the procedure is a `"query"`, a `"mutation"`, a `"stream"` or a `"channel"`. */
+          readonly kind: Kind;
+          /**
+           * Whether `error` is an {@link RpcError} returned by this exact procedure.
+           *
+           * @param error - A value caught from a call.
+           * @returns `true` only for errors this procedure's calls rejected with, narrowed to
+           * its framework failures and declared errors.
+           */
+          isError(error: unknown): error is FrameworkError | DeclaredError<Errors>;
+        }
     : never;
 /**
  * The generated client for an RPC group: one callable per procedure.

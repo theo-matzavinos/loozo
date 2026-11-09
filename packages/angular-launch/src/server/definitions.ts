@@ -259,6 +259,7 @@ type JsonContract<Value> = 0 extends 1 & Value
     ? unknown
     : never;
 type InputContract<Input> = Input extends Schema ? JsonContract<InputOf<Input>> : unknown;
+type MessageContract<Message> = Message extends Schema ? JsonContract<InputOf<Message>> : never;
 type ErrorContract<Definitions extends ErrorDefinitions> = {
   readonly [Code in keyof Definitions]: Code extends FrameworkCode | "__proto__"
     ? never
@@ -270,10 +271,10 @@ type JsonResult<Value> =
   Value extends Promise<infer Result> ? Promise<JsonShape<Result>> : JsonShape<Value>;
 
 /**
- * Whether a procedure reads (`"query"`), writes (`"mutation"`) or streams values while it
- * runs (`"stream"`).
+ * Whether a procedure reads (`"query"`), writes (`"mutation"`), streams values while it
+ * runs (`"stream"`) or talks both ways over a websocket (`"channel"`).
  */
-export type ProcedureKind = "query" | "mutation" | "stream";
+export type ProcedureKind = "query" | "mutation" | "stream" | "channel";
 // A stream handler yields strict JSON and returns nothing: a returned value would be lost.
 type StreamResult<Value> =
   Value extends AsyncIterable<infer Item> ? AsyncIterable<JsonShape<Item>, void> : never;
@@ -554,7 +555,7 @@ type CheckChain<Base, Input, Use> = Use extends readonly [infer First, ...infer 
   : [];
 
 /**
- * A procedure created by a group's `query` or `mutation` builder.
+ * A procedure created by a group's `query`, `mutation`, `stream` or `channel` builder.
  *
  * @remarks
  * Procedures are values for `defineRpc`. Their types drive the generated client;
@@ -562,19 +563,26 @@ type CheckChain<Base, Input, Use> = Use extends readonly [infer First, ...infer 
  *
  * @typeParam Input - The input schema, or `undefined` without input.
  * @typeParam Output - The handler's return type.
- * @typeParam Kind - Whether the procedure is a query or a mutation.
+ * @typeParam Kind - Whether the procedure is a query, a mutation, a stream or a channel.
  * @typeParam Errors - The declared errors.
+ * @typeParam Message - A channel's message schema; `undefined` for the other kinds.
  */
 export interface Procedure<
   Input,
   Output,
   Kind extends ProcedureKind = "query",
   Errors extends ErrorDefinitions = {},
+  Message = undefined,
 > {
-  /** Whether the procedure is a `"query"` or a `"mutation"`. */
+  /** Whether the procedure is a `"query"`, a `"mutation"`, a `"stream"` or a `"channel"`. */
   readonly kind: Kind;
   /** The input schema, or `undefined` for a procedure without input. */
   readonly input: Input;
+  /**
+   * The schema a channel validates each message from its caller with; `undefined` for the
+   * other kinds.
+   */
+  readonly message: Message;
   /** The declared errors, as written in the procedure's options. */
   readonly errors: Errors;
   /** The procedure's middleware, in the order it runs. Empty when none was given. */
@@ -657,7 +665,45 @@ export interface StreamOptions<
 }
 
 /**
- * The `query` and `mutation` builders `defineRpc` passes to its callback.
+ * The options a group's `channel` builder takes: those of `stream`, with a required
+ * `message` schema and a handler that also receives the caller's `messages`.
+ */
+export interface ChannelOptions<
+  ContextValue,
+  Input,
+  Message,
+  Use extends readonly AnyMiddleware[],
+  Output,
+  Errors extends ErrorDefinitions,
+> extends Omit<ProcedureOptions<ContextValue, Input, Use, Output, Errors>, "handler"> {
+  /**
+   * The schema the server validates each message from the caller with, when the handler
+   * reads it. Its caller input type is what the client's `send` takes.
+   */
+  readonly message: Message & MessageContract<NoInfer<Message>>;
+  /**
+   * Runs the channel: each value it yields is sent to the caller as strict JSON, until it
+   * returns or throws.
+   */
+  readonly handler: (
+    args: CallArgs<ContextAfter<ContextValue, Use>, OutputOf<Input>> & {
+      /** One factory per declared error code, creating an error to `throw`. */
+      readonly errors: ErrorFactories<Errors>;
+      /**
+       * The caller's messages, validated with `message` as they're read, in arrival order.
+       *
+       * @remarks
+       * One consumer only: a second iterator throws. Iteration ends when the caller closes
+       * the channel. A message that fails validation ends the call with `INVALID_INPUT` and
+       * the schema's issues.
+       */
+      readonly messages: AsyncIterable<OutputOf<Message>>;
+    },
+  ) => Output & StreamResult<NoInfer<Output>>;
+}
+
+/**
+ * The `query`, `mutation`, `stream` and `channel` builders `defineRpc` passes to its callback.
  *
  * @remarks
  * Function properties rather than methods, so destructuring them is safe.
@@ -778,11 +824,54 @@ export interface ProcedureBuilder<ContextValue> {
   >(
     options: StreamOptions<ContextValue, Input, Use, Output, Errors>,
   ) => Procedure<Input, Output, "stream", Errors>;
+  /**
+   * Defines a procedure that talks both ways over a websocket: a channel.
+   *
+   * @remarks
+   * Takes a stream's options plus a required `message` schema. The handler is a stream
+   * handler that also receives `messages`, the caller's messages validated with `message` as
+   * it reads them, written as `handler: async function* ({ context, input, messages }) { … }`.
+   * Each value it yields reaches the caller as soon as the caller has room for it; a slow
+   * reader pauses the handler at its `yield`, and a handler that stops reading `messages`
+   * makes the caller's `send` wait.
+   *
+   * The call runs over `GET /_rpc/<namespace>/<procedure>?input=…` upgraded to a websocket by
+   * the generated `handleUpgrade`, not `handleRequest`. Middleware, input validation and the
+   * handler run before the upgrade's `101` response, which carries the call's cookies and
+   * headers, so cookies follow a stream's rules: set them in middleware before `next()` or in
+   * a handler that isn't a generator. During server rendering a channel fails with
+   * `FORBIDDEN` before any middleware runs.
+   *
+   * @example
+   * ```ts
+   * talk: channel({
+   *   input: chatSchema,
+   *   message: textSchema,
+   *   handler: async function* ({ context, input, messages, signal }) {
+   *     yield { kind: "history", messages: await context.chats.history(input.chatId) };
+   *
+   *     for await (const message of messages) {
+   *       yield { kind: "answer", text: await context.chats.answer(input.chatId, message.text, signal) };
+   *     }
+   *   },
+   * }),
+   * ```
+   */
+  readonly channel: <
+    Input extends Schema | undefined = undefined,
+    Message extends Schema = Schema,
+    const Use extends readonly AnyMiddleware[] = [],
+    Output extends AsyncIterable<unknown> = AsyncIterable<unknown>,
+    const Errors extends ErrorDefinitions = {},
+  >(
+    options: ChannelOptions<ContextValue, Input, Message, Use, Output, Errors>,
+  ) => Procedure<Input, Output, "channel", Errors, Message>;
 }
 
 // The runtime view of any builder's options; their types are checked at the call site.
 interface ProcedureSource {
   readonly input?: unknown;
+  readonly message?: unknown;
   readonly use?: readonly AnyMiddleware[];
   readonly errors?: ErrorDefinitions;
   readonly handler: (args: never) => unknown;
@@ -790,14 +879,15 @@ interface ProcedureSource {
 
 function procedure(
   kind: ProcedureKind,
-  { input, use = [], errors = {}, handler }: ProcedureSource,
-): Procedure<unknown, unknown, ProcedureKind, ErrorDefinitions> {
+  { input, message, use = [], errors = {}, handler }: ProcedureSource,
+): Procedure<unknown, unknown, ProcedureKind, ErrorDefinitions, unknown> {
   const { factories, failures } = createErrors(errors);
   const run = handler as (args: object) => unknown;
 
   return {
     kind,
     input,
+    message,
     errors,
     use,
     handler: (args) => run({ ...args, errors: factories }),
@@ -810,6 +900,7 @@ const builder: ProcedureBuilder<never> = {
   query: (options) => procedure("query", options) as never,
   mutation: (options) => procedure("mutation", options) as never,
   stream: (options) => procedure("stream", options) as never,
+  channel: (options) => procedure("channel", options) as never,
 };
 
 /**
@@ -821,7 +912,7 @@ const builder: ProcedureBuilder<never> = {
  */
 // Existential boundary: the producer proves every binding is a genuine builder call.
 export interface ProcedureDefinition {
-  /** Whether the procedure is a `"query"` or a `"mutation"`. */
+  /** Whether the procedure is a `"query"`, a `"mutation"`, a `"stream"` or a `"channel"`. */
   readonly kind: ProcedureKind;
 }
 /**

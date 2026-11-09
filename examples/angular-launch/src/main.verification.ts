@@ -15,6 +15,9 @@ declare global {
   var __launchCompleteMissing: ((id: string) => Promise<{ code: string; id: string }>) | undefined;
   var __launchNavigate: ((url: string) => Promise<boolean>) | undefined;
   var __launchStable: Promise<true> | undefined;
+  var __launchChannel:
+    | ((titles: string[]) => Promise<{ lists: number[]; outcome: string }>)
+    | undefined;
   var __launchTicks:
     | ((
         input: { count: number; everyMs: number; fail: boolean },
@@ -97,6 +100,41 @@ globalThis.__launchTicks = async (input, stopAfter) => {
   } catch (error) {
     if (live.live.ticks.isError(error)) {
       return { values, outcome: `${error.name}:${error.code}:${error.status}:${error.message}` };
+    }
+
+    throw error;
+  }
+};
+
+// Adds `titles` over the add channel, sending alongside reading, and closes it after the
+// list that follows the last one.
+globalThis.__launchChannel = async (titles) => {
+  const channel = live.live.add();
+  const lists: number[] = [];
+  const sent = (async () => {
+    for (const title of titles) {
+      await channel.send({ title });
+    }
+  })();
+
+  try {
+    for await (const todos of channel) {
+      lists.push(todos.length);
+
+      if (lists.length === titles.length + 1) {
+        break;
+      }
+    }
+
+    await sent;
+
+    return { lists, outcome: "closed" };
+  } catch (error) {
+    if (live.live.add.isError(error)) {
+      return {
+        lists,
+        outcome: `${error.name}:${error.code}:${error.status}:${JSON.stringify(error.data)}`,
+      };
     }
 
     throw error;

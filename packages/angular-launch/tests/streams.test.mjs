@@ -614,6 +614,7 @@ const rawBodies = {
   "/_rpc/raw/truncated": "event: value\ndata: 1\n\n",
   "/_rpc/raw/batch": "event: value\ndata: 1\n\nevent: value\ndata: 2\n\nevent: end\ndata: null\n\n",
   "/_rpc/raw/garbled": "event: value\ndata: {oops\n\n",
+  "/_rpc/raw/overflow": 'event: value\ndata: {"nested":[1e400]}\n\n',
 };
 
 // The browser client over a real HTTP server whose host cancels the body when the
@@ -727,6 +728,7 @@ function client(platform = "browser") {
           { name: "truncated", input: false, kind: "stream", errors: [] },
           { name: "batch", input: false, kind: "stream", errors: [] },
           { name: "garbled", input: false, kind: "stream", errors: [] },
+          { name: "overflow", input: false, kind: "stream", errors: [] },
           { name: "slowRefusal", input: false, kind: "stream", errors: [] },
         ],
       },
@@ -859,6 +861,10 @@ test("the browser client yields values, ends, reconnects by iterating again and 
     assert.equal(batchError.name, "AbortError");
     assert.deepEqual(await collect(rpc.raw.batch()), [1, 2]);
     await assert.rejects(collect(rpc.raw.garbled()), {
+      name: "TypeError",
+      message: "Launch stream sent an event whose data isn't JSON",
+    });
+    await assert.rejects(collect(rpc.raw.overflow()), {
       name: "TypeError",
       message: "Launch stream sent an event whose data isn't JSON",
     });
