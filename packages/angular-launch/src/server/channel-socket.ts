@@ -260,8 +260,9 @@ export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
   function onClose(): void {
     closed = true;
 
-    // A call that already finished doesn't abort afterwards.
-    if (!stopped && !ending) {
+    // Until the whole call settled, middleware included, closing still cancels it; a call that
+    // already finished doesn't abort afterwards.
+    if (!stopped) {
       controller.abort(new DOMException("Launch channel closed", "AbortError"));
     }
   }

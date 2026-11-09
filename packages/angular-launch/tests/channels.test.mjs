@@ -774,6 +774,45 @@ test("closing ends messages and aborts the signal; a handler waiting for credit 
   assert.equal(flooding.socket.sent.length, 256);
 });
 
+test("closing after the handler ended, while middleware still settles, aborts the call's signal", async () => {
+  const seen = [];
+  const registry = {
+    chat: defineRpc(
+      "chat",
+      ({ channel }) => ({
+        once: channel({
+          message: anySchema,
+          handler: async function* () {
+            yield "only";
+          },
+        }),
+      }),
+      {
+        use: [
+          middleware(async ({ next, signal }) => {
+            const result = await next();
+
+            seen.push("handler done");
+            // Abort-aware cleanup: only cancellation settles it.
+            await new Promise((resolve) => signal.addEventListener("abort", resolve));
+            seen.push("cleanup cancelled");
+
+            return result;
+          }),
+        ],
+      },
+    ),
+  };
+
+  const call = await accepted(registry, upgradeRequest("/_rpc/chat/once"));
+
+  await until(() => seen.includes("handler done"), "the handler to end");
+  call.socket.leave();
+  await until(() => seen.includes("cleanup cancelled"), "the middleware's signal to abort");
+  await settle();
+  assert.deepEqual(call.socket.frames(), [{ value: "only" }]);
+});
+
 test("a client that leaves before accept: the handler doesn't run and next() resolves", async () => {
   const seen = [];
   let gate;
