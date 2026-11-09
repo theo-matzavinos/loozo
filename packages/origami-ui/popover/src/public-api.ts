@@ -1,4 +1,9 @@
-export { OrigamiPopover, OrigamiPopoverOptions, OrigamiPopoverState } from "./popover";
+export {
+  OrigamiPopover,
+  OrigamiPopoverOptions,
+  OrigamiPopoverState,
+  ɵOrigamiPopoverInputOwner,
+} from "./popover";
 export { OrigamiPopoverTrigger, OrigamiPopoverTriggerOptions } from "./popover-trigger";
 export { OrigamiPopoverAnchor, OrigamiPopoverAnchorOptions } from "./popover-anchor";
 export {
