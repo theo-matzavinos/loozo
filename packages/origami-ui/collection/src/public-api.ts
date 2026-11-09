@@ -5,3 +5,7 @@ export { documentOrder as ɵdocumentOrder } from "./document-order";
 export { ɵOrigamiRovingFocusContext, ɵOrigamiRovingFocusOptions } from "./roving-focus";
 export { ɵrequestSingleSelection, ɵrequestMultipleSelection } from "./selection";
 export { ɵmatchTypeahead, ɵTypeaheadBuffer } from "./typeahead";
+export { moveActiveOption as ɵmoveActiveOption } from "./active-option";
+export type { ActiveOptionMove as ɵActiveOptionMove } from "./active-option";
+export { ɵOrigamiListbox } from "./listbox";
+export type { ɵOrigamiListboxOption, ɵOrigamiListboxReveal } from "./listbox";

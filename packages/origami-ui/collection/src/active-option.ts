@@ -1,8 +1,8 @@
 /**
- * The Select's active-option rules: where a key moves the highlighted option. Pure and
- * framework-free; the Select Context feeds them its registered options in DOM order at event time.
- * Typeahead is the shared `ɵmatchTypeahead` and `ɵTypeaheadBuffer` from /collection.
- * Package-private.
+ * Active-option rules: where a key moves the highlighted option of an active-descendant listbox.
+ * Pure and framework-free; the shared listbox core (`ɵOrigamiListbox`) and the widget Contexts
+ * that hold it feed them registered options in DOM order at event time. Package-private,
+ * exported as `ɵmoveActiveOption` and `ɵActiveOptionMove`.
  */
 
 /** What the rules read from an option, at event time. */
@@ -10,13 +10,17 @@ export interface ActiveOptionCandidate {
   disabled(): boolean;
 }
 
-/** A keyboard move of the active option. Moves don't wrap; pages move ten enabled options. */
+/**
+ * @internal Package-private, exported as `ɵActiveOptionMove`. A keyboard move of the active
+ * option. Moves don't wrap; pages move ten enabled options.
+ */
 export type ActiveOptionMove = "first" | "last" | "next" | "previous" | "pageUp" | "pageDown";
 
 const pageSize = 10;
 
 /**
- * The option a move lands on.
+ * @internal Package-private, exported as `ɵmoveActiveOption` for the listbox widgets; not an
+ * application API. The option a move lands on.
  * @param options - Registered options in DOM order.
  * @param active - The current active option, or null. A disabled or unregistered active option
  *   keeps its DOM position: the next move goes to the enabled option after it.

@@ -3,7 +3,6 @@ import {
   Directive,
   ElementRef,
   HostAttributeToken,
-  afterRenderEffect,
   computed,
   forwardRef,
   inject,
@@ -58,15 +57,6 @@ export abstract class OrigamiSelectContentOptions {
   static provideFactory(factory: () => OrigamiSelectContentOptions): Provider {
     return { provide: OrigamiSelectContentOptions, useFactory: factory };
   }
-}
-
-/** Whether `element` scrolls its block axis: its content overflows and `overflow-y` clips it. */
-function scrolls(element: HTMLElement): boolean {
-  const overflow = getComputedStyle(element).overflowY;
-
-  return (
-    element.scrollHeight > element.clientHeight && overflow !== "visible" && overflow !== "clip"
-  );
 }
 
 /**
@@ -175,13 +165,7 @@ export class OrigamiSelectContent implements OrigamiSelectContentOptions {
     this.#floating = presentation;
 
     // After the reveal, so the list has its final size and position.
-    afterRenderEffect(() => {
-      const reveal = this.#context.reveal();
-
-      if (reveal !== null && this.#floating.ready()) {
-        this.#scroll(reveal.option.element);
-      }
-    });
+    this.#context.scrollReveals(this.#element, () => this.#floating.ready());
   }
 
   /** @internal Registers Content's participation once Angular has set its inputs. */
@@ -195,29 +179,5 @@ export class OrigamiSelectContent implements OrigamiSelectContentOptions {
   /** @internal Keeps focus on the Trigger: a press inside the list doesn't move it. */
   protected pressed(event: MouseEvent): void {
     event.preventDefault();
-  }
-
-  /** Scrolls the option's nearest scrolling box inside Content, else Content, to show it. */
-  #scroll(option: HTMLElement): void {
-    let box = option.parentElement;
-
-    while (box !== null && box !== this.#element && !scrolls(box)) {
-      box = box.parentElement;
-    }
-
-    if (box === null) {
-      return;
-    }
-
-    const bounds = box.getBoundingClientRect();
-    const top = bounds.top + box.clientTop;
-    const bottom = top + box.clientHeight;
-    const rect = option.getBoundingClientRect();
-
-    if (rect.top < top) {
-      box.scrollTop -= top - rect.top;
-    } else if (rect.bottom > bottom) {
-      box.scrollTop += rect.bottom - bottom;
-    }
   }
 }

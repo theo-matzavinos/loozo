@@ -3,9 +3,9 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-// The package-private selection and focus rules in Node: the shared write rules and typeahead
-// through the installed package's ɵ exports, and the Select's active-option model and the roving
-// focus's targets, which no entry point exports, through their framework-free sources.
+// The package-private selection and focus rules in Node: the shared write rules, typeahead and
+// the listbox core's active-option model through the installed package's ɵ exports, and the
+// roving focus's targets, which no entry point exports, through their framework-free sources.
 const consumer = createRequire(resolve(".scratch/consumer/package.json"));
 
 async function load(specifier) {
@@ -20,10 +20,8 @@ const {
   ɵrequestMultipleSelection,
   ɵmatchTypeahead: matchTypeahead,
   ɵTypeaheadBuffer: TypeaheadBuffer,
+  ɵmoveActiveOption: moveActiveOption,
 } = await load("@loozo/origami-ui/collection");
-const { moveActiveOption } = await import(
-  pathToFileURL(resolve("select/src/active-option.ts")).href
-);
 const { targetOf, searchable } = await import(
   pathToFileURL(resolve("collection/src/roving-targets.ts")).href
 );
@@ -377,5 +375,5 @@ function shadow(host) {
 }
 
 console.log(
-  "Selection and focus rules: generic single and multiple writes compare with ===; the Select's active-option moves; typeahead and its buffer; roving edge entry and search candidates; document order across shadow roots.",
+  "Selection and focus rules: generic single and multiple writes compare with ===; the listbox core's active-option moves; typeahead and its buffer; roving edge entry and search candidates; document order across shadow roots.",
 );
