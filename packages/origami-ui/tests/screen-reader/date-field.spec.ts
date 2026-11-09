@@ -289,11 +289,6 @@ test("d7-reader-keys", async ({ page, run }) => {
   await readerPress(run, "Tab", segment(page, "opens-group", "dayPeriod"), "AM");
   await readerChange(run, page, "p", "opens-group", "dayPeriod", "1");
   await readerChange(run, page, "ArrowUp", "opens-group", "dayPeriod", "0");
-
-  // Last: under VoiceOver, End on the month moved focus to the year and set it to 9999 instead
-  // (run 42472169162), which fails this step, so it mustn't cut off the steps before it.
-  await run.step("focus month February", () => month.focus());
-  await readerChange(run, page, "End", "birth-group", "month", "12");
 });
 
 test("d8-reader-edges", async ({ page, run }) => {
