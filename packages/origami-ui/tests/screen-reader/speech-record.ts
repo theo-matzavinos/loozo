@@ -14,6 +14,45 @@ export interface InsertionState {
   hostConnected?: boolean;
 }
 
+/**
+ * One page event around a key sent through the reader, logged in the order the page saw it.
+ * Targets read as `<group test ID>/<segment>` for a date field segment, else the nearest test ID,
+ * else the element's name.
+ */
+export interface PageEvent {
+  /** Milliseconds since the trace started, just before the key was sent. */
+  at: number;
+  /**
+   * `keydown-handled` is the same keydown once every page handler ran; `valuenow` an
+   * `aria-valuenow` change. The others are DOM events, logged before any page handler ran.
+   */
+  type:
+    | "keydown"
+    | "keydown-handled"
+    | "keyup"
+    | "beforeinput"
+    | "input"
+    | "focusin"
+    | "focusout"
+    | "selectionchange"
+    | "valuenow";
+  target: string;
+  key?: string;
+  code?: string;
+  /** The modifiers held, space-separated: `alt ctrl meta shift`. */
+  modifiers?: string;
+  trusted?: boolean;
+  /** Whether a page handler prevented the keydown; `keydown-handled` only. */
+  defaultPrevented?: boolean;
+  /** Where focus came from or went to; `focusin` and `focusout` only. */
+  related?: string;
+  inputType?: string;
+  /** The selection's anchor, `<target>@<offset>`, or `none`; `selectionchange` only. */
+  selection?: string;
+  /** The new `aria-valuenow`, null once removed; `valuenow` only. */
+  value?: string | null;
+}
+
 /** One action and what the reader was asked to say while Guidepup captured it. */
 export interface SpeechStep {
   label: string;
@@ -31,6 +70,8 @@ export interface SpeechStep {
   };
   /** The page when the step's watched toast was inserted; null until it was. */
   atInsertion?: InsertionState | null;
+  /** What the page saw from the key's send until the capture ended; reader-sent keys only. */
+  events?: PageEvent[];
 }
 
 /** An assertion made after a capture, outside any capture window. */

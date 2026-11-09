@@ -17,13 +17,20 @@ import type {
   TestType,
 } from "@playwright/test";
 import { writeRecord } from "./speech-record.js";
-import type { InsertionState, Reader, SpeechRecord, SpeechStep } from "./speech-record.js";
+import type {
+  InsertionState,
+  PageEvent,
+  Reader,
+  SpeechRecord,
+  SpeechStep,
+} from "./speech-record.js";
 
 export { expect };
 
 declare global {
   interface Window {
     speechInsertion?: InsertionState | null;
+    speechTrace?: { events: PageEvent[]; stop: () => void } | null;
   }
 }
 
@@ -51,7 +58,8 @@ export interface Run {
    * handles a person's) in one full capture and records the step, then waits outside the capture
    * for `settled`, the DOM change proving the key reached the page. The step is recorded first, so
    * a key the reader kept, such as a digit NVDA's browse mode takes as a heading jump, still leaves
-   * what was said.
+   * what was said. The step's `events` hold every key, input, focus, selection and `aria-valuenow`
+   * change the page saw from the send until the capture ended.
    */
   readerPress(label: string, key: string, settled: () => Promise<void>): Promise<SpeechStep>;
   /** Runs `assertion` outside any capture and records whether it passed. */
@@ -210,6 +218,183 @@ function watchInsertion(watch: InsertionWatch): void {
   observer.observe(region, { childList: true, subtree: true, characterData: true });
 }
 
+/**
+ * Starts logging, in the page, the events a reader-sent key can cause, in the order the page sees
+ * them: DOM events in the window's capture phase, before any page handler, each keydown again in
+ * its bubble phase once the handlers ran, and `aria-valuenow` changes.
+ */
+function startTrace(): void {
+  const start = performance.now();
+  const events: PageEvent[] = [];
+
+  // Kept inside this function: Playwright serializes it into the page on its own.
+  const describe = (node: EventTarget | null): string => {
+    let element: Element | null = null;
+
+    if (node instanceof Element) {
+      element = node;
+    } else if (node instanceof Node) {
+      element = node.parentElement;
+    }
+
+    if (element === null) {
+      return "none";
+    }
+
+    if (element === document.body) {
+      return "body";
+    }
+
+    const segment = element.closest("[data-segment]");
+    const owner = element.closest("[data-testid]");
+    const testId = owner?.getAttribute("data-testid") ?? null;
+
+    if (segment !== null) {
+      return `${testId ?? "?"}/${segment.getAttribute("data-segment")}`;
+    }
+
+    if (testId !== null) {
+      return testId;
+    }
+
+    return element.localName;
+  };
+  const at = (): number => Math.round((performance.now() - start) * 10) / 10;
+  const modifiers = (event: KeyboardEvent): string => {
+    const held: string[] = [];
+
+    for (const [name, isHeld] of [
+      ["alt", event.altKey],
+      ["ctrl", event.ctrlKey],
+      ["meta", event.metaKey],
+      ["shift", event.shiftKey],
+    ] as const) {
+      if (isHeld) {
+        held.push(name);
+      }
+    }
+
+    return held.join(" ");
+  };
+  const logKey = (event: KeyboardEvent, type: "keydown" | "keydown-handled" | "keyup"): void => {
+    const logged: PageEvent = {
+      at: at(),
+      type,
+      target: describe(event.target),
+      key: event.key,
+      code: event.code,
+      modifiers: modifiers(event),
+      trusted: event.isTrusted,
+    };
+
+    if (type === "keydown-handled") {
+      logged.defaultPrevented = event.defaultPrevented;
+    }
+
+    events.push(logged);
+  };
+  const keydown = (event: KeyboardEvent): void => logKey(event, "keydown");
+  const keydownHandled = (event: KeyboardEvent): void => logKey(event, "keydown-handled");
+  const keyup = (event: KeyboardEvent): void => logKey(event, "keyup");
+  const input = (event: Event): void => {
+    let type: "beforeinput" | "input" = "input";
+
+    if (event.type === "beforeinput") {
+      type = "beforeinput";
+    }
+
+    const logged: PageEvent = { at: at(), type, target: describe(event.target) };
+
+    if (event instanceof InputEvent) {
+      logged.inputType = event.inputType;
+    }
+
+    events.push(logged);
+  };
+  const focus = (event: FocusEvent): void => {
+    let type: "focusin" | "focusout" = "focusout";
+
+    if (event.type === "focusin") {
+      type = "focusin";
+    }
+
+    events.push({
+      at: at(),
+      type,
+      target: describe(event.target),
+      related: describe(event.relatedTarget),
+    });
+  };
+  const selectionChange = (): void => {
+    const selection = document.getSelection();
+    let anchor = "none";
+
+    if (selection !== null && selection.anchorNode !== null) {
+      anchor = `${describe(selection.anchorNode)}@${selection.anchorOffset}`;
+    }
+
+    events.push({ at: at(), type: "selectionchange", target: "document", selection: anchor });
+  };
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (!(mutation.target instanceof Element)) {
+        continue;
+      }
+
+      events.push({
+        at: at(),
+        type: "valuenow",
+        target: describe(mutation.target),
+        value: mutation.target.getAttribute("aria-valuenow"),
+      });
+    }
+  });
+
+  window.speechTrace?.stop();
+  window.addEventListener("keydown", keydown, { capture: true });
+  window.addEventListener("keydown", keydownHandled);
+  window.addEventListener("keyup", keyup, { capture: true });
+  window.addEventListener("beforeinput", input, { capture: true });
+  window.addEventListener("input", input, { capture: true });
+  window.addEventListener("focusin", focus, { capture: true });
+  window.addEventListener("focusout", focus, { capture: true });
+  document.addEventListener("selectionchange", selectionChange);
+  observer.observe(document.body, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["aria-valuenow"],
+  });
+
+  window.speechTrace = {
+    events,
+    stop() {
+      window.removeEventListener("keydown", keydown, { capture: true });
+      window.removeEventListener("keydown", keydownHandled);
+      window.removeEventListener("keyup", keyup, { capture: true });
+      window.removeEventListener("beforeinput", input, { capture: true });
+      window.removeEventListener("input", input, { capture: true });
+      window.removeEventListener("focusin", focus, { capture: true });
+      window.removeEventListener("focusout", focus, { capture: true });
+      document.removeEventListener("selectionchange", selectionChange);
+      observer.disconnect();
+    },
+  };
+}
+
+/** Stops the trace startTrace began and returns what it logged. */
+function takeTrace(): PageEvent[] {
+  const trace = window.speechTrace;
+
+  if (trace === undefined || trace === null) {
+    throw new Error("No trace is running");
+  }
+
+  trace.stop();
+  window.speechTrace = null;
+
+  return trace.events;
+}
+
 async function useRun(
   { speechReader, page, browser, browserName, readerSettings }: RunContext,
   use: (run: Run) => Promise<void>,
@@ -278,6 +463,8 @@ async function useRun(
     async readerPress(label, key, settled) {
       // Guidepup returns its live log, so only its length is kept.
       const logged = (await speechReader.spokenPhraseLog()).length;
+
+      await page.evaluate(startTrace);
       const startedAt = elapsed();
 
       // Not inside capture(): Guidepup queues press behind the capture in flight, so it would never
@@ -294,6 +481,7 @@ async function useRun(
         endedAt,
         spoken: log.at(-1) ?? "",
         after: await page.evaluate(readAfter),
+        events: await page.evaluate(takeTrace),
       };
 
       record.steps.push(step);

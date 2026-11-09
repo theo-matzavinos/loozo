@@ -22,7 +22,9 @@ import { DateSegments } from "./date-field.js";
 // aria-valuetext "Empty" (React Aria's choice), probe four static segments with the placeholder as
 // aria-valuetext, and probe five an empty 12-hour time field. The static segments copy an empty
 // Origami segment's attributes otherwise, with no value or bounds, and do nothing when typed into:
-// only focus is driven on them.
+// only focus is driven on them, and keys sent through the reader to see what it does with no page
+// handler. Probe six is probe three without contenteditable, to tell editable text from a group of
+// spinbuttons.
 
 const placeholders: Record<string, string> = { month: "mm", day: "dd", year: "yyyy" };
 
@@ -199,6 +201,43 @@ const errorMessages: Record<string, string> = {
         <div ogTimeField locale="en-US" [hourCycle]="12">
           <date-segments group="probe5-group" />
         </div>
+      </div>
+
+      <span id="probe6-label">Probe six</span>
+      <div role="group" aria-labelledby="probe6-label" data-testid="probe6-group">
+        <span
+          id="probe6-month"
+          role="spinbutton"
+          tabindex="0"
+          inputmode="numeric"
+          aria-label="month"
+          aria-labelledby="probe6-label probe6-month"
+          aria-valuetext="Empty"
+          data-segment="month"
+          >––</span
+        ><span aria-hidden="true">/</span
+        ><span
+          id="probe6-day"
+          role="spinbutton"
+          tabindex="0"
+          inputmode="numeric"
+          aria-label="day"
+          aria-labelledby="probe6-label probe6-day"
+          aria-valuetext="Empty"
+          data-segment="day"
+          >––</span
+        ><span aria-hidden="true">/</span
+        ><span
+          id="probe6-year"
+          role="spinbutton"
+          tabindex="0"
+          inputmode="numeric"
+          aria-label="year"
+          aria-labelledby="probe6-label probe6-year"
+          aria-valuetext="Empty"
+          data-segment="year"
+          >––––</span
+        >
       </div>
     </section>
   `,
