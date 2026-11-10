@@ -205,8 +205,25 @@ exact<Equal<Data["mixed"], { complete: boolean }>>();
 exact<Equal<Data["redirect"], never>>();
 exact<Equal<Data["promisedRedirect"], never>>();
 exact<Equal<Data["observedRedirect"], never>>();
-// @ts-expect-error Data is local only.
-type _Ancestor = Data["ancestor"];
+// Data includes ancestors' resolver results, here through the pathless layout.
+exact<Equal<Data["ancestor"], number>>();
+// @ts-expect-error No route in the chain resolves this key.
+type _Missing = Data["missing"];
+
+// A nearer resolver key hides an ancestor's; symbol keys survive inheritance.
+const nearer = defineRoute("nearer", {
+  parent: symbolData,
+  resolve: { ancestor: () => "nearer" },
+});
+type NearerData = NonNullable<typeof nearer.__data>;
+
+exact<Equal<NearerData["ancestor"], string>>();
+exact<Equal<NearerData[typeof localDataKey], string>>();
+exact<Equal<keyof NearerData, "ancestor" | typeof localDataKey>>();
+
+declare const nearerData: NearerData;
+// @ts-expect-error Inherited data stays readonly.
+nearerData[localDataKey] = "changed";
 defineRoute("static-title", { title: "Static" });
 defineRoute("promised-title", { parent, title: async ({ params }) => `Team ${params.teamId}` });
 // @ts-expect-error A title callback takes parsed inputs, not a snapshot-first native ResolveFn.
@@ -841,6 +858,7 @@ exact<Equal<ReturnType<typeof pagedHandle.search>["page"], number>>();
 exact<Equal<ReturnType<typeof pagedHandle.search>["sort"], "asc" | "desc" | undefined>>();
 exact<Equal<ReturnType<typeof childHandle.params>["teamId"], number>>();
 exact<Equal<ReturnType<typeof childHandle.data>["local"], { label: string }>>();
+exact<Equal<ReturnType<typeof childHandle.data>["ancestor"], number>>();
 void pagedSearch;
 // @ts-expect-error A Signal has no Resource value().
 void pagedHandle.params.value();

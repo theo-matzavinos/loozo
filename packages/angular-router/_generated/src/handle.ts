@@ -2,7 +2,7 @@ import { DestroyRef, computed, inject, signal, type Signal } from "@angular/core
 import { ActivatedRoute, Router, type ActivatedRouteSnapshot } from "@angular/router";
 import { routeMetadata } from "@loozo/angular-router/_core";
 import { merge } from "rxjs";
-import { assertIdentity, parseInputs, type RouteSet } from "./inputs.js";
+import { assertIdentity, hasIdentity, parseInputs, type RouteSet } from "./inputs.js";
 
 /**
  * Signals of the route's committed snapshot. Angular replaces ActivatedRoute.snapshot
@@ -42,22 +42,45 @@ export function observeRoute(
   // Shares the parse of guards and resolvers for the same snapshot. An error here
   // means a codec rejected a value it accepted while matching, and reading rethrows it.
   const inputs = computed(() => parseInputs(set, id, snapshot()));
-  const resolvers = routeMetadata(set.records[id].definition()).config.resolve ?? {};
 
   return {
     params: computed(() => inputs().params),
     search: computed(() => inputs().search),
-    data: computed(() => {
-      const data = snapshot().data;
-      const own: Record<PropertyKey, unknown> = Object.create(null);
-
-      for (const key of Reflect.ownKeys(resolvers)) {
-        if (Object.hasOwn(data, key)) {
-          own[key] = data[key];
-        }
-      }
-
-      return Object.freeze(own);
-    }),
+    data: computed(() => effectiveData(set, id, snapshot())),
   };
+}
+
+/**
+ * The resolver results of the route's whole chain. Each owner's keys come from its
+ * own record of the snapshot, so the result doesn't depend on Angular's
+ * paramsInheritanceStrategy; nearer owners overwrite outer ones.
+ */
+function effectiveData(
+  set: RouteSet,
+  id: string,
+  snapshot: ActivatedRouteSnapshot,
+): Readonly<Record<PropertyKey, unknown>> {
+  const data: Record<PropertyKey, unknown> = Object.create(null);
+
+  for (const ownerId of set.records[id].owners) {
+    const resolvers = routeMetadata(set.records[ownerId].definition()).config.resolve;
+
+    if (!resolvers) {
+      continue;
+    }
+
+    const owner = snapshot.pathFromRoot.findLast((record) => hasIdentity(record, ownerId));
+
+    if (!owner) {
+      throw new Error(`Generated route ancestor missing: ${ownerId}`);
+    }
+
+    for (const key of Reflect.ownKeys(resolvers)) {
+      if (Object.hasOwn(owner.data, key)) {
+        data[key] = owner.data[key];
+      }
+    }
+  }
+
+  return Object.freeze(data);
 }
