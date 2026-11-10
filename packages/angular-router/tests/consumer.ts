@@ -224,6 +224,17 @@ exact<Equal<keyof NearerData, "ancestor" | typeof localDataKey>>();
 declare const nearerData: NearerData;
 // @ts-expect-error Inherited data stays readonly.
 nearerData[localDataKey] = "changed";
+
+// A numeric key and its string spelling are one property, in either direction.
+const numbered = defineRoute("numbered", { resolve: { 1: () => 123 } });
+const spelled = defineRoute("spelled", { parent: numbered, resolve: { "1": () => "spelled" } });
+const renumbered = defineRoute("renumbered", { parent: spelled, resolve: { 1: () => true } });
+type SpelledData = NonNullable<typeof spelled.__data>;
+type RenumberedData = NonNullable<typeof renumbered.__data>;
+
+exact<Equal<SpelledData["1"], string>>();
+exact<Equal<RenumberedData[1], boolean>>();
+exact<Equal<keyof RenumberedData, 1>>();
 defineRoute("static-title", { title: "Static" });
 defineRoute("promised-title", { parent, title: async ({ params }) => `Team ${params.teamId}` });
 // @ts-expect-error A title callback takes parsed inputs, not a snapshot-first native ResolveFn.

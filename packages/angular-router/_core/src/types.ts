@@ -115,11 +115,18 @@ export type LocalData<Resolvers> = { readonly [Key in keyof Resolvers]: Resolved
  * Resolver data of a declaration's whole chain: the parent's effective data with
  * the local results laid over it, so a local key hides an inherited key of the same name.
  */
-export type EffectiveData<Resolvers, Parent> = Omit<
+export type EffectiveData<Resolvers, Parent> = Unshadowed<
   Parent extends { readonly __data?: infer Data } ? Data : {},
   keyof Resolvers
 > &
   LocalData<Resolvers>;
+// JavaScript property identity: a numeric key and its string spelling are one property.
+type KeyIdentity<Key> = Key extends number ? `${Key}` : Key;
+type Unshadowed<Inherited, Local> = {
+  readonly [Key in keyof Inherited as KeyIdentity<Key> extends KeyIdentity<Local>
+    ? never
+    : Key]: Inherited[Key];
+};
 /**
  * Shared parsed inputs supplied to typed guards and resolvers.
  * The container and maps are shallow-frozen; nested codec values remain opaque.
