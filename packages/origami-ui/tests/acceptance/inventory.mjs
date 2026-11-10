@@ -268,6 +268,14 @@ export const inventory = {
     "OrigamiSliderTrack",
     "OrigamiSliderThumb",
   ],
+  "number-field": [
+    "OrigamiNumberField",
+    "OrigamiNumberFieldOptions",
+    "OrigamiNumberFieldState",
+    "OrigamiNumberFieldInput",
+    "OrigamiNumberFieldIncrement",
+    "OrigamiNumberFieldDecrement",
+  ],
 };
 
 export const typeOnly = new Set([
