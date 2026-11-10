@@ -827,18 +827,20 @@ test("NF11 a change of locale, fraction digits or grouping shows the value again
 });
 
 /**
- * Loads the fixture with bootstrap held and runs `before` while the fixture is still the server's:
- * under eager hydration before the application bootstraps, under incremental hydration once the
- * shell attached with the fixture's block still dehydrated, so `before` is what hydrates it.
+ * Loads the fixture at `url` with bootstrap held and runs `before` while the fixture is still the
+ * server's: under eager hydration before the application bootstraps, under incremental hydration
+ * once the shell attached with the fixture's block still dehydrated, so `before` is what hydrates
+ * it.
  */
 async function hydrateAfter(
   page: Page,
   info: TestInfo,
   before: () => Promise<void>,
+  url = "/number-field",
 ): Promise<void> {
   const incremental = info.project.metadata.hydration === "incremental";
   const host = page.locator("acceptance-number-field-fixture");
-  const release = await bootstrapHeld(page, "/number-field", info);
+  const release = await bootstrapHeld(page, url, info);
 
   if (incremental) {
     release();
@@ -1004,6 +1006,145 @@ test("NF12 several edits before hydration that leave the server's text as it was
   await replayed(page);
   await expect(counted).toHaveValue("1,23");
   await expect(out(page, "counted-value")).toHaveText("1.23");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+});
+
+/**
+ * Loads the fixture with the application held unstable (`?hold-stability`) and types `3` over the
+ * `3` of the counting field's `1,23` before its block hydrates. Eager hydration replays the
+ * `input` only once the application is stable, so the replay is still waiting when this returns
+ * true: the field still holds 1.234. Incremental hydration replays a block's events as it hydrates
+ * the block, so nothing can come between: the edit has committed 1.23, and this returns false.
+ */
+async function sameTextEditWithReplayHeld(page: Page, info: TestInfo): Promise<boolean> {
+  const counted = field(page, "counted");
+
+  await hydrateAfter(
+    page,
+    info,
+    async () => {
+      await counted.evaluate((element: HTMLInputElement) => {
+        element.focus();
+        element.setSelectionRange(3, 4);
+      });
+      await page.keyboard.type("3");
+    },
+    "/number-field?hold-stability",
+  );
+  await replayed(page);
+  await expect(counted).toHaveValue("1,23");
+
+  if (info.project.metadata.hydration === "incremental") {
+    await expect(out(page, "counted-value")).toHaveText("1.23");
+    await expect(out(page, "counted-sets")).toHaveText("1");
+
+    return false;
+  }
+
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await expect(out(page, "counted-sets")).toHaveText("0");
+
+  return true;
+}
+
+/** Ends the fixture's stability hold, from script so focus stays, and waits for the replay. */
+async function releaseReplay(page: Page): Promise<void> {
+  await page.getByTestId("release-stability").dispatchEvent("click");
+  await replayed(page);
+}
+
+test("NF12 an edit before hydration that leaves the server's text as it was commits once when its replay waits for the application to be stable", async ({
+  page,
+}, info) => {
+  const held = await sameTextEditWithReplayHeld(page, info);
+
+  if (!held) {
+    return;
+  }
+
+  await releaseReplay(page);
+  await expect(field(page, "counted")).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.23");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+});
+
+test("NF12 a value written while the replay of an edit that left the server's text waits keeps its fraction digits", async ({
+  page,
+}, info) => {
+  // 9.876 shows as `9,88`: the replay mustn't take that text as the edit's.
+  const held = await sameTextEditWithReplayHeld(page, info);
+
+  if (!held) {
+    return;
+  }
+
+  await page.getByTestId("counted-write-more").dispatchEvent("click");
+  await expect(field(page, "counted")).toHaveValue("9,88");
+  await expect(out(page, "counted-value")).toHaveText("9.876");
+  await releaseReplay(page);
+  await expect(field(page, "counted")).toHaveValue("9,88");
+  await expect(out(page, "counted-value")).toHaveText("9.876");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+});
+
+test("NF12 a value written while the replay waits keeps its fraction digits also when it shows the server's text", async ({
+  page,
+}, info) => {
+  // 1.2341 shows as `1,23`, the text the edit left: the value tells the write apart.
+  const held = await sameTextEditWithReplayHeld(page, info);
+
+  if (!held) {
+    return;
+  }
+
+  await page.getByTestId("counted-write-same").dispatchEvent("click");
+  await expect(out(page, "counted-value")).toHaveText("1.2341");
+  await releaseReplay(page);
+  await expect(field(page, "counted")).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.2341");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+});
+
+test("NF12 a value written and written back to the server's while the replay waits keeps the written value", async ({
+  page,
+}, info) => {
+  // 9.876, then 1.234 again: the field shows the server's text and value, but the replay's edit
+  // came before both writes.
+  const held = await sameTextEditWithReplayHeld(page, info);
+
+  if (!held) {
+    return;
+  }
+
+  await page.getByTestId("counted-write-more").dispatchEvent("click");
+  await expect(field(page, "counted")).toHaveValue("9,88");
+  await page.getByTestId("counted-write-server").dispatchEvent("click");
+  await expect(field(page, "counted")).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await releaseReplay(page);
+  await expect(field(page, "counted")).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await expect(out(page, "counted-sets")).toHaveText("2");
+});
+
+test("NF12 an edit after hydration while the replay of an earlier one that left the server's text waits commits once", async ({
+  page,
+}, info) => {
+  const counted = field(page, "counted");
+  const held = await sameTextEditWithReplayHeld(page, info);
+
+  if (!held) {
+    return;
+  }
+
+  await counted.evaluate((element: HTMLInputElement) => element.setSelectionRange(3, 4));
+  await page.keyboard.type("5");
+  await expect(counted).toHaveValue("1,25");
+  await expect(out(page, "counted-value")).toHaveText("1.25");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+  await releaseReplay(page);
+  await expect(counted).toHaveValue("1,25");
+  await expect(out(page, "counted-value")).toHaveText("1.25");
   await expect(out(page, "counted-sets")).toHaveText("1");
 });
 

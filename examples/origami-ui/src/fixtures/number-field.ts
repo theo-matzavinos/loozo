@@ -1,9 +1,11 @@
 import {
   Component,
+  DOCUMENT,
   Directive,
   ElementRef,
   LOCALE_ID,
   PLATFORM_ID,
+  PendingTasks,
   TemplateRef,
   ViewContainerRef,
   booleanAttribute,
@@ -231,6 +233,25 @@ export class ClickOnInit implements AfterViewInit {
   }
 }
 
+/**
+ * In the browser, with `?hold-stability` in the URL, a pending task that keeps the application
+ * unstable until the returned function runs: eager hydration replays the events that reached the
+ * server's elements only once the application is stable (NF12). Null otherwise.
+ */
+function holdStability(): (() => void) | null {
+  if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+    return null;
+  }
+
+  const query = new URLSearchParams(inject(DOCUMENT).location.search);
+
+  if (!query.has("hold-stability")) {
+    return null;
+  }
+
+  return inject(PendingTasks).add();
+}
+
 function errorKinds(state: FieldState<number | null>): string {
   const kinds: string[] = [];
 
@@ -255,6 +276,7 @@ function parseKinds(state: OrigamiNumberFieldState): string {
  * `LOCALE_ID` is `el-GR` on the server and in the browser, as in the consumer applications. The
  * host's `data-client-rendered` is absent in server HTML and set once the browser renders the
  * fixture: NF12 reads it to know its action reached a block that was still dehydrated.
+ * `release-stability` ends the hold `?hold-stability` takes (see `holdStability`).
  */
 @Component({
   selector: "acceptance-number-field-fixture",
@@ -284,6 +306,9 @@ function parseKinds(state: OrigamiNumberFieldState): string {
     </button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
     <button type="button" data-testid="before-fields">Before the fields</button>
+    <button type="button" data-testid="release-stability" (click)="releaseStability()">
+      Let the application become stable
+    </button>
 
     <section>
       <h2>Direct, in a Field</h2>
@@ -467,6 +492,15 @@ function parseKinds(state: OrigamiNumberFieldState): string {
       </div>
       <output data-testid="counted-value">{{ counted.state.value() ?? "null" }}</output>
       <output data-testid="counted-sets">{{ counted.sets() }}</output>
+      <button type="button" data-testid="counted-write-more" (click)="counted.value.set(9.876)">
+        Write 9.876
+      </button>
+      <button type="button" data-testid="counted-write-same" (click)="counted.value.set(1.2341)">
+        Write 1.2341
+      </button>
+      <button type="button" data-testid="counted-write-server" (click)="counted.value.set(1.234)">
+        Write 1.234
+      </button>
 
       <h2>Left before the first render</h2>
       <output data-testid="early-touches">{{ earlyTouches() }}</output>
@@ -552,11 +586,17 @@ export class NumberFieldFixture {
   readonly kinds = errorKinds;
   readonly parse = parseKinds;
 
+  readonly #stabilityHold = holdStability();
+
   private readonly droppedHost = viewChild.required("droppedHost", { read: ViewContainerRef });
   private readonly dropped = viewChild.required<TemplateRef<unknown>>("dropped");
 
   constructor() {
     countSets(this.droppedValue, this.droppedSets);
+  }
+
+  releaseStability(): void {
+    this.#stabilityHold?.();
   }
 
   showDropped(): void {
