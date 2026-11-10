@@ -14,6 +14,19 @@ export const launchMarkers = {
   "server.generated.ts": "// @loozo/angular-launch: owned server.generated.ts",
 } as const;
 
+// Git may check committed generated files out with CRLF line endings (core.autocrlf on
+// Windows). Such a file is still owned output, and current when that conversion is all that
+// separates it from the desired bytes; the generator itself always writes LF.
+export function marked(bytes: string, marker: string): boolean {
+  const line = bytes.split("\n", 1)[0];
+
+  return line === marker || line === `${marker}\r`;
+}
+
+function current(bytes: string, expected: string): boolean {
+  return bytes === expected || bytes === expected.replaceAll("\n", "\r\n");
+}
+
 export function contains(directory: string, file: string): boolean {
   const suffix = relative(directory, file);
 
@@ -204,7 +217,8 @@ export async function planOutputs(
     }
 
     const name = path.slice(path.lastIndexOf(sep) + 1);
-    const owned = bytes.split("\n", 1)[0] === ownership[name];
+    const marker = ownership[name];
+    const owned = marker !== undefined && marked(bytes, marker);
 
     if (!owned) {
       if (expected !== undefined) {
@@ -216,7 +230,7 @@ export async function planOutputs(
 
     if (expected === undefined) {
       stale.push(path);
-    } else if (bytes !== expected) {
+    } else if (!current(bytes, expected)) {
       changed.push(path);
     }
   }

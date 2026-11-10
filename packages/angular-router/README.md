@@ -338,7 +338,7 @@ The rest is the usual Angular setup. Give specs their own `tsconfig.spec.json` w
 | `<outDirectory>/destinations.generated.ts` | Shared typing and navigation data (when any route has a page) |
 | `route.generated.ts` beside each route     | `injectRoute()` and `destination`; none for redirect routes   |
 
-Each generated file starts with an ownership marker comment such as `// @loozo/angular-router routegen: owned route.generated.ts`. The builder only replaces or deletes marked files with those exact names. It never overwrites an unmarked file in their place, and it removes stale marked files when their routes disappear. Hand edits to generated files are overwritten.
+Each generated file starts with an ownership marker comment such as `// @loozo/angular-router routegen: owned route.generated.ts`. The builder only replaces or deletes marked files with those exact names. It never overwrites an unmarked file in their place, and it removes stale marked files when their routes disappear. Hand edits to generated files are overwritten. Generated files are written with LF line endings; a copy that Git checked out with CRLF line endings, as it does on Windows by default, counts as up to date.
 
 Generation reads your source without importing or running it. It validates everything (declarations, overlapping routes, redirects, file ownership) before writing anything, so a run that fails validation leaves your files as they were. Files are then written one at a time, with no rollback: if writing fails partway, for example on a file that isn't writable, or the run is interrupted, some files may already be updated. The next successful run repairs them. Unchanged files aren't rewritten, so their modification times stay the same.
 

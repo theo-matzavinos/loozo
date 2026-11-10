@@ -25,9 +25,17 @@ export function overlayHost(options: ts.CompilerOptions, authored: ReadonlyMap<s
   const read = host.readFile.bind(host);
   const exists = host.fileExists.bind(host);
   const directoryExists = host.directoryExists!.bind(host);
+  // On a case-insensitive host, a stale import that still spells a renamed directory's old
+  // casing names the same file as its authored rewrite, and TypeScript keeps whichever
+  // spelling it reaches first; both spellings must read the rewrite.
+  const byName = new Map<string, string>();
+
+  for (const [file, raw] of authored) {
+    byName.set(host.getCanonicalFileName(file), raw);
+  }
 
   host.readFile = (file) => {
-    const raw = authored.get(resolve(file));
+    const raw = byName.get(host.getCanonicalFileName(resolve(file)));
 
     if (raw === undefined) {
       return read(file);
@@ -41,7 +49,7 @@ export function overlayHost(options: ts.CompilerOptions, authored: ReadonlyMap<s
 
     return raw;
   };
-  host.fileExists = (file) => authored.has(resolve(file)) || exists(file);
+  host.fileExists = (file) => byName.has(host.getCanonicalFileName(resolve(file))) || exists(file);
   host.directoryExists = (directory) => {
     for (const file of authored.keys()) {
       if (contains(resolve(directory), file)) {

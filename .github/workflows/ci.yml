@@ -2,7 +2,7 @@ name: CI
 
 # Required checks for pull requests into main: every package's build, check, typecheck
 # and test, the docs-content tool's typecheck and test, Origami's commit gate
-# (test:commit), the router's browser tests and fold's consumer check.
+# (test:commit), the router's browser tests, its Windows and macOS runs and fold's consumer check.
 on:
   pull_request:
   workflow_dispatch:
@@ -102,6 +102,47 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: router-${{ matrix.test }}-evidence
+          path: |
+            ${{ runner.temp }}/evidence/
+            !${{ runner.temp }}/evidence/consumer/
+            !${{ runner.temp }}/evidence/workspace-access/
+          if-no-files-found: ignore
+
+  # The router's Node tests and filesystem proof on the other hosts; checks and router-browser
+  # cover Linux. Their filesystems are case-insensitive and Windows separates paths with "\".
+  router-platforms:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/angular-router
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - run: pnpm run build
+      - run: pnpm test
+      # The filesystem proof runs and reports even when a Node test failed.
+      - if: ${{ !cancelled() }}
+        run: pnpm exec playwright install chromium
+      - if: ${{ !cancelled() }}
+        run: pnpm run test:filesystem "$RUNNER_TEMP/evidence"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: router-${{ matrix.os }}-evidence
           path: |
             ${{ runner.temp }}/evidence/
             !${{ runner.temp }}/evidence/consumer/

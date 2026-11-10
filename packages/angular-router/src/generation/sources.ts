@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parsePath, type Segment } from "../../_core/src/path.js";
-import { auditPath, contains, metadata, walk, workspacePaths, markers } from "./files.js";
+import { auditPath, contains, marked, metadata, walk, workspacePaths, markers } from "./files.js";
 import { overlayDirectory, overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
 import { synchronize, transparent, type AutoDefineRoutes } from "./filesystem.js";
@@ -53,7 +53,10 @@ export function fail(node: ts.Node, message: string): never {
   const source = node.getSourceFile();
   const position = source.getLineAndCharacterOfPosition(node.getStart());
 
-  throw new Error(`${source.fileName}:${position.line + 1}:${position.character + 1}: ${message}`);
+  // Native, like the generator's other file diagnostics; TypeScript's fileName uses "/" everywhere.
+  const file = resolve(source.fileName);
+
+  throw new Error(`${file}:${position.line + 1}:${position.character + 1}: ${message}`);
 }
 
 export function properties(node: ts.Expression, label: string): Map<string, ts.Expression> {
@@ -98,7 +101,15 @@ export function resolveModule(
   options: ts.CompilerOptions,
   host: ts.ModuleResolutionHost = ts.sys,
 ): string | undefined {
-  return ts.resolveModuleName(name, source, options, host).resolvedModule?.resolvedFileName;
+  const resolved = ts.resolveModuleName(name, source, options, host).resolvedModule
+    ?.resolvedFileName;
+
+  // TypeScript separates resolved paths with "/" on every host; callers compare native paths.
+  if (resolved === undefined) {
+    return undefined;
+  }
+
+  return resolve(resolved);
 }
 
 export function namedImport(
@@ -422,10 +433,7 @@ export async function discover(
       throw new Error(`Cannot read admitted TypeScript source: ${file}`);
     }
 
-    if (
-      file.endsWith(`${sep}route.generated.ts`) &&
-      bytes.split("\n", 1)[0] === markers["route.generated.ts"]
-    ) {
+    if (file.endsWith(`${sep}route.generated.ts`) && marked(bytes, markers["route.generated.ts"])) {
       continue;
     }
 

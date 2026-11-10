@@ -4,7 +4,7 @@ import { Observable, type Subscription } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
 import { readFile } from "node:fs/promises";
 import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
-import { workspacePaths, markers } from "../generation/files.js";
+import { workspacePaths, marked, markers } from "../generation/files.js";
 import { CompilerState } from "../generation/compiler.js";
 import { AnchorState } from "../generation/anchor.js";
 import { buildTargetOptions, message, type JsonObject } from "./options.js";
@@ -156,7 +156,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
               try {
                 const bytes = await readFile(path, "utf8");
 
-                if (bytes.split("\n", 1)[0] === markers["route.generated.ts"]) {
+                if (marked(bytes, markers["route.generated.ts"])) {
                   return;
                 }
               } catch (error) {

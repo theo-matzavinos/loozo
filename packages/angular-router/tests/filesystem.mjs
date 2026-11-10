@@ -13,7 +13,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -27,7 +27,8 @@ const fixture = join(evidence, "consumer");
 
 await cp(join(repository, "examples/angular-router"), fixture, {
   recursive: true,
-  filter: (path) => !/(?:^|\/)(?:node_modules|dist|\.angular|generated|routes)(?:\/|$)/.test(path),
+  filter: (path) =>
+    !/(?:^|[\\/])(?:node_modules|dist|\.angular|generated|routes)(?:[\\/]|$)/.test(path),
 });
 
 const metadata = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
@@ -121,6 +122,12 @@ async function rejectsServe(base, buildOptions, message) {
   assert.deepEqual(await snapshot(), before);
 }
 
+// tsconfig globs separate with "/"; TypeScript leaves a rooted include's base path as written,
+// so a "\" there never matches the "/" its pattern expects.
+function glob(directory, pattern) {
+  return `${directory.split(sep).join("/")}/${pattern}`;
+}
+
 async function write(path, bytes) {
   const file = join(fixture, path);
 
@@ -161,7 +168,8 @@ async function snapshot() {
 
       const file = join(directory, entry.name);
       const info = await lstat(file, { bigint: true });
-      const key = file.slice(fixture.length + 1);
+      // Keys use "/" on every host, like the paths the assertions look them up by.
+      const key = relative(fixture, file).split(sep).join("/");
 
       if (entry.isDirectory()) {
         files[key] = { mode: String(info.mode), mtimeNs: String(info.mtimeNs) };
@@ -843,6 +851,7 @@ await write("src/routes/type-invalid/page.ts", page("type-invalid"));
 await preflight("declaration codec types still preflight", /not assignable|ParamCodec/);
 
 // Expected generation failures are failed builds with logged diagnostics, not thrown errors.
+// Diagnostics name files by native path; [\\/]+ matches "/", "\" and JSON's escaped "\\".
 for (const target of ["build", "serve"]) {
   assert.equal(await build({}, target), false);
 
@@ -851,7 +860,7 @@ for (const target of ["build", "serve"]) {
 
   assert.equal(report.error, undefined, target);
   assert.equal(report.output.success, false, target);
-  assert.match(logged.map((entry) => entry.message).join("\n"), /type-invalid\/definition\.ts/);
+  assert.match(logged.map((entry) => entry.message).join("\n"), /type-invalid[\\/]+definition\.ts/);
 }
 
 await rm(join(fixture, "src/routes/type-invalid"), { recursive: true });
@@ -864,7 +873,7 @@ export default defineRoute("$old", { params });\n`,
 await write("src/routes/$new/page.ts", page("opaque"));
 await preflight(
   "opaque codec rename",
-  /\$new\/definition\.ts:3:\d+: Ambiguous filesystem params: the directories give path \\"\$new\\" \(removed params: old; added params: new\)\. This file's params are not an inline object; write each one as a plain `name: codec` property to match, or move or rename the directory/,
+  /\$new[\\/]+definition\.ts:3:\d+: Ambiguous filesystem params: the directories give path \\"\$new\\" \(removed params: old; added params: new\)\. This file's params are not an inline object; write each one as a plain `name: codec` property to match, or move or rename the directory/,
 );
 await rm(join(fixture, "src/routes/$new"), { recursive: true });
 
@@ -876,7 +885,7 @@ export default defineRoute("$old", { params: { old: numberParam } });\n`,
 await write("src/routes/static/page.ts", page("static"));
 await preflight(
   "never discard authored codecs",
-  /static\/definition\.ts:2:\d+: Ambiguous filesystem params: the directories give path \\"static\\" \(removed params: old\)\. Remove this file's params, or move or rename the directory/,
+  /static[\\/]+definition\.ts:2:\d+: Ambiguous filesystem params: the directories give path \\"static\\" \(removed params: old\)\. Remove this file's params, or move or rename the directory/,
 );
 await rm(join(fixture, "src/routes/static"), { recursive: true });
 
@@ -1016,7 +1025,7 @@ await write("src/routes/wildcard-access/page.ts", page("wildcard-access"));
 
 const wildcardAccess = JSON.parse(routeConfig);
 
-wildcardAccess.include = [join(accessAlias, "src/**/*.ts")];
+wildcardAccess.include = [glob(accessAlias, "src/**/*.ts")];
 await write("tsconfig.routes.json", JSON.stringify(wildcardAccess));
 
 const beforeWildcardSeed = await snapshot();
@@ -1036,7 +1045,7 @@ await write("src/routes/wildcard-excluded/page.ts", page("wildcard-excluded"));
 
 const wildcardExcluded = structuredClone(wildcardAccess);
 
-wildcardExcluded.exclude = [join(accessAlias, "**/not-admitted.ts")];
+wildcardExcluded.exclude = [glob(accessAlias, "**/not-admitted.ts")];
 await write("tsconfig.routes.json", JSON.stringify(wildcardExcluded));
 await preflight(
   "wildcard alias still honors native exclusions",
@@ -1083,7 +1092,7 @@ assert.equal(await exists("src/routes/link-pending/route.ts"), false);
 
 const internalWildcard = JSON.parse(routeConfig);
 
-internalWildcard.include = [join(internalAccess, "src/routes/**/*.ts")];
+internalWildcard.include = [glob(internalAccess, "src/routes/**/*.ts")];
 await write("tsconfig.routes.json", JSON.stringify(internalWildcard));
 await preflight(
   "workspace-target wildcard scan aliases remain unsafe",
@@ -1117,6 +1126,30 @@ await preflight(
   /Property 'team' does not exist/,
 );
 await write("src/routes/teams/$tenant/named-definition.ts", tenant);
+await expectBuild();
+
+// A case-only directory rename is a plain rename on Linux, but on case-insensitive macOS and
+// Windows volumes the old and new names are the same entry; either way the new casing wins.
+async function assertNoStaleCasing(name) {
+  const artifacts = await snapshot();
+
+  for (const [file, entry] of Object.entries(artifacts)) {
+    assert.doesNotMatch(file, /Items/, name);
+    assert.doesNotMatch(entry.bytes ?? "", /Items/, `${name}: ${file}`);
+  }
+}
+
+await write("src/routes/Items/page.ts", page("cased"));
+await expectBuild();
+assert.match(await read("src/routes/Items/route.ts"), /defineRoute\("Items"/);
+assert.match(await read("generated/routes.generated.ts"), /path: "Items"/);
+await rename(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
+await expectBuild();
+assert.match(await read("src/routes/items/route.ts"), /defineRoute\("items"/);
+assert.match(await read("generated/routes.generated.ts"), /path: "items"/);
+await assertNoStaleCasing("Case-only rename republished under the new casing");
+await expectBuild({ check: true });
+await rm(join(fixture, "src/routes/items"), { recursive: true });
 await expectBuild();
 
 // Missing/changed generated drift is read-only, then repair converges without source rewrites.
@@ -1217,6 +1250,24 @@ try {
     "Native server did not consume renamed route",
   );
   await rendered("changed", "watched");
+
+  await write("src/routes/Items/page.ts", page("cased"));
+  await waitFor(
+    async () => (await read("generated/routes.generated.ts")).includes('path: "Items"'),
+    "Watcher did not publish the cased route",
+  );
+  await rename(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
+  await waitFor(
+    async () => (await read("src/routes/items/route.ts")).includes('defineRoute("items"'),
+    "Watcher did not synchronize a case-only rename",
+  );
+  await waitFor(async () => {
+    const served = await (await fetch(new URL("main.js", output.baseUrl))).text();
+
+    return served.includes('path: "items"') && !served.includes('path: "Items"');
+  }, "Native server did not consume a case-only rename");
+  await assertNoStaleCasing("Watcher republished a case-only rename under the new casing");
+  await rendered("items", "cased");
 
   const changedPage = await read("src/routes/changed/page.ts");
 
