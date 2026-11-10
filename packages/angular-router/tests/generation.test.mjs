@@ -455,9 +455,52 @@ async function filesystemProject(overrides = {}) {
         `src/routes/${directory}/page.ts`,
         `import { Component } from "@angular/core";\n\n@Component({ template: "${directory}" })\nexport default class Page {}\n`,
       ),
-    generate: () => generate(root, options, () => false),
+    generate: (extra = {}) => generate(root, { ...options, ...extra }, () => false),
   };
 }
+
+test("output checked out with CRLF line endings stays owned and current", async () => {
+  const project = await filesystemProject();
+  const files = [
+    "generated/routes.generated.ts",
+    "generated/destinations.generated.ts",
+    "src/routes/teams/$teamId/route.ts",
+    "src/routes/teams/$teamId/route.generated.ts",
+  ];
+
+  await project.page("teams/$teamId");
+  await project.generate();
+
+  // What Git's core.autocrlf does to committed text files on a Windows checkout.
+  const checkedOut = new Map();
+
+  for (const file of files) {
+    const bytes = (await project.read(file)).replaceAll("\n", "\r\n");
+
+    await project.write(file, bytes);
+
+    const info = await stat(resolve(project.root, file), { bigint: true });
+
+    checkedOut.set(file, { bytes, mtimeNs: info.mtimeNs });
+  }
+
+  await project.generate({ check: true });
+  await project.generate();
+
+  for (const [file, before] of checkedOut) {
+    const info = await stat(resolve(project.root, file), { bigint: true });
+
+    assert.equal(await project.read(file), before.bytes, file);
+    assert.equal(info.mtimeNs, before.mtimeNs, file);
+  }
+
+  // Real drift is still drift, and the generator writes LF.
+  await project.page("about");
+  await assert.rejects(project.generate({ check: true }), /changed|missing/);
+  await project.generate();
+  assert.match(await project.routes(), /path: "about"/);
+  assert.doesNotMatch(await project.routes(), /\r/);
+});
 
 test("definition bindings follow paths, so adding or removing a route changes only its own lines", async () => {
   const project = await filesystemProject();

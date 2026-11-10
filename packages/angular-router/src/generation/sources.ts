@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parsePath, type Segment } from "../../_core/src/path.js";
-import { auditPath, contains, metadata, walk, workspacePaths, markers } from "./files.js";
+import { auditPath, contains, marked, metadata, walk, workspacePaths, markers } from "./files.js";
 import { overlayDirectory, overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
 import { synchronize, transparent, type AutoDefineRoutes } from "./filesystem.js";
@@ -433,10 +433,7 @@ export async function discover(
       throw new Error(`Cannot read admitted TypeScript source: ${file}`);
     }
 
-    if (
-      file.endsWith(`${sep}route.generated.ts`) &&
-      bytes.split("\n", 1)[0] === markers["route.generated.ts"]
-    ) {
+    if (file.endsWith(`${sep}route.generated.ts`) && marked(bytes, markers["route.generated.ts"])) {
       continue;
     }
 

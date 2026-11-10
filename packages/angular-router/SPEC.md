@@ -587,7 +587,7 @@ Only the corresponding exact-name marked generated outputs at the configured glo
 
 Output directory must be disjoint from every scan root. Reject unsafe/symlink output paths and unmarked collisions. Preflight source-validation failures, all matching overlaps, leaves, ownership, and paths before output modification. A failed preflight must leave all previous output bytes unchanged.
 
-Do not rewrite byte-identical outputs or change their mtimes. Remove stale marked facades after authored declarations disappear, and stale shared/global artifacts when no longer needed. When no authored routes remain, remove marked stale artifacts, not unrelated content. Stale generated files can be removed even when their old authored imports are broken.
+Do not rewrite byte-identical outputs or change their mtimes. Outputs are written with LF line endings. A marked output whose only difference from the desired bytes is every LF written as CRLF, as Git's `core.autocrlf` checks text files out on Windows, is owned (its marker line may end in CR) and current: neither rewritten nor drift in check mode. Remove stale marked facades after authored declarations disappear, and stale shared/global artifacts when no longer needed. When no authored routes remain, remove marked stale artifacts, not unrelated content. Stale generated files can be removed even when their old authored imports are broken.
 
 Changes may be published by individual file replacement, not an atomic all-output transaction. Interruption may leave mixed versions; a successful rerun repairs them. Preserve no promise of rollback or whole-directory atomicity.
 
