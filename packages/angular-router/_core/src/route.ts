@@ -4,6 +4,7 @@ import { checkKeys, has, ownRecord } from "./records.js";
 import type {
   AnyRoute,
   CodecMap,
+  EffectiveData,
   EffectiveParams,
   EffectiveSearch,
   Route,
@@ -160,8 +161,9 @@ function snapshotRedirect(
  * catchall. Repeated local scalar names reuse one value. Leading/trailing or
  * repeated slashes, dot segments and Angular `:name`/wildcard notation are invalid.
  *
- * Parents compose effective params/search transitively, including through
- * pathless nodes. Children cannot redeclare ancestor-owned keys or have a
+ * Parents compose effective params/search and resolver data transitively,
+ * including through pathless nodes; a local resolver key hides an inherited
+ * one. Children cannot redeclare ancestor-owned param or search keys or have a
  * catchall parent. Fragment names belong only to this declaration.
  * The route and copied containers are shallow-frozen; application codecs,
  * callbacks, providers and opaque values retain identity and are not deep-frozen.
@@ -175,7 +177,7 @@ function snapshotRedirect(
  * @param config - Local codecs, parent, fragments and supported native behavior.
  * Structural Angular options such as children, component and matcher are
  * generator-owned and cannot be overridden.
- * @returns A frozen route preserving inferred effective input and local data types.
+ * @returns A frozen route preserving inferred effective input and resolver data types.
  * @throws TypeError for invalid paths/configuration, missing or extra local
  * codecs, fallback codecs in path params, inherited key conflicts, or
  * nongenuine parent/redirect routes.
@@ -207,7 +209,8 @@ export function defineRoute<
   EffectiveSearch<Search, Parent>,
   Resolvers,
   Fragments[number],
-  CatchallName<Path> extends never ? false : true
+  CatchallName<Path> extends never ? false : true,
+  EffectiveData<Resolvers, Parent>
 >;
 
 export function defineRoute(path: unknown, config: unknown): AnyRoute {

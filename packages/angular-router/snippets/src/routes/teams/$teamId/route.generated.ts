@@ -14,7 +14,8 @@ export const destination: Destination<"src/routes/teams/$teamId/route.ts"> = /* 
  * @remarks
  * Call in an Angular injection context. The handle exposes readonly native
  * params/search/data Signals and destination-typed link/navigate methods.
- * Data includes local resolver results only, not static or inherited data.
+ * Data holds the resolver results of this route and its ancestors, a nearer
+ * key hiding an ancestor's; native static data and the title stay out.
  * All navigation values are explicit; current inputs are never reused implicitly.
  *
  * @returns A noncallable handle for this declaration.

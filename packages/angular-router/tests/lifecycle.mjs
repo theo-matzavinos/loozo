@@ -669,11 +669,127 @@ export default class Searching {
 `,
 );
 
+// Inherited resolver data: a layout page resolving a team, a pathless node with a resolver of
+// its own, and a member page whose handle reads the whole chain's results.
+await write(
+  "src/squad-probes.ts",
+  `export const squadCalls: string[] = [];
+let gate: Promise<void> | undefined;
+
+// Holds the next team resolver until the returned function runs.
+export function holdTeam(): () => void {
+  let open!: () => void;
+
+  gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return open;
+}
+
+export function team(id: number): { id: number; name: string } | Promise<{ id: number; name: string }> {
+  const held = gate;
+
+  squadCalls.push('team:' + id);
+  gate = undefined;
+
+  if (held) {
+    return held.then(() => ({ id, name: 'Team ' + id }));
+  }
+
+  return { id, name: 'Team ' + id };
+}
+`,
+);
+await write(
+  "src/routes/squad/definition.ts",
+  `import { defineRoute, numberParam } from '@loozo/angular-router';
+import { team } from '../../squad-probes.js';
+
+export default defineRoute('squads/$teamId', {
+  params: { teamId: numberParam },
+  resolve: {
+    team: ({ params }) => team(params.teamId),
+    label: () => 'squad label',
+  },
+});
+`,
+);
+await write(
+  "src/routes/squad/page.ts",
+  `import { Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+import { injectRoute } from './route.generated.js';
+
+@Component({ imports: [RouterOutlet], template: '<h1 id="squad">{{ handle.data().team.name }}</h1><router-outlet />' })
+export default class Squad {
+  readonly handle = injectRoute();
+
+  constructor() {
+    (window as any).squad = this;
+  }
+}
+`,
+);
+await write(
+  "src/routes/squad-scope/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+import squad from '../squad/definition.js';
+
+export default defineRoute('', { parent: squad, resolve: { scope: () => 'pathless scope' } });
+`,
+);
+await write(
+  "src/routes/squad-member/definition.ts",
+  `import { defineRoute, numberParam } from '@loozo/angular-router';
+import scope from '../squad-scope/definition.js';
+import { squadCalls } from '../../squad-probes.js';
+
+export default defineRoute('members/$memberId', {
+  parent: scope,
+  params: { memberId: numberParam },
+  resolve: {
+    member: ({ params }) => {
+      squadCalls.push('member:' + params.teamId + '/' + params.memberId);
+      return { teamId: params.teamId, id: params.memberId };
+    },
+    // Hides the team's label of the same name.
+    label: () => 42,
+  },
+});
+`,
+);
+await write(
+  "src/routes/squad-member/page.ts",
+  `import { Component, effect } from '@angular/core';
+import { injectRoute } from './route.generated.js';
+
+let instances = 0;
+
+@Component({ template: '<p id="squad-member">{{ handle.data().team.name }} / {{ handle.data().member.id }}</p>' })
+export default class SquadMember {
+  readonly handle = injectRoute();
+  readonly instance = ++instances;
+  // Inherited data exists from the first, synchronous read.
+  readonly first = { params: this.handle.params(), data: this.handle.data() };
+  readonly seen: [any, any][] = [];
+
+  constructor() {
+    (window as any).squadMember = this;
+    effect(() => {
+      this.seen.push([this.handle.params(), this.handle.data()]);
+    });
+  }
+}
+`,
+);
+
 await write(
   "src/type-proof.ts",
   `import type { Signal } from '@angular/core';
 import { injectRoute } from './routes/item/route.generated.js';
 import { injectRoute as searchingRoute } from './routes/searching/route.generated.js';
+import { injectRoute as squadRoute } from './routes/squad/route.generated.js';
+import { injectRoute as squadMemberRoute } from './routes/squad-member/route.generated.js';
 import { localSymbol } from './probes.js';
 
 const handle = injectRoute();
@@ -707,6 +823,19 @@ searching.link({});
 searching.link({ search: { page: 2 } });
 // @ts-expect-error A supplied fallback key keeps its codec type.
 searching.link({ search: { page: '2' } });
+
+// A member's data carries its ancestors' resolver results; its own key wins a collision.
+const memberData = squadMemberRoute().data();
+const teamName: string = memberData.team.name;
+const label: number = memberData.label;
+const scope: string = memberData.scope;
+const memberId: number = memberData.member.id;
+// @ts-expect-error No route in the chain resolves this key.
+memberData.missing;
+// The layout's own handle has only its own keys.
+const squadLabel: string = squadRoute().data().label;
+// @ts-expect-error A parent's data doesn't include its descendants' results.
+squadRoute().data().member;
 `,
 );
 await write(
@@ -721,6 +850,7 @@ import {
   finishResolver, promiseEntries, resolverCalls, matchEntries, activations, invalidErrors,
   decisionEntries, decideWith, holdResolver, slowEntries,
 } from './probes.js';
+import { holdTeam, squadCalls } from './squad-probes.js';
 import { of } from 'rxjs';
 
 const wait = (ms = 20) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -1105,6 +1235,72 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     };
   };
 
+  (window as any).ancestorProof = async () => {
+    async function visit(url: string): Promise<void> {
+      const navigated = await router.navigateByUrl(url);
+
+      check(navigated === true, 'navigated ' + url);
+      await app.whenStable();
+    }
+
+    await visit('/squads/1/members/5');
+    const member = (window as any).squadMember;
+    const squad = (window as any).squad;
+    const first = member.first;
+
+    check(first.params.teamId === 1 && first.params.memberId === 5, 'constructor params');
+    check(first.data.team.id === 1 && first.data.team.name === 'Team 1' && first.data.member.id === 5,
+      'the constructor read has the ancestor and own data');
+    check(first.data.scope === 'pathless scope', 'a pathless ancestor contributes its resolver data');
+    check(first.data.label === 42, 'the nearer resolver key wins a collision');
+    check(Object.isFrozen(first.data) && Object.getPrototypeOf(first.data) === null,
+      'frozen null-prototype data');
+    check(JSON.stringify(Reflect.ownKeys(squad.handle.data())) === JSON.stringify(['team', 'label']) &&
+      squad.handle.data().label === 'squad label', 'the layout handle has its own keys only');
+
+    // A pending ancestor resolver keeps the committed values.
+    const settled = [member.handle.params(), member.handle.data()];
+    const open = holdTeam();
+    const next = router.navigateByUrl('/squads/2/members/5');
+
+    await until(() => squadCalls.includes('team:2'), 'team resolver entered');
+    await wait();
+    check(router.currentNavigation() !== null, 'Angular reports the pending navigation');
+    check(member.handle.params() === settled[0] && member.handle.data() === settled[1],
+      'pending ancestor resolver keeps params and data');
+    open();
+    check(await next, 'ancestor-param navigation commits');
+    await app.whenStable();
+
+    const changed = member.handle.data();
+
+    check((window as any).squadMember === member, 'member record reused');
+    check(member.handle.params().teamId === 2 && changed.team.id === 2 && changed.member.teamId === 2,
+      'the ancestor param change reaches the inherited data');
+    check(document.getElementById('squad-member')!.textContent === 'Team 2 / 5', 'rendered team 2');
+
+    // A child-param-only navigation keeps the team and changes the member.
+    await visit('/squads/2/members/6');
+    const moved = member.handle.data();
+
+    check((window as any).squadMember === member && moved.team === changed.team,
+      'the team result stays when only the child param changes');
+    check(moved.member.id === 6 && member.handle.params().memberId === 6, 'own data follows the child param');
+    for (const [params, data] of member.seen) {
+      check(params.teamId === data.team.id && params.teamId === data.member.teamId &&
+        params.memberId === data.member.id, 'effects never see a mixed tuple ' + JSON.stringify(member.seen));
+    }
+
+    return {
+      first: { params: first.params, data: { ...first.data } },
+      changed: { ...changed },
+      moved: { ...moved },
+      squad: { ...squad.handle.data() },
+      calls: squadCalls,
+      seen: member.seen.length,
+    };
+  };
+
   (window as any).matchingProof = async () => {
     const shown = (id: string) => document.getElementById(id) !== null;
 
@@ -1345,11 +1541,12 @@ try {
 
   const result = await tab.evaluate(() => window.lifecycleProof());
   const matching = await tab.evaluate(() => window.matchingProof());
+  const ancestors = await tab.evaluate(() => window.ancestorProof());
 
   assert.deepEqual(errors, []);
   await writeFile(
     join(evidence, "browser-observations.json"),
-    JSON.stringify({ result, matching, errors }, null, 2),
+    JSON.stringify({ result, matching, ancestors, errors }, null, 2),
   );
 
   const html = await tab.content();
@@ -1363,5 +1560,5 @@ try {
 }
 
 console.log(
-  "Native lifecycle/signals/ancestry/own-data/iframe-Promise/redirect/thenable/matching proof passed",
+  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching proof passed",
 );

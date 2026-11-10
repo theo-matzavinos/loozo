@@ -186,7 +186,7 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 
 `params`, `search` and `data` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), all three change together. When a navigation is cancelled or fails, they keep their values; handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
 
-`data` holds this route's own resolver results only, not static `data`, parent data or the title.
+`data` holds the resolver results of this route and its ancestors, pathless and page-less ones included: the outermost ancestor's first, then nearer ones, then this route's own. As in Angular's own data inheritance, a nearer route's key hides an ancestor's key of the same name, and the hidden value isn't reachable through the handle. The merge is the same whatever `paramsInheritanceStrategy` you set, so under `'emptyOnly'` a route below a parent with a page still has that parent's resolver results, which Angular's own `snapshot.data` leaves out. Static `data` and the title aren't included; to read a static value through the handle, return it from a resolver, such as `resolve: { label: () => "Teams" }`.
 
 Reading `params` or `search` throws only if a path codec rejects a value it accepted while matching, which a pure codec never does.
 

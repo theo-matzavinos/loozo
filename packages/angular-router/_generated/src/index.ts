@@ -76,8 +76,9 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  * @remarks
  * Obtain it in an Angular injection context for the exact generated activated
  * record. Params, search and data are readonly Angular Signals of the route's
- * committed snapshot, with values from the first read. Data contains only local
- * resolver results, not static/ancestor data or title.
+ * committed snapshot, with values from the first read. Data holds the resolver
+ * results of the route's whole chain, ancestors first, a nearer key hiding an
+ * ancestor's key of the same name; native static data and the title stay out.
  *
  * While a navigation is pending, the signals keep the current snapshot's values;
  * when a navigation commits a new snapshot for this route, all three change
@@ -120,7 +121,7 @@ export interface Handle<
   readonly params: Signal<Readonly<ParamsOf<Target>>>;
   /** Effective declared search, from the same snapshot as params; absent keys have no value or fallback. */
   readonly search: Signal<Readonly<SearchOf<Target>>>;
-  /** Own native resolver results only, from the same snapshot as params. */
+  /** Effective resolver results of the route and its ancestors, from the same snapshot as params. */
   readonly data: Signal<DataOf<Target>>;
   /**
    * Creates a native UrlTree for this exact declaration without navigating.

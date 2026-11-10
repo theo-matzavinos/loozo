@@ -33,6 +33,9 @@ declare const routeBrand: unique symbol;
  * results and excludes Angular RedirectCommand values.
  * @typeParam Fragments - This declaration's own allowed fragment-name union.
  * @typeParam Catchall - Whether the declaration is a terminal catchall leaf.
+ * @typeParam Data - Effective resolver data: the ancestors' resolver results, then
+ * this declaration's own, a nearer key hiding an ancestor's key of the same name.
+ * Defaults to the local results alone.
  */
 export interface Route<
   Path extends string,
@@ -41,6 +44,7 @@ export interface Route<
   Resolvers = {},
   Fragments extends string = string,
   Catchall extends boolean = CatchallName<Path> extends never ? false : true,
+  Data = LocalData<Resolvers>,
 > {
   /** Type-only nominal brand carrying fragment and catchall metadata; not populated at runtime. */
   readonly [routeBrand]: {
@@ -55,8 +59,8 @@ export interface Route<
   readonly __params?: Params;
   /** Type-only witness for effective search values; not populated at runtime. */
   readonly __search?: Search;
-  /** Type-only witness for unwrapped local resolver data, excluding redirects. */
-  readonly __data?: { readonly [Key in keyof Resolvers]: Resolved<Resolvers[Key]> };
+  /** Type-only witness for unwrapped effective resolver data, excluding redirects. */
+  readonly __data?: Data;
   /** The snapshotted local resolver map, retaining original callback identities. */
   readonly resolve?: Readonly<Resolvers>;
   /** The original native rerun policy; omission preserves Angular's default. */
@@ -69,13 +73,13 @@ type Unwrap<Value> = Value extends Promise<infer Inner> | Observable<infer Inner
 type Resolved<Callback> = Callback extends (...args: any[]) => infer Value
   ? Exclude<Unwrap<Value>, RedirectCommand>
   : never;
-export type AnyRoute = Route<string, any, any, any, any, boolean>;
+export type AnyRoute = Route<string, any, any, any, any, boolean, any>;
 /** Extracts a declaration's effective inherited and local path-value types. */
 export type ParamsOf<Target> =
-  Target extends Route<string, infer Params, any, any, any, boolean> ? Params : {};
+  Target extends Route<string, infer Params, any, any, any, boolean, any> ? Params : {};
 /** Extracts effective parsed search-value types; keys without a fallback are optional. */
 export type SearchOf<Target> =
-  Target extends Route<string, any, infer Search, any, any, boolean> ? Search : {};
+  Target extends Route<string, any, infer Search, any, any, boolean, any> ? Search : {};
 /**
  * Effective search values accepted by URL creation: every key may be omitted or
  * `undefined`, and a supplied value has the key's codec type.
@@ -85,7 +89,7 @@ export type SearchInputOf<Target> = {
 };
 /** Extracts only the selected declaration's own allowed fragment-name union. */
 export type FragmentsOf<Target> =
-  Target extends Route<string, any, any, any, infer Fragments, boolean> ? Fragments : never;
+  Target extends Route<string, any, any, any, infer Fragments, boolean, any> ? Fragments : never;
 export type CodecMap = Record<string, ParamCodec<any>>;
 export type LocalParams<Path extends string, Codecs> = {
   readonly [Key in keyof Codecs]: Key extends CatchallName<Path>
@@ -105,6 +109,24 @@ export type SearchValues<Codecs> = {
 export type EffectiveParams<Path extends string, Codecs, Parent> = ParamsOf<Parent> &
   LocalParams<Path, Codecs>;
 export type EffectiveSearch<Codecs, Parent> = SearchOf<Parent> & SearchValues<Codecs>;
+/** Unwrapped results of a declaration's own resolvers, excluding redirects. */
+export type LocalData<Resolvers> = { readonly [Key in keyof Resolvers]: Resolved<Resolvers[Key]> };
+/**
+ * Resolver data of a declaration's whole chain: the parent's effective data with
+ * the local results laid over it, so a local key hides an inherited key of the same name.
+ */
+export type EffectiveData<Resolvers, Parent> = Unshadowed<
+  Parent extends { readonly __data?: infer Data } ? Data : {},
+  keyof Resolvers
+> &
+  LocalData<Resolvers>;
+// JavaScript property identity: a numeric key and its string spelling are one property.
+type KeyIdentity<Key> = Key extends number ? `${Key}` : Key;
+type Unshadowed<Inherited, Local> = {
+  readonly [Key in keyof Inherited as KeyIdentity<Key> extends KeyIdentity<Local>
+    ? never
+    : Key]: Inherited[Key];
+};
 /**
  * Shared parsed inputs supplied to typed guards and resolvers.
  * The container and maps are shallow-frozen; nested codec values remain opaque.
@@ -342,7 +364,7 @@ export type RouteConfig<
   ReplacementKeys extends keyof SearchOf<Target>,
 > = {
   /** Genuine authored parent; pathless nodes retain inherited input ownership. */
-  parent?: Parent & (Parent extends Route<string, any, any, any, any, true> ? never : unknown);
+  parent?: Parent & (Parent extends Route<string, any, any, any, any, true, any> ? never : unknown);
   /** Local search codecs; a key is absent unless present and valid, or wrapped withFallback. */
   search?: Search &
     Record<Extract<keyof Search, keyof SearchOf<Parent>>, never> &

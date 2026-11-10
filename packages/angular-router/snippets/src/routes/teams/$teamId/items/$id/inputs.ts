@@ -10,6 +10,6 @@ export function readInputs() {
 
   route.params(); // { teamId: number; id: number }
   route.search(); // { score?: number }
-  route.data(); // { item: Item }, local resolver results only
+  route.data(); // { team: { id: number; name: string }; item: Item }, ancestors' resolver results too
 }
 // #endregion inputs
