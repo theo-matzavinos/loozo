@@ -188,7 +188,7 @@ assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedire
 // The optional peer isn't installed here: the root and generated entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
 assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','forbidden','middleware','notFound','redirect']);
-assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleRpc','provideLaunchServer']);
+assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer']);
 const binding={id:'packed-test-app',context:defineContext(()=>({value:1}))};
 const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
