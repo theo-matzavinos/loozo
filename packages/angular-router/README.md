@@ -303,6 +303,27 @@ The generated routes work with Angular SSR and `provideClientHydration` without 
 
 [`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with a search fallback, a resolver, a redirect and hydration.
 
+## Unit tests and i18n extraction
+
+Point Angular's unit-test and extract-i18n builders at the router's application target, the same way `ng new` points them at the official one:
+
+```json
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": { "buildTarget": "app:build" }
+},
+"extract-i18n": {
+  "builder": "@angular/build:extract-i18n",
+  "options": { "buildTarget": "app:build" }
+}
+```
+
+Neither builder runs generation; both use the generated files already on disk. After you add, move or remove routes, run `ng build` first, or keep `ng serve` running. Otherwise `ng test` can't match the new routes, and `ng extract-i18n` silently leaves out the messages of pages the stale routes don't load. In CI, committed generated files and `ng build --configuration ci` cover this.
+
+`ng test` warns that the `buildTarget` uses `@loozo/angular-router:application`, "which is not supported". The warning is expected: the unit-test builder reads the target's options, and Angular ignores the router's own ones.
+
+The rest is the usual Angular setup. Give specs their own `tsconfig.spec.json` with `"types": ["vitest/globals"]`, and exclude `src/**/*.spec.ts` from the application tsconfig. For `i18n` attributes, add `@angular/localize/init` to the build target's `polyfills`.
+
 ## What gets generated
 
 | File                                       | Contents                                                      |
@@ -389,6 +410,7 @@ pnpm run test:navigation /absolute/new-directory
 pnpm run test:lifecycle /absolute/new-directory
 pnpm run test:ssr /absolute/new-directory
 pnpm run test:filesystem /absolute/new-directory
+pnpm run test:tooling /absolute/new-directory   # ng test and ng extract-i18n, no browser
 node tests/packed.mjs /absolute/new-directory   # packed-package consumer check
 ```
 

@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [application, filesystem, navigation, lifecycle, ssr]
+        test: [application, filesystem, navigation, lifecycle, ssr, tooling]
     defaults:
       run:
         working-directory: packages/angular-router
