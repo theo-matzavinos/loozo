@@ -304,6 +304,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/date-field",
     "@loozo/origami-ui/date-picker",
     "@loozo/origami-ui/menu",
+    "@loozo/origami-ui/combobox",
     "@loozo/origami-ui/toast",
     "@loozo/origami-ui/slider",
     "@loozo/origami-ui/number-field",
@@ -350,6 +351,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/date-field"].length, 12);
   assert.equal(names["@loozo/origami-ui/date-picker"].length, 19);
   assert.equal(names["@loozo/origami-ui/menu"].length, 28);
+  assert.equal(names["@loozo/origami-ui/combobox"].length, 12);
   assert.equal(names["@loozo/origami-ui/toast"].length, 11);
   assert.equal(names["@loozo/origami-ui/slider"].length, 5);
   assert.equal(names["@loozo/origami-ui/number-field"].length, 6);
@@ -398,6 +400,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "date-field:Date field",
     "date-picker:Date picker",
     "menu:Menu",
+    "combobox:Combobox",
     "toast:Toast",
     "slider:Slider",
     "number-field:Number field",
@@ -416,7 +419,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 33 snippets that export one component", async () => {
+test("origami's guide pages run the 34 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -424,7 +427,7 @@ test("origami's guide pages run the 33 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 33);
+  assert.equal(ids.length, 34);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -470,6 +473,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "switch/notifications.ts": ["enabled:model:boolean", "disabled:input:boolean"],
     "select/country.ts": ["disabled:input:boolean"],
     "menu/row-actions.ts": ["disabled:input:boolean"],
+    "combobox/country.ts": ["disabled:input:boolean"],
     "calendar/date-of-birth.ts": [
       "disabled:input:boolean",
       "readonly:input:boolean",
