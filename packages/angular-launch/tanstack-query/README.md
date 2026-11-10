@@ -171,7 +171,7 @@ provideTanStackQuery(() => {
 
 ## Optimistic updates
 
-Launch adds nothing here either: TanStack's `onMutate` and `onError` work on the generated options, typed by the procedure. The [todos example](../../../examples/angular-launch/src/routes/+authenticated/todos/page.ts) completes and deletes todos this way:
+Launch adds nothing here either: TanStack's `onMutate` and `onError` work on the generated options, typed by the procedure. The [todos example](https://github.com/theo-matzavinos/loozo/blob/main/examples/angular-launch/src/routes/+authenticated/todos/page.ts) completes and deletes todos this way:
 
 ```ts
 const key = queries.todos.list.key();
