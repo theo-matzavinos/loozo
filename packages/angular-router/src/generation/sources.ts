@@ -53,7 +53,10 @@ export function fail(node: ts.Node, message: string): never {
   const source = node.getSourceFile();
   const position = source.getLineAndCharacterOfPosition(node.getStart());
 
-  throw new Error(`${source.fileName}:${position.line + 1}:${position.character + 1}: ${message}`);
+  // Native, like the generator's other file diagnostics; TypeScript's fileName uses "/" everywhere.
+  const file = resolve(source.fileName);
+
+  throw new Error(`${file}:${position.line + 1}:${position.character + 1}: ${message}`);
 }
 
 export function properties(node: ts.Expression, label: string): Map<string, ts.Expression> {
