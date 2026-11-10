@@ -122,6 +122,12 @@ async function rejectsServe(base, buildOptions, message) {
   assert.deepEqual(await snapshot(), before);
 }
 
+// tsconfig globs separate with "/"; TypeScript leaves a rooted include's base path as written,
+// so a "\" there never matches the "/" its pattern expects.
+function glob(directory, pattern) {
+  return `${directory.split(sep).join("/")}/${pattern}`;
+}
+
 async function write(path, bytes) {
   const file = join(fixture, path);
 
@@ -1019,7 +1025,7 @@ await write("src/routes/wildcard-access/page.ts", page("wildcard-access"));
 
 const wildcardAccess = JSON.parse(routeConfig);
 
-wildcardAccess.include = [join(accessAlias, "src/**/*.ts")];
+wildcardAccess.include = [glob(accessAlias, "src/**/*.ts")];
 await write("tsconfig.routes.json", JSON.stringify(wildcardAccess));
 
 const beforeWildcardSeed = await snapshot();
@@ -1039,7 +1045,7 @@ await write("src/routes/wildcard-excluded/page.ts", page("wildcard-excluded"));
 
 const wildcardExcluded = structuredClone(wildcardAccess);
 
-wildcardExcluded.exclude = [join(accessAlias, "**/not-admitted.ts")];
+wildcardExcluded.exclude = [glob(accessAlias, "**/not-admitted.ts")];
 await write("tsconfig.routes.json", JSON.stringify(wildcardExcluded));
 await preflight(
   "wildcard alias still honors native exclusions",
@@ -1086,7 +1092,7 @@ assert.equal(await exists("src/routes/link-pending/route.ts"), false);
 
 const internalWildcard = JSON.parse(routeConfig);
 
-internalWildcard.include = [join(internalAccess, "src/routes/**/*.ts")];
+internalWildcard.include = [glob(internalAccess, "src/routes/**/*.ts")];
 await write("tsconfig.routes.json", JSON.stringify(internalWildcard));
 await preflight(
   "workspace-target wildcard scan aliases remain unsafe",
