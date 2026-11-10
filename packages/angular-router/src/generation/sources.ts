@@ -98,7 +98,15 @@ export function resolveModule(
   options: ts.CompilerOptions,
   host: ts.ModuleResolutionHost = ts.sys,
 ): string | undefined {
-  return ts.resolveModuleName(name, source, options, host).resolvedModule?.resolvedFileName;
+  const resolved = ts.resolveModuleName(name, source, options, host).resolvedModule
+    ?.resolvedFileName;
+
+  // TypeScript separates resolved paths with "/" on every host; callers compare native paths.
+  if (resolved === undefined) {
+    return undefined;
+  }
+
+  return resolve(resolved);
 }
 
 export function namedImport(
