@@ -86,6 +86,18 @@ type Parts = {
   readonly content: ContentPart | null;
 };
 
+/**
+ * @internal Package-private: a composing root whose own `<input>` is its Popover's Anchor, such
+ * as a combobox's, provided on the element that composes `ogPopover`. While `input` holds an
+ * element, that Popover presents without a Trigger, and Escape and Trigger dismissal restore
+ * focus to the input instead of the Trigger, with the same eligibility. Without one, or while
+ * `input` is null, Popover's own Trigger rules apply. Not an application API.
+ */
+export abstract class ɵOrigamiPopoverInputOwner {
+  /** The composing root's registered input, or null while none is mounted. */
+  abstract readonly input: Signal<HTMLElement | null>;
+}
+
 /** @internal Nearest logical Popover owner. Not exported as an application authoring API. */
 @Service({ autoProvided: false })
 export class PopoverContext {
@@ -123,14 +135,16 @@ export class PopoverContext {
     label: "Popover",
     referenceLabel: "Anchor",
     intent: this.intent,
-    // Derived from `parts`, so its identity changes exactly when a slot does.
+    // Derived from `parts` and the input owner's input, so its identity changes exactly when a
+    // slot or that input does.
     parts: computed(() => {
       const parts = this.parts();
+      const opener = parts.trigger !== null || this.#input() !== null;
 
       return {
         reference: parts.anchor?.element ?? null,
         content: parts.content,
-        complete: parts.trigger !== null && parts.anchor !== null && parts.content !== null,
+        complete: opener && parts.anchor !== null && parts.content !== null,
       };
     }),
     parent: () => this.#parent?.floating ?? this.layer.scope()?.presentation ?? null,
@@ -330,22 +344,56 @@ export class PopoverContext {
   }
 
   #restoreFocus(expectedFocus: Element | null): void {
-    const trigger = this.#trigger();
+    if (this.#destroyed || this.disabled()) {
+      return;
+    }
+
+    const target = this.#restoreTarget();
 
     if (
-      this.#destroyed ||
-      trigger === null ||
-      this.disabled() ||
-      trigger.options().disabled() ||
-      !trigger.element.isConnected ||
-      trigger.element.matches(":disabled") ||
-      trigger.element.closest("[inert]") !== null ||
+      target === null ||
+      !target.isConnected ||
+      target.matches(":disabled") ||
+      target.closest("[inert]") !== null ||
       ɵdeepActiveElement(this.layer.document) !== expectedFocus
     ) {
       return;
     }
 
-    trigger.element.focus();
+    target.focus();
+  }
+
+  /** The input owner's input, else the Trigger unless its own Options disable it. */
+  #restoreTarget(): HTMLElement | null {
+    const input = this.#input();
+
+    if (input !== null) {
+      return input;
+    }
+
+    const trigger = this.#trigger();
+
+    if (trigger === null || trigger.options().disabled()) {
+      return null;
+    }
+
+    return trigger.element;
+  }
+
+  /**
+   * The input owner's input, resolved at each read rather than at construction: the owner is
+   * the composing root, which itself depends on this Context, so resolving it while this Context
+   * constructs is a circular dependency (NG0200). `self` reads only the root's own element, so a
+   * nested Popover never inherits an ancestor's owner.
+   */
+  #input(): HTMLElement | null {
+    const owner = this.#injector.get(ɵOrigamiPopoverInputOwner, null, { self: true });
+
+    if (owner === null) {
+      return null;
+    }
+
+    return owner.input();
   }
 }
 

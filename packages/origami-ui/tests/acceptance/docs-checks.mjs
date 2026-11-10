@@ -64,6 +64,7 @@ for (const directory of [
   "toast/src",
   "slider/src",
   "number-field/src",
+  "combobox/src",
 ]) {
   await collect(directory);
 }
@@ -332,6 +333,20 @@ const directiveDefaults = {
   "OrigamiNumberField.useGrouping": ["true", /\btrue\b/i],
   "OrigamiNumberField.disabled": ["false", /\bfalse\b/i],
   "OrigamiNumberField.readonly": ["false", /\bfalse\b/i],
+  "OrigamiCombobox.value": ["null", /\bnull\b/i],
+  "OrigamiCombobox.query": ["empty string", /""|empty/i],
+  "OrigamiCombobox.open": ["false", /\bfalse\b/i],
+  "OrigamiCombobox.disabled": ["false", /\bfalse\b/i],
+  "OrigamiComboboxInput.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiComboboxTrigger.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiComboboxContent.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiComboboxContent.side": ["block-end", /block-end/],
+  "OrigamiComboboxContent.align": ["start", /\bstart\b/],
+  "OrigamiComboboxContent.gap": ["0", /\b0\b/],
+  "OrigamiComboboxOption.value": ["required", /required/i],
+  "OrigamiComboboxOption.label": ["null", /\bnull\b/i],
+  "OrigamiComboboxOption.disabled": ["false", /\bfalse\b/i],
+  "OrigamiComboboxOption.id": ["opaque generated hosted ID", /generat/i],
 };
 const subjects = [];
 const failures = [];

@@ -105,6 +105,11 @@ export const routes: Routes = [
       import("./fixtures/menu-deferred.js").then((module) => module.MenuDeferred),
   },
   {
+    path: "combobox",
+    loadComponent: () =>
+      import("./fixtures/combobox-deferred.js").then((module) => module.ComboboxDeferred),
+  },
+  {
     path: "toast",
     loadComponent: () =>
       import("./fixtures/toast-deferred.js").then((module) => module.ToastDeferred),

@@ -126,6 +126,7 @@ import { OrigamiCalendarOptions, OrigamiCalendarMultipleOptions, OrigamiCalendar
 import { OrigamiDateFieldOptions, OrigamiDateFieldSegmentOptions, OrigamiTimeFieldOptions, OrigamiDateTimeFieldOptions, type OrigamiDateFieldState, type OrigamiDateFieldPart, type OrigamiDateFieldSegmentType } from '@loozo/origami-ui/date-field';
 import { OrigamiDatePickerOptions, OrigamiDatePickerTriggerOptions, OrigamiDatePickerContentOptions, OrigamiDatePickerMultipleOptions, OrigamiDatePickerRangeOptions, OrigamiMonthPickerOptions, type OrigamiDatePickerState, type OrigamiDatePickerMultipleState, type OrigamiDatePickerRangeState, type OrigamiMonthPickerState, OrigamiDateTimePickerOptions, type OrigamiDateTimePickerState } from '@loozo/origami-ui/date-picker';
 import { OrigamiMenuOptions, OrigamiMenuTriggerOptions, OrigamiMenuContentOptions, OrigamiMenuItemOptions, OrigamiMenuCheckboxItemOptions, OrigamiMenuRadioGroupOptions, OrigamiMenuRadioItemOptions, OrigamiMenuLinkOptions, OrigamiMenuGroupLabelOptions, OrigamiMenuSubOptions, OrigamiMenuSubTriggerOptions, type OrigamiMenuState, type OrigamiMenuItemState, type OrigamiMenuCheckboxItemState, type OrigamiMenuRadioItemState } from '@loozo/origami-ui/menu';
+import { OrigamiComboboxOptions, OrigamiComboboxInputOptions, OrigamiComboboxTriggerOptions, OrigamiComboboxContentOptions, OrigamiComboboxOptionOptions, type OrigamiComboboxState, type OrigamiComboboxOptionState } from '@loozo/origami-ui/combobox';
 import { OrigamiToaster, OrigamiToastRegionOptions, OrigamiToastOptions, OrigamiToastCloseOptions, type OrigamiToastRegionState, type OrigamiToastState, type OrigamiToastRecord } from '@loozo/origami-ui/toast';
 import { OrigamiSliderOptions, type OrigamiSliderState } from '@loozo/origami-ui/slider';
 import { OrigamiNumberFieldOptions, type OrigamiNumberFieldState } from '@loozo/origami-ui/number-field';
@@ -394,6 +395,33 @@ void selectRecordStrings;
 declare const selectOptionState: OrigamiSelectOptionState;
 // @ts-expect-error Select Option State is readonly
 selectOptionState.selected.set(true);
+// @ts-expect-error Combobox value is a nullable string, number or boolean
+OrigamiComboboxOptions.provideFactory(() => ({value: signal<{id: number} | null>(null), query: signal(''), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error a Combobox factory must supply query
+OrigamiComboboxOptions.provideFactory(() => ({value: signal<number | null>(null), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error Combobox query must be writable
+OrigamiComboboxOptions.provideFactory(() => ({value: signal<number | null>(null), query: computed(() => ''), open: signal(false), disabled: signal(false)}));
+// @ts-expect-error a Combobox Option factory must supply label
+OrigamiComboboxOptionOptions.provideFactory(() => ({value: signal(1), disabled: signal(false), id: signal('one')}));
+// @ts-expect-error a Combobox Content factory must supply gap
+OrigamiComboboxContentOptions.provideFactory(() => ({id: signal('list'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start')}));
+// @ts-expect-error a Combobox input ID is a string
+OrigamiComboboxInputOptions.provideFactory(() => ({id: signal(1)}));
+// @ts-expect-error a Combobox Trigger factory must supply id
+OrigamiComboboxTriggerOptions.provideFactory(() => ({}));
+declare const comboboxState: OrigamiComboboxState<number>;
+// @ts-expect-error Combobox State value is readonly
+comboboxState.value.set(1);
+// @ts-expect-error Combobox State query is readonly
+comboboxState.query.set('');
+// @ts-expect-error a number Combobox's value isn't a string
+const comboboxString: string | null = comboboxState.value();
+void comboboxString;
+// @ts-expect-error Combobox State has no selectedOption
+void comboboxState.selectedOption;
+declare const comboboxOptionState: OrigamiComboboxOptionState;
+// @ts-expect-error Combobox Option State is readonly
+comboboxOptionState.active.set(true);
 interface TypedToast { title: string; kind: 'success' | 'error' }
 class TypedToasts extends OrigamiToaster<TypedToast> {}
 declare const typedToasts: TypedToasts;
@@ -870,6 +898,12 @@ abstract class AbstractSelectMultiple {
   abstract readonly open: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractCombobox {
+  abstract readonly value: WritableSignal<string | null>;
+  abstract readonly query: WritableSignal<string>;
+  abstract readonly open: WritableSignal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+}
 abstract class AbstractSelectOption {
   abstract readonly value: Signal<boolean>;
   abstract readonly disabled: Signal<boolean>;
@@ -978,6 +1012,15 @@ export const providers: Provider[] = [
   OrigamiSelectContentOptions.provideFactory(() => ({id: signal('countries'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start'), gap: signal(4)})),
   OrigamiSelectOptionOptions.provideFactory(() => ({value: signal(1), disabled: signal(false), label: signal<string | null>('One'), id: signal('one')})),
   OrigamiSelectOptionOptions.provideExisting(() => AbstractSelectOption),
+  OrigamiComboboxOptions.provideFactory(() => ({value: signal<number | null>(null), query: signal(''), open: signal(false), disabled: computed(() => false)})),
+  OrigamiComboboxOptions.provideExisting(() => AbstractCombobox),
+  OrigamiComboboxInputOptions.provideFactory(() => ({id: computed(() => 'country')})),
+  OrigamiComboboxInputOptions.provideExisting(() => AbstractIdentity),
+  OrigamiComboboxTriggerOptions.provideFactory(() => ({id: signal('countries-button')})),
+  OrigamiComboboxTriggerOptions.provideExisting(() => AbstractIdentity),
+  OrigamiComboboxContentOptions.provideFactory(() => ({id: signal('countries'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start'), gap: signal(4)})),
+  OrigamiComboboxOptionOptions.provideFactory(() => ({value: signal(1), label: signal<string | null>('One'), disabled: signal(false), id: signal('one')})),
+  OrigamiComboboxOptionOptions.provideExisting(() => AbstractSelectOption),
   OrigamiDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => true)})),
   OrigamiAlertDialogOptions.provideFactory(() => ({open: signal(false), dismissible: computed(() => false)})),
   OrigamiDialogTriggerOptions.provideFactory(() => ({id: signal('filters-trigger'), disabled: computed(() => false), focusableWhenDisabled: signal(false)})),
@@ -1217,6 +1260,26 @@ import { OrigamiField, OrigamiFieldLabel, OrigamiFieldDescription } from "@loozo
   stringOutput(value: string | null): void { void value; }
   observeRecord(value: OrigamiSelectOptionRecord<number> | null): void { void value; }
   observeOption(state: OrigamiSelectOptionState): void { void state; }
+  observeBoolean(value: boolean): void { void value; }`,
+  },
+  combobox: {
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiCombobox, OrigamiComboboxInput, OrigamiComboboxTrigger, OrigamiComboboxContent, OrigamiComboboxOption, OrigamiComboboxOptionState } from "@loozo/origami-ui/combobox";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiCombobox, OrigamiComboboxInput, OrigamiComboboxTrigger, OrigamiComboboxContent, OrigamiComboboxOption, OrigamiField, OrigamiFieldLabel",
+    members: `
+  readonly model = signal<{ planet: number | null; code: string | null }>({ planet: null, code: null });
+  readonly form = form(this.model, (path) => { required(path.planet); });
+  readonly count = signal<number | null>(null);
+  readonly shape = signal<{ id: number } | null>(null);
+  readonly query = signal("");
+  readonly open = signal(false);
+  touched(): void {}
+  countOutput(value: number | null): void { void value; }
+  stringOutput(value: string | null): void { void value; }
+  queryOutput(value: string): void { void value; }
+  observeOption(state: OrigamiComboboxOptionState): void { void state; }
   observeBoolean(value: boolean): void { void value; }`,
   },
   calendar: {
@@ -2290,6 +2353,66 @@ const templates = [
       code: 2339,
       span: "state",
       message: /Property 'state' does not exist on type 'OrigamiSelectTrigger'/,
+    },
+  },
+  {
+    name: "combobox-positive",
+    family: "combobox",
+    template: `<div ogCombobox #box="ogCombobox" [(value)]="count" (valueChange)="countOutput($event)" [(query)]="query" (queryChange)="queryOutput($event)" [(open)]="open" disabled><input ogComboboxInput #input="ogComboboxInput" id="planet" aria-label="Planet" /><button ogComboboxTrigger #button="ogComboboxTrigger" id="planets" aria-label="Planets" (click)="countOutput(box.state.value()); queryOutput(box.state.query()); observeBoolean(box.state.open()); observeBoolean(box.state.disabled())"></button><div ogComboboxContent #list="ogComboboxContent" side="block-start" align="end" [gap]="4" (click)="observeBoolean(list.state.open())"><div ogComboboxOption #one="ogComboboxOption" [value]="1" label="One" disabled id="one" (click)="observeOption(one.state)">One</div></div></div>`,
+  },
+  {
+    name: "combobox-form-positive",
+    family: "combobox",
+    template: `<div ogField><label ogFieldLabel>Planet</label><div ogCombobox #planet="ogCombobox" [formField]="form.planet" [(query)]="query" (touch)="touched()" (click)="planet.focus({ preventScroll: true }); countOutput(planet.state.value()); countOutput(planet.value())"><input ogComboboxInput /><div ogComboboxContent><div ogComboboxOption [value]="1">Mercury</div></div></div></div><div ogCombobox #code="ogCombobox" [formField]="form.code" (click)="stringOutput(code.state.value())"></div>`,
+  },
+  {
+    name: "combobox-form-number",
+    family: "combobox",
+    template: `<div ogCombobox #planet="ogCombobox" [formField]="form.planet" (click)="stringOutput(planet.state.value())"></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "combobox-object-value",
+    family: "combobox",
+    template: `<div ogCombobox [(value)]="shape"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /not assignable to type 'string \| number \| boolean \| null'/s,
+    },
+  },
+  {
+    name: "combobox-option-value",
+    family: "combobox",
+    template: `<div ogCombobox><div ogComboboxOption>Missing</div></div>`,
+    expected: {
+      code: -998008,
+      span: "div",
+      message: /Required input 'value' from directive OrigamiComboboxOption must be specified/,
+    },
+  },
+  {
+    name: "combobox-input-state",
+    family: "combobox",
+    template: `<div ogCombobox [(value)]="count"><input ogComboboxInput #input="ogComboboxInput" (click)="countOutput(input.state.value())" /></div>`,
+    expected: {
+      code: 2339,
+      span: "state",
+      message: /Property 'state' does not exist on type 'OrigamiComboboxInput'/,
+    },
+  },
+  {
+    name: "combobox-trigger-state",
+    family: "combobox",
+    template: `<div ogCombobox [(value)]="count"><button ogComboboxTrigger #button="ogComboboxTrigger" (click)="countOutput(button.state.value())"></button></div>`,
+    expected: {
+      code: 2339,
+      span: "state",
+      message: /Property 'state' does not exist on type 'OrigamiComboboxTrigger'/,
     },
   },
   {

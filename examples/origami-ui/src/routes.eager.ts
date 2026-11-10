@@ -93,6 +93,10 @@ export const routes: Routes = [
     loadComponent: () => import("./fixtures/menu.js").then((module) => module.MenuFixture),
   },
   {
+    path: "combobox",
+    loadComponent: () => import("./fixtures/combobox.js").then((module) => module.ComboboxFixture),
+  },
+  {
     path: "toast",
     loadComponent: () => import("./fixtures/toast.js").then((module) => module.ToastFixture),
   },

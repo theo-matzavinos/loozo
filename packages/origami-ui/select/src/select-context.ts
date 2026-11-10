@@ -2,21 +2,22 @@ import { DestroyRef, Service, computed, effect, inject, signal, untracked } from
 import type { Provider, Signal, WritableSignal } from "@angular/core";
 import { FORM_FIELD } from "@angular/forms/signals";
 import type { FieldState } from "@angular/forms/signals";
-import { ɵTypeaheadBuffer, ɵmatchTypeahead } from "@loozo/origami-ui/collection";
+import {
+  ɵOrigamiListbox,
+  ɵTypeaheadBuffer,
+  ɵmatchTypeahead,
+  ɵmoveActiveOption,
+} from "@loozo/origami-ui/collection";
+import type { ɵActiveOptionMove, ɵOrigamiListboxOption } from "@loozo/origami-ui/collection";
 import { injectDeferred } from "@loozo/origami-ui/utils";
 import { Subject } from "rxjs";
-import { moveActiveOption } from "./active-option";
-import type { ActiveOptionMove } from "./active-option";
 
 /** The values a Select and its options carry, compared with `===`. */
 export type SelectValue = string | number | boolean;
 
 /** What an Option registers from its `ngOnInit`; every signal reads its effective Options. */
-export interface SelectOptionRegistration {
-  readonly element: HTMLElement;
-  readonly id: Signal<string>;
+export interface SelectOptionRegistration extends ɵOrigamiListboxOption {
   readonly value: Signal<SelectValue>;
-  readonly disabled: Signal<boolean>;
   readonly label: Signal<string | null>;
 }
 
@@ -37,9 +38,6 @@ export interface SelectTriggerRegistration {
 
 /** Where opening puts the active option: the selected one (else the first enabled), or an end. */
 export type SelectOpenTarget = "selected" | "first" | "last";
-
-/** A keyboard or opening activation that Content scrolls into view; a new object every time. */
-export type SelectReveal = { readonly option: SelectOptionRegistration };
 
 /**
  * Configuration of the Select Context, supplied by the root that provides it. The root's mode owns
@@ -70,21 +68,6 @@ export abstract class SelectRootOptions {
   }
 }
 
-/** Sort comparator for connected elements in document order; event time only. */
-function documentOrder(left: SelectOptionRegistration, right: SelectOptionRegistration): number {
-  const position = left.element.compareDocumentPosition(right.element);
-
-  if ((position & 4) !== 0) {
-    return -1;
-  }
-
-  if ((position & 2) !== 0) {
-    return 1;
-  }
-
-  return 0;
-}
-
 /**
  * Typeahead text: the explicit label, else the element's text with whitespace collapsed, read
  * when the key is pressed.
@@ -100,21 +83,20 @@ function typeaheadText(option: SelectOptionRegistration): string {
 }
 
 /**
- * @internal The Select's private owner: option registrations, the active option, typeahead and
- * the guarded choice. Focus stays on the Trigger; the active option is only highlighted
- * (`aria-activedescendant`). Only `choose` writes the value, from a user's choice. It also owns
- * the registered Trigger and the root's Signal Forms binding (`FORM_FIELD` on the root's element).
+ * @internal The Select's private owner: Select's policy over the shared listbox core
+ * (`ɵOrigamiListbox` from /collection, which holds the option registrations, the active option
+ * and the pending reveal), typeahead and the guarded choice. Focus stays on the Trigger; the
+ * active option is only highlighted (`aria-activedescendant`). Only `choose` writes the value,
+ * from a user's choice. It also owns the registered Trigger and the root's Signal Forms binding
+ * (`FORM_FIELD` on the root's element).
  */
 @Service({ autoProvided: false })
 export class SelectContext {
   readonly #root = injectDeferred(SelectRootOptions);
   readonly #binding = inject(FORM_FIELD, { self: true, optional: true });
   readonly #touches = new Subject<void>();
-  readonly #options = signal<readonly SelectOptionRegistration[]>([]);
   readonly #content = signal<SelectContentRegistration | null>(null);
   readonly #trigger = signal<SelectTriggerRegistration | null>(null);
-  readonly #active = signal<SelectOptionRegistration | null>(null);
-  readonly #reveal = signal<SelectReveal | null>(null);
   readonly #typeahead = new ɵTypeaheadBuffer();
   #destroyed = false;
   /** Whether the list participated since the last user open, so losing participation closes. */
@@ -124,32 +106,17 @@ export class SelectContext {
   readonly open = computed(() => this.#root().open());
   readonly disabled = computed(() => this.#root().disabled());
   readonly empty = computed(() => this.#root().empty());
-  /** Registered options in registration order. */
-  readonly options = this.#options.asReadonly();
   /** The registered Content's native participation; false without Content. */
   readonly participating = computed(() => this.#content()?.participating() ?? false);
+  readonly #listbox = new ɵOrigamiListbox<SelectOptionRegistration>(this.participating);
+  /** Registered options in registration order. */
+  readonly options = this.#listbox.options;
   /** The highlighted option while it is registered; never the value. */
-  readonly active = computed(() => {
-    const active = this.#active();
-
-    if (active !== null && this.#options().includes(active)) {
-      return active;
-    }
-
-    return null;
-  });
+  readonly active = this.#listbox.active;
   /** The active option while the list participates: what the Trigger and the options expose. */
-  readonly highlighted = computed(() => {
-    if (!this.participating()) {
-      return null;
-    }
-
-    return this.active();
-  });
+  readonly highlighted = this.#listbox.highlighted;
   /** The Trigger's `aria-activedescendant`: the highlighted option's ID. */
-  readonly activeDescendant = computed(() => this.highlighted()?.id() ?? null);
-  /** The latest activation to scroll into view, or null. */
-  readonly reveal = this.#reveal.asReadonly();
+  readonly activeDescendant = this.#listbox.activeDescendant;
   /** The registered Trigger's `aria-labelledby`, null until it registers and while it has none. */
   readonly labelledBy = computed(() => this.#trigger()?.labelledBy() ?? null);
   /** The registered Trigger's static `aria-label`, null until it registers and while it has none. */
@@ -175,8 +142,7 @@ export class SelectContext {
 
       if (!this.open() || lost) {
         untracked(() => {
-          this.#active.set(null);
-          this.#reveal.set(null);
+          this.#listbox.activate(null);
           this.#typeahead.reset();
         });
       }
@@ -198,24 +164,7 @@ export class SelectContext {
 
   /** Registers an Option from its `ngOnInit`, unless its view is already destroyed; `destroyRef` removes it. */
   registerOption(option: SelectOptionRegistration, destroyRef: DestroyRef): void {
-    if (destroyRef.destroyed) {
-      return;
-    }
-
-    this.#options.update((options) => [...options, option]);
-    destroyRef.onDestroy(() => {
-      this.#options.update((options) => {
-        const remaining: SelectOptionRegistration[] = [];
-
-        for (const registered of options) {
-          if (registered !== option) {
-            remaining.push(registered);
-          }
-        }
-
-        return remaining;
-      });
-    });
+    this.#listbox.register(option, destroyRef);
   }
 
   /** Registers Content from its `ngOnInit`; its composed Popover Content rejects a second one first. */
@@ -275,7 +224,7 @@ export class SelectContext {
       return;
     }
 
-    this.#activate(this.#target(target));
+    this.#listbox.activate(this.#target(target));
   }
 
   /**
@@ -291,12 +240,12 @@ export class SelectContext {
     const match = ɵmatchTypeahead(this.#candidates(), null, search, typeaheadText);
 
     if (match !== null) {
-      this.#activate(match);
+      this.#listbox.activate(match);
 
       return;
     }
 
-    this.#activate(this.#target("selected"));
+    this.#listbox.activate(this.#target("selected"));
   }
 
   /**
@@ -307,29 +256,23 @@ export class SelectContext {
     if (!this.#destroyed && this.open()) {
       this.#typeahead.reset();
       this.#participated = false;
-      this.#activate(this.#target("selected"));
+      this.#listbox.activate(this.#target("selected"));
     }
   }
 
   /** Moves the active option; without one, Arrow keys start from the selected option. */
-  move(move: ActiveOptionMove): void {
-    const active = this.active();
-
-    if (active === null && (move === "next" || move === "previous")) {
+  move(move: ɵActiveOptionMove): void {
+    if (this.active() === null && (move === "next" || move === "previous")) {
       const selected = this.#selectedOption();
 
       if (selected !== null) {
-        this.#activate(selected);
+        this.#listbox.activate(selected);
 
         return;
       }
     }
 
-    const target = moveActiveOption(this.#ordered(), active, move);
-
-    if (target !== null) {
-      this.#activate(target);
-    }
+    this.#listbox.move(move);
   }
 
   /** Whether a typeahead buffer typed before `time` still runs, so a Space joins it. */
@@ -343,15 +286,23 @@ export class SelectContext {
     const match = ɵmatchTypeahead(this.#candidates(), this.active(), search, typeaheadText);
 
     if (match !== null) {
-      this.#activate(match);
+      this.#listbox.activate(match);
     }
   }
 
   /** A pointer moved over an option: it becomes active, without scrolling. Disabled options don't. */
   point(option: SelectOptionRegistration): void {
-    if (!this.#destroyed && this.participating() && !option.disabled()) {
-      this.#active.set(option);
-    }
+    this.#listbox.point(option);
+  }
+
+  /**
+   * Scrolls each keyboard or opening activation into view inside Content; Content calls it once,
+   * from its constructor.
+   * @param content - Content's element.
+   * @param ready - Reads its floating presentation's readiness, reactively.
+   */
+  scrollReveals(content: HTMLElement, ready: () => boolean): void {
+    this.#listbox.scrollReveals(content, ready);
   }
 
   /**
@@ -398,18 +349,6 @@ export class SelectContext {
     return true;
   }
 
-  #activate(option: SelectOptionRegistration | null): void {
-    this.#active.set(option);
-
-    if (option === null) {
-      this.#reveal.set(null);
-
-      return;
-    }
-
-    this.#reveal.set({ option });
-  }
-
   #target(target: SelectOpenTarget): SelectOptionRegistration | null {
     if (target === "selected") {
       const selected = this.#selectedOption();
@@ -418,15 +357,15 @@ export class SelectContext {
         return selected;
       }
 
-      return moveActiveOption(this.#ordered(), null, "first");
+      return ɵmoveActiveOption(this.#listbox.ordered(), null, "first");
     }
 
-    return moveActiveOption(this.#ordered(), null, target);
+    return ɵmoveActiveOption(this.#listbox.ordered(), null, target);
   }
 
   /** The first enabled selected option in DOM order. */
   #selectedOption(): SelectOptionRegistration | null {
-    for (const option of this.#ordered()) {
+    for (const option of this.#listbox.ordered()) {
       if (!option.disabled() && this.selected(option.value())) {
         return option;
       }
@@ -435,16 +374,11 @@ export class SelectContext {
     return null;
   }
 
-  /** Registered options in current DOM order. */
-  #ordered(): SelectOptionRegistration[] {
-    return [...this.#options()].sort(documentOrder);
-  }
-
   /** Enabled options in current DOM order. */
   #candidates(): SelectOptionRegistration[] {
     const candidates: SelectOptionRegistration[] = [];
 
-    for (const option of this.#ordered()) {
+    for (const option of this.#listbox.ordered()) {
       if (!option.disabled()) {
         candidates.push(option);
       }
