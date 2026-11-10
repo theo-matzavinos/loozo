@@ -13,7 +13,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -162,7 +162,8 @@ async function snapshot() {
 
       const file = join(directory, entry.name);
       const info = await lstat(file, { bigint: true });
-      const key = file.slice(fixture.length + 1);
+      // Keys use "/" on every host, like the paths the assertions look them up by.
+      const key = relative(fixture, file).split(sep).join("/");
 
       if (entry.isDirectory()) {
         files[key] = { mode: String(info.mode), mtimeNs: String(info.mtimeNs) };
