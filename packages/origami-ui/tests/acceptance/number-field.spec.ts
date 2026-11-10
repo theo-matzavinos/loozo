@@ -961,6 +961,69 @@ test("NF12 a numeric edit before hydration commits once, not again when Angular 
   await expect(out(page, "counted-sets")).toHaveText("1");
 });
 
+test("NF12 an edit before hydration that leaves the server's text as it was commits once, as it would after hydration", async ({
+  page,
+}, info) => {
+  // The counting field holds 1.234, shown as `1,23`. `3` typed over its `3` leaves `1,23`, which
+  // the first render can't tell from the server's text; the replayed `input` shows it was an edit.
+  const counted = field(page, "counted");
+
+  await hydrateAfter(page, info, async () => {
+    await counted.evaluate((element: HTMLInputElement) => {
+      element.focus();
+      element.setSelectionRange(3, 4);
+    });
+    await page.keyboard.type("3");
+  });
+  await replayed(page);
+  await expect(counted).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.23");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+});
+
+test("NF12 several edits before hydration that leave the server's text as it was commit once", async ({
+  page,
+}, info) => {
+  // Two `input` events before the block hydrates, both leaving `1,23`: the first replay takes the
+  // text, the second isn't another edit. The events bubble, as a browser's do.
+  const counted = field(page, "counted");
+
+  await hydrateAfter(page, info, async () => {
+    await counted.evaluate((element: HTMLInputElement) => {
+      element.focus();
+
+      for (let edit = 0; edit < 2; edit++) {
+        element.setSelectionRange(3, 4);
+        element.setRangeText("3", 3, 4, "end");
+        element.dispatchEvent(
+          new InputEvent("input", { bubbles: true, data: "3", inputType: "insertText" }),
+        );
+      }
+    });
+  });
+  await replayed(page);
+  await expect(counted).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.23");
+  await expect(out(page, "counted-sets")).toHaveText("1");
+});
+
+test("NF12 untouched server text keeps a value with more fraction digits than it shows when its block hydrates", async ({
+  page,
+}, info) => {
+  // An edit to another Input hydrates the block; the counting field's own text is never edited.
+  const counted = field(page, "counted");
+
+  await hydrateAfter(page, info, async () => {
+    await selectAll(field(page, "direct"));
+    await page.keyboard.type("4");
+  });
+  await replayed(page);
+  await expect(out(page, "direct-value")).toHaveText("4");
+  await expect(counted).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await expect(out(page, "counted-sets")).toHaveText("0");
+});
+
 test("NF12 a composition that starts before hydration and ends after it keeps its text while open and is checked once at its end", async ({
   page,
 }, info) => {

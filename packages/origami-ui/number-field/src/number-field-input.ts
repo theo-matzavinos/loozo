@@ -24,10 +24,18 @@ interface InputSelection {
 }
 
 /**
+ * What a hydrating Input's first render did with its element's text: found the server's text
+ * unchanged, adopted an edit made before hydration, or restored the draft's text over one no edit
+ * could leave.
+ */
+type FirstRender = "unchanged" | "adopted" | "restored";
+
+/**
  * Whether Angular is replaying an event that reached the server-rendered Input before it
  * hydrated. Its edit is already in the element's text, which the Input's first render adopted or
- * restored, so a replayed edit isn't another edit, and a replayed composition event only opens or
- * closes the composition, whose end is checked only if it is genuine. Eager hydration's replay
+ * restored, so a replayed edit isn't another edit, unless that render found the server's text
+ * unchanged: then it was an edit that left the same text. A replayed composition event only opens
+ * or closes the composition, whose end is checked only if it is genuine. Eager hydration's replay
  * marks the event `EventPhase.REPLAY`; incremental hydration's calls the listeners with the
  * browser's event after its dispatch has ended, when its phase is `NONE`.
  */
@@ -83,9 +91,12 @@ function selectionOf(element: HTMLInputElement): InputSelection {
  * Hydration: a server-rendered Input keeps the server's text, and text typed into it before its
  * block hydrates is taken as an edit once it has rendered, or replaced with the value's text if
  * an edit couldn't have left it. That one check is all the edit gets: Angular's replay of its
- * `beforeinput`, `input` and composition events doesn't edit again. A composition that started
- * before the block hydrated and ends after it is checked when it ends, and its text is kept
- * until then.
+ * `beforeinput`, `input` and composition events doesn't edit again. An edit that left the
+ * server's text as it was (`3` typed over the `3` of `1,23`) is taken once, at the first replayed
+ * `input` that isn't part of a composition, so it commits as it would after hydration; untouched
+ * server text has no replayed `input` and keeps a value with more fraction digits than it shows.
+ * A composition that started before the block hydrated and ends after it is checked when it
+ * ends, and its text is kept until then.
  *
  * @example
  * ```html
@@ -134,9 +145,16 @@ export class OrigamiNumberFieldInput {
   /**
    * False until the first render of an Input that hydrates (its server element carries a `value`
    * attribute when it is created): `input` events before then aren't parsed; the first render
-   * takes the element's text instead, and the edits Angular replays afterwards aren't parsed.
+   * takes the element's text instead, and the edits Angular replays afterwards aren't parsed,
+   * but for one that left the server's text unchanged (see `#firstRender`).
    */
   #rendered = !isPlatformBrowser(inject(PLATFORM_ID)) || !this.#element.hasAttribute("value");
+  /**
+   * What a hydrating Input's first render did with the element's text; null before it, and for an
+   * Input that doesn't hydrate. A replayed `input` takes an unchanged text once, then marks it
+   * adopted.
+   */
+  #firstRender: FirstRender | null = null;
   /** The selection at the edit's `beforeinput`, restored with the text if the edit is undone. */
   #selection: InputSelection | null = null;
   #composing = false;
@@ -185,16 +203,20 @@ export class OrigamiNumberFieldInput {
       const text = this.#element.value;
 
       if (text === this.#context.text()) {
+        this.#firstRender = "unchanged";
+
         return;
       }
 
       if (this.#context.accepts(text)) {
+        this.#firstRender = "adopted";
         this.#editedText = text;
         this.#context.edit(text);
 
         return;
       }
 
+      this.#firstRender = "restored";
       this.#element.value = this.#context.text();
     });
 
@@ -254,10 +276,23 @@ export class OrigamiNumberFieldInput {
   /**
    * @internal Checks the edit the browser applied, unless it is part of a composition, including
    * the `input` after a composition's end that leaves the text its end was checked with, or a
-   * replay of an edit the first render already took.
+   * replay of an edit the first render already adopted or restored. The first replay after a first
+   * render that found the server's text unchanged is an edit that left the same text: it is
+   * checked once.
    */
   protected edited(event: Event): void {
-    if (replayed(event) || this.#composing || (event instanceof InputEvent && event.isComposing)) {
+    if (this.#composing || (event instanceof InputEvent && event.isComposing)) {
+      return;
+    }
+
+    if (replayed(event)) {
+      if (this.#firstRender !== "unchanged") {
+        return;
+      }
+
+      this.#firstRender = "adopted";
+      this.#check();
+
       return;
     }
 
