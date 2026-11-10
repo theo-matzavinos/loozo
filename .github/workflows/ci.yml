@@ -134,8 +134,11 @@ jobs:
           pnpm_config_verify_deps_before_run: error
       - run: pnpm run build
       - run: pnpm test
-      - run: pnpm exec playwright install chromium
-      - run: pnpm run test:filesystem "$RUNNER_TEMP/evidence"
+      # The filesystem proof runs and reports even when a Node test failed.
+      - if: ${{ !cancelled() }}
+        run: pnpm exec playwright install chromium
+      - if: ${{ !cancelled() }}
+        run: pnpm run test:filesystem "$RUNNER_TEMP/evidence"
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
