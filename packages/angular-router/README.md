@@ -22,7 +22,13 @@ Peer dependencies:
 | `@angular/router` | `^22.0.0` |
 | `@angular/build`  | `~22.2.0` |
 
-The package is tested against Angular 22.2.2. The `@angular/build` range is narrow on purpose: the application builder's options schema is Angular's own application schema at the version the package was built against. An option added in a later Angular minor is rejected until the package is rebuilt against that minor.
+## Angular versions
+
+Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.2 and is tested against 22.2.2. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
+
+When Angular ships a new minor or major, a release built against it follows within a week. Earlier minors stay on the release that supported them; fixes aren't backported. [`@loozo/angular-launch`](../angular-launch/README.md) pins the router exactly and releases in lockstep: each router release is followed by a Launch release that pins it.
+
+A weekly canary builds and tests the package against Angular's `latest` and `next` releases, so the release for a new minor is usually ready when Angular ships it.
 
 ## Setup
 

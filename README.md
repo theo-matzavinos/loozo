@@ -46,4 +46,6 @@ Release a package from the Actions tab: run the **Publish** workflow on `main` a
 
 Pull requests into `main` run the **CI** workflow: every package's build, check, typecheck and test, Origami's commit gate, the router's browser tests and fold's consumer check. Every push to `main` runs the **Release gate** workflow, Origami's `test:full`. Publish refuses an Origami release unless the Release gate passed on the commit it releases; a release commit stands for its nearest non-release ancestor.
 
+Every Friday the **Angular canary** workflow pins the workspace to Angular's `latest` release in one job and its `next` release in another, rebuilds the router's builder schemas and runs the router's and Launch's tests. It isn't a required check; its `latest` run stays red from the day Angular ships a minor the router doesn't cover until the router is released against it.
+
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).
