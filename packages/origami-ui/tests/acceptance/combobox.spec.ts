@@ -702,7 +702,7 @@ test("CB9: in a Dialog and in Popover Content, the first Escape and a press insi
 
   const cases = [
     {
-      open: () => page.getByTestId("dialog-trigger").click(),
+      trigger: page.getByTestId("dialog-trigger"),
       parent: page.getByTestId("dialog-content"),
       parentOpen: page.getByTestId("dialog-open"),
       inside: page.getByTestId("dialog-inside"),
@@ -712,7 +712,7 @@ test("CB9: in a Dialog and in Popover Content, the first Escape and a press insi
       value: page.getByTestId("dialog-value"),
     },
     {
-      open: () => page.getByTestId("popover-trigger").click(),
+      trigger: page.getByTestId("popover-trigger"),
       parent: page.getByTestId("popover-content"),
       parentOpen: page.getByTestId("popover-open"),
       inside: page.getByTestId("popover-inside"),
@@ -724,11 +724,13 @@ test("CB9: in a Dialog and in Popover Content, the first Escape and a press insi
   ];
 
   for (const nested of cases) {
-    // Room below for the list, so it never covers the parent's text.
-    await page
-      .getByTestId(nested === cases[0] ? "dialog-trigger" : "popover-trigger")
-      .evaluate((node) => node.scrollIntoView({ block: "start" }));
-    await nested.open();
+    // Room below for the list, so it never covers the parent's text. A whole-pixel scroll: after
+    // scrollIntoView to a fractional offset, Firefox scrolls 1px more a frame later; a click that
+    // sees the trigger move retries by scrolling it to the viewport's bottom edge.
+    await nested.trigger.evaluate((node) => {
+      window.scrollTo(0, Math.floor(node.getBoundingClientRect().top + window.scrollY));
+    });
+    await nested.trigger.click();
     await expect(nested.parentOpen).toHaveText("true");
     await nested.input.focus();
     await page.keyboard.press("ArrowDown");
