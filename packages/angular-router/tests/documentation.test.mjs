@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 async function source(path) {
   const file = new URL(path, import.meta.url);
   const text = await readFile(file, "utf8");
 
-  return ts.createSourceFile(file.pathname, text, ts.ScriptTarget.Latest, true);
+  return ts.createSourceFile(fileURLToPath(file), text, ts.ScriptTarget.Latest, true);
 }
 
 // A summary containing {@link} is a node array, not a string.
@@ -79,7 +80,7 @@ function declaration(file, name) {
 }
 
 await test("published root declarations retain documentation for every supported export", async () => {
-  const consumer = new URL("consumer.ts", import.meta.url).pathname;
+  const consumer = fileURLToPath(new URL("consumer.ts", import.meta.url));
   const program = ts.createProgram([consumer], {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
