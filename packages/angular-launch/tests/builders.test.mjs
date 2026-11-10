@@ -2,6 +2,8 @@
 // these tests see exactly what Launch hands Angular's builders without running a real Angular build.
 // examples/angular-launch builds and serves through the real ones.
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { createServer, get } from "node:http";
 import { test } from "node:test";
 import chokidar from "chokidar";
 import { mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -178,11 +180,19 @@ async function setUp() {
       JSON.stringify({
         builders: {
           application: { implementation: "./application.js", schema: "./schema.json" },
-          "dev-server": { implementation: "./dev-server.js", schema: "./schema.json" },
+          // Only its schema is read: the serve builder runs the dev server from index.js.
+          "dev-server": { implementation: "./index.js", schema: "./dev-server.schema.json" },
         },
       }),
     ),
     put(`${stub}/schema.json`, schema),
+    put(
+      `${stub}/dev-server.schema.json`,
+      JSON.stringify({
+        type: "object",
+        properties: { stubDefault: { type: "string", default: "applied" } },
+      }),
+    ),
     put(
       `${stub}/application.js`,
       `import { existsSync } from "node:fs";
@@ -199,23 +209,46 @@ export default createBuilder((options, context) => {
 `,
     ),
     put(
-      `${stub}/dev-server.js`,
-      `import { Observable } from "rxjs";
-import { createBuilder } from "@angular-devkit/architect";
+      `${stub}/index.js`,
+      `// globalThis.launchBuilderTestDevServer picks how it ends: "serve" (the default) runs until its
+// teardown closes it, "fail" throws and "end" returns after its first output.
+export async function* executeDevServerBuilder(options, context, extensions) {
+  const call = { builder: "dev-server", options, extensions, stopped: false, teardowns: 0 };
+  const ending = globalThis.launchBuilderTestDevServer ?? "serve";
+  let close;
+  const closed = new Promise((done) => {
+    close = done;
+  });
 
-export default createBuilder(
-  (options) =>
-    new Observable((subscriber) => {
-      globalThis.launchBuilderTestCalls.push({ builder: "dev-server", options });
-      subscriber.next({ success: true, baseUrl: "http://127.0.0.1:1/" });
-    }),
-);
+  globalThis.launchBuilderTestCalls.push(call);
+  // Angular's dev server closes in a teardown it adds to the context it runs in.
+  context.addTeardown(() => {
+    call.teardowns += 1;
+    close();
+  });
+
+  try {
+    yield { success: true, baseUrl: "http://127.0.0.1:1/" };
+
+    if (ending === "fail") {
+      throw new Error("dev server failed");
+    }
+
+    if (ending === "end") {
+      return;
+    }
+
+    await closed;
+  } finally {
+    call.stopped = true;
+  }
+}
 `,
     ),
   ]);
 
   // The stub's own imports resolve through the package's copies.
-  for (const name of ["@angular-devkit/architect", "rxjs"]) {
+  for (const name of ["@angular-devkit/architect"]) {
     const link = resolve(fixture, "node_modules", name);
 
     await mkdir(dirname(link), { recursive: true });
@@ -240,6 +273,7 @@ async function start(target, configuration) {
   const logs = [];
   const outputs = [];
   let error;
+  let completed = false;
 
   logger.subscribe((entry) => logs.push(entry));
 
@@ -253,6 +287,9 @@ async function start(target, configuration) {
     error: (failure) => {
       error = failure;
     },
+    complete: () => {
+      completed = true;
+    },
   });
 
   return {
@@ -260,6 +297,9 @@ async function start(target, configuration) {
     outputs,
     get error() {
       return error;
+    },
+    get completed() {
+      return completed;
     },
     async stop() {
       subscription.unsubscribe();
@@ -696,5 +736,196 @@ await test("serve runs one pass for a burst of watcher events", async () => {
 
     await put("src/routes/todos/rpc.ts", rpc);
     await put("src/routes/todos/page.ts", page);
+  }
+});
+
+await test("serve runs Angular's dev server with validated options and stops it on teardown", async () => {
+  const served = await start("serve");
+  let call;
+
+  try {
+    await waitFor(
+      () => served.outputs.some((output) => output.success),
+      "dev server never started",
+    );
+    call = callsOf("dev-server").at(-1);
+
+    assert.equal(served.outputs[0].baseUrl, "http://127.0.0.1:1/", "the dev server's output");
+    assert.equal(call.options.buildTarget, "app:build");
+    assert.equal(call.options.poll, 1000);
+    assert.equal(call.options.stubDefault, "applied", "defaulted by the dev server's schema");
+    assert.equal(call.extensions.middleware.length, 1);
+    assert.equal(call.stopped, false);
+  } finally {
+    await served.stop();
+  }
+
+  assert.equal(call.stopped, true, "stopping serve stopped the dev server");
+  assert.equal(call.teardowns, 1, "the dev server's teardown ran once");
+  assert.equal(served.error, undefined);
+});
+
+for (const [ending, outcome] of [
+  ["fail", "fails"],
+  ["end", "ends on its own"],
+]) {
+  await test(`serve runs the dev server's teardowns once when it ${outcome}`, async () => {
+    globalThis.launchBuilderTestDevServer = ending;
+
+    const served = await start("serve");
+
+    try {
+      await waitFor(
+        () => served.error !== undefined || served.completed,
+        `serve never settled after the dev server ${outcome}`,
+      );
+
+      const call = callsOf("dev-server").at(-1);
+
+      assert.equal(call.stopped, true);
+      assert.equal(call.teardowns, 1, "its teardown ran once, with no Stop from Architect");
+
+      if (ending === "fail") {
+        assert.match(String(served.error), /dev server failed/);
+      } else {
+        assert.equal(served.error, undefined);
+        assert.equal(served.completed, true);
+      }
+    } finally {
+      delete globalThis.launchBuilderTestDevServer;
+      await served.stop();
+    }
+
+    assert.equal(callsOf("dev-server").at(-1).teardowns, 1, "stopping again ran it no more");
+  });
+}
+
+await test("serve's dev-server middleware forwards /_rpc/ upgrades to the latest channel listener", async () => {
+  const slot = Symbol.for("@loozo/angular-launch/upgrade-listener/v1");
+  const saved = globalThis[slot];
+  const served = await start("serve");
+  const server = createServer();
+
+  delete globalThis[slot];
+
+  // A raw upgrade request; answers here are plain HTTP responses, never a 101.
+  async function upgrade(path, headers = {}) {
+    const { port } = server.address();
+    const request = get({
+      host: "127.0.0.1",
+      port,
+      path,
+      headers: { connection: "Upgrade", upgrade: "websocket", ...headers },
+    });
+    const [response] = await once(request, "response");
+    let body = "";
+
+    response.setEncoding("utf8");
+
+    for await (const chunk of response) {
+      body += chunk;
+    }
+
+    return { status: response.statusCode, headers: response.headers, body };
+  }
+
+  async function fetchText(path) {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}${path}`);
+
+    return response.text();
+  }
+
+  function answer(socket, body) {
+    socket.end(
+      `HTTP/1.1 200 OK\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`,
+    );
+  }
+
+  function warnings(pattern) {
+    let count = 0;
+
+    for (const entry of served.logs) {
+      if (entry.level === "warn" && pattern.test(entry.message)) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  try {
+    await waitFor(
+      () => served.outputs.some((output) => output.success),
+      "dev server never started",
+    );
+
+    const [middleware] = callsOf("dev-server").at(-1).extensions.middleware;
+    const hmr = [];
+
+    server.on("request", (request, response) => {
+      middleware(request, response, () => response.end("next"));
+    });
+    // Stands in for Vite's HMR listener, which answers only its own protocol.
+    server.on("upgrade", (request, socket) => {
+      if (request.headers["sec-websocket-protocol"] === "vite-hmr") {
+        hmr.push(request.url);
+        answer(socket, "hmr");
+      }
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    // Every request passes through; the first attaches the one forwarding listener.
+    assert.equal(await fetchText("/"), "next");
+    assert.equal(await fetchText("/todos"), "next");
+    assert.equal(server.listenerCount("upgrade"), 2);
+
+    // Without a listener, a channel upgrade is refused at once and warned about once.
+    const refused = await upgrade("/_rpc/todos/watch");
+
+    assert.equal(refused.status, 503);
+    assert.equal(refused.headers.connection, "close");
+    assert.equal(refused.headers["content-type"], "text/plain");
+    assert.match(refused.body, /Channels aren't available/);
+    await waitFor(() => warnings(/createUpgradeHandler/) === 1, "no warning was logged");
+    assert.equal((await upgrade("/_rpc/todos/watch")).status, 503);
+    assert.equal(warnings(/createUpgradeHandler/), 1, "warned once");
+
+    // The latest listener created serves channel upgrades; every other upgrade is left alone.
+    const reached = [];
+
+    globalThis[slot] = (request, socket) => {
+      reached.push(`first ${request.url}`);
+      answer(socket, "first");
+    };
+    globalThis[slot] = (request, socket) => {
+      reached.push(`latest ${request.url}`);
+      answer(socket, "latest");
+    };
+
+    assert.equal((await upgrade("/_rpc/todos/watch?input=1")).body, "latest");
+    assert.equal((await upgrade("/", { "sec-websocket-protocol": "vite-hmr" })).body, "hmr");
+    assert.deepEqual(reached, ["latest /_rpc/todos/watch?input=1"]);
+    assert.deepEqual(hmr, ["/"]);
+
+    // A request that doesn't expose its server still passes through, with one warning.
+    let passed = 0;
+
+    middleware({ socket: {} }, {}, () => {
+      passed += 1;
+    });
+    middleware({ socket: {} }, {}, () => {
+      passed += 1;
+    });
+    assert.equal(passed, 2);
+    await waitFor(
+      () => warnings(/can't forward channel upgrades/) === 1,
+      "no warning about the missing server",
+    );
+  } finally {
+    server.close();
+    globalThis[slot] = saved;
+    await served.stop();
   }
 });

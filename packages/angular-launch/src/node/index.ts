@@ -3,6 +3,7 @@ import { STATUS_CODES, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket as NodeWebSocket } from "ws";
 import type { Upgrade } from "../server/upgrade.js";
+import { upgradeListenerSlot } from "./upgrade-listener-slot.js";
 
 /** Options for {@link createUpgradeHandler}. */
 export interface UpgradeHandlerOptions {
@@ -23,8 +24,6 @@ export interface UpgradeHandlerOptions {
 export type UpgradeListener = (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
 
 const pingMs = 15_000;
-// Where S2's dev-server forwarding finds the app's listener; the latest one created wins.
-const listenerSlot = Symbol.for("@loozo/angular-launch/upgrade-listener/v1");
 
 // The upgrade request as a web Request. Like Angular's createWebRequestFromNodeRequest by
 // default, it trusts no proxy headers: the protocol comes from the socket, the host from Host.
@@ -115,6 +114,9 @@ function keepAlive(socket: NodeWebSocket): void {
  * socket, which then closes. An `Upgrade` is accepted with `ws`, with its headers on the `101`,
  * unless the client already left. Accepted sockets are pinged every 15 s and terminated when
  * they miss the answer.
+ *
+ * Under `ng serve`, Launch's serve builder forwards `/_rpc/` upgrades to the latest listener
+ * created, so attaching it where your built server listens is all the wiring there is.
  *
  * @example
  * ```ts
@@ -228,7 +230,8 @@ export function createUpgradeHandler(
     void upgrade(incoming, socket, head);
   };
 
-  (globalThis as Record<symbol, unknown>)[listenerSlot] = listener;
+  // Where `ng serve` finds the app's listener; the latest one created wins.
+  (globalThis as Record<symbol, unknown>)[upgradeListenerSlot] = listener;
 
   return listener;
 }

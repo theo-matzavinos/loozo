@@ -6,7 +6,7 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on the built Node server), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
+**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on Node), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
 
 ## Requirements
 
@@ -256,7 +256,7 @@ if (isMainModule(import.meta.url)) {
 export const reqHandler = createNodeRequestHandler(app);
 ```
 
-Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks). The upgrade handler only matters if you define [channels](#channels); see [Channels on Node](#channels-on-node).
+Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks). The upgrade handler only matters if you define [channels](#channels); `ng serve` uses it too. See [Channels on Node](#channels-on-node).
 
 Always pass `scope.request` together with `scope`, not your original request. The scope ties the context to the request Angular renders; if they don't match, RPC calls during rendering fail with `INTERNAL` and a server log entry. This catches wiring mistakes only; it doesn't check your authentication.
 
@@ -884,7 +884,7 @@ Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even w
 
 Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
 
-Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally. Streams have been verified on Node, under `ng serve` and on Deno. Channels have been verified on the built Node server in Chromium, Firefox and WebKit; `ng serve` doesn't forward websocket upgrades to them yet, so under the dev server a channel fails with a `TypeError`.
+Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally. Streams have been verified on Node, under `ng serve` and on Deno. Channels have been verified on the built Node server and under `ng serve` in Chromium, Firefox and WebKit.
 
 ### Streams behind proxies
 
@@ -916,6 +916,8 @@ createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }), {
   maxPayload: 64 * 1024, // defaults to 1 MiB
 });
 ```
+
+Under `ng serve`, `listen` doesn't run, so your code never attaches the listener. Launch's serve builder forwards channel upgrades to it instead: on the dev server's first request it adds one `upgrade` listener to the dev server, which passes `/_rpc/` upgrades to the latest listener `createUpgradeHandler` created and leaves every other upgrade, such as Vite's live-reload socket, to the dev server. The dev server loads your server module with the first request that reaches your server, such as a page, and again with the first such request after you edit server code; each load creates a new listener, which takes over. Rebuilding alone doesn't load it. With live reload, the default, the reload that follows a server edit is that request, so the reloaded page's channels reach the new code. With `--live-reload=false`, or for an upgrade sent before any page request since the rebuild, the previously loaded module keeps answering until a page request loads the new one. Channels already open stay on the code they started with. A channel upgrade that arrives while no listener exists, because the module hasn't loaded yet or creates none, is answered with a plain-text 503, and the dev server logs one warning naming `createUpgradeHandler`; the client sees a `TypeError`. An upgrade that arrives before the dev server has answered any request isn't forwarded, which doesn't happen in a browser, since the page loads first.
 
 - **Memory:** an open channel holds at most about 1 MiB of unsent values plus 32 unread messages of up to `maxPayload` each. How many channels may be open at once is up to your host or proxy.
 - **Leaving early:** a client that leaves while the context or middleware still run ends the call before its handler starts when its browser closes the connection (Chromium and WebKit do); Firefox's leaving isn't noticed until the upgrade is accepted, when the socket closes at once.

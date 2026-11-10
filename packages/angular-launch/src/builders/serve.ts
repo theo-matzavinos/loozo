@@ -1,16 +1,19 @@
 import {
   createBuilder,
   type Builder,
-  type BuilderRun,
+  type BuilderContext,
   type BuilderOutput,
 } from "@angular-devkit/architect";
 import chokidar, { type FSWatcher } from "chokidar";
-import { Observable, type Subscription } from "rxjs";
+import { Observable } from "rxjs";
+import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { readFile, realpath } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { launchMarkers } from "@loozo/angular-router/_generation";
 import { createGenerationSession, type GenerationSession } from "../generation/index.js";
 import { contextFiles } from "../generation/context-file.js";
+import { forwardChannels, type DevServerMiddleware } from "./channel-forwarding.js";
 import { buildTargetOptions, message, type JsonObject } from "./options.js";
 
 // Polling catches what Angular 22.2's native watcher (@parcel/watcher) misses: edits to files
@@ -41,6 +44,28 @@ function contains(directory: string, file: string): boolean {
 
 type ServeOptions = JsonObject & { buildTarget: string; poll?: number | false };
 
+// What this builder uses of @angular/build's executeDevServerBuilder, which is experimental and
+// whose middleware extension Angular doesn't support. Its own declarations reach into karma and
+// @angular/localize types.
+type ExecuteDevServer = (
+  options: JsonObject,
+  context: BuilderContext,
+  extensions: { middleware: DevServerMiddleware[] },
+) => AsyncIterable<BuilderOutput>;
+
+// Angular's dev server from the @angular/build the workspace resolves, as Architect resolved the
+// "@angular/build:dev-server" builder.
+async function loadDevServer(workspaceRoot: string): Promise<ExecuteDevServer> {
+  const entry = createRequire(import.meta.url).resolve("@angular/build", {
+    paths: [workspaceRoot],
+  });
+  const angularBuild: { executeDevServerBuilder: ExecuteDevServer } = await import(
+    pathToFileURL(entry).href
+  );
+
+  return angularBuild.executeDevServerBuilder;
+}
+
 // Annotated so the emitted declaration doesn't reach into @angular-devkit/core.
 const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
   (options, context) =>
@@ -51,11 +76,16 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       let watcher: FSWatcher | undefined;
       let contextWatcher: FSWatcher | undefined;
       let session: GenerationSession | undefined;
-      let acquisition: Promise<BuilderRun> | undefined;
-      let forwarding: Subscription | undefined;
+      let serving: AsyncIterator<BuilderOutput> | undefined;
+      // Angular's dev server adds its own teardowns, which close Vite's server and abort the
+      // build's watch, to the context it runs in. Architect runs a context's teardowns only on a
+      // Stop, not when the builder fails or ends, so the dev server gets a context that collects
+      // them here, and stop runs them for every way serving ends.
+      const devServerTeardowns: Array<() => Promise<void> | void> = [];
       let active: Promise<unknown> | undefined;
       let cleanup: Promise<void> | undefined;
       let cancelReady: (() => void) | undefined;
+      let cancelServing: (() => void) | undefined;
       let settling: NodeJS.Timeout | undefined;
       // Resolved before the watcher starts.
       let scanRoot: string;
@@ -152,17 +182,23 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         dirty = false;
         clearTimeout(settling);
         cancelReady?.();
-        forwarding?.unsubscribe();
+        cancelServing?.();
 
         if (!cleanup) {
           const close = Promise.all([watcher?.close(), contextWatcher?.close()]);
-          const delegateStop = acquisition?.then(
-            (run) => run.stop(),
-            () => undefined,
-          );
           const drain = active?.catch(() => undefined);
 
-          cleanup = Promise.all([close, delegateStop, drain, session?.dispose()]).then(
+          const closing: Promise<void>[] = [];
+
+          for (const teardown of devServerTeardowns) {
+            closing.push(Promise.resolve(teardown()));
+          }
+
+          // Ending the iteration releases the dev server's generator if it's waiting at a yield.
+          // It isn't awaited: a pending step settles only once the teardowns above closed the
+          // dev server.
+          void serving?.return?.().catch((error) => context.logger.error(String(error)));
+          cleanup = Promise.all([close, drain, Promise.all(closing), session?.dispose()]).then(
             () => undefined,
           );
         }
@@ -283,33 +319,52 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        acquisition = context.scheduleBuilder(devServerBuilder, devServer, {
-          target: context.target,
-        });
-
-        const run = await acquisition;
+        // Run directly, the dev server gets its options as given, so they're validated and
+        // defaulted against its schema as scheduling it did.
+        const validated = await context.validateOptions(devServer, devServerBuilder);
+        const executeDevServer = await loadDevServer(context.workspaceRoot);
 
         if (stopped) {
-          await run.stop();
-
           return;
         }
 
-        forwarding = run.output.subscribe({
-          next: (output) => subscriber.next(output),
-          error: (error) => {
-            void stop().then(
-              () => subscriber.error(error),
-              () => subscriber.error(error),
-            );
-          },
-          complete: () => {
-            void stop().then(
-              () => subscriber.complete(),
-              (error) => subscriber.error(error),
-            );
-          },
+        const stopping = new Promise<undefined>((resolveStopping) => {
+          cancelServing = () => resolveStopping(undefined);
         });
+
+        const devServerContext: BuilderContext = {
+          ...context,
+          addTeardown(teardown) {
+            devServerTeardowns.push(teardown);
+          },
+        };
+
+        serving = executeDevServer(validated, devServerContext, {
+          middleware: [forwardChannels(context.logger)],
+        })[Symbol.asyncIterator]();
+
+        while (!stopped) {
+          const next = serving.next();
+
+          // Once stopping wins the race nothing reads this step, so its failure is handled here.
+          next.catch(() => undefined);
+
+          const result = await Promise.race([next, stopping]);
+
+          if (result === undefined || result.done) {
+            break;
+          }
+
+          subscriber.next(result.value);
+        }
+
+        if (stopped) {
+          return;
+        }
+
+        // The dev server ended on its own.
+        await stop();
+        subscriber.complete();
       }
 
       void start().catch((error) => {
