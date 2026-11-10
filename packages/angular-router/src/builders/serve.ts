@@ -1,6 +1,6 @@
-import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-devkit/architect";
-import chokidar, { type FSWatcher } from "chokidar";
-import { Observable, type Subscription } from "rxjs";
+import { createBuilder, type BuilderOutput } from "@angular-devkit/architect";
+import chokidar from "chokidar";
+import { Observable } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
 import { readFile } from "node:fs/promises";
 import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
@@ -18,14 +18,17 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
   (options, context) =>
     new Observable<BuilderOutput>((subscriber) => {
       let stopped = false;
-      let initial = true;
-      let dirty = false;
-      let watcher: FSWatcher | undefined;
-      let acquisition: Promise<BuilderRun> | undefined;
-      let forwarding: Subscription | undefined;
-      let active: Promise<unknown> | undefined;
+      // One pass at a time. "pending" lasts until the initial generation starts, which covers the
+      // edits before it. An edit during a "running" pass makes it "rerun": exactly one more pass
+      // follows it, however many edits arrive.
+      let regeneration: "pending" | "idle" | "running" | "rerun" = "pending";
+      // The latest pass, settled once idle; stopping waits for it.
+      let pass: Promise<unknown> = Promise.resolve();
+      // What start() acquired, released last-acquired first. Each release runs as stop() is called;
+      // the promises they return settle together, with the latest pass, before the compiler state
+      // clears.
+      const releases: (() => Promise<unknown>)[] = [];
       let cleanup: Promise<void> | undefined;
-      let cancelReady: (() => void) | undefined;
       // Resolved from the build target before anything reads it.
       let router: GenerationOptions;
       const state: GenerationState = {
@@ -56,53 +59,74 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       }
 
       function stop(): Promise<void> {
-        stopped = true;
-        dirty = false;
-        cancelReady?.();
-        forwarding?.unsubscribe();
-
-        if (!cleanup) {
-          const close = watcher?.close();
-          const delegateStop = acquisition?.then(
-            (run) => run.stop(),
-            () => undefined,
-          );
-          const drain = active?.catch(() => undefined);
-
-          cleanup = Promise.all([close, delegateStop, drain]).then(() => clear());
+        if (cleanup) {
+          return cleanup;
         }
+
+        stopped = true;
+
+        const settling = [pass.catch(() => undefined)];
+
+        for (let index = releases.length - 1; index >= 0; index--) {
+          settling.push(releases[index]());
+        }
+
+        cleanup = Promise.all(settling).then(() => clear());
 
         return cleanup;
       }
 
       context.addTeardown(stop);
 
-      function pump(): void {
-        if (stopped || initial || active || !dirty) {
+      // Later passes log their failures and keep serving.
+      function startPass(): void {
+        regeneration = "running";
+        pass = regenerate().catch((error) => context.logger.error(message(error)));
+        void pass.then(passEnded);
+      }
+
+      function passEnded(): void {
+        if (regeneration === "rerun" && !stopped) {
+          startPass();
+
           return;
         }
 
-        const work = (async () => {
-          while (dirty && !stopped) {
-            dirty = false;
+        regeneration = "idle";
+      }
 
-            try {
-              await regenerate();
-            } catch (error) {
-              context.logger.error(message(error));
+      function edited(): void {
+        if (regeneration === "idle") {
+          startPass();
+        } else if (regeneration === "running") {
+          regeneration = "rerun";
+        }
+      }
+
+      async function changed(path: string): Promise<void> {
+        if (stopped) {
+          return;
+        }
+
+        if (basename(path) === "route.generated.ts") {
+          try {
+            const bytes = await readFile(path, "utf8");
+
+            if (marked(bytes, markers["route.generated.ts"])) {
+              return;
+            }
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+              throw error;
             }
           }
-        })();
+        }
 
-        active = work;
-        void work.finally(() => {
-          if (active === work) {
-            active = undefined;
-          }
+        if (stopped) {
+          return;
+        }
 
-          // An edit between the loop's last check and finalization must not be lost.
-          pump();
-        });
+        edited();
       }
 
       async function start(): Promise<void> {
@@ -134,64 +158,35 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
-        watcher = chokidar.watch(roots, { ignoreInitial: true, followSymlinks: false });
+        const watcher = chokidar.watch(roots, { ignoreInitial: true, followSymlinks: false });
+        const ready = Promise.withResolvers<boolean>();
 
-        const ready = new Promise<boolean>((resolveReady, rejectReady) => {
-          cancelReady = () => resolveReady(false);
-          watcher!.once("ready", () => resolveReady(true));
-          watcher!.on("error", (error) => {
-            if (initial) {
-              rejectReady(error);
-            } else {
-              context.logger.error(String(error));
-            }
-          });
+        releases.push(() => {
+          ready.resolve(false);
 
-          async function changed(path: string): Promise<void> {
-            if (stopped) {
-              return;
-            }
-
-            if (basename(path) === "route.generated.ts") {
-              try {
-                const bytes = await readFile(path, "utf8");
-
-                if (marked(bytes, markers["route.generated.ts"])) {
-                  return;
-                }
-              } catch (error) {
-                if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-                  throw error;
-                }
-              }
-            }
-
-            if (stopped) {
-              return;
-            }
-
-            dirty = true;
-            pump();
-          }
-
-          watcher!.on("all", (_event, path) => {
-            void changed(path).catch((error) => context.logger.error(String(error)));
-          });
+          return watcher.close();
         });
-        const readyForGeneration = await ready;
+        watcher.once("ready", () => ready.resolve(true));
+        // A watcher error fails startup until the initial generation succeeds.
+        watcher.on("error", ready.reject);
+        watcher.on("all", (_event, path) => {
+          void changed(path).catch((error) => context.logger.error(String(error)));
+        });
+
+        const readyForGeneration = await ready.promise;
 
         if (stopped || !readyForGeneration) {
           return;
         }
 
-        dirty = false;
+        regeneration = "running";
 
-        const generation = regenerate();
+        const initial = regenerate();
 
-        active = generation;
+        pass = initial;
 
         try {
-          await generation;
+          await initial;
         } catch (error) {
           // The dev server never starts on a failed initial generation; report it as a build failure.
           context.logger.error(message(error));
@@ -200,26 +195,30 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           subscriber.complete();
 
           return;
-        } finally {
-          if (active === generation) {
-            active = undefined;
-          }
         }
 
         if (stopped) {
           return;
         }
 
-        initial = false;
-        pump();
+        watcher.off("error", ready.reject);
+        watcher.on("error", (error) => context.logger.error(String(error)));
+        passEnded();
 
         if (stopped) {
           return;
         }
 
-        acquisition = context.scheduleBuilder(devServerBuilder, devServer, {
+        const acquisition = context.scheduleBuilder(devServerBuilder, devServer, {
           target: context.target,
         });
+
+        releases.push(() =>
+          acquisition.then(
+            (run) => run.stop(),
+            () => undefined,
+          ),
+        );
 
         const run = await acquisition;
 
@@ -229,7 +228,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
-        forwarding = run.output.subscribe({
+        const forwarding = run.output.subscribe({
           next: (output) => subscriber.next(output),
           error: (error) => {
             void stop().then(
@@ -244,6 +243,8 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
             );
           },
         });
+
+        releases.push(async () => forwarding.unsubscribe());
       }
 
       void start().catch((error) => {
