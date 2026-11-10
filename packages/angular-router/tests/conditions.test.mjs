@@ -2,7 +2,7 @@
 // @angular/build it uses, and compares which conditional export of a dependency the router builders
 // bundle with what Angular's own builders bundle for the same options.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
@@ -144,6 +144,17 @@ function spawnNg(args) {
   });
 }
 
+// Windows has no process groups, so taskkill stops the dev server's process tree instead.
+function stop(child) {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"]);
+
+    return;
+  }
+
+  process.kill(-child.pid, "SIGTERM");
+}
+
 function collect(child) {
   const output = { text: "" };
 
@@ -223,7 +234,7 @@ async function serve(target) {
     assert.fail(`ng run app:${target} never served main.js:\n${output.text}`);
   } finally {
     if (status === undefined) {
-      process.kill(-child.pid, "SIGTERM");
+      stop(child);
       await exit;
     }
   }
