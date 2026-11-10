@@ -27,7 +27,8 @@ const fixture = join(evidence, "consumer");
 
 await cp(join(repository, "examples/angular-router"), fixture, {
   recursive: true,
-  filter: (path) => !/(?:^|\/)(?:node_modules|dist|\.angular|generated|routes)(?:\/|$)/.test(path),
+  filter: (path) =>
+    !/(?:^|[\\/])(?:node_modules|dist|\.angular|generated|routes)(?:[\\/]|$)/.test(path),
 });
 
 const metadata = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
@@ -1119,6 +1120,30 @@ await preflight(
 await write("src/routes/teams/$tenant/named-definition.ts", tenant);
 await expectBuild();
 
+// A case-only directory rename is a plain rename on Linux, but on case-insensitive macOS and
+// Windows volumes the old and new names are the same entry; either way the new casing wins.
+async function assertNoStaleCasing(name) {
+  const artifacts = await snapshot();
+
+  for (const [file, entry] of Object.entries(artifacts)) {
+    assert.doesNotMatch(file, /Items/, name);
+    assert.doesNotMatch(entry.bytes ?? "", /Items/, `${name}: ${file}`);
+  }
+}
+
+await write("src/routes/Items/page.ts", page("cased"));
+await expectBuild();
+assert.match(await read("src/routes/Items/route.ts"), /defineRoute\("Items"/);
+assert.match(await read("generated/routes.generated.ts"), /path: "Items"/);
+await rename(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
+await expectBuild();
+assert.match(await read("src/routes/items/route.ts"), /defineRoute\("items"/);
+assert.match(await read("generated/routes.generated.ts"), /path: "items"/);
+await assertNoStaleCasing("Case-only rename republished under the new casing");
+await expectBuild({ check: true });
+await rm(join(fixture, "src/routes/items"), { recursive: true });
+await expectBuild();
+
 // Missing/changed generated drift is read-only, then repair converges without source rewrites.
 await rm(join(fixture, "generated/destinations.generated.ts"));
 await write(
@@ -1217,6 +1242,24 @@ try {
     "Native server did not consume renamed route",
   );
   await rendered("changed", "watched");
+
+  await write("src/routes/Items/page.ts", page("cased"));
+  await waitFor(
+    async () => (await read("generated/routes.generated.ts")).includes('path: "Items"'),
+    "Watcher did not publish the cased route",
+  );
+  await rename(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
+  await waitFor(
+    async () => (await read("src/routes/items/route.ts")).includes('defineRoute("items"'),
+    "Watcher did not synchronize a case-only rename",
+  );
+  await waitFor(async () => {
+    const served = await (await fetch(new URL("main.js", output.baseUrl))).text();
+
+    return served.includes('path: "items"') && !served.includes('path: "Items"');
+  }, "Native server did not consume a case-only rename");
+  await assertNoStaleCasing("Watcher republished a case-only rename under the new casing");
+  await rendered("items", "cased");
 
   const changedPage = await read("src/routes/changed/page.ts");
 
