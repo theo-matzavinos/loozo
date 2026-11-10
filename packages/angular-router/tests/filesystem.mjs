@@ -845,6 +845,7 @@ await write("src/routes/type-invalid/page.ts", page("type-invalid"));
 await preflight("declaration codec types still preflight", /not assignable|ParamCodec/);
 
 // Expected generation failures are failed builds with logged diagnostics, not thrown errors.
+// Diagnostics name files by native path; [\\/]+ matches "/", "\" and JSON's escaped "\\".
 for (const target of ["build", "serve"]) {
   assert.equal(await build({}, target), false);
 
@@ -853,7 +854,7 @@ for (const target of ["build", "serve"]) {
 
   assert.equal(report.error, undefined, target);
   assert.equal(report.output.success, false, target);
-  assert.match(logged.map((entry) => entry.message).join("\n"), /type-invalid\/definition\.ts/);
+  assert.match(logged.map((entry) => entry.message).join("\n"), /type-invalid[\\/]+definition\.ts/);
 }
 
 await rm(join(fixture, "src/routes/type-invalid"), { recursive: true });
@@ -866,7 +867,7 @@ export default defineRoute("$old", { params });\n`,
 await write("src/routes/$new/page.ts", page("opaque"));
 await preflight(
   "opaque codec rename",
-  /\$new\/definition\.ts:3:\d+: Ambiguous filesystem params: the directories give path \\"\$new\\" \(removed params: old; added params: new\)\. This file's params are not an inline object; write each one as a plain `name: codec` property to match, or move or rename the directory/,
+  /\$new[\\/]+definition\.ts:3:\d+: Ambiguous filesystem params: the directories give path \\"\$new\\" \(removed params: old; added params: new\)\. This file's params are not an inline object; write each one as a plain `name: codec` property to match, or move or rename the directory/,
 );
 await rm(join(fixture, "src/routes/$new"), { recursive: true });
 
@@ -878,7 +879,7 @@ export default defineRoute("$old", { params: { old: numberParam } });\n`,
 await write("src/routes/static/page.ts", page("static"));
 await preflight(
   "never discard authored codecs",
-  /static\/definition\.ts:2:\d+: Ambiguous filesystem params: the directories give path \\"static\\" \(removed params: old\)\. Remove this file's params, or move or rename the directory/,
+  /static[\\/]+definition\.ts:2:\d+: Ambiguous filesystem params: the directories give path \\"static\\" \(removed params: old\)\. Remove this file's params, or move or rename the directory/,
 );
 await rm(join(fixture, "src/routes/static"), { recursive: true });
 
