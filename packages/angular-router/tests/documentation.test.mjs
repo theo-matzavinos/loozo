@@ -138,7 +138,7 @@ await test("published handle signals and every navigation overload retain docume
   const destination = declaration(file, "Destination");
   const missing = [];
 
-  assert.equal(handle.members.length, 13);
+  assert.equal(handle.members.length, 11);
   checkMembers(handle, "Handle", missing);
   checkMembers(destination, "Destination", missing);
   assert.deepEqual(missing, [], "Published handle and destination members need documentation");

@@ -27,7 +27,8 @@ import { injectRoute } from "./route.generated.js";
 export default class Item {
   readonly route = injectRoute();
   readonly direct = this.route.link({ params: { teamId: 7, id: 8 }, search: { score: 43 } });
-  readonly alias = this.route.link("/teams/$teamId/old-items/$id", {
+  readonly alias = this.route.link({
+    to: "/teams/$teamId/old-items/$id",
     params: { teamId: 7, id: 8 },
     search: { score: 99 },
     fragment: "old",

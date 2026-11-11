@@ -32,7 +32,7 @@ export default class Home {
     const items = [];
 
     for (const summary of packages) {
-      const link = this.route.link(packageOverview, { params: { package: summary.slug } });
+      const link = this.route.link({ to: packageOverview, params: { package: summary.slug } });
 
       items.push({ summary, link });
     }

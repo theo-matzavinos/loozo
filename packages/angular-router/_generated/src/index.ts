@@ -3,7 +3,7 @@ export { assertIdentity, parseInputs } from "./inputs.js";
 export type { RecordBinding, RouteSet } from "./inputs.js";
 
 import { inject, type Signal } from "@angular/core";
-import { Router, type UrlTree } from "@angular/router";
+import { Router, type NavigationBehaviorOptions, type UrlTree } from "@angular/router";
 import {
   createUrl,
   routeMetadata,
@@ -21,7 +21,7 @@ declare const destinationBrand: unique symbol;
  * An inert nominal reference exported as `destination` by a route-local facade.
  *
  * @remarks
- * Use the exported object with a handle's link/navigate methods; no injection
+ * Pass the exported object as `to` in a handle's link/navigate record; no injection
  * context or target activation is needed. It selects its exact declaration,
  * not a canonical pathless winner. Only references from the caller's generated
  * set are accepted. Copies, spreads, fakes and authored routes are not references.
@@ -87,12 +87,16 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  * resolved-data cache. Reading params or search throws only when a path codec
  * rejects a value it accepted while matching, a programming error.
  *
- * Selectors are single known authored literals, not concrete URLs or string
- * unions. `.` is exact-current; `..` selects the parent route: the nearest
- * ancestor with a shorter path, or the root for a top-level route. It and
- * absolute selectors use generated canonical targets. Every call supplies all
- * target values; there is no current-value reuse, extras argument or implicit
- * query merge.
+ * `link` and `navigate` take one target record. Its `to` selects the
+ * destination: omitted for this exact declaration, not its pathless winner; a
+ * single known absolute authored literal, never a concrete URL or string union;
+ * `..` for the parent route, the nearest ancestor with a shorter path or the
+ * root for a top-level route; or a same-set generated destination. Literal and
+ * `..` selectors use generated canonical targets. `params`, `search` and
+ * `fragment` are the destination's complete explicit values; there is no
+ * current-value reuse or implicit query merge. For `navigate`, the record's
+ * other keys are Angular's `NavigationBehaviorOptions`, passed to
+ * `Router.navigateByUrl` as given; `link` takes none, so set them on RouterLink.
  *
  * @typeParam Target - The bound declaration's schema.
  * @typeParam Absolute - Absolute literal selectors and their target schemas.
@@ -106,8 +110,9 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
  * import { destination as report } from "../report/route.generated.js";
  *
  * const route = injectRoute(); // Inside an Angular injection context.
- * const link = route.link(report, { params: { reportId: 42 } });
- * // Bind link to Angular RouterLink, or call route.navigate with the same values.
+ * const link = route.link({ to: report, params: { reportId: 42 } });
+ * // Bind link to Angular RouterLink, or navigate with the same record and behavior options:
+ * void route.navigate({ to: report, params: { reportId: 42 }, replaceUrl: true });
  * ```
  */
 export interface Handle<
@@ -124,95 +129,82 @@ export interface Handle<
   /** Effective resolver results of the route and its ancestors, from the same snapshot as params. */
   readonly data: Signal<DataOf<Target>>;
   /**
-   * Creates a native UrlTree for this exact declaration without navigating.
+   * Creates a native UrlTree for this exact declaration, not its pathless winner, without navigating.
    *
-   * @param values - Explicit effective params/search and optional own fragment.
+   * @param target - No `to`, and this declaration's explicit params/search and optional own fragment.
    * @returns Router.parseUrl's result, suitable for Angular RouterLink.
-   * @throws Synchronous URL validation, encoding or stringifier failures before Angular.
-   */
-  link<Keys extends keyof SearchOf<Target> = never>(values: UrlValues<Target, Keys>): UrlTree;
-  /**
-   * Creates a UrlTree for the exact bound declaration, not its pathless winner.
-   *
-   * @param selector - The exact-current literal `.`.
-   * @param values - Explicit values for this declaration, with no current-input reuse.
-   * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronous URL validation, encoding or stringifier failures before Angular.
+   * @throws Synchronous URL validation, encoding or stringifier failures, or a behavior option, before Angular.
    */
   link<Keys extends keyof SearchOf<Target> = never>(
-    selector: ".",
-    values: UrlValues<Target, Keys>,
+    target: {
+      /** Omitted: this exact declaration, not its pathless winner. */
+      readonly to?: undefined;
+    } & UrlValues<Target, Keys>,
   ): UrlTree;
   /**
    * Creates a UrlTree for a statically admitted absolute authored selector.
    *
-   * @param selector - A single known template literal, never a concrete URL.
-   * @param values - The selected target's complete explicit values.
+   * @param target - `to`, a single known template literal, never a concrete URL, and the selected target's complete explicit values.
    * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronously for unknown selectors or invalid URL values.
+   * @throws Synchronously for unknown selectors, invalid URL values or a behavior option.
    */
   link<
     const Selector extends keyof Absolute & string,
     Keys extends keyof SearchOf<NoInfer<Absolute[Selector]>> = never,
   >(
-    selector: Selector & (IsUnion<Selector> extends true ? never : unknown),
-    values: UrlValues<NoInfer<Absolute[Selector]>, Keys>,
+    target: {
+      /** A single known absolute authored selector, never a concrete URL. */
+      readonly to: Selector & (IsUnion<Selector> extends true ? never : unknown);
+    } & UrlValues<NoInfer<Absolute[Selector]>, Keys>,
   ): UrlTree;
   /**
    * Creates a UrlTree for the parent route, when the bound declaration has one.
    *
-   * @param selector - The literal `..`.
-   * @param values - The parent route's complete explicit values.
+   * @param target - `to: ".."` and the parent route's complete explicit values.
    * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronously for invalid URL values.
+   * @throws Synchronously for invalid URL values or a behavior option.
    */
   link<Keys extends keyof SearchOf<Parent> = never>(
-    selector: [Parent] extends [never] ? never : "..",
-    values: UrlValues<Parent, Keys>,
+    target: {
+      /** The parent route: the nearest ancestor with a shorter path, or the root. */
+      readonly to: [Parent] extends [never] ? never : "..";
+    } & UrlValues<Parent, Keys>,
   ): UrlTree;
   /**
    * Creates a UrlTree for a generated reference's own exact declaration.
    *
-   * @param selector - A genuine destination exported by a facade in this route set.
-   * @param values - The referenced declaration's complete explicit values.
+   * @param target - `to`, a genuine destination exported by a facade in this route set, and the referenced declaration's complete explicit values.
    * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronously for foreign/fake references or invalid URL values.
+   * @throws Synchronously for foreign/fake references, invalid URL values or a behavior option.
    */
   link<
     const Id extends keyof References & string,
     Keys extends keyof SearchOf<NoInfer<References[Id]>> = never,
   >(
-    selector: Destination<NoInfer<References[Id]>, Set, Id> &
-      (IsUnion<Id> extends true ? never : unknown),
-    values: UrlValues<NoInfer<References[Id]>, Keys>,
+    target: {
+      /** A genuine destination exported by a facade in this route set. */
+      readonly to: Destination<NoInfer<References[Id]>, Set, Id> &
+        (IsUnion<Id> extends true ? never : unknown);
+    } & UrlValues<NoInfer<References[Id]>, Keys>,
   ): UrlTree;
   /**
-   * Navigates to this exact declaration via Router.navigateByUrl.
+   * Navigates to this exact declaration, not its pathless winner, via Router.navigateByUrl.
    *
-   * @param values - Explicit effective params/search and optional own fragment.
+   * @param target - No `to`; this declaration's explicit params/search and optional own fragment; and Angular's navigation behavior options.
    * @returns Angular's identical Promise; Angular owns skips, redirects and failures.
    * @throws Synchronous URL validation, encoding or stringifier failures before Angular.
    */
   navigate<Keys extends keyof SearchOf<Target> = never>(
-    values: UrlValues<Target, Keys>,
-  ): Promise<boolean>;
-  /**
-   * Navigates to the exact bound declaration, not its pathless winner.
-   *
-   * @param selector - The exact-current literal `.`.
-   * @param values - Explicit values for this declaration, with no current-input reuse.
-   * @returns Angular's identical Router.navigateByUrl Promise.
-   * @throws Synchronous URL validation, encoding or stringifier failures before Angular.
-   */
-  navigate<Keys extends keyof SearchOf<Target> = never>(
-    selector: ".",
-    values: UrlValues<Target, Keys>,
+    target: {
+      /** Omitted: this exact declaration, not its pathless winner. */
+      readonly to?: undefined;
+    } & UrlValues<Target, Keys> &
+      NavigationBehaviorOptions,
   ): Promise<boolean>;
   /**
    * Navigates to a statically admitted absolute authored selector.
    *
-   * @param selector - A single known template literal, never a concrete URL.
-   * @param values - The selected target's complete explicit values.
+   * @param target - `to`, a single known template literal, never a concrete URL; the selected target's complete explicit values; and Angular's navigation behavior options.
    * @returns Angular's identical Router.navigateByUrl Promise.
    * @throws Synchronously for unknown selectors or invalid URL values.
    */
@@ -220,26 +212,30 @@ export interface Handle<
     const Selector extends keyof Absolute & string,
     Keys extends keyof SearchOf<NoInfer<Absolute[Selector]>> = never,
   >(
-    selector: Selector & (IsUnion<Selector> extends true ? never : unknown),
-    values: UrlValues<NoInfer<Absolute[Selector]>, Keys>,
+    target: {
+      /** A single known absolute authored selector, never a concrete URL. */
+      readonly to: Selector & (IsUnion<Selector> extends true ? never : unknown);
+    } & UrlValues<NoInfer<Absolute[Selector]>, Keys> &
+      NavigationBehaviorOptions,
   ): Promise<boolean>;
   /**
    * Navigates to the parent route, when the bound declaration has one.
    *
-   * @param selector - The literal `..`.
-   * @param values - The parent route's complete explicit values.
+   * @param target - `to: ".."`, the parent route's complete explicit values and Angular's navigation behavior options.
    * @returns Angular's identical Router.navigateByUrl Promise.
    * @throws Synchronously for invalid URL values.
    */
   navigate<Keys extends keyof SearchOf<Parent> = never>(
-    selector: [Parent] extends [never] ? never : "..",
-    values: UrlValues<Parent, Keys>,
+    target: {
+      /** The parent route: the nearest ancestor with a shorter path, or the root. */
+      readonly to: [Parent] extends [never] ? never : "..";
+    } & UrlValues<Parent, Keys> &
+      NavigationBehaviorOptions,
   ): Promise<boolean>;
   /**
    * Navigates to a generated reference's own exact declaration.
    *
-   * @param selector - A genuine destination exported by a facade in this route set.
-   * @param values - The referenced declaration's complete explicit values.
+   * @param target - `to`, a genuine destination exported by a facade in this route set; the referenced declaration's complete explicit values; and Angular's navigation behavior options.
    * @returns Angular's identical Router.navigateByUrl Promise.
    * @throws Synchronously for foreign/fake references or invalid URL values.
    */
@@ -247,9 +243,12 @@ export interface Handle<
     const Id extends keyof References & string,
     Keys extends keyof SearchOf<NoInfer<References[Id]>> = never,
   >(
-    selector: Destination<NoInfer<References[Id]>, Set, Id> &
-      (IsUnion<Id> extends true ? never : unknown),
-    values: UrlValues<NoInfer<References[Id]>, Keys>,
+    target: {
+      /** A genuine destination exported by a facade in this route set. */
+      readonly to: Destination<NoInfer<References[Id]>, Set, Id> &
+        (IsUnion<Id> extends true ? never : unknown);
+    } & UrlValues<NoInfer<References[Id]>, Keys> &
+      NavigationBehaviorOptions,
   ): Promise<boolean>;
 }
 
@@ -276,68 +275,87 @@ export function injectGeneratedRoute<
   const router = inject(Router);
   const view = observeRoute(set, id);
 
-  function url(args: readonly unknown[]): string {
-    if (args.length !== 1 && args.length !== 2) {
-      throw new TypeError("Expected values or a selected destination and values");
+  // Splits the one target record into its destination, URL values and behavior options.
+  function resolve(args: readonly unknown[]): { url: string; options: Record<string, unknown> } {
+    const record = args[0];
+
+    if (
+      args.length !== 1 ||
+      typeof record !== "object" ||
+      record === null ||
+      Array.isArray(record)
+    ) {
+      throw new TypeError("Expected one navigation target record");
     }
 
-    let target = id;
-    let values = args[0];
+    const values: Record<string, unknown> = {};
+    const rest: [string, unknown][] = [];
+    let to: unknown;
 
-    if (args.length === 2) {
-      const selector = args[0];
-
-      values = args[1];
-
-      if (typeof selector === "string") {
-        if (selector !== ".") {
-          if (Object.hasOwn(set.absolute, selector)) {
-            target = set.absolute[selector];
-          } else if (selector === ".." && Object.hasOwn(set.parents, id)) {
-            target = set.parents[id];
-          } else {
-            throw new TypeError(`Unknown generated selector: ${selector}`);
-          }
-        }
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "to") {
+        to = value;
+      } else if (key === "params" || key === "search" || key === "fragment") {
+        values[key] = value;
       } else {
-        if (typeof selector !== "object" || selector === null) {
-          throw new TypeError("Expected a literal selector or genuine generated destination");
-        }
-
-        const destination = destinations.get(selector);
-
-        if (
-          !destination ||
-          destination.getSet() !== set ||
-          !Object.hasOwn(set.records, destination.id)
-        ) {
-          throw new TypeError("Expected a destination from the same generated set");
-        }
-
-        target = destination.id;
+        rest.push([key, value]);
       }
     }
 
-    return createUrl(set.destinations[target](), values as UrlValues<AnyRoute>);
+    // fromEntries defines own properties, so an own `__proto__` key stays a key, not a prototype.
+    const options: Record<string, unknown> = Object.fromEntries(rest);
+
+    let target = id;
+
+    if (typeof to === "string") {
+      if (Object.hasOwn(set.absolute, to)) {
+        target = set.absolute[to];
+      } else if (to === ".." && Object.hasOwn(set.parents, id)) {
+        target = set.parents[id];
+      } else {
+        throw new TypeError(`Unknown generated selector: ${to}`);
+      }
+    } else if (to !== undefined) {
+      let destination;
+
+      if (typeof to === "object" && to !== null) {
+        destination = destinations.get(to);
+      }
+
+      if (
+        !destination ||
+        destination.getSet() !== set ||
+        !Object.hasOwn(set.records, destination.id)
+      ) {
+        throw new TypeError("Expected a destination from the same generated set");
+      }
+
+      target = destination.id;
+    }
+
+    return { url: createUrl(set.destinations[target](), values as UrlValues<AnyRoute>), options };
   }
 
   return {
     params: view.params as Signal<Readonly<ParamsOf<Target>>>,
     search: view.search as Signal<Readonly<SearchOf<Target>>>,
     data: view.data as Signal<DataOf<Target>>,
-    link: ((...args: unknown[]) => router.parseUrl(url(args))) as Handle<
-      Target,
-      Absolute,
-      Parent,
-      Set,
-      References
-    >["link"],
-    navigate: ((...args: unknown[]) => router.navigateByUrl(url(args))) as Handle<
-      Target,
-      Absolute,
-      Parent,
-      Set,
-      References
-    >["navigate"],
+    link: ((...args: unknown[]) => {
+      const { url, options } = resolve(args);
+      const behavior = Object.keys(options);
+
+      if (behavior.length > 0) {
+        throw new TypeError(
+          `link takes no navigation behavior options (${behavior.join(", ")}); set them on RouterLink`,
+        );
+      }
+
+      return router.parseUrl(url);
+    }) as Handle<Target, Absolute, Parent, Set, References>["link"],
+    navigate: ((...args: unknown[]) => {
+      const { url, options } = resolve(args);
+
+      return router.navigateByUrl(url, options);
+    }) as Handle<Target, Absolute, Parent, Set, References>["navigate"],
   };
 }

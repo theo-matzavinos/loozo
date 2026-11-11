@@ -137,6 +137,9 @@ const definitions = {
   optional:
     "defineRoute('optional/$id', { params: { id: numberParam }, search: { toString: numberParam, constructor: numberParam, valueOf: stringParam, label: stringParam }, fragments: ['summary'] })",
   docs: "defineRoute('docs/$parts[]', { params: { parts: stringParam } })",
+  products: "defineRoute('products', { search: { q: stringParam, page: numberParam } })",
+  plain: "defineRoute('plain', {})",
+  item: "defineRoute('items/$id', { params: { id: numberParam }, fragments: ['top'] })",
   weird: "defineRoute('literal?/#', {})",
   unresolved: "defineRoute('unresolved', {})",
   nonleaf: "defineRoute('', { parent: unresolved })",
@@ -187,6 +190,10 @@ await write(
   "src/routes/nonleaf/page.ts",
   outletPage.replace("readonly route = injectRoute();", ""),
 );
+await write(
+  "src/routes/plain/page.ts",
+  outletPage.replace("'<router-outlet />'", "'<p>plain</p>'"),
+);
 await build();
 
 // A byte-identical generated module copy is a distinct set, not a hash/ID singleton.
@@ -210,88 +217,96 @@ import { injectRoute as deepRoute } from './routes/deep/route.generated.js';
 import { injectRoute as optionalRoute, destination as optional } from './routes/optional/route.generated.js';
 import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
 import definition from './routes/scope/definition.js';
+import { type NavigationBehaviorOptions } from '@angular/router';
+import { injectRoute as productsRoute, destination as products } from './routes/products/route.generated.js';
+import { injectRoute as plainRoute, destination as plain } from './routes/plain/route.generated.js';
+import { destination as item } from './routes/item/route.generated.js';
 const h = multiRoute();
-const link: UrlTree = h.link('/enum/$kind', { params: { kind: 'a' } });
-const nativePromise: Promise<boolean> = h.navigate('/', {});
+const link: UrlTree = h.link({ to: '/enum/$kind', params: { kind: 'a' } });
+const nativePromise: Promise<boolean> = h.navigate({ to: '/' });
 // The parent route: the pathless parent shares /scope/$scopeId, so .. selects that path's canonical terminal.
-h.link('..', { params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'leaf' });
-h.navigate('..', { params: { scopeId: 'x' } });
-h.link('/docs/$parts[]', { params: { parts: [] } });
-h.link('/old/alias/$id', { params: { id: 1 } });
-h.link('/literal?/#', {});
-h.link(scope, { params: { scopeId: 'x' }, fragment: 'own' });
-h.link(terminal, { params: { scopeId: 'x' }, search: { leaf: 'a' } });
+h.link({ to: '..', params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'leaf' });
+h.navigate({ to: '..', params: { scopeId: 'x' } });
+h.link({ to: '/docs/$parts[]', params: { parts: [] } });
+h.link({ to: '/old/alias/$id', params: { id: 1 } });
+h.link({ to: '/literal?/#' });
+h.link({ to: scope, params: { scopeId: 'x' }, fragment: 'own' });
+h.link({ to: terminal, params: { scopeId: 'x' }, search: { leaf: 'a' } });
 const middleVariable = middle;
 const nonleafVariable = nonleaf;
 const twinVariable = twin;
-h.link(middleVariable, { params: { scopeId: 'x' } });
-h.navigate(middleVariable, { params: { scopeId: 'x' } });
-h.link(nonleafVariable, {});
-h.navigate(nonleafVariable, {});
-h.link(twinVariable, {});
-h.navigate(twinVariable, {});
+h.link({ to: middleVariable, params: { scopeId: 'x' } });
+h.navigate({ to: middleVariable, params: { scopeId: 'x' } });
+h.link({ to: nonleafVariable });
+h.navigate({ to: nonleafVariable });
+h.link({ to: twinVariable });
+h.navigate({ to: twinVariable });
 const middleClone = { ...middle };
 const nonleafClone = { ...nonleaf };
 // @ts-expect-error copied reference is not a genuine middle target
-h.link(middleClone, { params: { scopeId: 'x' } });
+h.link({ to: middleClone, params: { scopeId: 'x' } });
 // @ts-expect-error copied reference cannot navigate as middle
-h.navigate(middleClone, { params: { scopeId: 'x' } });
+h.navigate({ to: middleClone, params: { scopeId: 'x' } });
 // @ts-expect-error identical-schema empty-input reference copy is not authentic
-h.link(nonleafClone, {});
+h.link({ to: nonleafClone });
 // @ts-expect-error identical-schema empty-input reference copy cannot navigate
-h.navigate(nonleafClone, {});
+h.navigate({ to: nonleafClone });
 // @ts-expect-error inline spread is not an object target
-h.link({ ...middle }, { params: { scopeId: 'x' } });
+h.link({ to: { ...middle }, params: { scopeId: 'x' } });
 // @ts-expect-error inline spread cannot navigate as its original
-h.navigate({ ...middle }, { params: { scopeId: 'x' } });
+h.navigate({ to: { ...middle }, params: { scopeId: 'x' } });
 // @ts-expect-error inline empty-input spread is not an object target
-h.link({ ...nonleaf }, {});
+h.link({ to: { ...nonleaf } });
 // @ts-expect-error inline empty-input spread cannot navigate
-h.navigate({ ...nonleaf }, {});
+h.navigate({ to: { ...nonleaf } });
 // @ts-expect-error exact middle retains inherited scopeId
-h.link(middleVariable, {});
+h.link({ to: middleVariable });
 // @ts-expect-error exact middle navigate retains inherited scopeId
-h.navigate(middleVariable, {});
+h.navigate({ to: middleVariable });
 // @ts-expect-error exact middle codec cannot widen from values
-h.link(middleVariable, { params: { scopeId: 1 } });
+h.link({ to: middleVariable, params: { scopeId: 1 } });
 // @ts-expect-error exact middle navigate codec cannot widen from values
-h.navigate(middleVariable, { params: { scopeId: 1 } });
+h.navigate({ to: middleVariable, params: { scopeId: 1 } });
 declare const assignableReference: typeof middle | typeof nonleaf;
 // @ts-expect-error declared reference union must not erase inherited params
-h.link(assignableReference, {});
+h.link({ to: assignableReference });
 // @ts-expect-error declared reference union cannot navigate without inherited params
-h.navigate(assignableReference, {});
+h.navigate({ to: assignableReference });
 const conditionalReference = Math.random() > 0.5 ? middle : nonleaf;
 // @ts-expect-error actual conditional keeps distinct source identities
-h.link(conditionalReference, {});
+h.link({ to: conditionalReference });
 // @ts-expect-error actual conditional navigate cannot collapse to a common schema
-h.navigate(conditionalReference, {});
+h.navigate({ to: conditionalReference });
 // @ts-expect-error complete values still cannot admit a selector union
-h.link(conditionalReference, { params: { scopeId: 'x' } });
+h.link({ to: conditionalReference, params: { scopeId: 'x' } });
 // @ts-expect-error complete values still cannot admit a navigate selector union
-h.navigate(conditionalReference, { params: { scopeId: 'x' } });
+h.navigate({ to: conditionalReference, params: { scopeId: 'x' } });
 declare const identicalSchemaReference: typeof nonleaf | typeof twin;
 // @ts-expect-error identical schemas do not equate distinct declarations
-h.link(identicalSchemaReference, {});
+h.link({ to: identicalSchemaReference });
 // @ts-expect-error identical schema reference union cannot navigate
-h.navigate(identicalSchemaReference, {});
+h.navigate({ to: identicalSchemaReference });
 const conditionalIdenticalReference = Math.random() > 0.5 ? nonleaf : twin;
 // @ts-expect-error actual identical-schema conditional remains distinct
-h.link(conditionalIdenticalReference, {});
+h.link({ to: conditionalIdenticalReference });
 // @ts-expect-error actual identical-schema conditional cannot navigate
-h.navigate(conditionalIdenticalReference, {});
+h.navigate({ to: conditionalIdenticalReference });
 const own = scopeRoute();
 own.link({ params: { scopeId: 'x' }, fragment: 'own' });
-own.link('.', { params: { scopeId: 'x' } });
+own.link({ params: { scopeId: 'x' } });
+// @ts-expect-error no '.' selector: omit to
+own.link({ to: '.', params: { scopeId: 'x' } });
+// @ts-expect-error no '.' selector for navigate either
+own.navigate({ to: '.', params: { scopeId: 'x' } });
 // A top-level route's parent is the root.
-own.link('..', {});
+own.link({ to: '..' });
 const opt = optionalRoute();
 opt.link({ params: { id: 1 }, search: { label: 'x' } });
-opt.link('.', { params: { id: 1 }, search: { label: '', constructor: 2, toString: 3, valueOf: '' }, fragment: 'summary' });
-h.link(optional, { params: { id: 1 }, search: { label: 'x', constructor: 2 } });
-h.link('/optional/$id', { params: { id: 1 }, search: { label: undefined } });
+opt.link({ params: { id: 1 }, search: { label: '', constructor: 2, toString: 3, valueOf: '' }, fragment: 'summary' });
+h.link({ to: optional, params: { id: 1 }, search: { label: 'x', constructor: 2 } });
+h.link({ to: '/optional/$id', params: { id: 1 }, search: { label: undefined } });
 // Every search key may be omitted.
-h.link(optional, { params: { id: 1 } });
+h.link({ to: optional, params: { id: 1 } });
 const optionalSearch: { readonly label?: string; readonly toString?: number } = opt.search();
 const data: Signal<Readonly<{}>> = h.data;
 // @ts-expect-error no caller generics
@@ -309,83 +324,147 @@ h.params.hasValue();
 // @ts-expect-error supplied prototype key retains numeric type
 opt.link({ params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
 // @ts-expect-error supplied prototype key retains numeric type through selected string
-h.link('/optional/$id', { params: { id: 1 }, search: { label: 'x', toString: 'bad' } });
+h.link({ to: '/optional/$id', params: { id: 1 }, search: { label: 'x', toString: 'bad' } });
 // @ts-expect-error supplied prototype key retains numeric type through ref
-h.link(optional, { params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
+h.link({ to: optional, params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
 // @ts-expect-error a supplied search value keeps its codec type
-h.link(optional, { params: { id: 1 }, search: { label: null } });
+h.link({ to: optional, params: { id: 1 }, search: { label: null } });
 // @ts-expect-error required target path values explicit
-h.link('/enum/$kind', {});
+h.link({ to: '/enum/$kind' });
 // @ts-expect-error values cannot widen selected enum
-h.link('/enum/$kind', { params: { kind: 'c' } });
+h.link({ to: '/enum/$kind', params: { kind: 'c' } });
 // @ts-expect-error unknown params
-h.link('/enum/$kind', { params: { kind: 'a', extra: 1 } });
+h.link({ to: '/enum/$kind', params: { kind: 'a', extra: 1 } });
 // @ts-expect-error unknown option
-h.link('/enum/$kind', { params: { kind: 'a' }, extra: 1 });
+h.link({ to: '/enum/$kind', params: { kind: 'a' }, extra: 1 });
 // @ts-expect-error wrong fragment target
-h.link(terminal, { params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'own' });
+h.link({ to: terminal, params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'own' });
 // @ts-expect-error canonical terminal, not exact scope: only scope declares 'own'
-own.link('/scope/$scopeId', { params: { scopeId: 'x' }, fragment: 'own' });
+own.link({ to: '/scope/$scopeId', params: { scopeId: 'x' }, fragment: 'own' });
 // @ts-expect-error parent values are the parent's
-h.link('..', { params: { scopeId: 'x', projectId: 'p' } });
+h.link({ to: '..', params: { scopeId: 'x', projectId: 'p' } });
 // @ts-expect-error .. is the only relative selector
-h.link('../..', { params: { scopeId: 'x' } });
+h.link({ to: '../..', params: { scopeId: 'x' } });
 // @ts-expect-error no trailing-slash form
-h.link('../', { params: { scopeId: 'x' } });
+h.link({ to: '../', params: { scopeId: 'x' } });
 // @ts-expect-error no ./ form
-own.link('./', { params: { scopeId: 'x' } });
+own.link({ to: './', params: { scopeId: 'x' } });
 // @ts-expect-error no relative extension
-h.link('../projects/$projectId/detail', { params: { scopeId: 'x', projectId: 'p' } });
+h.link({ to: '../projects/$projectId/detail', params: { scopeId: 'x', projectId: 'p' } });
 // @ts-expect-error multi-level traversal
-h.link('../../../../../../', {});
+h.link({ to: '../../../../../../' });
 // @ts-expect-error the parent path /unresolved has no destination
-deepRoute().link('..', {});
+deepRoute().link({ to: '..' });
 // @ts-expect-error unresolved shared path
-h.link('/unresolved', {});
+h.link({ to: '/unresolved' });
 // @ts-expect-error pruned owner not destination
-h.link('/old', {});
+h.link({ to: '/old' });
 // @ts-expect-error concrete substitution
-h.link('/enum/a', { params: { kind: 'a' } });
+h.link({ to: '/enum/a', params: { kind: 'a' } });
 // @ts-expect-error unknown literal
-h.link('/unknown', {});
+h.link({ to: '/unknown' });
 declare const wide: string;
 // @ts-expect-error widened selector
-h.link(wide, {});
+h.link({ to: wide });
 declare const union: '/' | '/enum/$kind';
 // @ts-expect-error selector union forbidden
-h.link(union, { params: { kind: 'a' } });
+h.link({ to: union, params: { kind: 'a' } });
 declare const unionReference: typeof scope | typeof terminal;
 // @ts-expect-error reference selector union forbidden
-h.link(unionReference, { params: { scopeId: 'x' }, search: { leaf: 'a' } });
+h.link({ to: unionReference, params: { scopeId: 'x' }, search: { leaf: 'a' } });
 // @ts-expect-error raw declaration not generated reference
-h.link(definition, { params: { scopeId: 'x' } });
+h.link({ to: definition, params: { scopeId: 'x' } });
 // @ts-expect-error injected handle not reference
-h.link(own, { params: { scopeId: 'x' } });
+h.link({ to: own, params: { scopeId: 'x' } });
 // @ts-expect-error fake ref
-h.link({}, {});
+h.link({ to: {} });
 // @ts-expect-error foreign static set identity, despite identical bytes/schema
-h.link(foreign, { params: { scopeId: 'x' } });
-// @ts-expect-error no extras third argument
-h.navigate('/', {}, { replaceUrl: true });
+h.link({ to: foreign, params: { scopeId: 'x' } });
+h.navigate({ to: '/', replaceUrl: true });
+// @ts-expect-error a single record, no second argument
+h.navigate({ to: '/' }, { replaceUrl: true });
 // @ts-expect-error no implicit reuse
 h.navigate({ params: { projectId: 'p' } });
 // @ts-expect-error invalid relative suffix even with complete values
-h.link('../../../projects//$projectId/detail', { params: { scopeId: 'x', projectId: 'p' } });
+h.link({ to: '../../../projects//$projectId/detail', params: { scopeId: 'x', projectId: 'p' } });
 // @ts-expect-error static ?/# only absolute
-h.link('../../../../../literal?/#', {});
+h.link({ to: '../../../../../literal?/#' });
 // @ts-expect-error mixed traversal
-h.link('./../', {});
+h.link({ to: './../' });
 const docs = docsRoute();
-docs.link('.', { params: { parts: ['a/b'] } });
-docs.link('/', {});
+docs.link({ params: { parts: ['a/b'] } });
+docs.link({ to: '/' });
 // A catchall route's parent is its parent route's path, here the root.
-docs.link('..', {});
+docs.link({ to: '..' });
 // @ts-expect-error parent values are the parent's
- docs.link('..', { params: { parts: [] } });
+ docs.link({ to: '..', params: { parts: [] } });
 // @ts-expect-error no extension from catchall origin
- docs.link('./index', {});
+ docs.link({ to: './index' });
 // @ts-expect-error scalar not catchall array
  docs.link({ params: { parts: 'a' } });
+
+const f = productsRoute();
+const p = plainRoute();
+const q = 'shoes' as string;
+f.navigate({ search: { q }, replaceUrl: true });
+f.navigate({ search: { q, page: undefined }, replaceUrl: true, state: { from: 'filter' }, info: { source: 'input' } });
+f.navigate({ replaceUrl: true });
+f.navigate({});
+f.navigate({ search: {}, skipLocationChange: true });
+f.navigate({ to: '/products', search: { q }, replaceUrl: true });
+f.navigate({ to: '/items/$id', params: { id: 1 }, replaceUrl: true });
+f.navigate({ to: item, params: { id: 1 }, fragment: 'top', onSameUrlNavigation: 'reload' });
+f.navigate({ to: products, scroll: 'manual' });
+f.navigate({ search: { q }, browserUrl: '/shown' });
+p.navigate({ replaceUrl: true });
+p.navigate({ to: '..', replaceUrl: true });
+const opts: NavigationBehaviorOptions = { replaceUrl: true };
+f.navigate({ search: { q }, ...opts });
+const filterPromise: Promise<boolean> = f.navigate({ replaceUrl: true });
+void filterPromise;
+// @ts-expect-error unknown option
+f.navigate({ search: { q }, replaceUrl: true, bogus: 1 });
+// @ts-expect-error misspelt search
+f.navigate({ serach: { q } });
+// @ts-expect-error wrong option type
+f.navigate({ replaceUrl: 'yes' });
+// @ts-expect-error unknown search key
+f.navigate({ search: { query: q } });
+// @ts-expect-error search value keeps its codec
+f.navigate({ search: { page: 'two' } });
+// @ts-expect-error a single record
+f.navigate({ search: { q } }, { replaceUrl: true });
+// @ts-expect-error unknown literal on an all-optional handle
+f.navigate({ to: '/unknown' });
+// @ts-expect-error unknown literal on an empty handle
+p.navigate({ to: '/unknown', replaceUrl: true });
+declare const wideTo: string;
+// @ts-expect-error widened selector on an empty handle
+p.navigate({ to: wideTo });
+declare const unionTo: '/products' | '/plain';
+// @ts-expect-error selector union on an empty handle
+p.navigate({ to: unionTo });
+// @ts-expect-error spread reference on an empty handle
+p.navigate({ to: { ...plain } });
+// @ts-expect-error spread reference on an all-optional handle
+f.navigate({ to: { ...products } });
+declare const refUnion: typeof plain | typeof products;
+// @ts-expect-error reference union on an empty handle
+p.navigate({ to: refUnion });
+// @ts-expect-error the root parent declares no search
+f.navigate({ to: '..', search: { q } });
+// @ts-expect-error link takes no navigation options
+f.link({ search: { q }, replaceUrl: true });
+// @ts-expect-error link takes no navigation options after a selector
+f.link({ to: item, params: { id: 1 }, state: {} });
+// @ts-expect-error link takes no navigation options after a literal selector
+f.link({ to: '/products', skipLocationChange: true });
+// @ts-expect-error link takes no navigation options after ..
+p.link({ to: '..', replaceUrl: true });
+// @ts-expect-error link takes no second argument
+f.link({ search: { q } }, { replaceUrl: true });
+// @ts-expect-error a positional selector is not a target record
+h.link('/enum/$kind', { params: { kind: 'a' } });
 `;
 
 await write("src/type-proof.ts", types);
@@ -397,21 +476,20 @@ import { destination as scope } from '../scope/route.generated.js';
 import { destination as terminal } from '../terminal/route.generated.js';
 import { destination as foreign } from '../../../foreign/src/routes/scope/route.generated.js';
 import definition from '../scope/definition.js';
-@Component({ imports: [RouterLink], template: '<p data-navigation="ready">navigation</p><a id="typed" [routerLink]="route.link(scope, values)">scope</a>' })
+@Component({ imports: [RouterLink], template: '<p data-navigation="ready">navigation</p><a id="typed" [routerLink]="route.link(target)">scope</a>' })
 export default class Multi {
   readonly route = injectRoute();
-  readonly scope = scope;
-  readonly values = { params: { scopeId: 'clicked' } };
+  readonly target = { to: scope, params: { scopeId: 'clicked' } };
   readonly router = inject(Router);
   constructor() {
     const h = this.route;
     const router = this.router;
-    const calls: { parse: string[]; navigate: string[]; promise?: Promise<boolean> } = { parse: [], navigate: [] };
+    const calls: { parse: string[]; navigate: unknown[]; promise?: Promise<boolean> } = { parse: [], navigate: [] };
     const parse = router.parseUrl.bind(router);
     const navigate = router.navigateByUrl.bind(router);
     router.parseUrl = (url) => { calls.parse.push(url); return parse(url); };
     router.navigateByUrl = (url, extras) => {
-      calls.navigate.push(String(url));
+      calls.navigate.push([String(url), extras]);
       const promise = navigate(url, extras);
       calls.promise = promise;
       return promise;
@@ -419,8 +497,8 @@ export default class Multi {
     (window as any).navigationProof = {
       calls,
       link: (...args: any[]) => router.serializeUrl((h.link as any)(...args)),
-      navigate: (selector: any, values: any) => {
-        const result = (h.navigate as any)(selector, values);
+      navigate: (...args: any[]) => {
+        const result = (h.navigate as any)(...args);
         return { same: result === calls.promise, result };
       },
       references: { scope, terminal, foreign, definition, handle: h },
@@ -430,6 +508,59 @@ export default class Multi {
 }\n`;
 
 await write("src/routes/multi/page.ts", driver);
+// A filter screen: a searchful route without path params that rewrites its own query.
+await write(
+  "src/routes/products/page.ts",
+  `import { Component, inject } from '@angular/core';
+import { NavigationStart, Router } from '@angular/router';
+import { injectRoute } from './route.generated.js';
+import { destination as item } from '../item/route.generated.js';
+@Component({ template: '<input id="q" [value]="route.search().q ?? \\'\\'" (input)="filter($any($event.target).value)"><p id="shown">{{ route.search().q ?? "none" }}</p>' })
+export default class Products {
+  readonly route = injectRoute();
+  readonly router = inject(Router);
+  filter(q: string) {
+    void this.route.navigate({ search: { q: q || undefined }, replaceUrl: true });
+  }
+  constructor() {
+    // Keep the first instance's spy when a navigation recreates the page.
+    if ((window as any).filterProof) {
+      return;
+    }
+    const h = this.route;
+    const router = this.router;
+    const calls: unknown[] = [];
+    const starts: unknown[] = [];
+    const parse = router.parseUrl.bind(router);
+    const navigate = router.navigateByUrl.bind(router);
+    let parses = 0;
+    let last: Promise<boolean> | undefined;
+    router.parseUrl = (url) => { parses += 1; return parse(url); };
+    router.navigateByUrl = (url, extras) => {
+      calls.push([String(url), extras]);
+      last = navigate(url, extras);
+      return last;
+    };
+    router.events.subscribe((event) => {
+      if (event instanceof NavigationStart) {
+        starts.push({ url: event.url, extras: router.currentNavigation()?.extras });
+      }
+    });
+    (window as any).filterProof = {
+      calls,
+      starts,
+      parses: () => parses,
+      search: () => h.search(),
+      link: (...args: any[]) => router.serializeUrl((h.link as any)(...args)),
+      navigate: (...args: any[]) => {
+        const result = (h.navigate as any)(...args);
+        return { same: result === last, result };
+      },
+      references: { item },
+    };
+  }
+}\n`,
+);
 await build();
 
 const typecheck = spawnSync(
@@ -493,46 +624,60 @@ try {
     const results = [];
     const link = (...args) => p.link(...args);
 
-    results.push(link("..", { params: { scopeId: "a/b" }, search: { leaf: "winner" } }));
-    results.push(link(p.references.scope, { params: { scopeId: "exact" } }));
+    results.push(link({ to: "..", params: { scopeId: "a/b" }, search: { leaf: "winner" } }));
+    results.push(link({ to: p.references.scope, params: { scopeId: "exact" } }));
     results.push(
-      link(p.references.terminal, { params: { scopeId: "leaf" }, search: { leaf: "required" } }),
+      link({
+        to: p.references.terminal,
+        params: { scopeId: "leaf" },
+        search: { leaf: "required" },
+      }),
     );
     results.push(
-      link("/optional/$id", {
+      link({
+        to: "/optional/$id",
         params: { id: 1 },
         search: { label: "null", toString: 2, constructor: 3, valueOf: "" },
         fragment: "summary",
       }),
     );
-    results.push(link("/docs/$parts[]", { params: { parts: ["a/b", "(c)"] } }));
-    results.push(link("/old/alias/$id", { params: { id: 7 } }));
-    results.push(link("/literal?/#", {}));
+    results.push(link({ to: "/docs/$parts[]", params: { parts: ["a/b", "(c)"] } }));
+    results.push(link({ to: "/old/alias/$id", params: { id: 7 } }));
+    results.push(link({ to: "/literal?/#" }));
+    results.push(link({ params: { scopeId: "own", projectId: "p" } }));
 
     const parses = p.calls.parse.length;
     const navigations = p.calls.navigate.length;
     const invalid = [
-      ["../..", { params: { scopeId: "x" } }],
-      ["../", { params: { scopeId: "x" } }],
-      ["./", { params: { scopeId: "x", projectId: "p" } }],
-      ["../../../../../../", {}],
-      ["/unresolved", {}],
-      ["/old", {}],
-      ["./../", {}],
-      ["../../../../../literal?/#", {}],
-      ["/enum/a", { params: { kind: "a" } }],
-      [p.references.foreign, { params: { scopeId: "x" } }],
-      [{ ...p.references.scope }, { params: { scopeId: "x" } }],
-      [Object.create(p.references.scope), { params: { scopeId: "x" } }],
-      [p.references.definition, { params: { scopeId: "x" } }],
-      [p.references.handle, {}],
-      ["/enum/$kind", { params: { kind: "c" } }],
-      ["/enum/$kind", {}],
-      ["/optional/$id", { params: { id: 1 }, search: { label: "x" }, fragment: "unknown" }],
-      ["/optional/$id", { params: { id: 1 }, search: { label: "x", constructor: "bad" } }],
-      ["/optional/$id", { params: { id: 1 }, search: { other: "x" } }],
-      ["/", {}, { replaceUrl: true }],
-      ["/", undefined],
+      [{ to: "../..", params: { scopeId: "x" } }],
+      [{ to: "../", params: { scopeId: "x" } }],
+      [{ to: "./", params: { scopeId: "x", projectId: "p" } }],
+      [{ to: ".", params: { scopeId: "x", projectId: "p" } }],
+      [{ to: "../../../../../../" }],
+      [{ to: "/unresolved" }],
+      [{ to: "/old" }],
+      [{ to: "./../" }],
+      [{ to: "../../../../../literal?/#" }],
+      [{ to: "/enum/a", params: { kind: "a" } }],
+      [{ to: p.references.foreign, params: { scopeId: "x" } }],
+      [{ to: { ...p.references.scope }, params: { scopeId: "x" } }],
+      [{ to: Object.create(p.references.scope), params: { scopeId: "x" } }],
+      [{ to: p.references.definition, params: { scopeId: "x" } }],
+      [{ to: p.references.handle }],
+      [{ to: 5 }],
+      [{ to: null }],
+      [{ to: "/enum/$kind", params: { kind: "c" } }],
+      [{ to: "/enum/$kind" }],
+      [{ to: "/optional/$id", params: { id: 1 }, search: { label: "x" }, fragment: "unknown" }],
+      [{ to: "/optional/$id", params: { id: 1 }, search: { label: "x", constructor: "bad" } }],
+      [{ to: "/optional/$id", params: { id: 1 }, search: { other: "x" } }],
+      [{ params: { projectId: "p" } }],
+      [{ to: "/" }, { replaceUrl: true }],
+      ["/", {}],
+      ["/"],
+      [undefined],
+      [null],
+      [[]],
       [],
     ];
 
@@ -558,7 +703,7 @@ try {
       }
 
       if (!threw) {
-        throw new Error("Invalid navigation was admitted");
+        throw new Error("Invalid navigation was admitted: " + JSON.stringify(args));
       }
     }
 
@@ -566,10 +711,42 @@ try {
       throw new Error("Invalid input reached Angular");
     }
 
-    const native = p.navigate("/enum/$kind", { params: { kind: "a" } });
+    // An own `__proto__` key is a key like any other: link rejects it, navigate forwards it as an
+    // own option, and its nested values never become inherited behavior options.
+    const prototypeKey = () =>
+      JSON.parse('{"to":"/enum/$kind","params":{"kind":"b"},"__proto__":{"replaceUrl":true}}');
+    let prototypeLinkThrew = false;
+
+    try {
+      link(prototypeKey());
+    } catch {
+      prototypeLinkThrew = true;
+    }
+
+    if (!prototypeLinkThrew || p.calls.parse.length !== parses) {
+      throw new Error("link admitted an own __proto__ key");
+    }
+
+    await p.navigate(prototypeKey()).result;
+
+    const forwarded = p.calls.navigate.at(-1)[1];
+    const prototypeOptions = {
+      ownKeys: Object.keys(forwarded),
+      replaceUrl: forwarded.replaceUrl,
+      plainPrototype: Object.getPrototypeOf(forwarded) === Object.prototype,
+    };
+
+    const native = p.navigate({ to: "/enum/$kind", params: { kind: "a" } });
     const success = await native.result;
 
-    return { results, invalidCount: invalid.length, samePromise: native.same, success };
+    return {
+      results,
+      invalidCount: invalid.length,
+      samePromise: native.same,
+      success,
+      nativeCall: p.calls.navigate.at(-1),
+      prototypeOptions,
+    };
   });
 
   assert.deepEqual(observations.results, [
@@ -580,19 +757,209 @@ try {
     "/docs/a%2Fb/%28c%29",
     "/old/alias/7",
     "/literal%3F/%23",
+    "/scope/own/projects/p/detail",
   ]);
   assert.equal(observations.samePromise, true);
   assert.equal(observations.success, true);
+  // A record without behavior options still hands Angular an options object, an empty one.
+  assert.deepEqual(observations.nativeCall, ["/enum/a", {}]);
+  assert.deepEqual(observations.prototypeOptions, {
+    ownKeys: ["__proto__"],
+    replaceUrl: undefined,
+    plainPrototype: true,
+  });
   await tab.goto(new URL("scope/x/projects/p/detail", output.baseUrl).href);
   await tab.waitForFunction(() => window.navigationProof?.ready());
   assert.equal(await tab.locator("#typed").getAttribute("href"), "/scope/clicked");
   await tab.locator("#typed").click();
   await tab.waitForURL(new URL("scope/clicked", output.baseUrl).href);
-  assert.deepEqual(errors, []);
+
+  const routerLinkUrl = tab.url();
+
   await writeFile(join(evidence, "browser.html"), await tab.content());
+
+  // Behavior options reach Angular: a fresh app on a filter screen, entered after another page.
+  await tab.goto(new URL("plain", output.baseUrl).href);
+  await tab.goto(new URL("products", output.baseUrl).href);
+  await tab.waitForFunction(() => window.filterProof);
+
+  const historyStart = await tab.evaluate(() => history.length);
+
+  await tab.locator("#q").pressSequentially("ab", { delay: 50 });
+  await tab.waitForFunction(() => location.search === "?q=ab");
+
+  const typed = await tab.evaluate(() => ({
+    length: history.length,
+    search: window.filterProof.search(),
+    shown: document.querySelector("#shown").textContent,
+    calls: window.filterProof.calls.slice(),
+  }));
+
+  assert.deepEqual(typed, {
+    length: historyStart,
+    search: { q: "ab" },
+    shown: "ab",
+    calls: [
+      ["/products?q=a", { replaceUrl: true }],
+      ["/products?q=ab", { replaceUrl: true }],
+    ],
+  });
+
+  const stateful = await tab.evaluate(async () => {
+    const proof = window.filterProof;
+    const navigation = proof.navigate({
+      search: { q: "s" },
+      state: { from: "filter" },
+      info: { source: "test" },
+    });
+    const success = await navigation.result;
+
+    return {
+      success,
+      same: navigation.same,
+      length: history.length,
+      from: history.state?.from,
+      start: proof.starts.at(-1),
+    };
+  });
+
+  assert.deepEqual(stateful, {
+    success: true,
+    same: true,
+    length: historyStart + 1,
+    from: "filter",
+    start: {
+      url: "/products?q=s",
+      extras: { state: { from: "filter" }, info: { source: "test" } },
+    },
+  });
+
+  const skipped = await tab.evaluate(async () => {
+    const proof = window.filterProof;
+    const success = await proof.navigate({ search: { q: "hidden" }, skipLocationChange: true })
+      .result;
+
+    return { success, address: location.pathname + location.search, search: proof.search() };
+  });
+
+  assert.deepEqual(skipped, {
+    success: true,
+    address: "/products?q=s",
+    search: { q: "hidden" },
+  });
+
+  // Every navigate form: own (above), destination, absolute and parent.
+  const forms = await tab.evaluate(async () => {
+    const proof = window.filterProof;
+    const before = history.length;
+    const destination = await proof.navigate({
+      to: proof.references.item,
+      params: { id: 3 },
+      fragment: "top",
+      replaceUrl: true,
+      state: { form: "destination" },
+    }).result;
+    const destinationView = {
+      success: destination,
+      length: history.length,
+      address: location.pathname + location.hash,
+      form: history.state?.form,
+    };
+    const absolute = await proof.navigate({
+      to: "/products",
+      search: { q: "absolute" },
+      info: { form: "absolute" },
+    }).result;
+    const parent = await proof.navigate({ to: "..", replaceUrl: true }).result;
+
+    return {
+      before,
+      destination: destinationView,
+      absolute,
+      parent,
+      address: location.pathname + location.search,
+      calls: proof.calls.slice(2),
+    };
+  });
+
+  assert.deepEqual(forms, {
+    before: historyStart + 1,
+    destination: {
+      success: true,
+      length: historyStart + 1,
+      address: "/items/3#top",
+      form: "destination",
+    },
+    absolute: true,
+    parent: true,
+    address: "/",
+    calls: [
+      ["/products?q=s", { state: { from: "filter" }, info: { source: "test" } }],
+      ["/products?q=hidden", { skipLocationChange: true }],
+      ["/items/3#top", { replaceUrl: true, state: { form: "destination" } }],
+      ["/products?q=absolute", { info: { form: "absolute" } }],
+      ["/", { replaceUrl: true }],
+    ],
+  });
+
+  const rejected = await tab.evaluate(() => {
+    const proof = window.filterProof;
+    const calls = proof.calls.length;
+    const parses = proof.parses();
+    const messages = [];
+    const attempts = [
+      () => proof.link({ search: { q: "x" }, replaceUrl: true }),
+      () => proof.link({ to: proof.references.item, params: { id: 1 }, state: {} }),
+      () => proof.navigate(),
+      () => proof.navigate({ search: { q: "x" } }, { replaceUrl: true }),
+      () => proof.navigate("/products"),
+      () => proof.navigate(null),
+      () => proof.navigate({ to: "." }),
+      () => proof.navigate({ to: "/unknown", replaceUrl: true }),
+      () => proof.navigate({ to: { ...proof.references.item }, params: { id: 1 } }),
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        attempt();
+        messages.push("admitted");
+      } catch (error) {
+        messages.push(`${error.name}: ${error.message}`);
+      }
+    }
+
+    return {
+      messages,
+      reachedAngular: proof.calls.length - calls,
+      parsed: proof.parses() - parses,
+      link: proof.link({ to: "/items/$id", params: { id: 1 }, fragment: "top" }),
+    };
+  });
+
+  assert.deepEqual(rejected, {
+    messages: [
+      "TypeError: link takes no navigation behavior options (replaceUrl); set them on RouterLink",
+      "TypeError: link takes no navigation behavior options (state); set them on RouterLink",
+      "TypeError: Expected one navigation target record",
+      "TypeError: Expected one navigation target record",
+      "TypeError: Expected one navigation target record",
+      "TypeError: Expected one navigation target record",
+      "TypeError: Unknown generated selector: .",
+      "TypeError: Unknown generated selector: /unknown",
+      "TypeError: Expected a destination from the same generated set",
+    ],
+    reachedAngular: 0,
+    parsed: 0,
+    link: "/items/1#top",
+  });
+  assert.deepEqual(errors, []);
   await writeFile(
     join(evidence, "browser-observations.json"),
-    JSON.stringify({ ...observations, errors, routerLinkUrl: tab.url() }, null, 2),
+    JSON.stringify(
+      { ...observations, routerLinkUrl, typed, stateful, skipped, forms, rejected, errors },
+      null,
+      2,
+    ),
   );
 } finally {
   await browser?.close();
@@ -624,5 +991,5 @@ await writeFile(join(evidence, "facade-stability-before.json"), JSON.stringify(b
 await writeFile(join(evidence, "facade-stability-after.json"), JSON.stringify(after, null, 2));
 
 console.log(
-  "Public generated navigation typing, same-set/foreign-set, exact native Promise/UrlTree/RouterLink, selector exclusions and stable facade proof passed",
+  "Public generated navigation typing, same-set/foreign-set, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions and stable facade proof passed",
 );

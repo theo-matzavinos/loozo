@@ -175,23 +175,17 @@ test("router's Handle groups link/navigate overloads with per-overload params", 
     }
 
     assert.equal(member.kind, "method");
-    assert.deepEqual(params, [
-      "values",
-      "selector,values",
-      "selector,values",
-      "selector,values",
-      "selector,values",
-    ]);
+    assert.deepEqual(params, ["target", "target", "target", "target"]);
   }
 
-  // Each selector overload documents its own selector.
-  const selectors = new Set();
+  // Each overload documents its own kind of target: none, absolute, parent or destination.
+  const targets = new Set();
 
-  for (const signature of members.get("link").signatures.slice(1)) {
-    selectors.add(signature.params[0].descriptionHtml);
+  for (const signature of members.get("link").signatures) {
+    targets.add(signature.params[0].descriptionHtml);
   }
 
-  assert.equal(selectors.size, 4);
+  assert.equal(targets.size, 4);
 });
 
 test("router's Handle and Destination list their documented type params", () => {
