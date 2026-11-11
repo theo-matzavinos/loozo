@@ -14,7 +14,7 @@ import {
   type RedirectFunction,
 } from "@angular/router";
 import { from, isObservable, map, type ObservableInput } from "rxjs";
-import { routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
+import { isArrayCodec, routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
 import {
   hasIdentity,
   parseInputs,
@@ -225,7 +225,7 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
     }
 
     const path = createUrlForPath(config.to, params);
-    const replacement: Record<string, string> = Object.create(null);
+    const replacement: Record<string, string | string[]> = Object.create(null);
 
     if (config.search.mode === "replace") {
       const values = config.search.values!;
@@ -235,13 +235,24 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
           continue;
         }
 
-        const raw = target.search[key].stringify(values[key]);
+        const codec = target.search[key];
 
-        if (typeof raw !== "string") {
-          throw new TypeError(`Redirect search codec must stringify to a string: ${key}`);
+        if (!isArrayCodec(codec)) {
+          replacement[key] = stringifySearch(codec, values[key], key);
+
+          continue;
         }
 
-        replacement[key] = raw;
+        const raws: string[] = [];
+
+        for (const value of values[key] as readonly unknown[]) {
+          raws.push(stringifySearch(codec, value, key));
+        }
+
+        // Angular writes nothing for an empty array; leave the key out to match createUrl.
+        if (raws.length > 0) {
+          replacement[key] = raws;
+        }
       }
     }
 
@@ -262,6 +273,20 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
 
     return tree;
   };
+}
+
+function stringifySearch(
+  codec: { stringify(value: unknown): unknown },
+  value: unknown,
+  key: string,
+): string {
+  const raw = codec.stringify(value);
+
+  if (typeof raw !== "string") {
+    throw new TypeError(`Redirect search codec must stringify to a string: ${key}`);
+  }
+
+  return raw;
 }
 
 function createUrlForPath(definition: AnyRoute, params: Record<string, unknown>): string {

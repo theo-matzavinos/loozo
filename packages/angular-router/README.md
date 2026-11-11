@@ -123,13 +123,14 @@ The member directory is inside the team directory, so the team route is its pare
 
 ### Codecs
 
-| Codec                        | Value                                                                        |
-| ---------------------------- | ---------------------------------------------------------------------------- |
-| `stringParam`                | Any string, including `""`                                                   |
-| `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail) |
-| `booleanParam`               | Exactly `true` or `false`                                                    |
-| `enumParam(values)`          | One of the listed strings, typed as their union                              |
-| `withFallback(codec, value)` | Search only: reads `value` when the key is missing, repeated or invalid      |
+| Codec                        | Value                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `stringParam`                | Any string, including `""`                                                    |
+| `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail)  |
+| `booleanParam`               | Exactly `true` or `false`                                                     |
+| `enumParam(values)`          | One of the listed strings, typed as their union                               |
+| `withFallback(codec, value)` | Search only: reads `value` when the key is missing, repeated or invalid       |
+| `arrayParam(codec)`          | Search only: reads every value of a repeated key (`?tag=a&tag=b`) as an array |
 
 For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
 
@@ -139,15 +140,17 @@ Search params never stop a route from matching, and they never fail. Every searc
 search: {
   page: withFallback(numberParam, 1),
   sort: enumParam(["asc", "desc"]),
+  tag: arrayParam(enumParam(["news", "guides"])),
 }
 ```
 
-| Search key           | Missing      | Repeated or invalid |
-| -------------------- | ------------ | ------------------- |
-| Plain codec (`sort`) | Absent       | Absent              |
-| `withFallback`       | The fallback | The fallback        |
+| Search key           | Missing      | Repeated     | Invalid                       |
+| -------------------- | ------------ | ------------ | ----------------------------- |
+| Plain codec (`sort`) | Absent       | Absent       | Absent                        |
+| `withFallback`       | The fallback | The fallback | The fallback                  |
+| `arrayParam` (`tag`) | `[]`         | Every value  | `[]`, if any value is invalid |
 
-`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). Links, `createUrl`, navigation and redirects can leave out any search key.
+`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). An array key always reads a readonly array: `?tag=news&tag=guides` reads `["news", "guides"]`, `?tag=news` reads `["news"]`, and `?tag=news&tag=other` reads `[]`. Values keep their URL order, duplicates included. Links, `createUrl`, navigation and redirects can leave out any search key. An array key takes an array and writes one `tag=` pair per element; `[]` writes nothing, so an empty list and a missing key are the same URL. For the same reason an array key can't have a fallback: to default to some tags, check `tag.length` in the page.
 
 A custom codec implements `ParamCodec<Value>`. Both methods are synchronous: `parse` receives the already-decoded text and returns the value, and `stringify` returns the text:
 
@@ -157,7 +160,7 @@ Parsing should be pure and deterministic. A path codec runs twice per navigation
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam` and `withFallback`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs.
+The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs.
 
 ### Fragments
 
@@ -169,7 +172,7 @@ The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `num
 
 [src/product-url.ts](snippets/src/product-url.ts)
 
-All path params are required, including inherited ones. Search params are all optional: an omitted or `undefined` value leaves the key out. Query keys are sorted, values are percent-encoded, and a `/` inside a param value becomes `%2F`. Catchall values are arrays:
+All path params are required, including inherited ones. Search params are all optional: an omitted or `undefined` value leaves the key out, and an `arrayParam` key repeats once per element (`tag: ["a", "b"]` writes `tag=a&tag=b`). Query keys are sorted, values are percent-encoded, and a `/` inside a param value becomes `%2F`. Catchall values are arrays:
 
 [src/docs-url.ts](snippets/src/docs-url.ts#catchall)
 
@@ -215,7 +218,7 @@ A `destination` must come from the same generated route set as the handle. Desti
 | `canMatch`         | This route's own path params plus all search params; no ancestor path params |
 | `canDeactivate`    | Angular's native form, unchanged; no parsing                                 |
 
-Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). Search values recover before any guard runs (absent, or the fallback). Path params that fail to parse decide whether a route matches, so a guard only sees valid ones. Every callback (guards, resolvers, `title` and `onInvalidParams`) is called synchronously in the injection context Angular provides, so `inject()` works at its start, before any `await`.
+Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). Search values recover before any guard runs (absent, the fallback, or `[]` for an array key). Path params that fail to parse decide whether a route matches, so a guard only sees valid ones. Every callback (guards, resolvers, `title` and `onInvalidParams`) is called synchronously in the injection context Angular provides, so `inject()` works at its start, before any `await`.
 
 Every route with path params of its own or with search params gets a generated `canMatch` that parses them, search after the path. Search never decides the match. If a path param fails, the route doesn't match and Angular tries its next route, ending at the closest `$segments[]` catchall, so guards, resolvers and pages never see a value their codec rejects. Your own `canMatch` guards aren't called then. `onInvalidParams` replaces that outcome:
 
@@ -243,7 +246,7 @@ A redirect targets another declaration and must say what happens to search and f
 
 [src/routes/teams/$teamId/old-items/$id/route.ts](snippets/src/routes/teams/$teamId/old-items/$id/route.ts)
 
-Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. A redirect route can't have a page, children, `canActivate`, `canMatch` or `onInvalidParams`; an invalid param in a redirect's source URL fails the navigation.
+Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. Search `preserve` keeps the incoming query text, repeated keys included, so the target's array keys read every value; `replace` writes an array key's values like `createUrl` does. A redirect route can't have a page, children, `canActivate`, `canMatch` or `onInvalidParams`; an invalid param in a redirect's source URL fails the navigation.
 
 ## Filesystem route definitions
 

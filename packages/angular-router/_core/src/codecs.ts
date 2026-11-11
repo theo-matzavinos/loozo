@@ -6,7 +6,8 @@
  * like Angular's matching callbacks, it runs once while matching and again for
  * the activated route. Neither method performs URL encoding. Codecs have no
  * Angular injection context, and their returned objects are not recursively frozen.
- * For a terminal `$name[]` path, this codec applies to each element separately.
+ * For a terminal `$name[]` path or an `arrayParam` search key, this codec applies
+ * to each element separately.
  *
  * @typeParam Value - The logical value, never a promise of that value.
  *
@@ -26,7 +27,8 @@ export interface ParamCodec<Value> {
    * @returns The logical value, synchronously. Returning a promise or other
    * thenable is a programming error that fails the navigation with a TypeError.
    * @throws An application error for invalid input: an invalid path value makes
-   * the route not match, and an invalid search value reads as absent or as its fallback.
+   * the route not match, and an invalid search value reads as absent or as its fallback
+   * (an `arrayParam` key reads an empty array).
    */
   parse(raw: string): Value;
   /**
@@ -40,6 +42,7 @@ export interface ParamCodec<Value> {
 }
 
 declare const searchFallback: unique symbol;
+declare const searchArray: unique symbol;
 
 /**
  * A search-only codec whose key reads a fallback value when it is missing,
@@ -48,9 +51,19 @@ declare const searchFallback: unique symbol;
 export type FallbackCodec<Value> = ParamCodec<Value> & {
   readonly [searchFallback]: true;
 };
-export type PathCodec = ParamCodec<any> & { readonly [searchFallback]?: never };
+/**
+ * A search-only codec whose key reads every repeated value, in URL order, as a
+ * readonly array; its parse and stringify handle one value each.
+ */
+export type ArrayCodec<Value> = ParamCodec<Value> & {
+  readonly [searchArray]: true;
+};
+/** Codecs that may only wrap a plain codec: not a fallback or array codec. */
+type PlainCodec = { readonly [searchFallback]?: never; readonly [searchArray]?: never };
+export type PathCodec = ParamCodec<any> & PlainCodec;
 export type CodecValue<Codec> = Codec extends ParamCodec<infer Value> ? Value : never;
 export type HasFallback<Codec> = Codec extends { readonly [searchFallback]: true } ? true : false;
+export type IsArray<Codec> = Codec extends { readonly [searchArray]: true } ? true : false;
 
 /** Type-only marker: a codec whose parse returns a promise fails where it is declared. */
 export interface SynchronousParse {
@@ -66,8 +79,14 @@ export type SyncCodecs<Codecs> = {
 
 const fallbacks = new WeakMap<object, { readonly value: unknown }>();
 
+const arrays = new WeakSet<object>();
+
 export function codecFallback(codec: object): { readonly value: unknown } | undefined {
   return fallbacks.get(codec);
+}
+
+export function isArrayCodec(codec: object): boolean {
+  return arrays.has(codec);
 }
 
 export function validateCodec(codec: unknown): asserts codec is ParamCodec<any> {
@@ -215,7 +234,8 @@ export function enumParam<const Values extends readonly string[]>(
  * value of the codec's type, while URL creation, links, navigation and redirect
  * replacements may still omit it. The fallback is returned as is: it is neither
  * parsed nor copied. Present values delegate to the wrapped codec unchanged.
- * Fallback codecs are search-only: a path param can't use one.
+ * Fallback codecs are search-only: a path param can't use one, and neither
+ * `withFallback` nor `arrayParam` can wrap one.
  *
  * @example
  * ```ts
@@ -227,17 +247,21 @@ export function enumParam<const Values extends readonly string[]>(
  * @param codec - The codec used for present search values.
  * @param fallback - The value read when the key is missing, repeated or invalid.
  * @returns A search-only codec that reads the fallback in place of an absent value.
- * @throws TypeError if the codec lacks callable parse/stringify methods or already
- * has a fallback.
+ * @throws TypeError if the codec lacks callable parse/stringify methods, already
+ * has a fallback or is an `arrayParam` codec.
  */
 export function withFallback<Value>(
-  codec: ParamCodec<Value> & SyncValue<NoInfer<Value>>,
+  codec: ParamCodec<Value> & SyncValue<NoInfer<Value>> & PlainCodec,
   fallback: NoInfer<Value>,
 ): FallbackCodec<Value> {
   validateCodec(codec);
 
   if (codecFallback(codec)) {
     throw new TypeError("withFallback cannot wrap a codec that already has a fallback");
+  }
+
+  if (arrays.has(codec)) {
+    throw new TypeError("withFallback cannot wrap an arrayParam codec");
   }
 
   const wrapper: ParamCodec<Value> = {
@@ -252,4 +276,56 @@ export function withFallback<Value>(
   fallbacks.set(wrapper, Object.freeze({ value: fallback }));
 
   return wrapper as FallbackCodec<Value>;
+}
+
+/**
+ * Reads every value of a repeated search key (`?tag=a&tag=b`) as a readonly array.
+ *
+ * @remarks
+ * The key always reads an array, never `undefined`: each value parses with the
+ * wrapped codec, in URL order and keeping duplicates. A missing key reads `[]`, and
+ * so does a key with any invalid value: one invalid value empties the whole list.
+ * URL creation, links, navigation and redirect replacements write one `key=value`
+ * pair per element in array order; `[]` and `undefined` leave the key out, so an
+ * empty list and a missing key share one URL. Array codecs are search-only (a path
+ * uses a terminal `$name[]` instead) and take no fallback: `withFallback` can't wrap
+ * one, and `arrayParam` can't wrap a fallback or another array codec.
+ *
+ * @example
+ * ```ts
+ * search: { tag: arrayParam(enumParam(["news", "guides"])) }
+ * // ?tag=news&tag=guides reads ["news", "guides"]; no tag and ?tag=other read [].
+ * ```
+ *
+ * @typeParam Value - The wrapped codec's logical value.
+ * @param codec - The codec for each value.
+ * @returns A search-only codec whose key reads `readonly Value[]`.
+ * @throws TypeError if the codec lacks callable parse/stringify methods, has a
+ * fallback or is already an array codec.
+ */
+export function arrayParam<Value>(
+  codec: ParamCodec<Value> & SyncValue<NoInfer<Value>> & PlainCodec,
+): ArrayCodec<Value> {
+  validateCodec(codec);
+
+  if (codecFallback(codec)) {
+    throw new TypeError("arrayParam cannot wrap a codec that has a fallback");
+  }
+
+  if (arrays.has(codec)) {
+    throw new TypeError("arrayParam cannot wrap another arrayParam codec");
+  }
+
+  const wrapper: ParamCodec<Value> = {
+    parse(raw) {
+      return codec.parse(raw);
+    },
+    stringify(value) {
+      return codec.stringify(value);
+    },
+  };
+
+  arrays.add(wrapper);
+
+  return wrapper as ArrayCodec<Value>;
 }

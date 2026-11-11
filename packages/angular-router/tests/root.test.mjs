@@ -2,11 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as root from "@loozo/angular-router";
 
-const { defineRoute, createUrl, stringParam, numberParam, booleanParam, enumParam, withFallback } =
-  root;
+const {
+  defineRoute,
+  createUrl,
+  stringParam,
+  numberParam,
+  booleanParam,
+  enumParam,
+  withFallback,
+  arrayParam,
+} = root;
 
 test("plain Node public namespace and concrete product consumer", () => {
   assert.deepEqual(Object.keys(root).sort(), [
+    "arrayParam",
     "booleanParam",
     "createUrl",
     "defineRoute",
@@ -253,6 +262,113 @@ test("withFallback delegates present values and validates its arguments", () => 
   assert.throws(
     () => defineRoute("docs/$parts[]", { params: { parts: withFallback(stringParam, "") } }),
     /withFallback codecs are search-only/,
+  );
+});
+
+test("arrayParam delegates each value, validates its arguments and is search-only", () => {
+  const value = { label: "opaque" };
+  const failure = new Error("identity");
+  const codec = {
+    parse: (raw) => {
+      if (raw === "throw") {
+        throw failure;
+      }
+
+      return value;
+    },
+    stringify: (input) => input.label,
+  };
+  const wrapper = arrayParam(codec);
+
+  assert.equal(wrapper.parse("ordinary"), value);
+  assert.equal(wrapper.stringify(value), "opaque");
+  assert.throws(
+    () => wrapper.parse("throw"),
+    (error) => error === failure,
+  );
+
+  for (const malformed of [undefined, null, 1, {}, { parse: String }, { stringify: String }]) {
+    assert.throws(() => arrayParam(malformed), TypeError);
+  }
+
+  // No fallback in either direction, and no list of lists.
+  assert.throws(() => arrayParam(withFallback(numberParam, 1)), /has a fallback/);
+  assert.throws(() => withFallback(wrapper, []), /cannot wrap an arrayParam codec/);
+  assert.throws(() => arrayParam(wrapper), /another arrayParam codec/);
+
+  // A path uses a terminal catchall instead.
+  assert.throws(
+    () => defineRoute("$id", { params: { id: wrapper } }),
+    /arrayParam codecs are search-only/,
+  );
+  assert.throws(
+    () => defineRoute("docs/$parts[]", { params: { parts: arrayParam(stringParam) } }),
+    /arrayParam codecs are search-only/,
+  );
+});
+
+test("arrayParam keys write one pair per element and nothing for an empty list", () => {
+  let calls = 0;
+  const counted = {
+    parse: (raw) => raw,
+    stringify: (input) => {
+      calls += 1;
+
+      return input;
+    },
+  };
+  const list = defineRoute("articles", {
+    search: { tag: arrayParam(stringParam), q: stringParam, n: arrayParam(numberParam) },
+  });
+
+  assert.equal(
+    createUrl(list, { search: { tag: ["c", "a", "a"], q: "s", n: [2, 1] } }),
+    "/articles?n=2&n=1&q=s&tag=c&tag=a&tag=a",
+  );
+  assert.equal(createUrl(list, { search: { tag: [] } }), "/articles");
+  assert.equal(createUrl(list, { search: { tag: undefined, q: "s" } }), "/articles?q=s");
+  assert.equal(createUrl(list, { search: { tag: [""] } }), "/articles?tag=");
+  assert.equal(
+    createUrl(list, { search: { tag: ["a b", "x&y=z", "(p)"] } }),
+    "/articles?tag=a%20b&tag=x%26y%3Dz&tag=%28p%29",
+  );
+  assert.throws(() => createUrl(list, { search: { n: [Number.NaN] } }), /finite number/);
+
+  // Cardinality is checked before any stringifier runs.
+  const checked = defineRoute("checked", { search: { a: counted, b: arrayParam(counted) } });
+
+  for (const malformed of ["x", { 0: "x", length: 1 }, null]) {
+    assert.throws(
+      () => createUrl(checked, { search: { a: "first", b: malformed } }),
+      /Search array requires an array: b/,
+    );
+  }
+
+  assert.equal(calls, 0);
+
+  // An omitted prototype-named key reads nothing inherited.
+  const named = defineRoute("named", { search: { toString: arrayParam(stringParam) } });
+
+  assert.equal(createUrl(named, {}), "/named");
+  assert.equal(createUrl(named, { search: { toString: ["x"] } }), "/named?toString=x");
+
+  // Redirect replacements are checked for shape at declaration, without running codecs.
+  for (const values of [{ tag: ["a"] }, { tag: [] }, { tag: undefined }, {}]) {
+    defineRoute("old", {
+      redirect: { to: list, search: { mode: "replace", values }, fragment: { mode: "drop" } },
+    });
+  }
+
+  assert.throws(
+    () =>
+      defineRoute("old", {
+        redirect: {
+          to: list,
+          search: { mode: "replace", values: { tag: "a" } },
+          fragment: { mode: "drop" },
+        },
+      }),
+    /Redirect search array requires an array: tag/,
   );
 });
 

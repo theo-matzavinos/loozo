@@ -6,6 +6,7 @@ import {
   stringParam,
   booleanParam,
   withFallback,
+  arrayParam,
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
@@ -878,3 +879,73 @@ pagedHandle.search.set({ page: 1, score: 0 });
 declare const otherData: typeof pagedHandle.data;
 // @ts-expect-error The handle's signal properties are readonly.
 pagedHandle.data = otherData;
+
+// An array key always reads a readonly array; writing it is optional, and the
+// guards, resolvers, children and handle all see the same shape.
+const articles = defineRoute("articles", {
+  search: { tag: arrayParam(enumParam(["news", "guides"])), single: stringParam },
+  resolve: {
+    read: ({ search }) => {
+      exact<Equal<typeof search.tag, readonly ("news" | "guides")[]>>();
+      exact<Equal<typeof search.single, string | undefined>>();
+
+      return search.tag;
+    },
+  },
+});
+type ArticlesSearch = NonNullable<typeof articles.__search>;
+declare const articlesHandle: Handle<typeof articles>;
+
+exact<Equal<ArticlesSearch["tag"], readonly ("news" | "guides")[]>>();
+exact<Equal<ReturnType<typeof articlesHandle.search>["tag"], readonly ("news" | "guides")[]>>();
+const articlesChild = defineRoute("child", { parent: articles });
+
+exact<Equal<NonNullable<typeof articlesChild.__search>["tag"], readonly ("news" | "guides")[]>>();
+createUrl(articles, {});
+createUrl(articles, { search: { tag: [] } });
+createUrl(articles, { search: { tag: ["news", "news"], single: "x" } });
+createUrl(articles, { search: { tag: undefined } });
+const tags: readonly "guides"[] = ["guides"];
+createUrl(articles, { search: { tag: tags } });
+articlesHandle.link({ search: { tag: ["guides"] } });
+void articlesHandle.navigate({ search: { tag: [] } });
+// @ts-expect-error An array key takes an array, not one value.
+createUrl(articles, { search: { tag: "news" } });
+// @ts-expect-error Each element keeps the codec's type.
+createUrl(articles, { search: { tag: ["other"] } });
+// @ts-expect-error The handle writes the same shape.
+articlesHandle.link({ search: { tag: "news" } });
+// @ts-expect-error Array codecs are search-only.
+defineRoute("array/$id", { params: { id: arrayParam(numberParam) } });
+// @ts-expect-error Array codecs are search-only, catchall elements included.
+defineRoute("array-docs/$parts[]", { params: { parts: arrayParam(stringParam) } });
+// @ts-expect-error An array key takes no fallback.
+withFallback(arrayParam(numberParam), [1]);
+// @ts-expect-error An array codec can't wrap a fallback.
+arrayParam(withFallback(numberParam, 1));
+// @ts-expect-error An array codec can't wrap another one.
+arrayParam(arrayParam(numberParam));
+// @ts-expect-error A promise-valued element codec fails where it is declared.
+arrayParam(promisedCodec);
+defineRoute("articles-replace", {
+  redirect: {
+    to: articles,
+    search: { mode: "replace", values: { tag: ["news"], single: undefined } },
+    fragment: { mode: "drop" },
+  },
+});
+defineRoute("articles-replace-empty", {
+  redirect: {
+    to: articles,
+    search: { mode: "replace", values: { tag: [] } },
+    fragment: { mode: "drop" },
+  },
+});
+defineRoute("articles-replace-wrong", {
+  redirect: {
+    to: articles,
+    // @ts-expect-error Replacement values keep the array shape.
+    search: { mode: "replace", values: { tag: "news" } },
+    fragment: { mode: "drop" },
+  },
+});

@@ -1,5 +1,10 @@
 import type { ActivatedRouteSnapshot, PartialMatchRouteSnapshot } from "@angular/router";
-import { codecFallback, routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
+import {
+  codecFallback,
+  isArrayCodec,
+  routeMetadata,
+  type AnyRoute,
+} from "@loozo/angular-router/_core";
 
 export interface RecordBinding {
   readonly definition: () => AnyRoute;
@@ -165,6 +170,7 @@ export function runPathJobs(jobs: readonly Job[]): Readonly<Record<string, unkno
 /**
  * Parses a declaration's effective search. It never fails on input: a missing,
  * repeated or invalid value reads as the key's fallback, or leaves it absent.
+ * An array key reads every value, or `[]` when it is missing or any value is invalid.
  */
 export function parseSearch(
   definition: AnyRoute,
@@ -176,6 +182,12 @@ export function parseSearch(
   for (const key of Object.keys(metadata.search)) {
     const codec = metadata.search[key];
     const raws: unknown[] = snapshot.queryParamMap.getAll(key);
+
+    if (isArrayCodec(codec)) {
+      search[key] = parseArray(codec, raws);
+
+      continue;
+    }
 
     if (raws.length === 1 && typeof raws[0] === "string") {
       const result = parse(codec, raws[0]);
@@ -195,6 +207,27 @@ export function parseSearch(
   }
 
   return Object.freeze(search);
+}
+
+// One invalid value empties the whole list, as an invalid scalar reads as absent.
+function parseArray(codec: Job["codec"], raws: readonly unknown[]): readonly unknown[] {
+  const values: unknown[] = [];
+
+  for (const raw of raws) {
+    if (typeof raw !== "string") {
+      return Object.freeze([]);
+    }
+
+    const result = parse(codec, raw);
+
+    if ("cause" in result) {
+      return Object.freeze([]);
+    }
+
+    values.push(result.value);
+  }
+
+  return Object.freeze(values);
 }
 
 type Outcome<Value> = { readonly value: Value } | { readonly error: unknown };
