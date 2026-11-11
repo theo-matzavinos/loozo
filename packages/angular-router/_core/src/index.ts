@@ -4,7 +4,9 @@ export {
   booleanParam,
   enumParam,
   withFallback,
+  arrayParam,
   codecFallback,
+  isArrayCodec,
 } from "./codecs.js";
 export type { ParamCodec } from "./codecs.js";
 export { defineRoute, routeMetadata } from "./route.js";

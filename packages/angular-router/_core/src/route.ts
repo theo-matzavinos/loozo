@@ -1,4 +1,10 @@
-import { codecFallback, validateCodec, type ParamCodec, type PathCodec } from "./codecs.js";
+import {
+  codecFallback,
+  isArrayCodec,
+  validateCodec,
+  type ParamCodec,
+  type PathCodec,
+} from "./codecs.js";
 import { parsePath, type Segment, type ValidPath, type CatchallName } from "./path.js";
 import { checkKeys, has, ownRecord } from "./records.js";
 import type {
@@ -72,6 +78,10 @@ function copyCodecs(value: unknown, path: boolean): Readonly<Record<string, Para
       throw new TypeError("withFallback codecs are search-only");
     }
 
+    if (path && isArrayCodec(codec)) {
+      throw new TypeError("arrayParam codecs are search-only");
+    }
+
     result[key] = codec;
   }
 
@@ -122,6 +132,18 @@ function snapshotRedirect(
     const values = ownRecord(search.values, "Redirect replacement");
 
     checkKeys(values, new Set(Object.keys(target.search)), "search values");
+
+    // A structural check only: it runs no codec.
+    for (const key of Object.keys(values)) {
+      if (
+        isArrayCodec(target.search[key]) &&
+        values[key] !== undefined &&
+        !Array.isArray(values[key])
+      ) {
+        throw new TypeError(`Redirect search array requires an array: ${key}`);
+      }
+    }
+
     searchSnapshot = { mode: "replace", values: Object.freeze({ ...values }) };
   } else if (search.mode === "preserve" || search.mode === "drop") {
     checkKeys(search, new Set(["mode"]), "redirect search");
@@ -179,8 +201,9 @@ function snapshotRedirect(
  * generator-owned and cannot be overridden.
  * @returns A frozen route preserving inferred effective input and resolver data types.
  * @throws TypeError for invalid paths/configuration, missing or extra local
- * codecs, fallback codecs in path params, inherited key conflicts, or
- * nongenuine parent/redirect routes.
+ * codecs, fallback or array codecs in path params, inherited key conflicts,
+ * nonarray redirect replacements for array search keys, or nongenuine
+ * parent/redirect routes.
  *
  * @example
  * ```ts

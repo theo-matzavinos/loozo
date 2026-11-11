@@ -210,7 +210,7 @@ await run(
   import assert from 'node:assert/strict';
   const a = await import(${JSON.stringify(firstEntry)});
   const b = await import(${JSON.stringify(secondEntry)});
-  const publicValues = ['booleanParam','createUrl','defineRoute','enumParam','numberParam','stringParam','withFallback'];
+  const publicValues = ['arrayParam','booleanParam','createUrl','defineRoute','enumParam','numberParam','stringParam','withFallback'];
   assert.deepEqual(Object.keys(a).sort(), publicValues);
   assert.deepEqual(Object.keys(b).sort(), publicValues);
   assert.notEqual(a.defineRoute, b.defineRoute);

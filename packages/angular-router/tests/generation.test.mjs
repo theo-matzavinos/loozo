@@ -1029,7 +1029,7 @@ test("effective search gets the generated matching guard; redirect replacements 
     autoDefineRoutes: false,
   };
   const imports =
-    'import { defineRoute, numberParam, withFallback } from "@loozo/angular-router";\n';
+    'import { arrayParam, defineRoute, numberParam, withFallback } from "@loozo/angular-router";\n';
   const page = (name) =>
     `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport default class Page {}\n`;
 
@@ -1058,7 +1058,7 @@ test("effective search gets the generated matching guard; redirect replacements 
     ),
     writeFile(
       resolve(root, "src/routes/list/definition.ts"),
-      `${imports}export default defineRoute("list", { search: { page: withFallback(numberParam, 1) } });\n`,
+      `${imports}export default defineRoute("list", { search: { page: withFallback(numberParam, 1), tag: arrayParam(numberParam) } });\n`,
     ),
     writeFile(resolve(root, "src/routes/list/page.ts"), page("list")),
     writeFile(
@@ -1080,9 +1080,12 @@ test("effective search gets the generated matching guard; redirect replacements 
   ]);
 
   // A fallback key is written as `number | undefined`, whether the value or the property is optional.
+  // An array key is written as `readonly number[] | undefined`.
   for (const values of [
     "declare const page: number | undefined;\nconst values = { page };",
     "declare const values: { page?: number };",
+    "declare const tag: readonly number[] | undefined;\nconst values = { tag };",
+    "const values = { tag: [] };",
   ]) {
     await writeFile(
       resolve(root, "src/routes/old/definition.ts"),
@@ -1114,6 +1117,17 @@ test("effective search gets the generated matching guard; redirect replacements 
   await assert.rejects(
     generate(root, options, () => false),
     /Unknown\/incompatible redirect replacement key: page/,
+  );
+  assert.equal(await readFile(routes, "utf8"), generated);
+
+  // One value where the array key takes a list fails the same way.
+  await writeFile(
+    resolve(root, "src/routes/old/definition.ts"),
+    `${imports}import list from "../list/definition.js";\ndeclare const tag: number;\nexport default defineRoute("old", { redirect: { to: list, search: { mode: "replace", values: { tag } }, fragment: { mode: "drop" } } });\n`,
+  );
+  await assert.rejects(
+    generate(root, options, () => false),
+    /Unknown\/incompatible redirect replacement key: tag/,
   );
   assert.equal(await readFile(routes, "utf8"), generated);
 });

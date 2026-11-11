@@ -11,7 +11,14 @@ import type {
   RedirectCommand,
 } from "@angular/router";
 import type { Observable } from "rxjs";
-import type { ParamCodec, PathCodec, CodecValue, HasFallback, SyncCodecs } from "./codecs.js";
+import type {
+  ParamCodec,
+  PathCodec,
+  CodecValue,
+  HasFallback,
+  IsArray,
+  SyncCodecs,
+} from "./codecs.js";
 import type { CatchallName, PathNames } from "./path.js";
 
 declare const routeBrand: unique symbol;
@@ -28,7 +35,7 @@ declare const routeBrand: unique symbol;
  * @typeParam Path - The local authored path literal, not the effective URL path.
  * @typeParam Params - Effective inherited and local logical path values.
  * @typeParam Search - Effective inherited and local logical search values; keys
- * without a fallback are optional. URL creation accepts every key as optional.
+ * without a fallback or array codec are optional. URL creation accepts every key as optional.
  * @typeParam Resolvers - Local resolver callbacks; data unwraps Promise/Observable
  * results and excludes Angular RedirectCommand values.
  * @typeParam Fragments - This declaration's own allowed fragment-name union.
@@ -77,7 +84,7 @@ export type AnyRoute = Route<string, any, any, any, any, boolean, any>;
 /** Extracts a declaration's effective inherited and local path-value types. */
 export type ParamsOf<Target> =
   Target extends Route<string, infer Params, any, any, any, boolean, any> ? Params : {};
-/** Extracts effective parsed search-value types; keys without a fallback are optional. */
+/** Extracts effective parsed search-value types; keys without a fallback or array codec are optional. */
 export type SearchOf<Target> =
   Target extends Route<string, any, infer Search, any, any, boolean, any> ? Search : {};
 /**
@@ -96,15 +103,20 @@ export type LocalParams<Path extends string, Codecs> = {
     ? readonly CodecValue<Codecs[Key]>[]
     : CodecValue<Codecs[Key]>;
 };
-// A missing, repeated or invalid value leaves a key absent unless it has a fallback.
+// An array key reads every value; other keys read one value.
+type SearchValue<Codec> =
+  IsArray<Codec> extends true ? readonly CodecValue<Codec>[] : CodecValue<Codec>;
+// Fallback and array keys always read a value: the fallback, or an array that may be empty.
+type AlwaysReads<Codec> = HasFallback<Codec> extends true ? true : IsArray<Codec>;
+// A missing, repeated or invalid value leaves a plain key absent.
 export type SearchValues<Codecs> = {
-  readonly [Key in keyof Codecs as HasFallback<Codecs[Key]> extends true ? Key : never]: CodecValue<
-    Codecs[Key]
-  >;
+  readonly [Key in keyof Codecs as AlwaysReads<Codecs[Key]> extends true
+    ? Key
+    : never]: SearchValue<Codecs[Key]>;
 } & {
-  readonly [Key in keyof Codecs as HasFallback<Codecs[Key]> extends true
+  readonly [Key in keyof Codecs as AlwaysReads<Codecs[Key]> extends true
     ? never
-    : Key]?: CodecValue<Codecs[Key]>;
+    : Key]?: SearchValue<Codecs[Key]>;
 };
 export type EffectiveParams<Path extends string, Codecs, Parent> = ParamsOf<Parent> &
   LocalParams<Path, Codecs>;
@@ -134,7 +146,7 @@ type Unshadowed<Inherited, Local> = {
 export type Inputs<Params, Search> = {
   /** Logical positional path values, not Angular's matrix-merged params. */
   readonly params: Readonly<Params>;
-  /** Logical declared search values; keys without a value or fallback are absent. */
+  /** Logical declared search values; plain keys without a valid value are absent. */
   readonly search: Readonly<Search>;
 };
 /**
@@ -365,7 +377,7 @@ export type RouteConfig<
 > = {
   /** Genuine authored parent; pathless nodes retain inherited input ownership. */
   parent?: Parent & (Parent extends Route<string, any, any, any, any, true, any> ? never : unknown);
-  /** Local search codecs; a key is absent unless present and valid, or wrapped withFallback. */
+  /** Local search codecs; a plain key is absent unless present and valid. withFallback and arrayParam keys always read a value. */
   search?: Search &
     Record<Extract<keyof Search, keyof SearchOf<Parent>>, never> &
     SyncCodecs<NoInfer<Search>>;

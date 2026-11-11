@@ -20,14 +20,14 @@ The concrete consumer is an Angular application that:
 
 ### Supported surfaces
 
-| Surface                              | Contract                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `@loozo/angular-router`              | `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`; exported types `Route` and `ParamCodec` |
-| `@loozo/angular-router/package.json` | Package metadata subpath                                                                                                              |
-| `@loozo/angular-router:application`  | Angular Architect application companion                                                                                               |
-| `@loozo/angular-router:serve`        | Angular Architect dev-server companion                                                                                                |
-| Colocated `route.generated` module   | Parameterless `injectRoute()` and inert typed `destination` reference                                                                 |
-| Global `routes.generated` module     | `routes: Routes`                                                                                                                      |
+| Surface                              | Contract                                                                                                                                                     |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@loozo/angular-router`              | `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`, `arrayParam`; exported types `Route` and `ParamCodec` |
+| `@loozo/angular-router/package.json` | Package metadata subpath                                                                                                                                     |
+| `@loozo/angular-router:application`  | Angular Architect application companion                                                                                                                      |
+| `@loozo/angular-router:serve`        | Angular Architect dev-server companion                                                                                                                       |
+| Colocated `route.generated` module   | Parameterless `injectRoute()` and inert typed `destination` reference                                                                                        |
+| Global `routes.generated` module     | `routes: Routes`                                                                                                                                             |
 
 The root has no `injectRoute(route)`, `parseSearch`, `defineRedirect`, resolver executor, or general parser export. Do not expose private helper APIs merely to accommodate tests written against them. There is no supported programmatic source-graph API: the old `/tooling`, `buildRouteSourceGraph()`, and exported graph/diagnostic types are deliberately outside compatibility.
 
@@ -76,9 +76,9 @@ Generation owns paths, matching strategy, ancestry/children, component discovery
 - Local `params` must exactly cover distinct local `$name` and `$name[]` placeholders, using the bare name as key. Missing, renamed, or extra keys fail. Extra local codec keys introduced through a variable also fail typing.
 - A path without local placeholders forbids `params`, including `{ params: {} }`, and `onInvalidParams`.
 - Repeated local placeholders share one codec and one URL-creation value.
-- Search maps infer optional, fallback, enum, and custom values without manual generics.
-- `withFallback` codecs cannot be path codecs, at type level or at runtime declaration.
-- A codec whose `parse` result type is a Promise/PromiseLike is a type error where it is declared in a params or search map (catchall element codecs included) and as a `withFallback` argument.
+- Search maps infer optional, fallback, array, enum, and custom values without manual generics.
+- `withFallback` and `arrayParam` codecs cannot be path codecs, at type level or at runtime declaration.
+- A codec whose `parse` result type is a Promise/PromiseLike is a type error where it is declared in a params or search map (catchall element codecs included) and as a `withFallback` or `arrayParam` argument.
 - Malformed config/codec records, unknown top-level keys, and invalid paths fail at runtime independently of TypeScript. Codec entries must have callable parse/stringify methods.
 - Declaration does not execute parsers, stringifiers, guards, resolvers, title callbacks, provider factories, or resolver-policy predicates.
 - Native behavioral values are emitted/referenced without generation-time evaluation. Angular owns their DI, execution, ordering, and semantics. Static data cannot supply the reserved generated identity key `__loozoAngularRouterRouteId`; ordinary application data must not overwrite binding identity.
@@ -163,7 +163,7 @@ Runtime definitions, literal-path types, and generator validation share the stru
 
 A path codec's **stringified output** must be nonempty and neither `.` nor `..`. These restrictions apply only to path serialization, at every segment position. Search and fragment may contain those strings. Native URL normalization makes dot values unrepresentable even when percent-encoded.
 
-## 4. Scalar codecs [C]
+## 4. Codecs [C]
 
 ```ts
 export interface ParamCodec<Value> {
@@ -182,7 +182,8 @@ Parsing must be synchronous, pure and deterministic, like Angular's own planning
 | `numberParam`                | For nonblank input, JavaScript `Number` coercion followed by finite-result validation; stringify finite numbers as JavaScript string values |
 | `booleanParam`               | Accept/emit only lowercase `true` and `false` representations                                                                               |
 | `enumParam(values)`          | Exact case-sensitive membership for parsing/stringification; infer the literal union; empty string is valid only when listed                |
-| `withFallback(codec, value)` | Search only: read `value` in place of a missing, repeated or invalid value; delegate present values to the original codec                  |
+| `withFallback(codec, value)` | Search only: read `value` in place of a missing, repeated or invalid value; delegate present values to the original codec                   |
+| `arrayParam(codec)`          | Search only: read every repeated value as a readonly array, each value delegated to the original codec                                      |
 
 Number examples: `" 42 " → 42`, `"1e3" → 1000`, `"0x10" → 16`. Blank/whitespace-only, NaN, Infinity, and nonnumeric inputs fail. Nonfinite stringify values fail. Invalid boolean/enum raw representations fail with an Error.
 
@@ -194,15 +195,17 @@ Search never takes part in matching (§8), and every search key is optional: a s
 search: {
   page: withFallback(numberParam, 1), // reads number; URLs may omit it
   sort: enumParam(["asc", "desc"]), // reads "asc" | "desc" | undefined
+  tag: arrayParam(enumParam(["news", "guides"])), // reads readonly ("news" | "guides")[]
 }
 ```
 
-| Search key     | Missing  | Repeated, or invalid (parser throw, non-string raw) |
-| -------------- | -------- | --------------------------------------------------- |
-| Plain codec    | Absent   | Absent                                              |
-| `withFallback` | Fallback | Fallback                                            |
+| Search key     | Missing  | One value | Repeated              | Invalid (parser throw, non-string raw) |
+| -------------- | -------- | --------- | --------------------- | -------------------------------------- |
+| Plain codec    | Absent   | The value | Absent                | Absent                                 |
+| `withFallback` | Fallback | The value | Fallback              | Fallback                               |
+| `arrayParam`   | `[]`     | `[value]` | Every value, in order | `[]` when any value is invalid         |
 
-A plain key reads as `Value | undefined` (an optional property). A fallback key reads as the codec's value type, never `undefined`. URL creation, links, navigation and redirect replacements may omit any search key or pass `undefined`, and redirects never treat a search key as required. The fallback is returned as is, neither parsed nor copied. `withFallback` validates its codec like a declaration does and rejects a codec that already has a fallback with a TypeError; a fallback may itself be `undefined` or `null`.
+A plain key reads as `Value | undefined` (an optional property). A fallback key reads as the codec's value type, never `undefined`. An array key reads as `readonly Value[]`, never `undefined`: each raw value parses with the wrapped codec in URL order, duplicates kept, and one invalid value makes the whole key read `[]`, as an invalid scalar reads as absent. The array is shallow-frozen. URL creation, links, navigation and redirect replacements may omit any search key or pass `undefined`, and redirects never treat a search key as required. An array key is written as `readonly Value[]`; `[]` writes nothing (Angular has no spelling for an empty list), so an empty list and a missing key share one URL. The fallback is returned as is, neither parsed nor copied. `withFallback` validates its codec like a declaration does and rejects a codec that already has a fallback, or an `arrayParam` codec, with a TypeError; a fallback may itself be `undefined` or `null`. `arrayParam` validates its codec the same way and rejects a fallback codec or another array codec with a TypeError: a list takes no fallback, because writing `[]` omits the key and would read the fallback back. Both rejections are type errors too.
 
 Delegation preserves wrapped codec throws and returned value identity. The package does not freeze custom codec-produced values.
 
@@ -222,13 +225,13 @@ createUrl(product, {
 ### Input typing and runtime boundary
 
 - All effective inherited/local path values are required and codec-typed.
-- Every search key is optional: the search record may be omitted, `{ search: {} }`, or any subset of declared keys, each codec-typed or `undefined`. Keys with a fallback are optional here too.
+- Every search key is optional: the search record may be omitted, `{ search: {} }`, or any subset of declared keys, each codec-typed or `undefined`. Keys with a fallback are optional here too. An `arrayParam` key takes a readonly array of element-codec values, including `[]`; a single value fails typing, and a non-array value is a TypeError before any stringifier runs.
 - Searchless routes forbid the search option.
 - Routes with no effective path params forbid a params map.
 - Fragment is optional and restricted to the selected declaration's own declared names; without a list, the fragment option is forbidden.
 - Catchall values are required readonly arrays of element-codec values, including a valid empty array. Scalar and catchall cardinalities are distinct.
 - Literal unknown value/option keys and wrong values fail typing; exact local codec-key typing also covers variables as described in §2.
-- Runtime rejects non-nominal routes, malformed records, unknown options, missing path/extra input keys, wrong fragment types, and non-string codec outputs with TypeError.
+- Runtime rejects non-nominal routes, malformed records, unknown options, missing path/extra input keys, wrong fragment types, non-array catchall and `arrayParam` values, and non-string codec outputs with TypeError.
 
 Do not promise universally exact TypeScript object types: normal structural assignability may admit extra properties through variables where no exactness requirement above exists. Runtime input validation still rejects unknown keys.
 
@@ -237,8 +240,8 @@ Do not promise universally exact TypeScript object types: normal structural assi
 1. Concatenate authored ancestry without normalization. Empty effective path is `/`.
 2. Component-encode every static segment and stringified dynamic value, additionally escaping parentheses. A dynamic slash becomes `%2F`.
 3. Repeat a repeated scalar placeholder's supplied value at each occurrence; expand a catchall array element-by-element with the same segment encoding and output restrictions.
-4. Emit present search keys in globally lexical key order across ancestry. Encode keys and values at the URL boundary.
-5. Omit search keys that are absent or equal to undefined. Present empty strings produce `key=`.
+4. Emit present search keys in globally lexical key order across ancestry. Encode keys and values at the URL boundary. An `arrayParam` key emits one `key=value` pair per element, contiguously and in array order, duplicates kept.
+5. Omit search keys that are absent or equal to undefined, and `arrayParam` keys equal to `[]`. Present empty strings produce `key=`, including an empty-string array element.
 6. Component-encode an optional fragment after the query string.
 
 ```ts
@@ -337,7 +340,7 @@ Angular owns matching and decoding. Obtain declared path values from each author
 
 This holds under Angular's `always` and `emptyOnly` parameter-inheritance strategies. Repeated local placeholders use the last positional occurrence for parsing, matching Angular. Pathless records contribute no positions. Decoded values are not decoded again. Search uses Angular's shared decoded query map.
 
-Each declared path scalar requires exactly one raw value. A catchall instead has zero-or-more positional raw values and invokes its element codec independently for each; it is not a repeated-scalar error. Search keys never fail: a missing, repeated or invalid value is absent, or reads as the key's fallback (§4). Ignore undeclared query keys. Within one parse operation, validate every relevant path raw cardinality before starting any parser; missing/repeated values cannot trigger partial codec side effects first. Parsing is synchronous and stops at the first failing path codec, in declaration order; search is parsed only after the path values succeed.
+Each declared path scalar requires exactly one raw value. A catchall instead has zero-or-more positional raw values and invokes its element codec independently for each; it is not a repeated-scalar error. Search keys never fail: a missing, repeated or invalid value is absent, or reads as the key's fallback, and an `arrayParam` key reads every repeated value, or `[]` (§4). Ignore undeclared query keys. Within one parse operation, validate every relevant path raw cardinality before starting any parser; missing/repeated values cannot trigger partial codec side effects first. Parsing is synchronous and stops at the first failing path codec, in declaration order; search is parsed only after the path values succeed.
 
 Observable input errors are path-only: Errors with `source: "path"`, `key`, `reason: "missing" | "repeated" | "invalid"`, and retained cause for invalid inputs/codec throws. Malformed raw input and codec throws classify as invalid. The error class is not a new root export. A thenable parse result is not an input error but the TypeError of §4.
 
@@ -347,7 +350,7 @@ Because invalid local path params make a route not match (§8), activation repar
 
 One exact declaration object and exact complete Angular snapshot share one full effective parse result/failure across typed activation guards, local resolvers, title callbacks, and handles. A canActivateChild adapter uses the declaring parent's snapshot for that input operation while preserving Angular's native child snapshot argument. Matching-phase local input parsing is separate: its partial snapshot does not supply ancestry, and no cross-phase parse reuse exists. New snapshots create new parse results, even when URLs/values are equal. Different declarations never share merely because paths/codecs match. This is not a URL or resolved-data cache.
 
-Successful top-level params/search maps are shallow-frozen and reference-shared for that snapshot. Search keys without a value or fallback are absent. Arbitrary nested codec values are opaque, not recursively frozen.
+Successful top-level params/search maps are shallow-frozen and reference-shared for that snapshot, as are catchall and `arrayParam` arrays. Plain search keys without a valid value are absent; fallback and array keys are always present. Arbitrary nested codec values are opaque, not recursively frozen.
 
 ### Handle values
 
@@ -478,15 +481,15 @@ An explicit params map covers every destination path key exactly and names compa
 
 Both search and fragment policies are mandatory:
 
-| Policy                        | Search behavior                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{ mode: "preserve" }`        | Preserve unknown keys, repeated values, and original decoded query text rather than re-stringifying it; destination search recovers on its own (§4), so nothing is validated                                                                                                                                                                                         |
-| `{ mode: "drop" }`            | Remove all incoming query values                                                                                                                                                                                                                                                                                                                                     |
-| `{ mode: "replace", values }` | Destination-typed values for any subset of keys, omitting absent or `undefined` ones; literal unknown keys fail typing. Declared-search replacement variables may admit extra keys through structural assignability; searchless replacement typing rejects string keys even through variables. Runtime and static validation reject all unknown replacement keys. `{}` is always valid and removes incoming queries |
+| Policy                        | Search behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{ mode: "preserve" }`        | Preserve unknown keys, repeated values, and original decoded query text rather than re-stringifying it; destination search recovers on its own (§4), so nothing is validated, and a destination `arrayParam` key reads the preserved repeated values                                                                                                                                                                                                                                                                                                   |
+| `{ mode: "drop" }`            | Remove all incoming query values                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `{ mode: "replace", values }` | Destination-typed values for any subset of keys, omitting absent or `undefined` ones; an `arrayParam` key writes one value per element and nothing for `[]`, and a non-array value for it is a TypeError at declaration; literal unknown keys fail typing. Declared-search replacement variables may admit extra keys through structural assignability; searchless replacement typing rejects string keys even through variables. Runtime and static validation reject all unknown replacement keys. `{}` is always valid and removes incoming queries |
 
 Fragment accepts preserve, drop, or `{ mode: "replace", value }`. Explicit replacement values use the target's declared fragment-name union and runtime membership; without target names replacement is forbidden. Preserve carries raw incoming fragment text without imposing declaration membership, consistent with raw incoming hashes remaining Angular's concern; drop always removes it. The redirect adapter itself does not parse or validate any search values; ordinary matching candidates can independently demand their own inputs before a fallback redirect is reached.
 
-Runtime declaration snapshots mapping/replacement/fragment records, validates structure/missing/unknown keys without running codecs, and rejects unknown redirect properties. `createUrl` remains distinct: it still forbids a search option for a searchless route even though redirect replace accepts `{}`.
+Runtime declaration snapshots mapping/replacement/fragment records, validates structure/missing/unknown keys (including that `arrayParam` replacements are arrays) without running codecs, and rejects unknown redirect properties. `createUrl` remains distinct: it still forbids a search option for a searchless route even though redirect replace accepts `{}`.
 
 Redirect execution:
 

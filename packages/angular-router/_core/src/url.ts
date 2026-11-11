@@ -1,4 +1,4 @@
-import type { ParamCodec } from "./codecs.js";
+import { isArrayCodec, type ParamCodec } from "./codecs.js";
 import { ownRecord, checkKeys, has } from "./records.js";
 import { routeMetadata } from "./route.js";
 import type { AnyRoute, SearchOf, UrlValues } from "./types.js";
@@ -27,13 +27,15 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
  * @remarks
  * Includes inherited path/search declarations, but only this route's fragment
  * names. Every effective path value must be supplied; any search key may be
- * omitted. Searchless/paramless routes forbid those records. Catchalls require readonly arrays, including a valid empty array.
+ * omitted. Searchless/paramless routes forbid those records. Catchalls and
+ * `arrayParam` search keys require readonly arrays, including a valid empty array.
  * Values are never taken from a current navigation.
  *
  * Stringifies without calling parsers, guards, resolvers or redirects. Static
  * segments and logical values are component-encoded (also escaping parentheses),
  * so a dynamic slash becomes `%2F`. Search keys are globally sorted; omitted
- * and `undefined` values are left out. An empty effective path produces `/`.
+ * and `undefined` values are left out. An `arrayParam` key writes one pair per
+ * element in array order, and nothing for `[]`. An empty effective path produces `/`.
  * Redirect declarations serialize their source URL, not their redirect target.
  *
  * @param route - A genuine declaration from this physical package instance,
@@ -43,7 +45,7 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
  * @returns A root-relative URL string, typed `` `/${string}` ``; this does not navigate or
  * return a UrlTree.
  * @throws TypeError for invalid routes/records, missing or unknown keys,
- * undeclared fragments, nonarray catchalls, nonstring codec output, or empty/dot
+ * undeclared fragments, nonarray catchalls or array search values, nonstring codec output, or empty/dot
  * path output. Application stringifier failures propagate unchanged.
  * @throws URIError for ill-formed Unicode in a serialized value.
  *
@@ -114,6 +116,18 @@ export function createUrl(route: unknown, values: unknown): `/${string}` {
     }
   }
 
+  for (const key of searchKeys) {
+    if (!isArrayCodec(metadata.search[key]) || !has(search, key)) {
+      continue;
+    }
+
+    const value = search[key];
+
+    if (value !== undefined && !Array.isArray(value)) {
+      throw new TypeError(`Search array requires an array: ${key}`);
+    }
+  }
+
   const parts: string[] = [];
 
   for (const segment of metadata.segments) {
@@ -138,7 +152,15 @@ export function createUrl(route: unknown, values: unknown): `/${string}` {
       continue;
     }
 
-    query.push(`${encode(key)}=${stringify(metadata.search[key], value, false)}`);
+    if (!isArrayCodec(metadata.search[key])) {
+      query.push(`${encode(key)}=${stringify(metadata.search[key], value, false)}`);
+
+      continue;
+    }
+
+    for (const element of value as readonly unknown[]) {
+      query.push(`${encode(key)}=${stringify(metadata.search[key], element, false)}`);
+    }
   }
 
   if (query.length > 0) {

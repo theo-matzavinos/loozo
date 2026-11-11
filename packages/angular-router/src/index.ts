@@ -1,5 +1,5 @@
 /**
- * Typed declarations, scalar codecs and synchronous URLs for Angular's native router.
+ * Typed declarations, codecs and synchronous URLs for Angular's native router.
  *
  * @remarks
  * Install generated `routes` with Angular's provideRouter and import the colocated
@@ -18,5 +18,6 @@ export {
   booleanParam,
   enumParam,
   withFallback,
+  arrayParam,
 } from "@loozo/angular-router/_core";
 export type { Route, ParamCodec } from "@loozo/angular-router/_core";

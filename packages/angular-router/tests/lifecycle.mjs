@@ -639,12 +639,13 @@ export default defineRoute('matched/$id', {
 await write("src/routes/matched/page.ts", marked("matched"));
 await write(
   "src/routes/searching/definition.ts",
-  `import { defineRoute, enumParam, numberParam, withFallback } from '@loozo/angular-router';
+  `import { arrayParam, defineRoute, enumParam, numberParam, withFallback } from '@loozo/angular-router';
 
 export default defineRoute('searching', {
   search: {
     sort: enumParam(['asc', 'desc']),
     page: withFallback(numberParam, 1),
+    tag: arrayParam(enumParam(['a', 'b', 'c'])),
   },
   runGuardsAndResolvers: 'paramsOrQueryParamsChange',
   resolve: { search: ({ search }) => search },
@@ -668,6 +669,24 @@ export default class Searching {
 }
 `,
 );
+
+// Redirects into the list keep repeated keys (preserve) or write them (replace).
+for (const [name, search] of [
+  ["searching-preserve", "{ mode: 'preserve' }"],
+  ["searching-replace", "{ mode: 'replace', values: { tag: ['b', 'a', 'b'], page: 2 } }"],
+  ["searching-replace-empty", "{ mode: 'replace', values: { tag: [] } }"],
+]) {
+  await write(
+    `src/routes/${name}/definition.ts`,
+    `import { defineRoute } from '@loozo/angular-router';
+import searching from '../searching/definition.js';
+
+export default defineRoute('${name}', {
+  redirect: { to: searching, search: ${search}, fragment: { mode: 'drop' } },
+});
+`,
+  );
+}
 
 // Inherited resolver data: a layout page resolving a team, a pathless node with a resolver of
 // its own, and a member page whose handle reads the whole chain's results.
@@ -817,12 +836,18 @@ const searched = searching.search();
 const page: number = searched.page;
 // @ts-expect-error A key without a fallback may be absent.
 const sort: 'asc' | 'desc' = searched.sort;
+// An array key always reads an array.
+const tags: readonly ('a' | 'b' | 'c')[] = searched.tag;
 
 // Every searching key may be omitted when writing a URL.
 searching.link({});
 searching.link({ search: { page: 2 } });
 // @ts-expect-error A supplied fallback key keeps its codec type.
 searching.link({ search: { page: '2' } });
+searching.link({ search: { tag: ['a', 'a'] } });
+searching.link({ search: { tag: [] } });
+// @ts-expect-error An array key takes an array.
+searching.link({ search: { tag: 'a' } });
 
 // A member's data carries its ancestors' resolver results; its own key wins a collision.
 const memberData = squadMemberRoute().data();
@@ -1446,13 +1471,59 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     }
 
     check(JSON.stringify(searches) === JSON.stringify([
-      { page: 1 }, { page: 1 }, { page: 1 }, { sort: 'desc', page: 3 },
+      { page: 1, tag: [] }, { page: 1, tag: [] }, { page: 1, tag: [] }, { sort: 'desc', page: 3, tag: [] },
     ]), 'search recovery ' + JSON.stringify(searches));
     check(!Object.hasOwn(searches[0], 'sort'), 'recovered key is absent');
+
+    // An array key reads every repeated value in URL order; a missing key, or one
+    // with any invalid value, reads []. Scalar keys still read a repeated value as absent.
+    const lists: unknown[] = [];
+
+    for (const url of [
+      '/searching?tag=a&tag=b&sort=asc&sort=desc',
+      '/searching?tag=c',
+      '/searching?tag=b&tag=b&tag=a',
+      '/searching?tag=a&tag=zzz',
+      '/searching?tag=',
+      '/searching-preserve?tag=c&tag=a&page=4&other=1&other=2',
+      '/searching-replace?tag=c',
+      '/searching-replace-empty?tag=c',
+    ]) {
+      await visit(url);
+      const page = (window as any).searching;
+      const handled = page.handle.search();
+
+      check(page.native.snapshot.data.search === handled, 'resolver and handle share the list ' + url);
+      check(Object.isFrozen(handled.tag), 'array value is frozen ' + url);
+      lists.push({ url: router.url, search: handled });
+    }
+
+    check(JSON.stringify(lists) === JSON.stringify([
+      { url: '/searching?tag=a&tag=b&sort=asc&sort=desc', search: { page: 1, tag: ['a', 'b'] } },
+      { url: '/searching?tag=c', search: { page: 1, tag: ['c'] } },
+      { url: '/searching?tag=b&tag=b&tag=a', search: { page: 1, tag: ['b', 'b', 'a'] } },
+      { url: '/searching?tag=a&tag=zzz', search: { page: 1, tag: [] } },
+      { url: '/searching?tag=', search: { page: 1, tag: [] } },
+      { url: '/searching?tag=c&tag=a&page=4&other=1&other=2', search: { page: 4, tag: ['c', 'a'] } },
+      { url: '/searching?page=2&tag=b&tag=a&tag=b', search: { page: 2, tag: ['b', 'a', 'b'] } },
+      { url: '/searching', search: { page: 1, tag: [] } },
+    ]), 'array search ' + JSON.stringify(lists));
+
+    // Links and navigation write one pair per element, and nothing for [].
+    const list = (window as any).searching;
+    const linked = router.serializeUrl(list.handle.link({ search: { tag: ['c', 'a'], sort: 'asc' } }));
+
+    check(linked === '/searching?sort=asc&tag=c&tag=a', 'array link ' + linked);
+    check(router.serializeUrl(list.handle.link({ search: { tag: [] } })) === '/searching',
+      'empty array link');
+    check(await list.handle.navigate({ search: { tag: ['b', 'c'] } }) === true, 'array navigation');
+    await app.whenStable();
+    check(router.url === '/searching?tag=b&tag=c', 'array navigation URL ' + router.url);
+    check(JSON.stringify(list.handle.search().tag) === '["b","c"]', 'array navigation reads the list');
     await wait(30);
     check(unhandled.length === 0, 'no unhandled rejections ' + JSON.stringify(unhandled));
 
-    return { searches, decisions, matchEntries: matchEntries.length };
+    return { searches, lists, decisions, matchEntries: matchEntries.length };
   };
 });
 `,
