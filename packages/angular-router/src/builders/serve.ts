@@ -166,9 +166,14 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
 
           return watcher.close();
         });
-        watcher.once("ready", () => ready.resolve(true));
-        // A watcher error fails startup until the initial generation succeeds.
+        // A watcher error fails startup until the watcher is ready. From then on, including during
+        // the initial generation, it's logged and serve carries on.
         watcher.on("error", ready.reject);
+        watcher.once("ready", () => {
+          watcher.off("error", ready.reject);
+          watcher.on("error", (error) => context.logger.error(String(error)));
+          ready.resolve(true);
+        });
         watcher.on("all", (_event, path) => {
           void changed(path).catch((error) => context.logger.error(String(error)));
         });
@@ -201,8 +206,6 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
-        watcher.off("error", ready.reject);
-        watcher.on("error", (error) => context.logger.error(String(error)));
         passEnded();
 
         if (stopped) {
@@ -213,6 +216,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           target: context.target,
         });
 
+        // The release stops the run, including one acquired after a stop.
         releases.push(() =>
           acquisition.then(
             (run) => run.stop(),
@@ -223,8 +227,6 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         const run = await acquisition;
 
         if (stopped) {
-          await run.stop();
-
           return;
         }
 

@@ -6,11 +6,11 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { mock, test } from "node:test";
-import { Observable } from "rxjs";
+import { concat, from, ignoreElements, Observable } from "rxjs";
 
 const packageDirectory = resolve(import.meta.dirname, "..");
 const require = createRequire(resolve(packageDirectory, "package.json"));
-const { Architect, createBuilder } = require("@angular-devkit/architect");
+const { Architect, createBuilder, jobs } = require("@angular-devkit/architect");
 const { TestingArchitectHost } = require("@angular-devkit/architect/testing");
 const nativeRequire = createRequire(require.resolve("@angular-devkit/architect"));
 const core = nativeRequire("@angular-devkit/core");
@@ -136,6 +136,26 @@ const devServerBuilder = createBuilder((options, context) => {
   });
 });
 
+// Counts the stop messages Architect sends the dev server's job, one for each run.stop(), and holds
+// the job's end, which each run.stop() waits for, until the scenario's gate opens.
+const devServerJob = {
+  ...devServerBuilder,
+  handler(argument, context) {
+    const current = scenario;
+
+    context.inboundBus.subscribe((message) => {
+      if (message.kind === jobs.JobInboundMessageKind.Stop) {
+        current.devServerStops++;
+      }
+    });
+
+    return concat(
+      devServerBuilder.handler(argument, context),
+      from(Promise.resolve(current.devServerEndGate)).pipe(ignoreElements()),
+    );
+  },
+};
+
 function createScenario() {
   return {
     watchers: [],
@@ -143,6 +163,7 @@ function createScenario() {
     servers: [],
     events: [],
     clears: 0,
+    devServerStops: 0,
     logs: [],
     outputs: [],
     errors: [],
@@ -167,11 +188,19 @@ async function settle() {
   }
 }
 
-// Each gate holds one startup await open until the test resolves it. holdTeardown makes the
-// watcher's close and the dev server's teardown wait for the test too.
-async function serve({ optionsGate, workspaceGate, devServerGate, holdTeardown = false } = {}) {
+// Each gate holds one startup await open until the test resolves it, and devServerEndGate holds the
+// dev server job's end. holdTeardown makes the watcher's close and the dev server's teardown wait
+// for the test too.
+async function serve({
+  optionsGate,
+  workspaceGate,
+  devServerGate,
+  devServerEndGate,
+  holdTeardown = false,
+} = {}) {
   scenario = createScenario();
   scenario.workspaceGate = workspaceGate;
+  scenario.devServerEndGate = devServerEndGate;
   scenario.holdTeardown = holdTeardown;
 
   const host = new TestingArchitectHost(packageDirectory, packageDirectory);
@@ -183,7 +212,7 @@ async function serve({ optionsGate, workspaceGate, devServerGate, holdTeardown =
     "@loozo/angular-router:application",
     createBuilder(() => ({ success: true })),
   );
-  host.addBuilder("@angular/build:dev-server", devServerBuilder);
+  host.addBuilder("@angular/build:dev-server", devServerJob);
   host.addTarget({ project: "proof", target: "build" }, "@loozo/angular-router:application", {
     tsconfig: "tsconfig.json",
     scanDirectories: ["src/routes"],
@@ -467,6 +496,30 @@ test("a watcher error before ready fails serve; after startup it is logged", asy
   await run.stop();
 });
 
+test("a watcher error during the initial generation is logged and serve still starts", async () => {
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  watcherOf(state).emit("error", new Error("ENOSPC"));
+  await until(() => errors(state).length === 1, "the logged error");
+  state.passes[0].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+
+  change(state);
+  await until(() => state.passes.length === 2, "the pass after startup");
+  state.passes[1].resolve();
+  await settle();
+  assert.equal(errors(state).length, 1);
+  assert.match(errors(state)[0], /ENOSPC/);
+  assert.equal(state.done, false);
+  assert.equal(state.servers[0].stopped, false);
+  assert.equal(watcherOf(state).closed, false);
+
+  await run.stop();
+});
+
 for (const [phase, gate, waiting] of [
   ["resolving the build target's options", "optionsGate", "resolvingOptions"],
   ["resolving the workspace paths", "workspaceGate", "resolvingWorkspace"],
@@ -542,9 +595,13 @@ test("stopping during a later pass cancels it and stops the dev server", async (
   assert.equal(watcherOf(state).closed, true);
 });
 
-test("stopping while the dev server is being acquired waits for it and leaves none running", async () => {
+test("stopping while the dev server is being acquired waits for it, then stops it once", async () => {
   const gate = Promise.withResolvers();
-  const { run, scenario: state } = await serve({ devServerGate: gate.promise });
+  const end = Promise.withResolvers();
+  const { run, scenario: state } = await serve({
+    devServerGate: gate.promise,
+    devServerEndGate: end.promise,
+  });
 
   await until(() => state.watchers.length === 1, "the watcher");
   watcherOf(state).emit("ready");
@@ -560,13 +617,17 @@ test("stopping while the dev server is being acquired waits for it and leaves no
   assert.equal(stopped, false, "Stopping waits for the acquisition");
 
   gate.resolve();
+  await until(() => state.devServerStops > 0, "the dev server stop");
+  await settle();
+  assert.equal(state.devServerStops, 1);
+  assert.equal(stopped, false, "Stopping waits for the dev server's stop");
+  assert.equal(state.clears, 0, "Nothing clears while the dev server stops");
+
+  end.resolve();
   await until(() => stopped, "the stop");
   await settle();
-
-  for (const server of state.servers) {
-    assert.equal(server.stopped, true);
-  }
-
+  assert.equal(state.devServerStops, 1);
+  assert.equal(state.clears, 1, "Stopping clears once the dev server stopped");
   assert.deepEqual(state.outputs, []);
 });
 
