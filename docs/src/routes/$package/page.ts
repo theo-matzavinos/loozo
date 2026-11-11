@@ -124,7 +124,8 @@ export default class Package {
     const guides = [];
 
     for (const page of content.guides) {
-      const link = this.route.link(guide, {
+      const link = this.route.link({
+        to: guide,
         params: { package: params.package, guide: page.slug },
       });
 
@@ -137,7 +138,8 @@ export default class Package {
       const symbols = [];
 
       for (const symbol of entryPoint.symbols) {
-        const link = this.route.link(api, {
+        const link = this.route.link({
+          to: api,
           params: { package: params.package, symbol: symbol.slug },
         });
 
@@ -147,7 +149,8 @@ export default class Package {
       let entryGuide = null;
 
       if (entryPoint.guide !== null) {
-        const link = this.route.link(guide, {
+        const link = this.route.link({
+          to: guide,
           params: { package: params.package, guide: entryPoint.guide.slug },
         });
 
@@ -160,7 +163,7 @@ export default class Package {
     let generatedApiLink = null;
 
     if (content.generatedApi.length > 0) {
-      generatedApiLink = this.route.link(generatedApi, { params: { package: params.package } });
+      generatedApiLink = this.route.link({ to: generatedApi, params: { package: params.package } });
     }
 
     return { guides, entryPoints, generatedApi: generatedApiLink };

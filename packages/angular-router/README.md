@@ -192,13 +192,15 @@ Reading `params` or `search` throws only if a path codec rejects a value it acce
 
 ### Links and navigation
 
-`link` returns an Angular `UrlTree` for `RouterLink`; `navigate` calls `Router.navigateByUrl` and returns Angular's own promise. Both take the same arguments:
+`link` returns an Angular `UrlTree` for `RouterLink`; `navigate` calls `Router.navigateByUrl` and returns Angular's own promise. Both take one object: `to` picks the route, and `params`, `search` and `fragment` are its URL values:
 
 [src/routes/teams/$teamId/items/$id/links.ts](snippets/src/routes/teams/$teamId/items/$id/links.ts)
 
-The first argument, when given, is a string literal selecting a route by its full authored path, never a concrete URL. Absolute selectors start with `/`. `"."` selects this route, and `".."` its parent route: the nearest route above it with a shorter path, or the root route for a top-level route. There are no other relative selectors. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
+Without `to`, the call targets this route. Otherwise `to` is a string literal selecting a route by its full authored path, never a concrete URL, or another route's `destination`. Absolute selectors start with `/`, and `".."` selects the parent route: the nearest route above it with a shorter path, or the root route for a top-level route. There are no other relative selectors. TypeScript only offers selectors that resolve to a known route, and the values are always typed for the selected route.
 
-Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. There is no extras argument; use `RouterLink` inputs such as `replaceUrl` or `state` for those.
+Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it.
+
+The rest of a `navigate` object is Angular's `NavigationBehaviorOptions`, such as `replaceUrl`, `state`, `info` or `skipLocationChange`, passed to `navigateByUrl` as given. The last call above uses `replaceUrl` to replace the current history entry instead of adding one, as a filter input that updates the search on every keystroke would. `link` takes no behavior options; set them as `RouterLink` inputs instead, such as `[replaceUrl]` or `[state]`.
 
 A `destination` must come from the same generated route set as the handle. Destinations are for `link` and `navigate` only; `createUrl` takes declarations.
 
@@ -384,7 +386,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - Primary outlet only: no named outlets, custom matchers or `loadChildren`.
 - One scan directory per application.
 - No data, URL or transfer caches. Resolver data lives in Angular.
-- Relative navigation from a catchall route isn't supported; use `"."` or an absolute selector.
+- Relative navigation from a catchall route isn't supported; omit `to` or use an absolute selector.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 

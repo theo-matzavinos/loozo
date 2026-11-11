@@ -12,7 +12,8 @@ import { destination as item } from "../teams/$teamId/items/$id/route.generated.
 })
 export default class Home {
   readonly route = injectRoute();
-  readonly link = this.route.link(item, {
+  readonly link = this.route.link({
+    to: item,
     params: { teamId: 7, id: 7 },
     search: { score: 42 },
   });

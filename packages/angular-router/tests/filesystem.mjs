@@ -671,14 +671,14 @@ await write(
   `import { injectRoute as item } from "./routes/teams/$team/$id/route.generated.js";
 import { injectRoute as files } from "./routes/files/$parts[]/route.generated.js";
 export function consumer() {
-  item().link(".", { params: { team: 7, id: "text" } });
+  item().link({ params: { team: 7, id: "text" } });
   // @ts-expect-error inherited codec remains numeric
-  item().link(".", { params: { team: "7", id: "text" } });
+  item().link({ params: { team: "7", id: "text" } });
   // @ts-expect-error seeded local scalar remains string
-  item().link(".", { params: { team: 7, id: 8 } });
-  files().link(".", { params: { parts: ["a", "b"] } });
+  item().link({ params: { team: 7, id: 8 } });
+  files().link({ params: { parts: ["a", "b"] } });
   // @ts-expect-error catchall codec is applied per element
-  files().link(".", { params: { parts: "a" } });
+  files().link({ params: { parts: "a" } });
 }\n`,
 );
 await expectBuild();
@@ -751,9 +751,9 @@ await write(
   "src/custom-types.ts",
   `import { injectRoute } from "./routes/custom-files/$values[]/route.generated.js";
 export function consumer() {
-  injectRoute().link(".", { params: { values: [{ value: "x" }] } });
+  injectRoute().link({ params: { values: [{ value: "x" }] } });
   // @ts-expect-error the authored per-element codec is not stringParam
-  injectRoute().link(".", { params: { values: ["x"] } });
+  injectRoute().link({ params: { values: ["x"] } });
 }\n`,
 );
 await expectBuild();

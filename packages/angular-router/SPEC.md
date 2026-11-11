@@ -272,38 +272,36 @@ Values are the committed snapshot's and are available on the first read, includi
 ### Calls
 
 ```ts
-route.navigate(values); // Promise<boolean>, exact bound declaration
-route.navigate(".", values); // same exact bound declaration
-route.navigate("/teams/$teamId/items/$id", destinationValues);
-route.navigate("..", parentValues); // parent route
-route.navigate(otherDestination, destinationValues);
+route.navigate({ params, search, replaceUrl: true }); // Promise<boolean>, exact bound declaration
+route.navigate({ to: "/teams/$teamId/items/$id", params: destinationParams, state });
+route.navigate({ to: "..", params: parentParams }); // parent route
+route.navigate({ to: otherDestination, params: destinationParams, info });
 
-route.link(values); // UrlTree, no navigation
-route.link(".", values);
-route.link("/teams/$teamId/items/$id", destinationValues);
-route.link("..", parentValues);
-route.link(otherDestination, destinationValues);
+route.link({ params, search }); // UrlTree, no navigation
+route.link({ to: "/teams/$teamId/items/$id", params: destinationParams });
+route.link({ to: "..", params: parentParams });
+route.link({ to: otherDestination, params: destinationParams });
 ```
 
-All value forms use the selected declaration's effective params/search types and URL-creation rules, including optional fragment. All target path inputs must be supplied; current inputs are never implicitly reused.
+Each call takes **exactly one target record**. `to` selects the destination; omitting it selects the exact bound declaration. `params`, `search` and `fragment` use the selected declaration's effective params/search types and URL-creation rules, including optional fragment. All target path inputs must be supplied; current inputs are never implicitly reused.
 
-Two-argument selectors are admitted **literal authored expressions** or generated destination references, not concrete URLs. Unknown expressions, unresolved shared paths, widened strings, selector unions, raw definition/handle objects, and concrete substitutions fail typing. Unknown/invalid untyped expressions or references throw synchronously before Angular is called. No arbitrary URL overload, third argument, navigation extras, implicit query merge/preservation, or inferred current-value reuse exists.
+A `to` value is an admitted **literal authored expression** or a generated destination reference, not a concrete URL. Unknown expressions (including `"."`), unresolved shared paths, widened strings, selector unions, raw definition/handle objects, and concrete substitutions fail typing. At runtime, anything but one non-null, non-array object argument throws a TypeError; an unknown string `to` throws `Unknown generated selector: <to>`, and any other non-reference `to` throws `Expected a destination from the same generated set`. All of these throw synchronously before Angular is called. No arbitrary URL overload, second argument, implicit query merge/preservation, or inferred current-value reuse exists.
 
-`navigate` serializes with the selected declaration and calls `Router.navigateByUrl(rootRelativeUrl)`. It returns Angular's **same Promise object**, not a wrapper or transformed result. Angular owns guards, redirects, same-URL skips, final activation, and rejection behavior.
+For `navigate`, every other key of the record is Angular's `NavigationBehaviorOptions` (`replaceUrl`, `state`, `info`, `skipLocationChange`, `onSameUrlNavigation`, `browserUrl`, `scroll` and any Angular adds), typed by Angular's own interface. They are passed unvalidated, as one object of the record's own remaining keys, to Angular. `navigate` serializes with the selected declaration and calls `Router.navigateByUrl(rootRelativeUrl, options)`. It returns Angular's **same Promise object**, not a wrapper or transformed result. Angular owns guards, redirects, same-URL skips, final activation, history and rejection behavior.
 
-`link` serializes and calls `Router.parseUrl`, returning Angular's UrlTree without navigating. Ordinary Angular RouterLink consumes it. RouterLink owns href/LocationStrategy, native-versus-SPA clicks, target, non-anchor tabindex, and inputs such as replaceUrl/state/info. URL-creation RouterLink inputs must not accompany a supplied UrlTree. Angular may reserialize valid URLs differently from `createUrl`.
+`link` takes no behavior options: they fail typing, and any key besides `to`, `params`, `search` and `fragment` throws a TypeError before Angular is called. It serializes and calls `Router.parseUrl`, returning Angular's UrlTree without navigating. Ordinary Angular RouterLink consumes it. RouterLink owns href/LocationStrategy, native-versus-SPA clicks, target, non-anchor tabindex, and inputs such as replaceUrl/state/info. URL-creation RouterLink inputs must not accompany a supplied UrlTree. Angular may reserialize valid URLs differently from `createUrl`.
 
 ### Absolute destinations and shared paths
 
 An absolute selector is `/` plus the **effective authored path**, or `/` for empty effective path. Codec/search differences do not disambiguate matching shape.
 
-If one effective path belongs to an ancestor/pathless-descendant chain, the selected destination is its deepest terminal pathless child **only if that record has no children**. That leaf alone receives `pathMatch: "full"`; ancestors remain prefix matching. If no terminal winner exists, the shared path has no two-argument destination. Every retained record still has its one-argument exact-current call.
+If one effective path belongs to an ancestor/pathless-descendant chain, the selected destination is its deepest terminal pathless child **only if that record has no children**. That leaf alone receives `pathMatch: "full"`; ancestors remain prefix matching. If no terminal winner exists, the shared path has no absolute or `..` destination. Every retained record still has its exact-current call without `to`.
 
 Selection controls typing and serialization, not exclusive activation: parent and pathless child may activate together. Query values do not choose a winner. Nonleaf pathless records must not receive full matching that blocks longer descendants.
 
 ### Exact-current and parent selectors
 
-- Bare `"."` selects the exact bound declaration, identical to the values-only overload, not a canonical pathless descendant.
+- Omitting `to` selects the exact bound declaration, not a canonical pathless descendant. No `"."` selector exists.
 - `".."` selects the parent route: the nearest ancestor declaration whose effective path is shorter than the bound declaration's, or the root path `/` for a declaration without one. Pathless ancestors share their child's path, so they are skipped. The target is that path's absolute-selector winner; when the path has no destination, or the bound declaration has the root path itself, `".."` is not admitted. Catchall-bound handles have a parent like any other.
 - No other relative expression exists. `../`, `./`, `./suffix`, `../..` and `../suffix` fail typing and throw synchronously like other unknown selectors. Each handle admits at most one relative selector, so generated selector data stays linear in the number of routes.
 - Destination values remain explicit and use the selected target's effective params/search and declared fragment names; `..` never implicitly reuses current values.
@@ -315,15 +313,16 @@ For `/teams/$teamId/members/$memberId` declared under `teams/$teamId`, `..` addr
 ```ts
 import { destination as productRoute } from "../products/$productId/route.generated.js";
 
-route.link(productRoute, {
+route.link({
+  to: productRoute,
   params: { productId: 42 },
   fragment: "reviews", // when declared by that target
 });
 ```
 
-Every retained ordinary facade exports an inert `destination` usable without an injection context or target activation. It carries/inferably represents that declaration's effective input schema and fragment names. `navigate(destination, values)` and `link(destination, values)` use the same serialization/native behavior as their other forms. These references belong to the **same generated route set** as the calling handle; foreign-set references, structural copies/fakes, raw `defineRoute` values, and injected handles are not object targets. Registration/branding representation is private.
+Every retained ordinary facade exports an inert `destination` usable without an injection context or target activation. It carries/inferably represents that declaration's effective input schema and fragment names. `navigate({ to: destination, ... })` and `link({ to: destination, ... })` use the same serialization/native behavior as their other forms. These references belong to the **same generated route set** as the calling handle; foreign-set references, structural copies/fakes, raw `defineRoute` values, and injected handles are not object targets. Registration/branding representation is private.
 
-A generated reference selects its own retained declaration, like its values-only call; it does not silently substitute a canonical pathless winner. References are not a public graph/model API. Object-target support does not add a new `createUrl(destination, ...)` overload requirement: the root function retains its authored-definition contract.
+A generated reference selects its own retained declaration, like that declaration's own call without `to`; it does not silently substitute a canonical pathless winner. References are not a public graph/model API. Object-target support does not add a new `createUrl(destination, ...)` overload requirement: the root function retains its authored-definition contract.
 
 ## 7. Parsed values and navigation lifecycle [L]
 
