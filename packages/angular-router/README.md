@@ -330,6 +330,16 @@ Neither builder runs generation; both use the generated files already on disk. A
 
 The rest is the usual Angular setup. Give specs their own `tsconfig.spec.json` with `"types": ["vitest/globals"]`, and exclude `src/**/*.spec.ts` from the application tsconfig. For `i18n` attributes, add `@angular/localize/init` to the build target's `polyfills`.
 
+### Testing pages
+
+`injectRoute()` throws unless the component's `ActivatedRoute` is the route it was generated for, so `TestBed.createComponent` on a page fails with `Generated route wiring identity mismatch`. Navigate to the page through the generated routes instead, with Angular's `RouterTestingHarness`:
+
+[src/routes/teams/$teamId/items/$id/page.spec.ts](snippets/src/routes/teams/$teamId/items/$id/page.spec.ts)
+
+The navigation runs the real codecs, guards and resolvers. `navigateByUrl` resolves once the page is on screen, with its instance, so the handle already holds the parsed values. Replace what a resolver injects with a provider, as `ItemCatalog` is here. `data` includes the ancestors' resolver results: `team` comes from the `teams/$teamId` route's resolver. With `vitest/globals`, the import from `vitest` is optional.
+
+A component inside the page's template gets the page's `ActivatedRoute`, so the same applies to it: render it through the page's route.
+
 ## What gets generated
 
 | File                                       | Contents                                                      |
