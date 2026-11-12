@@ -783,10 +783,15 @@ await test("serve runs no pass for its own outputs checked out with CRLF line en
 
       const before = passes;
 
-      // What a Git core.autocrlf checkout on Windows leaves of the committed outputs.
+      // What a Git core.autocrlf checkout on Windows leaves of the committed outputs. Each is
+      // renamed into place from outside the scan directory, so the watcher never reads it
+      // truncated mid-write, which would rightly run a pass.
       for (const path of outputs) {
+        const staged = resolve(fixture, "crlf-staged.ts");
+
         originals[path] = await read(path);
-        await put(path, originals[path].replaceAll("\n", "\r\n"));
+        await writeFile(staged, originals[path].replaceAll("\n", "\r\n"));
+        await rename(staged, resolve(fixture, path));
       }
 
       await new Promise((done) => setTimeout(done, 1000));
