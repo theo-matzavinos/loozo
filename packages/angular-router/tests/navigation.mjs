@@ -485,6 +485,60 @@ opt.link('x');
 
 await write("src/type-proof.ts", types);
 
+// The active route: a common read interface until is() narrows it to one route's handle.
+await write(
+  "src/active-type-proof.ts",
+  `import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { destination as scope } from './routes/scope/route.generated.js';
+import { destination as multi } from './routes/multi/route.generated.js';
+import { destination as item } from './routes/item/route.generated.js';
+import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
+import definition from './routes/scope/definition.js';
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+
+const active = injectActiveRoute();
+// Inferred without annotations: chain.find keeps is()'s predicate.
+const scopeId = active()?.chain.find((route) => route.is(scope))?.params().scopeId;
+const itemId = active()?.chain.find((route) => route.is(item))?.params().id;
+const exactScope: Equal<typeof scopeId, string | undefined> = true;
+const exactItem: Equal<typeof itemId, number | undefined> = true;
+const contained: boolean = active()?.contains(scope) ?? false;
+const route = active();
+
+if (route?.is(multi)) {
+  const params: { readonly scopeId: string; readonly projectId: string } = route.params();
+  route.link({ params: { scopeId: 'x', projectId: 'p' } });
+  route.link({ to: '..', params: { scopeId: 'x' } });
+  void route.navigate({ to: item, params: { id: 1 }, fragment: 'top', replaceUrl: true });
+  // @ts-expect-error a narrowed route's values are still its own
+  route.link({ params: { scopeId: 'x' } });
+}
+
+active()?.chain.find((parent) => parent.is(scope))?.link({ params: { scopeId: 'x' } });
+// @ts-expect-error link needs is() first, even with an explicit destination
+active()?.link({ to: item, params: { id: 1 } });
+// @ts-expect-error navigate needs is() first
+void active()?.navigate({ to: item, params: { id: 1 } });
+// @ts-expect-error a foreign set's destination
+active()?.is(foreign);
+// @ts-expect-error a foreign set's destination
+active()?.contains(foreign);
+// @ts-expect-error a declaration is not a destination
+active()?.is(definition);
+// @ts-expect-error params before narrowing are the union of the set's params
+active()?.params().projectId;
+if (route?.contains(multi)) {
+  // @ts-expect-error contains does not narrow
+  route.params().projectId;
+}
+// @ts-expect-error the chain is readonly
+active()?.chain.push(active()!);
+// @ts-expect-error the signal is readonly
+active.set(undefined);
+`,
+);
+
 const driver = `import { Component, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { injectRoute } from './route.generated.js';
@@ -524,6 +578,34 @@ export default class Multi {
 }\n`;
 
 await write("src/routes/multi/page.ts", driver);
+// The shell reads the active route.
+await write(
+  "src/shell.ts",
+  `import { Component, inject } from '@angular/core';
+import { Router, RouterOutlet } from '@angular/router';
+import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { destination as scope } from './routes/scope/route.generated.js';
+import { destination as middle } from './routes/middle/route.generated.js';
+import { destination as multi } from './routes/multi/route.generated.js';
+import { destination as item } from './routes/item/route.generated.js';
+import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
+import definition from './routes/scope/definition.js';
+
+@Component({ selector: 'proof-app', imports: [RouterOutlet], template: '<router-outlet />' })
+export default class Shell {
+  readonly active = injectActiveRoute();
+  readonly router = inject(Router);
+
+  constructor() {
+    (window as any).activeProof = {
+      active: this.active,
+      router: this.router,
+      references: { scope, middle, multi, item, foreign, definition },
+    };
+  }
+}
+`,
+);
 // A filter screen: a searchful route without path params that rewrites its own query.
 await write(
   "src/routes/products/page.ts",
@@ -968,11 +1050,93 @@ try {
     parsed: 0,
     link: "/items/1#top",
   });
+
+  // The shell's active route: is/contains/chain, narrowed link and navigate, fake destinations.
+  await tab.goto(new URL("scope/x/projects/p/detail", output.baseUrl).href);
+  await tab.waitForFunction(() =>
+    window.activeProof?.active()?.is(window.activeProof.references.multi),
+  );
+
+  const active = await tab.evaluate(async () => {
+    const { active, router, references } = window.activeProof;
+    const { scope, middle, multi, item, foreign, definition } = references;
+    const route = active();
+    const rejected = [];
+
+    for (const fake of [
+      { ...scope },
+      Object.create(scope),
+      foreign,
+      definition,
+      route,
+      {},
+      null,
+      "scope",
+    ]) {
+      for (const method of ["is", "contains"]) {
+        try {
+          route[method](fake);
+          rejected.push("admitted");
+        } catch (error) {
+          rejected.push(`${error.name}: ${error.message}`);
+        }
+      }
+    }
+
+    const length = history.length;
+    const view = {
+      params: route.params(),
+      chain: route.chain.map((entry) => [entry.is(scope), entry.is(middle), entry.is(multi)]),
+      contains: [scope, middle, multi, item].map((destination) => route.contains(destination)),
+      prefixes:
+        route.chain.at(-1) === route &&
+        route.chain[1].chain.length === 2 &&
+        route.chain[1].chain[0] === route.chain[0] &&
+        route.chain[0].chain.length === 1,
+      frozen: Object.isFrozen(route.chain),
+      links: [
+        router.serializeUrl(route.link({ params: { scopeId: "y", projectId: "q" } })),
+        router.serializeUrl(route.link({ to: "..", params: { scopeId: "x" } })),
+        router.serializeUrl(route.chain[0].link({ params: { scopeId: "z" }, fragment: "own" })),
+      ],
+      rejected,
+      navigated: await route.navigate({ to: item, params: { id: 3 }, replaceUrl: true }),
+    };
+    const next = active();
+
+    return {
+      ...view,
+      url: router.url,
+      replaced: history.length === length,
+      next: { item: next.is(item), params: next.params(), chain: next.chain.length },
+      // The departed handle keeps its last values.
+      departed: { multi: route.is(multi), params: route.params() },
+    };
+  });
+
+  assert.deepEqual(active, {
+    params: { scopeId: "x", projectId: "p" },
+    chain: [
+      [true, false, false],
+      [false, true, false],
+      [false, false, true],
+    ],
+    contains: [true, true, true, false],
+    prefixes: true,
+    frozen: true,
+    links: ["/scope/y/projects/q/detail", "/scope/x", "/scope/z#own"],
+    rejected: Array(16).fill("TypeError: Expected a destination from the same generated set"),
+    navigated: true,
+    url: "/items/3",
+    replaced: true,
+    next: { item: true, params: { id: 3 }, chain: 1 },
+    departed: { multi: true, params: { scopeId: "x", projectId: "p" } },
+  });
   assert.deepEqual(errors, []);
   await writeFile(
     join(evidence, "browser-observations.json"),
     JSON.stringify(
-      { ...observations, routerLinkUrl, typed, stateful, skipped, forms, rejected, errors },
+      { ...observations, routerLinkUrl, typed, stateful, skipped, forms, rejected, active, errors },
       null,
       2,
     ),

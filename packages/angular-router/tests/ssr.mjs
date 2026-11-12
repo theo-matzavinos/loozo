@@ -43,6 +43,55 @@ await writeFile(
 export default class Missing {}
 `,
 );
+// The shell reads the active route, server-side and through hydration.
+await writeFile(
+  join(fixture, "src/app.ts"),
+  `import { ApplicationRef, Component, afterNextRender, computed, inject } from "@angular/core";
+import { RouterOutlet } from "@angular/router";
+import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { destination as team } from "./routes/teams/$teamId/route.generated.js";
+import { destination as item } from "./routes/teams/$teamId/items/$id/route.generated.js";
+
+@Component({
+  selector: "proof-app",
+  imports: [RouterOutlet],
+  template: \`
+    <main>
+      <h1>Router SSR proof</h1>
+      <p id="active-route">{{ activeText() }}</p>
+      <router-outlet />
+    </main>
+  \`,
+})
+export default class App {
+  readonly application = inject(ApplicationRef);
+  readonly active = injectActiveRoute();
+  readonly activeText = computed(() => {
+    const route = this.active();
+
+    if (!route) {
+      return "none";
+    }
+
+    const teamId = route.chain.find((entry) => entry.is(team))?.params().teamId;
+
+    if (route.is(item)) {
+      return \`team \${teamId} item \${route.params().id}\`;
+    }
+
+    return "other";
+  });
+
+  constructor() {
+    afterNextRender(() => {
+      void this.application.whenStable().then(() => {
+        document.documentElement.dataset.proofStable = "true";
+      });
+    });
+  }
+}
+`,
+);
 
 const metadataText = await readFile(join(packageDirectory, "package.json"), "utf8");
 const metadata = JSON.parse(metadataText);
@@ -421,6 +470,7 @@ function inspectHtml(body) {
     "handle-score",
     "handle-page",
     "missing",
+    "active-route",
   ]) {
     result[id] = document.querySelector("#" + id)?.textContent ?? null;
   }
@@ -503,6 +553,7 @@ try {
     "handle-score": null,
     "handle-page": null,
     missing: null,
+    "active-route": "team 7 item 7",
   });
   assert.deepEqual(values[1], {
     "parsed-team": "8",
@@ -513,6 +564,7 @@ try {
     "handle-score": null,
     "handle-page": null,
     missing: null,
+    "active-route": "team 8 item 8",
   });
   assert.doesNotMatch(responses[0].body, /team=999;|item=888;/);
   assert.notEqual(values[0].resolved, values[1].resolved);
@@ -538,6 +590,7 @@ try {
     assert.equal(rendered["handle-page"], expected.page, url);
     assert.equal(rendered.resolved, null, url);
     assert.equal(rendered.missing, null, url);
+    assert.equal(rendered["active-route"], "other", url);
   }
 
   await save("http-handle-only.json", handleValues);
@@ -554,6 +607,7 @@ try {
     assert.equal(values.missing, "Not found", url);
     assert.equal(values.resolved, null, url);
     assert.equal(values["handle-id"], null, url);
+    assert.equal(values["active-route"], "other", url);
     invalidValues[url] = { status: response.status, values };
   }
   await save("http-observations.json", {
@@ -742,8 +796,46 @@ try {
 
   await writeFile(join(evidence, "browser-before-hydration.html"), before.html);
   assert.equal(before.resolved, "team=7;item=7;score=42");
+
+  // Every text the shell's active route shows from the server HTML through hydration. The
+  // client's reader reads undefined until its initial navigation commits, so the shell shows
+  // its fallback in between, in the same retained node.
+  const activeBefore = await page.evaluate(() => {
+    const node = document.querySelector("#active-route");
+
+    window.proofActiveNode = node;
+    window.proofActiveText = node.firstChild;
+    window.proofActiveTexts = [node.textContent];
+    new MutationObserver(() => {
+      const text = document.querySelector("#active-route")?.textContent ?? null;
+
+      if (window.proofActiveTexts.at(-1) !== text) {
+        window.proofActiveTexts.push(text);
+      }
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+
+    return node.textContent;
+  });
+
+  assert.equal(activeBefore, "team 7 item 7");
   allowScripts();
   await page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+
+  const activeHydrated = await page.evaluate(() => {
+    const node = document.querySelector("#active-route");
+
+    return {
+      retained: node === window.proofActiveNode && node.firstChild === window.proofActiveText,
+      text: node.textContent,
+      texts: window.proofActiveTexts,
+    };
+  });
+
+  assert.deepEqual(activeHydrated, {
+    retained: true,
+    text: "team 7 item 7",
+    texts: ["team 7 item 7", "none", "team 7 item 7"],
+  });
 
   const hydrated = await page.evaluate(() => {
     const selectors = [
@@ -811,6 +903,8 @@ try {
     () => document.querySelector("#resolved")?.textContent === "team=7;item=8;score=undefined",
   );
 
+  assert.equal(await page.locator("#active-route").textContent(), "team 7 item 8");
+
   const idView = page.locator("#parsed-id");
   const scoreView = page.locator("#parsed-score");
   const aliasId = await idView.textContent();
@@ -871,6 +965,7 @@ try {
   assert.equal(documents, 1);
   assert.deepEqual(errors, []);
   await save("browser-observations.json", {
+    activeHydrated,
     hydrated,
     directHref,
     aliasHref,

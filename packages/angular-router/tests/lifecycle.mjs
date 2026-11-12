@@ -1529,11 +1529,595 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 `,
 );
 
+// The active route: a shell reading the deepest route, page constructors reading during
+// activation, and scoped readers created mid-navigation. Its pages run only in their own
+// tabs, so the proofs above keep their parse counts.
+await write(
+  "src/active-probes.ts",
+  `import { Injector, inject, runInInjectionContext, type Signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { injectActiveRoute, type ActiveRoute } from '../generated/destinations.generated.js';
+import { destination as crew } from './routes/crew/route.generated.js';
+import { destination as task } from './routes/task/route.generated.js';
+import { destination as good } from './routes/good/route.generated.js';
+import { destination as frame } from './routes/frame/route.generated.js';
+import { destination as part } from './routes/part/route.generated.js';
+import { destination as stem } from './routes/stem/route.generated.js';
+import { destination as leaf } from './routes/leaf/route.generated.js';
+import { destination as gate } from './routes/gate/route.generated.js';
+import { destination as crash } from './routes/crash/route.generated.js';
+
+export const destinations = { crew, task, good, frame, part, stem, leaf, gate, crash };
+
+// The destination name a route is(), and its params and chain names.
+export function describe(route: ActiveRoute | undefined) {
+  if (!route) {
+    return null;
+  }
+
+  const names = (entry: ActiveRoute) =>
+    Object.entries(destinations).filter(([, destination]) => entry.is(destination)).map(([name]) => name);
+
+  return { route: names(route).join(), params: route.params(), chain: route.chain.map((entry) => names(entry).join()) };
+}
+
+let held: Promise<void> | undefined;
+let release: (() => void) | undefined;
+let guarded: ((value: boolean) => void) | undefined;
+
+// Holds the next task resolver until releaseTask() runs.
+export function holdTask() {
+  held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+}
+
+export function releaseTask() {
+  release!();
+}
+
+export const taskEntries: number[] = [];
+
+export function taskValue({ params }: { params: { taskId: number } }): number | Promise<number> {
+  const waiting = held;
+
+  held = undefined;
+  taskEntries.push(params.taskId);
+
+  if (waiting) {
+    return waiting.then(() => params.taskId);
+  }
+
+  return params.taskId;
+}
+
+export function gateGuard(): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    guarded = resolve;
+  });
+}
+
+export function openGate(value: boolean) {
+  guarded!(value);
+}
+
+export function gatePending() {
+  return guarded !== undefined;
+}
+
+export function brokenResolver(): number {
+  throw new Error('deliberate resolver failure');
+}
+
+// Page constructors: each holds its own reader, first read during activation.
+export const constructed: {
+  name: string;
+  during: boolean;
+  first: ReturnType<typeof describe>;
+  reader: Signal<ActiveRoute | undefined>;
+}[] = [];
+
+// A reader with no live consumer, read again in the next page constructor once armed.
+export const idle: {
+  reader: Signal<ActiveRoute | undefined> | undefined;
+  armed: boolean;
+  during: boolean;
+  read: ReturnType<typeof describe>;
+} = { reader: undefined, armed: false, during: false, read: null };
+
+export function pageReader(name: string): Signal<ActiveRoute | undefined> {
+  const reader = injectActiveRoute();
+  const during = inject(Router).currentNavigation() !== null;
+
+  constructed.push({ name, during, first: describe(reader()), reader });
+
+  if (idle.armed) {
+    idle.armed = false;
+    idle.during = during;
+    idle.read = describe(idle.reader!());
+  }
+
+  return reader;
+}
+
+// The crash page's reader outlives its component, which never finishes construction.
+export let crashReader: Signal<ActiveRoute | undefined> | undefined;
+export let crashFirst: unknown = 'unread';
+
+export function crashed(injector: Injector) {
+  const scope = Injector.create({ parent: injector, providers: [] });
+
+  crashReader = runInInjectionContext(scope, injectActiveRoute);
+  crashFirst = describe(crashReader());
+  throw new Error('deliberate activation failure');
+}
+`,
+);
+
+const activePage = (name, outlet = false) => `import { Component } from '@angular/core';
+${outlet ? "import { RouterOutlet } from '@angular/router';\n" : ""}import { pageReader } from '../../active-probes.js';
+
+@Component({ ${outlet ? "imports: [RouterOutlet], " : ""}template: '<p id="page-${name}">${name}</p>${outlet ? "<router-outlet />" : ""}' })
+export default class Page {
+  readonly reader = pageReader('${name}');
+}
+`;
+const activeRoutes = {
+  crew: ["defineRoute('crews/$crewId', { params: { crewId: numberParam } })", true],
+  task: [
+    "defineRoute('tasks/$taskId', { parent: crew, params: { taskId: numberParam }, search: { q: numberParam }, runGuardsAndResolvers: 'paramsOrQueryParamsChange', resolve: { value: taskValue } })",
+    false,
+  ],
+  good: ["defineRoute('goods/$goodId', { params: { goodId: numberParam } })", false],
+  // A page-less layout, deepest at its own URL.
+  frame: ["defineRoute('frames/$frameId', { params: { frameId: numberParam } })"],
+  part: ["defineRoute('parts/$partId', { parent: frame, params: { partId: numberParam } })", false],
+  stem: ["defineRoute('stems/$stemId', { params: { stemId: numberParam } })", true],
+  leaf: ["defineRoute('', { parent: stem })", false],
+  gate: ["defineRoute('gate', { canActivate: [gateGuard] })", false],
+  broken: ["defineRoute('broken', { resolve: { value: brokenResolver } })", false],
+};
+
+for (const [name, [declaration, outlet]] of Object.entries(activeRoutes)) {
+  let imports =
+    "import { defineRoute, numberParam } from '@loozo/angular-router';\nimport { taskValue, gateGuard, brokenResolver } from '../../active-probes.js';\n";
+
+  for (const parent of ["crew", "frame", "stem"]) {
+    if (declaration.includes(`parent: ${parent}`)) {
+      imports += `import ${parent} from '../${parent}/definition.js';\n`;
+    }
+  }
+
+  await write(`src/routes/${name}/definition.ts`, `${imports}export default ${declaration};\n`);
+
+  if (outlet !== undefined) {
+    await write(`src/routes/${name}/page.ts`, activePage(name, outlet));
+  }
+}
+
+await write(
+  "src/routes/crash/definition.ts",
+  "import { defineRoute } from '@loozo/angular-router';\nexport default defineRoute('crash', {});\n",
+);
+await write(
+  "src/routes/crash/page.ts",
+  `import { Component, Injector, inject } from '@angular/core';
+import { crashed } from '../../active-probes.js';
+
+@Component({ template: '<p id="crash">crash</p>' })
+export default class Crash {
+  constructor() {
+    crashed(inject(Injector));
+  }
+}
+`,
+);
+// A child of the crew whose constructor fails activation after Angular advanced the crew.
+await write(
+  "src/routes/fail/definition.ts",
+  "import { defineRoute } from '@loozo/angular-router';\nimport crew from '../crew/definition.js';\nexport default defineRoute('fail', { parent: crew });\n",
+);
+await write(
+  "src/routes/fail/page.ts",
+  `import { Component } from '@angular/core';
+
+@Component({ template: '<p id="fail">fail</p>' })
+export default class Fail {
+  constructor() {
+    throw new Error('deliberate child activation failure');
+  }
+}
+`,
+);
+await write(
+  "src/native.ts",
+  "import { Component } from '@angular/core';\n\n@Component({ template: '<p id=\"native\">native</p>' })\nexport default class Native {}\n",
+);
+
+// The shell's reader exists before the initial navigation. Its template renders only in
+// the active tabs, so the proofs above add no parse demand.
+await write(
+  "src/shell.ts",
+  `import { Component, Injector, computed, effect, inject, untracked } from '@angular/core';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { describe, destinations } from './active-probes.js';
+
+@Component({
+  selector: 'proof-app',
+  imports: [RouterOutlet],
+  template: \`
+    @if (shown) {
+      <p id="active-crew">{{ crewId() }}</p>
+      <p id="active-params">{{ paramsText() }}</p>
+    }
+    <router-outlet />
+  \`,
+})
+export default class Shell {
+  readonly shown = (window as any).activeShell === true;
+  readonly router = inject(Router);
+  readonly injector = inject(Injector);
+  // Registered before the reader exists.
+  readonly atEnd: unknown[] = [];
+  readonly early = this.router.events.subscribe((event) => {
+    if (this.shown && event instanceof NavigationEnd) {
+      this.atEnd.push({ url: event.urlAfterRedirects, active: describe(this.active()) });
+    }
+  });
+  readonly active = injectActiveRoute();
+  readonly initial = this.active();
+  readonly crewId = computed(() => this.active()?.chain.find((route) => route.is(destinations.crew))?.params().crewId);
+  readonly paramsText = computed(() => JSON.stringify(this.active()?.params() ?? null));
+  // Each change of the selected handle, and every crew/params pair an effect sees.
+  readonly emissions: unknown[] = [];
+  readonly seen: [unknown, unknown][] = [];
+
+  constructor() {
+    (window as any).shell = this;
+
+    if (this.shown) {
+      effect(() => {
+        const active = this.active();
+
+        untracked(() => this.emissions.push(active));
+      });
+      effect(() => {
+        this.seen.push([this.crewId(), this.active()?.params()]);
+      });
+    }
+  }
+}
+`,
+);
+
+await write(
+  "src/active-proof.ts",
+  `import { ApplicationRef, Injector, inject, provideEnvironmentInitializer, runInInjectionContext } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
+import { injectActiveRoute } from '../generated/destinations.generated.js';
+import {
+  constructed, crashFirst, crashReader, describe, destinations, gatePending, holdTask, idle, openGate,
+  releaseTask, taskEntries,
+} from './active-probes.js';
+
+const wait = (ms = 20) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function check(value: unknown, label: string): void {
+  if (!value) {
+    throw new Error(label);
+  }
+}
+
+async function until(test: () => boolean, label: string) {
+  const end = Date.now() + 6000;
+
+  while (!test()) {
+    check(Date.now() < end, label);
+    await wait(5);
+  }
+}
+
+const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+
+export const activeProofProvider = provideEnvironmentInitializer(() => {
+  const router = inject(Router);
+  const app = inject(ApplicationRef);
+  const environment = inject(Injector);
+
+  function primary(): ActivatedRoute[] {
+    const chain: ActivatedRoute[] = [];
+    let route: ActivatedRoute | null = router.routerState.root;
+
+    while (route) {
+      chain.push(route);
+      route = route.firstChild;
+    }
+
+    return chain;
+  }
+
+  // Subscribers of each live route's observables, and of the router's events.
+  function subscribers() {
+    const routes = primary().map((route) =>
+      ['params', 'queryParams', 'fragment', 'url', 'data'].map((key) => (route as any)[key].observers.length),
+    );
+
+    return { routes, events: (router.events as any).observers.length };
+  }
+
+  // A reader in its own injection context, destroyed on demand.
+  function reader() {
+    const scope = Injector.create({ parent: environment, providers: [] });
+
+    return { read: runInInjectionContext(scope, injectActiveRoute), destroy: () => scope.destroy() };
+  }
+
+  (window as any).activeDirectProof = async () => {
+    await until(() => router.lastSuccessfulNavigation() !== null && router.currentNavigation() === null, 'initial navigation');
+    await app.whenStable();
+
+    const shell = (window as any).shell;
+
+    return {
+      initial: shell.initial === undefined,
+      atEnd: shell.atEnd,
+      constructed: constructed.map(({ name, during, first, reader }) => ({ name, during, first, settled: describe(reader()) })),
+    };
+  };
+
+  (window as any).activeProof = async () => {
+    const shell = (window as any).shell;
+    const { crew, task, good } = destinations;
+    const steps: unknown[] = [];
+
+    // Pages constructed by the navigation, with what their readers read first and once settled.
+    function pages(from: number) {
+      return constructed.slice(from).map(({ name, during, first, reader }) => ({ name, during, first, settled: describe(reader()) }));
+    }
+
+    async function visit(url: string) {
+      const before = shell.emissions.length;
+      const created = constructed.length;
+      const navigated = await router.navigateByUrl(url);
+
+      await app.whenStable();
+      await wait();
+      check(navigated === true, 'navigated ' + url);
+
+      const step = {
+        url,
+        active: describe(shell.active()),
+        emitted: shell.emissions.length - before,
+        dom: [document.getElementById('active-crew')!.textContent, document.getElementById('active-params')!.textContent],
+        atEnd: shell.atEnd.at(-1),
+        pages: pages(created),
+      };
+
+      steps.push(step);
+
+      return step;
+    }
+
+    await until(() => router.lastSuccessfulNavigation() !== null && router.currentNavigation() === null, 'initial navigation');
+    await app.whenStable();
+    check(shell.initial === undefined, 'the shell reads undefined before the initial navigation');
+
+    // The shell scenario: handles are reused while their ActivatedRoute stays active.
+    const first = shell.active();
+    const crewRoute = primary()[1];
+
+    check(first.is(crew) && first.chain.length === 1 && first.chain[0] === first, 'a parent is deepest at its own URL');
+    await visit('/crews/7/tasks/9');
+    const taskHandle = shell.active();
+    const taskRoute = primary()[2];
+
+    check(primary()[1] === crewRoute && taskHandle.chain[0] === first, 'the crew handle stays when a child activates');
+
+    // A scoped reader adds one subscription per route observable and one event listener per
+    // entry, and destroying it removes them, while Angular keeps reusing the routes.
+    const baseline = subscribers();
+    const scoped = reader();
+    const scopedHandle = scoped.read()!;
+    const seeded = subscribers();
+
+    scoped.destroy();
+    const released = subscribers();
+
+    check(scopedHandle !== taskHandle && scopedHandle.is(task), 'each reader has its own handles');
+    await visit('/crews/7/tasks/10');
+    check(shell.active() === taskHandle && primary()[2] === taskRoute && taskHandle.chain[0] === first,
+      'reused routes keep their handles');
+
+    const destroyed = describe(scopedHandle);
+
+    await visit('/goods/1');
+    const departed = ['params', 'queryParams', 'fragment', 'url', 'data'].map((key) => (taskRoute as any)[key].observers.length);
+    const exited = describe(taskHandle);
+
+    await visit('/crews/7');
+    const reentered = shell.active();
+
+    check(reentered !== first && reentered.is(crew), 'reentering creates a new handle');
+    await visit('/crews/8/tasks/9');
+    check(shell.active().chain[0] === reentered, 'the crew handle stays when its own param changes');
+    const reused = shell.active();
+
+    await visit('/crews/9/tasks/10');
+    check(shell.active() === reused, 'one handle when the parent and child params both change');
+
+    // A pending resolver: the shell keeps its route; a fresh reader reads the committed route.
+    const committed = describe(shell.active());
+    const success = router.lastSuccessfulNavigation();
+
+    holdTask();
+    const pending = router.navigateByUrl('/crews/9/tasks/11?q=3');
+
+    await until(() => taskEntries.includes(11), 'task resolver entered');
+    await wait();
+    check(router.currentNavigation() !== null, 'the resolver navigation is pending');
+    const resolverReader = reader();
+    const whileResolving = {
+      shell: describe(shell.active()),
+      fresh: describe(resolverReader.read()),
+      success: router.lastSuccessfulNavigation() === success,
+    };
+    const resolverHandle = resolverReader.read();
+
+    releaseTask();
+    check(await pending, 'the held navigation commits');
+    await app.whenStable();
+    const afterResolving = { shell: describe(shell.active()), fresh: describe(resolverReader.read()) };
+    const resolverReused = resolverReader.read() === resolverHandle;
+
+    resolverReader.destroy();
+
+    // A pending guard, then cancellation.
+    const beforeGate = describe(shell.active());
+    const gateSuccess = router.lastSuccessfulNavigation();
+    const gated = router.navigateByUrl('/gate');
+
+    await until(gatePending, 'gate guard entered');
+    await wait();
+    const guardReader = reader();
+    const whileGuarded = { shell: describe(shell.active()), fresh: describe(guardReader.read()) };
+
+    openGate(false);
+    const gateResult = await gated;
+
+    await app.whenStable();
+    const afterCancel = { shell: describe(shell.active()), fresh: describe(guardReader.read()) };
+
+    guardReader.destroy();
+
+    // A failed resolver and a same-URL skip leave everything as it was.
+    let failure: unknown;
+
+    try {
+      await router.navigateByUrl('/broken');
+    } catch (error) {
+      failure = String(error);
+    }
+
+    await app.whenStable();
+    const afterFailure = describe(shell.active());
+
+    await router.navigateByUrl(router.url);
+    await app.whenStable();
+    const afterSkip = describe(shell.active());
+    const unchanged = router.lastSuccessfulNavigation() === gateSuccess;
+
+    // A page-less layout, its child, a pathless child, then a native route.
+    await visit('/frames/2');
+    await visit('/frames/2/parts/3');
+    await visit('/stems/4');
+    await visit('/native');
+    const linked = router.serializeUrl(taskHandle.link({ params: { crewId: 7, taskId: 12 } }));
+
+    // Activation fails after Angular replaced the router state: a reader first read in the
+    // failing constructor reads undefined and follows what commits next.
+    let activationError: unknown;
+
+    try {
+      await router.navigateByUrl('/crash');
+    } catch (error) {
+      activationError = String(error);
+    }
+
+    await app.whenStable();
+    const afterCrash = { url: router.url, reader: describe(crashReader!()), shell: describe(shell.active()) };
+    const lateReader = reader();
+    const late = describe(lateReader.read());
+
+    lateReader.destroy();
+    await visit('/crews/5');
+    const recovered = describe(crashReader!());
+
+    // A reader with no live consumer, read at /crews/5 and not at the /goods/2 commit, reads
+    // that commit when first read again in a constructor during the /crews/6 activation. Its
+    // departed crew entry is released at the commit.
+    const idleScope = reader();
+
+    idle.reader = idleScope.read;
+    const idleAtCrew = describe(idleScope.read());
+    const idleCrewRoute = primary()[1];
+
+    await router.navigateByUrl('/goods/2');
+    await app.whenStable();
+    const idleDeparted = ['params', 'queryParams', 'fragment', 'url', 'data'].map((key) => (idleCrewRoute as any)[key].observers.length);
+
+    idle.armed = true;
+    await router.navigateByUrl('/crews/6');
+    await app.whenStable();
+    const idleResult = { atCrew: idleAtCrew, departed: idleDeparted, armed: idle.armed, during: idle.during, read: idle.read, settled: describe(idleScope.read()) };
+
+    idleScope.destroy();
+
+    // A child constructor fails after Angular advanced the reused crew: the crew handle reads
+    // the new crewId next to the selected task's old params until the next commit.
+    await router.navigateByUrl('/crews/7/tasks/9');
+    await app.whenStable();
+    const seenBeforeFail = shell.seen.length;
+    const beforeFail = describe(shell.active());
+    let failError: unknown;
+
+    try {
+      await router.navigateByUrl('/crews/8/fail');
+    } catch (error) {
+      failError = String(error);
+    }
+
+    await app.whenStable();
+    await wait();
+    const failReader = reader();
+    const afterFail = {
+      url: router.url,
+      active: describe(shell.active()),
+      crew: shell.active()?.chain[0].params(),
+      dom: [document.getElementById('active-crew')!.textContent, document.getElementById('active-params')!.textContent],
+      fresh: describe(failReader.read()),
+    };
+
+    failReader.destroy();
+    await router.navigateByUrl('/goods/3');
+    await app.whenStable();
+    const afterFailCommit = {
+      active: describe(shell.active()),
+      dom: [document.getElementById('active-crew')!.textContent, document.getElementById('active-params')!.textContent],
+    };
+
+    return {
+      steps,
+      seen: shell.seen.slice(0, seenBeforeFail),
+      failSeen: shell.seen.slice(seenBeforeFail),
+      subscribers: { baseline, seeded, released, departed },
+      destroyed,
+      exited,
+      exitedAfter: describe(taskHandle),
+      linked,
+      pending: { committed, whileResolving, afterResolving, resolverReused },
+      guard: { beforeGate, whileGuarded, gateResult, afterCancel },
+      failure,
+      afterFailure,
+      afterSkip,
+      unchanged,
+      crash: { activationError, first: crashFirst, afterCrash, late, recovered },
+      idle: idleResult,
+      childFailure: { beforeFail, failError, afterFail, afterFailCommit },
+    };
+  };
+});
+`,
+);
+
 const main = await readFile(join(fixture, "src/main.ts"), "utf8");
 
 await write(
   "src/main.ts",
-  `import { proofProvider } from './proof.js';\n${main.replace("provideRouter(routes)", "provideRouter(routes), proofProvider")}`,
+  `import { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\n${main.replace(
+    "provideRouter(routes)",
+    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...routes]), proofProvider, activeProofProvider",
+  )}`,
 );
 
 async function architect() {
@@ -1614,11 +2198,188 @@ try {
   const matching = await tab.evaluate(() => window.matchingProof());
   const ancestors = await tab.evaluate(() => window.ancestorProof());
 
-  assert.deepEqual(errors, []);
+  // The active route, each run in a fresh application: a shell scenario from /crews/7, and a
+  // direct load of a child URL.
+  const active = {};
+
+  for (const [name, path, proof] of [
+    ["shell", "crews/7", "activeProof"],
+    ["direct", "crews/7/tasks/9", "activeDirectProof"],
+  ]) {
+    const page = await browser.newPage();
+
+    page.on("pageerror", (error) => errors.push(String(error)));
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        errors.push(message.text());
+      }
+    });
+    await page.addInitScript(() => {
+      window.activeShell = true;
+    });
+    await page.goto(new URL(path, output.baseUrl).href);
+    await page.waitForFunction((key) => typeof window[key] === "function", proof);
+    active[name] = await page.evaluate((key) => window[key](), proof);
+    await page.close();
+  }
+
   await writeFile(
     join(evidence, "browser-observations.json"),
-    JSON.stringify({ result, matching, ancestors, errors }, null, 2),
+    JSON.stringify({ result, matching, ancestors, active, errors }, null, 2),
   );
+  assert.deepEqual(errors, []);
+
+  const task = (crewId, taskId) => ({
+    route: "task",
+    params: { crewId, taskId },
+    chain: ["crew", "task"],
+  });
+  const crew = (crewId) => ({ route: "crew", params: { crewId }, chain: ["crew"] });
+  const { shell, direct } = active;
+
+  // Each settled step: the deepest route and an ancestor's params, one emission when the
+  // deepest handle changes, and the same values for a NavigationEnd listener registered
+  // before the reader. A page activated into a rendered outlet reads undefined first.
+  const page = (name, settled) => ({ name, during: true, first: null, settled });
+  const good = { route: "good", params: { goodId: 1 }, chain: ["good"] };
+  const part = { route: "part", params: { frameId: 2, partId: 3 }, chain: ["frame", "part"] };
+  const expected = [
+    ["/crews/7/tasks/9", task(7, 9), 1, "7", [page("task", task(7, 9))]],
+    ["/crews/7/tasks/10", task(7, 10), 0, "7", []],
+    ["/goods/1", good, 1, "", [page("good", good)]],
+    ["/crews/7", crew(7), 1, "7", [page("crew", crew(7))]],
+    ["/crews/8/tasks/9", task(8, 9), 1, "8", [page("task", task(8, 9))]],
+    ["/crews/9/tasks/10", task(9, 10), 0, "9", []],
+    // A page-less layout is deepest at its own URL; a pathless child is its own record.
+    ["/frames/2", { route: "frame", params: { frameId: 2 }, chain: ["frame"] }, 1, "", []],
+    ["/frames/2/parts/3", part, 1, "", [page("part", part)]],
+    ["/stems/4", { route: "leaf", params: { stemId: 4 }, chain: ["stem", "leaf"] }, 1, "", null],
+    // Only routes of the generated set count.
+    ["/native", null, 1, "", []],
+    ["/crews/5", crew(5), 1, "5", [page("crew", crew(5))]],
+  ];
+
+  assert.equal(shell.steps.length, expected.length);
+
+  for (const [index, [url, deepest, emitted, crewText, pages]] of expected.entries()) {
+    const step = shell.steps[index];
+
+    assert.equal(step.url, url);
+    assert.deepEqual(step.active, deepest, url);
+    assert.equal(step.emitted, emitted, url);
+    assert.deepEqual(step.dom, [crewText, JSON.stringify(deepest?.params ?? null)], url);
+    assert.deepEqual(step.atEnd, { url, active: deepest }, url);
+
+    if (pages) {
+      assert.deepEqual(step.pages, pages, url);
+    }
+  }
+
+  // The stem page activates during the navigation; the pathless leaf inside its outlet after it.
+  assert.deepEqual(
+    shell.steps[8].pages.map(({ name, during, first }) => [name, during, first?.route ?? null]),
+    [
+      ["stem", true, null],
+      ["leaf", false, "leaf"],
+    ],
+  );
+
+  // Effects never see an ancestor's params mixed with another navigation's deepest params.
+  for (const [crewId, params] of shell.seen) {
+    assert.equal(crewId ?? null, params?.crewId ?? null, JSON.stringify(shell.seen));
+  }
+
+  // One subscription per route observable and an event listener per entry for a two-entry
+  // reader, plus the reader's own, all released when its injector is destroyed; a departed
+  // route has no subscribers left.
+  const { baseline, seeded, released, departed } = shell.subscribers;
+
+  assert.deepEqual(
+    seeded.routes,
+    baseline.routes.map((counts, depth) => counts.map((count) => count + Number(depth > 0))),
+  );
+  assert.equal(seeded.events, baseline.events + 3);
+  assert.deepEqual(released, baseline);
+  assert.deepEqual(departed, [0, 0, 0, 0, 0]);
+  // Released and departed handles keep their last values, and still link.
+  assert.deepEqual(shell.destroyed, task(7, 9));
+  assert.deepEqual(shell.exited, task(7, 10));
+  assert.deepEqual(shell.exitedAfter, task(7, 10));
+  assert.equal(shell.linked, "/crews/7/tasks/12");
+
+  // Pending, cancelled, failed and skipped navigations leave the selection alone. A reader
+  // first read while a resolver or guard is pending reads the committed route.
+  assert.deepEqual(shell.pending, {
+    committed: task(9, 10),
+    whileResolving: { shell: task(9, 10), fresh: task(9, 10), success: true },
+    afterResolving: { shell: task(9, 11), fresh: task(9, 11) },
+    resolverReused: true,
+  });
+  assert.deepEqual(shell.guard, {
+    beforeGate: task(9, 11),
+    whileGuarded: { shell: task(9, 11), fresh: task(9, 11) },
+    gateResult: false,
+    afterCancel: { shell: task(9, 11), fresh: task(9, 11) },
+  });
+  assert.equal(shell.failure, "Error: deliberate resolver failure");
+  assert.deepEqual(shell.afterFailure, task(9, 11));
+  assert.deepEqual(shell.afterSkip, task(9, 11));
+  assert.equal(shell.unchanged, true);
+
+  // A reader first read in a constructor that fails activation reads undefined, not the
+  // failed route, then follows the next commit.
+  assert.deepEqual(shell.crash, {
+    activationError: "Error: deliberate activation failure",
+    first: null,
+    afterCrash: { url: "/native", reader: null, shell: null },
+    late: null,
+    recovered: crew(5),
+  });
+
+  // A reader nobody read at a commit still reads that commit when first read again during
+  // the next activation, and released its departed entry at the commit.
+  assert.deepEqual(shell.idle, {
+    atCrew: crew(5),
+    departed: [0, 0, 0, 0, 0],
+    armed: false,
+    during: true,
+    read: { route: "good", params: { goodId: 2 }, chain: ["good"] },
+    settled: crew(6),
+  });
+
+  // A child constructor fails after Angular advanced the reused crew: the selection stays,
+  // the crew handle and the shell read crewId 8 next to the task's crewId 7, and a fresh
+  // reader reads undefined, until the next commit.
+  assert.deepEqual(shell.childFailure, {
+    beforeFail: task(7, 9),
+    failError: "Error: deliberate child activation failure",
+    afterFail: {
+      url: "/crews/7/tasks/9",
+      active: task(7, 9),
+      crew: { crewId: 8 },
+      dom: ["8", JSON.stringify({ crewId: 7, taskId: 9 })],
+      fresh: null,
+    },
+    afterFailCommit: {
+      active: { route: "good", params: { goodId: 3 }, chain: ["good"] },
+      dom: ["", JSON.stringify({ goodId: 3 })],
+    },
+  });
+  assert.deepEqual(shell.failSeen, [
+    [8, { crewId: 7, taskId: 9 }],
+    [undefined, { goodId: 3 }],
+  ]);
+
+  // A direct load: the shell reads undefined before the initial navigation, the parent page's
+  // reader reads undefined during activation, then everyone reads the child.
+  assert.deepEqual(direct, {
+    initial: true,
+    atEnd: [{ url: "/crews/7/tasks/9", active: task(7, 9) }],
+    constructed: [
+      { name: "crew", during: true, first: null, settled: task(7, 9) },
+      { name: "task", during: false, first: task(7, 9), settled: task(7, 9) },
+    ],
+  });
 
   const html = await tab.content();
 

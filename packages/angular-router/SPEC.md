@@ -15,7 +15,7 @@ The concrete consumer is an Angular application that:
 1. Authors route declarations and standalone pages.
 2. Generates and commits route configuration and route-local facades.
 3. Installs generated `routes` with `provideRouter`.
-4. Imports its colocated parameterless `injectRoute()` for typed values, data, links, and navigation.
+4. Imports its colocated parameterless `injectRoute()` for typed values, data, links, and navigation, and the shared `injectActiveRoute()` where it reads the active route from outside the route's page, such as a shell.
 5. Uses Angular's application build, dev-server, SSR, and hydration.
 
 ### Supported surfaces
@@ -27,6 +27,7 @@ The concrete consumer is an Angular application that:
 | `@loozo/angular-router:application`  | Angular Architect application companion                                                                                                                      |
 | `@loozo/angular-router:serve`        | Angular Architect dev-server companion                                                                                                                       |
 | Colocated `route.generated` module   | Parameterless `injectRoute()` and inert typed `destination` reference                                                                                        |
+| Shared `destinations.generated` module | `injectActiveRoute()` and its `ActiveRoute` and `ActiveHandle` types                                                                                       |
 | Global `routes.generated` module     | `routes: Routes`                                                                                                                                             |
 
 The root has no `injectRoute(route)`, `parseSearch`, `defineRedirect`, resolver executor, or general parser export. Do not expose private helper APIs merely to accommodate tests written against them. There is no supported programmatic source-graph API: the old `/tooling`, `buildRouteSourceGraph()`, and exported graph/diagnostic types are deliberately outside compatibility.
@@ -328,6 +329,38 @@ Every retained ordinary facade exports an inert `destination` usable without an 
 
 A generated reference selects its own retained declaration, like that declaration's own call without `to`; it does not silently substitute a canonical pathless winner. References are not a public graph/model API. Object-target support does not add a new `createUrl(destination, ...)` overload requirement: the root function retains its authored-definition contract.
 
+### Active route
+
+```ts
+import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { destination as team } from "./routes/teams/$teamId/route.generated.js";
+import { destination as item } from "./routes/teams/$teamId/items/$id/route.generated.js";
+
+const active = injectActiveRoute(); // Signal<ActiveRoute | undefined>
+const teamId = active()?.chain.find((route) => route.is(team))?.params().teamId; // number | undefined
+const route = active();
+
+if (route?.is(item)) {
+  void route.navigate({ params: { teamId: 7, id: 10 }, replaceUrl: true });
+}
+```
+
+The shared module exports parameterless `injectActiveRoute()`. It requires an Angular injection context and returns a readonly Signal of the **deepest active record of this generated set** in the primary outlet. Its value is `undefined` before the first navigation commits and when no route of the set is active. Walk the committed chain from the root through each route's first child; records whose own route data carries no declaration id of this set (native routes) are skipped, so the deepest record can be any retained declaration: a parent with children at its own URL, a componentless parent, or an authored pathless child. Records are identified by declaration id alone: two route sets whose declarations share ids, installed in one router, are unsupported.
+
+```ts
+interface ActiveBase {
+  is<Other extends Retained>(destination: Destination<Other>): this is ActiveHandle<Other>;
+  contains(destination: Destination<Retained>): boolean;
+  readonly chain: readonly ActiveRoute[];
+}
+export interface ActiveHandle<Id extends Retained> extends Handle<Id>, ActiveBase {}
+export interface ActiveRoute extends Pick<Handle<Retained>, "params" | "search" | "data">, ActiveBase {}
+```
+
+`ActiveRoute` is a common read interface, not a union of handles: `params`, `search` and `data` read the union of the set's values, and `link`/`navigate` exist only after `is()` narrows. `is(destination)` holds for exactly that declaration, not an ancestor, and narrows to its full handle, with the §6 calls. `contains(destination)` is a plain boolean: that declaration is this route or one of its active ancestors; it does not narrow. `chain` lists the active records of the set, top-level first, ending with this one; it is frozen, and each entry's own `chain` is the prefix ending at that entry. Generated ids stay private; callers pass `destination`s. `is` and `contains` take only genuine destinations of the same set; anything else throws `TypeError("Expected a destination from the same generated set")`, like `link`.
+
+Each call is its own reader with its own handles: within a reader, an active record keeps one handle object while its ActivatedRoute stays active, so a reused route with new values keeps its handle and only its signals change; leaving and re-entering gives a new handle. Two readers' handles for the same route are different objects with equal values, and neither is that page's `injectRoute()` handle. A handle that has left the chain keeps its last values and its `link`/`navigate`; it is never re-attached. §7 specifies when the value changes.
+
 ## 7. Parsed values and navigation lifecycle [L]
 
 ### Input ownership and errors
@@ -355,11 +388,21 @@ Successful top-level params/search maps are shallow-frozen and reference-shared 
 
 ### Handle values
 
-Handle signals read the route's committed snapshot. Angular replaces an ActivatedRoute's snapshot only when a navigation activates, so while a navigation is pending the signals keep the current values, and a cancelled, failed or same-URL-skipped navigation leaves them unchanged. When a navigation commits a new snapshot for a reused route record, params, search and data change together, from that one snapshot. The handle follows the ActivatedRoute's own observables as well as router events, so a subscriber to either sees the new values, with two exceptions. A subscriber to the same ActivatedRoute observable that subscribed before the handle was created runs first. A router-event listener registered before the handle, reading it during the route's own `ActivationEnd`, sees the previous values when only an ancestor's path params or resolver data changed and none of the route's own observables emit (under `paramsInheritanceStrategy: 'emptyOnly'`, such as an ancestor with `runGuardsAndResolvers: 'always'` rerunning its resolvers, or when a matrix param shadows the ancestor's). Create the handle first; once that event has been delivered, the signals are current. Pending-navigation UI uses Angular's `Router.currentNavigation()` signal; the package adds nothing for it. A failed navigation's errors stay Angular's (rejection, event, error handler); do not alter Angular's native promise rejection value.
+Handle signals read the route's committed snapshot. Angular replaces an ActivatedRoute's snapshot only when a navigation activates, so while a navigation is pending the signals keep the current values, and a navigation that is cancelled, skipped as same-URL, or fails before activation (matching, guards, resolvers) leaves them unchanged. When a navigation fails during activation, such as a routed component's constructor throwing, Angular has already advanced the reused routes above it and does not roll them back: their handles, page and active alike, read those values until the next commit. When a navigation commits a new snapshot for a reused route record, params, search and data change together, from that one snapshot. The handle follows the ActivatedRoute's own observables as well as router events, so a subscriber to either sees the new values, with two exceptions. A subscriber to the same ActivatedRoute observable that subscribed before the handle was created runs first. A router-event listener registered before the handle, reading it during the route's own `ActivationEnd`, sees the previous values when only an ancestor's path params or resolver data changed and none of the route's own observables emit (under `paramsInheritanceStrategy: 'emptyOnly'`, such as an ancestor with `runGuardsAndResolvers: 'always'` rerunning its resolvers, or when a matrix param shadows the ancestor's). Create the handle first; once that event has been delivered, the signals are current. Pending-navigation UI uses Angular's `Router.currentNavigation()` signal; the package adds nothing for it. A failed navigation's errors stay Angular's (rejection, event, error handler); do not alter Angular's native promise rejection value.
 
 Handle parsing shares the snapshot's parse result with guards and resolvers. A route with neither typed activation guards, resolvers nor a title callback is parsed when its handle is first read. If that parse fails, which takes a nondeterministic path codec, reading params or search throws that error; data is unaffected. Injector destruction releases the handle's subscriptions.
 
 Parsing involves no package-owned pending work: server rendering contains the handle values because they are synchronous, while Angular tracks resolvers and other asynchronous navigation work itself.
+
+### Active route values
+
+The active route's value changes only after a navigation commits, when the router reports it as its last successful navigation; a listener for that navigation's `NavigationEnd` already reads the new route, whenever it subscribed. While a navigation is pending the value is unchanged, and a navigation that is cancelled, skipped as same-URL, or fails before activation (matching, guards, resolvers) leaves it unchanged. The value changes when the deepest record's ActivatedRoute changes; a reused deepest record with new values keeps its handle, and its signals change as §7 "Handle values" specifies.
+
+A reader first read while a guard or resolver is pending reads the committed route at once. A reader first read during Angular's activation phase reads `undefined` until that navigation ends: a routed component's constructor activated into an existing outlet, or a parent page's constructor on a direct load. It then reads what has committed; after a failed activation, that is the route still committed, or `undefined` when the router's live tree no longer matches its state. A reader already read before the navigation, or created before the last commit, keeps the last committed value throughout, whether or not it was read at that commit; one created after the last commit and first read during activation is a reader first read during activation. Page code reads its own `injectRoute()` handle instead. Rarely, a navigation to the already-committed URL that creates new components (after `resetConfig`, or with a custom reuse strategy) and fails activation looks committed: a reader first read in such a constructor can read that failed route until the next commit. On a hydrated page the client reader also reads `undefined` until the client's initial navigation commits, so a server-rendered shell renders its `undefined` state in between, then the committed route.
+
+Chain handles follow their ActivatedRoutes as page handles do, and Angular activates ancestors first. A synchronous subscriber to a route's observable during activation can therefore read an ancestor's new values next to a descendant's old ones; once the navigation commits, templates, computeds and effects never see that mix. A navigation that fails during activation commits nothing, so the value stays, but reused ancestors keep their advanced values (§7 "Handle values"): the chain mixes an ancestor's new values with the selected route's old ones, for templates, computeds and effects too, until the next commit. The chain is not atomic.
+
+A reader reads itself at every `NavigationEnd`, so it reconciles each commit while it lives, consumed or not. It subscribes for each record it creates a handle for, outside the reactive context, and releases a departed record's subscriptions at the commit that removes it. Injector destruction releases the rest and its `NavigationEnd` listener, and the reader then keeps its last value without following the router.
 
 ## 8. Angular-native guards and resolver data [D, Q]
 
@@ -563,7 +606,7 @@ Do not reproduce the old exported diagnostic union, serialized target/reference 
 One builder generation pass produces:
 
 1. `<out-dir>/routes.generated.ts`, exporting `routes: Routes`.
-2. `<out-dir>/destinations.generated.ts` when retained facades exist.
+2. `<out-dir>/destinations.generated.ts` when retained facades exist, exporting `injectActiveRoute()` and its types (§6).
 3. `route.generated.ts` beside every retained ordinary declaration, exporting parameterless `injectRoute()` and its inert typed `destination`.
 
 Only primary-outlet generation is included. Preserve explicit authored nesting/local decoded paths, translate whole scalar `$name` segments to Angular `:name`, and terminal `$name[]` to native `**`. Put each record's stable authored source ID in its own `Route.data.__loozoAngularRouterRouteId`.
@@ -682,6 +725,7 @@ Required observations:
 | Click typed alias link to id 8                | Correct alias href; canonical target URL, parsed/resolved item 8, dropped query/fragment; no document reload |
 | Click typed query-only score 44               | Parsed and resolved score update; pathname, component, host, article, and document identity retained         |
 | Inspect browser bundle reachability           | No Node/tooling/compiler/build dependency leakage; component remains lazy                                    |
+| Shell reading `injectActiveRoute()`           | SSR renders the active team/item; hydration keeps its node, which shows the shell's `undefined` state until the client's initial navigation commits; the alias click updates it |
 
 Use server-safe resolver imports/providers and deterministic server/browser values. The local resolver may run independently on server/browser; there is no guarantee of one execution and no custom transfer cache. Keep handle-only SSR rendering separate from resolver-gated rendering so one path cannot mask failure in the other.
 
@@ -689,7 +733,7 @@ This is development-server Chromium proof, not production serving, cross-engine 
 
 ## 15. Deliberate exclusions and unspecified edges [E]
 
-Excluded: replacing Angular Router; a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support, or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches; server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; named outlets, unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; relative selectors other than `..`, arbitrary URL/object-target/query-merge APIs beyond §6; release/publication; unfinished broader Version 1 integration; original implementation/module reuse; preserving private helper APIs or exact old emitter bytes.
+Excluded: replacing Angular Router; a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support, or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches; server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; named outlets, unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; relative selectors other than `..`, arbitrary URL/object-target/query-merge APIs beyond §6; an active-route lookup by destination, public route ids, pending-navigation state on the active route, active-route identity shared across readers, and atomic chain values (§6, §7); release/publication; unfinished broader Version 1 integration; original implementation/module reuse; preserving private helper APIs or exact old emitter bytes.
 
 Unspecified rather than new requirements: exotic Proxy/property-descriptor behavior; every malformed untyped codec invocation; enum duplicate/empty-list mutation policies; every wrapper-of-wrapper combination beyond §4; arbitrary any/unknown/thenable type tricks; exhaustive custom serializers/LocationStrategies/detached-route reuse; arbitrary invalid module cycles; total diagnostic accumulation policy; byte-level BOM/line-ending/trivia compatibility with the old emitter; crash-durable or concurrent-writer filesystem publication.
 

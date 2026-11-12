@@ -27,17 +27,22 @@ export interface Job {
   readonly codec: { parse(raw: string): unknown };
 }
 
+/** The generated declaration identity carried as the record's own route data, if any. */
+export function routeIdentity(snapshot: Pick<ActivatedRouteSnapshot, "routeConfig">): unknown {
+  const data = snapshot.routeConfig?.data;
+
+  if (!data || !Object.hasOwn(data, "__loozoAngularRouterRouteId")) {
+    return undefined;
+  }
+
+  return data.__loozoAngularRouterRouteId;
+}
+
 export function hasIdentity(
   snapshot: Pick<ActivatedRouteSnapshot, "routeConfig">,
   id: string,
 ): boolean {
-  const data = snapshot.routeConfig?.data;
-
-  return (
-    !!data &&
-    Object.hasOwn(data, "__loozoAngularRouterRouteId") &&
-    data.__loozoAngularRouterRouteId === id
-  );
+  return routeIdentity(snapshot) === id;
 }
 
 export function assertIdentity(

@@ -1,25 +1,29 @@
-import { DestroyRef, computed, inject, signal, type Signal } from "@angular/core";
-import { ActivatedRoute, Router, type ActivatedRouteSnapshot } from "@angular/router";
+import { computed, signal, type Signal } from "@angular/core";
+import type { ActivatedRoute, ActivatedRouteSnapshot, Router } from "@angular/router";
 import { routeMetadata } from "@loozo/angular-router/_core";
 import { merge } from "rxjs";
 import { assertIdentity, hasIdentity, parseInputs, type RouteSet } from "./inputs.js";
+
+export interface RouteView {
+  readonly params: Signal<Readonly<Record<string, unknown>>>;
+  readonly search: Signal<Readonly<Record<string, unknown>>>;
+  readonly data: Signal<Readonly<Record<PropertyKey, unknown>>>;
+}
 
 /**
  * Signals of the route's committed snapshot. Angular replaces ActivatedRoute.snapshot
  * only when a navigation activates, so a pending, cancelled or failed navigation
  * leaves the values alone; params, search and data change together, from one snapshot.
+ * The caller owns the lifetime: `teardown` receives the function that stops following
+ * the route, after which the signals keep their last values.
  */
 export function observeRoute(
   set: RouteSet,
   id: string,
-): {
-  params: Signal<Readonly<Record<string, unknown>>>;
-  search: Signal<Readonly<Record<string, unknown>>>;
-  data: Signal<Readonly<Record<PropertyKey, unknown>>>;
-} {
-  const activated = inject(ActivatedRoute);
-  const router = inject(Router);
-
+  activated: ActivatedRoute,
+  router: Router,
+  teardown: (release: () => void) => void,
+): RouteView {
   assertIdentity(activated.snapshot, id);
 
   const snapshot = signal<ActivatedRouteSnapshot>(activated.snapshot);
@@ -37,7 +41,7 @@ export function observeRoute(
     snapshot.set(activated.snapshot);
   });
 
-  inject(DestroyRef).onDestroy(() => subscription.unsubscribe());
+  teardown(() => subscription.unsubscribe());
 
   // Shares the parse of guards and resolvers for the same snapshot. An error here
   // means a codec rejected a value it accepted while matching, and reading rethrows it.
