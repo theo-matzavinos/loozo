@@ -6,7 +6,7 @@ Angular still does all the routing: matching, activation, guards, resolvers, red
 
 Use it when you want route params, query params and links to be type-checked end to end in an Angular 22 application, and you're happy to run generation through the provided Angular builders.
 
-**Status:** experimental and not yet broadly battle-tested. MIT license.
+**Status:** pre-1.0: breaking changes come only in minor releases (see [Versions](#versions)). MIT license.
 
 ## Install
 
@@ -21,6 +21,16 @@ Peer dependencies:
 | `@angular/core`   | `^22.0.0` |
 | `@angular/router` | `^22.0.0` |
 | `@angular/build`  | `~22.2.0` |
+
+## Versions
+
+Releases are numbered `0.MINOR.PATCH` until 1.0. [`SPEC.md`](SPEC.md) is the contract: the exports and their types, the builder names and options, the generated file names and what they export, and the behavior it specifies.
+
+- A patch (0.1.0 → 0.1.1) doesn't break the contract. It fixes bugs, improves the docs or adds something, such as an export, an option or a codec.
+- A minor (0.1.x → 0.2.0) may break it. Every move to a new Angular minor is also a minor release (see [Angular versions](#angular-versions)), so a `^0.1.0` range never picks up a release that needs a different Angular.
+- Generated files aren't part of the contract byte for byte, so any release may change them. After upgrading, run `ng build` once and commit the regenerated files; until then, the CI check (`ng build --configuration ci`) fails on them.
+
+Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-router&expanded=true).
 
 ## Angular versions
 

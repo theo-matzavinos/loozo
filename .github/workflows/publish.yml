@@ -1,8 +1,11 @@
 name: Publish
 
-# Releases one package from main: bumps it to the next 0.0.x, runs the gate on
-# the bumped tree, pushes the release commit and a <package>@<version> tag, then
-# publishes packages/<package>/dist to npm through trusted publishing (OIDC, no token).
+# Releases one package from main: bumps it to its next patch or minor, runs the gate
+# on the bumped tree, pushes the release commit and a <package>@<version> tag,
+# publishes packages/<package>/dist to npm through trusted publishing (OIDC, no
+# token), then creates the tag's GitHub release with its release notes.
+# A dry run, from any branch, stops after the gate: it shows the version and the
+# release notes in the job summary and pushes, publishes and releases nothing.
 on:
   workflow_dispatch:
     inputs:
@@ -10,6 +13,15 @@ on:
         description: Package to release
         type: choice
         options: [angular-router, angular-launch, origami-ui, fold-ui]
+      bump:
+        description: Version to bump
+        type: choice
+        options: [patch, minor]
+        default: patch
+      dry_run:
+        description: Dry run (no push, publish or release)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,7 +32,7 @@ concurrency:
 
 jobs:
   release:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || inputs.dry_run
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,10 +44,11 @@ jobs:
       tag: ${{ steps.bump.outputs.tag }}
     steps:
       # The release push goes over the publish deploy key, the only bypass of main's ruleset.
+      # A dry run pushes nothing, so it checks out without it.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+          ssh-key: ${{ !inputs.dry_run && secrets.RELEASE_DEPLOY_KEY || '' }}
       # An Origami release needs the Release gate (test:full) green on the commit it releases.
       # Release commits don't run the gate, so they stand for their nearest non-release ancestor.
       - if: inputs.package == 'origami-ui'
@@ -54,10 +67,21 @@ jobs:
         with:
           node-version-file: package.json
       - id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
-          node scripts/bump-version.mjs "$PACKAGE"
+          node scripts/bump-version.mjs "$PACKAGE" "$BUMP"
           echo "name=$(jq -r .name "packages/$PACKAGE/package.json")" >> "$GITHUB_OUTPUT"
           echo "tag=$PACKAGE@$(jq -r .version "packages/$PACKAGE/package.json")" >> "$GITHUB_OUTPUT"
+      # The release-notes job renders the same notes from the pushed tag.
+      - env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          {
+            echo "# $TAG"
+            echo
+            node scripts/release-notes.mjs "$PACKAGE"
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: pnpm install --frozen-lockfile
         env:
           pnpm_config_pm_on_fail: error
@@ -71,7 +95,8 @@ jobs:
         run: node "packages/$PACKAGE/tests/packed.mjs" "$RUNNER_TEMP/packed"
       # The bump can touch other packages (an Origami release moves fold's Origami
       # version). The push fails if main moved during the run, so nothing gets published.
-      - env:
+      - if: ${{ !inputs.dry_run }}
+        env:
           TAG: ${{ steps.bump.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
@@ -83,6 +108,7 @@ jobs:
   # A separate job, so "Re-run failed jobs" retries only the publish.
   publish:
     needs: release
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,3 +129,27 @@ jobs:
       - run: pnpm --filter "${{ needs.release.outputs.name }}..." run build
       - run: npm publish
         working-directory: packages/${{ inputs.package }}/dist
+
+  # After npm has the version, so a release always names a published version;
+  # a separate job, so retrying it doesn't publish again.
+  release-notes:
+    needs: [release, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+      # The tag's parent is main before the release commit, so the notes list this release.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ inputs.package }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          node scripts/release-notes.mjs "$PACKAGE" "$TAG^" > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"

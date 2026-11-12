@@ -1,9 +1,18 @@
-// Bumps packages/<package> to the next 0.0.x. Launch also pins the router's
-// current version as its exact peer dependency and in its README install command.
-// Origami also moves the version fold's ng-add installs to the new release.
+// Bumps packages/<package> to its next patch (default) or minor version. From 0.1.0
+// on, a patch refuses breaking changes (`!` commit subjects): they go in a minor.
+// Launch also pins the router's current version as its exact peer dependency and
+// in its README install command. Origami also moves the version fold's ng-add
+// installs to the new release.
+//
+// Usage: node scripts/bump-version.mjs <package> [patch|minor]
 import { readFile, writeFile } from "node:fs/promises";
+import { changesSinceRelease } from "./release-notes.mjs";
 
-const name = process.argv[2];
+const [name, bump = "patch"] = process.argv.slice(2);
+
+if (bump !== "patch" && bump !== "minor") {
+  throw new Error(`Can't bump ${name}: unknown bump ${bump}, expected patch or minor`);
+}
 
 function manifestUrl(packageName) {
   return new URL(`../packages/${packageName}/package.json`, import.meta.url);
@@ -20,7 +29,22 @@ if (!version) {
   throw new Error(`Can't bump ${name}: version ${manifest.version} isn't plain major.minor.patch`);
 }
 
-manifest.version = `${version[1]}.${version[2]}.${Number(version[3]) + 1}`;
+const [, major, minor, patch] = version;
+const pastZeroZero = major !== "0" || minor !== "0";
+
+if (bump === "minor") {
+  manifest.version = `${major}.${Number(minor) + 1}.0`;
+} else {
+  const { since, breaking } = changesSinceRelease(name);
+
+  if (pastZeroZero && breaking.length > 0) {
+    throw new Error(
+      `Can't release ${name} ${manifest.version} as a patch: these changes since ${since} are breaking, so release a minor:\n${breaking.join("\n")}`,
+    );
+  }
+
+  manifest.version = `${major}.${minor}.${Number(patch) + 1}`;
+}
 
 if (name === "angular-launch") {
   const router = await readManifest("angular-router");
