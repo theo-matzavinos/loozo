@@ -145,8 +145,11 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         if (marker !== undefined) {
           try {
             const bytes = await readFile(path, "utf8");
+            // Git may check the file out with CRLF line endings (core.autocrlf on Windows); the
+            // router's generation still treats it as its own output.
+            const line = bytes.split("\n", 1)[0];
 
-            if (bytes.split("\n", 1)[0] === marker) {
+            if (line === marker || line === `${marker}\r`) {
               return;
             }
           } catch (error) {
