@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createWriteStream } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,13 +11,46 @@ const require = createRequire(
   new URL("../../packages/angular-launch/package.json", import.meta.url),
 );
 const { chromium } = require("playwright");
-const [base, evidence] = process.argv.slice(2);
+const [evidence, extra] = process.argv.slice(2);
 
-if (!base || !evidence || !isAbsolute(evidence)) {
-  throw new Error("Usage: node verify.mjs http://127.0.0.1:PORT /absolute/absent-evidence");
+if (!evidence || extra !== undefined || !isAbsolute(evidence)) {
+  throw new Error("Usage: node verify.mjs /absolute/absent-evidence");
 }
 
 await mkdir(evidence);
+
+// Starts a built server entry on a free loopback port and resolves once it is listening; the
+// server's output goes to `log` in the evidence directory.
+async function serve(entry, log) {
+  const output = createWriteStream(join(evidence, log));
+  const server = spawn(process.execPath, [fileURLToPath(entry)], {
+    env: { ...process.env, PORT: "0" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  server.stdout.pipe(output);
+  server.stderr.pipe(output);
+
+  const base = await new Promise((resolve, reject) => {
+    let text = "";
+
+    server.once("exit", (code) => reject(new Error(`server for ${log} exited with ${code}`)));
+    server.stdout.on("data", (chunk) => {
+      text += chunk;
+
+      const ready = /LAUNCH_READY (\S+)/.exec(text);
+
+      if (ready) {
+        resolve(ready[1]);
+      }
+    });
+  });
+
+  return { base, server };
+}
+
+const built = await serve(new URL("./dist/todos/server/server.mjs", import.meta.url), "server.log");
+const base = built.base;
 
 // Node's fetch sends neither Origin nor Sec-Fetch-Site, so RPC calls from here name the
 // app's own origin, as any non-browser caller must.
@@ -410,7 +444,7 @@ try {
   checks.push(
     "built server refuses RPCs with neither Origin nor Sec-Fetch-Site, a cross-site Sec-Fetch-Site or a foreign Origin (FORBIDDEN), and a foreign Host (400 text), creating no context",
   );
-  browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true });
+  browser = await chromium.launch({ headless: true });
 
   const context = await browser.newContext();
 
@@ -1293,23 +1327,13 @@ try {
   );
 
   // The prerendered file is served as is, hydrates without RPCs, and later calls are live.
-  const prerenderServer = spawn(
-    process.execPath,
-    [fileURLToPath(new URL("server/server.mjs", prerendered))],
-    { env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "inherit"] },
+  const prerenderServer = await serve(
+    new URL("server/server.mjs", prerendered),
+    "prerender-server.log",
   );
 
   try {
-    const prerenderBase = await new Promise((resolve, reject) => {
-      prerenderServer.once("exit", (code) => reject(new Error(`prerender server exited ${code}`)));
-      prerenderServer.stdout.on("data", (chunk) => {
-        const ready = /LAUNCH_READY (\S+)/.exec(String(chunk));
-
-        if (ready) {
-          resolve(ready[1]);
-        }
-      });
-    });
+    const prerenderBase = prerenderServer.base;
     const served = await fetch(`${prerenderBase}/about`);
 
     assert.equal(served.status, 200);
@@ -1340,6 +1364,12 @@ try {
       dispatchEvent(new PopStateEvent("popstate"));
     });
     await prerenderPage.waitForSelector("#static-title");
+
+    // The page renders with the resolver's result; its stale query refetches once it mounts.
+    const limitsAnswered = prerenderPage.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/_rpc/about/limits",
+    );
+
     await prerenderPage.evaluate(() => {
       history.pushState(null, "", "/about");
       dispatchEvent(new PopStateEvent("popstate"));
@@ -1349,13 +1379,14 @@ try {
 
       return answered !== undefined && answered !== before;
     }, builtAt);
+    await limitsAnswered;
     assert.deepEqual(prerenderCalls, ["/_rpc/about/summary", "/_rpc/about/limits"]);
     await prerenderContext.close();
     checks.push(
       "the prerendered /about is served as a file and hydrates without RPCs; a client-side navigation to it calls the server live",
     );
   } finally {
-    prerenderServer.kill();
+    prerenderServer.server.kill();
   }
 
   // Prerendering a page whose only RPC is an injectQuery that needs a user fails the build.
@@ -1406,4 +1437,5 @@ try {
   throw error;
 } finally {
   await browser?.close();
+  built.server.kill();
 }
