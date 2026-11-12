@@ -261,10 +261,14 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
 
           return Promise.all([watcher.close(), contextWatcher?.close()]);
         });
-        // A watcher error fails startup until the watcher is ready. Once the initial generation
-        // succeeded, it's logged and serve carries on; in between, the settled ready drops it.
+        // A watcher error fails startup until the watcher is ready. From then on, including during
+        // the initial generation, it's logged and serve carries on.
         watcher.on("error", ready.reject);
-        watcher.once("ready", () => ready.resolve(true));
+        watcher.once("ready", () => {
+          watcher.off("error", ready.reject);
+          watcher.on("error", (error) => context.logger.error(String(error)));
+          ready.resolve(true);
+        });
         watcher.on("all", (_event, path) => {
           void changed(path).catch((error) => context.logger.error(String(error)));
         });
@@ -297,8 +301,6 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        watcher.off("error", ready.reject);
-        watcher.on("error", (error) => context.logger.error(String(error)));
         passEnded();
 
         if (stopped) {

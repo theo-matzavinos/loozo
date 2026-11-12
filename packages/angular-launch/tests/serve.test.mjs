@@ -608,6 +608,30 @@ test("a watcher error before ready fails serve; after startup it is logged", asy
   await run.stop();
 });
 
+test("a watcher error during the initial generation is logged and serve still starts", async () => {
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  watcherOf(state).emit("error", new Error("ENOSPC"));
+  await until(() => errors(state).length === 1, "the logged error");
+  state.passes[0].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+
+  change(state);
+  await until(() => state.passes.length === 2, "the pass after startup");
+  state.passes[1].resolve();
+  await settle();
+  assert.equal(errors(state).length, 1);
+  assert.match(errors(state)[0], /ENOSPC/);
+  assert.equal(state.done, false);
+  assert.equal(state.servers[0].stopped, false);
+  assert.equal(watcherOf(state).closed, false);
+
+  await run.stop();
+});
+
 for (const [phase, gate, waiting] of [
   ["resolving the build target's options", "optionsGate", "resolvingOptions"],
   ["resolving the workspace root", "workspaceGate", "resolvingWorkspace"],
