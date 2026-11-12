@@ -739,6 +739,77 @@ await test("serve runs one pass for a burst of watcher events", async () => {
   }
 });
 
+await test("serve runs no pass for its own outputs checked out with CRLF line endings", async () => {
+  const fsPromises = require("node:fs/promises");
+  const readManifest = fsPromises.readFile;
+  const manifest = resolve(packageDirectory, "dist/package.json");
+  const outputs = ["src/routes/todos/route.generated.ts", "src/routes/todos/rpc.generated.ts"];
+  const originals = {};
+  let passes = 0;
+
+  // Counts each pass when the builder starts it, as in the context watch test above.
+  fsPromises.readFile = function (path, ...rest) {
+    if (typeof path === "string" && resolve(path) === manifest) {
+      passes += 1;
+    }
+
+    return readManifest.call(this, path, ...rest);
+  };
+  syncBuiltinESMExports();
+
+  // A pass queued behind another starts as soon as it finishes, so a second without a new pass
+  // means none is left to run.
+  async function quiet() {
+    let seen;
+
+    do {
+      seen = passes;
+      await new Promise((done) => setTimeout(done, 1000));
+    } while (passes !== seen);
+  }
+
+  try {
+    await put("src/routes/todos/rpc.ts", rpc);
+
+    const served = await start("serve");
+
+    try {
+      await waitFor(
+        () => served.outputs.some((output) => output.success),
+        "dev server never started",
+      );
+      // The followed context's readiness pass can still be running.
+      await quiet();
+
+      const before = passes;
+
+      // What a Git core.autocrlf checkout on Windows leaves of the committed outputs. Each is
+      // renamed into place from outside the scan directory, so the watcher never reads it
+      // truncated mid-write, which would rightly run a pass.
+      for (const path of outputs) {
+        const staged = resolve(fixture, "crlf-staged.ts");
+
+        originals[path] = await read(path);
+        await writeFile(staged, originals[path].replaceAll("\n", "\r\n"));
+        await rename(staged, resolve(fixture, path));
+      }
+
+      await new Promise((done) => setTimeout(done, 1000));
+      await quiet();
+      assert.equal(passes, before, "no pass for marked outputs with CRLF line endings");
+    } finally {
+      await served.stop();
+    }
+  } finally {
+    fsPromises.readFile = readManifest;
+    syncBuiltinESMExports();
+
+    for (const [path, bytes] of Object.entries(originals)) {
+      await put(path, bytes);
+    }
+  }
+});
+
 await test("serve runs Angular's dev server with validated options and stops it on teardown", async () => {
   const served = await start("serve");
   let call;
