@@ -1,0 +1,3 @@
+generated/
+src/**/rpc.generated.ts
+src/**/route.generated.ts

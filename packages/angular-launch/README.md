@@ -857,6 +857,66 @@ The results reach the browser inside the page, as during server rendering: throu
 
 Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported: Angular runs that resolver while it discovers routes, also without a request, so Launch runs the call there with an anonymous context too.
 
+## Testing
+
+Point Angular's unit-test builder at the Launch application target, the same way `ng new` points it at the official one:
+
+```json
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": { "buildTarget": "app:build", "tsConfig": "tsconfig.spec.json" }
+}
+```
+
+`ng test` doesn't run generation; it uses the generated files already on disk. After you add, move or remove routes or procedures, run `ng build` first, or keep `ng serve` running. `ng test` warns that the `buildTarget` uses `@loozo/angular-launch:application`, "which is not supported". The warning is expected: the unit-test builder reads the target's options, and Angular ignores Launch's own ones.
+
+Give specs their own `tsconfig.spec.json` with `"types": ["vitest/globals"]`, and exclude `src/**/*.spec.ts` from the application tsconfig, which also keeps them out of generation's type check. With `vitest/globals`, the imports from `vitest` below are optional.
+
+The specs below run in this package's CI against the [snippets app](snippets/), whose `todos` group has a `list` query and a `complete` mutation with a declared `NOT_FOUND`, behind a `signedIn` middleware.
+
+### Testing components and resolvers
+
+`injectRpc()` needs only `HttpClient`: a query or mutation is a `POST /_rpc/<namespace>/<procedure>` with the body `{ "input": … }`, `null` for a procedure without input. So `TestBed.createComponent` works with Angular's HTTP testing providers, and `HttpTestingController` answers the calls:
+
+[src/routes/todos/todo-item.spec.ts](snippets/src/routes/todos/todo-item.spec.ts)
+
+Answer a call with what the server would send:
+
+| Outcome         | Body                                                                                   | Status           |
+| --------------- | -------------------------------------------------------------------------------------- | ---------------- |
+| Result          | the result                                                                             | 200, the default |
+| Declared error  | `{ error: { code, message, data } }`, with the declared `message`                      | the declared one |
+| `INVALID_INPUT` | `{ error: { code: "INVALID_INPUT", message: "Invalid RPC input", data: { issues } } }` | 400              |
+| `FORBIDDEN`     | `{ error: { code: "FORBIDDEN", message: "RPC forbidden", data: null } }`               | 403              |
+| `RPC_NOT_FOUND` | `{ error: { code: "RPC_NOT_FOUND", message: "RPC not found", data: null } }`           | 404              |
+| `INTERNAL`      | `{ error: { code: "INTERNAL", message: "Internal server error", data: null } }`        | 500              |
+| `redirect(to)`  | `{ redirect: { to } }`                                                                 | 303              |
+| `notFound()`    | `{ notFound: null }`                                                                   | 404              |
+
+Pass the status as `flush(body, { status, statusText })`. The client recognizes an error only when its code, status and message all match, the procedure's declaration for a declared error and the table for Launch's own codes, and its data has the shape shown. A failing status whose body is neither a recognized error nor an outcome rejects with Angular's `HttpErrorResponse`, so a mistyped message makes `isError` false without any other sign. A body flushed with a success status is a result, whatever it contains.
+
+A resolver calls its procedure while Angular navigates. Navigate through the generated routes with `RouterTestingHarness`, as the [router's guide](../angular-router/README.md#testing-pages) shows, and answer the call while the navigation waits for it:
+
+[src/routes/todos/route.spec.ts](snippets/src/routes/todos/route.spec.ts)
+
+[Streams](#calling-streams) and [channels](#calling-channels) use the browser's `fetch` and `WebSocket`, not `HttpClient`, so `HttpTestingController` doesn't see them. A component that uses `injectQueries()` also needs the TanStack providers; see the [TanStack Query guide](tanstack-query/README.md#setup).
+
+### Testing handlers and middleware
+
+To test a procedure, call the generated `handleRequest` with a web `Request`, as your server does. The call runs your context factory and then the whole [call order](#middleware): the group's middleware, input validation, the procedure's middleware and the handler. Assert on the status and body the browser would get:
+
+[src/routes/todos/rpc.spec.ts](snippets/src/routes/todos/rpc.spec.ts)
+
+- Run the file in Node with `// @vitest-environment node`: it's server code. Angular's unit-test builder otherwise runs specs in a DOM emulation, happy-dom when it's installed and jsdom if not. happy-dom's `Request` drops the `Origin` header, so Launch's [cross-origin check](#cross-origin-requests) would refuse every call with `FORBIDDEN`.
+- Send `Origin` with the request URL's origin, and pass a matching `allowedHosts`.
+- The call uses your real `defineContext` and what it imports. Angular's unit-test builder rejects `vi.mock()` for relative imports, so you can't replace a module your context imports, such as your database client. Keep the logic you want to test with fakes in your own modules and test those directly.
+
+A middleware's `run` takes the call's arguments, so you can test it on its own with a context you build and a `next` you watch:
+
+[src/auth.server.spec.ts](snippets/src/auth.server.spec.ts)
+
+`forbidden()`, `notFound()` and `redirect()` throw plain `Error`s, not types a test can check, so a test that calls `run` directly checks that the middleware refused and didn't call `next`. To check which outcome it answered with, go through `handleRequest`, as the `rpc.spec.ts` above does for `FORBIDDEN`.
+
 ## Deploying
 
 With `outputMode: "server"`, `ng build` writes the browser files and a bundled server:
