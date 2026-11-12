@@ -71,31 +71,30 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
   (options, context) =>
     new Observable<BuilderOutput>((subscriber) => {
       let stopped = false;
-      let initial = true;
-      let dirty = false;
-      let watcher: FSWatcher | undefined;
-      let contextWatcher: FSWatcher | undefined;
-      let session: GenerationSession | undefined;
-      let serving: AsyncIterator<BuilderOutput> | undefined;
-      // Angular's dev server adds its own teardowns, which close Vite's server and abort the
-      // build's watch, to the context it runs in. Architect runs a context's teardowns only on a
-      // Stop, not when the builder fails or ends, so the dev server gets a context that collects
-      // them here, and stop runs them for every way serving ends.
-      const devServerTeardowns: Array<() => Promise<void> | void> = [];
-      let active: Promise<unknown> | undefined;
+      // One pass at a time. "pending" lasts until the initial generation starts, which covers the
+      // edits before it. An edit during a "running" pass makes it "rerun": exactly one more pass
+      // follows it, however many edits arrive.
+      let regeneration: "pending" | "idle" | "running" | "rerun" = "pending";
+      // The latest pass, settled once idle; stopping waits for it.
+      let pass: Promise<unknown> = Promise.resolve();
+      // What start() acquired, released last-acquired first; the scan watcher's release also closes
+      // whichever context watcher is current. Each release runs as stop() is called; the promises
+      // they return settle together, with the latest pass.
+      const releases: (() => Promise<unknown>)[] = [];
       let cleanup: Promise<void> | undefined;
-      let cancelReady: (() => void) | undefined;
-      let cancelServing: (() => void) | undefined;
       let settling: NodeJS.Timeout | undefined;
       // Resolved before the watcher starts.
+      let session: GenerationSession;
       let scanRoot: string;
+      // Where the last pass found the context file, and its own watcher if it's outside scanRoot.
+      let contextWatcher: FSWatcher | undefined;
       let watchedContext: string | undefined;
 
       // The context file can live anywhere in the app's sources, and its path and contents are part
       // of the generated app identity, so a watcher of its own follows wherever the last pass found
       // it. A file inside the scan directory is already watched.
       function followContext(): void {
-        const contextFile = contextFiles.get(session!);
+        const contextFile = contextFiles.get(session);
 
         if (stopped || contextFile === undefined || contextFile === watchedContext) {
           return;
@@ -130,8 +129,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
             return;
           }
 
-          dirty = true;
-          pump();
+          edited();
         });
       }
 
@@ -166,77 +164,63 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         clearTimeout(settling);
         settling = setTimeout(() => {
           settling = undefined;
-          dirty = true;
-          pump();
+          edited();
         }, settleDelay);
       }
 
       // A failed or stopped pass leaves the session clean; the next pass starts fresh.
       async function regenerate(): Promise<void> {
         try {
-          await session!.generate(undefined, () => stopped);
+          await session.generate(undefined, () => stopped);
         } finally {
           followContext();
         }
       }
 
       function stop(): Promise<void> {
-        stopped = true;
-        dirty = false;
-        clearTimeout(settling);
-        cancelReady?.();
-        cancelServing?.();
-
-        if (!cleanup) {
-          const close = Promise.all([watcher?.close(), contextWatcher?.close()]);
-          const drain = active?.catch(() => undefined);
-
-          const closing: Promise<void>[] = [];
-
-          for (const teardown of devServerTeardowns) {
-            closing.push(Promise.resolve(teardown()));
-          }
-
-          // Ending the iteration releases the dev server's generator if it's waiting at a yield.
-          // It isn't awaited: a pending step settles only once the teardowns above closed the
-          // dev server.
-          void serving?.return?.().catch((error) => context.logger.error(String(error)));
-          cleanup = Promise.all([close, drain, Promise.all(closing), session?.dispose()]).then(
-            () => undefined,
-          );
+        if (cleanup) {
+          return cleanup;
         }
+
+        stopped = true;
+        clearTimeout(settling);
+
+        const closing = [pass.catch(() => undefined)];
+
+        for (let index = releases.length - 1; index >= 0; index--) {
+          closing.push(releases[index]());
+        }
+
+        cleanup = Promise.all(closing).then(() => undefined);
 
         return cleanup;
       }
 
       context.addTeardown(stop);
 
-      function pump(): void {
-        if (stopped || initial || active || !dirty) {
+      // Later passes log their failures and keep serving.
+      function startPass(): void {
+        regeneration = "running";
+        pass = regenerate().catch((error) => context.logger.error(message(error)));
+        void pass.then(passEnded);
+      }
+
+      function passEnded(): void {
+        if (regeneration === "rerun" && !stopped) {
+          startPass();
+
           return;
         }
 
-        const work = (async () => {
-          while (dirty && !stopped) {
-            dirty = false;
+        regeneration = "idle";
+      }
 
-            try {
-              await regenerate();
-            } catch (error) {
-              context.logger.error(message(error));
-            }
-          }
-        })();
-
-        active = work;
-        void work.finally(() => {
-          if (active === work) {
-            active = undefined;
-          }
-
-          // An edit between the loop's last check and finalization must not be lost.
-          pump();
-        });
+      function edited(): void {
+        if (regeneration === "idle") {
+          startPass();
+        } else if (regeneration === "running") {
+          regeneration = "rerun";
+        }
       }
 
       async function start(): Promise<void> {
@@ -266,37 +250,39 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           launch.scanDirectories[0],
         );
         session = createGenerationSession(context.workspaceRoot, launch);
-        watcher = chokidar.watch([scanRoot], { ignoreInitial: true, followSymlinks: false });
+        releases.push(() => session.dispose());
 
-        const ready = new Promise<boolean>((resolveReady, rejectReady) => {
-          cancelReady = () => resolveReady(false);
-          watcher!.once("ready", () => resolveReady(true));
-          watcher!.on("error", (error) => {
-            if (initial) {
-              rejectReady(error);
-            } else {
-              context.logger.error(String(error));
-            }
-          });
+        const watcher = chokidar.watch([scanRoot], { ignoreInitial: true, followSymlinks: false });
+        const ready = Promise.withResolvers<boolean>();
 
-          watcher!.on("all", (_event, path) => {
-            void changed(path).catch((error) => context.logger.error(String(error)));
-          });
+        // Closes the context file's watcher too, whichever one is current.
+        releases.push(() => {
+          ready.resolve(false);
+
+          return Promise.all([watcher.close(), contextWatcher?.close()]);
         });
-        const readyForGeneration = await ready;
+        // A watcher error fails startup until the watcher is ready. Once the initial generation
+        // succeeded, it's logged and serve carries on; in between, the settled ready drops it.
+        watcher.on("error", ready.reject);
+        watcher.once("ready", () => ready.resolve(true));
+        watcher.on("all", (_event, path) => {
+          void changed(path).catch((error) => context.logger.error(String(error)));
+        });
+
+        const readyForGeneration = await ready.promise;
 
         if (stopped || !readyForGeneration) {
           return;
         }
 
-        dirty = false;
+        regeneration = "running";
 
-        const generation = regenerate();
+        const initial = regenerate();
 
-        active = generation;
+        pass = initial;
 
         try {
-          await generation;
+          await initial;
         } catch (error) {
           // The dev server never starts on a failed initial generation; report it as a build failure.
           context.logger.error(message(error));
@@ -305,18 +291,15 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           subscriber.complete();
 
           return;
-        } finally {
-          if (active === generation) {
-            active = undefined;
-          }
         }
 
         if (stopped) {
           return;
         }
 
-        initial = false;
-        pump();
+        watcher.off("error", ready.reject);
+        watcher.on("error", (error) => context.logger.error(String(error)));
+        passEnded();
 
         if (stopped) {
           return;
@@ -331,20 +314,38 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        const stopping = new Promise<undefined>((resolveStopping) => {
-          cancelServing = () => resolveStopping(undefined);
-        });
-
+        // Angular's dev server adds its own teardowns, which close Vite's server and abort the
+        // build's watch, to the context it runs in. Architect runs a context's teardowns only on a
+        // Stop, not when the builder fails or ends, so the dev server gets a context that collects
+        // them here, and its release runs them for every way serving ends.
+        const devServerTeardowns: Array<() => Promise<void> | void> = [];
         const devServerContext: BuilderContext = {
           ...context,
           addTeardown(teardown) {
             devServerTeardowns.push(teardown);
           },
         };
-
-        serving = executeDevServer(validated, devServerContext, {
+        const serving = executeDevServer(validated, devServerContext, {
           middleware: [forwardChannels(context.logger)],
         })[Symbol.asyncIterator]();
+        const stopping = Promise.withResolvers<undefined>();
+
+        releases.push(() => {
+          stopping.resolve(undefined);
+
+          const closing: Promise<void>[] = [];
+
+          for (const teardown of devServerTeardowns) {
+            closing.push(Promise.resolve(teardown()));
+          }
+
+          // Ending the iteration releases the dev server's generator if it's waiting at a yield.
+          // It isn't awaited: a pending step settles only once the teardowns above closed the
+          // dev server.
+          void serving.return?.().catch((error) => context.logger.error(String(error)));
+
+          return Promise.all(closing);
+        });
 
         while (!stopped) {
           const next = serving.next();
@@ -352,7 +353,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           // Once stopping wins the race nothing reads this step, so its failure is handled here.
           next.catch(() => undefined);
 
-          const result = await Promise.race([next, stopping]);
+          const result = await Promise.race([next, stopping.promise]);
 
           if (result === undefined || result.done) {
             break;
