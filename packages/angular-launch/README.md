@@ -1220,3 +1220,4 @@ node tests/packed.mjs /absolute/new-directory   # packed consumer check; directo
 ```
 
 The packed check keeps its consumer, pnpm store and temporary files inside the directory you pass. The build regenerates the builder schemas in `schemas/` from the installed `@angular/build`; `tests/schema.test.mjs` fails when a committed schema is stale.
+
