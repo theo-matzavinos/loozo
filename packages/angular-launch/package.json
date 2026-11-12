@@ -58,7 +58,7 @@
     "build": "rm -rf dist && node scripts/builder-schemas.mjs && tsc -p tsconfig.json && node ../../scripts/finish-package.mjs . && cp tanstack-query/README.md dist/tanstack-query/README.md && cp -r schemas dist/schemas && sed 's#\"\\./dist/#\"./#' builders.json > dist/builders.json",
     "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test --experimental-test-module-mocks tests/*.test.mjs"
   },
   "dependencies": {
     "@angular-devkit/architect": "0.2202.2",
