@@ -244,15 +244,49 @@ export type InvalidParamsHandler = (
 ) => MaybeAsync<false | UrlTree | RedirectCommand>;
 
 // Infer the supplied keys, then check only those values: absent fields must not
-// constrain inherited native Object members.
+// constrain inherited native Object members. With no supplied keys, the whole
+// all-optional schema keeps a callable (String's own `search`) from matching.
 type SearchInput<Schema, Keys extends keyof Schema> = keyof Schema extends never
   ? Record<string, never>
-  : Pick<Schema, Keys>;
+  : [Keys] extends [never]
+    ? Schema
+    : Pick<Schema, Keys>;
+/** The `search` field type of URL values for supplied keys; `never` for a searchless destination. */
+export type SearchFieldOf<
+  Target extends AnyRoute,
+  SearchKeys,
+> = keyof SearchInputOf<Target> extends never
+  ? never
+  : SearchInput<SearchInputOf<Target>, SearchKeys & keyof SearchInputOf<Target>>;
+/** URL values for a destination without effective path params. */
+export type PathlessUrlValues<Search, Fragment> = {
+  /** Forbidden: the destination has no effective path params. */
+  params?: never;
+  /** Any declared search values; absent or undefined values are omitted. `never` when the destination declares no search. */
+  search?: Search;
+  /** An optional logical name declared by this exact destination, without `#`. `never` when it declares none. */
+  fragment?: Fragment;
+};
+/** URL values for a destination with effective path params. */
+export type PathUrlValues<Params, Search, Fragment> = {
+  /** All effective path values; catchalls are readonly element-value arrays. */
+  params: Params;
+  /** Any declared search values; absent or undefined values are omitted. `never` when the destination declares no search. */
+  search?: Search;
+  /** An optional logical name declared by this exact destination, without `#`. `never` when it declares none. */
+  fragment?: Fragment;
+};
 /**
  * Explicit values for URL creation and generated link/navigation calls.
  * Effective path keys must be present; every search key may be omitted.
  * Paramless/searchless routes forbid those fields. Fragment names come only
  * from the destination's own declaration.
+ *
+ * @remarks
+ * One object type literal, not an intersection: TypeScript relates a string to
+ * each member of an intersection without its weak-type check, so String's own
+ * `search` method would match the search field. A type literal, unlike an
+ * interface, stays assignable to `Record<string, unknown>`.
  *
  * @typeParam Target - The selected route declaration.
  * @typeParam SearchKeys - Supplied search keys inferred by each call to preserve
@@ -261,33 +295,9 @@ type SearchInput<Schema, Keys extends keyof Schema> = keyof Schema extends never
 export type UrlValues<
   Target extends AnyRoute,
   SearchKeys extends keyof SearchOf<Target> = keyof SearchOf<Target>,
-> = (keyof ParamsOf<Target> extends never
-  ? {
-      /** Forbidden when the destination has no effective path params. */
-      params?: never;
-    }
-  : {
-      /** All effective path values; catchalls are readonly element-value arrays. */
-      params: ParamsOf<Target>;
-    }) &
-  (keyof SearchInputOf<Target> extends never
-    ? {
-        /** Forbidden when the destination has no search declarations. */
-        search?: never;
-      }
-    : {
-        /** Any declared search values; absent or undefined values are omitted. */
-        search?: SearchInput<SearchInputOf<Target>, SearchKeys & keyof SearchInputOf<Target>>;
-      }) &
-  (FragmentsOf<Target> extends never
-    ? {
-        /** Forbidden when this declaration has no fragment names. */
-        fragment?: never;
-      }
-    : {
-        /** An optional logical name declared by this exact destination, without `#`. */
-        fragment?: FragmentsOf<Target>;
-      });
+> = keyof ParamsOf<Target> extends never
+  ? PathlessUrlValues<SearchFieldOf<Target, SearchKeys>, FragmentsOf<Target>>
+  : PathUrlValues<ParamsOf<Target>, SearchFieldOf<Target, SearchKeys>, FragmentsOf<Target>>;
 
 type CompatibleKeys<Source, Value> = {
   [Key in keyof Source]: Source[Key] extends Value ? Key : never;

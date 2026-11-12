@@ -10,6 +10,7 @@ import {
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
+import type { UrlValues } from "@loozo/angular-router/_core";
 import type { Handle } from "@loozo/angular-router/_generated";
 import type { Signal } from "@angular/core";
 import type {
@@ -398,6 +399,21 @@ createUrl(prototypeOptional, { search: { constructor: 42 } });
 createUrl(prototypeOptional, { search: { toString: () => "wrong" } });
 // @ts-expect-error Numeric optional binding does not accept strings.
 createUrl(prototypeOptional, { search: { toString: "wrong" } });
+// @ts-expect-error A bare string is not URL values, even where String's search method could match.
+createUrl(prototypeOptional, "x");
+const notValues: readonly unknown[] = [];
+const unrelatedValues = { unrelated: true };
+// @ts-expect-error An array is not URL values.
+createUrl(prototypeOptional, notValues);
+// @ts-expect-error A function is not URL values.
+createUrl(prototypeOptional, () => undefined);
+// @ts-expect-error An unrelated object variable shares no URL-values key.
+createUrl(prototypeOptional, unrelatedValues);
+// Typed URL values stay a plain record for record-constrained helpers.
+const recordRoute = defineRoute("record", { search: { q: stringParam } });
+const typedValues: UrlValues<typeof recordRoute> = { search: { q: "x" } };
+const forwardRecord = <Values extends Record<string, unknown>>(values: Values): Values => values;
+createUrl(recordRoute, forwardRecord(typedValues));
 // @ts-expect-error Computed prototype key retains its enum union.
 createUrl(prototypeOptional, { search: { ["__proto__"]: "other" } });
 

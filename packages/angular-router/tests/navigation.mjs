@@ -465,6 +465,22 @@ p.link({ to: '..', replaceUrl: true });
 f.link({ search: { q } }, { replaceUrl: true });
 // @ts-expect-error a positional selector is not a target record
 h.link('/enum/$kind', { params: { kind: 'a' } });
+// @ts-expect-error a bare string is not a target record, even where String's search method could match
+f.link('x');
+// @ts-expect-error a positional literal selector is not a target record on a searchful paramless handle
+f.link('/products');
+// @ts-expect-error a bare string cannot navigate
+f.navigate('x');
+declare const notTarget: readonly unknown[];
+const unrelatedTarget = { unrelated: true };
+// @ts-expect-error an array is not a target record
+f.link(notTarget);
+// @ts-expect-error a function cannot navigate
+f.navigate(() => undefined);
+// @ts-expect-error an unrelated object variable shares no target key
+f.navigate(unrelatedTarget);
+// @ts-expect-error a bare string is not a target record on a handle with path params
+opt.link('x');
 `;
 
 await write("src/type-proof.ts", types);
