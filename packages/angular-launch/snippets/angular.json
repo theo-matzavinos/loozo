@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "app": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@loozo/angular-launch:application",
+          "options": {
+            "tsconfig": "tsconfig.app.json",
+            "scanDirectories": ["src/routes"],
+            "outDirectory": "generated",
+            "browser": "src/main.ts",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "outputPath": "dist/app"
+          }
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": { "buildTarget": "app:build", "tsConfig": "tsconfig.spec.json" }
+        }
+      }
+    }
+  }
+}
