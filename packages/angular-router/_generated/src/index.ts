@@ -21,6 +21,7 @@ import {
   type PathUrlValues,
   type SearchFieldOf,
   type FragmentsOf,
+  type TitleOf,
 } from "@loozo/angular-router/_core";
 import { observeRoute, type RouteView } from "./handle.js";
 import type { RouteSet } from "./inputs.js";
@@ -131,9 +132,11 @@ type OwnNavigation<
  * committed snapshot, with values from the first read. Data holds the resolver
  * results of the route's whole chain, ancestors first, a nearer key hiding an
  * ancestor's key of the same name; native static data and the title stay out.
+ * Title is the resolved title of the nearest route in the chain that declares
+ * one: `string` when the route or an ancestor declares it, else `undefined`.
  *
  * While a navigation is pending, the signals keep the current snapshot's values;
- * when a navigation commits a new snapshot for this route, all three change
+ * when a navigation commits a new snapshot for this route, they change
  * together. Cancellation, failure or a same-URL skip leaves them unchanged. For
  * pending-navigation UI, read Angular's `Router.currentNavigation()`. There is no
  * resolved-data cache. Reading params or search throws only when a path codec
@@ -180,6 +183,8 @@ export interface Handle<
   readonly search: Signal<Readonly<SearchOf<Target>>>;
   /** Effective resolver results of the route and its ancestors, from the same snapshot as params. */
   readonly data: Signal<DataOf<Target>>;
+  /** Resolved title of the nearest route in the chain that declares one, from the same snapshot as params. */
+  readonly title: Signal<TitleOf<Target>>;
   /**
    * Creates a native UrlTree for this exact declaration, not its pathless winner, without navigating.
    *
@@ -391,6 +396,7 @@ export function createHandle<
     params: view.params as Signal<Readonly<ParamsOf<Target>>>,
     search: view.search as Signal<Readonly<SearchOf<Target>>>,
     data: view.data as Signal<DataOf<Target>>,
+    title: view.title as Signal<TitleOf<Target>>,
     link: ((...args: unknown[]) => {
       const { url, options } = resolve(args);
       const behavior = Object.keys(options);

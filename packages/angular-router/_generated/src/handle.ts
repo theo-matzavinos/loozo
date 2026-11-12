@@ -8,12 +8,13 @@ export interface RouteView {
   readonly params: Signal<Readonly<Record<string, unknown>>>;
   readonly search: Signal<Readonly<Record<string, unknown>>>;
   readonly data: Signal<Readonly<Record<PropertyKey, unknown>>>;
+  readonly title: Signal<string | undefined>;
 }
 
 /**
  * Signals of the route's committed snapshot. Angular replaces ActivatedRoute.snapshot
  * only when a navigation activates, so a pending, cancelled or failed navigation
- * leaves the values alone; params, search and data change together, from one snapshot.
+ * leaves the values alone; params, search, data and title change together, from one snapshot.
  * The caller owns the lifetime: `teardown` receives the function that stops following
  * the route, after which the signals keep their last values.
  */
@@ -51,6 +52,7 @@ export function observeRoute(
     params: computed(() => inputs().params),
     search: computed(() => inputs().search),
     data: computed(() => effectiveData(set, id, snapshot())),
+    title: computed(() => effectiveTitle(set, id, snapshot())),
   };
 }
 
@@ -87,4 +89,35 @@ function effectiveData(
   }
 
   return Object.freeze(data);
+}
+
+/**
+ * The resolved title of the nearest declaration in the route's chain that declares one,
+ * read from that declaration's own record of the snapshot, so the result doesn't depend
+ * on Angular's paramsInheritanceStrategy.
+ */
+function effectiveTitle(
+  set: RouteSet,
+  id: string,
+  snapshot: ActivatedRouteSnapshot,
+): string | undefined {
+  const owners = set.records[id].owners;
+
+  for (let index = owners.length - 1; index >= 0; index -= 1) {
+    const ownerId = owners[index];
+
+    if (routeMetadata(set.records[ownerId].definition()).config.title === undefined) {
+      continue;
+    }
+
+    const owner = snapshot.pathFromRoot.findLast((record) => hasIdentity(record, ownerId));
+
+    if (!owner) {
+      throw new Error(`Generated route ancestor missing: ${ownerId}`);
+    }
+
+    return owner.title;
+  }
+
+  return undefined;
 }

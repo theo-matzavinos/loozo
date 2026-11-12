@@ -52,8 +52,8 @@ interface ActiveBase {
 }
 /** An active route narrowed by is(): that declaration's handle. */
 export interface ActiveHandle<Id extends Retained> extends Handle<Id>, ActiveBase {}
-/** An active route before narrowing: params, search and data read as the union of the set's values; link and navigate need is(). */
-export interface ActiveRoute extends Pick<Handle<Retained>, "params" | "search" | "data">, ActiveBase {}
+/** An active route before narrowing: params, search, data and title read as the union of the set's values; link and navigate need is(). */
+export interface ActiveRoute extends Pick<Handle<Retained>, "params" | "search" | "data" | "title">, ActiveBase {}
 /**
  * Injects a signal of the deepest active generated route in the primary outlet.
  *

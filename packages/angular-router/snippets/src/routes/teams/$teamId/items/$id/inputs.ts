@@ -11,5 +11,6 @@ export function readInputs() {
   route.params(); // { teamId: number; id: number }
   route.search(); // { score?: number }
   route.data(); // { team: { id: number; name: string }; item: Item }, ancestors' resolver results too
+  route.title(); // string: this route's title, or the nearest ancestor's
 }
 // #endregion inputs

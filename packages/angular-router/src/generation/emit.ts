@@ -332,8 +332,8 @@ interface ActiveBase {
 }
 /** An active route narrowed by is(): that declaration's handle. */
 export interface ActiveHandle<Id extends Retained> extends Handle<Id>, ActiveBase {}
-/** An active route before narrowing: params, search and data read as the union of the set's values; link and navigate need is(). */
-export interface ActiveRoute extends Pick<Handle<Retained>, "params" | "search" | "data">, ActiveBase {}
+/** An active route before narrowing: params, search, data and title read as the union of the set's values; link and navigate need is(). */
+export interface ActiveRoute extends Pick<Handle<Retained>, "params" | "search" | "data" | "title">, ActiveBase {}
 /**
  * Injects a signal of the deepest active generated route in the primary outlet.
  *
@@ -402,9 +402,10 @@ const routeSet: RouteSet = { records: {`,
  *
  * @remarks
  * Call in an Angular injection context. The handle exposes readonly native
- * params/search/data Signals and destination-typed link/navigate methods.
+ * params/search/data/title Signals and destination-typed link/navigate methods.
  * Data holds the resolver results of this route and its ancestors, a nearer
- * key hiding an ancestor's; native static data and the title stay out.
+ * key hiding an ancestor's; native static data and the title stay out. Title
+ * is the nearest declared title in the chain, or undefined when none declares one.
  * All navigation values are explicit; current inputs are never reused implicitly.
  *
  * @returns A noncallable handle for this declaration.
