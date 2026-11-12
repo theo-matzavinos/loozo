@@ -23,4 +23,5 @@ export type {
   ParamsOf,
   SearchOf,
   FragmentsOf,
+  TitleOf,
 } from "./types.js";

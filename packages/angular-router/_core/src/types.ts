@@ -28,7 +28,7 @@ declare const routeBrand: unique symbol;
  *
  * @remarks
  * Prefer inference from `defineRoute` over explicit generic arguments. The
- * optional `__params`, `__search` and `__data` members are type witnesses only;
+ * optional `__params`, `__search`, `__data` and `__title` members are type witnesses only;
  * they are not populated runtime properties. Parent/codec/effective-path metadata
  * is private. Spreading a declaration does not produce another valid route.
  *
@@ -43,6 +43,8 @@ declare const routeBrand: unique symbol;
  * @typeParam Data - Effective resolver data: the ancestors' resolver results, then
  * this declaration's own, a nearer key hiding an ancestor's key of the same name.
  * Defaults to the local results alone.
+ * @typeParam Title - `string` when this declaration or an ancestor declares a title,
+ * otherwise `undefined`.
  */
 export interface Route<
   Path extends string,
@@ -52,6 +54,7 @@ export interface Route<
   Fragments extends string = string,
   Catchall extends boolean = CatchallName<Path> extends never ? false : true,
   Data = LocalData<Resolvers>,
+  Title extends string | undefined = undefined,
 > {
   /** Type-only nominal brand carrying fragment and catchall metadata; not populated at runtime. */
   readonly [routeBrand]: {
@@ -68,6 +71,8 @@ export interface Route<
   readonly __search?: Search;
   /** Type-only witness for unwrapped effective resolver data, excluding redirects. */
   readonly __data?: Data;
+  /** Type-only witness: string when this declaration or an ancestor declares a title. */
+  readonly __title?: Title;
   /** The snapshotted local resolver map, retaining original callback identities. */
   readonly resolve?: Readonly<Resolvers>;
   /** The original native rerun policy; omission preserves Angular's default. */
@@ -80,13 +85,13 @@ type Unwrap<Value> = Value extends Promise<infer Inner> | Observable<infer Inner
 type Resolved<Callback> = Callback extends (...args: any[]) => infer Value
   ? Exclude<Unwrap<Value>, RedirectCommand>
   : never;
-export type AnyRoute = Route<string, any, any, any, any, boolean, any>;
+export type AnyRoute = Route<string, any, any, any, any, boolean, any, any>;
 /** Extracts a declaration's effective inherited and local path-value types. */
 export type ParamsOf<Target> =
-  Target extends Route<string, infer Params, any, any, any, boolean, any> ? Params : {};
+  Target extends Route<string, infer Params, any, any, any, boolean, any, any> ? Params : {};
 /** Extracts effective parsed search-value types; keys without a fallback or array codec are optional. */
 export type SearchOf<Target> =
-  Target extends Route<string, any, infer Search, any, any, boolean, any> ? Search : {};
+  Target extends Route<string, any, infer Search, any, any, boolean, any, any> ? Search : {};
 /**
  * Effective search values accepted by URL creation: every key may be omitted or
  * `undefined`, and a supplied value has the key's codec type.
@@ -96,7 +101,9 @@ export type SearchInputOf<Target> = {
 };
 /** Extracts only the selected declaration's own allowed fragment-name union. */
 export type FragmentsOf<Target> =
-  Target extends Route<string, any, any, any, infer Fragments, boolean, any> ? Fragments : never;
+  Target extends Route<string, any, any, any, infer Fragments, boolean, any, any>
+    ? Fragments
+    : never;
 export type CodecMap = Record<string, ParamCodec<any>>;
 export type LocalParams<Path extends string, Codecs> = {
   readonly [Key in keyof Codecs]: Key extends CatchallName<Path>
@@ -132,6 +139,14 @@ export type EffectiveData<Resolvers, Parent> = Unshadowed<
   keyof Resolvers
 > &
   LocalData<Resolvers>;
+/** The title type of a declaration's chain: string when it or an ancestor declares one. */
+export type TitleOf<Target> = Target extends { readonly __title?: infer Title } ? Title : undefined;
+/** A local title makes the chain's title a string; otherwise the parent's title type carries over. */
+export type EffectiveTitle<LocalTitle, Parent> = unknown extends LocalTitle
+  ? TitleOf<Parent>
+  : [LocalTitle] extends [undefined]
+    ? TitleOf<Parent>
+    : string;
 // JavaScript property identity: a numeric key and its string spelling are one property.
 type KeyIdentity<Key> = Key extends number ? `${Key}` : Key;
 type Unshadowed<Inherited, Local> = {
@@ -384,9 +399,11 @@ export type RouteConfig<
   Fragments extends readonly string[],
   Target extends AnyRoute | undefined,
   ReplacementKeys extends keyof SearchOf<Target>,
+  Title = unknown,
 > = {
   /** Genuine authored parent; pathless nodes retain inherited input ownership. */
-  parent?: Parent & (Parent extends Route<string, any, any, any, any, true, any> ? never : unknown);
+  parent?: Parent &
+    (Parent extends Route<string, any, any, any, any, true, any, any> ? never : unknown);
   /** Local search codecs; a plain key is absent unless present and valid. withFallback and arrayParam keys always read a value. */
   search?: Search &
     Record<Extract<keyof Search, keyof SearchOf<Parent>>, never> &
@@ -411,9 +428,11 @@ export type RouteConfig<
   /** Native route-scoped providers; provider factories are not run at declaration. */
   providers?: NativeRoute["providers"];
   /** A static title, or a parsed-input callback; not a snapshot-first native ResolveFn. */
-  title?:
-    | string
-    | TitleResolver<EffectiveParams<Path, Params, Parent>, EffectiveSearch<Search, Parent>>;
+  title?: Title &
+    (
+      | string
+      | TitleResolver<EffectiveParams<Path, Params, Parent>, EffectiveSearch<Search, Parent>>
+    );
   /** Native static data; cannot set the reserved __loozoAngularRouterRouteId key. */
   data?: NativeRoute["data"] & { __loozoAngularRouterRouteId?: never };
 } & (PathNames<Path> extends never

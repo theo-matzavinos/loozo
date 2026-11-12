@@ -594,7 +594,7 @@ test("the shared module exports injectActiveRoute and its active route types", a
   assert.equal(exported(active), true);
   assert.equal(
     active.heritageClauses[0].getText(file),
-    'extends Pick<Handle<Retained>, "params" | "search" | "data">, ActiveBase',
+    'extends Pick<Handle<Retained>, "params" | "search" | "data" | "title">, ActiveBase',
   );
   assert.equal(exported(narrowed), true);
   assert.equal(narrowed.heritageClauses[0].getText(file), "extends Handle<Id>, ActiveBase");

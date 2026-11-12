@@ -13,9 +13,10 @@ export const destination: Destination<"src/routes/$segments[]/route.ts"> = /* @_
  *
  * @remarks
  * Call in an Angular injection context. The handle exposes readonly native
- * params/search/data Signals and destination-typed link/navigate methods.
+ * params/search/data/title Signals and destination-typed link/navigate methods.
  * Data holds the resolver results of this route and its ancestors, a nearer
- * key hiding an ancestor's; native static data and the title stay out.
+ * key hiding an ancestor's; native static data and the title stay out. Title
+ * is the nearest declared title in the chain, or undefined when none declares one.
  * All navigation values are explicit; current inputs are never reused implicitly.
  *
  * @returns A noncallable handle for this declaration.

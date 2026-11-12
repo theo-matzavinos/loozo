@@ -11,6 +11,7 @@ import type {
   AnyRoute,
   CodecMap,
   EffectiveData,
+  EffectiveTitle,
   EffectiveParams,
   EffectiveSearch,
   Route,
@@ -223,9 +224,21 @@ export function defineRoute<
   const Fragments extends readonly string[] = [],
   Target extends AnyRoute | undefined = undefined,
   ReplacementKeys extends keyof SearchOf<NoInfer<Target>> = never,
+  // Stays unknown without a title, so it never narrows the callback's contextual type.
+  Title = unknown,
 >(
   path: Path & ValidPath<Path>,
-  config: RouteConfig<Path, Parent, Params, Search, Resolvers, Fragments, Target, ReplacementKeys>,
+  config: RouteConfig<
+    Path,
+    Parent,
+    Params,
+    Search,
+    Resolvers,
+    Fragments,
+    Target,
+    ReplacementKeys,
+    Title
+  >,
 ): Route<
   Path,
   EffectiveParams<Path, Params, Parent>,
@@ -233,7 +246,8 @@ export function defineRoute<
   Resolvers,
   Fragments[number],
   CatchallName<Path> extends never ? false : true,
-  EffectiveData<Resolvers, Parent>
+  EffectiveData<Resolvers, Parent>,
+  EffectiveTitle<Title, Parent>
 >;
 
 export function defineRoute(path: unknown, config: unknown): AnyRoute {

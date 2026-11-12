@@ -730,6 +730,7 @@ export default defineRoute('squads/$teamId', {
     team: ({ params }) => team(params.teamId),
     label: () => 'squad label',
   },
+  title: ({ params }) => 'Squad ' + params.teamId,
 });
 `,
 );
@@ -789,13 +790,13 @@ export default class SquadMember {
   readonly handle = injectRoute();
   readonly instance = ++instances;
   // Inherited data exists from the first, synchronous read.
-  readonly first = { params: this.handle.params(), data: this.handle.data() };
-  readonly seen: [any, any][] = [];
+  readonly first = { params: this.handle.params(), data: this.handle.data(), title: this.handle.title() };
+  readonly seen: [any, any, string][] = [];
 
   constructor() {
     (window as any).squadMember = this;
     effect(() => {
-      this.seen.push([this.handle.params(), this.handle.data()]);
+      this.seen.push([this.handle.params(), this.handle.data(), this.handle.title()]);
     });
   }
 }
@@ -808,7 +809,11 @@ await write(
 import { injectRoute } from './routes/item/route.generated.js';
 import { injectRoute as searchingRoute } from './routes/searching/route.generated.js';
 import { injectRoute as squadRoute } from './routes/squad/route.generated.js';
-import { injectRoute as squadMemberRoute } from './routes/squad-member/route.generated.js';
+import {
+  injectRoute as squadMemberRoute, destination as squadMember,
+} from './routes/squad-member/route.generated.js';
+import { destination as searchingDestination } from './routes/searching/route.generated.js';
+import { injectActiveRoute } from '../generated/destinations.generated.js';
 import { localSymbol } from './probes.js';
 
 const handle = injectRoute();
@@ -861,6 +866,27 @@ memberData.missing;
 const squadLabel: string = squadRoute().data().label;
 // @ts-expect-error A parent's data doesn't include its descendants' results.
 squadRoute().data().member;
+// A title is a string when the route or an ancestor declares one, else undefined.
+const ownTitle: Signal<string> = handle.title;
+const layoutTitle: Signal<string> = squadRoute().title;
+const inheritedTitle: Signal<string> = squadMemberRoute().title;
+const untitled: Signal<undefined> = searching.title;
+// @ts-expect-error No route in the chain declares a title.
+const missingTitle: Signal<string> = searching.title;
+// Before narrowing, the active title reads the union of the set's title types.
+const active = injectActiveRoute()()!;
+const activeTitle: Signal<string | undefined> = active.title;
+// @ts-expect-error Not every route of the set declares a title.
+const everyTitle: Signal<string> = active.title;
+const crumbs: readonly (string | undefined)[] = active.chain.map((route) => route.title());
+
+if (active.is(squadMember)) {
+  const narrowedTitle: Signal<string> = active.title;
+}
+
+if (active.is(searchingDestination)) {
+  const narrowedUntitled: Signal<undefined> = active.title;
+}
 `,
 );
 await write(
@@ -1278,6 +1304,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       'the constructor read has the ancestor and own data');
     check(first.data.scope === 'pathless scope', 'a pathless ancestor contributes its resolver data');
     check(first.data.label === 42, 'the nearer resolver key wins a collision');
+    check(first.title === 'Squad 1' && squad.handle.title() === 'Squad 1',
+      'the member reads the layout title from the first read; the layout reads its own');
     check(Object.isFrozen(first.data) && Object.getPrototypeOf(first.data) === null,
       'frozen null-prototype data');
     check(JSON.stringify(Reflect.ownKeys(squad.handle.data())) === JSON.stringify(['team', 'label']) &&
@@ -1293,6 +1321,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     check(router.currentNavigation() !== null, 'Angular reports the pending navigation');
     check(member.handle.params() === settled[0] && member.handle.data() === settled[1],
       'pending ancestor resolver keeps params and data');
+    check(member.handle.title() === 'Squad 1' && squad.handle.title() === 'Squad 1',
+      'pending ancestor resolver keeps the title');
     open();
     check(await next, 'ancestor-param navigation commits');
     await app.whenStable();
@@ -1303,6 +1333,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     check(member.handle.params().teamId === 2 && changed.team.id === 2 && changed.member.teamId === 2,
       'the ancestor param change reaches the inherited data');
     check(document.getElementById('squad-member')!.textContent === 'Team 2 / 5', 'rendered team 2');
+    check(member.handle.title() === 'Squad 2' && squad.handle.title() === 'Squad 2' &&
+      document.title === 'Squad 2', 'the inherited title follows the ancestor param');
 
     // A child-param-only navigation keeps the team and changes the member.
     await visit('/squads/2/members/6');
@@ -1311,9 +1343,10 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     check((window as any).squadMember === member && moved.team === changed.team,
       'the team result stays when only the child param changes');
     check(moved.member.id === 6 && member.handle.params().memberId === 6, 'own data follows the child param');
-    for (const [params, data] of member.seen) {
+    for (const [params, data, title] of member.seen) {
       check(params.teamId === data.team.id && params.teamId === data.member.teamId &&
-        params.memberId === data.member.id, 'effects never see a mixed tuple ' + JSON.stringify(member.seen));
+        params.memberId === data.member.id && title === 'Squad ' + params.teamId,
+        'effects never see a mixed tuple ' + JSON.stringify(member.seen));
     }
 
     return {
