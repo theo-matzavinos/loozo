@@ -1,10 +1,8 @@
-# @loozo/angular-router — clean-room product contract
+# @loozo/angular-router specification
 
-Status: **revised after loozo's scope review; not frozen or launch authorization**.
+This is the package's contract. It changes only as the README's [versioning policy](README.md#versions) allows: a breaking change to anything specified here waits for a minor release.
 
-This document is the intended product target for the experiment: retained implemented application behavior plus the explicitly agreed changes below, not the unfinished Version 1 roadmap. Use generation-first Angular integration, small justified helpers, and private generation internals. Requirements below are normative unless explicitly marked as examples, limitations, or unspecified behavior. Structure and algorithms remain free within that boundary.
-
-Agreed differences from the reference: no standalone generation CLI or public graph-library API; named terminal catchalls using `$segments[]`; native behavioral route options and phase-specific typed guards; declared-only fragment names; a parent-route `..` selector as the only relative navigation; generated destination-reference overloads; filesystem route definitions by default: directories give paths and parents, and the builder seeds editable definitions and synchronizes only the specified structural fields (§12); `autoDefineRoutes: false` selects explicit mode, where paths and parents are authored and definition files are never created or rewritten. The catchall notation is directory-safe. **Authored route/page candidates are `.ts` only**. Historical `.mts`, `.cts`, and `.tsx` discovery does not establish a product need or an authoring-interoperability requirement. Evaluation separates retained behavior from these intentional target differences.
+Requirements below are normative unless explicitly marked as examples, limitations, or unspecified behavior. Structure and algorithms are free within that boundary.
 
 ## 1. Product and compatibility boundary [P]
 
@@ -40,17 +38,17 @@ Generated code necessarily executes at runtime. Small shared helpers may perform
 
 Node-side source analysis/generation is private implementation used by the application/serve builders. It needs separation from browser code, not a public secondary entry point. Its internal graph/model, functions, return shapes, immutability, and module layout are not product contracts.
 
-The package is published to npm under the MIT license; its version is the one in `package.json`. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. The experiment verifies Angular **22.2.2**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not all versions admitted by a peer range. The evaluator pins the remaining environment separately.
+The package is published to npm under the MIT license; its version is the one in `package.json`. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. Releases are tested against Angular **22.2.2**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not every version a peer range admits.
 
 The root, generated application modules, and any helpers they import must remain browser-safe. Node, filesystem, compiler, watcher, and Architect dependencies must not enter their browser dependency closures. The builders own Node-side generation. No `loozo-routegen` bin, separate CLI flags/exit protocol, or public generator API is supported. Generate through Angular build/serve; check committed output through an application-builder CI configuration.
 
-### What compatibility means
+### What is public
 
-Preserve the consumer contracts, builder names/options, generated file names, ownership markers, and lifecycle behavior specified here, except for the explicit target differences above. Removing the CLI/graph API is not removal of discovery, validation, or read-only generated-output checking. Native behavioral configuration, catchalls, strict fragment declarations, and revised navigation are new acceptance targets, not claims about the reference.
+The consumer contracts, builder names/options, generated file names and exports, ownership markers, and lifecycle behavior specified here are public. Having no CLI or graph API does not remove discovery, validation, or read-only generated-output checking.
 
-Do not preserve private module paths, helper names, caches, symbols, generic implementation machinery, generated variable names, emitter formatting, or exact old artifact bytes. Generated code and any helpers may be redesigned together within the generation-first boundary. A consumer must regenerate with the new implementation; mixing old generated bodies with new helpers is not promised.
+Private module paths, helper names, caches, symbols, generic implementation machinery, generated variable names, emitter formatting, and exact generated bytes are not public. Generated code and its helpers may be redesigned together within the generation-first boundary, so regenerate after upgrading; generated output from one release used with another release's helpers is not supported.
 
-No bundle-size reduction, execution-speed improvement, universal linear source growth, or support outside the verification envelope is promised.
+No bundle-size, execution-speed, or generated-source-growth guarantee is made, and support covers the tested versions above.
 
 ## 2. Route declarations [R]
 
@@ -605,7 +603,7 @@ Equal unrelated ordinary effective shapes fail, including nonleaf declarations a
 
 Builder diagnostics identify the failure and the relevant input/source location when available. Collision/overlap diagnostics identify both participants; missing files must not invent a source span. Invalid input, configuration/I/O/syntax errors, provenance/authoring failures, unsafe paths, ancestry/ownership errors, and redirect/matching conflicts must be distinguishable enough to fix the source.
 
-Do not reproduce the old exported diagnostic union, serialized target/reference objects, graph-result shapes, or deep-freezing guarantees. Exact message wording, numeric-code vocabulary, intermediate severity representation, and universal multi-error accumulation/order policy are not compatibility requirements. Retain TypeScript diagnostic numbers where reporting TypeScript configuration/syntax failures; keep diagnostics deterministic across equivalent inputs/root order.
+There is no public diagnostic union, serialized target/reference object, graph-result shape, or deep-freezing guarantee. Exact message wording, numeric-code vocabulary, intermediate severity representation, and universal multi-error accumulation/order policy are not compatibility requirements. Retain TypeScript diagnostic numbers where reporting TypeScript configuration/syntax failures; keep diagnostics deterministic across equivalent inputs/root order.
 
 ## 11. Generation, artifacts, and CI checking [F]
 
@@ -655,11 +653,11 @@ ng build app --configuration ci  # application companion configured with check: 
 
 The CI configuration belongs to the consumer's application-companion target. `check` is read-only, including cleanup: missing, changed, stale artifacts and generation errors fail before delegating to Angular. Coexisting drift reports priority **changed, then missing, then stale**. Diagnostic wording and removed CLI stdout/exit conventions are not prescribed; §12 and §13 prescribe the builders' output channel. Hand edits to marked files are drift and are replaced in normal write mode.
 
-Package build/check/test/typecheck/SSR verification scripts must be usable in the pinned environment, but no `routegen`/`build:routegen` script, CLI packaging/prepack protocol, or standalone generation command is required. Publishing/release infrastructure remains excluded.
+Package build/check/test/typecheck/SSR verification scripts run in the workspace's pinned environment. There is no `routegen`/`build:routegen` script, CLI packaging/prepack protocol, or standalone generation command.
 
 Angular's `@angular/build:unit-test` and `@angular/build:extract-i18n` builders may name the application companion as their `buildTarget`. They read its options directly and run neither generation nor check, so they consume the generated files already on disk; the package adds no companion for them. The unit-test builder's unsupported-builder warning is expected.
 
-Maintain and commit generated outputs with authored definitions; check them in CI. The rebuilt generator may change old generated bytes once; subsequent check compares against its own deterministic output, not old emitter snapshots.
+Maintain and commit generated outputs with authored definitions; check them in CI. Check compares against the generator's own deterministic output. A release may change generated bytes, so regenerate and commit after upgrading.
 
 ## 12. Companion application builder [B]
 
@@ -741,8 +739,8 @@ This is development-server Chromium proof, not production serving, cross-engine 
 
 ## 15. Deliberate exclusions and unspecified edges [E]
 
-Excluded: replacing Angular Router; a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support, or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches; server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; named outlets, unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; relative selectors other than `..`, arbitrary URL/object-target/query-merge APIs beyond §6; an active-route lookup by destination, public route ids, pending-navigation state on the active route, active-route identity shared across readers, and atomic chain values (§6, §7); release/publication; unfinished broader Version 1 integration; original implementation/module reuse; preserving private helper APIs or exact old emitter bytes.
+Excluded: replacing Angular Router; a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support, or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches; server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; named outlets, unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; relative selectors other than `..`, arbitrary URL/object-target/query-merge APIs beyond §6; an active-route lookup by destination, public route ids, pending-navigation state on the active route, active-route identity shared across readers, and atomic chain values (§6, §7); stable private helper APIs or generated bytes across releases (§1).
 
-Unspecified rather than new requirements: exotic Proxy/property-descriptor behavior; every malformed untyped codec invocation; enum duplicate/empty-list mutation policies; every wrapper-of-wrapper combination beyond §4; arbitrary any/unknown/thenable type tricks; exhaustive custom serializers/LocationStrategies/detached-route reuse; arbitrary invalid module cycles; total diagnostic accumulation policy; byte-level BOM/line-ending/trivia compatibility with the old emitter; crash-durable or concurrent-writer filesystem publication.
+Unspecified rather than new requirements: exotic Proxy/property-descriptor behavior; every malformed untyped codec invocation; enum duplicate/empty-list mutation policies; every wrapper-of-wrapper combination beyond §4; arbitrary any/unknown/thenable type tricks; exhaustive custom serializers/LocationStrategies/detached-route reuse; arbitrary invalid module cycles; total diagnostic accumulation policy; byte-level BOM/line-ending/trivia stability of generated output; crash-durable or concurrent-writer filesystem publication.
 
-Unsupported/unspecified cases must not be used as hidden evaluation requirements. Any concrete new requirement discovered during preparation is resolved before the target is locked; during the measured run it is a spec issue, not permission to silently extend the product.
+Unspecified behavior may change in any release. A concrete new requirement is added to this spec before the product relies on it.

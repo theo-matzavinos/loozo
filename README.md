@@ -37,12 +37,17 @@ Pack and publish only from `dist/`; publishing from a package root fails on purp
 
 ## Releasing
 
-Release a package from the Actions tab: run the **Publish** workflow on `main` and pick the package. The workflow:
+Release a package from the Actions tab: run the **Publish** workflow on `main`, pick the package and pick a `patch` or `minor` bump. The router's [versioning policy](packages/angular-router/README.md#versions) says which one a release needs. The workflow:
 
-1. Bumps the package to the next `0.0.x` with `scripts/bump-version.mjs`. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
+1. Bumps the package with `scripts/bump-version.mjs`. From `0.1.0` on, a patch fails when a commit since the last release is marked breaking (`!`); release a minor instead. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
 2. Builds the package and the workspace packages it depends on, then runs its `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one.
 3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main` over the `publish` deploy key, the only actor that bypasses `main`'s ruleset (pull request with green `checks`, `origami-commit-gate`, the six `router-browser (<test>)` checks, the two `router-platforms (<os>)` checks, `launch-browser` and `fold-consumer`, no force-push or deletion). If `main` moved during the run, the push fails and nothing is published.
-4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token. If only this step fails, use **Re-run failed jobs**.
+4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token.
+5. Creates the tag's GitHub release. `scripts/release-notes.mjs` writes its notes from the conventional subjects of the commits since the package's previous tag that touch `packages/<package>`, grouped as breaking changes, features, fixes and other changes, so pull request titles become the release notes.
+
+If only step 4 or 5 fails, use **Re-run failed jobs**.
+
+Check **Dry run** to preview a release from any branch: the workflow bumps, runs step 2 and writes the version and release notes to the job summary, and pushes, publishes and releases nothing. From the command line: `gh workflow run publish.yml --ref <branch> -f package=<package> -f bump=minor -f dry_run=true`.
 
 Pull requests into `main` run the **CI** workflow: every package's build, check, typecheck and test, Origami's commit gate, the router's browser tests, its Node and filesystem tests on Windows and macOS, and fold's consumer check. Every push to `main` runs the **Release gate** workflow, Origami's `test:full`. Publish refuses an Origami release unless the Release gate passed on the commit it releases; a release commit stands for its nearest non-release ancestor.
 
