@@ -231,6 +231,7 @@ createUrl(product, {
 - Fragment is optional and restricted to the selected declaration's own declared names; without a list, the fragment option is forbidden.
 - Catchall values are required readonly arrays of element-codec values, including a valid empty array. Scalar and catchall cardinalities are distinct.
 - Literal unknown value/option keys and wrong values fail typing; exact local codec-key typing also covers variables as described in §2.
+- The values are one record: a string, array, function or other value sharing no values key fails typing, here and for a handle's link/navigate record (§6), including a string on a route with search whose `search` method would otherwise match.
 - Runtime rejects non-nominal routes, malformed records, unknown options, missing path/extra input keys, wrong fragment types, non-array catchall and `arrayParam` values, and non-string codec outputs with TypeError.
 
 Do not promise universally exact TypeScript object types: normal structural assignability may admit extra properties through variables where no exactness requirement above exists. Runtime input validation still rejects unknown keys.

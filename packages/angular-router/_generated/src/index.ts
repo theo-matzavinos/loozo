@@ -11,6 +11,10 @@ import {
   type ParamsOf,
   type SearchOf,
   type UrlValues,
+  type PathlessUrlValues,
+  type PathUrlValues,
+  type SearchFieldOf,
+  type FragmentsOf,
 } from "@loozo/angular-router/_core";
 import { observeRoute } from "./handle.js";
 import type { RouteSet } from "./inputs.js";
@@ -69,6 +73,33 @@ type IsUnion<Value, Whole = Value> = Value extends unknown
     ? false
     : true
   : never;
+
+// Own-route records are single object types, not intersections, so a bare
+// string cannot match through String's own `search` method (see UrlValues).
+interface PathlessOwnLink<Search, Fragment> extends PathlessUrlValues<Search, Fragment> {
+  /** Omitted: this exact declaration, not its pathless winner. */
+  readonly to?: undefined;
+}
+interface PathOwnLink<Params, Search, Fragment> extends PathUrlValues<Params, Search, Fragment> {
+  /** Omitted: this exact declaration, not its pathless winner. */
+  readonly to?: undefined;
+}
+interface PathlessOwnNavigation<Search, Fragment>
+  extends PathlessOwnLink<Search, Fragment>, NavigationBehaviorOptions {}
+interface PathOwnNavigation<Params, Search, Fragment>
+  extends PathOwnLink<Params, Search, Fragment>, NavigationBehaviorOptions {}
+type OwnLink<
+  Target extends AnyRoute,
+  Keys extends keyof SearchOf<Target>,
+> = keyof ParamsOf<Target> extends never
+  ? PathlessOwnLink<SearchFieldOf<Target, Keys>, FragmentsOf<Target>>
+  : PathOwnLink<ParamsOf<Target>, SearchFieldOf<Target, Keys>, FragmentsOf<Target>>;
+type OwnNavigation<
+  Target extends AnyRoute,
+  Keys extends keyof SearchOf<Target>,
+> = keyof ParamsOf<Target> extends never
+  ? PathlessOwnNavigation<SearchFieldOf<Target, Keys>, FragmentsOf<Target>>
+  : PathOwnNavigation<ParamsOf<Target>, SearchFieldOf<Target, Keys>, FragmentsOf<Target>>;
 
 /**
  * The noncallable typed handle returned by a colocated `injectRoute()` facade.
@@ -135,12 +166,7 @@ export interface Handle<
    * @returns Router.parseUrl's result, suitable for Angular RouterLink.
    * @throws Synchronous URL validation, encoding or stringifier failures, or a behavior option, before Angular.
    */
-  link<Keys extends keyof SearchOf<Target> = never>(
-    target: {
-      /** Omitted: this exact declaration, not its pathless winner. */
-      readonly to?: undefined;
-    } & UrlValues<Target, Keys>,
-  ): UrlTree;
+  link<Keys extends keyof SearchOf<Target> = never>(target: OwnLink<Target, Keys>): UrlTree;
   /**
    * Creates a UrlTree for a statically admitted absolute authored selector.
    *
@@ -195,11 +221,7 @@ export interface Handle<
    * @throws Synchronous URL validation, encoding or stringifier failures before Angular.
    */
   navigate<Keys extends keyof SearchOf<Target> = never>(
-    target: {
-      /** Omitted: this exact declaration, not its pathless winner. */
-      readonly to?: undefined;
-    } & UrlValues<Target, Keys> &
-      NavigationBehaviorOptions,
+    target: OwnNavigation<Target, Keys>,
   ): Promise<boolean>;
   /**
    * Navigates to a statically admitted absolute authored selector.
@@ -333,7 +355,10 @@ export function injectGeneratedRoute<
       target = destination.id;
     }
 
-    return { url: createUrl(set.destinations[target](), values as UrlValues<AnyRoute>), options };
+    return {
+      url: createUrl(set.destinations[target](), values as unknown as UrlValues<AnyRoute>),
+      options,
+    };
   }
 
   return {
