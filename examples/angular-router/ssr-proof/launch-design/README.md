@@ -1,6 +1,6 @@
 # Angular Launch design proof
 
-A bounded todo consumer and native Angular/TypeScript feasibility proof for [the design](../../../../specs/angular-launch.md). Not a framework implementation, generator, package or production deployment server.
+A bounded todo consumer and native Angular/TypeScript feasibility proof for [the design](../../../../packages/angular-launch/SPEC.md). Not a framework implementation, generator, package or production deployment server.
 
 ## Contents
 

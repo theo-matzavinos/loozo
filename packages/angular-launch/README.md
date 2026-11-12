@@ -1193,7 +1193,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
-- Streams and channels don't reconnect or resume on their own (`connect()` reconnects when asked or when its input changes), and HTTP interceptors don't see them. Channels carry strict JSON text only, one call per socket, with no acknowledgements, and don't run under `ng serve` yet.
+- Streams and channels don't reconnect or resume on their own (`connect()` reconnects when asked or when its input changes), and HTTP interceptors don't see them. Channels carry strict JSON text only, one call per socket, with no acknowledgements.
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
@@ -1206,7 +1206,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 ## Further reading
 
 - [TanStack Query](tanstack-query/README.md): the optional query and mutation integration
-- [`specs/angular-launch.md`](../../specs/angular-launch.md): design and full contract
+- [`SPEC.md`](SPEC.md): the full contract, including every edge case
 - [`examples/angular-launch`](../../examples/angular-launch/): the todos app. Its cookie identity and in-memory database are test fixtures, not security or deployment guidance.
 - [`@loozo/angular-router`](../angular-router/README.md): routes, codecs and navigation
 
