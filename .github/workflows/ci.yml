@@ -3,7 +3,8 @@ name: CI
 # Required checks for pull requests into main: every package's build, check, typecheck
 # and test, the docs-content tool's typecheck and test, Origami's commit gate
 # (test:commit), the router's browser tests, its Windows and macOS runs, Launch's example proof
-# and fold's consumer check.
+# and fold's consumer check. The jobs after checks run only for the packages a pull request
+# reaches (see affected); a skipped one passes its required check.
 on:
   pull_request:
   workflow_dispatch:
@@ -39,7 +40,60 @@ jobs:
       - run: pnpm --filter @loozo/docs-content run typecheck
       - run: pnpm --filter @loozo/docs-content run test
 
+  # The packages a pull request changes and every package that depends on them, from pnpm's
+  # workspace graph. A change outside every package selects the root project (the lockfile,
+  # scripts/, .github/), and that or a manual run selects everything. A job below runs when its
+  # output isn't "false", so it also runs when this job fails. The examples count too: the
+  # router's and Origami's proofs read theirs.
+  affected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      origami: ${{ steps.select.outputs.origami }}
+      fold: ${{ steps.select.outputs.fold }}
+      router: ${{ steps.select.outputs.router }}
+      launch: ${{ steps.select.outputs.launch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The pull request's merge commit and its first parent, the base it merges into.
+          fetch-depth: 2
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+      - id: select
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            selected=$(pnpm ls -r --depth -1 --json --filter '...[HEAD^1]' | jq -r '.[].name')
+          else
+            selected=loozo
+          fi
+
+          printf 'Selected:\n%s\n' "$selected"
+
+          reaches() {
+            for name in loozo "$@"; do
+              if grep -qxF "$name" <<<"$selected"; then
+                echo true
+                return
+              fi
+            done
+
+            echo false
+          }
+
+          {
+            echo "origami=$(reaches @loozo/origami-ui origami-ui-consumer)"
+            echo "fold=$(reaches @loozo/fold-ui)"
+            echo "router=$(reaches @loozo/angular-router angular-router-consumer)"
+            echo "launch=$(reaches angular-launch-consumer)"
+          } | tee -a "$GITHUB_OUTPUT"
+
   origami-commit-gate:
+    needs: affected
+    if: ${{ !cancelled() && needs.affected.outputs.origami != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -73,30 +127,46 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
+  # Matrix jobs skip their steps instead of the job: a job skipped before its matrix expands
+  # never reports its entries' checks, which the branch rules require by name.
   router-browser:
+    needs: affected
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         test: [application, filesystem, navigation, lifecycle, ssr, tooling]
+    env:
+      REACHED: ${{ needs.affected.outputs.router != 'false' }}
     defaults:
       run:
         working-directory: packages/angular-router
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - if: env.REACHED != 'true'
+        working-directory: .
+        run: echo "This pull request doesn't reach the router; skipped."
+      - if: env.REACHED == 'true'
+        uses: actions/checkout@v7
+      - if: env.REACHED == 'true'
+        uses: pnpm/action-setup@v6
+      - if: env.REACHED == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version-file: package.json
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - if: env.REACHED == 'true'
+        run: pnpm install --frozen-lockfile
         env:
           pnpm_config_pm_on_fail: error
           pnpm_config_verify_deps_before_run: error
-      - run: pnpm run build
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm run test:${{ matrix.test }} "$RUNNER_TEMP/evidence"
+      - if: env.REACHED == 'true'
+        run: pnpm run build
+      - if: env.REACHED == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+      - if: env.REACHED == 'true'
+        run: pnpm run test:${{ matrix.test }} "$RUNNER_TEMP/evidence"
       # The fixture under consumer/ links the workspace's node_modules, so it stays out, also
       # through filesystem's workspace-access alias, which a failed run leaves in place.
       - if: failure()
@@ -112,33 +182,46 @@ jobs:
   # The router's Node tests and filesystem proof on the other hosts; checks and router-browser
   # cover Linux. Their filesystems are case-insensitive and Windows separates paths with "\".
   router-platforms:
+    needs: affected
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
+    env:
+      REACHED: ${{ needs.affected.outputs.router != 'false' }}
     defaults:
       run:
         shell: bash
         working-directory: packages/angular-router
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - if: env.REACHED != 'true'
+        working-directory: .
+        run: echo "This pull request doesn't reach the router; skipped."
+      - if: env.REACHED == 'true'
+        uses: actions/checkout@v7
+      - if: env.REACHED == 'true'
+        uses: pnpm/action-setup@v6
+      - if: env.REACHED == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version-file: package.json
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - if: env.REACHED == 'true'
+        run: pnpm install --frozen-lockfile
         env:
           pnpm_config_pm_on_fail: error
           pnpm_config_verify_deps_before_run: error
-      - run: pnpm run build
-      - run: pnpm test
+      - if: env.REACHED == 'true'
+        run: pnpm run build
+      - if: env.REACHED == 'true'
+        run: pnpm test
       # The filesystem proof runs and reports even when a Node test failed.
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && env.REACHED == 'true' }}
         run: pnpm exec playwright install chromium
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && env.REACHED == 'true' }}
         run: pnpm run test:filesystem "$RUNNER_TEMP/evidence"
       - if: failure()
         uses: actions/upload-artifact@v7
@@ -154,6 +237,8 @@ jobs:
   # outcomes, streams and channels, then its prerender builds. verify.mjs starts and stops the
   # built server itself.
   launch-browser:
+    needs: affected
+    if: ${{ !cancelled() && needs.affected.outputs.launch != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -179,6 +264,8 @@ jobs:
           if-no-files-found: ignore
 
   fold-consumer:
+    needs: affected
+    if: ${{ !cancelled() && needs.affected.outputs.fold != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
