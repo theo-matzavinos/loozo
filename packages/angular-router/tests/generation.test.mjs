@@ -545,6 +545,106 @@ test("definition bindings follow paths, so adding or removing a route changes on
   onlyAdded(await destinations(), added);
 });
 
+test("the shared module exports injectActiveRoute and its active route types", async () => {
+  const project = await filesystemProject();
+
+  await project.page("teams/$teamId");
+  await project.page("teams/$teamId/items/$id");
+  await project.generate();
+
+  const path = resolve(project.root, "generated/destinations.generated.ts");
+  const file = ts.createSourceFile(
+    path,
+    await project.read("generated/destinations.generated.ts"),
+    {
+      languageVersion: ts.ScriptTarget.ES2022,
+    },
+  );
+  const imports = [];
+  const declarations = new Map();
+
+  for (const statement of file.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      imports.push(statement.getText(file));
+    } else if (ts.isInterfaceDeclaration(statement) || ts.isFunctionDeclaration(statement)) {
+      declarations.set(statement.name.text, statement);
+    }
+  }
+
+  assert.ok(imports.includes("import type { Signal } from '@angular/core';"));
+  assert.ok(
+    imports.includes(
+      "import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
+    ),
+  );
+
+  const exported = (node) =>
+    !!node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  const base = declarations.get("ActiveBase");
+  const active = declarations.get("ActiveRoute");
+  const narrowed = declarations.get("ActiveHandle");
+  const inject = declarations.get("injectActiveRoute");
+
+  assert.equal(exported(base), false);
+  assert.deepEqual(
+    base.members.map((member) => member.name.getText(file)),
+    ["is", "contains", "chain"],
+  );
+  assert.equal(base.members[0].type.getText(file), "this is ActiveHandle<Other>");
+  assert.equal(exported(active), true);
+  assert.equal(
+    active.heritageClauses[0].getText(file),
+    'extends Pick<Handle<Retained>, "params" | "search" | "data">, ActiveBase',
+  );
+  assert.equal(exported(narrowed), true);
+  assert.equal(narrowed.heritageClauses[0].getText(file), "extends Handle<Id>, ActiveBase");
+  assert.equal(exported(inject), true);
+  assert.equal(inject.parameters.length, 0);
+  assert.equal(inject.type.getText(file), "Signal<ActiveRoute | undefined>");
+  assert.equal(
+    inject.body.getText(file),
+    "{\n  return injectGeneratedActiveRoute(getRouteSet());\n}",
+  );
+
+  // A strict consumer narrows an ancestor through chain and the deepest route through is().
+  await project.write(
+    "src/shell.ts",
+    `import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { destination as team } from "./routes/teams/$teamId/route.generated.js";
+import { destination as item } from "./routes/teams/$teamId/items/$id/route.generated.js";
+
+const active = injectActiveRoute();
+export const teamId: string | undefined = active()?.chain.find((route) => route.is(team))?.params().teamId;
+export const inTeam: boolean = active()?.contains(team) ?? false;
+const route = active();
+
+if (route?.is(item)) {
+  route.link({ params: { teamId: "7", id: route.params().id } });
+}
+`,
+  );
+
+  const options = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+    experimentalDecorators: true,
+    lib: ["lib.es2022.d.ts", "lib.dom.d.ts"],
+    types: [],
+    noEmit: true,
+  };
+  const program = ts.createProgram([resolve(project.root, "src/shell.ts")], options);
+
+  assert.deepEqual(
+    ts
+      .getPreEmitDiagnostics(program)
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")),
+    [],
+  );
+});
+
 test("omitted autoDefineRoutes enables filesystem mode; false keeps explicit authoring", async () => {
   const project = await filesystemProject();
 

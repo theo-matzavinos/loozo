@@ -187,7 +187,7 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 
 [src/routes/teams/$teamId/items/$id/inputs.ts](snippets/src/routes/teams/$teamId/items/$id/inputs.ts#inputs)
 
-`params`, `search` and `data` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), all three change together. When a navigation is cancelled or fails, they keep their values; handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
+`params`, `search` and `data` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), all three change together. When a navigation is cancelled or fails before activation (in matching, a guard or a resolver), they keep their values. When a routed component's constructor throws during activation, the pages above it that stay on screen already have the new values, and keep them until the next navigation completes. Handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
 
 `data` holds the resolver results of this route and its ancestors, pathless and page-less ones included: the outermost ancestor's first, then nearer ones, then this route's own. As in Angular's own data inheritance, a nearer route's key hides an ancestor's key of the same name, and the hidden value isn't reachable through the handle. The merge is the same whatever `paramsInheritanceStrategy` you set, so under `'emptyOnly'` a route below a parent with a page still has that parent's resolver results, which Angular's own `snapshot.data` leaves out. Static `data` and the title aren't included; to read a static value through the handle, return it from a resolver, such as `resolve: { label: () => "Teams" }`.
 
@@ -206,6 +206,24 @@ Values are never carried over from the current URL. Pass every required param an
 The rest of a `navigate` object is Angular's `NavigationBehaviorOptions`, such as `replaceUrl`, `state`, `info` or `skipLocationChange`, passed to `navigateByUrl` as given. The last call above uses `replaceUrl` to replace the current history entry instead of adding one, as a filter input that updates the search on every keystroke would. `link` takes no behavior options; set them as `RouterLink` inputs instead, such as `[replaceUrl]` or `[state]`.
 
 A `destination` must come from the same generated route set as the handle. Destinations are for `link` and `navigate` only; `createUrl` takes declarations.
+
+### The active route
+
+Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads the active route with `injectActiveRoute()` from `destinations.generated.ts`:
+
+[src/shell.ts](snippets/src/shell.ts)
+
+`injectActiveRoute()` needs an injection context and returns a signal of the deepest active route. It's `undefined` before the first navigation, and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
+
+Until you narrow it, the active route has `params`, `search` and `data`, typed as the union of every route's values, and:
+
+- `is(destination)`: whether it's exactly that route, not one of its ancestors. It narrows the route to that route's handle, with its `link` and `navigate`.
+- `contains(destination)`: whether that route is this one or one of its ancestors.
+- `chain`: the active routes, from the top-level one down to this one. `chain.find((route) => route.is(team))` finds an ancestor, already narrowed.
+
+The value changes only when a navigation completes. It stays the same while a navigation is pending, and when one is cancelled or fails. If it fails during activation, the routes above the failing one that stay active already have the new values, so `chain` can mix a parent's new params with the active route's old ones until the next navigation completes. While a route stays active it keeps its handle, so going from item 9 to item 10 changes that handle's `params`, not the active route. Each `injectActiveRoute()` call has its own handles, separate from the page's `injectRoute()` handle; their values are the same. A handle that's no longer active keeps its last values. Routes are told apart by their declaration file's path relative to the tsconfig, so two generated route sets with declarations at the same paths can't share one router.
+
+Use it outside the page. In the constructor of a page being activated it reads `undefined` until the navigation ends, while the page's own `injectRoute()` has its values right away. On a server-rendered page it's `undefined` from hydration until the browser's first navigation completes, so the shell shows what it shows for `undefined` in between.
 
 ## Guards, resolvers and redirects
 
@@ -345,13 +363,15 @@ The navigation runs the real codecs, guards and resolvers. `navigateByUrl` resol
 
 A component inside the page's template gets the page's `ActivatedRoute`, so the same applies to it: render it through the page's route.
 
+A component that calls `injectActiveRoute()`, such as a shell, doesn't need a route of its own: `TestBed.createComponent` works, and the active route is `undefined` until a navigation, such as the harness's, completes.
+
 ## What gets generated
 
-| File                                       | Contents                                                      |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `<outDirectory>/routes.generated.ts`       | `routes: Routes` for `provideRouter`                          |
-| `<outDirectory>/destinations.generated.ts` | Shared typing and navigation data (when any route has a page) |
-| `route.generated.ts` beside each route     | `injectRoute()` and `destination`; none for redirect routes   |
+| File                                       | Contents                                                                                 |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `<outDirectory>/routes.generated.ts`       | `routes: Routes` for `provideRouter`                                                     |
+| `<outDirectory>/destinations.generated.ts` | Shared typing and navigation data, and `injectActiveRoute()` (when any route has a page) |
+| `route.generated.ts` beside each route     | `injectRoute()` and `destination`; none for redirect routes                              |
 
 Each generated file starts with an ownership marker comment such as `// @loozo/angular-router routegen: owned route.generated.ts`. The builder only replaces or deletes marked files with those exact names. It never overwrites an unmarked file in their place, and it removes stale marked files when their routes disappear. Hand edits to generated files are overwritten. Generated files are written with LF line endings; a copy that Git checked out with CRLF line endings, as it does on Windows by default, counts as up to date.
 

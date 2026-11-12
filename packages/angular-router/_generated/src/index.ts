@@ -1,9 +1,15 @@
 export { callbacks, redirect } from "./callbacks.js";
 export { assertIdentity, parseInputs } from "./inputs.js";
 export type { RecordBinding, RouteSet } from "./inputs.js";
+export { injectGeneratedActiveRoute } from "./active.js";
 
-import { inject, type Signal } from "@angular/core";
-import { Router, type NavigationBehaviorOptions, type UrlTree } from "@angular/router";
+import { DestroyRef, inject, type Signal } from "@angular/core";
+import {
+  ActivatedRoute,
+  Router,
+  type NavigationBehaviorOptions,
+  type UrlTree,
+} from "@angular/router";
 import {
   createUrl,
   routeMetadata,
@@ -16,7 +22,7 @@ import {
   type SearchFieldOf,
   type FragmentsOf,
 } from "@loozo/angular-router/_core";
-import { observeRoute } from "./handle.js";
+import { observeRoute, type RouteView } from "./handle.js";
 import type { RouteSet } from "./inputs.js";
 
 declare const destinationBrand: unique symbol;
@@ -65,6 +71,21 @@ export function createDestination<Target extends AnyRoute, Set, Id extends strin
   destinations.set(destination, { getSet, id });
 
   return destination as Destination<Target, Set, Id>;
+}
+
+/** The declaration a genuine destination of this set references. */
+export function destinationId(set: RouteSet, destination: unknown): string {
+  let identity;
+
+  if (typeof destination === "object" && destination !== null) {
+    identity = destinations.get(destination);
+  }
+
+  if (!identity || identity.getSet() !== set || !Object.hasOwn(set.records, identity.id)) {
+    throw new TypeError("Expected a destination from the same generated set");
+  }
+
+  return identity.id;
 }
 
 type DataOf<Target> = Target extends { readonly __data?: infer Data } ? Readonly<Data> : never;
@@ -295,8 +316,27 @@ export function injectGeneratedRoute<
   References extends Record<string, AnyRoute>,
 >(set: RouteSet, id: string): Handle<Target, Absolute, Parent, Set, References> {
   const router = inject(Router);
-  const view = observeRoute(set, id);
+  const destroy = inject(DestroyRef);
+  const view = observeRoute(set, id, inject(ActivatedRoute), router, (release) => {
+    destroy.onDestroy(release);
+  });
 
+  return createHandle(set, id, router, view);
+}
+
+/** A declaration's handle over the signals of one activated record. */
+export function createHandle<
+  Target extends AnyRoute,
+  Absolute extends Record<string, AnyRoute>,
+  Parent extends AnyRoute,
+  Set,
+  References extends Record<string, AnyRoute>,
+>(
+  set: RouteSet,
+  id: string,
+  router: Router,
+  view: RouteView,
+): Handle<Target, Absolute, Parent, Set, References> {
   // Splits the one target record into its destination, URL values and behavior options.
   function resolve(args: readonly unknown[]): { url: string; options: Record<string, unknown> } {
     const record = args[0];
@@ -338,21 +378,7 @@ export function injectGeneratedRoute<
         throw new TypeError(`Unknown generated selector: ${to}`);
       }
     } else if (to !== undefined) {
-      let destination;
-
-      if (typeof to === "object" && to !== null) {
-        destination = destinations.get(to);
-      }
-
-      if (
-        !destination ||
-        destination.getSet() !== set ||
-        !Object.hasOwn(set.records, destination.id)
-      ) {
-        throw new TypeError("Expected a destination from the same generated set");
-      }
-
-      target = destination.id;
+      target = destinationId(set, to);
     }
 
     return {
