@@ -1,0 +1,73 @@
+{
+  "name": "@loozo/ui-sdk-angular",
+  "version": "0.0.0",
+  "description": "Angular directives for ui-sdk.dev's headless core: Toggle and Select, with SSR and hydration.",
+  "bugs": "https://github.com/theo-matzavinos/loozo/issues",
+  "license": "MIT",
+  "author": "Theophilos Matzavinos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theo-matzavinos/loozo.git",
+    "directory": "packages/ui-sdk-angular"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/types/loozo-ui-sdk-angular.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular.mjs"
+    },
+    "./toggle": {
+      "types": "./dist/types/loozo-ui-sdk-angular-toggle.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular-toggle.mjs"
+    },
+    "./select": {
+      "types": "./dist/types/loozo-ui-sdk-angular-select.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular-select.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "rm -rf dist && ng-packagr -p ng-package.json -c tsconfig.lib.json && node scripts/package-docs.mjs && node ../../scripts/finish-package.mjs .",
+    "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
+    "check": "vp check",
+    "typecheck": "ngc -p tsconfig.json && tsc -p tests/browser/tsconfig.json",
+    "test": "pnpm run typecheck && node --test tests/*.test.mjs",
+    "test:browser": "sh ../origami-ui/tests/acceptance/gate-lock.sh pnpm run build && pnpm run test:browser:fixture && pnpm run test:browser:run",
+    "test:browser:fixture": "sh ../origami-ui/tests/acceptance/gate-lock.sh sh -c 'cd tests/browser && node ../../node_modules/@angular/cli/bin/ng.js build --configuration eager && node ../../node_modules/@angular/cli/bin/ng.js build --configuration incremental'",
+    "test:browser:run": "sh ../origami-ui/tests/acceptance/gate-lock.sh playwright test --config tests/browser/playwright.config.ts"
+  },
+  "dependencies": {
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.2",
+    "@angular/cli": "22.2.2",
+    "@angular/common": "22.2.2",
+    "@angular/compiler": "22.2.2",
+    "@angular/compiler-cli": "22.2.2",
+    "@angular/core": "22.2.2",
+    "@angular/platform-browser": "22.2.2",
+    "@angular/platform-server": "22.2.2",
+    "@angular/router": "22.2.2",
+    "@angular/ssr": "22.2.2",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.13.3",
+    "@ui-sdk/core": "0.1.0-beta.1",
+    "ng-packagr": "22.2.4",
+    "playwright": "1.63.0",
+    "rxjs": "7.8.2",
+    "typescript": "6.0.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.5",
+    "vite-plus": "0.2.5"
+  },
+  "peerDependencies": {
+    "@angular/common": "~22.2.2",
+    "@angular/core": "~22.2.2",
+    "@ui-sdk/core": "0.1.0-beta.1"
+  }
+}

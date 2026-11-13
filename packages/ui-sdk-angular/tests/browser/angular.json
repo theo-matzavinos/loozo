@@ -1,0 +1,57 @@
+{
+  "$schema": "../../node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "cli": {
+    "analytics": false
+  },
+  "projects": {
+    "fixture": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/main.ts",
+            "server": "src/main.server.ts",
+            "ssr": {
+              "entry": "src/server.ts"
+            },
+            "outputMode": "server",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "optimization": false,
+            "sourceMap": true,
+            "security": {
+              "allowedHosts": ["127.0.0.1", "localhost"]
+            }
+          },
+          "configurations": {
+            "eager": {
+              "outputPath": "dist/eager"
+            },
+            "incremental": {
+              "outputPath": "dist/incremental",
+              "fileReplacements": [
+                {
+                  "replace": "src/mode.ts",
+                  "with": "src/mode.incremental.ts"
+                },
+                {
+                  "replace": "src/home.ts",
+                  "with": "src/home.incremental.ts"
+                },
+                {
+                  "replace": "src/defer.ts",
+                  "with": "src/defer.incremental.ts"
+                }
+              ]
+            }
+          },
+          "defaultConfiguration": "eager"
+        }
+      }
+    }
+  }
+}
