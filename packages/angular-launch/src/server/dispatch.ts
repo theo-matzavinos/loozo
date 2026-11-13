@@ -20,6 +20,7 @@ import {
   type ResponseControl,
   type ResponseEffects,
 } from "./response-effects.js";
+import { createStageRunner, type Stage } from "./stages.js";
 
 /**
  * The application's RPC groups, keyed by namespace.
@@ -131,7 +132,15 @@ export async function createRequestScope<Definition extends ContextDefinition<un
 
   // Keep the caller's body usable and its signal linked via native Request clones.
   const boundRequest = new Request(request.clone(), { headers });
-  const value = await application.context.create(boundRequest);
+  // Today's context definition is the first and only stage, run now as it always was. Its
+  // value is boxed, so the stage spread copies the box and the value keeps its identity.
+  const root: Stage = {
+    run: async (args) => ({ value: await application.context.create(args.request) }),
+  };
+  const runStages = createStageRunner({ request: boundRequest, signal: boundRequest.signal });
+  // No call exists yet: nothing commits or reads these effects, and the root ignores them.
+  const context = await runStages([root], createResponseEffects().control);
+  const { value } = context as { value: unknown };
 
   return {
     appId: application.id,
