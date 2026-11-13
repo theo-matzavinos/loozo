@@ -64,7 +64,10 @@ async function cool(page: Page): Promise<void> {
   await elapse(page, 350);
 }
 
-/** A wrong write would render only after the zoneless scheduler's next turn. */
+/**
+ * Waits out the zoneless scheduler's next turn: a scripted change reaches the Tooltip's inputs and
+ * the template only then, and a wrong write would render only then.
+ */
 async function settle(page: Page): Promise<void> {
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
@@ -315,6 +318,7 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
   // The steps before a delay expires take a few round trips, which a loaded host can stretch past
   // 200 ms: give them the 1000 ms delay.
   await script(page, "hover-delay-slow");
+  await settle(page);
 
   // Entering and leaving before the delay cancels it.
   await page.mouse.move(point.x, point.y);
@@ -335,12 +339,23 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
   await elapse(page, 1300);
   await expect(intent).toHaveText("false");
 
-  // Disabled and enabled again before a pending open expires: the open happens at expiry.
+  // Disabled and enabled again before a pending open expires: the open happens at expiry. The root
+  // is enabled when the pointer enters; both toggles then run in one page-side step, each followed
+  // by the scheduler's turn so the root is seen disabled, to fit the delay on a loaded host.
   await script(page, "hover-disable");
+  await settle(page);
   await away(page);
   await page.mouse.move(point.x, point.y);
-  await script(page, "hover-disable");
-  await script(page, "hover-disable");
+  await page.getByTestId("hover-disable").evaluate(async (node) => {
+    if (!(node instanceof HTMLButtonElement)) {
+      throw new Error("Expected a fixture control button");
+    }
+
+    for (let toggle = 0; toggle < 2; toggle += 1) {
+      node.click();
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+    }
+  });
   await expect(intent).toHaveText("true");
   await away(page);
   await expect(intent).toHaveText("false");
@@ -366,6 +381,7 @@ test("N2: mouse hover opens after openDelay, once; leaving first cancels; a pend
 
   // Delay 0 opens in the entering event itself.
   await script(page, "hover-delay-zero");
+  await settle(page);
   await page.mouse.move(point.x, point.y);
   await expect(intent).toHaveText("true");
   journal = await hoverJournal(page);
@@ -788,6 +804,7 @@ test("N3 N12: removing Content, the Trigger or the root ends a transit; removing
   for (const control of ["removal-content-mount", "removal-trigger-mount", "removal-root"]) {
     await inTransit();
     await script(page, control);
+    await settle(page);
     expect(await documentListeners(page, "pointermove")).toBe(baseline);
 
     // Removal keeps intent; the remounted parts present it again, and Escape closes it.
@@ -807,6 +824,8 @@ test("N3 N12: removing Content, the Trigger or the root ends a transit; removing
 
   await page.mouse.move(point.x, point.y);
   await script(page, "removal-trigger-mount");
+  // The removal, not the leave, cancels the pending open.
+  await settle(page);
   await away(page);
   await script(page, "removal-trigger-mount");
   await elapse(page, 1300);
