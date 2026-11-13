@@ -469,6 +469,8 @@ pnpm run test:tooling /absolute/new-directory   # ng test and ng extract-i18n, n
 node tests/packed.mjs /absolute/new-directory   # packed-package consumer check
 ```
 
+To measure generation, serving, build, type-check and bundle size at scale, see [`bench/README.md`](bench/README.md).
+
 To run the example app from the workspace root after building the package:
 
 ```sh
