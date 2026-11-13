@@ -25,7 +25,8 @@ export const reqHandler = createNodeRequestHandler(async (request, response) => 
 
     response.once("close", () => {
       if (!response.writableFinished) {
-        closed.abort();
+        // Once Angular's helper has cancelled a body it was writing.
+        queueMicrotask(() => closed.abort());
       }
     });
 
@@ -101,6 +102,11 @@ export const reqHandler = createNodeRequestHandler(async (request, response) => 
       response,
     );
   } catch (error) {
+    // Angular rejects a render whose client left; there's no one to answer.
+    if (response.destroyed && error instanceof DOMException && error.name === "AbortError") {
+      return;
+    }
+
     console.error(error);
     response.statusCode = 500;
     response.end("Internal server error");
