@@ -1,4 +1,5 @@
 import {
+  APP_ID,
   DestroyRef,
   Directive,
   ElementRef,
@@ -9,9 +10,14 @@ import {
   computed,
   inject,
   untracked,
+  ɵEVENT_REPLAY_QUEUE as EVENT_REPLAY_QUEUE,
 } from "@angular/core";
 import { isPlatformBrowser } from "@angular/common";
-import { EventPhase } from "@angular/core/primitives/event-dispatch";
+import {
+  EventInfoWrapper,
+  EventPhase,
+  getAppScopedQueuedEventInfos,
+} from "@angular/core/primitives/event-dispatch";
 import { ɵOrigamiFieldMembership } from "@loozo/origami-ui/field";
 import { injectUniqueId, ɵOrigamiDescribedBy } from "@loozo/origami-ui/utils";
 import { NumberFieldContext } from "./number-field-context";
@@ -38,13 +44,44 @@ interface UnchangedText {
  * restored, so a replayed edit isn't another edit, unless that render found the server's text
  * unchanged and nothing has happened since: then it was an edit that left the same text. Eager
  * replay waits for the application to be stable, so an edit, a value write or a step can come
- * first, and the text is no longer the replayed edit's. A replayed composition event only opens
- * or closes the composition, whose end is checked only if it is genuine. Eager hydration's replay
+ * first, and the text is no longer the replayed edit's. A replayed composition event is older than
+ * any genuine one, so it neither opens nor closes the composition. Eager hydration's replay
  * marks the event `EventPhase.REPLAY`; incremental hydration's calls the listeners with the
  * browser's event after its dispatch has ended, when its phase is `NONE`.
  */
 function replayed(event: Event): boolean {
   return event.eventPhase === EventPhase.REPLAY || event.eventPhase === Event.NONE;
+}
+
+/**
+ * Whether the events Angular holds for replay leave a composition open in `element`: its last
+ * queued `compositionstart` has no `compositionend` after it. Eager hydration queues every event
+ * until the application is stable; incremental hydration queues a block's events until it has
+ * hydrated the block.
+ */
+function composingInReplay(
+  element: HTMLInputElement,
+  appId: string,
+  blockQueue: readonly { readonly event: Event }[],
+): boolean {
+  let composing = false;
+
+  for (const event of [
+    ...getAppScopedQueuedEventInfos(appId).map((info) => new EventInfoWrapper(info).getEvent()),
+    ...blockQueue.map((queued) => queued.event),
+  ]) {
+    if (event.target !== element) {
+      continue;
+    }
+
+    if (event.type === "compositionstart") {
+      composing = true;
+    } else if (event.type === "compositionend") {
+      composing = false;
+    }
+  }
+
+  return composing;
 }
 
 function selectionOf(element: HTMLInputElement): InputSelection {
@@ -97,13 +134,15 @@ function selectionOf(element: HTMLInputElement): InputSelection {
  * an edit couldn't have left it. That one check is all the edit gets: Angular's replay of its
  * `beforeinput`, `input` and composition events doesn't edit again. An edit that left the
  * server's text as it was (`3` typed over the `3` of `1,23`) is taken once, at the first replayed
- * `input` that isn't part of a composition, so it commits as it would after hydration; untouched
- * server text has no replayed `input` and keeps a value with more fraction digits than it shows.
+ * `input` that isn't part of a composition, or replayed `compositionend`, so it commits as it would
+ * after hydration; untouched server text has no replayed `input` and keeps a value with more
+ * fraction digits than it shows.
  * The replay takes it only while nothing has happened since the first render: after an edit, a
  * value write, a step or a new format (eager replay waits for the application to be stable, so
  * these can come first), the replayed `input` is ignored, and the edit it reports is lost.
- * A composition that started before the block hydrated and ends after it is checked when it
- * ends, and its text is kept until then.
+ * A composition that spans hydration is checked once, when it ends: one still open at the first
+ * render keeps its text until then, also when Angular replays its start only later, and one that
+ * ended before commits once, at its replayed `compositionend` when it left the server's text.
  *
  * @example
  * ```html
@@ -129,7 +168,7 @@ function selectionOf(element: HTMLInputElement): InputSelection {
     "[attr.aria-required]": "required()",
     "(beforeinput)": "beforeInput($event)",
     "(input)": "edited($event)",
-    "(compositionstart)": "compositionStart()",
+    "(compositionstart)": "compositionStart($event)",
     "(compositionend)": "compositionEnd($event)",
     "(keydown)": "keydown($event)",
     "(blur)": "left()",
@@ -139,6 +178,8 @@ export class OrigamiNumberFieldInput {
   readonly #context = inject(NumberFieldContext);
   readonly #element = inject<ElementRef<HTMLInputElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
+  readonly #appId = inject(APP_ID);
+  readonly #blockQueue = inject(EVENT_REPLAY_QUEUE);
 
   /** @internal A static `id` from the template, else a generated one kept through hydration. */
   protected readonly id =
@@ -152,20 +193,27 @@ export class OrigamiNumberFieldInput {
   /**
    * False until the first render of an Input that hydrates (its server element carries a `value`
    * attribute when it is created): `input` events before then aren't parsed; the first render
-   * takes the element's text instead, and the edits Angular replays afterwards aren't parsed,
-   * but for one that left the server's text unchanged (see `#unchanged`).
+   * takes the element's text instead, unless a composition is open, whose end checks it, and the
+   * edits Angular replays afterwards aren't parsed, but for one that left the server's text
+   * unchanged (see `#unchanged`).
    */
   #rendered = !isPlatformBrowser(inject(PLATFORM_ID)) || !this.#element.hasAttribute("value");
   /**
    * The server's text and value a hydrating Input's first render found unchanged, which the first
-   * replayed `input` takes as an edit that left that text, while the element and the draft still
-   * show it and the value is still the same. Null before that render, after it adopted or restored
-   * the text, for an Input that doesn't hydrate, and once anything has happened since: that replay,
-   * an edit that reaches its check, or a sync after render that finds another draft or value.
+   * replayed non-composing `input` or `compositionend` takes as an edit that left that text, while
+   * the element and the draft still show it and the value is still the same. Null before that
+   * render, after it adopted or restored the text or left an open composition to its end, for an
+   * Input that doesn't hydrate, and once anything has happened since: that replay, an edit that
+   * reaches its check, or a sync after render that finds another draft or value.
    */
   #unchanged: UnchangedText | null = null;
   /** The selection at the edit's `beforeinput`, restored with the text if the edit is undone. */
   #selection: InputSelection | null = null;
+  /**
+   * A composition is open: from a genuine `compositionstart`, or from the first render when the
+   * events Angular holds for replay leave one open in the element, until a genuine
+   * `compositionend`.
+   */
   #composing = false;
   /**
    * The text a composition left in the element when its end was checked, until the next `input`,
@@ -201,13 +249,20 @@ export class OrigamiNumberFieldInput {
 
   constructor() {
     // The text that hydration didn't parse: an edit made before the block hydrated, or the
-    // server's own text.
+    // server's own text. A composition still open then, which Angular hasn't replayed yet, is
+    // left to its end.
     afterNextRender(() => {
       if (this.#rendered) {
         return;
       }
 
       this.#rendered = true;
+
+      if (this.#composing || composingInReplay(this.#element, this.#appId, this.#blockQueue)) {
+        this.#composing = true;
+
+        return;
+      }
 
       const text = this.#element.value;
 
@@ -304,20 +359,7 @@ export class OrigamiNumberFieldInput {
     }
 
     if (replayed(event)) {
-      const unchanged = this.#unchanged;
-
-      this.#unchanged = null;
-
-      if (
-        unchanged === null ||
-        this.#element.value !== unchanged.text ||
-        this.#context.text() !== unchanged.text ||
-        this.#context.value() !== unchanged.value
-      ) {
-        return;
-      }
-
-      this.#check();
+      this.#takeUnchanged();
 
       return;
     }
@@ -334,29 +376,36 @@ export class OrigamiNumberFieldInput {
   }
 
   /**
-   * @internal A composition started: its edits are checked when it ends. A replayed start opens
-   * the composition too, so one that ends after hydration is checked, and kept until then.
+   * @internal A composition started: its edits are checked when it ends. A replayed start is
+   * older than anything genuine: the first render already found whether its composition is open.
    */
-  protected compositionStart(): void {
+  protected compositionStart(event: Event): void {
+    if (replayed(event)) {
+      return;
+    }
+
     this.#composing = true;
     this.#composedText = null;
     this.#selection = selectionOf(this.#element);
   }
 
   /**
-   * @internal A composition ended: its text is checked once, its trailing `input` included. A
-   * replayed end only closes it: the first render took the text it left.
+   * @internal A composition ended: its text is checked once, its trailing `input` included, also
+   * when its start came before hydration, unless a second end leaves the text the first checked.
+   * A replayed end only takes the server's text a first render found unchanged.
    */
   protected compositionEnd(event: Event): void {
-    if (!this.#composing) {
+    if (replayed(event)) {
+      if (!this.#composing) {
+        this.#takeUnchanged();
+      }
+
       return;
     }
 
     this.#composing = false;
 
-    if (replayed(event)) {
-      this.#selection = null;
-
+    if (this.#composedText === this.#element.value) {
       return;
     }
 
@@ -398,6 +447,24 @@ export class OrigamiNumberFieldInput {
   /** @internal Focus left the Input. */
   protected left(): void {
     this.#context.left();
+  }
+
+  /** Takes the unchanged server text as an edit once, while nothing has happened since. */
+  #takeUnchanged(): void {
+    const unchanged = this.#unchanged;
+
+    this.#unchanged = null;
+
+    if (
+      unchanged === null ||
+      this.#element.value !== unchanged.text ||
+      this.#context.text() !== unchanged.text ||
+      this.#context.value() !== unchanged.value
+    ) {
+      return;
+    }
+
+    this.#check();
   }
 
   /**

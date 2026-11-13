@@ -1165,58 +1165,211 @@ test("NF12 untouched server text keeps a value with more fraction digits than it
   await expect(out(page, "counted-sets")).toHaveText("0");
 });
 
-test("NF12 a composition that starts before hydration and ends after it keeps its text while open and is checked once at its end", async ({
+/**
+ * A step of a synthetic input-method composition: its start; a composing `input` that leaves
+ * `text`, replacing the element's text or, with `range`, that range of it; its end; or the
+ * non-composing `input` Firefox dispatches after the end.
+ */
+type CompositionStep =
+  | "start"
+  | { readonly text: string; readonly range?: readonly [number, number] }
+  | "end"
+  | "trailing";
+
+/**
+ * Dispatches a composition's events on `target`. They bubble, as a browser's do, so Angular's
+ * event contract on the body records them for replay before the Input hydrates.
+ */
+async function compose(target: Locator, steps: readonly CompositionStep[]): Promise<void> {
+  await target.evaluate((element: HTMLInputElement, steps: readonly CompositionStep[]) => {
+    for (const step of steps) {
+      if (step === "start") {
+        element.dispatchEvent(
+          new CompositionEvent("compositionstart", { bubbles: true, data: "" }),
+        );
+      } else if (step === "end") {
+        element.dispatchEvent(
+          new CompositionEvent("compositionend", { bubbles: true, data: element.value }),
+        );
+      } else if (step === "trailing") {
+        element.dispatchEvent(
+          new InputEvent("input", { bubbles: true, inputType: "insertCompositionText" }),
+        );
+      } else {
+        if (step.range === undefined) {
+          element.value = step.text;
+        } else {
+          element.setRangeText(step.text, step.range[0], step.range[1], "end");
+        }
+
+        element.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            isComposing: true,
+            inputType: "insertCompositionText",
+          }),
+        );
+      }
+    }
+  }, steps);
+}
+
+test("NF12 a composition still open when the block hydrates isn't checked until it ends, which commits once", async ({
   page,
 }, info) => {
   // The counting field holds 1.234, shown as `1,23`. The composition replaces it with `5` before
-  // the block hydrates; the first render takes `5` (one `set`). It goes on after hydration, and
-  // ends without the non-composing `input` Firefox adds. The events bubble, as a browser's do, so
-  // Angular's event contract on the body records them for replay.
+  // the block hydrates and is still open at its first render, which leaves it be. It goes on after
+  // hydration, and ends without the `input` Firefox adds.
   const counted = field(page, "counted");
   const sets = out(page, "counted-sets");
 
   await hydrateAfter(page, info, async () => {
     await selectAll(counted);
-    await counted.evaluate((element: HTMLInputElement) => {
-      element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
-      element.value = "5";
-      element.dispatchEvent(
-        new InputEvent("input", {
-          bubbles: true,
-          isComposing: true,
-          inputType: "insertCompositionText",
-        }),
-      );
-    });
+    await compose(counted, ["start", { text: "5" }]);
   });
   await replayed(page);
   await expect(counted).toHaveValue("5");
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await expect(sets).toHaveText("0");
+
+  // The composing `input` renders; the render keeps the open composition's text.
+  await compose(counted, [{ text: "56" }]);
+  await replayed(page);
+  expect(await counted.inputValue()).toBe("56");
+  await expect(sets).toHaveText("0");
+  await compose(counted, ["end"]);
+  await expect(out(page, "counted-value")).toHaveText("56");
+  await expect(counted).toHaveValue("56");
+  await expect(sets).toHaveText("1");
+  await replayed(page);
+  await expect(sets).toHaveText("1");
+
+  // Ordinary typing commits afterwards.
+  await selectAll(counted);
+  await page.keyboard.type("7");
+  await expect(out(page, "counted-value")).toHaveText("7");
+  await expect(sets).toHaveText("2");
+});
+
+test("NF12 a composition still open when the block hydrates keeps text the grammar rejects until it ends, which undoes it", async ({
+  page,
+}, info) => {
+  const counted = field(page, "counted");
+  const sets = out(page, "counted-sets");
+
+  await hydrateAfter(page, info, async () => {
+    await selectAll(counted);
+    await compose(counted, ["start", { text: "ご" }]);
+  });
+  await replayed(page);
+  expect(await counted.inputValue()).toBe("ご");
+  await compose(counted, [{ text: "ごご" }]);
+  await replayed(page);
+  expect(await counted.inputValue()).toBe("ごご");
+  await compose(counted, ["end"]);
+  await expect(counted).toHaveValue("1,23");
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await expect(sets).toHaveText("0");
+
+  await selectAll(counted);
+  await page.keyboard.type("7");
+  await expect(out(page, "counted-value")).toHaveText("7");
+  await expect(sets).toHaveText("1");
+});
+
+test("NF12 a composition that starts before hydration and ends before eager hydration replays its start commits once and leaves the Input not composing", async ({
+  page,
+}, info) => {
+  // `?hold-stability` keeps eager hydration's replay waiting after the Input's listeners attach:
+  // the composition's end arrives live, before Angular replays its start. Incremental hydration
+  // replays a block's events as it hydrates the block, so there the end comes after the replay.
+  const counted = field(page, "counted");
+  const sets = out(page, "counted-sets");
+
+  await hydrateAfter(
+    page,
+    info,
+    async () => {
+      await selectAll(counted);
+      await compose(counted, ["start", { text: "5" }]);
+    },
+    "/number-field?hold-stability",
+  );
+  await replayed(page);
+  await expect(counted).toHaveValue("5");
+  await expect(out(page, "counted-value")).toHaveText("1.234");
+  await expect(sets).toHaveText("0");
+
+  await compose(counted, [{ text: "56" }, "end"]);
+  await expect(out(page, "counted-value")).toHaveText("56");
+  await expect(sets).toHaveText("1");
+
+  await releaseReplay(page);
+  await expect(counted).toHaveValue("56");
+  await expect(out(page, "counted-value")).toHaveText("56");
+  await expect(sets).toHaveText("1");
+
+  await selectAll(counted);
+  await page.keyboard.type("7");
+  await expect(out(page, "counted-value")).toHaveText("7");
+  await expect(sets).toHaveText("2");
+});
+
+test("NF12 a composition after hydration keeps its text while the replay of one completed before it runs, and is checked once at its end", async ({
+  page,
+}, info) => {
+  // The first composition completes before the block hydrates; its first render takes `5`. A
+  // second starts live while eager hydration's replay waits; the replay of the first one's start
+  // and end mustn't close it.
+  const counted = field(page, "counted");
+  const sets = out(page, "counted-sets");
+
+  await hydrateAfter(
+    page,
+    info,
+    async () => {
+      await selectAll(counted);
+      await compose(counted, ["start", { text: "5" }, "end"]);
+    },
+    "/number-field?hold-stability",
+  );
+  await replayed(page);
   await expect(out(page, "counted-value")).toHaveText("5");
   await expect(sets).toHaveText("1");
 
-  // The composing `input` renders; the render keeps the open composition's text.
-  await counted.evaluate((element: HTMLInputElement) => {
-    element.value = "56";
-    element.dispatchEvent(
-      new InputEvent("input", {
-        bubbles: true,
-        isComposing: true,
-        inputType: "insertCompositionText",
-      }),
-    );
-  });
-  await replayed(page);
+  await compose(counted, ["start", { text: "56" }]);
+  await releaseReplay(page);
   expect(await counted.inputValue()).toBe("56");
   await expect(sets).toHaveText("1");
-  await counted.evaluate((element: HTMLInputElement) => {
-    element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "56" }));
-  });
+  await compose(counted, ["end"]);
   await expect(out(page, "counted-value")).toHaveText("56");
-  await expect(counted).toHaveValue("56");
-  await expect(sets).toHaveText("2");
-  await replayed(page);
   await expect(sets).toHaveText("2");
 });
+
+for (const trailing of [false, true]) {
+  test(`NF12 a composition completed before hydration that leaves the server's text commits once${trailing ? ", its trailing input included" : ""}`, async ({
+    page,
+  }, info) => {
+    // The counting field holds 1.234, shown as `1,23`. The composition writes `3` over its `3`:
+    // the first render finds the server's text, and the replay of the composition's end takes it
+    // as an edit. Firefox adds a non-composing `input` after the end, which isn't another edit.
+    const counted = field(page, "counted");
+    const sets = out(page, "counted-sets");
+    const steps: CompositionStep[] = ["start", { text: "3", range: [3, 4] }, "end"];
+
+    await hydrateAfter(page, info, async () => {
+      await counted.evaluate((element: HTMLInputElement) => {
+        element.focus();
+        element.setSelectionRange(3, 4);
+      });
+      await compose(counted, trailing ? [...steps, "trailing"] : steps);
+    });
+    await replayed(page);
+    await expect(counted).toHaveValue("1,23");
+    await expect(out(page, "counted-value")).toHaveText("1.23");
+    await expect(sets).toHaveText("1");
+  });
+}
 
 test("NF12 a composition completed before hydration commits once and doesn't leave the Input composing", async ({
   page,
@@ -1226,18 +1379,7 @@ test("NF12 a composition completed before hydration commits once and doesn't lea
 
   await hydrateAfter(page, info, async () => {
     await selectAll(counted);
-    await counted.evaluate((element: HTMLInputElement) => {
-      element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
-      element.value = "5";
-      element.dispatchEvent(
-        new InputEvent("input", {
-          bubbles: true,
-          isComposing: true,
-          inputType: "insertCompositionText",
-        }),
-      );
-      element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "5" }));
-    });
+    await compose(counted, ["start", { text: "5" }, "end"]);
   });
   await replayed(page);
   await expect(counted).toHaveValue("5");
