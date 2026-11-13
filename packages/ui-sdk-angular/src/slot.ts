@@ -101,10 +101,12 @@ export class ɵUiSdkSlot<S extends object> {
       });
     });
 
+    // Reads the root's revision, not its inputs: core's API-derived fields, like the value's
+    // label, change once core has the new options or another slot's new props.
     this.state = computed(
       () => {
         version();
-        root.options();
+        root.revision();
 
         return partState(this.part(), props()) as S;
       },
@@ -115,12 +117,31 @@ export class ɵUiSdkSlot<S extends object> {
       const record = this.part();
       const values = props();
 
-      root.options();
+      root.revision();
       version();
       untracked(() => applyAttrs(element, attrs(record, values), channel));
     };
 
     effect(write);
+
+    // Delivers changed props to core, then tells the other slots: a same-key update keeps the
+    // part, so nothing else would notice. The first delivery is the initial render, which every
+    // slot makes anyway, so it doesn't count: initial and server-rendered attributes stay as core
+    // first computes them.
+    let delivered = false;
+
+    effect(() => {
+      props();
+      this.part();
+
+      if (!delivered) {
+        delivered = true;
+
+        return;
+      }
+
+      untracked(() => root.delivered());
+    });
 
     let unsubscribe: (() => void) | undefined;
     let unbind: (() => void) | undefined;

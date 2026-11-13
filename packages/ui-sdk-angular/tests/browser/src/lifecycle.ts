@@ -18,7 +18,7 @@ type Country = { code: string; name: string };
       uiSelect
       data-testid="objects"
       [itemToValue]="toKey"
-      [itemToLabel]="toLabel"
+      [itemToLabel]="toLabel()"
       (valueChange)="country.set($event)"
     >
       <button uiSelectTrigger aria-label="Country">
@@ -31,6 +31,7 @@ type Country = { code: string; name: string };
       </div>
     </div>
     <output data-testid="country">{{ country()?.name ?? "none" }}</output>
+    <button data-testid="relabel-countries" (click)="relabelCountries()">Relabel countries</button>
 
     <button data-testid="create-late" (click)="late.set(true)">Create</button>
     @if (late()) {
@@ -74,7 +75,10 @@ export class Lifecycle {
     return country.code;
   }
 
-  protected toLabel(country: Country): string {
-    return country.name;
+  protected readonly toLabel = signal((country: Country) => country.name);
+
+  // Only the root's `itemToLabel` changes: no item, key or store field does.
+  protected relabelCountries(): void {
+    this.toLabel.set((country) => `New ${country.name}`);
   }
 }

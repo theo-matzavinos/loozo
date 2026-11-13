@@ -31,6 +31,10 @@ test("object values key by itemToValue: distinct ids, the selected object and it
   await expect(page.locator(`${root} [uiSelectValue]`)).toHaveText("France");
   await expect(page.locator(`${root} [data-option=fr]`)).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(`${root} [data-option=gr]`)).toHaveAttribute("aria-selected", "false");
+
+  // A new itemToLabel alone reaches core, and the shown label follows it once core has it.
+  await page.locator("[data-testid=relabel-countries]").click();
+  await expect(page.locator(`${root} [uiSelectValue]`)).toHaveText("New France");
   expectClean(messages);
 });
 

@@ -28,6 +28,13 @@ export class ɵUiSdkRoot<P extends Primitive> {
    * key, reads it, so it re-runs once core has the new options rather than before.
    */
   readonly handovers: Signal<number>;
+  /**
+   * Counts the changes core may derive a slot's state from: option handovers and props a slot
+   * delivers. Slot state and attributes read it, so a selected item's new label, or a new
+   * `itemToLabel`, reaches the value slot though no store field changed.
+   */
+  readonly revision: Signal<number>;
+  readonly #revision = signal(0);
   readonly #primitive: P;
   readonly #directive: string;
   readonly #slots = new Set<RegisteredSlot>();
@@ -42,6 +49,7 @@ export class ɵUiSdkRoot<P extends Primitive> {
     const handovers = signal(0);
 
     this.handovers = handovers.asReadonly();
+    this.revision = this.#revision.asReadonly();
 
     let first = true;
 
@@ -58,6 +66,7 @@ export class ɵUiSdkRoot<P extends Primitive> {
       untracked(() => {
         instance.setOptions({ ...next, id: this.id });
         handovers.update((count) => count + 1);
+        this.delivered();
       });
     });
 
@@ -86,6 +95,11 @@ export class ɵUiSdkRoot<P extends Primitive> {
     }
 
     return this.#instance;
+  }
+
+  /** Records that core got new options or a slot's new props. */
+  delivered(): void {
+    this.#revision.update((count) => count + 1);
   }
 
   /** Marks the root's inputs as set. The root directive calls it from `ngOnInit`. */

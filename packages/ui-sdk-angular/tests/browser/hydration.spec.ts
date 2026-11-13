@@ -487,10 +487,12 @@ test("kept items follow disabled, label and value changes (P1c-L)", async ({ pag
     keep["cherry"] = document.querySelector("[data-option=cherry]");
   });
 
-  // A label change on a kept item reaches core: the value's label follows it.
-  await page.locator("[data-testid=relabel-banana]").click();
+  // A label change on a kept, selected item reaches core, and the value's label follows it with
+  // no further interaction.
   await button.click();
   await page.locator("[data-option=banana]").click();
+  await expect(page.locator("[data-testid=label]")).toHaveText("Banana");
+  await page.locator("[data-testid=relabel-banana]").click();
   await expect(page.locator("[data-testid=label]")).toHaveText("Ripe banana");
 
   // Disabled reaches core's pointer handling on the same node.
