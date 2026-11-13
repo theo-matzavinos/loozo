@@ -28,7 +28,7 @@ Releases are numbered `0.MINOR.PATCH` until 1.0. [`SPEC.md`](SPEC.md) is the con
 
 - A patch (0.1.0 → 0.1.1) doesn't break the contract. It fixes bugs, improves the docs or adds something, such as an export, an option or a codec.
 - A minor (0.1.x → 0.2.0) may break it. Every move to a new Angular minor is also a minor release (see [Angular versions](#angular-versions)), so a `^0.1.0` range never picks up a release that needs a different Angular.
-- Generated files aren't part of the contract byte for byte, so any release may change them. After upgrading, run `ng build` once and commit the regenerated files; until then, the CI check (`ng build --configuration ci`) fails on them.
+- Generated files aren't part of the contract byte for byte, so any release, a patch included, may change them, and a release supports only the generated files it writes itself. After upgrading, run `ng build` (or `ng serve`) once and commit the regenerated files. Until then, the CI check (`ng build --configuration ci`) fails on them, and `ng test`, `ng extract-i18n` and your editor read the old ones, which the new release doesn't support.
 
 Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-router&expanded=true).
 
