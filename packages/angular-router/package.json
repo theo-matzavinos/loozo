@@ -57,7 +57,8 @@
     "test:lifecycle": "node tests/lifecycle.mjs",
     "test:ssr": "node tests/ssr.mjs",
     "test:tooling": "node tests/tooling.mjs",
-    "typecheck:consumers": "tsc -p tests/tsconfig.nodenext.json && tsc -p tests/tsconfig.bundler.json"
+    "typecheck:consumers": "tsc -p tests/tsconfig.nodenext.json && tsc -p tests/tsconfig.bundler.json",
+    "bench": "node bench/run.mjs"
   },
   "dependencies": {
     "@angular-devkit/architect": "0.2202.2",

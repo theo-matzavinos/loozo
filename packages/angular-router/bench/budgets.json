@@ -1,0 +1,32 @@
+{
+  "100": {
+    "generate.ms": 11000,
+    "serve.generatedMs": 9000,
+    "serve.servedMs": 11000,
+    "build.ms": 22000,
+    "typecheck.ngcMs": 8000,
+    "typecheck.instantiations": 97000,
+    "bundle.initial.raw": 275000,
+    "bundle.initial.brotli": 65000
+  },
+  "300": {
+    "generate.ms": 34000,
+    "serve.generatedMs": 29000,
+    "serve.servedMs": 36000,
+    "build.ms": 63000,
+    "typecheck.ngcMs": 15000,
+    "typecheck.instantiations": 269000,
+    "bundle.initial.raw": 371000,
+    "bundle.initial.brotli": 69000
+  },
+  "1000": {
+    "generate.ms": 199000,
+    "serve.generatedMs": 192000,
+    "serve.servedMs": 211000,
+    "build.ms": 226000,
+    "typecheck.ngcMs": 38000,
+    "typecheck.instantiations": 870000,
+    "bundle.initial.raw": 709000,
+    "bundle.initial.brotli": 83000
+  }
+}
