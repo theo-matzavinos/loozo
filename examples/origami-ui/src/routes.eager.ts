@@ -49,6 +49,11 @@ export const routes: Routes = [
       import("./fixtures/dialog-open.js").then((module) => module.DialogOpenFixture),
   },
   {
+    path: "dialog-split",
+    loadComponent: () =>
+      import("./fixtures/dialog-split.js").then((module) => module.DialogSplitFixture),
+  },
+  {
     path: "alert-dialog",
     loadComponent: () =>
       import("./fixtures/alert-dialog.js").then((module) => module.AlertDialogFixture),
