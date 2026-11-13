@@ -37,7 +37,7 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // hydrates (NF12), check what hydration keeps, so they run there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
 const hydrationAndErrorCases =
-  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b/;
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bY26\b/;
 
 let browsers = browserNames;
 

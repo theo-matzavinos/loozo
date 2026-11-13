@@ -58,6 +58,11 @@ export const routes: Routes = [
       import("./fixtures/dialog-open-deferred.js").then((module) => module.DialogOpenDeferred),
   },
   {
+    path: "dialog-split",
+    loadComponent: () =>
+      import("./fixtures/dialog-split-deferred.js").then((module) => module.DialogSplitDeferred),
+  },
+  {
     path: "alert-dialog",
     loadComponent: () =>
       import("./fixtures/alert-dialog-deferred.js").then((module) => module.AlertDialogDeferred),

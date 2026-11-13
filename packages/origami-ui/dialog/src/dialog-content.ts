@@ -7,7 +7,6 @@ import {
   forwardRef,
   inject,
   input,
-  linkedSignal,
 } from "@angular/core";
 import type { AbstractType, Provider, Signal, Type } from "@angular/core";
 import {
@@ -71,12 +70,6 @@ export class OrigamiDialogContentState {
 }
 
 /**
- * What the element's `aria-labelledby` at construction is: `pending` until the Title IDs first
- * equal it exactly, then `server` from then on (a hydrated element carries the server's output).
- */
-type Snapshot = "pending" | "server";
-
-/**
  * The native `<dialog>` a Dialog shows modally with `showModal()`, in the browser's top layer
  * with its `::backdrop`, the rest of the page inert. It stays where it's authored. Requires a
  * nearest Dialog; a second mounted Content fails clearly.
@@ -111,7 +104,8 @@ type Snapshot = "pending" | "server";
  * - **Scroll.** `<html>` has `overflow: hidden` while any Origami dialog is modal; its previous
  *   inline `overflow-x` and `overflow-y` come back after the last one closes. Use `scrollbar-gutter` against shift.
  * - **Names.** `aria-labelledby` names the registered Titles, in registration order; with none, a
- *   static `aria-labelledby` is kept. Descriptions inside Content are added to
+ *   static `aria-labelledby` is kept. A Title still dehydrated in another `@defer` boundary isn't
+ *   named until it hydrates. Descriptions inside Content are added to
  *   `aria-describedby`, shared with other describers on the element. The role is the native
  *   dialog's; under an `OrigamiAlertDialog` root, `role="alertdialog"`.
  *
@@ -134,6 +128,10 @@ type Snapshot = "pending" | "server";
   host: {
     "[id]": "effectiveId()",
     "[attr.role]": "role",
+    // The static default a consumer's static value overrides. Hydration writes the static
+    // attributes onto the server's element before Content is created, so the element holds this
+    // default rather than the server's naming of a Title.
+    "aria-labelledby": "",
     "[attr.aria-labelledby]": "labelledBy()",
     "(cancel)": "cancel($event)",
     "(close)": "nativeClose($event)",
@@ -159,20 +157,6 @@ export class OrigamiDialogContent implements OrigamiDialogContentOptions {
   readonly #options = injectDeferred(OrigamiDialogContentOptions);
   readonly #destroyRef = inject(DestroyRef);
   readonly #initialLabelledBy = this.#element.getAttribute("aria-labelledby");
-  readonly #snapshot = linkedSignal<string, Snapshot>({
-    source: this.#context.titleIds,
-    computation: (ids, previous) => {
-      if (previous?.value === "server") {
-        return "server";
-      }
-
-      if (ids !== "" && ids === this.#initialLabelledBy) {
-        return "server";
-      }
-
-      return "pending";
-    },
-  });
 
   /** @internal Effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
@@ -181,18 +165,13 @@ export class OrigamiDialogContent implements OrigamiDialogContentOptions {
   /** @internal Registered Title IDs, or the static value while none is registered. */
   protected readonly labelledBy = computed(() => {
     const ids = this.#context.titleIds();
-    // Read on every evaluation, so the snapshot sees every list of IDs the attribute renders.
-    const snapshot = this.#snapshot();
 
     if (ids !== "") {
       return ids;
     }
 
-    if (snapshot === "server") {
-      return null;
-    }
-
-    return this.#initialLabelledBy;
+    // The empty default stands for no static value.
+    return this.#initialLabelledBy || null;
   });
 
   /** @internal Registers Content and its Descriptions once Angular has set its inputs; a second mounted Content fails clearly. */

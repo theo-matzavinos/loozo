@@ -2494,3 +2494,35 @@ test("Y25: initial focus that Chromium put on a scroll container that overflows,
   await page.keyboard.press("Escape");
   await expectClosed(slotContent);
 });
+
+test("Y26: hydrated Content names no Title still dehydrated in its own hydrate boundary and keeps a static aria-labelledby; the Title is named once it hydrates", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const plain = page.locator("#split-content");
+  const labelled = page.locator("#split-labelled-content");
+
+  await fixture(page, "dialog-split", info, async () => {
+    if (incremental) {
+      await expect(plain).toHaveAttribute("aria-labelledby", "split-title");
+      await expect(labelled).toHaveAttribute("aria-labelledby", "split-labelled-title");
+
+      return;
+    }
+
+    // Without incremental hydration the server renders the blocks' placeholders.
+    await expect(plain).not.toHaveAttribute("aria-labelledby", /.*/);
+    await expect(labelled).toHaveAttribute("aria-labelledby", "split-label");
+  });
+
+  if (incremental) {
+    // The Titles' server elements are still there, dehydrated.
+    await expect(page.locator("#split-title")).toHaveText("Split title");
+    await expect(plain).not.toHaveAttribute("aria-labelledby", /.*/);
+    await expect(labelled).toHaveAttribute("aria-labelledby", "split-label");
+  }
+
+  await page.getByTestId("hydrate-titles").click();
+  await expect(plain).toHaveAttribute("aria-labelledby", "split-title");
+  await expect(labelled).toHaveAttribute("aria-labelledby", "split-labelled-title");
+});
