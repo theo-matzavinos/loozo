@@ -496,7 +496,10 @@ test("output checked out with CRLF line endings stays owned and current", async 
 
   // Real drift is still drift, and the generator writes LF.
   await project.page("about");
-  await assert.rejects(project.generate({ check: true }), /changed|missing/);
+  await assert.rejects(
+    project.generate({ check: true }),
+    /(changed|missing):\n[^]*\nRun ng build to update them and commit the result; this is expected after upgrading\.$/,
+  );
   await project.generate();
   assert.match(await project.routes(), /path: "about"/);
   assert.doesNotMatch(await project.routes(), /\r/);

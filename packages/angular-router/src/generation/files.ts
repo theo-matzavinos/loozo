@@ -238,6 +238,10 @@ export async function planOutputs(
   return { changed, missing, stale, desired };
 }
 
+// Check mode's next step; drift right after an upgrade is the expected case (README "Versions").
+const regenerate =
+  "Run ng build to update them and commit the result; this is expected after upgrading.";
+
 export function publish(
   plan: OutputPlan,
   check: boolean,
@@ -252,7 +256,7 @@ export function publish(
   if (check) {
     if (authored.size > 0) {
       throw new Error(
-        `Filesystem definitions missing/changed:\n${[...authored.keys()].join("\n")}`,
+        `Filesystem definitions missing/changed:\n${[...authored.keys()].join("\n")}\n${regenerate}`,
       );
     }
 
@@ -262,7 +266,7 @@ export function publish(
       ["stale", plan.stale],
     ] as const) {
       if (paths.length > 0) {
-        throw new Error(`Generated artifacts ${kind}:\n${paths.join("\n")}`);
+        throw new Error(`Generated artifacts ${kind}:\n${paths.join("\n")}\n${regenerate}`);
       }
     }
 
