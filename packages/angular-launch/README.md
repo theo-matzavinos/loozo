@@ -861,7 +861,7 @@ The results reach the browser inside the page, as during server rendering: throu
 - `ng serve` renders prerendered routes on every request the same way, with the anonymous context whatever cookies the browser sends.
 - Angular's prerender timeout doesn't reach handlers: their `signal` aborts when the render's application is destroyed, or when `HttpClient` unsubscribes from the call.
 
-Blocking initial navigation (`withEnabledBlockingInitialNavigation`) combined with a root resolver that calls an RPC isn't supported: Angular runs that resolver while it discovers routes, also without a request, so Launch runs the call there with an anonymous context too.
+Blocking initial navigation (`withEnabledBlockingInitialNavigation`) isn't supported yet. With `finishLaunchRendering` in your server bootstrap, Angular's route extraction waits on it until Angular's 30-second timeout, and the build fails with "Routes extraction was aborted", whether or not a resolver calls an RPC. A fix is planned before 1.0. Angular documents blocking initial navigation for server rendering without hydration, and Launch apps hydrate: hydration is what enables the HTTP transfer cache.
 
 ## Testing
 
@@ -1213,11 +1213,12 @@ The options are fixed when the session is created. Edits inside the app, includi
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
-- No cookie reader, and no success status other than 200. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
+- No success status other than 200: a result is always 200, and other statuses come from failures and outcomes. No cookie reader yet (planned before 1.0); your context parses the `Cookie` header. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
-- Redirects are root-relative only, and outcomes act only in navigation, through `rpcNavigationErrors`. Nothing maps `FORBIDDEN` to a page.
-- One RPC group per route, and one context per application.
+- Redirects are root-relative only: an external destination, such as an OAuth provider, is data your page acts on. Outcomes act only in navigation, through `rpcNavigationErrors`, and nothing maps `FORBIDDEN` to a page: middleware that guards a page's reads throws `redirect()` or `notFound()` instead.
+- One RPC group per route, and one context per application. A redesign planned before 1.0 moves the context, middleware and RPC groups into each route's own declaration.
+- Blocking initial navigation isn't supported yet; see [Prerendering](#prerendering).
 
 ## Further reading
 
