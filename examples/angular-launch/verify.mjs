@@ -20,16 +20,19 @@ if (!evidence || extra !== undefined || !isAbsolute(evidence)) {
 await mkdir(evidence);
 
 // Starts a built server entry on a free loopback port and resolves once it is listening; the
-// server's output goes to `log` in the evidence directory.
+// server's output goes to `log` in the evidence directory, and `output()` returns it so far.
 async function serve(entry, log) {
   const output = createWriteStream(join(evidence, log));
   const server = spawn(process.execPath, [fileURLToPath(entry)], {
     env: { ...process.env, PORT: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  let all = "";
 
   server.stdout.pipe(output);
   server.stderr.pipe(output);
+  server.stdout.on("data", (chunk) => (all += chunk));
+  server.stderr.on("data", (chunk) => (all += chunk));
 
   const base = await new Promise((resolve, reject) => {
     let text = "";
@@ -46,7 +49,7 @@ async function serve(entry, log) {
     });
   });
 
-  return { base, server };
+  return { base, server, output: () => all };
 }
 
 const built = await serve(new URL("./dist/todos/server/server.mjs", import.meta.url), "server.log");
@@ -1223,6 +1226,66 @@ try {
   await livePage.close();
   checks.push(
     "the browser stream client yields typed values, ends cleanly, rejects with the procedure's declared error, and break closes the request so the handler sees its signal abort and returns",
+  );
+
+  // A client leaving is expected: the break above, closing /live while it follows its stream,
+  // and a page render aborted while its slow list loads. The server entry logs none of them.
+  const beforeRenderAbort = await stats();
+  const leaving = new AbortController();
+  const render = fetch(`${base}/todos`, {
+    headers: { cookie: "proof-user=alice; proof-delay=1" },
+    signal: leaving.signal,
+  });
+
+  setTimeout(() => leaving.abort(), 150);
+  await assert.rejects(render, { name: "AbortError" });
+
+  // The slow list finishes after Angular already rejected the render.
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if ((await stats()).abortedQueries > beforeRenderAbort.abortedQueries) {
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  assert.ok((await stats()).abortedQueries > beforeRenderAbort.abortedQueries);
+  assert.deepEqual(
+    built
+      .output()
+      .split("\n")
+      .filter((line) => line.includes("AbortError")),
+    [],
+  );
+  assert.match(built.output(), /Launch RPC failed Error: Private database failure fixture/);
+
+  // This entry isn't Express, but its abort handling must be the README's, line for line.
+  const readme = await readFile(
+    new URL("../../packages/angular-launch/README.md", import.meta.url),
+    "utf8",
+  );
+  const abortSection = readme.split("\n### Aborted requests\n")[1].split("\n### ")[0];
+  const entryLines = (await readFile(new URL("./src/server.ts", import.meta.url), "utf8"))
+    .split("\n")
+    .map((line) => line.trim());
+  const snippets = [...abortSection.matchAll(/```ts\n([\s\S]*?)```/g)];
+
+  assert.equal(snippets.length, 2);
+
+  for (const [, snippet] of snippets) {
+    let at = 0;
+
+    for (const line of snippet.split("\n").map((text) => text.trim())) {
+      if (line) {
+        at = entryLines.indexOf(line, at);
+        assert.notEqual(at, -1, `src/server.ts lacks the README's \`${line}\``);
+        at += 1;
+      }
+    }
+  }
+
+  checks.push(
+    "the built server, whose abort handling is the README's, logs nothing when a client leaves a stream, a page following one or a page render, and still logs real failures",
   );
 
   // One batched desktop+narrow visual pass against genuine native browser UI.

@@ -208,7 +208,8 @@ app.use(async (request, response, next) => {
 
     response.once("close", () => {
       if (!response.writableFinished) {
-        closed.abort();
+        // Once Angular's helper has cancelled a body it was writing.
+        queueMicrotask(() => closed.abort());
       }
     });
 
@@ -233,6 +234,11 @@ app.use(async (request, response, next) => {
 
     await writeResponseToNodeResponse(page, response);
   } catch (error) {
+    // Angular rejects a render whose client left; there's no one to answer.
+    if (response.destroyed && error instanceof DOMException && error.name === "AbortError") {
+      return;
+    }
+
     next(error);
   }
 });
@@ -1047,7 +1053,7 @@ const closed = new AbortController();
 
 response.once("close", () => {
   if (!response.writableFinished) {
-    closed.abort();
+    queueMicrotask(() => closed.abort());
   }
 });
 
@@ -1056,6 +1062,16 @@ const web = new Request(native, { signal: AbortSignal.any([native.signal, closed
 ```
 
 Pass `web` to both `handleRequest` and `createContext`, so page renders get the same signal. Without this wiring everything works, but query and mutation handlers never see an abort over HTTP, and a [stream](#streams) whose client left before it started runs until it ends by itself. A stream that's already being sent stops either way, since Angular's helper cancels its body when the response closes.
+
+The abort waits a microtask because this listener runs before the one Angular's `writeResponseToNodeResponse` adds for the same `close` event later. Aborting right away fails a stream's body before Angular's helper cancels it, and the helper then logs that failure as `DOMException [AbortError]` whenever a client leaves a stream.
+
+Angular rejects a page render whose request aborted with an `AbortError`. When the response is gone by then, nobody is left to answer, so the server entry returns instead of passing the error to `next`, which would log it. Every other error still reaches `next`:
+
+```ts
+if (response.destroyed && error instanceof DOMException && error.name === "AbortError") {
+  return;
+}
+```
 
 ### Other server frameworks
 
