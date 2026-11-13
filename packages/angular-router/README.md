@@ -427,9 +427,11 @@ To go back to native file events, set `"poll": false` in the serve target or one
 ## Limitations
 
 - No standalone generation CLI or public route-graph API. Generate through the two builders.
-- Route and page files must be `.ts`; `.mts`, `.cts` and `.tsx` are ignored.
-- Primary outlet only: no named outlets, custom matchers or `loadChildren`.
-- One scan directory per application.
+- Route and page files must be `.ts`; `.mts`, `.cts` and `.tsx` are ignored without a warning. This stays after 1.0: Angular templates aren't JSX, and Angular's tooling isn't set up for components in `.mts` or `.cts` files.
+- Route declarations can't use custom matchers or `loadChildren`.
+- Primary outlet only, for now. Named outlets are planned for 1.0. Until then you can add outlet routes by hand next to the generated `routes`; they aren't typed, and typed navigation drops any outlet segment from the URL.
+- One scan directory per application. Routes from monorepo libraries are planned for 1.0. Until then, compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
+- No translated path segments yet; per-locale route trees are planned for 1.0. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - No data, URL or transfer caches. Resolver data lives in Angular.
 - Relative navigation from a catchall route isn't supported; omit `to` or use an absolute selector.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
