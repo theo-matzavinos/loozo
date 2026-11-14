@@ -5,7 +5,7 @@
     "serve.servedMs": 5000,
     "build.ms": 11000,
     "typecheck.ngcMs": 4000,
-    "typecheck.instantiations": 97000,
+    "typecheck.instantiations": 106000,
     "bundle.initial.raw": 275000,
     "bundle.initial.brotli": 65000
   },
@@ -15,7 +15,7 @@
     "serve.servedMs": 6000,
     "build.ms": 12000,
     "typecheck.ngcMs": 5000,
-    "typecheck.instantiations": 269000,
+    "typecheck.instantiations": 293000,
     "bundle.initial.raw": 371000,
     "bundle.initial.brotli": 69000
   },
@@ -25,7 +25,7 @@
     "serve.servedMs": 22000,
     "build.ms": 29000,
     "typecheck.ngcMs": 12000,
-    "typecheck.instantiations": 870000,
+    "typecheck.instantiations": 948000,
     "bundle.initial.raw": 709000,
     "bundle.initial.brotli": 84000
   }

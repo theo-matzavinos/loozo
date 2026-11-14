@@ -1,5 +1,6 @@
 export { callbacks, redirect } from "./callbacks.js";
-export { assertIdentity, parseInputs } from "./inputs.js";
+export { assertIdentity, callbackInputs, parseInputs } from "./inputs.js";
+export type { RouteSchema } from "@loozo/angular-router/_core";
 export type { RecordBinding, RouteSet } from "./inputs.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 

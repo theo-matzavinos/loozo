@@ -87,10 +87,10 @@ The template reads the signals directly: they hold the activated route's values 
 ## Declaring routes
 
 ```ts
-defineRoute(path, config);
+defineRoute(path, facts).step(argument)…;
 ```
 
-`path` must be a string literal; TypeScript infers everything else without generic arguments. By default the builder writes `path` and `parent` from the directories, and you write the rest.
+`path` must be a string literal; TypeScript infers everything else without generic arguments. `facts` holds the URL facts: the parent and the codecs for params, search and fragments. Behavior follows as chained steps. By default the builder writes `path` and `parent` from the directories, and you write the rest.
 
 ### Paths
 
@@ -106,22 +106,27 @@ Paths are decoded segment text, not URLs:
 
 No leading, trailing or repeated slashes. A catchall must be the last segment, a route can have at most one, and a catchall route can't have children. A root `$segments[]` route works as a not-found fallback; ordinary routes still match before it, unless their path params fail to parse.
 
-### Config
+### URL facts and steps
 
-| Key                                                           | Purpose                                                                                 |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `parent`                                                      | The parent route, imported as the parent declaration's default export                   |
-| `params`                                                      | One codec per path param, keyed by bare name. Required exactly when the path has params |
-| `search`                                                      | Codecs for query params                                                                 |
-| `fragments`                                                   | The fragment names this route accepts                                                   |
-| `resolve`                                                     | Resolvers that receive parsed inputs                                                    |
-| `canActivate`, `canActivateChild`, `canMatch`                 | Guards that receive parsed inputs                                                       |
-| `onInvalidParams`                                             | What happens when this route's own path params fail to parse, instead of not matching   |
-| `title`                                                       | A string, or a callback that receives parsed inputs                                     |
-| `canDeactivate`, `providers`, `data`, `runGuardsAndResolvers` | Passed to Angular unchanged                                                             |
-| `redirect`                                                    | A typed redirect to another route                                                       |
+| URL fact    | Purpose                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------- |
+| `parent`    | The parent route, imported as the parent declaration's default export                   |
+| `params`    | One codec per path param, keyed by bare name. Required exactly when the path has params |
+| `search`    | Codecs for query params                                                                 |
+| `fragments` | The fragment names this route accepts                                                   |
 
-Structural keys such as `path`, `children`, `component`, `loadComponent`, `redirectTo`, `pathMatch`, `matcher` and `outlet` are rejected: generation owns them.
+| Step                                                                          | Purpose                                                                               |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `.resolve(…)`                                                                 | Resolvers that receive parsed inputs                                                  |
+| `.canActivate(…)`, `.canActivateChild(…)`, `.canMatch(…)`                     | Guards that receive parsed inputs                                                     |
+| `.onInvalidParams(…)`                                                         | What happens when this route's own path params fail to parse, instead of not matching |
+| `.title(…)`                                                                   | A string, or a callback that receives parsed inputs                                   |
+| `.canDeactivate(…)`, `.providers(…)`, `.data(…)`, `.runGuardsAndResolvers(…)` | Passed to Angular unchanged                                                           |
+| `.redirect(…)`                                                                | A typed redirect to another route                                                     |
+
+Each step takes one argument and returns a new route without that step, so steps come in any order, each at most once. `.redirect` comes last and isn't offered after a guard step or `.onInvalidParams`; `.onInvalidParams` is only offered when the path has params of its own. TypeScript reports a step used out of place as a missing property at that call.
+
+The facts object takes nothing else: behavior keys belong in steps, and structural keys such as `path`, `children`, `component`, `loadComponent`, `redirectTo`, `pathMatch`, `matcher` and `outlet` are rejected because generation owns them.
 
 ### Parents
 
@@ -170,7 +175,7 @@ Parsing should be pure and deterministic. A path codec runs twice per navigation
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs.
+The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route` and `ParamCodec`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
 
 ### Fragments
 
@@ -199,9 +204,9 @@ Each route that has a page or descendants with pages gets a colocated `route.gen
 
 `params`, `search`, `data` and `title` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), they change together. When a navigation is cancelled or fails before activation (in matching, a guard or a resolver), they keep their values. When a routed component's constructor throws during activation, the pages above it that stay on screen already have the new values, and keep them until the next navigation completes. Handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
 
-`data` holds the resolver results of this route and its ancestors, pathless and page-less ones included: the outermost ancestor's first, then nearer ones, then this route's own. As in Angular's own data inheritance, a nearer route's key hides an ancestor's key of the same name, and the hidden value isn't reachable through the handle. The merge is the same whatever `paramsInheritanceStrategy` you set, so under `'emptyOnly'` a route below a parent with a page still has that parent's resolver results, which Angular's own `snapshot.data` leaves out. Static `data` and the title aren't included; to read a static value through the handle, return it from a resolver, such as `resolve: { label: () => "Teams" }`.
+`data` holds the resolver results of this route and its ancestors, pathless and page-less ones included: the outermost ancestor's first, then nearer ones, then this route's own. As in Angular's own data inheritance, a nearer route's key hides an ancestor's key of the same name, and the hidden value isn't reachable through the handle. The merge is the same whatever `paramsInheritanceStrategy` you set, so under `'emptyOnly'` a route below a parent with a page still has that parent's resolver results, which Angular's own `snapshot.data` leaves out. Static `data` and the title aren't included; to read a static value through the handle, return it from a resolver, such as `.resolve({ label: () => "Teams" })`.
 
-`title` is the resolved title of this route, or of its nearest ancestor that has one, and changes with the other signals. It's typed `string` when this route or an ancestor declares `title`, and `undefined` otherwise. Like resolver data, it only changes when Angular reruns the title: with the default `runGuardsAndResolvers`, a navigation that changes only search params keeps the old title, so a title that reads search needs `'paramsOrQueryParamsChange'`. Only generated routes count; a hand-written Angular route above them with its own title isn't read.
+`title` is the resolved title of this route, or of its nearest ancestor that has one, and changes with the other signals. It's typed `string` when this route or an ancestor uses `.title`, and `undefined` otherwise. Like resolver data, it only changes when Angular reruns the title: with the default `runGuardsAndResolvers`, a navigation that changes only search params keeps the old title, so a title that reads search needs `'paramsOrQueryParamsChange'`. Only generated routes count; a hand-written Angular route above them with its own title isn't read.
 
 Reading `params` or `search` throws only if a path codec rejects a value it accepted while matching, which a pure codec never does.
 
@@ -239,7 +244,7 @@ Use it outside the page. In the constructor of a page being activated it reads `
 
 ## Guards, resolvers and redirects
 
-`canActivate`, `canActivateChild` and `canMatch` take arrays of functions whose first argument is the parsed inputs. Angular's native arguments follow:
+`.canActivate`, `.canActivateChild` and `.canMatch` take arrays of functions whose first argument is the parsed inputs. Angular's native arguments follow:
 
 [src/routes/reports/$reportId/route.ts](snippets/src/routes/reports/$reportId/route.ts)
 
@@ -252,14 +257,13 @@ Use it outside the page. In the constructor of a page being activated it reads `
 
 Guards return anything Angular accepts (`boolean`, `UrlTree`, `RedirectCommand`, or a Promise or Observable of those). Search values recover before any guard runs (absent, the fallback, or `[]` for an array key). Path params that fail to parse decide whether a route matches, so a guard only sees valid ones. Every callback (guards, resolvers, `title` and `onInvalidParams`) is called synchronously in the injection context Angular provides, so `inject()` works at its start, before any `await`.
 
-Every route with path params of its own or with search params gets a generated `canMatch` that parses them, search after the path. Search never decides the match. If a path param fails, the route doesn't match and Angular tries its next route, ending at the closest `$segments[]` catchall, so guards, resolvers and pages never see a value their codec rejects. Your own `canMatch` guards aren't called then. `onInvalidParams` replaces that outcome:
+Every route with path params of its own or with search params gets a generated `canMatch` that parses them, search after the path. Search never decides the match. If a path param fails, the route doesn't match and Angular tries its next route, ending at the closest `$segments[]` catchall, so guards, resolvers and pages never see a value their codec rejects. Your own `canMatch` guards aren't called then. `.onInvalidParams` replaces that outcome:
 
 ```ts
-export default defineRoute("items/$id", {
-  params: { id: numberParam },
-  onInvalidParams: (error, routeConfig, segments, partialSnapshot) =>
+export default defineRoute("items/$id", { params: { id: numberParam } }).onInvalidParams(
+  (error, routeConfig, segments, partialSnapshot) =>
     new RedirectCommand(inject(Router).parseUrl("/items")),
-});
+);
 ```
 
 It receives the parse error (`source: "path"`, `key`, `reason`, and the codec's error as `cause`) and Angular's `canMatch` arguments, runs in the route's injection context, and returns `false` (try the next route), a `UrlTree` or a `RedirectCommand`, or a Promise or Observable of one. It can't return `true`: that, or throwing, fails the navigation. Write `async () => false as const` rather than `async () => false`, which TypeScript widens to `boolean`.
@@ -270,15 +274,15 @@ Resolvers get the parsed inputs too:
 
 [src/routes/teams/$teamId/items/$id/route.ts](snippets/src/routes/teams/$teamId/items/$id/route.ts)
 
-`title` is a string or a callback like a resolver's that returns the title (or a Promise or Observable of it). Angular runs a title callback alongside the route's resolvers, so it can't read their results.
+`.title` takes a string or a callback like a resolver's that returns the title (or a Promise or Observable of it). Angular runs a title callback alongside the route's resolvers, so it can't read their results.
 
-Angular's default rerun policy, `paramsChange`, reruns resolvers and the title callback when the path or its path/matrix params change, but not when only search params change. Set `runGuardsAndResolvers` when a resolver reads search params, as above.
+Angular's default rerun policy, `paramsChange`, reruns resolvers and the title callback when the path or its path/matrix params change, but not when only search params change. Chain `.runGuardsAndResolvers` when a resolver reads search params, as above.
 
 A redirect targets another declaration and must say what happens to search and fragment:
 
 [src/routes/teams/$teamId/old-items/$id/route.ts](snippets/src/routes/teams/$teamId/old-items/$id/route.ts)
 
-Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. Search `preserve` keeps the incoming query text, repeated keys included, so the target's array keys read every value; `replace` writes an array key's values like `createUrl` does. A redirect route can't have a page, children, `canActivate`, `canMatch` or `onInvalidParams`; an invalid param in a redirect's source URL fails the navigation.
+Params with the same name and compatible types are forwarded automatically; otherwise map them with `params: { targetKey: "sourceKey" }`. Values are parsed with the source codecs and written with the target's codecs. Search `preserve` keeps the incoming query text, repeated keys included, so the target's array keys read every value; `replace` writes an array key's values like `createUrl` does. A redirect route can't have a page or children, and `.redirect` isn't offered after a guard step or `.onInvalidParams`; an invalid param in a redirect's source URL fails the navigation. `.resolve`, `.title`, `.providers`, `.data` and `.runGuardsAndResolvers` may come before `.redirect`, but its resolvers and title never run, and its providers can still be built by Angular's preloading ([SPEC.md](SPEC.md#9-typed-redirects-x)).
 
 ## Filesystem route definitions
 
@@ -336,7 +340,7 @@ To write every path and parent yourself, turn filesystem definitions off:
 }
 ```
 
-Declarations look the same, but the builder never creates or edits them, and directory names don't affect paths or parents. File names are up to you: the builder finds declarations by their `export default defineRoute(...)` and pages by their default-exported standalone component, not by name. A page still needs a declaration in its own directory; a page without one fails generation.
+Declarations look the same, but the builder never creates or edits them, and directory names don't affect paths or parents. File names are up to you: the builder finds declarations by their `export default defineRoute(...)` chain and pages by their default-exported standalone component, not by name. A page still needs a declaration in its own directory; a page without one fails generation.
 
 ## Server rendering and hydration
 
@@ -452,7 +456,7 @@ pnpm run build                 # Node builders/generation (tsc), then the Angula
 pnpm run check                 # formatting and lint
 pnpm run typecheck             # strict source typecheck
 pnpm run typecheck:consumers   # consumer typecheck against the built package (NodeNext and Bundler)
-pnpm run test                  # root runtime, published-docs and schema tests
+pnpm run test                  # node tests, snippet check, then the consumer typecheck (build first)
 ```
 
 `build` regenerates `schemas/application.json` from the installed `@angular/build`; `pnpm test` fails when the committed schema is stale.

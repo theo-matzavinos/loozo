@@ -8,7 +8,8 @@ import packageRoute from "../../route.js";
 export default defineRoute("guide/$guide", {
   parent: packageRoute,
   params: { guide: stringParam },
-  canActivate: [
+})
+  .canActivate([
     async ({ params }, snapshot, state) => {
       const notFound = notFoundRedirect(state.url);
       const content = await loadPackage(params.package);
@@ -19,8 +20,8 @@ export default defineRoute("guide/$guide", {
 
       return true;
     },
-  ],
-  resolve: {
+  ])
+  .resolve({
     // Loaded before the page renders, so prerendering and hydration see the same components.
     demos: async ({ params }) => {
       const content = await loadPackage(params.package);
@@ -35,5 +36,4 @@ export default defineRoute("guide/$guide", {
 
       return new Map(await Promise.all(loading));
     },
-  },
-});
+  });

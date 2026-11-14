@@ -39,7 +39,7 @@
     "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "check": "vp check",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "test": "pnpm run test:root && pnpm run test:docs && pnpm run test:schema && pnpm run test:conditions && pnpm run test:generation && pnpm run test:serve && pnpm run snippets:check",
+    "test": "pnpm run test:root && pnpm run test:docs && pnpm run test:schema && pnpm run test:conditions && pnpm run test:generation && pnpm run test:serve && pnpm run snippets:check && pnpm run typecheck:consumers",
     "test:root": "node --test tests/root.test.mjs",
     "test:docs": "node --test tests/documentation.test.mjs",
     "test:schema": "node --test tests/schema.test.mjs",

@@ -259,10 +259,7 @@ await write("src/routes/files/$parts[]/page.ts", page("files"));
 const team = `// Keep this header and the exact codec/data expressions.
 import { defineRoute, numberParam } from "@loozo/angular-router";
 export const marker = { untouched: "bytes" };
-export default defineRoute('$team', {
-  params: { team: numberParam /* custom numeric codec */ },
-  data: marker,
-});\n`;
+export default defineRoute('$team', { params: { team: numberParam /* custom numeric codec */ } }).data(marker);\n`;
 
 await write("src/routes/teams/$team/named-definition.ts", team);
 
@@ -278,7 +275,7 @@ import { defineRoute } from "@loozo/angular-router";
 // @ts-expect-error Keep this directive attached to the following statement too.
 const suppressed: number = "retained";
 export const unrelated = legacy;
-export default defineRoute("trivia", { data: { suppressed } });
+export default defineRoute("trivia", {}).data({ suppressed });
 `;
 
 await write("src/routes/trivia/definition.ts", trivia);
@@ -298,7 +295,7 @@ export default defineRoute("block-lint", {});
 const blockTypeScript = `import { defineRoute } from "@loozo/angular-router"; /* retained
  */ // @ts-expect-error Keep this attached to the invalid assignment, not a new import.
 const suppressed: number = "retained";
-export default defineRoute("block-ts", { data: { suppressed } });
+export default defineRoute("block-ts", {}).data({ suppressed });
 `;
 
 await write("src/routes/block-lint/page.ts", page("block-lint"));
@@ -318,7 +315,7 @@ export default defineRoute("trailing-block", {});
 const trailingTypeScript = `import { defineRoute } from "@loozo/angular-router"; /* retained
  @ts-expect-error Keep suppression on the following assignment. */
 const suppressed: number = "retained";
-export default defineRoute("trailing-ts-block", { data: { suppressed } });
+export default defineRoute("trailing-ts-block", {}).data({ suppressed });
 `;
 
 for (const [directory, source] of [
@@ -371,7 +368,7 @@ assert.equal(
   await read("src/routes/trivia/definition.ts"),
   trivia
     .replace(routerImport, `${routerImport}\n${parentImport}`)
-    .replace("{ data: { suppressed } }", "{ data: { suppressed } , parent }"),
+    .replace("{}).data({ suppressed })", "{ parent }).data({ suppressed })"),
   "A new import follows the last import, before a directive on the next line",
 );
 assert.deepEqual(
@@ -403,7 +400,7 @@ for (const [directory, source, message] of [
     source
       .replace(routerImport, `${routerImport}\n${parentImport}`)
       .replace("{}", "{ parent }")
-      .replace("{ data: { suppressed } }", "{ data: { suppressed } , parent }"),
+      .replace("{}).data({ suppressed })", "{ parent }).data({ suppressed })"),
     `New import cannot detach a ${message}`,
   );
 }
@@ -464,7 +461,7 @@ const rootSource = `// Keep root trivia, including commas inside comments.
 import { defineRoute } from "@loozo/angular-router";
 import previous from "./home/route.js";
 export const marker = { untouched: "root bytes" };
-export default defineRoute("configured-root", { data: marker /* comma, retained */, parent: previous /* parent comment, retained */ });\n`;
+export default defineRoute("configured-root", { fragments: ["top"] /* comma, retained */, parent: previous /* parent comment, retained */ }).data(marker);\n`;
 
 await write("src/routes/route.ts", rootSource);
 await expectBuild();
@@ -935,7 +932,10 @@ await rm(join(fixture, "src/routes/empty-route"), { recursive: true });
 
 const ignored = await read("src/routes/-tools/ignored.ts");
 
-await write("src/routes/-tools/ignored.ts", ignored.replace("{}", "{ data: { behavior: true } }"));
+await write(
+  "src/routes/-tools/ignored.ts",
+  ignored.replace(/\);\n$/, ").data({ behavior: true });\n"),
+);
 await preflight("transparent authored behavior", /incompatible authored behavior/);
 await write("src/routes/-tools/ignored.ts", ignored);
 
@@ -1119,7 +1119,7 @@ await rm(join(fixture, "src/routes-access"));
 
 await write(
   "src/routes/teams/$tenant/named-definition.ts",
-  tenant.replace("data: marker,", "data: marker, resolve: { own: ({ params }) => params.team },"),
+  tenant.replace(".data(marker)", ".data(marker).resolve({ own: ({ params }) => params.team })"),
 );
 await preflight(
   "callback accesses are not application-wide renamed",

@@ -147,7 +147,7 @@ const definitions = {
   deep: "defineRoute('deep', { parent: twin })",
   old: "defineRoute('old', {})",
   alias:
-    "defineRoute('alias/$id', { parent: old, params: { id: numberParam }, redirect: { to: optional, search: { mode: 'replace', values: { label: 'aliased' } }, fragment: { mode: 'drop' } } })",
+    "defineRoute('alias/$id', { parent: old, params: { id: numberParam } }).redirect({ to: optional, search: { mode: 'replace', values: { label: 'aliased' } }, fragment: { mode: 'drop' } })",
 };
 const parents = {
   middle: "scope",

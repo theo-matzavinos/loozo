@@ -416,6 +416,11 @@ function isInternalMember(name: string, node: ts.Node): boolean {
     return true;
   }
 
+  return isTaggedInternal(node);
+}
+
+/** Whether `@internal` appears in the declaration's TSDoc or leading comments. */
+export function isTaggedInternal(node: ts.Node): boolean {
   for (const tag of ts.getJSDocTags(node)) {
     if (tag.tagName.text === "internal") {
       return true;

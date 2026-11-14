@@ -2,11 +2,22 @@ import ts from "typescript";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, resolve, sep } from "node:path";
 import { auditPath, contains, holdsAny } from "./files.js";
-import { fail, properties, resolveModule, type Declaration, type Sources } from "./sources.js";
+import {
+  fail,
+  factoryAnnotation,
+  isPackageRoot,
+  namedImport,
+  properties,
+  resolveModule,
+  routeChain,
+  unalias,
+  type Declaration,
+  type Sources,
+} from "./sources.js";
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
-import { AnchorState } from "./anchor.js";
+import { AnchorState, type Anchor, type AnchoredDeclaration } from "./anchor.js";
 
 export function authoredPath(declaration: Declaration): string {
   const parts: string[] = [];
@@ -221,6 +232,223 @@ export function createValidationProgram(
   return { program, host, obsolete };
 }
 
+// The default-exported chain of a declaration in the validation program.
+function chainOf(program: ts.Program, declaration: Declaration) {
+  const source = program.getSourceFile(declaration.file)!;
+  const assignment = source.statements.find(ts.isExportAssignment)!;
+
+  return routeChain(assignment.expression);
+}
+
+async function matches(
+  symbol: ts.Symbol | undefined,
+  anchor: readonly AnchoredDeclaration[] | undefined,
+): Promise<boolean> {
+  if (!symbol?.declarations?.length || symbol.declarations.length !== anchor?.length) {
+    return false;
+  }
+
+  for (let index = 0; index < symbol.declarations.length; index += 1) {
+    const actual = symbol.declarations[index];
+    const expected = anchor[index];
+    const file = await realpath(actual.getSourceFile().fileName);
+
+    if (
+      file !== expected.file ||
+      actual.kind !== expected.kind ||
+      actual.pos !== expected.pos ||
+      actual.end !== expected.end
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function physical(file: string | undefined): Promise<string | undefined> {
+  if (file === undefined) {
+    return undefined;
+  }
+
+  return realpath(file);
+}
+
+type PassAnchors = (
+  entry: string,
+  names: readonly string[],
+  options: ts.CompilerOptions,
+) => Promise<Anchor>;
+
+// Extension and /_core anchors for one validation pass: each distinct (entry, names,
+// options) builds its program once per pass, however many routes use it. A new pass
+// starts empty, so dependency edits between passes are still picked up.
+function passAnchors(): PassAnchors {
+  const built = new Map<string, Promise<Anchor>>();
+
+  return (entry, names, options) => {
+    const { configFile: _configFile, ...settings } = options;
+    const key = JSON.stringify({ entry, names, settings });
+    let anchor = built.get(key);
+
+    if (!anchor) {
+      anchor = new AnchorState().anchor(entry, names, options);
+      built.set(key, anchor);
+    }
+
+    return anchor;
+  };
+}
+
+/**
+ * Authenticates an extension factory from declarations alone: a package-root import of
+ * that package's anchored defineRoute export, declared as the router's own RouteFactory
+ * from its physical `/_core` types entry. The router's entries must be the anchored ones.
+ */
+async function authenticateExtension(
+  root: ts.CallExpression,
+  sources: Sources,
+  program: ts.Program,
+  host: ts.ModuleResolutionHost,
+  routerFactory: ts.Symbol,
+  routerAnchor: readonly AnchoredDeclaration[] | undefined,
+  anchors: PassAnchors,
+): Promise<void> {
+  const checker = program.getTypeChecker();
+  const source = root.getSourceFile();
+  const imported = namedImport(source, root.expression, "defineRoute")!;
+  const specifier = (imported.moduleSpecifier as ts.StringLiteral).text;
+  const options = sources.parsed.options;
+  const canonicalOptions = { ...options, paths: undefined, baseUrl: undefined };
+
+  if (!isPackageRoot(specifier)) {
+    fail(imported, "Factory import must name a concrete package public entry");
+  }
+
+  const actualEntry = await physical(resolveModule(specifier, source.fileName, options, host));
+  const expectedEntry = await physical(resolveModule(specifier, source.fileName, canonicalOptions));
+
+  if (!actualEntry || !expectedEntry || actualEntry !== expectedEntry) {
+    fail(imported, "Factory import does not resolve to the canonical package public entry");
+  }
+
+  const factory = unalias(checker, checker.getSymbolAtLocation(root.expression));
+  const entry = program.getSourceFile(actualEntry);
+  const entryModule = entry && checker.getSymbolAtLocation(entry);
+  let exported: ts.Symbol | undefined;
+
+  if (entryModule) {
+    exported = unalias(
+      checker,
+      checker.getExportsOfModule(entryModule).find((symbol) => symbol.name === "defineRoute"),
+    );
+  }
+
+  const entryAnchor = await anchors(expectedEntry, ["defineRoute"], canonicalOptions);
+
+  if (
+    !factory ||
+    factory !== exported ||
+    !(await matches(factory, entryAnchor.get("defineRoute")))
+  ) {
+    fail(root, "Factory is not the anchored public defineRoute export");
+  }
+
+  const appRouter = await physical(
+    resolveModule("@loozo/angular-router", source.fileName, options, host),
+  );
+
+  if (appRouter !== sources.factoryEntry) {
+    fail(root, "Application router specifier does not resolve to the anchored router public entry");
+  }
+
+  if (!(await matches(routerFactory, routerAnchor))) {
+    fail(root, "Router public export was redirected away from its anchored declaration");
+  }
+
+  const appCore = await physical(
+    resolveModule("@loozo/angular-router/_core", source.fileName, options, host),
+  );
+
+  if (appCore !== sources.coreEntry) {
+    fail(
+      root,
+      "Application router /_core specifier does not resolve to the anchored physical /_core types entry",
+    );
+  }
+
+  const annotation = factoryAnnotation(checker, root);
+
+  // A public-entry RouteFactory fails the extension's own compile; name it precisely.
+  if (publicFactory(factory.valueDeclaration?.getSourceFile(), annotation)) {
+    fail(
+      root,
+      "RouteFactory is not exported by @loozo/angular-router; import it from @loozo/angular-router/_core",
+    );
+  }
+
+  let declared: ts.Symbol | undefined;
+
+  if (annotation && ts.isTypeReferenceNode(annotation)) {
+    declared = unalias(checker, checker.getSymbolAtLocation(annotation.typeName));
+  } else if (annotation?.qualifier) {
+    declared = unalias(checker, checker.getSymbolAtLocation(annotation.qualifier));
+  }
+
+  const coreAnchor = await anchors(sources.coreEntry, ["RouteFactory"], canonicalOptions);
+
+  if (!annotation || !(await matches(declared, coreAnchor.get("RouteFactory")))) {
+    fail(
+      root,
+      "Factory annotation must reference RouteFactory from the anchored physical router /_core types entry",
+    );
+  }
+
+  if (annotation.typeArguments?.length !== 1) {
+    fail(root, "RouteFactory requires one explicit manifest spec type argument");
+  }
+}
+
+// Whether the factory's declaration file names RouteFactory from the public entry: a
+// named import or an inline import("@loozo/angular-router").RouteFactory annotation.
+function publicFactory(
+  file: ts.SourceFile | undefined,
+  annotation: ts.TypeReferenceNode | ts.ImportTypeNode | undefined,
+): boolean {
+  if (
+    annotation &&
+    ts.isImportTypeNode(annotation) &&
+    ts.isLiteralTypeNode(annotation.argument) &&
+    ts.isStringLiteral(annotation.argument.literal) &&
+    annotation.argument.literal.text === "@loozo/angular-router" &&
+    annotation.qualifier &&
+    ts.isIdentifier(annotation.qualifier) &&
+    annotation.qualifier.text === "RouteFactory"
+  ) {
+    return true;
+  }
+
+  return (file?.statements ?? []).some((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "@loozo/angular-router"
+    ) {
+      return false;
+    }
+
+    const bindings = statement.importClause?.namedBindings;
+
+    return (
+      bindings !== undefined &&
+      ts.isNamedImports(bindings) &&
+      bindings.elements.some(
+        (element) => (element.propertyName ?? element.name).text === "RouteFactory",
+      )
+    );
+  });
+}
+
 export async function validateRoutes(
   sources: Sources,
   generated: ReadonlyMap<string, string>,
@@ -274,13 +502,26 @@ export async function validateRoutes(
     canonicalOptions,
   );
   const canonicalFactory = anchor.get("defineRoute");
+  const anchors = passAnchors();
 
   // Tentative own-facade admission is not authority for its re-exported binding.
   // Prove both the concrete module boundary and the final native alias identity.
   for (const declaration of sources.declarations) {
-    const source = program.getSourceFile(declaration.file)!;
-    const assignment = source.statements.find(ts.isExportAssignment)!;
-    const call = assignment.expression as ts.CallExpression;
+    const call = chainOf(program, declaration).root;
+
+    if (declaration.extension) {
+      await authenticateExtension(
+        call,
+        sources,
+        program,
+        host,
+        concreteFactory,
+        canonicalFactory,
+        anchors,
+      );
+
+      continue;
+    }
 
     if (sources.deferredFactories.includes(declaration)) {
       const facade = program.getSourceFile(
@@ -490,13 +731,10 @@ export async function validateRoutes(
     }
 
     const redirect = declaration.config.get("redirect")!;
-    const programSource = program.getSourceFile(declaration.file)!;
-    const assignment = programSource.statements.find(ts.isExportAssignment)!;
-    const config = properties(
-      (assignment.expression as ts.CallExpression).arguments[1],
-      "Route config",
-    );
-    const fields = properties(config.get("redirect")!, "Redirect");
+    const redirectCall = chainOf(program, declaration).calls.find(
+      (call) => (call.expression as ts.PropertyAccessExpression).name.text === "redirect",
+    )!;
+    const fields = properties(redirectCall.arguments[0], "Redirect");
     const sourceParams = typeWitness(declaration, "__params");
     const targetParams = typeWitness(declaration.target, "__params");
     const mapping = fields.get("params");
@@ -578,13 +816,11 @@ export async function validateRoutes(
 
     if (fragmentMode.text === "replace") {
       const value = fragmentPolicy.get("value");
-      const targetSource = program.getSourceFile(declaration.target.file)!;
-      const targetAssignment = targetSource.statements.find(ts.isExportAssignment)!;
-      const targetConfig = properties(
-        (targetAssignment.expression as ts.CallExpression).arguments[1],
-        "Route config",
+      const targetFacts = properties(
+        chainOf(program, declaration.target).root.arguments[1],
+        "URL facts",
       );
-      const names = targetConfig.get("fragments");
+      const names = targetFacts.get("fragments");
 
       if (!value || !names) {
         fail(fragment, "Fragment replacement requires a destination-declared name");

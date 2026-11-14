@@ -948,13 +948,14 @@ test("constant signatures carry the full type, never TypeScript's truncated text
   );
 });
 
-test("internal entry points contribute only documented symbols no public entry point exports", () => {
+test("internal entry points contribute only documented, untagged symbols no public entry point exports", () => {
   const names = [];
 
   for (const apiSymbol of widgets.generatedApi) {
     names.push(`${apiSymbol.importPath} ${apiSymbol.name}`);
   }
 
+  // SeamSpec and internalHandle are tagged @internal; internalHandle's slug would collide.
   assert.deepEqual(names, ["@fixture/widgets/_internal InternalHandle"]);
 
   const importPaths = [];

@@ -17,7 +17,8 @@ import { from, isObservable, map, type ObservableInput } from "rxjs";
 import { isArrayCodec, routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
 import {
   hasIdentity,
-  parseInputs,
+  callbackInputs,
+  matchingCallbackInputs,
   matchingInputs,
   pathInputs,
   runPathJobs,
@@ -42,7 +43,7 @@ export function callbacks(
     result.canActivate = activate.map(
       (callback): CanActivateFn =>
         (snapshot, state) =>
-          callback(parseInputs(set, id, snapshot), snapshot, state),
+          callback(callbackInputs(set, id, snapshot), snapshot, state),
     );
   }
 
@@ -69,7 +70,7 @@ export function callbacks(
             throw new Error(`Generated guard ancestor missing: ${id}`);
           }
 
-          return callback(parseInputs(set, id, parent), child, state);
+          return callback(callbackInputs(set, id, parent), child, state);
         },
     );
   }
@@ -113,7 +114,7 @@ export function callbacks(
   if (matching) {
     for (const callback of matching) {
       canMatch.push((route, segments, snapshot) => {
-        const inputs = matchingInputs(set, id, snapshot);
+        const inputs = matchingCallbackInputs(set, id, snapshot);
 
         // Invalid path params: the generated guard ahead of this one decides.
         if (inputs === undefined) {
@@ -141,7 +142,7 @@ export function callbacks(
 
     for (const key of Reflect.ownKeys(resolvers)) {
       resolve[key] = (snapshot, state) =>
-        resolvers[key](parseInputs(set, id, snapshot), snapshot, state);
+        resolvers[key](callbackInputs(set, id, snapshot), snapshot, state);
     }
 
     result.resolve = resolve;
@@ -154,7 +155,7 @@ export function callbacks(
 
   // Angular runs a title callback as a resolver, so it's adapted like one.
   if (typeof title === "function") {
-    result.title = (snapshot, state) => title(parseInputs(set, id, snapshot), snapshot, state);
+    result.title = (snapshot, state) => title(callbackInputs(set, id, snapshot), snapshot, state);
   } else if (title !== undefined) {
     result.title = title;
   }

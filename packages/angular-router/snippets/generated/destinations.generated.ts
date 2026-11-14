@@ -1,6 +1,6 @@
 // @loozo/angular-router routegen: owned destinations.generated.ts
 import type { Signal } from '@angular/core';
-import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
+import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
 import definition_products_$productId_route from "../src/routes/products/$productId/route.js";
 import definition_reports_$reportId_route from "../src/routes/reports/$reportId/route.js";
 import definition_teams_$teamId_items_$id_route from "../src/routes/teams/$teamId/items/$id/route.js";
@@ -9,12 +9,12 @@ import definition_teams_$teamId_old_items_$id_route from "../src/routes/teams/$t
 import definition_teams_$teamId_route from "../src/routes/teams/$teamId/route.js";
 
 export type Definitions = {
-"src/routes/products/$productId/route.ts": typeof definition_products_$productId_route;
-"src/routes/reports/$reportId/route.ts": typeof definition_reports_$reportId_route;
-"src/routes/teams/$teamId/items/$id/route.ts": typeof definition_teams_$teamId_items_$id_route;
-"src/routes/teams/$teamId/members/$memberId/route.ts": typeof definition_teams_$teamId_members_$memberId_route;
-"src/routes/teams/$teamId/old-items/$id/route.ts": typeof definition_teams_$teamId_old_items_$id_route;
-"src/routes/teams/$teamId/route.ts": typeof definition_teams_$teamId_route;
+"src/routes/products/$productId/route.ts": RouteSchema<typeof definition_products_$productId_route>;
+"src/routes/reports/$reportId/route.ts": RouteSchema<typeof definition_reports_$reportId_route>;
+"src/routes/teams/$teamId/items/$id/route.ts": RouteSchema<typeof definition_teams_$teamId_items_$id_route>;
+"src/routes/teams/$teamId/members/$memberId/route.ts": RouteSchema<typeof definition_teams_$teamId_members_$memberId_route>;
+"src/routes/teams/$teamId/old-items/$id/route.ts": RouteSchema<typeof definition_teams_$teamId_old_items_$id_route>;
+"src/routes/teams/$teamId/route.ts": RouteSchema<typeof definition_teams_$teamId_route>;
 };
 declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {

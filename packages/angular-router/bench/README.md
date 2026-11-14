@@ -108,7 +108,7 @@ Recorded 2026-11-14 at `0292b5c` plus the directory lookup change below: 13th Ge
 | Type-check: ngc --noEmit             |     2.42 s |     3.37 s |      9.14 s |
 | Type-check: tsc --noEmit             |     1.20 s |     2.23 s |      4.64 s |
 | Type-check: tsc check time           |     0.61 s |     1.52 s |      3.70 s |
-| Type-check: tsc instantiations       |     87,716 |    243,976 |     790,886 |
+| Type-check: tsc instantiations       |     95,470 |    265,590 |     861,010 |
 | Type-check: tsc memory used          | 140,797 KB | 195,877 KB |  461,248 KB |
 | Initial bundle: raw                  |  268,839 B |  363,439 B |   694,479 B |
 | Initial bundle: gzip                 |   73,133 B |   81,839 B |   109,641 B |
@@ -116,6 +116,8 @@ Recorded 2026-11-14 at `0292b5c` plus the directory lookup change below: 13th Ge
 | Lazy chunks: raw                     |   73,232 B |  219,732 B |   732,482 B |
 | Lazy chunks: gzip                    |   48,485 B |  145,686 B |   483,032 B |
 | Lazy chunks: brotli                  |   42,847 B |  129,089 B |   426,439 B |
+
+The instantiations row was re-measured after declarations moved to URL facts plus chained steps (2026-11-14, on top of `7317e6a`): 8.8–8.9% more at every size than the 87,716, 243,976 and 790,886 before it, with check time within noise of the earlier code when the two run alternately on the same fixture. Instantiation counts are deterministic, so the row stays comparable with the timings above.
 
 What it shows:
 

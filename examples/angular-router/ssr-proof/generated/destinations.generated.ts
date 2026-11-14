@@ -1,6 +1,6 @@
 // @loozo/angular-router routegen: owned destinations.generated.ts
 import type { Signal } from '@angular/core';
-import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
+import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
 import definition__home_route from "../src/routes/+home/route.js";
 import definition_handle_only_$id_route from "../src/routes/handle-only/$id/route.js";
 import definition_teams_$teamId_items_$id_route from "../src/routes/teams/$teamId/items/$id/route.js";
@@ -8,11 +8,11 @@ import definition_teams_$teamId_old_items_$id_route from "../src/routes/teams/$t
 import definition_teams_$teamId_route from "../src/routes/teams/$teamId/route.js";
 
 export type Definitions = {
-"src/routes/+home/route.ts": typeof definition__home_route;
-"src/routes/handle-only/$id/route.ts": typeof definition_handle_only_$id_route;
-"src/routes/teams/$teamId/items/$id/route.ts": typeof definition_teams_$teamId_items_$id_route;
-"src/routes/teams/$teamId/old-items/$id/route.ts": typeof definition_teams_$teamId_old_items_$id_route;
-"src/routes/teams/$teamId/route.ts": typeof definition_teams_$teamId_route;
+"src/routes/+home/route.ts": RouteSchema<typeof definition__home_route>;
+"src/routes/handle-only/$id/route.ts": RouteSchema<typeof definition_handle_only_$id_route>;
+"src/routes/teams/$teamId/items/$id/route.ts": RouteSchema<typeof definition_teams_$teamId_items_$id_route>;
+"src/routes/teams/$teamId/old-items/$id/route.ts": RouteSchema<typeof definition_teams_$teamId_old_items_$id_route>;
+"src/routes/teams/$teamId/route.ts": RouteSchema<typeof definition_teams_$teamId_route>;
 };
 declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {

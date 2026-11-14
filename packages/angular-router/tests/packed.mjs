@@ -222,12 +222,12 @@ await run(
   assert.throws(() => a.createUrl(foreign, { params: { id: 8 } }), TypeError);
   assert.throws(() => b.defineRoute('child', { parent: local }), TypeError);
   assert.throws(() => b.createUrl(local, { params: { id: 7 } }), TypeError);
-  const localAlias = a.defineRoute('alias/$id', { params: { id: a.numberParam }, redirect: { to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } } });
-  const foreignAlias = b.defineRoute('alias/$id', { params: { id: b.numberParam }, redirect: { to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } } });
+  const localAlias = a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
+  const foreignAlias = b.defineRoute('alias/$id', { params: { id: b.numberParam } }).redirect({ to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
   assert.equal(a.createUrl(localAlias, { params: { id: 7 } }), '/alias/7');
   assert.equal(b.createUrl(foreignAlias, { params: { id: 8 } }), '/alias/8');
-  assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam }, redirect: { to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } } }), { name: 'TypeError', message: /genuine route from this package instance/ });
-  assert.throws(() => b.defineRoute('alias/$id', { params: { id: b.numberParam }, redirect: { to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } } }), { name: 'TypeError', message: /genuine route from this package instance/ });
+  assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /genuine route from this package instance/ });
+  assert.throws(() => b.defineRoute('alias/$id', { params: { id: b.numberParam } }).redirect({ to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /genuine route from this package instance/ });
   const product = a.defineRoute('products/$productId', { params: { productId: a.numberParam }, search: { tab: a.withFallback(a.enumParam(['details','reviews']), 'details') }, fragments: ['summary','reviews'] });
   assert.equal(a.createUrl(product, { params: { productId: 42 }, search: { tab: 'reviews' }, fragment: 'summary' }), '/products/42?tab=reviews#summary');
   console.log('fresh plain Node: 7 values; product URL; own core membership; distinct physical instances');

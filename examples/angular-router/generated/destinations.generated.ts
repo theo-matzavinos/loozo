@@ -1,10 +1,10 @@
 // @loozo/angular-router routegen: owned destinations.generated.ts
 import type { Signal } from '@angular/core';
-import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
+import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
 import definition__home_route from "../src/routes/+home/route.js";
 
 export type Definitions = {
-"src/routes/+home/route.ts": typeof definition__home_route;
+"src/routes/+home/route.ts": RouteSchema<typeof definition__home_route>;
 };
 declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {

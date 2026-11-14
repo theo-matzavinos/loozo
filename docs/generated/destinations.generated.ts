@@ -1,6 +1,6 @@
 // @loozo/angular-router routegen: owned destinations.generated.ts
 import type { Signal } from '@angular/core';
-import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
+import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';
 import definition_$package__overview_route from "../src/routes/$package/+overview/route.js";
 import definition_$package_api_$symbol_route from "../src/routes/$package/api/$symbol/route.js";
 import definition_$package_generated_api_route from "../src/routes/$package/generated-api/route.js";
@@ -10,13 +10,13 @@ import definition_$segments___route from "../src/routes/$segments[]/route.js";
 import definition__home_route from "../src/routes/+home/route.js";
 
 export type Definitions = {
-"src/routes/$package/+overview/route.ts": typeof definition_$package__overview_route;
-"src/routes/$package/api/$symbol/route.ts": typeof definition_$package_api_$symbol_route;
-"src/routes/$package/generated-api/route.ts": typeof definition_$package_generated_api_route;
-"src/routes/$package/guide/$guide/route.ts": typeof definition_$package_guide_$guide_route;
-"src/routes/$package/route.ts": typeof definition_$package_route;
-"src/routes/$segments[]/route.ts": typeof definition_$segments___route;
-"src/routes/+home/route.ts": typeof definition__home_route;
+"src/routes/$package/+overview/route.ts": RouteSchema<typeof definition_$package__overview_route>;
+"src/routes/$package/api/$symbol/route.ts": RouteSchema<typeof definition_$package_api_$symbol_route>;
+"src/routes/$package/generated-api/route.ts": RouteSchema<typeof definition_$package_generated_api_route>;
+"src/routes/$package/guide/$guide/route.ts": RouteSchema<typeof definition_$package_guide_$guide_route>;
+"src/routes/$package/route.ts": RouteSchema<typeof definition_$package_route>;
+"src/routes/$segments[]/route.ts": RouteSchema<typeof definition_$segments___route>;
+"src/routes/+home/route.ts": RouteSchema<typeof definition__home_route>;
 };
 declare const setIdentity: unique symbol;
 export type AbsoluteTargets = {
