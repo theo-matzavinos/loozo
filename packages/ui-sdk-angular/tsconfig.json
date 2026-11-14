@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": [],
+    "noEmit": true,
+    "paths": {
+      "@loozo/ui-sdk-angular": ["./src/public-api.ts"],
+      "@loozo/ui-sdk-angular/toggle": ["./toggle/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/select": ["./select/src/public-api.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "strictTemplates": true
+  },
+  "include": ["src/**/*.ts", "toggle/src/**/*.ts", "select/src/**/*.ts", "tests/*.ts"]
+}
