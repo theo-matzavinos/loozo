@@ -17,7 +17,7 @@ import {
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
-import { AnchorState, type AnchoredDeclaration } from "./anchor.js";
+import { AnchorState, type Anchor, type AnchoredDeclaration } from "./anchor.js";
 
 export function authoredPath(declaration: Declaration): string {
   const parts: string[] = [];
@@ -274,6 +274,32 @@ async function physical(file: string | undefined): Promise<string | undefined> {
   return realpath(file);
 }
 
+type PassAnchors = (
+  entry: string,
+  names: readonly string[],
+  options: ts.CompilerOptions,
+) => Promise<Anchor>;
+
+// Extension and /_core anchors for one validation pass: each distinct (entry, names,
+// options) builds its program once per pass, however many routes use it. A new pass
+// starts empty, so dependency edits between passes are still picked up.
+function passAnchors(): PassAnchors {
+  const built = new Map<string, Promise<Anchor>>();
+
+  return (entry, names, options) => {
+    const { configFile: _configFile, ...settings } = options;
+    const key = JSON.stringify({ entry, names, settings });
+    let anchor = built.get(key);
+
+    if (!anchor) {
+      anchor = new AnchorState().anchor(entry, names, options);
+      built.set(key, anchor);
+    }
+
+    return anchor;
+  };
+}
+
 /**
  * Authenticates an extension factory from declarations alone: a package-root import of
  * that package's anchored defineRoute export, declared as the router's own RouteFactory
@@ -286,6 +312,7 @@ async function authenticateExtension(
   host: ts.ModuleResolutionHost,
   routerFactory: ts.Symbol,
   routerAnchor: readonly AnchoredDeclaration[] | undefined,
+  anchors: PassAnchors,
 ): Promise<void> {
   const checker = program.getTypeChecker();
   const source = root.getSourceFile();
@@ -317,11 +344,7 @@ async function authenticateExtension(
     );
   }
 
-  const entryAnchor = await new AnchorState().anchor(
-    expectedEntry,
-    ["defineRoute"],
-    canonicalOptions,
-  );
+  const entryAnchor = await anchors(expectedEntry, ["defineRoute"], canonicalOptions);
 
   if (
     !factory ||
@@ -372,11 +395,7 @@ async function authenticateExtension(
     declared = unalias(checker, checker.getSymbolAtLocation(annotation.qualifier));
   }
 
-  const coreAnchor = await new AnchorState().anchor(
-    sources.coreEntry,
-    ["RouteFactory"],
-    canonicalOptions,
-  );
+  const coreAnchor = await anchors(sources.coreEntry, ["RouteFactory"], canonicalOptions);
 
   if (!annotation || !(await matches(declared, coreAnchor.get("RouteFactory")))) {
     fail(
@@ -483,6 +502,7 @@ export async function validateRoutes(
     canonicalOptions,
   );
   const canonicalFactory = anchor.get("defineRoute");
+  const anchors = passAnchors();
 
   // Tentative own-facade admission is not authority for its re-exported binding.
   // Prove both the concrete module boundary and the final native alias identity.
@@ -490,7 +510,15 @@ export async function validateRoutes(
     const call = chainOf(program, declaration).root;
 
     if (declaration.extension) {
-      await authenticateExtension(call, sources, program, host, concreteFactory, canonicalFactory);
+      await authenticateExtension(
+        call,
+        sources,
+        program,
+        host,
+        concreteFactory,
+        canonicalFactory,
+        anchors,
+      );
 
       continue;
     }

@@ -1774,6 +1774,32 @@ test("extension routes: ancestry, facades, emitted projection and a linked route
     /child\/route\.ts:\d+:\d+: Route ancestry mixes route extensions: @fixture\/route-extension, @fixture\/route-extension-annotated$/,
   );
 
+  // One validation pass anchors the router, the extension entry and /_core once each,
+  // however many extension routes there are.
+  const many = {};
+
+  for (let index = 0; index < 20; index += 1) {
+    many[`r${index}`] =
+      `${header}export default defineRoute("r${index}", {}).title("r${index}");\n`;
+  }
+
+  const anchor = AnchorState.prototype.anchor;
+  let anchored = 0;
+
+  AnchorState.prototype.anchor = function (...args) {
+    anchored += 1;
+
+    return anchor.apply(this, args);
+  };
+
+  try {
+    await project.analyze(many);
+  } finally {
+    AnchorState.prototype.anchor = anchor;
+  }
+
+  assert.equal(anchored, 3);
+
   // A dependency link to the router's own package is the router, not an extension.
   await symlink(
     resolve(project.root, "node_modules/@loozo/angular-router"),
