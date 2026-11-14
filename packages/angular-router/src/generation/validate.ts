@@ -174,15 +174,33 @@ export function createValidationProgram(
   const originalExists = host.fileExists.bind(host);
   const originalDirectoryExists = host.directoryExists!.bind(host);
 
-  host.directoryExists = (directory) => {
-    for (const file of generated.keys()) {
-      if (contains(resolve(directory), file)) {
-        return true;
-      }
-    }
+  // A directory exists when it holds a generated file, or is one. The compiler asks for every
+  // directory it probes, so answer from the generated files' paths and their ancestors instead
+  // of scanning them per question. Keys compare like path.relative: case-insensitive on Windows.
+  const directoryKey = (path: string) =>
+    process.platform === "win32" ? path.toLowerCase() : path;
+  const generatedDirectories = new Set<string>();
 
-    return originalDirectoryExists(directory);
-  };
+  for (const file of generated.keys()) {
+    let current = resolve(file);
+
+    // An ancestor already present means all of its own ancestors are too.
+    while (!generatedDirectories.has(directoryKey(current))) {
+      generatedDirectories.add(directoryKey(current));
+
+      const parent = dirname(current);
+
+      if (parent === current) {
+        break;
+      }
+
+      current = parent;
+    }
+  }
+
+  host.directoryExists = (directory) =>
+    generatedDirectories.has(directoryKey(resolve(directory))) ||
+    originalDirectoryExists(directory);
 
   const obsolete = new Set(stale);
 
