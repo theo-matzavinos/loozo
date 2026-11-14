@@ -1,7 +1,7 @@
 import ts from "typescript";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, resolve, sep } from "node:path";
-import { auditPath, contains } from "./files.js";
+import { auditPath, contains, holdsAny } from "./files.js";
 import { fail, properties, resolveModule, type Declaration, type Sources } from "./sources.js";
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
@@ -174,33 +174,10 @@ export function createValidationProgram(
   const originalExists = host.fileExists.bind(host);
   const originalDirectoryExists = host.directoryExists!.bind(host);
 
-  // A directory exists when it holds a generated file, or is one. The compiler asks for every
-  // directory it probes, so answer from the generated files' paths and their ancestors instead
-  // of scanning them per question. Keys compare like path.relative: case-insensitive on Windows.
-  const directoryKey = (path: string) =>
-    process.platform === "win32" ? path.toLowerCase() : path;
-  const generatedDirectories = new Set<string>();
-
-  for (const file of generated.keys()) {
-    let current = resolve(file);
-
-    // An ancestor already present means all of its own ancestors are too.
-    while (!generatedDirectories.has(directoryKey(current))) {
-      generatedDirectories.add(directoryKey(current));
-
-      const parent = dirname(current);
-
-      if (parent === current) {
-        break;
-      }
-
-      current = parent;
-    }
-  }
+  const holdsGenerated = holdsAny(generated.keys());
 
   host.directoryExists = (directory) =>
-    generatedDirectories.has(directoryKey(resolve(directory))) ||
-    originalDirectoryExists(directory);
+    holdsGenerated(directory) || originalDirectoryExists(directory);
 
   const obsolete = new Set(stale);
 

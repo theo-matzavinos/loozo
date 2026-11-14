@@ -35,6 +35,34 @@ export function contains(directory: string, file: string): boolean {
   );
 }
 
+// Answers whether a directory holds one of these files, or is one, like testing contains()
+// against each file: the compiler asks once per directory it probes, so a scan per question
+// grows with directories times files. Keys compare like path.relative, case-insensitively on
+// Windows. The files must not change afterwards.
+export function holdsAny(files: Iterable<string>): (directory: string) => boolean {
+  const key = (path: string) => (process.platform === "win32" ? path.toLowerCase() : path);
+  const directories = new Set<string>();
+
+  for (const file of files) {
+    let current = resolve(file);
+
+    // An ancestor already present means all of its own ancestors are too.
+    while (!directories.has(key(current))) {
+      directories.add(key(current));
+
+      const parent = dirname(current);
+
+      if (parent === current) {
+        break;
+      }
+
+      current = parent;
+    }
+  }
+
+  return (directory) => directories.has(key(resolve(directory)));
+}
+
 export async function metadata(path: string) {
   try {
     return await lstat(path);
