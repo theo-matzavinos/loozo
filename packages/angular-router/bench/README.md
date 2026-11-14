@@ -95,30 +95,46 @@ For example, `"1000": { "serve.generatedMs": …, "bundle.initial.gzip": … }` 
 
 ## Results
 
-Recorded 2026-11-13 at `9bd0f30` plus this benchmark: 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, pnpm 12.9.1, Angular 22.2.2, TypeScript 6.0.3, router 0.0.9. Other work kept the one-minute load average between 9 and 18 throughout, so the timings read high.
+Recorded 2026-11-14 at `0292b5c` plus the directory lookup change below: 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, pnpm 12.9.1, Angular 22.2.2, TypeScript 6.0.3, router 0.0.9. Other work kept the one-minute load average between 5 and 7.5 during the 100- and 300-route sizes and between 2.5 and 5.5 during the 1,000-route size, so the smaller sizes read high.
 
 | Metric (median)                      | 100 routes | 300 routes | 1000 routes |
 | ------------------------------------ | ---------: | ---------: | ----------: |
-| First generation: generate()         |     7.94 s |    25.95 s |    152.53 s |
-| First generation: fresh process      |     8.52 s |    26.53 s |    153.34 s |
-| Serve: startup to first build        |    18.58 s |    36.30 s |    190.15 s |
-| Serve: edit → routes.generated.ts    |     6.52 s |    22.12 s |    147.26 s |
-| Serve: edit → served main.js         |     8.38 s |    27.29 s |    161.78 s |
-| ng build (incl. generator preflight) |    16.45 s |    48.18 s |    173.49 s |
-| Type-check: ngc --noEmit             |     6.05 s |    11.42 s |     29.23 s |
-| Type-check: tsc --noEmit             |     3.11 s |     4.79 s |     12.73 s |
-| Type-check: tsc check time           |     1.64 s |     3.13 s |     10.18 s |
+| First generation: generate()         |     3.51 s |     3.38 s |     11.25 s |
+| First generation: fresh process      |     3.87 s |     3.59 s |     11.56 s |
+| Serve: startup to first build        |    10.41 s |     8.42 s |     22.90 s |
+| Serve: edit → routes.generated.ts    |     2.06 s |     2.59 s |      9.73 s |
+| Serve: edit → served main.js         |     3.44 s |     4.35 s |     16.91 s |
+| ng build (incl. generator preflight) |     8.40 s |     8.62 s |     22.03 s |
+| Type-check: ngc --noEmit             |     2.42 s |     3.37 s |      9.14 s |
+| Type-check: tsc --noEmit             |     1.20 s |     2.23 s |      4.64 s |
+| Type-check: tsc check time           |     0.61 s |     1.52 s |      3.70 s |
 | Type-check: tsc instantiations       |     87,716 |    243,976 |     790,886 |
-| Type-check: tsc memory used          | 134,617 KB | 194,259 KB |  466,961 KB |
+| Type-check: tsc memory used          | 140,797 KB | 195,877 KB |  461,248 KB |
 | Initial bundle: raw                  |  268,839 B |  363,439 B |   694,479 B |
-| Initial bundle: gzip                 |   73,129 B |   81,836 B |   109,609 B |
-| Initial bundle: brotli               |   63,326 B |   67,564 B |    81,298 B |
+| Initial bundle: gzip                 |   73,133 B |   81,839 B |   109,641 B |
+| Initial bundle: brotli               |   63,359 B |   67,590 B |    81,714 B |
 | Lazy chunks: raw                     |   73,232 B |  219,732 B |   732,482 B |
-| Lazy chunks: gzip                    |   48,295 B |  145,410 B |   482,503 B |
-| Lazy chunks: brotli                  |   42,721 B |  128,784 B |   427,404 B |
+| Lazy chunks: gzip                    |   48,485 B |  145,686 B |   483,032 B |
+| Lazy chunks: brotli                  |   42,847 B |  129,089 B |   426,439 B |
 
 What it shows:
 
-- Generation grows faster than the route count (3.3× the routes from 300 to 1,000 took 5.9× as long), and regeneration while serving costs about as much as first generation. A CPU profile of a 300-route generation with nothing to change spent about 85% of `generate()` in the validation program's `directoryExists` (`src/generation/validate.ts`), which compares every queried directory against every generated file.
+- Generation grows with the route count: 3.3× the routes from 300 to 1,000 take 3.3× as long, and regeneration while serving costs a little less than first generation. A CPU profile of a 1,000-route generation with nothing to change finds no dominant cost: route validation takes about 40% and route discovery about 30%, mostly the compiler host's file lookups during module resolution, and neither grows faster than the route count.
 - Type-checking grows roughly linearly with the route count.
 - The generated route tables sit in the initial chunk: each route adds about 470 bytes raw and about 20 bytes Brotli to it. Lazy page chunks grow linearly with the pages.
+
+### Directory lookups
+
+The previous recorded run (2026-11-13, `9bd0f30`) found generation growing faster than the route count: 3.3× the routes from 300 to 1,000 took 5.9× as long. About 85% of a 300-route `generate()` went to the validation program's `directoryExists`, which compared every directory the compiler asked about against every generated file; the overlay host for authored route files did the same with those. Both now answer from a precomputed set of the files' directories, with the same answers.
+
+The same machine on 2026-11-14, at `0292b5c` before and after the change:
+
+| Metric (median)                      | 300 routes, before | 300 routes, after | 1000 routes, before | 1000 routes, after |
+| ------------------------------------ | -----------------: | ----------------: | ------------------: | -----------------: |
+| First generation: generate()         |             7.22 s |            3.38 s |             61.88 s |            11.25 s |
+| Serve: edit → routes.generated.ts    |             5.98 s |            2.59 s |             68.39 s |             9.73 s |
+| Serve: edit → served main.js         |             7.48 s |            4.35 s |             76.92 s |            16.91 s |
+| ng build (incl. generator preflight) |            12.84 s |            8.62 s |            180.05 s |            22.03 s |
+| One-minute load average              |          2.5 – 3.4 |         5.9 – 6.9 |          3.3 – 11.4 |          3.1 – 5.2 |
+
+Generated files are byte-identical before and after at every size. At 100 routes the scan was small enough that load differences dominate the comparison.

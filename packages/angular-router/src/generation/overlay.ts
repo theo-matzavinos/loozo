@@ -1,7 +1,7 @@
 import ts from "typescript";
 import { readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import { contains } from "./files.js";
+import { holdsAny } from "./files.js";
 
 // TypeScript exports its native config matcher at runtime, but not in its .d.ts.
 // Use the installed compiler's matcher, including its extension/exclusion rules.
@@ -50,15 +50,10 @@ export function overlayHost(options: ts.CompilerOptions, authored: ReadonlyMap<s
     return raw;
   };
   host.fileExists = (file) => byName.has(host.getCanonicalFileName(resolve(file))) || exists(file);
-  host.directoryExists = (directory) => {
-    for (const file of authored.keys()) {
-      if (contains(resolve(directory), file)) {
-        return true;
-      }
-    }
 
-    return directoryExists(directory);
-  };
+  const holdsAuthored = holdsAny(authored.keys());
+
+  host.directoryExists = (directory) => holdsAuthored(directory) || directoryExists(directory);
   host.getSourceFile = (file, language) => {
     const bytes = host.readFile(file);
 

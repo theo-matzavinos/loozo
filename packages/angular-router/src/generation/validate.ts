@@ -1,7 +1,7 @@
 import ts from "typescript";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, resolve, sep } from "node:path";
-import { auditPath, contains } from "./files.js";
+import { auditPath, contains, holdsAny } from "./files.js";
 import { fail, properties, resolveModule, type Declaration, type Sources } from "./sources.js";
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
@@ -174,15 +174,10 @@ export function createValidationProgram(
   const originalExists = host.fileExists.bind(host);
   const originalDirectoryExists = host.directoryExists!.bind(host);
 
-  host.directoryExists = (directory) => {
-    for (const file of generated.keys()) {
-      if (contains(resolve(directory), file)) {
-        return true;
-      }
-    }
+  const holdsGenerated = holdsAny(generated.keys());
 
-    return originalDirectoryExists(directory);
-  };
+  host.directoryExists = (directory) =>
+    holdsGenerated(directory) || originalDirectoryExists(directory);
 
   const obsolete = new Set(stale);
 
