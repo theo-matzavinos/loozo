@@ -1,5 +1,6 @@
 import { test, expect } from "./contract-test.js";
 import { bootstrapHeld, fixture, stopRetentionObservation } from "./observation.js";
+import { pauseExitOnStart, resumeAnimations } from "./animations.js";
 import type { Locator } from "playwright/test";
 
 const core = (page: Parameters<typeof fixture>[0], info: Parameters<typeof fixture>[2]) =>
@@ -111,12 +112,18 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
   }, info) => {
     await core(page, info);
     await page.getByTestId("motion").selectOption(motion);
+
+    const retained =
+      (motion === "finite" || motion === "mixed") &&
+      info.project.metadata.motion === "no-preference";
+
+    if (retained) {
+      await pauseExitOnStart(page.getByTestId("variant-presence"));
+    }
+
     await page.getByTestId("variant-present").click();
 
-    if (
-      (motion === "finite" || motion === "mixed") &&
-      info.project.metadata.motion === "no-preference"
-    ) {
+    if (retained) {
       await expect(page.getByTestId("variant-presence")).toHaveAttribute("data-phase", "closing");
       await expect(page.getByTestId("variant-presence-child")).toHaveCount(1);
       await expect
@@ -137,6 +144,8 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
         expect(read.children).toBe(2);
         expect(read.hidden).toBe(false);
       }
+
+      await resumeAnimations(page.getByTestId("variant-presence"));
     }
 
     await expect(page.getByTestId("variant-presence")).toHaveAttribute("data-phase", "closed");
@@ -149,15 +158,17 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
     await expect(page.getByTestId("variant-presence")).toHaveAttribute("data-present", "");
     await expect(page.getByTestId("variant-presence-child")).toHaveCount(1);
 
+    if (retained) {
+      await pauseExitOnStart(page.getByTestId("variant-panel"));
+    }
+
     await page.getByTestId("variant-trigger").click();
 
-    if (
-      (motion === "finite" || motion === "mixed") &&
-      info.project.metadata.motion === "no-preference"
-    ) {
+    if (retained) {
       await expect(page.getByTestId("variant-panel")).toHaveAttribute("data-phase", "closing");
       await expect(page.getByTestId("variant-panel")).not.toHaveAttribute("hidden", /.*/);
       await expect(page.getByTestId("variant-panel")).not.toHaveAttribute("data-expanded", /.*/);
+      await resumeAnimations(page.getByTestId("variant-panel"));
     }
 
     await expect(page.getByTestId("variant-panel")).toHaveAttribute("data-phase", "closed");
@@ -169,9 +180,16 @@ test("R2 R3: native finite cancellation, reversal, independent host, destroy/rem
   page,
 }, info) => {
   await core(page, info);
+
+  const finite = info.project.metadata.motion === "no-preference";
+
+  if (finite) {
+    await pauseExitOnStart(page.getByTestId("variant-presence"));
+  }
+
   await page.getByTestId("variant-present").click();
 
-  if (info.project.metadata.motion === "no-preference") {
+  if (finite) {
     await expect(page.getByTestId("variant-presence")).toHaveAttribute("data-phase", "closing");
     await page.getByTestId("variant-presence").evaluate((node) => {
       for (const animation of node.getAnimations()) {
@@ -987,24 +1005,8 @@ async function expectExitRetention(
 ): Promise<void> {
   const retained = info.project.metadata.motion === "no-preference";
 
-  // Pause the 1000 ms exit in the page as it starts: on a loaded host, the round trips before the
-  // retained exit is sampled can outlast it.
   if (retained) {
-    await panel.evaluate((node) => {
-      const observer = new MutationObserver(() => {
-        if (!node.hasAttribute("data-leaving")) {
-          return;
-        }
-
-        observer.disconnect();
-
-        for (const animation of node.getAnimations()) {
-          animation.pause();
-        }
-      });
-
-      observer.observe(node, { attributes: true, attributeFilter: ["data-leaving"] });
-    });
+    await pauseExitOnStart(panel);
   }
 
   await close.click();
@@ -1020,11 +1022,7 @@ async function expectExitRetention(
     await expect(open).toHaveText("true");
 
     // Resume the exit: the gated content goes once it settles.
-    await panel.evaluate((node) => {
-      for (const animation of node.getAnimations()) {
-        animation.play();
-      }
-    });
+    await resumeAnimations(panel);
   }
 
   await expect(panel).not.toHaveAttribute("data-leaving", /.*/);

@@ -1,4 +1,5 @@
 import { test, expect, type ErrorRecord } from "./contract-test.js";
+import { pauseExitOnStart, resumeAnimations } from "./animations.js";
 import type { ElementHandle, Locator, Page } from "playwright/test";
 import {
   assertReferences,
@@ -1069,15 +1070,19 @@ test("Y11: a background Popover opened by model while a Dialog is modal, also no
   await script(page, "close-background");
   await expect.poll(shown).toBe(false);
 
-  // Opened during the Dialog's 1500 ms exit, while the dialog is still modal.
+  // Opened during the Dialog's 1500 ms exit, while the dialog is still modal. The exit is paused
+  // in the page as it starts, armed before the close: on a loaded host, the round trips up to the
+  // Escape can outlast it.
   await script(page, "open-covered");
   await expectModal(content);
+  await pauseExitOnStart(content);
   await page.getByTestId("covered-close-open-background").click();
   await expect.poll(shown).toBe(true);
   await expect(content).toHaveAttribute("data-leaving");
   expect(await modal(content)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(state).toHaveText("false true true");
+  await resumeAnimations(content);
   await expectClosed(content);
   await expect(state).toHaveText("false true true");
   expect(await shown()).toBe(true);
