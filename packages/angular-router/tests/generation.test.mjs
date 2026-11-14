@@ -1347,11 +1347,11 @@ export const defineRoute: RouteFactory<FixtureSpec> = (() => ({ forged: true }))
     writeFile(resolve(root, "package.json"), '{ "type": "module" }\n'),
     writeFile(
       resolve(root, "fake-core-type.d.ts"),
-      `export * from "${core}";\nexport { RouteFactory } from "@fixture/lookalike";\n`,
+      `export * from ${JSON.stringify(core)};\nexport { RouteFactory } from "@fixture/lookalike";\n`,
     ),
     writeFile(
       resolve(root, "fake-core.d.ts"),
-      `export * from "${core}";\nexport { RouteFactory, defineRoute } from "@fixture/lookalike";\n`,
+      `export * from ${JSON.stringify(core)};\nexport { RouteFactory, defineRoute } from "@fixture/lookalike";\n`,
     ),
     mkdir(resolve(root, "src/routes"), { recursive: true }),
   ]);
@@ -1771,7 +1771,7 @@ test("extension routes: ancestry, facades, emitted projection and a linked route
       parent: `${header}export default defineRoute("parent", {});\n`,
       "parent/child": `import { defineRoute } from "@fixture/route-extension-annotated";\nimport parent from "../route.js";\nexport default defineRoute("child", { parent });\n`,
     }),
-    /child\/route\.ts:\d+:\d+: Route ancestry mixes route extensions: @fixture\/route-extension, @fixture\/route-extension-annotated$/,
+    /child[\\/]route\.ts:\d+:\d+: Route ancestry mixes route extensions: @fixture\/route-extension, @fixture\/route-extension-annotated$/,
   );
 
   // One validation pass anchors the router, the extension entry and /_core once each,
