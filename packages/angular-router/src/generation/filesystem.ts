@@ -368,8 +368,8 @@ function patchDeclaration(
   checker: ts.TypeChecker,
 ): string {
   const source = declaration.source;
-  const assignment = source.statements.find(ts.isExportAssignment)!;
-  const call = assignment.expression as ts.CallExpression;
+  // Patches touch only the path literal and the URL facts, so chained steps keep their bytes.
+  const call = declaration.root;
   const literal = call.arguments[0] as ts.StringLiteral;
   const object = call.arguments[1] as ts.ObjectLiteralExpression;
   const patches: Patch[] = [];
@@ -625,13 +625,20 @@ export async function synchronize(
     byDirectory.set(directory, declaration);
 
     if (transparent(root, directory)) {
+      // URL facts other than parent, or any step.
+      let authoredBehavior = declaration.steps.length > 0;
+
       for (const key of declaration.config.keys()) {
         if (key !== "parent") {
-          fail(
-            declaration.source,
-            "Transparent directory declaration has incompatible authored behavior",
-          );
+          authoredBehavior = true;
         }
+      }
+
+      if (authoredBehavior) {
+        fail(
+          declaration.source,
+          "Transparent directory declaration has incompatible authored behavior",
+        );
       }
 
       continue;

@@ -6,20 +6,19 @@ import packageRoute from "../../route.js";
 export default defineRoute("api/$symbol", {
   parent: packageRoute,
   params: { symbol: stringParam },
-  canActivate: [
-    async ({ params }, snapshot, state) => {
-      const notFound = notFoundRedirect(state.url);
-      const content = await loadPackage(params.package);
+}).canActivate([
+  async ({ params }, snapshot, state) => {
+    const notFound = notFoundRedirect(state.url);
+    const content = await loadPackage(params.package);
 
-      for (const entryPoint of content.entryPoints) {
-        for (const symbol of entryPoint.symbols) {
-          if (symbol.slug === params.symbol) {
-            return true;
-          }
+    for (const entryPoint of content.entryPoints) {
+      for (const symbol of entryPoint.symbols) {
+        if (symbol.slug === params.symbol) {
+          return true;
         }
       }
+    }
 
-      return notFound;
-    },
-  ],
-});
+    return notFound;
+  },
+]);

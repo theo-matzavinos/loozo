@@ -7,3 +7,19 @@ export interface InternalHandle {
 }
 
 export function internalHelper(): void {}
+
+/**
+ * A seam for another package, not for applications.
+ *
+ * @internal
+ */
+export interface SeamSpec {
+  readonly name: string;
+}
+
+/**
+ * Type-only key of the handle; its slug matches InternalHandle's.
+ *
+ * @internal
+ */
+export declare const internalHandle: unique symbol;

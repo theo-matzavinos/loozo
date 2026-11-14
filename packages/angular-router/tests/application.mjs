@@ -456,7 +456,7 @@ await rm(join(fixture, "src/routes/obsolete"), { recursive: true });
 // through ambient declarations, even when the target and its directory are absent.
 const facadeless = `import { defineRoute } from '@loozo/angular-router';
 import target from '../+home/route.js';
-export default defineRoute('facadeless', { redirect: { to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } } });\n`;
+export default defineRoute('facadeless', {}).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } });\n`;
 
 await write("src/routes/facadeless/definition.ts", facadeless);
 await write(
@@ -491,7 +491,7 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import parent from '../definition.js';
 import target from '../../+home/route.js';
-export default defineRoute('alias', { parent, redirect: { to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } } });\n`,
+export default defineRoute('alias', { parent }).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } });\n`,
 );
 await write(
   "src/helper.ts",
@@ -613,7 +613,7 @@ await write(
 );
 await expectPreflight(
   "ambient cannot supply factory provenance",
-  /defineRoute import.*concrete public entry/,
+  /Factory import must name a concrete package public entry/,
 );
 await write("src/routes/+home/route.ts", definition);
 await write(
@@ -637,7 +637,7 @@ await write(
 
 const alias = `import { defineRoute } from '@loozo/angular-router';
 import target from '../+home/route.js';
-export default defineRoute('alias', { redirect: { to: target, search: { mode: 'drop' }, fragment: { mode: 'replace', value: 'summary' } } });\n`;
+export default defineRoute('alias', {}).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'replace', value: 'summary' } });\n`;
 
 await write("src/routes/alias/definition.ts", alias);
 await expectBuild(true);

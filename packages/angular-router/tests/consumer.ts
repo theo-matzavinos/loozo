@@ -10,7 +10,7 @@ import {
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
-import type { UrlValues } from "@loozo/angular-router/_core";
+import type { RouteSchema, UrlValues } from "@loozo/angular-router/_core";
 import type { Handle } from "@loozo/angular-router/_generated";
 import type { Signal } from "@angular/core";
 import type {
@@ -78,14 +78,12 @@ const parent = defineRoute("teams/$teamId", {
     box: objectCodec,
   },
   fragments: ["parent"],
-  resolve: { ancestor: () => 42 },
-});
+}).resolve({ ancestor: () => 42 });
 const layout = defineRoute("", { parent });
 const localDataKey = Symbol("local data");
-const symbolData = defineRoute("symbol", {
-  parent: layout,
-  data: { [localDataKey]: { mutable: true } },
-  resolve: {
+const symbolData = defineRoute("symbol", { parent: layout })
+  .data({ [localDataKey]: { mutable: true } })
+  .resolve({
     [localDataKey]: (inputs, snapshot, state) => {
       exact<Equal<typeof inputs.params.teamId, number>>();
       exact<Equal<typeof snapshot, ActivatedRouteSnapshot>>();
@@ -93,8 +91,7 @@ const symbolData = defineRoute("symbol", {
 
       return "symbol value";
     },
-  },
-});
+  });
 
 exact<Equal<NonNullable<typeof symbolData.__data>[typeof localDataKey], string>>();
 
@@ -116,7 +113,8 @@ const child = defineRoute("items/$id", {
   parent: layout,
   params: { id: objectCodec },
   fragments: ["child"],
-  title: (inputs, snapshot, state) => {
+})
+  .title((inputs, snapshot, state) => {
     exact<Equal<typeof inputs.params.teamId, number>>();
     exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
     exact<Equal<typeof inputs.search.teamId, string | undefined>>();
@@ -124,15 +122,15 @@ const child = defineRoute("items/$id", {
     exact<Equal<typeof state, RouterStateSnapshot>>();
 
     return of(inputs.params.id.label);
-  },
-  canDeactivate: [nativeDeactivate],
-  runGuardsAndResolvers: (from, to) => {
+  })
+  .canDeactivate([nativeDeactivate])
+  .runGuardsAndResolvers((from, to) => {
     exact<Equal<typeof from, ActivatedRouteSnapshot>>();
     exact<Equal<typeof to, ActivatedRouteSnapshot>>();
 
     return from !== to;
-  },
-  canActivate: [
+  })
+  .canActivate([
     (inputs, snapshot, state) => {
       exact<Equal<typeof inputs.params.teamId, number>>();
       exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
@@ -149,8 +147,8 @@ const child = defineRoute("items/$id", {
 
       return Promise.resolve(true);
     },
-  ],
-  canActivateChild: [
+  ])
+  .canActivateChild([
     ({ params }, snapshot, state) => {
       exact<Equal<typeof params.teamId, number>>();
       exact<Equal<typeof snapshot, ActivatedRouteSnapshot>>();
@@ -158,8 +156,8 @@ const child = defineRoute("items/$id", {
 
       return of(redirected);
     },
-  ],
-  canMatch: [
+  ])
+  .canMatch([
     (inputs, routeConfig, segments, partialSnapshot) => {
       exact<Equal<typeof inputs.params.id, { label: string; count: number }>>();
       exact<Equal<typeof inputs.search.teamId, string | undefined>>();
@@ -175,8 +173,8 @@ const child = defineRoute("items/$id", {
 
       return true;
     },
-  ],
-  resolve: {
+  ])
+  .resolve({
     local: (inputs, snapshot, state) => {
       exact<Equal<typeof inputs.params.teamId, number>>();
       exact<Equal<typeof snapshot, ActivatedRouteSnapshot>>();
@@ -196,8 +194,7 @@ const child = defineRoute("items/$id", {
     redirect: () => redirected,
     promisedRedirect: async () => redirected,
     observedRedirect: () => of(redirected),
-  },
-});
+  });
 
 type Data = NonNullable<typeof child.__data>;
 exact<Equal<Data["local"], { label: string }>>();
@@ -213,10 +210,7 @@ exact<Equal<Data["ancestor"], number>>();
 type _Missing = Data["missing"];
 
 // A nearer resolver key hides an ancestor's; symbol keys survive inheritance.
-const nearer = defineRoute("nearer", {
-  parent: symbolData,
-  resolve: { ancestor: () => "nearer" },
-});
+const nearer = defineRoute("nearer", { parent: symbolData }).resolve({ ancestor: () => "nearer" });
 type NearerData = NonNullable<typeof nearer.__data>;
 
 exact<Equal<NearerData["ancestor"], string>>();
@@ -228,21 +222,21 @@ declare const nearerData: NearerData;
 nearerData[localDataKey] = "changed";
 
 // A numeric key and its string spelling are one property, in either direction.
-const numbered = defineRoute("numbered", { resolve: { 1: () => 123 } });
-const spelled = defineRoute("spelled", { parent: numbered, resolve: { "1": () => "spelled" } });
-const renumbered = defineRoute("renumbered", { parent: spelled, resolve: { 1: () => true } });
+const numbered = defineRoute("numbered", {}).resolve({ 1: () => 123 });
+const spelled = defineRoute("spelled", { parent: numbered }).resolve({ "1": () => "spelled" });
+const renumbered = defineRoute("renumbered", { parent: spelled }).resolve({ 1: () => true });
 type SpelledData = NonNullable<typeof spelled.__data>;
 type RenumberedData = NonNullable<typeof renumbered.__data>;
 
 exact<Equal<SpelledData["1"], string>>();
 exact<Equal<RenumberedData[1], boolean>>();
 exact<Equal<keyof RenumberedData, 1>>();
-defineRoute("static-title", { title: "Static" });
-defineRoute("promised-title", { parent, title: async ({ params }) => `Team ${params.teamId}` });
+defineRoute("static-title", {}).title("Static");
+defineRoute("promised-title", { parent }).title(async ({ params }) => `Team ${params.teamId}`);
 // @ts-expect-error A title callback takes parsed inputs, not a snapshot-first native ResolveFn.
-defineRoute("native-title", { title: nativeTitle });
+defineRoute("native-title", {}).title(nativeTitle);
 // @ts-expect-error A title resolves to a string.
-defineRoute("numeric-title", { title: () => 42 });
+defineRoute("numeric-title", {}).title(() => 42);
 // @ts-expect-error Search namespace does not permit inherited redeclaration.
 defineRoute("again", { parent: layout, search: { teamId: numberParam } });
 // @ts-expect-error Path namespace does not permit inherited redeclaration.
@@ -311,52 +305,39 @@ const destination = defineRoute("docs/$parts[]", {
   fragments: ["summary"],
 });
 
-defineRoute("packed/$array", {
-  params: { array: arrayCodec },
-  redirect: {
-    to: destination,
-    params: { parts: "array" },
-    search: { mode: "drop" },
-    fragment: { mode: "replace", value: "summary" },
-  },
+defineRoute("packed/$array", { params: { array: arrayCodec } }).redirect({
+  to: destination,
+  params: { parts: "array" },
+  search: { mode: "drop" },
+  fragment: { mode: "replace", value: "summary" },
 });
-defineRoute("$array", {
-  params: { array: stringParam },
-  redirect: {
-    to: destination,
-    // @ts-expect-error Logical scalar string cannot feed a catchall string array.
-    params: { parts: "array" },
-    search: { mode: "drop" },
-    fragment: { mode: "drop" },
-  },
+defineRoute("$array", { params: { array: stringParam } }).redirect({
+  to: destination,
+  // @ts-expect-error Logical scalar string cannot feed a catchall string array.
+  params: { parts: "array" },
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
 });
-defineRoute("$array", {
-  params: { array: arrayCodec },
-  redirect: {
-    to: destination,
-    // @ts-expect-error Unknown mapping keys fail.
-    params: { parts: "array", extra: "array" },
-    search: { mode: "drop" },
-    fragment: { mode: "drop" },
-  },
+defineRoute("$array", { params: { array: arrayCodec } }).redirect({
+  to: destination,
+  // @ts-expect-error Unknown mapping keys fail.
+  params: { parts: "array", extra: "array" },
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
 });
-defineRoute("$parts[]", {
-  params: { parts: stringParam },
-  redirect: { to: destination, search: { mode: "drop" }, fragment: { mode: "drop" } },
-  // @ts-expect-error Own canMatch conflicts with redirect declarations.
-  canMatch: [],
-});
+defineRoute("$parts[]", { params: { parts: stringParam } })
+  .canMatch([])
+  // @ts-expect-error A guard step rules a redirect out.
+  .redirect({ to: destination, search: { mode: "drop" }, fragment: { mode: "drop" } });
 
 const root = defineRoute("", {});
 const unknownReplacement = { extra: "x" };
 
-defineRoute("alias", {
-  redirect: {
-    to: root,
-    // @ts-expect-error Searchless replacement variables cannot introduce keys.
-    search: { mode: "replace", values: unknownReplacement },
-    fragment: { mode: "drop" },
-  },
+defineRoute("alias", {}).redirect({
+  to: root,
+  // @ts-expect-error Searchless replacement variables cannot introduce keys.
+  search: { mode: "replace", values: unknownReplacement },
+  fragment: { mode: "drop" },
 });
 // @ts-expect-error Unknown input options fail.
 createUrl(plain, { unexpected: true });
@@ -371,14 +352,13 @@ const prototypeOptional = defineRoute("prototype-optional", {
     toString: numberParam,
     ["__proto__"]: enumParam(["one", "two"]),
   },
-  resolve: {
-    label: ({ search }) => {
-      exact<Equal<typeof search.constructor, string | undefined>>();
-      exact<Equal<typeof search.toString, number | undefined>>();
-      exact<Equal<typeof search.__proto__, "one" | "two" | undefined>>();
+}).resolve({
+  label: ({ search }) => {
+    exact<Equal<typeof search.constructor, string | undefined>>();
+    exact<Equal<typeof search.toString, number | undefined>>();
+    exact<Equal<typeof search.__proto__, "one" | "two" | undefined>>();
 
-      return search.constructor;
-    },
+    return search.constructor;
   },
 });
 
@@ -458,34 +438,32 @@ createUrl(onlyConstructor, { search: { constructor: () => undefined } });
 // @ts-expect-error A supplied native method is not a logical string.
 createUrl(onlyToString, { search: { toString: () => "wrong" } });
 
-defineRoute("prototype-drop", {
-  redirect: { to: prototypeOptional, search: { mode: "drop" }, fragment: { mode: "drop" } },
+defineRoute("prototype-drop", {}).redirect({
+  to: prototypeOptional,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
 });
-defineRoute("prototype-preserve", {
-  redirect: { to: prototypeOptional, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+defineRoute("prototype-preserve", {}).redirect({
+  to: prototypeOptional,
+  search: { mode: "preserve" },
+  fragment: { mode: "drop" },
 });
-defineRoute("prototype-replace", {
-  redirect: {
-    to: prototypeOptional,
-    search: { mode: "replace", values: {} },
-    fragment: { mode: "drop" },
-  },
+defineRoute("prototype-replace", {}).redirect({
+  to: prototypeOptional,
+  search: { mode: "replace", values: {} },
+  fragment: { mode: "drop" },
 });
-defineRoute("constructor-replace", {
-  redirect: {
-    to: onlyConstructor,
-    search: { mode: "replace", values: {} },
-    fragment: { mode: "drop" },
-  },
+defineRoute("constructor-replace", {}).redirect({
+  to: onlyConstructor,
+  search: { mode: "replace", values: {} },
+  fragment: { mode: "drop" },
 });
 
-defineRoute("prototype-replace-wrong", {
-  redirect: {
-    to: prototypeOptional,
-    // @ts-expect-error Replacement inputs retain logical prototype-named value types.
-    search: { mode: "replace", values: { constructor: () => undefined } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("prototype-replace-wrong", {}).redirect({
+  to: prototypeOptional,
+  // @ts-expect-error Replacement inputs retain logical prototype-named value types.
+  search: { mode: "replace", values: { constructor: () => undefined } },
+  fragment: { mode: "drop" },
 });
 
 const mixedPrototype = defineRoute("prototype-mixed", {
@@ -494,16 +472,15 @@ const mixedPrototype = defineRoute("prototype-mixed", {
     constructor: stringParam,
     toString: numberParam,
   },
-  canActivate: [
-    ({ search }) => {
-      exact<Equal<typeof search.q, number | undefined>>();
-      exact<Equal<typeof search.constructor, string | undefined>>();
-      exact<Equal<typeof search.toString, number | undefined>>();
+}).canActivate([
+  ({ search }) => {
+    exact<Equal<typeof search.q, number | undefined>>();
+    exact<Equal<typeof search.constructor, string | undefined>>();
+    exact<Equal<typeof search.toString, number | undefined>>();
 
-      return true;
-    },
-  ],
-});
+    return true;
+  },
+]);
 
 createUrl(mixedPrototype, { search: { q: 7 } });
 createUrl(mixedPrototype, { search: { q: 7, constructor: "logical" } });
@@ -574,114 +551,93 @@ createUrl(mixedPrototype, { search: { q: "wrong" } });
 createUrl(mixedPrototype, { search: { q: 7, constructor: () => undefined } });
 // @ts-expect-error Mixed inputs reject unknown literal keys.
 createUrl(mixedPrototype, { search: { q: 7, extra: "wrong" } });
-defineRoute("mixed-preserve", {
-  search: { q: numberParam },
-  redirect: { to: mixedPrototype, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+defineRoute("mixed-preserve", { search: { q: numberParam } }).redirect({
+  to: mixedPrototype,
+  search: { mode: "preserve" },
+  fragment: { mode: "drop" },
 });
-defineRoute("mixed-replace", {
-  redirect: {
-    to: mixedPrototype,
-    search: { mode: "replace", values: { q: 7 } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("mixed-replace", {}).redirect({
+  to: mixedPrototype,
+  search: { mode: "replace", values: { q: 7 } },
+  fragment: { mode: "drop" },
 });
-defineRoute("mixed-replace-wrong", {
-  redirect: {
-    to: mixedPrototype,
-    // @ts-expect-error Optional prototype-named replacement remains codec-typed.
-    search: { mode: "replace", values: { q: 7, toString: "wrong" } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("mixed-replace-wrong", {}).redirect({
+  to: mixedPrototype,
+  // @ts-expect-error Optional prototype-named replacement remains codec-typed.
+  search: { mode: "replace", values: { q: 7, toString: "wrong" } },
+  fragment: { mode: "drop" },
 });
 
-defineRoute("variable-empty-replace", {
-  redirect: {
-    to: prototypeOptional,
-    search: { mode: "replace", values: emptySearch },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-empty-replace", {}).redirect({
+  to: prototypeOptional,
+  search: { mode: "replace", values: emptySearch },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-partial-replace", {
-  redirect: {
-    to: prototypeOptional,
-    search: { mode: "replace", values: partialToString },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-partial-replace", {}).redirect({
+  to: prototypeOptional,
+  search: { mode: "replace", values: partialToString },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-mixed-replace", {
-  redirect: {
-    to: mixedPrototype,
-    search: { mode: "replace", values: mixedSubset },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-mixed-replace", {}).redirect({
+  to: mixedPrototype,
+  search: { mode: "replace", values: mixedSubset },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-optional-subset-replace", {
-  redirect: {
-    to: prototypeOptional,
-    search: { mode: "replace", values: optionalSubset },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-optional-subset-replace", {}).redirect({
+  to: prototypeOptional,
+  search: { mode: "replace", values: optionalSubset },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-required-replace", {
-  redirect: {
-    to: mixedPrototype,
-    search: { mode: "replace", values: mixedRequired },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-required-replace", {}).redirect({
+  to: mixedPrototype,
+  search: { mode: "replace", values: mixedRequired },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-constructor-wrong", {
-  redirect: {
-    to: mixedPrototype,
-    // @ts-expect-error Replacement variables cannot hide wrong own constructor values.
-    search: { mode: "replace", values: wrongConstructor },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-constructor-wrong", {}).redirect({
+  to: mixedPrototype,
+  // @ts-expect-error Replacement variables cannot hide wrong own constructor values.
+  search: { mode: "replace", values: wrongConstructor },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-tostring-wrong", {
-  redirect: {
-    to: mixedPrototype,
-    // @ts-expect-error Replacement variables cannot hide wrong own toString values.
-    search: { mode: "replace", values: wrongToString },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-tostring-wrong", {}).redirect({
+  to: mixedPrototype,
+  // @ts-expect-error Replacement variables cannot hide wrong own toString values.
+  search: { mode: "replace", values: wrongToString },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-subset-wrong", {
-  redirect: {
-    to: mixedPrototype,
-    // @ts-expect-error Replacement subsets retain each supplied logical value type.
-    search: { mode: "replace", values: wrongSubset },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-subset-wrong", {}).redirect({
+  to: mixedPrototype,
+  // @ts-expect-error Replacement subsets retain each supplied logical value type.
+  search: { mode: "replace", values: wrongSubset },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-multiple-wrong", {
-  redirect: {
-    to: mixedPrototype,
-    // @ts-expect-error Several wrong values cannot broaden the selected replacement schema.
-    search: { mode: "replace", values: wrongMultiple },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-multiple-wrong", {}).redirect({
+  to: mixedPrototype,
+  // @ts-expect-error Several wrong values cannot broaden the selected replacement schema.
+  search: { mode: "replace", values: wrongMultiple },
+  fragment: { mode: "drop" },
 });
-defineRoute("variable-structural-replace", {
-  redirect: {
-    to: ordinary,
-    search: { mode: "replace", values: structuralExtra },
-    fragment: { mode: "drop" },
-  },
+defineRoute("variable-structural-replace", {}).redirect({
+  to: ordinary,
+  search: { mode: "replace", values: structuralExtra },
+  fragment: { mode: "drop" },
 });
 
 // No destination search key is required, so every policy accepts any target.
-defineRoute("mixed-drop", {
-  redirect: { to: mixedPrototype, search: { mode: "drop" }, fragment: { mode: "drop" } },
+defineRoute("mixed-drop", {}).redirect({
+  to: mixedPrototype,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
 });
-defineRoute("mixed-missing", {
-  redirect: {
-    to: mixedPrototype,
-    search: { mode: "replace", values: {} },
-    fragment: { mode: "drop" },
-  },
+defineRoute("mixed-missing", {}).redirect({
+  to: mixedPrototype,
+  search: { mode: "replace", values: {} },
+  fragment: { mode: "drop" },
 });
-defineRoute("mixed-preserve-searchless", {
-  redirect: { to: mixedPrototype, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+defineRoute("mixed-preserve-searchless", {}).redirect({
+  to: mixedPrototype,
+  search: { mode: "preserve" },
+  fragment: { mode: "drop" },
 });
 
 const undefinedCodec: ParamCodec<undefined> = {
@@ -697,17 +653,16 @@ const undefinedBox: ParamCodec<BoxWithUndefined> = {
 };
 const ownUndefined = defineRoute("own-undefined", {
   search: { q: undefinedCodec, box: undefinedBox },
-  resolve: {
-    local: ({ search }) => {
-      exact<Equal<typeof search.q, undefined>>();
-      exact<Equal<typeof search.box, BoxWithUndefined | undefined>>();
+}).resolve({
+  local: ({ search }) => {
+    exact<Equal<typeof search.q, undefined>>();
+    exact<Equal<typeof search.box, BoxWithUndefined | undefined>>();
 
-      if (search.box) {
-        search.box.nested.mutable = false;
-      }
+    if (search.box) {
+      search.box.nested.mutable = false;
+    }
 
-      return search.q;
-    },
+    return search.q;
   },
 });
 
@@ -717,12 +672,10 @@ const boxWithUndefined: BoxWithUndefined = { nested: { value: undefined, mutable
 
 createUrl(ownUndefined, { search: { q: undefined, box: boxWithUndefined } });
 createUrl(defineRoute("$id", { params: { id: undefinedCodec } }), { params: { id: undefined } });
-defineRoute("undefined-replace", {
-  redirect: {
-    to: ownUndefined,
-    search: { mode: "replace", values: { q: undefined, box: boxWithUndefined } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("undefined-replace", {}).redirect({
+  to: ownUndefined,
+  search: { mode: "replace", values: { q: undefined, box: boxWithUndefined } },
+  fragment: { mode: "drop" },
 });
 createUrl(ownUndefined, { search: { box: boxWithUndefined } });
 // @ts-expect-error Concrete undefined logical value is not a string.
@@ -735,54 +688,46 @@ createUrl(ownUndefined, {
 // Invalid local path params: the route doesn't match unless its handler decides otherwise.
 const invalidItem = defineRoute("invalid-items/$id", {
   params: { id: numberParam },
-  onInvalidParams: (error, routeConfig, segments, partialSnapshot) => {
-    exact<Equal<typeof error.source, "path">>();
-    exact<Equal<typeof error.key, string>>();
-    exact<Equal<typeof error.reason, "missing" | "repeated" | "invalid">>();
-    exact<Equal<typeof error.cause, unknown>>();
-    exact<Equal<typeof routeConfig, NativeRoute>>();
-    exact<Equal<typeof segments, UrlSegment[]>>();
-    exact<Equal<typeof partialSnapshot, PartialMatchRouteSnapshot>>();
+}).onInvalidParams((error, routeConfig, segments, partialSnapshot) => {
+  exact<Equal<typeof error.source, "path">>();
+  exact<Equal<typeof error.key, string>>();
+  exact<Equal<typeof error.reason, "missing" | "repeated" | "invalid">>();
+  exact<Equal<typeof error.cause, unknown>>();
+  exact<Equal<typeof routeConfig, NativeRoute>>();
+  exact<Equal<typeof segments, UrlSegment[]>>();
+  exact<Equal<typeof partialSnapshot, PartialMatchRouteSnapshot>>();
 
-    if (segments.length > 1) {
-      return new RedirectCommand(new UrlTree());
-    }
+  if (segments.length > 1) {
+    return new RedirectCommand(new UrlTree());
+  }
 
-    if (segments.length > 0) {
-      return of(new UrlTree());
-    }
+  if (segments.length > 0) {
+    return of(new UrlTree());
+  }
 
-    return Promise.resolve(false as const);
-  },
+  return Promise.resolve(false as const);
 });
 
-defineRoute("invalid-items/$id", { params: { id: numberParam }, onInvalidParams: () => false });
-defineRoute("invalid-docs/$parts[]", {
-  params: { parts: stringParam },
-  onInvalidParams: async () => false as const,
-});
+defineRoute("invalid-items/$id", { params: { id: numberParam } }).onInvalidParams(() => false);
+defineRoute("invalid-docs/$parts[]", { params: { parts: stringParam } }).onInvalidParams(
+  async () => false as const,
+);
 // @ts-expect-error Invalid params can't match, so a handler can't return true.
-defineRoute("invalid-true/$id", { params: { id: numberParam }, onInvalidParams: () => true });
-defineRoute("invalid-boolean/$id", {
-  params: { id: numberParam },
+defineRoute("invalid-true/$id", { params: { id: numberParam } }).onInvalidParams(() => true);
+defineRoute("invalid-boolean/$id", { params: { id: numberParam } })
   // @ts-expect-error A boolean might be true.
-  onInvalidParams: () => Math.random() > 0.5,
-});
-defineRoute("invalid-promise/$id", {
-  params: { id: numberParam },
+  .onInvalidParams(() => Math.random() > 0.5);
+defineRoute("invalid-promise/$id", { params: { id: numberParam } })
   // @ts-expect-error Asynchronous true is rejected too.
-  onInvalidParams: async () => true,
-});
+  .onInvalidParams(async () => true);
 // @ts-expect-error A paramless route has nothing to reject.
-defineRoute("invalid-static", { onInvalidParams: () => false });
+defineRoute("invalid-static", {}).onInvalidParams(() => false);
 // @ts-expect-error Inherited params belong to the parent's own matching guard.
-defineRoute("invalid-child", { parent: invalidItem, onInvalidParams: () => false });
-defineRoute("invalid-redirect/$id", {
-  params: { id: numberParam },
-  redirect: { to: invalidItem, search: { mode: "drop" }, fragment: { mode: "drop" } },
+defineRoute("invalid-child", { parent: invalidItem }).onInvalidParams(() => false);
+defineRoute("invalid-redirect/$id", { params: { id: numberParam } })
+  .onInvalidParams(() => false)
   // @ts-expect-error Angular rejects canMatch on redirect records, so the handler has no guard.
-  onInvalidParams: () => false,
-});
+  .redirect({ to: invalidItem, search: { mode: "drop" }, fragment: { mode: "drop" } });
 
 // A plain search key reads as optional; a fallback key always reads a value.
 // Either may be omitted, or passed as undefined, when writing a URL.
@@ -793,7 +738,8 @@ const paged = defineRoute("paged", {
     score: withFallback(numberParam, 0),
     q: stringParam,
   },
-  resolve: {
+})
+  .resolve({
     read: ({ search }) => {
       exact<Equal<typeof search.page, number>>();
       exact<Equal<typeof search.sort, "asc" | "desc" | undefined>>();
@@ -802,15 +748,14 @@ const paged = defineRoute("paged", {
 
       return search.page;
     },
-  },
-  canMatch: [
+  })
+  .canMatch([
     ({ search }) => {
       exact<Equal<typeof search.page, number>>();
 
       return true;
     },
-  ],
-});
+  ]);
 type PagedSearch = NonNullable<typeof paged.__search>;
 
 exact<Equal<PagedSearch["page"], number>>();
@@ -843,33 +788,31 @@ defineRoute("$id", { params: { id: withFallback(numberParam, 1) } });
 defineRoute("fallback-docs/$parts[]", { params: { parts: withFallback(stringParam, "") } });
 
 // Redirects: no search key is ever required, on either side.
-defineRoute("fallback-drop", {
-  redirect: { to: fallbackOnly, search: { mode: "drop" }, fragment: { mode: "drop" } },
+defineRoute("fallback-drop", {}).redirect({
+  to: fallbackOnly,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
 });
-defineRoute("fallback-preserve", {
-  redirect: { to: fallbackOnly, search: { mode: "preserve" }, fragment: { mode: "drop" } },
+defineRoute("fallback-preserve", {}).redirect({
+  to: fallbackOnly,
+  search: { mode: "preserve" },
+  fragment: { mode: "drop" },
 });
-defineRoute("fallback-replace", {
-  redirect: {
-    to: paged,
-    search: { mode: "replace", values: { q: "x" } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("fallback-replace", {}).redirect({
+  to: paged,
+  search: { mode: "replace", values: { q: "x" } },
+  fragment: { mode: "drop" },
 });
-defineRoute("fallback-replace-value", {
-  redirect: {
-    to: paged,
-    search: { mode: "replace", values: { q: "x", page: 3, score: undefined } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("fallback-replace-value", {}).redirect({
+  to: paged,
+  search: { mode: "replace", values: { q: "x", page: 3, score: undefined } },
+  fragment: { mode: "drop" },
 });
-defineRoute("fallback-replace-wrong", {
-  redirect: {
-    to: paged,
-    // @ts-expect-error Replacement values keep their codec type.
-    search: { mode: "replace", values: { page: "3" } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("fallback-replace-wrong", {}).redirect({
+  to: paged,
+  // @ts-expect-error Replacement values keep their codec type.
+  search: { mode: "replace", values: { page: "3" } },
+  fragment: { mode: "drop" },
 });
 // Children inherit the read and write shapes.
 const pagedChild = defineRoute("child", { parent: fallbackOnly });
@@ -900,13 +843,12 @@ pagedHandle.data = otherData;
 // guards, resolvers, children and handle all see the same shape.
 const articles = defineRoute("articles", {
   search: { tag: arrayParam(enumParam(["news", "guides"])), single: stringParam },
-  resolve: {
-    read: ({ search }) => {
-      exact<Equal<typeof search.tag, readonly ("news" | "guides")[]>>();
-      exact<Equal<typeof search.single, string | undefined>>();
+}).resolve({
+  read: ({ search }) => {
+    exact<Equal<typeof search.tag, readonly ("news" | "guides")[]>>();
+    exact<Equal<typeof search.single, string | undefined>>();
 
-      return search.tag;
-    },
+    return search.tag;
   },
 });
 type ArticlesSearch = NonNullable<typeof articles.__search>;
@@ -943,25 +885,106 @@ arrayParam(withFallback(numberParam, 1));
 arrayParam(arrayParam(numberParam));
 // @ts-expect-error A promise-valued element codec fails where it is declared.
 arrayParam(promisedCodec);
-defineRoute("articles-replace", {
-  redirect: {
-    to: articles,
-    search: { mode: "replace", values: { tag: ["news"], single: undefined } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("articles-replace", {}).redirect({
+  to: articles,
+  search: { mode: "replace", values: { tag: ["news"], single: undefined } },
+  fragment: { mode: "drop" },
 });
-defineRoute("articles-replace-empty", {
-  redirect: {
-    to: articles,
-    search: { mode: "replace", values: { tag: [] } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("articles-replace-empty", {}).redirect({
+  to: articles,
+  search: { mode: "replace", values: { tag: [] } },
+  fragment: { mode: "drop" },
 });
-defineRoute("articles-replace-wrong", {
-  redirect: {
-    to: articles,
-    // @ts-expect-error Replacement values keep the array shape.
-    search: { mode: "replace", values: { tag: "news" } },
-    fragment: { mode: "drop" },
-  },
+defineRoute("articles-replace-wrong", {}).redirect({
+  to: articles,
+  // @ts-expect-error Replacement values keep the array shape.
+  search: { mode: "replace", values: { tag: "news" } },
+  fragment: { mode: "drop" },
 });
+
+// Steps: each at most once, in any order; a used step is gone from the value.
+const once = defineRoute("once/$id", { params: { id: numberParam } });
+const redirectTarget = defineRoute("redirect-target", {});
+const drop = { to: redirectTarget, search: { mode: "drop" }, fragment: { mode: "drop" } } as const;
+// @ts-expect-error canMatch is used.
+once.canMatch([]).canMatch([]);
+// @ts-expect-error canActivate is used.
+once.canActivate([]).canActivate([]);
+// @ts-expect-error canActivateChild is used.
+once.canActivateChild([]).canActivateChild([]);
+// @ts-expect-error canDeactivate is used.
+once.canDeactivate([]).canDeactivate([]);
+// @ts-expect-error resolve is used.
+once.resolve({}).resolve({});
+// @ts-expect-error title is used.
+once.title("a").title("b");
+// @ts-expect-error providers is used.
+once.providers([]).providers([]);
+// @ts-expect-error data is used.
+once.data({}).data({});
+// @ts-expect-error runGuardsAndResolvers is used.
+once.runGuardsAndResolvers("always").runGuardsAndResolvers("always");
+// @ts-expect-error onInvalidParams is used.
+once.onInvalidParams(() => false).onInvalidParams(() => false);
+// @ts-expect-error redirect is used, and nothing follows it.
+once.redirect(drop).redirect(drop);
+// @ts-expect-error No step follows a redirect.
+once.redirect(drop).title("after");
+// @ts-expect-error A guard step rules a redirect out: canMatch.
+once.canMatch([]).redirect(drop);
+// @ts-expect-error A guard step rules a redirect out: canActivate.
+once.canActivate([]).redirect(drop);
+// @ts-expect-error A guard step rules a redirect out: canActivateChild.
+once.canActivateChild([]).redirect(drop);
+// @ts-expect-error A guard step rules a redirect out: canDeactivate.
+once.canDeactivate([]).redirect(drop);
+// @ts-expect-error onInvalidParams rules a redirect out.
+once.onInvalidParams(() => false).redirect(drop);
+// Steps that don't guard may precede a redirect.
+once.resolve({}).title("t").data({}).providers([]).runGuardsAndResolvers("always").redirect(drop);
+// Order is free.
+once
+  .title("t")
+  .canActivate([])
+  .resolve({ value: () => 1 });
+
+// A used step's method is gone, even through a plain callback type.
+const ended = defineRoute("ended", {}).title("a");
+// @ts-expect-error title is no longer offered.
+const reuseTitle: (title: string) => unknown = ended.title;
+void reuseTitle;
+
+// @ts-expect-error Behavior goes in chained steps, not in URL facts.
+defineRoute("facts-only", { title: "no" });
+// @ts-expect-error Resolvers go in chained steps, not in URL facts.
+defineRoute("facts-only-resolve", { resolve: {} });
+
+// A parent ending in a data or rerun step passes its data on; generated consumers read
+// the method-free projection.
+const dataParent = defineRoute("data-parent", {})
+  .resolve({ value: () => 1 })
+  .runGuardsAndResolvers("always");
+const dataChild = defineRoute("data-child/$slug", {
+  parent: dataParent,
+  params: { slug: stringParam },
+})
+  .resolve({ label: () => "label" })
+  .title("child");
+
+exact<Equal<NonNullable<typeof dataChild.__data>["value"], number>>();
+exact<Equal<NonNullable<typeof dataChild.__data>["label"], string>>();
+exact<
+  Equal<
+    RouteSchema<typeof dataChild>,
+    Route<
+      "data-child/$slug",
+      NonNullable<typeof dataChild.__params>,
+      NonNullable<typeof dataChild.__search>,
+      { label: () => string },
+      never,
+      false,
+      NonNullable<typeof dataChild.__data>,
+      string
+    >
+  >
+>();

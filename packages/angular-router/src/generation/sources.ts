@@ -13,7 +13,14 @@ export interface Declaration {
   id: string;
   source: ts.SourceFile;
   rawText: string;
+  // URL facts and router steps (one argument each), flattened from the chain.
   config: Map<string, ts.Expression>;
+  // defineRoute(path, facts), the chain's innermost call.
+  root: ts.CallExpression;
+  // Every chained step, in source order.
+  steps: readonly RouteStep[];
+  // Absent for the router's own factory.
+  extension?: RouteExtension;
   path: string;
   segments: readonly Segment[];
   effective: readonly Segment[];
@@ -23,6 +30,31 @@ export interface Declaration {
   page?: string;
   retained: boolean;
   full: boolean;
+}
+
+export interface RouteStep {
+  readonly name: string;
+  readonly call: ts.CallExpression;
+  // Source order; exactly one for router steps.
+  readonly args: readonly ts.Expression[];
+  readonly contributed: boolean;
+  // Always false for router steps.
+  readonly serverOnly: boolean;
+}
+
+export interface ManifestStep {
+  readonly name: string;
+  readonly serverOnly: boolean;
+  readonly arity: { readonly min: number; readonly max: number | null };
+}
+
+export interface RouteExtension {
+  // The bare package root as imported.
+  readonly specifier: string;
+  // The physical .d.ts entry the import resolves to.
+  readonly entry: string;
+  // The full manifest, in order.
+  readonly steps: readonly ManifestStep[];
 }
 
 export interface LaunchDeclaration {
@@ -43,6 +75,8 @@ export interface Sources {
   encountered: string[];
   declarations: Declaration[];
   factoryEntry: string;
+  // The router's physical `/_core` types entry, which declares RouteFactory.
+  coreEntry: string;
   deferredFactories: Declaration[];
   authored: ReadonlyMap<string, string>;
   filesystem: boolean;
@@ -291,23 +325,336 @@ async function component(
   }
 }
 
-const keys = new Set([
-  "parent",
-  "params",
-  "search",
-  "resolve",
-  "runGuardsAndResolvers",
-  "redirect",
-  "fragments",
+const factsKeys = new Set(["parent", "params", "search", "fragments"]);
+export const routerSteps: ReadonlySet<string> = new Set([
+  "canMatch",
   "canActivate",
   "canActivateChild",
-  "canMatch",
-  "onInvalidParams",
   "canDeactivate",
-  "providers",
+  "resolve",
   "title",
+  "providers",
   "data",
+  "runGuardsAndResolvers",
+  "onInvalidParams",
+  "redirect",
 ]);
+// Any of these steps rules a redirect out.
+const guardSteps = new Set([
+  "canMatch",
+  "canActivate",
+  "canActivateChild",
+  "canDeactivate",
+  "onInvalidParams",
+]);
+const reservedStepNames = new Set([
+  ...routerSteps,
+  "path",
+  "then",
+  "__params",
+  "__search",
+  "__data",
+  "__title",
+  "__contribution",
+  ...Object.getOwnPropertyNames(Object.prototype),
+]);
+
+function unwrapped(node: ts.Expression): boolean {
+  return (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isElementAccessExpression(node)
+  );
+}
+
+/**
+ * Peels a default-exported `defineRoute(path, facts).step(…)…` chain into its root call
+ * and its step calls, in source order.
+ */
+export function routeChain(expression: ts.Expression): {
+  root: ts.CallExpression;
+  calls: ts.CallExpression[];
+} {
+  const calls: ts.CallExpression[] = [];
+  let current = expression;
+
+  if (!ts.isCallExpression(current) && !unwrapped(current)) {
+    fail(current, "Default export must be a defineRoute(...) chain or Component class");
+  }
+
+  while (true) {
+    if (!ts.isCallExpression(current) || current.questionDotToken) {
+      if (
+        calls.length > 0 &&
+        (ts.isIdentifier(current) || ts.isPropertyAccessExpression(current))
+      ) {
+        // ns.defineRoute(…): the innermost "step" is a factory call through a namespace.
+        fail(
+          calls[0],
+          "Factory must be a genuine named value import of defineRoute, not a local wrapper/alias",
+        );
+      }
+
+      fail(current, "Route chain must be plain calls: defineRoute(path, facts).step(…)…");
+    }
+
+    const callee = current.expression;
+
+    if (ts.isIdentifier(callee)) {
+      return { root: current, calls };
+    }
+
+    if (!ts.isPropertyAccessExpression(callee) || callee.questionDotToken) {
+      fail(callee, "Route chain must be plain calls: defineRoute(path, facts).step(…)…");
+    }
+
+    calls.unshift(current);
+    current = callee.expression;
+  }
+}
+
+function stepName(call: ts.CallExpression): ts.MemberName {
+  return (call.expression as ts.PropertyAccessExpression).name;
+}
+
+export function unalias(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol | undefined,
+): ts.Symbol | undefined {
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+    return checker.getAliasedSymbol(symbol);
+  }
+
+  return symbol;
+}
+
+/**
+ * The factory declaration's `RouteFactory<E>` annotation with exactly one type argument,
+ * or undefined. Its identity is checked in validation.
+ */
+export function factoryAnnotation(
+  checker: ts.TypeChecker,
+  root: ts.CallExpression,
+): (ts.TypeReferenceNode | ts.ImportTypeNode) | undefined {
+  const factory = unalias(checker, checker.getSymbolAtLocation(root.expression));
+  const declaration = factory?.valueDeclaration;
+
+  if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.type) {
+    return undefined;
+  }
+
+  const annotation = declaration.type;
+
+  if (!ts.isTypeReferenceNode(annotation) && !ts.isImportTypeNode(annotation)) {
+    return undefined;
+  }
+
+  return annotation;
+}
+
+function propertyType(checker: ts.TypeChecker, type: ts.Type, name: string, at: ts.Node): ts.Type {
+  const property = checker.getPropertyOfType(type, name);
+
+  if (!property || property.flags & ts.SymbolFlags.Optional) {
+    fail(at, `Manifest requires a required ${name} property`);
+  }
+
+  return checker.getTypeOfSymbolAtLocation(property, at);
+}
+
+// Reads E["steps"] from the declared RouteFactory<E>: a fixed tuple of literal entries.
+function readManifest(
+  checker: ts.TypeChecker,
+  annotation: ts.TypeReferenceNode | ts.ImportTypeNode,
+  root: ts.CallExpression,
+): ManifestStep[] | undefined {
+  const argument = annotation.typeArguments?.[0];
+
+  if (annotation.typeArguments?.length !== 1 || !argument) {
+    return undefined;
+  }
+
+  const spec = checker.getTypeFromTypeNode(argument);
+  const steps = propertyType(checker, spec, "steps", root);
+
+  if (!checker.isTupleType(steps)) {
+    fail(root, "Extension steps must be a fixed-length tuple");
+  }
+
+  // TupleType.target.elementFlags tells optional, rest and variadic elements apart.
+  const tuple = steps as ts.TupleTypeReference;
+
+  for (const flag of tuple.target.elementFlags) {
+    if (flag !== ts.ElementFlags.Required) {
+      fail(root, "Extension steps must be a fixed-length tuple of required entries");
+    }
+  }
+
+  const result: ManifestStep[] = [];
+  const names = new Set<string>();
+
+  for (const element of checker.getTypeArguments(tuple)) {
+    const nameType = propertyType(checker, element, "name", root);
+
+    if (!nameType.isStringLiteral()) {
+      fail(root, "Manifest step name must be a string literal");
+    }
+
+    const name = nameType.value;
+
+    if (reservedStepNames.has(name)) {
+      fail(root, `Reserved contributed step name: ${name}`);
+    }
+
+    if (names.has(name)) {
+      fail(root, `Duplicate contributed step name: ${name}`);
+    }
+
+    names.add(name);
+
+    const flag = propertyType(checker, element, "serverOnly", root);
+
+    if (!(flag.flags & ts.TypeFlags.BooleanLiteral)) {
+      fail(root, `serverOnly must be a boolean literal: ${name}`);
+    }
+
+    const arity = propertyType(checker, element, "arity", root);
+    const min = propertyType(checker, arity, "min", root);
+
+    if (!min.isNumberLiteral() || !Number.isInteger(min.value) || min.value < 0) {
+      fail(root, `arity.min must be a non-negative integer literal: ${name}`);
+    }
+
+    const max = propertyType(checker, arity, "max", root);
+    let upper: number | null = null;
+
+    if (!(max.flags & ts.TypeFlags.Null)) {
+      if (
+        !max.isNumberLiteral() ||
+        !Number.isInteger(max.value) ||
+        max.value < Math.max(min.value, 1)
+      ) {
+        fail(root, `arity.max must be null or an integer literal >= max(min, 1): ${name}`);
+      }
+
+      upper = max.value;
+    }
+
+    result.push({
+      name,
+      serverOnly: checker.typeToString(flag) === "true",
+      arity: { min: min.value, max: upper },
+    });
+  }
+
+  return result;
+}
+
+// Checks each step's name, order and argument count; router steps feed `config`.
+function analyzeSteps(
+  calls: readonly ts.CallExpression[],
+  manifest: readonly ManifestStep[],
+  config: Map<string, ts.Expression>,
+): RouteStep[] {
+  const steps: RouteStep[] = [];
+  const used = new Set<string>();
+  let routerStarted = false;
+  let lastContributed = -1;
+
+  for (const call of calls) {
+    const nameNode = stepName(call);
+    const name = nameNode.text;
+    const index = manifest.findIndex((entry) => entry.name === name);
+
+    if (index < 0 && !routerSteps.has(name)) {
+      fail(nameNode, `Unknown step: ${name}`);
+    }
+
+    if (used.has("redirect")) {
+      fail(nameNode, `No step may follow redirect: ${name}`);
+    }
+
+    if (used.has(name)) {
+      fail(nameNode, `Repeated step: ${name}`);
+    }
+
+    used.add(name);
+
+    for (const argument of call.arguments) {
+      if (ts.isSpreadElement(argument)) {
+        fail(argument, `Route step arguments cannot be spread: ${name}`);
+      }
+    }
+
+    if (index >= 0) {
+      const entry = manifest[index];
+
+      if (routerStarted) {
+        fail(nameNode, `Contributed step must precede router steps: ${name}`);
+      }
+
+      if (index <= lastContributed) {
+        fail(nameNode, `Contributed steps must follow manifest order: ${name}`);
+      }
+
+      const { min, max } = entry.arity;
+
+      if (call.arguments.length < min || (max !== null && call.arguments.length > max)) {
+        if (max === null) {
+          fail(call, `Route step ${name} takes at least ${min} arguments`);
+        }
+
+        fail(call, `Route step ${name} takes ${min}…${max} arguments`);
+      }
+
+      lastContributed = index;
+      steps.push({
+        name,
+        call,
+        args: call.arguments,
+        contributed: true,
+        serverOnly: entry.serverOnly,
+      });
+
+      continue;
+    }
+
+    if (call.arguments.length !== 1) {
+      fail(call, `Route step ${name} takes exactly one argument`);
+    }
+
+    if (name === "redirect") {
+      for (const guard of used) {
+        if (guardSteps.has(guard)) {
+          fail(nameNode, `Redirect cannot follow ${guard}`);
+        }
+      }
+    }
+
+    routerStarted = true;
+    config.set(name, call.arguments[0]);
+    steps.push({ name, call, args: call.arguments, contributed: false, serverOnly: false });
+  }
+
+  return steps;
+}
+
+export function isPackageRoot(specifier: string): boolean {
+  if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("#")) {
+    return false;
+  }
+
+  const parts = specifier.split("/");
+
+  if (specifier.startsWith("@")) {
+    return parts.length === 2;
+  }
+
+  return parts.length === 1;
+}
 
 export async function discover(
   workspace: string,
@@ -403,6 +750,7 @@ export async function discover(
   const manifestBytes = await readFile(resolve(packageRoot, "package.json"), "utf8");
   const manifest = JSON.parse(manifestBytes);
   const factoryEntry = await realpath(resolve(packageRoot, manifest.exports["."].types));
+  const coreEntry = await realpath(resolve(packageRoot, manifest.exports["./_core"].types));
   const declarations: Declaration[] = [];
   const launchDeclarations: LaunchDeclaration[] = [];
   const launchEntry = launch && (await realpath(launch.typeEntry));
@@ -410,6 +758,8 @@ export async function discover(
   const deferredFactories: Declaration[] = [];
   const syntaxHost = overlayHost(parsed.options, authored);
   let syntaxProgram: ts.Program;
+  // Built only when an extension factory's manifest must be read.
+  let checker: ts.TypeChecker | undefined;
 
   if (compiler) {
     syntaxProgram = compiler.createProgram(candidates, parsed.options, syntaxHost);
@@ -521,11 +871,11 @@ export async function discover(
       continue;
     }
 
-    if (!ts.isExportAssignment(node) || !ts.isCallExpression(node.expression)) {
-      fail(node, "Default export must be a direct defineRoute call or Component class");
+    if (!ts.isExportAssignment(node)) {
+      fail(node, "Default export must be a defineRoute(...) chain or Component class");
     }
 
-    const call = node.expression;
+    const { root: call, calls } = routeChain(node.expression);
     const imported = namedImport(source, call.expression, "defineRoute");
 
     if (!imported) {
@@ -538,16 +888,66 @@ export async function discover(
     const [path, configNode] = call.arguments;
 
     if (call.arguments.length !== 2 || !path || !ts.isStringLiteral(path) || !configNode) {
-      fail(call, "defineRoute requires a literal path and inline config");
+      fail(call, "defineRoute requires a literal path and inline URL facts");
     }
 
-    const config = properties(configNode, "Route config");
+    const config = properties(configNode, "URL facts");
 
     for (const key of config.keys()) {
-      if (!keys.has(key)) {
-        fail(configNode, `Unknown or generation-owned route config key: ${key}`);
+      if (routerSteps.has(key)) {
+        fail(configNode, `Behavior key in URL facts: ${key}; chain .${key}(…) instead`);
+      }
+
+      if (!factsKeys.has(key)) {
+        fail(configNode, `Unknown or generation-owned URL facts key: ${key}`);
       }
     }
+
+    // The router's own import (by name, through its own facade, or through any link that
+    // resolves to its public entry) takes the router path; anything else is an extension.
+    const specifier = moduleText(imported);
+    const ownFacade = resolve(dirname(file), "route.generated.ts");
+    const resolved = resolveModule(specifier, file, parsed.options, syntaxHost);
+    const facadeSpelling = resolve(dirname(file), specifier).replace(/\.js$/, ".ts");
+    const deferred = resolved === ownFacade || (!resolved && facadeSpelling === ownFacade);
+    let extension: RouteExtension | undefined;
+    let manifest: readonly ManifestStep[] = [];
+
+    if (specifier === "@loozo/angular-router") {
+      const genuine = await genuineImport(imported, factoryEntry, parsed.options, syntaxHost);
+
+      if (!genuine) {
+        fail(
+          imported,
+          "defineRoute import does not resolve to this package's concrete public entry",
+        );
+      }
+    } else if (
+      !deferred &&
+      !(await genuineImport(imported, factoryEntry, parsed.options, syntaxHost))
+    ) {
+      checker ??= syntaxProgram.getTypeChecker();
+
+      const annotation = factoryAnnotation(checker, call);
+      let steps: ManifestStep[] | undefined;
+
+      // Without a readable annotation, validation rejects the factory before any write.
+      if (annotation) {
+        steps = readManifest(checker, annotation, call);
+      }
+
+      manifest = steps ?? [];
+
+      let entry = specifier;
+
+      if (resolved) {
+        entry = await realpath(resolved);
+      }
+
+      extension = { specifier, entry, steps: manifest };
+    }
+
+    const steps = analyzeSteps(calls, manifest, config);
 
     let segments: readonly Segment[];
 
@@ -566,7 +966,9 @@ export async function discover(
     }
 
     if (!auto && !ignored && !needsParams && config.has("onInvalidParams")) {
-      fail(configNode, "onInvalidParams requires local path placeholders");
+      const handler = steps.find((step) => step.name === "onInvalidParams")!;
+
+      fail(handler.call, "onInvalidParams requires local path placeholders");
     }
 
     const data = config.get("data");
@@ -597,6 +999,9 @@ export async function discover(
       source,
       rawText: authored.get(resolve(file)) ?? (await readFile(file, "utf8")),
       config,
+      root: call,
+      steps,
+      extension,
       path: path.text,
       segments,
       effective: [],
@@ -604,21 +1009,8 @@ export async function discover(
       retained: true,
       full: false,
     };
-    const ownFacade = resolve(dirname(file), "route.generated.ts");
-    const resolved = resolveModule(moduleText(imported), file, parsed.options, syntaxHost);
-    const facadeSpelling = resolve(dirname(file), moduleText(imported)).replace(/\.js$/, ".ts");
-
-    if (resolved === ownFacade || (!resolved && facadeSpelling === ownFacade)) {
+    if (deferred) {
       deferredFactories.push(declaration);
-    } else {
-      const genuine = await genuineImport(imported, factoryEntry, parsed.options, syntaxHost);
-
-      if (!genuine) {
-        fail(
-          imported,
-          "defineRoute import does not resolve to this package's concrete public entry",
-        );
-      }
     }
 
     declarations.push(declaration);
@@ -741,17 +1133,8 @@ export async function discover(
 
       declaration.target = referenced(target, declaration);
 
-      if (
-        declaration.page ||
-        declaration.children.length ||
-        declaration.config.has("canActivate") ||
-        declaration.config.has("canMatch") ||
-        declaration.config.has("onInvalidParams")
-      ) {
-        fail(
-          redirect,
-          "Redirect cannot have a component, children, canActivate, canMatch or onInvalidParams",
-        );
+      if (declaration.page || declaration.children.length) {
+        fail(redirect, "Redirect cannot have a component or children");
       }
 
       declaration.retained = false;
@@ -818,6 +1201,22 @@ export async function discover(
     }
   }
 
+  // One extension per ancestry; router-made routes in between are neutral.
+  for (const declaration of declarations) {
+    if (!declaration.extension) {
+      continue;
+    }
+
+    for (let ancestor = declaration.parent; ancestor; ancestor = ancestor.parent) {
+      if (ancestor.extension && ancestor.extension.entry !== declaration.extension.entry) {
+        fail(
+          declaration.root,
+          `Route ancestry mixes route extensions: ${ancestor.extension.specifier}, ${declaration.extension.specifier}`,
+        );
+      }
+    }
+  }
+
   // Prune only ancestors made empty by redirect hoisting, not ordinary missing pages.
   function retain(declaration: Declaration): boolean {
     if (declaration.target) {
@@ -873,6 +1272,7 @@ export async function discover(
     encountered,
     declarations,
     factoryEntry,
+    coreEntry,
     deferredFactories,
     authored,
     filesystem,

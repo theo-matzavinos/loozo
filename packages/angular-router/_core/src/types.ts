@@ -2,7 +2,6 @@ import type {
   ActivatedRouteSnapshot,
   RouterStateSnapshot,
   Route as NativeRoute,
-  RunGuardsAndResolvers,
   GuardResult,
   MaybeAsync,
   PartialMatchRouteSnapshot,
@@ -11,17 +10,16 @@ import type {
   RedirectCommand,
 } from "@angular/router";
 import type { Observable } from "rxjs";
-import type {
-  ParamCodec,
-  PathCodec,
-  CodecValue,
-  HasFallback,
-  IsArray,
-  SyncCodecs,
-} from "./codecs.js";
-import type { CatchallName, PathNames } from "./path.js";
+import type { ParamCodec, CodecValue, HasFallback, IsArray } from "./codecs.js";
+import type { CatchallName } from "./path.js";
 
 declare const routeBrand: unique symbol;
+/**
+ * Type-only key of a route's method-free projection; never a runtime property.
+ *
+ * @internal
+ */
+export declare const routeSchema: unique symbol;
 
 /**
  * A nominal route declaration created by `defineRoute`, not a native Angular Route.
@@ -29,8 +27,9 @@ declare const routeBrand: unique symbol;
  * @remarks
  * Prefer inference from `defineRoute` over explicit generic arguments. The
  * optional `__params`, `__search`, `__data` and `__title` members are type witnesses only;
- * they are not populated runtime properties. Parent/codec/effective-path metadata
- * is private. Spreading a declaration does not produce another valid route.
+ * they are not populated runtime properties. `path` is the only enumerable runtime
+ * property; behavior and parent/codec/effective-path metadata are private. Spreading a
+ * declaration does not produce another valid route.
  *
  * @typeParam Path - The local authored path literal, not the effective URL path.
  * @typeParam Params - Effective inherited and local logical path values.
@@ -56,6 +55,8 @@ export interface Route<
   Data = LocalData<Resolvers>,
   Title extends string | undefined = undefined,
 > {
+  /** Type-only: this declaration without step methods or extension witnesses. */
+  readonly [routeSchema]: Route<Path, Params, Search, Resolvers, Fragments, Catchall, Data, Title>;
   /** Type-only nominal brand carrying fragment and catchall metadata; not populated at runtime. */
   readonly [routeBrand]: {
     /** Type-only: this declaration's own allowed fragment-name union. */
@@ -73,11 +74,10 @@ export interface Route<
   readonly __data?: Data;
   /** Type-only witness: string when this declaration or an ancestor declares a title. */
   readonly __title?: Title;
-  /** The snapshotted local resolver map, retaining original callback identities. */
-  readonly resolve?: Readonly<Resolvers>;
-  /** The original native rerun policy; omission preserves Angular's default. */
-  readonly runGuardsAndResolvers?: RunGuardsAndResolvers;
 }
+
+/** A method-free projection of an authored declaration, for generated consumers. */
+export type RouteSchema<Target extends AnyRoute> = Target[typeof routeSchema];
 
 type Unwrap<Value> = Value extends Promise<infer Inner> | Observable<infer Inner>
   ? Unwrap<Inner>
@@ -385,95 +385,3 @@ export type Redirect<
       /** Required mapping of every destination path key to a compatible source key. */
       params: Mapping<SourceParams, ParamsOf<Target>>;
     });
-
-/**
- * Options inferred by `defineRoute`; Angular's structural route fields are excluded.
- * Local params/search cannot redeclare keys inherited from the parent.
- */
-export type RouteConfig<
-  Path extends string,
-  Parent extends AnyRoute | undefined,
-  Params extends Record<string, PathCodec>,
-  Search extends CodecMap,
-  Resolvers,
-  Fragments extends readonly string[],
-  Target extends AnyRoute | undefined,
-  ReplacementKeys extends keyof SearchOf<Target>,
-  Title = unknown,
-> = {
-  /** Genuine authored parent; pathless nodes retain inherited input ownership. */
-  parent?: Parent &
-    (Parent extends Route<string, any, any, any, any, true, any, any> ? never : unknown);
-  /** Local search codecs; a plain key is absent unless present and valid. withFallback and arrayParam keys always read a value. */
-  search?: Search &
-    Record<Extract<keyof Search, keyof SearchOf<Parent>>, never> &
-    SyncCodecs<NoInfer<Search>>;
-  /** Local parsed-input resolvers; not snapshot-first native ResolveFn callbacks. */
-  resolve?: Resolvers &
-    Record<
-      PropertyKey,
-      Resolver<EffectiveParams<Path, Params, Parent>, EffectiveSearch<Search, Parent>>
-    > & { __loozoAngularRouterRouteId?: never };
-  /** Local logical anchor names, never inherited; this does not enable scrolling. */
-  fragments?: Fragments;
-  /** Native rerun policy. Use paramsOrQueryParamsChange for query-dependent data. */
-  runGuardsAndResolvers?: RunGuardsAndResolvers;
-  /** Guards with declaring-parent inputs and Angular's native child snapshot. */
-  canActivateChild?: readonly ActivationGuard<
-    EffectiveParams<Path, Params, Parent>,
-    EffectiveSearch<Search, Parent>
-  >[];
-  /** Native component-first guard functions/tokens, without automatic input parsing. */
-  canDeactivate?: NativeRoute["canDeactivate"];
-  /** Native route-scoped providers; provider factories are not run at declaration. */
-  providers?: NativeRoute["providers"];
-  /** A static title, or a parsed-input callback; not a snapshot-first native ResolveFn. */
-  title?: Title &
-    (
-      | string
-      | TitleResolver<EffectiveParams<Path, Params, Parent>, EffectiveSearch<Search, Parent>>
-    );
-  /** Native static data; cannot set the reserved __loozoAngularRouterRouteId key. */
-  data?: NativeRoute["data"] & { __loozoAngularRouterRouteId?: never };
-} & (PathNames<Path> extends never
-  ? {
-      /** Paths without local placeholders cannot declare a params map. */
-      params?: never;
-    }
-  : {
-      /** Exactly the local placeholder names; catchall codecs apply per element. */
-      params: Params &
-        Record<PathNames<Path>, PathCodec> &
-        Record<
-          Exclude<keyof Params, PathNames<Path>> | Extract<keyof Params, keyof ParamsOf<Parent>>,
-          never
-        > &
-        SyncCodecs<NoInfer<Params>>;
-    }) &
-  (Target extends AnyRoute
-    ? {
-        /** Typed native redirect, incompatible with own canActivate/canMatch/onInvalidParams fields. */
-        redirect: Redirect<EffectiveParams<Path, Params, Parent>, Target, ReplacementKeys>;
-        canActivate?: never;
-        canMatch?: never;
-        onInvalidParams?: never;
-      }
-    : {
-        redirect?: never;
-        /**
-         * Decides what happens when this route's own path params fail to parse;
-         * without it the route doesn't match and Angular tries its next candidate.
-         * Only routes with local path params accept it.
-         */
-        onInvalidParams?: PathNames<Path> extends never ? never : InvalidParamsHandler;
-        /** Activation guards with effective inherited and local parsed inputs. */
-        canActivate?: readonly ActivationGuard<
-          EffectiveParams<Path, Params, Parent>,
-          EffectiveSearch<Search, Parent>
-        >[];
-        /** Matching guards with local path params and effective search only. */
-        canMatch?: readonly MatchingGuard<
-          LocalParams<Path, Params>,
-          EffectiveSearch<Search, Parent>
-        >[];
-      });

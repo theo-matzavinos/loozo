@@ -3,8 +3,17 @@ import { test } from "node:test";
 import { mkdir, writeFile, readFile, rename, rm, realpath, stat, symlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import ts from "typescript";
-import { AnchorState, CompilerState } from "../node/src/generation/index.js";
+import {
+  AnchorState,
+  CompilerState,
+  createValidationProgram,
+  validateRoutes,
+} from "../node/src/generation/index.js";
 import { generate } from "../node/src/generation/generate.js";
+import { discover } from "../node/src/generation/sources.js";
+import { selections } from "../node/src/generation/validate.js";
+import { emit } from "../node/src/generation/emit.js";
+import { emitPackage, extensionSource, installExtension } from "./extension/emit.mjs";
 
 const scratch = resolve(import.meta.dirname, "../../../.scratch/router-generation");
 let sequence = 0;
@@ -363,7 +372,7 @@ test("session-backed generation follows edits across passes and recovers after a
 
   // The repair also adds a title, which the next pass must adapt through the route set. Callback
   // options reach the definition through the route set, so routes.generated.ts doesn't import it.
-  await writeFile(definition, seeded.replace("{}", '{ title: "Manual" }'));
+  await writeFile(definition, seeded.replace("{})", '{}).title("Manual")'));
   await pass();
   assert.match(
     await readFile(routes, "utf8"),
@@ -372,7 +381,7 @@ test("session-backed generation follows edits across passes and recovers after a
   assert.doesNotMatch(await readFile(routes, "utf8"), /import definition/);
 
   // A native option is read from the definition itself, which is then imported.
-  await writeFile(definition, seeded.replace("{}", "{ providers: [] }"));
+  await writeFile(definition, seeded.replace("{})", "{}).providers([])"));
   await pass();
   assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition_docs_route\)/);
   assert.match(await readFile(routes, "utf8"), /import definition_docs_route from/);
@@ -577,7 +586,7 @@ test("the shared module exports injectActiveRoute and its active route types", a
   assert.ok(imports.includes("import type { Signal } from '@angular/core';"));
   assert.ok(
     imports.includes(
-      "import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
+      "import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
     ),
   );
 
@@ -882,7 +891,7 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
 test("filesystem mode: moving a declaration under and out of a page-less prefix rewrites its path, parent and imports", async () => {
   const project = await filesystemProject();
   const { header, read } = project;
-  const solo = `// Keep this header.\n${header.trimEnd()} // keep with this import\n\nexport const marker = 1;\nexport default defineRoute("solo", { data: { marker } });\n`;
+  const solo = `// Keep this header.\n${header.trimEnd()} // keep with this import\n\nexport const marker = 1;\nexport default defineRoute("solo", {}).data({ marker });\n`;
   const taken = `${header}\nexport const parent = "occupied";\nexport default defineRoute("taken", {});\n`;
 
   await project.write(
@@ -907,7 +916,8 @@ test("filesystem mode: moving a declaration under and out of a page-less prefix 
         "// keep with this import\n",
         '// keep with this import\nimport parent from "../../route.js";\n',
       )
-      .replace('"solo", { data: { marker } }', '"extra/solo", { data: { marker } , parent }'),
+      // Chained steps keep their bytes; only the path and URL facts are patched.
+      .replace('"solo", {}', '"extra/solo", { parent }'),
   );
   assert.equal(
     await read("src/routes/shell/extra/taken/route.ts"),
@@ -923,7 +933,7 @@ test("filesystem mode: moving a declaration under and out of a page-less prefix 
 
   const restored = await read("src/routes/solo/route.ts");
 
-  assert.match(restored, /defineRoute\("solo", \{ data: \{ marker \} *\}\)/);
+  assert.match(restored, /defineRoute\("solo", \{ *\}\)\.data\(\{ marker \}\)/);
   assert.doesNotMatch(restored, /parent/);
   assert.match(await project.routes(), /path: "solo"/);
 });
@@ -1101,17 +1111,19 @@ test("local path params get the generated matching guard; misplaced onInvalidPar
   );
   assert.doesNotMatch(generated, /import definition/);
 
-  for (const [path, config, message] of [
-    ["old", "{ onInvalidParams: () => false }", /onInvalidParams requires local path placeholders/],
+  for (const [chain, message] of [
     [
-      "old/$id",
-      '{ params: { id: numberParam }, onInvalidParams: () => false, redirect: { to: items, search: { mode: "drop" }, fragment: { mode: "drop" } } }',
-      /Redirect cannot have .*onInvalidParams/,
+      'defineRoute("old", {}).onInvalidParams(() => false)',
+      /onInvalidParams requires local path placeholders/,
+    ],
+    [
+      'defineRoute("old/$id", { params: { id: numberParam } }).onInvalidParams(() => false).redirect({ to: items, search: { mode: "drop" }, fragment: { mode: "drop" } })',
+      /Redirect cannot follow onInvalidParams/,
     ],
   ]) {
     await writeFile(
       resolve(root, "src/routes/old/definition.ts"),
-      `${imports}import items from "../items/definition.js";\nvoid items;\nexport default defineRoute(${JSON.stringify(path)}, ${config});\n`,
+      `${imports}import items from "../items/definition.js";\nvoid items;\nexport default ${chain};\n`,
     );
     await assert.rejects(
       generate(root, options, () => false),
@@ -1192,7 +1204,7 @@ test("effective search gets the generated matching guard; redirect replacements 
   ]) {
     await writeFile(
       resolve(root, "src/routes/old/definition.ts"),
-      `${imports}import list from "../list/definition.js";\n${values}\nexport default defineRoute("old", { redirect: { to: list, search: { mode: "replace", values }, fragment: { mode: "drop" } } });\n`,
+      `${imports}import list from "../list/definition.js";\n${values}\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values }, fragment: { mode: "drop" } });\n`,
     );
     await generate(root, options, () => false);
   }
@@ -1215,7 +1227,7 @@ test("effective search gets the generated matching guard; redirect replacements 
 
   await writeFile(
     resolve(root, "src/routes/old/definition.ts"),
-    `${imports}import list from "../list/definition.js";\ndeclare const page: string | undefined;\nexport default defineRoute("old", { redirect: { to: list, search: { mode: "replace", values: { page } }, fragment: { mode: "drop" } } });\n`,
+    `${imports}import list from "../list/definition.js";\ndeclare const page: string | undefined;\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values: { page } }, fragment: { mode: "drop" } });\n`,
   );
   await assert.rejects(
     generate(root, options, () => false),
@@ -1226,11 +1238,637 @@ test("effective search gets the generated matching guard; redirect replacements 
   // One value where the array key takes a list fails the same way.
   await writeFile(
     resolve(root, "src/routes/old/definition.ts"),
-    `${imports}import list from "../list/definition.js";\ndeclare const tag: number;\nexport default defineRoute("old", { redirect: { to: list, search: { mode: "replace", values: { tag } }, fragment: { mode: "drop" } } });\n`,
+    `${imports}import list from "../list/definition.js";\ndeclare const tag: number;\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values: { tag } }, fragment: { mode: "drop" } });\n`,
   );
   await assert.rejects(
     generate(root, options, () => false),
     /Unknown\/incompatible redirect replacement key: tag/,
   );
   assert.equal(await readFile(routes, "utf8"), generated);
+});
+
+// Route extensions arrive as published packages: generation reads only their emitted
+// declarations. These cases run prototype-6's matrix through production discovery and
+// validation.
+async function extensionProject() {
+  const root = await fixture();
+  const index = await extensionSource("index.ts");
+  const annotated = await extensionSource("annotated.ts");
+  const tuple = `    { name: "context"; type: ContextStep; serverOnly: true; arity: { min: 1; max: 1 } },`;
+  // Negatives keep a genuine RouteFactory annotation and change only the manifest; their
+  // runtime half is never executed.
+  const descriptor = index
+    .replace(
+      "export const fixtureRuntime: RuntimeExtension<FixtureSpec> =",
+      "export const fixtureRuntime =",
+    )
+    .replace(
+      "createRouteFactory<FixtureSpec>(fixtureRuntime)",
+      "createRouteFactory<FixtureSpec>(fixtureRuntime as never)",
+    );
+  const tupleStart = descriptor.indexOf("  readonly steps: readonly [");
+  const tupleEnd = descriptor.indexOf("  readonly input: Input;", tupleStart);
+  const variants = {
+    broad: descriptor.replace(tuple, tuple.replace("serverOnly: true", "serverOnly: boolean")),
+    index:
+      descriptor.slice(0, tupleStart) +
+      `  readonly steps: readonly { name: "context"; type: ContextStep; serverOnly: true; arity: { min: 1; max: 1 } }[];\n` +
+      descriptor.slice(tupleEnd),
+    widened: descriptor.replace("min: 0; max: null", "min: 0; max: number | null"),
+    reserved: descriptor.replace(tuple, tuple.replace('name: "context"', 'name: "then"')),
+    "reserved-prototype": descriptor.replace(
+      tuple,
+      tuple.replace('name: "context"', 'name: "toString"'),
+    ),
+    duplicate: descriptor.replace('{ name: "use"; type', '{ name: "context"; type'),
+    "false-flag": descriptor.replace(tuple, tuple.replace("serverOnly: true", "serverOnly: false")),
+    "negative-min": descriptor.replace(tuple, tuple.replace("min: 1;", "min: -1;")),
+    "fraction-min": descriptor.replace(tuple, tuple.replace("min: 1;", "min: 0.5;")),
+    "zero-max": descriptor.replace("min: 0; max: null", "min: 0; max: 0"),
+    "max-below-min": descriptor.replace(tuple, tuple.replace("min: 1;", "min: 2;")),
+    "broad-name": descriptor.replace(tuple, tuple.replace('name: "context"', "name: string")),
+    lookalike: `export interface RouteFactory<E> { (path: string, facts: object): any; }
+interface Spec { steps: readonly [{ name: "context"; type: object; serverOnly: true; arity: { min: 1; max: 1 } }] }
+export const defineRoute: RouteFactory<Spec> = () => ({ forged: true });\n`,
+    forged:
+      index.slice(0, index.indexOf("/** Counts `input()` calls")) +
+      `import type { RouteFactory } from "@loozo/angular-router/_core";
+export const defineRoute: RouteFactory<FixtureSpec> = (() => ({ forged: true })) as unknown as RouteFactory<FixtureSpec>;\n`,
+  };
+
+  await installExtension(root);
+
+  for (const [name, text] of Object.entries(variants)) {
+    await emitPackage(root, `@fixture/${name}`, { "index.ts": text });
+  }
+
+  // The extension's own compile rejects a public-entry RouteFactory import (TS2305); its
+  // declarations still emit.
+  const publicImport = annotated
+    .replace("createRouteFactory, type RouteFactory }", "createRouteFactory }")
+    .concat('import type { RouteFactory } from "@loozo/angular-router";\n');
+  const emitted = await emitPackage(
+    root,
+    "@fixture/public-import",
+    { "index.ts": index, "annotated.ts": publicImport },
+    { entry: "annotated", noEmitOnError: false },
+  );
+
+  assert.deepEqual(
+    emitted.map((diagnostic) => diagnostic.code),
+    [2305],
+  );
+
+  // The same for the inline import-type annotation spelling.
+  const publicImportType = annotated
+    .replace("createRouteFactory, type RouteFactory }", "createRouteFactory }")
+    .replace(
+      "export const defineRoute: RouteFactory<FixtureSpec> =",
+      'export const defineRoute: import("@loozo/angular-router").RouteFactory<FixtureSpec> =',
+    );
+  const emittedType = await emitPackage(
+    root,
+    "@fixture/public-import-type",
+    { "index.ts": index, "annotated.ts": publicImportType },
+    { entry: "annotated", noEmitOnError: false },
+  );
+
+  assert.deepEqual(
+    emittedType.map((diagnostic) => diagnostic.code),
+    [2694],
+  );
+
+  const core = resolve(
+    root,
+    "node_modules/@loozo/angular-router/dist/types/loozo-angular-router-_core.d.ts",
+  );
+
+  await Promise.all([
+    writeFile(resolve(root, "package.json"), '{ "type": "module" }\n'),
+    writeFile(
+      resolve(root, "fake-core-type.d.ts"),
+      `export * from "${core}";\nexport { RouteFactory } from "@fixture/lookalike";\n`,
+    ),
+    writeFile(
+      resolve(root, "fake-core.d.ts"),
+      `export * from "${core}";\nexport { RouteFactory, defineRoute } from "@fixture/lookalike";\n`,
+    ),
+    mkdir(resolve(root, "src/routes"), { recursive: true }),
+  ]);
+
+  async function write(path, text) {
+    await mkdir(dirname(resolve(root, path)), { recursive: true });
+    await writeFile(resolve(root, path), text);
+  }
+
+  return {
+    root,
+    write,
+    // Writes the routes (directory → route.ts text, each with a page), then discovers and
+    // validates them without publishing.
+    async analyze(routes, paths) {
+      await rm(resolve(root, "src/routes"), { recursive: true, force: true });
+
+      for (const [directory, text] of Object.entries(routes)) {
+        await write(`src/routes/${directory}/route.ts`, text);
+        await write(
+          `src/routes/${directory}/page.ts`,
+          `import { Component } from "@angular/core";\n\n@Component({ template: "${directory}" })\nexport default class Page {}\n`,
+        );
+      }
+
+      await write(
+        "tsconfig.json",
+        JSON.stringify({
+          compilerOptions: {
+            target: "ES2022",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            strict: true,
+            skipLibCheck: true,
+            experimentalDecorators: true,
+            lib: ["ES2022", "DOM"],
+            types: [],
+            paths,
+          },
+          include: ["src/**/*.ts"],
+        }),
+      );
+
+      const sources = await discover(
+        root,
+        "tsconfig.json",
+        ["src/routes"],
+        "generated",
+        undefined,
+        new Map(),
+        false,
+      );
+      const desired = emit(sources, selections(sources));
+
+      await validateRoutes(sources, desired, createValidationProgram(sources, desired, []));
+
+      return { sources, desired };
+    },
+  };
+}
+
+test("emitted extension packages: manifests, step metadata and authentication through production generation", async () => {
+  const project = await extensionProject();
+  const { root } = project;
+  const expectedManifest = [
+    { name: "context", serverOnly: true, arity: { min: 1, max: 1 } },
+    { name: "use", serverOnly: true, arity: { min: 0, max: null } },
+    { name: "procedures", serverOnly: true, arity: { min: 1, max: 1 } },
+  ];
+  const chain = `defineRoute("x", {}).context(x).use(a, b).procedures(y).title("t")`;
+  const fullSteps = [
+    { name: "context", args: 1, contributed: true, serverOnly: true },
+    { name: "use", args: 2, contributed: true, serverOnly: true },
+    { name: "procedures", args: 1, contributed: true, serverOnly: true },
+    { name: "title", args: 1, contributed: false, serverOnly: false },
+  ];
+  const setup = `const x = () => ({ user: { id: "u", name: "User" } });
+const a = ({ context }: { context: { user: { id: string } } }) => { context.user.id; };
+const b = ({ context }: { context: { user: { id: string } } }) => { context.user.id; };
+const xs = [a, b];
+const y = () => ({ account: { me: () => "u" } });`;
+  const lookalike = resolve(root, "node_modules/@fixture/lookalike/dist/index.d.ts");
+  const cases = [
+    { name: "unannotated Launch chain", expr: chain, steps: fullSteps },
+    {
+      name: "annotated Launch chain",
+      pkg: "route-extension-annotated",
+      expr: chain,
+      steps: fullSteps,
+    },
+    {
+      name: "use zero arguments",
+      expr: `defineRoute("x", {}).use()`,
+      steps: [{ name: "use", args: 0, contributed: true, serverOnly: true }],
+    },
+    { name: "zero-step extension chain", expr: `defineRoute("x", {})`, steps: [] },
+    {
+      name: "inline inferred Launch chain",
+      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).use(({ context }) => { const id: string = context.user.id; }, ({ context }) => { context.user.id; }).procedures(({ query }) => ({ account: { me: query(({ context }) => context.user.id) } })).title(({ rpc }) => rpc.account.me())`,
+      steps: fullSteps,
+    },
+    {
+      name: "router same rule",
+      pkg: "@loozo/angular-router",
+      expr: `defineRoute("x", {}).title("t")`,
+      router: true,
+      steps: [{ name: "title", args: 1, contributed: false, serverOnly: false }],
+    },
+    {
+      name: "renamed named import",
+      importName: "defineRoute as routeFactory",
+      expr: chain.replace("defineRoute(", "routeFactory("),
+      steps: fullSteps,
+    },
+    {
+      name: "context no arguments (13b)",
+      expr: `defineRoute("x", {}).context()`,
+      reason: /Route step context takes 1…1 arguments$/,
+    },
+    {
+      name: "context two arguments (13b)",
+      expr: `defineRoute("x", {}).context(a, b)`,
+      reason: /Route step context takes 1…1 arguments$/,
+    },
+    {
+      name: "use spread (13c)",
+      expr: `defineRoute("x", {}).context(x).use(...xs)`,
+      reason: /Route step arguments cannot be spread: use$/,
+    },
+    {
+      name: "title two arguments (13a)",
+      expr: `defineRoute("x", {}).title(a, b)`,
+      reason: /Route step title takes exactly one argument$/,
+    },
+    {
+      name: "title no arguments (13a)",
+      expr: `defineRoute("x", {}).title()`,
+      reason: /Route step title takes exactly one argument$/,
+    },
+    {
+      name: "router spread (13c)",
+      expr: `defineRoute("x", {}).title(...(["t"] as [string]))`,
+      reason: /Route step arguments cannot be spread: title$/,
+    },
+    {
+      name: "broad boolean rejected",
+      pkg: "broad",
+      expr: `defineRoute("x", {})`,
+      reason: /serverOnly must be a boolean literal: context$/,
+    },
+    {
+      name: "non-tuple manifest rejected",
+      pkg: "index",
+      expr: `defineRoute("x", {})`,
+      reason: /Extension steps must be a fixed-length tuple$/,
+    },
+    {
+      name: "widened max rejected",
+      pkg: "widened",
+      expr: `defineRoute("x", {})`,
+      reason: /arity\.max must be null or an integer literal >= max\(min, 1\): use$/,
+    },
+    {
+      name: "reserved name rejected",
+      pkg: "reserved",
+      expr: `defineRoute("x", {})`,
+      reason: /Reserved contributed step name: then$/,
+    },
+    {
+      name: "Object.prototype name rejected",
+      pkg: "reserved-prototype",
+      expr: `defineRoute("x", {})`,
+      reason: /Reserved contributed step name: toString$/,
+    },
+    {
+      name: "duplicate name rejected",
+      pkg: "duplicate",
+      expr: `defineRoute("x", {})`,
+      reason: /Duplicate contributed step name: context$/,
+    },
+    {
+      name: "negative min rejected",
+      pkg: "negative-min",
+      expr: `defineRoute("x", {})`,
+      reason: /arity\.min must be a non-negative integer literal: context$/,
+    },
+    {
+      name: "fraction min rejected",
+      pkg: "fraction-min",
+      expr: `defineRoute("x", {})`,
+      reason: /arity\.min must be a non-negative integer literal: context$/,
+    },
+    {
+      name: "zero max rejected",
+      pkg: "zero-max",
+      expr: `defineRoute("x", {})`,
+      reason: /arity\.max must be null or an integer literal >= max\(min, 1\): use$/,
+    },
+    {
+      name: "max below min rejected",
+      pkg: "max-below-min",
+      expr: `defineRoute("x", {})`,
+      reason: /arity\.max must be null or an integer literal >= max\(min, 1\): context$/,
+    },
+    {
+      name: "broad name rejected",
+      pkg: "broad-name",
+      expr: `defineRoute("x", {})`,
+      reason: /Manifest step name must be a string literal$/,
+    },
+    {
+      name: "false literal preserved",
+      pkg: "false-flag",
+      expr: chain,
+      falseFlag: true,
+      steps: fullSteps.map((step, index) => (index === 0 ? { ...step, serverOnly: false } : step)),
+    },
+    {
+      name: "local wrapper",
+      extra: `const wrapper = (...args: Parameters<typeof defineRoute>) => defineRoute(...args);`,
+      expr: `wrapper("x", {})`,
+      reason:
+        /Factory must be a genuine named value import of defineRoute, not a local wrapper\/alias$/,
+    },
+    {
+      name: "local alias",
+      extra: `const alias = defineRoute;`,
+      expr: `alias("x", {})`,
+      reason:
+        /Factory must be a genuine named value import of defineRoute, not a local wrapper\/alias$/,
+    },
+    {
+      name: "local asserted fake",
+      extra: `const fake = (() => ({})) as unknown as typeof defineRoute;`,
+      expr: `fake("x", {})`,
+      reason:
+        /Factory must be a genuine named value import of defineRoute, not a local wrapper\/alias$/,
+    },
+    {
+      name: "namespace import",
+      namespace: true,
+      expr: `routes.defineRoute("x", {})`,
+      reason:
+        /Factory must be a genuine named value import of defineRoute, not a local wrapper\/alias$/,
+    },
+    {
+      name: "relative wrapper module",
+      pkg: "../../wrapper.js",
+      expr: `defineRoute("x", {})`,
+      reason: /Factory import must name a concrete package public entry$/,
+    },
+    {
+      name: "lookalike package",
+      pkg: "lookalike",
+      expr: `defineRoute("x", {})`,
+      reason:
+        /Factory annotation must reference RouteFactory from the anchored physical router \/_core types entry$/,
+    },
+    {
+      name: "router paths spoof",
+      pkg: "@loozo/angular-router",
+      expr: `defineRoute("x", {})`,
+      paths: { "@loozo/angular-router": [lookalike] },
+      reason: /defineRoute import does not resolve to this package's concrete public entry$/,
+    },
+    {
+      name: "extension with router paths spoof",
+      expr: chain,
+      paths: { "@loozo/angular-router": [lookalike] },
+      reason: /Application router specifier does not resolve to the anchored router public entry$/,
+    },
+    {
+      name: "extension paths spoof",
+      expr: chain,
+      paths: {
+        "@fixture/route-extension": [resolve(root, "node_modules/@fixture/forged/dist/index.d.ts")],
+      },
+      reason: /Factory import does not resolve to the canonical package public entry$/,
+    },
+    {
+      name: "router internal reexport spoof",
+      expr: chain,
+      paths: { "@loozo/angular-router/_core": [resolve(root, "fake-core.d.ts")] },
+      reason: /Router public export was redirected away from its anchored declaration$/,
+    },
+    {
+      name: "core paths spoof",
+      expr: chain,
+      paths: { "@loozo/angular-router/_core": [resolve(root, "fake-core-type.d.ts")] },
+      reason:
+        /Application router \/_core specifier does not resolve to the anchored physical \/_core types entry$/,
+    },
+    {
+      name: "public RouteFactory import",
+      pkg: "public-import",
+      expr: `defineRoute("x", {})`,
+      reason:
+        /RouteFactory is not exported by @loozo\/angular-router; import it from @loozo\/angular-router\/_core$/,
+    },
+    {
+      name: "public RouteFactory import type",
+      pkg: "public-import-type",
+      expr: `defineRoute("x", {})`,
+      reason:
+        /RouteFactory is not exported by @loozo\/angular-router; import it from @loozo\/angular-router\/_core$/,
+    },
+    {
+      name: "unknown step",
+      expr: `defineRoute("x", {}).invented({})`,
+      reason: /Unknown step: invented$/,
+    },
+    {
+      name: "repeat contribution",
+      expr: `defineRoute("x", {}).context(x).context(x)`,
+      reason: /Repeated step: context$/,
+    },
+    {
+      name: "contribution after router",
+      expr: `defineRoute("x", {}).title("t").context(x)`,
+      reason: /Contributed step must precede router steps: context$/,
+    },
+    {
+      name: "manifest order",
+      expr: `defineRoute("x", {}).use().context(x)`,
+      reason: /Contributed steps must follow manifest order: context$/,
+    },
+    // Trust control: a package asserting the genuine type over a forged runtime is
+    // admitted; installed dependencies are trusted provenance.
+    {
+      name: "genuine type package assertion trust control",
+      pkg: "forged",
+      expr: chain,
+      steps: fullSteps,
+    },
+  ];
+
+  await project.write("wrapper.ts", `export { defineRoute } from "@fixture/route-extension";\n`);
+  assert.equal(cases.length, 43);
+
+  for (const testCase of cases) {
+    let pkg = testCase.pkg ?? "route-extension";
+
+    if (!pkg.startsWith("@loozo") && !pkg.startsWith(".")) {
+      pkg = `@fixture/${pkg}`;
+    }
+
+    let importLine = `import { ${testCase.importName ?? "defineRoute"} } from "${pkg}";`;
+
+    if (testCase.namespace) {
+      importLine = `import * as routes from "${pkg}";`;
+    }
+
+    const text = `${importLine}\n${setup}\n${testCase.extra ?? ""}\nexport default ${testCase.expr};\n`;
+    let result;
+
+    try {
+      result = await project.analyze({ x: text }, testCase.paths);
+    } catch (error) {
+      assert.ok(testCase.reason, `${testCase.name}: unexpected rejection: ${error.message}`);
+      assert.match(error.message, /route\.ts:\d+:\d+: /, testCase.name);
+      assert.match(error.message, testCase.reason, testCase.name);
+
+      continue;
+    }
+
+    assert.equal(testCase.reason, undefined, `${testCase.name}: unexpectedly admitted`);
+
+    const [declaration] = result.sources.declarations;
+    const steps = declaration.steps.map((step) => ({
+      name: step.name,
+      args: step.args.length,
+      contributed: step.contributed,
+      serverOnly: step.serverOnly,
+    }));
+
+    assert.deepEqual(steps, testCase.steps, testCase.name);
+
+    if (testCase.router) {
+      assert.equal(declaration.extension, undefined, testCase.name);
+
+      continue;
+    }
+
+    const manifest = structuredClone(expectedManifest);
+
+    if (testCase.falseFlag) {
+      manifest[0].serverOnly = false;
+    }
+
+    assert.deepEqual(declaration.extension.steps, manifest, testCase.name);
+    // Only router steps feed the flattened config.
+    assert.equal(declaration.config.has("context"), false, testCase.name);
+  }
+});
+
+test("extension routes: ancestry, facades, emitted projection and a linked router alias", async () => {
+  const project = await extensionProject();
+  const header = 'import { defineRoute } from "@fixture/route-extension";\n';
+
+  // A router-made route between extension routes is neutral.
+  const { desired } = await project.analyze({
+    parent: `${header}export default defineRoute("parent", {}).context(() => ({ user: "u" }));\n`,
+    "parent/middle": `import { defineRoute } from "@loozo/angular-router";\nimport parent from "../route.js";\nexport default defineRoute("middle", { parent }).title("middle");\n`,
+    "parent/middle/child": `${header}import parent from "../route.js";\nexport default defineRoute("child", { parent }).use().resolve({ me: ({ rpc }) => rpc }).title("child");\n`,
+  });
+  const shared = desired.get(resolve(project.root, "generated/destinations.generated.ts"));
+
+  assert.match(
+    shared,
+    /"src\/routes\/parent\/route\.ts": RouteSchema<typeof definition_parent_route>;/,
+  );
+  assert.match(shared, /import \{ injectGeneratedActiveRoute, type RouteSchema,/);
+
+  // Two extensions in one ancestry are rejected.
+  await assert.rejects(
+    project.analyze({
+      parent: `${header}export default defineRoute("parent", {});\n`,
+      "parent/child": `import { defineRoute } from "@fixture/route-extension-annotated";\nimport parent from "../route.js";\nexport default defineRoute("child", { parent });\n`,
+    }),
+    /child\/route\.ts:\d+:\d+: Route ancestry mixes route extensions: @fixture\/route-extension, @fixture\/route-extension-annotated$/,
+  );
+
+  // A dependency link to the router's own package is the router, not an extension.
+  await symlink(
+    resolve(project.root, "node_modules/@loozo/angular-router"),
+    resolve(project.root, "node_modules/router-alias"),
+    "dir",
+  );
+
+  const aliased = await project.analyze({
+    x: `import { defineRoute } from "router-alias";\nexport default defineRoute("x", {}).title("aliased");\n`,
+  });
+
+  assert.equal(aliased.sources.declarations[0].extension, undefined);
+  assert.deepEqual(
+    aliased.sources.declarations[0].steps.map((step) => step.name),
+    ["title"],
+  );
+});
+
+test("route chains: shape, URL facts and router step rules", async () => {
+  const project = await extensionProject();
+  const header = 'import { defineRoute, numberParam } from "@loozo/angular-router";\n';
+  const target = `${header}export default defineRoute("target", {});\n`;
+  const cases = [
+    [
+      `export default {};`,
+      /Default export must be a defineRoute\(\.\.\.\) chain or Component class$/,
+    ],
+    [
+      `export default defineRoute("x", {})["title"]("t");`,
+      /Route chain must be plain calls: defineRoute\(path, facts\)\.step\(…\)…$/,
+    ],
+    [`export default defineRoute("x", {})?.title("t");`, /Route chain must be plain calls/],
+    [`export default (defineRoute("x", {}) as any).title("t");`, /Route chain must be plain calls/],
+    [`export default defineRoute("x", {}).title("t") as any;`, /Route chain must be plain calls/],
+    [
+      `const path = "x";\nexport default defineRoute(path, {});`,
+      /defineRoute requires a literal path and inline URL facts$/,
+    ],
+    [
+      `const facts = {};\nexport default defineRoute("x", facts);`,
+      /URL facts must be an inline object$/,
+    ],
+    [
+      `export default defineRoute("x", { title: "t" });`,
+      /Behavior key in URL facts: title; chain \.title\(…\) instead$/,
+    ],
+    [
+      `export default defineRoute("x", { component: null });`,
+      /Unknown or generation-owned URL facts key: component$/,
+    ],
+    [`export default defineRoute("x", {}).context(() => ({}));`, /Unknown step: context$/],
+    [`export default defineRoute("x", {}).title("a").title("b");`, /Repeated step: title$/],
+    [
+      `import target from "../target/route.js";\nexport default defineRoute("x", {}).canActivate([]).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
+      /Redirect cannot follow canActivate$/,
+    ],
+    [
+      `import target from "../target/route.js";\nexport default defineRoute("x", {}).canDeactivate([]).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
+      /Redirect cannot follow canDeactivate$/,
+    ],
+    [
+      `import target from "../target/route.js";\nexport default defineRoute("x", {}).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } }).title("t");`,
+      /No step may follow redirect: title$/,
+    ],
+    [
+      `export default defineRoute("x", {}).onInvalidParams(() => false);`,
+      /onInvalidParams requires local path placeholders$/,
+    ],
+    [
+      `export default defineRoute("x", {}).redirect(redirect);\nconst redirect = {} as never;`,
+      /Redirect must be an inline object$/,
+    ],
+  ];
+
+  for (const [body, reason] of cases) {
+    await assert.rejects(project.analyze({ target, x: `${header}${body}\n` }), (error) => {
+      assert.match(error.message, /route\.ts:\d+:\d+: /, body);
+      assert.match(error.message, reason, body);
+
+      return true;
+    });
+  }
+
+  // Step arguments stay opaque: identifiers are fine.
+  const accepted = await project.analyze({
+    target,
+    x: `${header}const decide = () => false as const;\nconst TITLE = "t";\nexport default defineRoute("x/$id", { params: { id: numberParam } }).onInvalidParams(decide).title(TITLE).providers([]);\n`,
+  });
+
+  assert.deepEqual(
+    [
+      ...accepted.sources.declarations
+        .find((declaration) => declaration.path === "x/$id")
+        .config.keys(),
+    ],
+    ["params", "onInvalidParams", "title", "providers"],
+  );
 });

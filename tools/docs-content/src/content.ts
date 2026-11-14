@@ -1,7 +1,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isDocEntryWithSourceInfo, type DocEntryWithSourceInfo } from "@angular/compiler-cli";
-import { isDocumented, symbolSlug, toApiSymbol, type DeclarationSource } from "./api.ts";
+import {
+  isDocumented,
+  isTaggedInternal,
+  symbolSlug,
+  toApiSymbol,
+  type DeclarationSource,
+} from "./api.ts";
 import { extractPackage, type ExtractedEntryPoint } from "./extract.ts";
 import { snippetProgramLoader } from "./controls.ts";
 import type { Demo } from "./demos.ts";
@@ -226,7 +232,8 @@ function parseEntryReadmes(
 
 /**
  * Splits extracted entries into public entry points (in "exports" order) and the documented
- * symbols of internal entry points that no public entry point exports.
+ * symbols of internal entry points that no public entry point exports and that aren't tagged
+ * `@internal`.
  */
 function partition(
   workspacePackage: WorkspacePackage,
@@ -257,7 +264,11 @@ function partition(
       extracted.get(entryPoint.subpath)!,
       entryPoint.importPath,
     )) {
-      if (isDocumented(located.entry) && !publicNames.has(located.entry.name)) {
+      if (
+        isDocumented(located.entry) &&
+        !isInternalEntry(located) &&
+        !publicNames.has(located.entry.name)
+      ) {
         publicNames.add(located.entry.name);
         generatedEntries.push(located);
       }
@@ -265,6 +276,17 @@ function partition(
   }
 
   return { publicEntries, generatedEntries };
+}
+
+// Internal entry points hold seams for other packages; `@internal` keeps one off the page.
+function isInternalEntry(located: Located): boolean {
+  for (const declaration of located.source.declarations) {
+    if (isTaggedInternal(declaration)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function sortedEntries(extracted: ExtractedEntryPoint, importPath: string): Located[] {

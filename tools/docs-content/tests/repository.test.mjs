@@ -113,7 +113,7 @@ test("router's defineRoute carries params, returns, throws and an example", () =
 
   assert.deepEqual(
     signature.params.map((param) => param.name),
-    ["path", "config"],
+    ["path", "facts"],
   );
   assert.match(signature.params[0].descriptionHtml, /^<p>The literal local path/);
   assert.notEqual(signature.returnsHtml, "");

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { emitPackage, extensionSource } from "./extension/emit.mjs";
 
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(packageDirectory, "../..");
@@ -45,6 +46,9 @@ for (const name of new Set([
 
   await symlink(target, link, "dir");
 }
+
+// The test route extension, installed as a published package: emitted JS and declarations.
+await emitPackage(fixture, "@fixture/route-extension", { "index.ts": await extensionSource() });
 
 const require = createRequire(join(packageDirectory, "package.json"));
 const { Architect } = require("@angular-devkit/architect");
@@ -246,11 +250,7 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import { codec, canLeave } from '../../probes.js';
 
-export default defineRoute('plain/$id', {
-  params: { id: codec('id') },
-  search: { score: codec('score') },
-  canDeactivate: [canLeave],
-});
+export default defineRoute('plain/$id', { params: { id: codec('id') }, search: { score: codec('score') } }).canDeactivate([canLeave]);
 `,
 );
 await write(
@@ -301,25 +301,17 @@ await write(
 import team from '../team/definition.js';
 import { codec, record, prototypeResult, token, localSymbol, opaque, slow } from '../../probes.js';
 
-export default defineRoute('items/$id', {
-  parent: team,
-  params: { id: codec('item') },
-  providers: [{ provide: token, useValue: 'item entry' }],
-  canActivate: [(value) => {
+export default defineRoute('items/$id', { parent: team, params: { id: codec('item') } }).providers([{ provide: token, useValue: 'item entry' }]).canActivate([(value) => {
     record(value);
     return true;
-  }],
-  title: (value) => Promise.resolve('Item ' + record(value)),
-  resolve: {
+  }]).title((value) => Promise.resolve('Item ' + record(value))).resolve({
     item: record,
     [localSymbol]: record,
     ['__proto__']: prototypeResult,
     empty: () => undefined,
     opaque: () => opaque,
     slow,
-  },
-  runGuardsAndResolvers: 'paramsOrQueryParamsChange',
-});
+  }).runGuardsAndResolvers('paramsOrQueryParamsChange');
 `,
 );
 await write(
@@ -381,15 +373,11 @@ await write(
 import target from '../preserved/definition.js';
 import { codec } from '../../probes.js';
 
-export default defineRoute('alias/$id', {
-  params: { id: codec('alias') },
-  search: { score: numberParam },
-  redirect: {
+export default defineRoute('alias/$id', { params: { id: codec('alias') }, search: { score: numberParam } }).redirect({
     to: target,
     search: { mode: 'preserve' },
     fragment: { mode: 'drop' },
-  },
-});
+  });
 `,
 );
 await write(
@@ -398,10 +386,7 @@ await write(
 import target from '../preserved/definition.js';
 import { thenableCodec } from '../../probes.js';
 
-export default defineRoute('thenable-alias/$id', {
-  params: { id: thenableCodec },
-  redirect: { to: target, params: { id: 'id' }, search: { mode: 'drop' }, fragment: { mode: 'drop' } },
-});
+export default defineRoute('thenable-alias/$id', { params: { id: thenableCodec } }).redirect({ to: target, params: { id: 'id' }, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
 `,
 );
 await write(
@@ -417,12 +402,7 @@ await write(
 import earlier from '../earlier/definition.js';
 import { parentGuard, token } from '../../probes.js';
 
-export default defineRoute('teams/$teamId', {
-  parent: earlier,
-  params: { teamId: numberParam },
-  providers: [{ provide: token, useValue: 'parent entry' }],
-  canActivateChild: [parentGuard],
-});
+export default defineRoute('teams/$teamId', { parent: earlier, params: { teamId: numberParam } }).providers([{ provide: token, useValue: 'parent entry' }]).canActivateChild([parentGuard]);
 `,
 );
 await write(
@@ -440,10 +420,7 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import { promiseGuard, token } from '../../probes.js';
 
-export default defineRoute('promise-guard', {
-  providers: [{ provide: token, useValue: 'promise entry' }],
-  canActivate: [promiseGuard],
-});
+export default defineRoute('promise-guard', {}).providers([{ provide: token, useValue: 'promise entry' }]).canActivate([promiseGuard]);
 `,
 );
 await write("src/routes/promise-guard/page.ts", simplePage);
@@ -452,10 +429,7 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import { promiseResolver, token } from '../../probes.js';
 
-export default defineRoute('promise-resolver', {
-  providers: [{ provide: token, useValue: 'promise entry' }],
-  resolve: { answer: promiseResolver },
-});
+export default defineRoute('promise-resolver', {}).providers([{ provide: token, useValue: 'promise entry' }]).resolve({ answer: promiseResolver });
 `,
 );
 await write(
@@ -530,15 +504,12 @@ await write(
   `import { defineRoute, enumParam } from '@loozo/angular-router';
 import { resolverCalls } from '../../probes.js';
 
-export default defineRoute('kinds/$kind', {
-  params: { kind: enumParam(['a', 'b']) },
-  resolve: {
+export default defineRoute('kinds/$kind', { params: { kind: enumParam(['a', 'b']) } }).resolve({
     seen: ({ params }) => {
       resolverCalls.push(params.kind);
       return params.kind;
     },
-  },
-});
+  });
 `,
 );
 await write("src/routes/kind/page.ts", marked("kind"));
@@ -547,11 +518,7 @@ await write(
   `import { defineRoute, numberParam } from '@loozo/angular-router';
 import { decide, token } from '../../probes.js';
 
-export default defineRoute('decided/$id', {
-  params: { id: numberParam },
-  providers: [{ provide: token, useValue: 'decided entry' }],
-  onInvalidParams: decide,
-});
+export default defineRoute('decided/$id', { params: { id: numberParam } }).providers([{ provide: token, useValue: 'decided entry' }]).onInvalidParams(decide);
 `,
 );
 await write("src/routes/decided/page.ts", marked("decided"));
@@ -560,11 +527,7 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import { decide, thenableCodec, token } from '../../probes.js';
 
-export default defineRoute('thenable/$id', {
-  params: { id: thenableCodec },
-  providers: [{ provide: token, useValue: 'thenable entry' }],
-  onInvalidParams: decide,
-});
+export default defineRoute('thenable/$id', { params: { id: thenableCodec } }).providers([{ provide: token, useValue: 'thenable entry' }]).onInvalidParams(decide);
 `,
 );
 await write("src/routes/thenable/page.ts", marked("thenable"));
@@ -573,13 +536,10 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import { activations, thenableCodec } from '../../probes.js';
 
-export default defineRoute('thenable-search', {
-  search: { q: thenableCodec },
-  canActivate: [(inputs) => {
+export default defineRoute('thenable-search', { search: { q: thenableCodec } }).canActivate([(inputs) => {
     activations.push(inputs);
     return true;
-  }],
-});
+  }]);
 `,
 );
 await write("src/routes/thenable-search/page.ts", marked("thenable-search"));
@@ -598,12 +558,7 @@ await write(
   `import { defineRoute, numberParam } from '@loozo/angular-router';
 import { decide, thenableCodec, token } from '../../probes.js';
 
-export default defineRoute('thenable-query/$id', {
-  params: { id: numberParam },
-  search: { q: thenableCodec },
-  providers: [{ provide: token, useValue: 'thenable entry' }],
-  onInvalidParams: decide,
-});
+export default defineRoute('thenable-query/$id', { params: { id: numberParam }, search: { q: thenableCodec } }).providers([{ provide: token, useValue: 'thenable entry' }]).onInvalidParams(decide);
 `,
 );
 await write(
@@ -626,14 +581,10 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import { codec, matchEntries } from '../../probes.js';
 
-export default defineRoute('matched/$id', {
-  params: { id: codec('matched') },
-  search: { q: codec('query') },
-  canMatch: [(inputs) => {
+export default defineRoute('matched/$id', { params: { id: codec('matched') }, search: { q: codec('query') } }).canMatch([(inputs) => {
     matchEntries.push(inputs);
     return true;
-  }],
-});
+  }]);
 `,
 );
 await write("src/routes/matched/page.ts", marked("matched"));
@@ -641,15 +592,11 @@ await write(
   "src/routes/searching/definition.ts",
   `import { arrayParam, defineRoute, enumParam, numberParam, withFallback } from '@loozo/angular-router';
 
-export default defineRoute('searching', {
-  search: {
+export default defineRoute('searching', { search: {
     sort: enumParam(['asc', 'desc']),
     page: withFallback(numberParam, 1),
     tag: arrayParam(enumParam(['a', 'b', 'c'])),
-  },
-  runGuardsAndResolvers: 'paramsOrQueryParamsChange',
-  resolve: { search: ({ search }) => search },
-});
+  } }).runGuardsAndResolvers('paramsOrQueryParamsChange').resolve({ search: ({ search }) => search });
 `,
 );
 await write(
@@ -681,9 +628,7 @@ for (const [name, search] of [
     `import { defineRoute } from '@loozo/angular-router';
 import searching from '../searching/definition.js';
 
-export default defineRoute('${name}', {
-  redirect: { to: searching, search: ${search}, fragment: { mode: 'drop' } },
-});
+export default defineRoute('${name}', {}).redirect({ to: searching, search: ${search}, fragment: { mode: 'drop' } });
 `,
   );
 }
@@ -724,14 +669,10 @@ await write(
   `import { defineRoute, numberParam } from '@loozo/angular-router';
 import { team } from '../../squad-probes.js';
 
-export default defineRoute('squads/$teamId', {
-  params: { teamId: numberParam },
-  resolve: {
+export default defineRoute('squads/$teamId', { params: { teamId: numberParam } }).resolve({
     team: ({ params }) => team(params.teamId),
     label: () => 'squad label',
-  },
-  title: ({ params }) => 'Squad ' + params.teamId,
-});
+  }).title(({ params }) => 'Squad ' + params.teamId);
 `,
 );
 await write(
@@ -755,7 +696,7 @@ await write(
   `import { defineRoute } from '@loozo/angular-router';
 import squad from '../squad/definition.js';
 
-export default defineRoute('', { parent: squad, resolve: { scope: () => 'pathless scope' } });
+export default defineRoute('', { parent: squad }).resolve({ scope: () => 'pathless scope' });
 `,
 );
 await write(
@@ -764,18 +705,14 @@ await write(
 import scope from '../squad-scope/definition.js';
 import { squadCalls } from '../../squad-probes.js';
 
-export default defineRoute('members/$memberId', {
-  parent: scope,
-  params: { memberId: numberParam },
-  resolve: {
+export default defineRoute('members/$memberId', { parent: scope, params: { memberId: numberParam } }).resolve({
     member: ({ params }) => {
       squadCalls.push('member:' + params.teamId + '/' + params.memberId);
       return { teamId: params.teamId, id: params.memberId };
     },
     // Hides the team's label of the same name.
     label: () => 42,
-  },
-});
+  });
 `,
 );
 await write(
@@ -887,6 +824,168 @@ if (active.is(squadMember)) {
 if (active.is(searchingDestination)) {
   const narrowedUntitled: Signal<undefined> = active.title;
 }
+`,
+);
+// Route extension callbacks: only authored callback adapters build the extension's members,
+// once per route, snapshot and phase; handles keep the base inputs.
+await write(
+  "src/extension-probes.ts",
+  `export const extensionEntries: { kind: string; inputs: any }[] = [];
+`,
+);
+await write(
+  "src/routes/ext-reused/definition.ts",
+  `import { numberParam, stringParam } from '@loozo/angular-router';
+import { defineRoute } from '@fixture/route-extension';
+import { extensionEntries } from '../../extension-probes.js';
+
+export default defineRoute('ext-reused/$id', { params: { id: numberParam }, search: { q: stringParam } })
+  .procedures(({ query }) => ({ account: { me: query(() => 'reused me') } }))
+  .resolve({
+    value: (inputs) => {
+      extensionEntries.push({ kind: 'reused resolver', inputs });
+      return inputs.rpc.account.me();
+    },
+  });
+`,
+);
+await write(
+  "src/routes/ext-reused/page.ts",
+  `import { Component } from '@angular/core';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="ext-reused">{{ handle.params().id }}:{{ handle.search().q }}</p>' })
+export default class ExtensionReused {
+  readonly handle = injectRoute();
+
+  constructor() {
+    (window as any).extensionReused = this;
+  }
+}
+`,
+);
+await write(
+  "src/routes/ext-shared/definition.ts",
+  `import { numberParam, stringParam } from '@loozo/angular-router';
+import { defineRoute } from '@fixture/route-extension';
+import { extensionEntries } from '../../extension-probes.js';
+
+export default defineRoute('ext-shared/$id', { params: { id: numberParam }, search: { q: stringParam } })
+  .procedures(({ query }) => ({ account: { me: query(() => 'shared me') } }))
+  .canMatch([
+    (inputs) => {
+      extensionEntries.push({ kind: 'match 1', inputs });
+      return true;
+    },
+    (inputs) => {
+      extensionEntries.push({ kind: 'match 2', inputs });
+      return true;
+    },
+  ])
+  .canActivate([
+    (inputs) => {
+      extensionEntries.push({ kind: 'activate', inputs });
+      return true;
+    },
+  ])
+  .resolve({
+    value: (inputs) => {
+      extensionEntries.push({ kind: 'resolver', inputs });
+      return inputs.rpc.account.me();
+    },
+  })
+  .title((inputs) => {
+    extensionEntries.push({ kind: 'title', inputs });
+    return 'Shared ' + inputs.params.id;
+  });
+`,
+);
+await write(
+  "src/routes/ext-shared/page.ts",
+  `import { Component } from '@angular/core';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="ext-shared">{{ handle.data().value }}</p>' })
+export default class ExtensionShared {
+  readonly handle = injectRoute();
+
+  constructor() {
+    (window as any).extensionShared = this;
+  }
+}
+`,
+);
+await write(
+  "src/extension-proof.ts",
+  `import { ApplicationRef, inject, provideEnvironmentInitializer } from '@angular/core';
+import { Router } from '@angular/router';
+import { inputProbe } from '@fixture/route-extension';
+import { extensionEntries } from './extension-probes.js';
+
+export const extensionProofProvider = provideEnvironmentInitializer(() => {
+  const router = inject(Router);
+  const app = inject(ApplicationRef);
+  const probe = inject(inputProbe);
+
+  async function visit(url: string): Promise<void> {
+    if (!(await router.navigateByUrl(url))) {
+      throw new Error('navigation failed: ' + url);
+    }
+
+    await app.whenStable();
+  }
+
+  (window as any).extensionProof = async () => {
+    // A resolver, then a query-only navigation under the default rerun policy.
+    const before = probe.calls;
+
+    await visit('/ext-reused/8?q=first');
+
+    const page = (window as any).extensionReused;
+    const firstSearch = page.handle.search();
+
+    await visit('/ext-reused/8?q=second');
+
+    const reused = {
+      samePage: (window as any).extensionReused === page,
+      resolverRuns: extensionEntries.filter((entry) => entry.kind === 'reused resolver').length,
+      inputCalls: probe.calls - before,
+      first: firstSearch.q,
+      search: page.handle.search().q,
+      value: page.handle.data().value,
+      handleHasRpc: 'rpc' in page.handle.params() || 'rpc' in page.handle.search(),
+    };
+
+    // Matching and activation phases on one navigation.
+    const shared = probe.calls;
+
+    await visit('/ext-shared/9?q=shared');
+
+    const entries = extensionEntries.filter((entry) => !entry.kind.startsWith('reused'));
+    const byKind = (kind: string) => entries.find((entry) => entry.kind === kind)!.inputs;
+    const activation = byKind('activate');
+    const matching = byKind('match 1');
+    const handle = (window as any).extensionShared.handle;
+
+    return {
+      reused,
+      shared: {
+        kinds: entries.map((entry) => entry.kind).sort(),
+        activationShared: activation === byKind('resolver') && activation === byKind('title'),
+        matchingShared: matching === byKind('match 2'),
+        phasesDistinct: matching !== activation,
+        frozen: Object.isFrozen(activation) && Object.isFrozen(matching),
+        rpc: activation.rpc.account.me(),
+        matchingRpc: matching.rpc.account.me(),
+        request: activation.request,
+        sameParams: activation.params === handle.params() && activation.search === handle.search(),
+        inputCalls: probe.calls - shared,
+        title: document.title,
+        value: handle.data().value,
+      },
+    };
+  };
+});
 `,
 );
 await write(
@@ -1698,7 +1797,7 @@ export default class Page {
 const activeRoutes = {
   crew: ["defineRoute('crews/$crewId', { params: { crewId: numberParam } })", true],
   task: [
-    "defineRoute('tasks/$taskId', { parent: crew, params: { taskId: numberParam }, search: { q: numberParam }, runGuardsAndResolvers: 'paramsOrQueryParamsChange', resolve: { value: taskValue } })",
+    "defineRoute('tasks/$taskId', { parent: crew, params: { taskId: numberParam }, search: { q: numberParam } }).runGuardsAndResolvers('paramsOrQueryParamsChange').resolve({ value: taskValue })",
     false,
   ],
   good: ["defineRoute('goods/$goodId', { params: { goodId: numberParam } })", false],
@@ -1707,8 +1806,8 @@ const activeRoutes = {
   part: ["defineRoute('parts/$partId', { parent: frame, params: { partId: numberParam } })", false],
   stem: ["defineRoute('stems/$stemId', { params: { stemId: numberParam } })", true],
   leaf: ["defineRoute('', { parent: stem })", false],
-  gate: ["defineRoute('gate', { canActivate: [gateGuard] })", false],
-  broken: ["defineRoute('broken', { resolve: { value: brokenResolver } })", false],
+  gate: ["defineRoute('gate', {}).canActivate([gateGuard])", false],
+  broken: ["defineRoute('broken', {}).resolve({ value: brokenResolver })", false],
 };
 
 for (const [name, [declaration, outlet]] of Object.entries(activeRoutes)) {
@@ -2147,9 +2246,9 @@ const main = await readFile(join(fixture, "src/main.ts"), "utf8");
 
 await write(
   "src/main.ts",
-  `import { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\n${main.replace(
+  `import { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\n${main.replace(
     "provideRouter(routes)",
-    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...routes]), proofProvider, activeProofProvider",
+    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...routes]), proofProvider, activeProofProvider, extensionProofProvider",
   )}`,
 );
 
@@ -2230,6 +2329,7 @@ try {
   const result = await tab.evaluate(() => window.lifecycleProof());
   const matching = await tab.evaluate(() => window.matchingProof());
   const ancestors = await tab.evaluate(() => window.ancestorProof());
+  const extension = await tab.evaluate(() => window.extensionProof());
 
   // The active route, each run in a fresh application: a shell scenario from /crews/7, and a
   // direct load of a child URL.
@@ -2258,9 +2358,38 @@ try {
 
   await writeFile(
     join(evidence, "browser-observations.json"),
-    JSON.stringify({ result, matching, ancestors, active, errors }, null, 2),
+    JSON.stringify({ result, matching, ancestors, extension, active, errors }, null, 2),
   );
   assert.deepEqual(errors, []);
+
+  // Extension callbacks (plan scenarios 2-4): a query-only navigation reuses the page and
+  // reruns no resolver, so input() ran once in total; the handle reads the new search.
+  assert.deepEqual(extension.reused, {
+    samePage: true,
+    resolverRuns: 1,
+    inputCalls: 1,
+    first: "first",
+    search: "second",
+    value: "reused me",
+    handleHasRpc: false,
+  });
+  // canActivate, resolver and title share one activation container whose params/search
+  // are the handle's; both canMatch guards share one matching container; the generated
+  // codec guard builds none. One input() per phase.
+  assert.deepEqual(extension.shared, {
+    kinds: ["activate", "match 1", "match 2", "resolver", "title"],
+    activationShared: true,
+    matchingShared: true,
+    phasesDistinct: true,
+    frozen: true,
+    rpc: "shared me",
+    matchingRpc: "shared me",
+    request: null,
+    sameParams: true,
+    inputCalls: 2,
+    title: "Shared 9",
+    value: "shared me",
+  });
 
   const task = (crewId, taskId) => ({
     route: "task",

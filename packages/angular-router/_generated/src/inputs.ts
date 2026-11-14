@@ -365,3 +365,61 @@ export function matchingInputs(
     return Object.freeze({ params: path.params, search: parseSearch(definition, snapshot) });
   });
 }
+
+/** Base inputs plus an extension's members; for authored callbacks only. */
+export type Enriched = Parsed & Readonly<Record<string, unknown>>;
+
+const activationCallbacks: Cache<Enriched> = new WeakMap();
+const matchingCallbacks: Cache<Enriched> = new WeakMap();
+
+// Router-only routes and router-made routes return the base container itself. A route
+// made by an extension factory gets one frozen container per phase and snapshot, built
+// at the first authored callback of that phase, inside Angular's injection context.
+function enrich(
+  cache: Cache<Enriched>,
+  definition: AnyRoute,
+  snapshot: object,
+  base: Parsed,
+): Enriched {
+  const extension = routeMetadata(definition).extension;
+
+  if (!extension?.declared) {
+    return base as Enriched;
+  }
+
+  return memo(cache, definition, snapshot, () => {
+    const members = extension.runtime.input(extension.chain);
+
+    if (Object.hasOwn(members, "params") || Object.hasOwn(members, "search")) {
+      throw new TypeError("Route extension input cannot replace params or search");
+    }
+
+    return Object.freeze({ ...base, ...members, params: base.params, search: base.search });
+  });
+}
+
+/** Activation-phase inputs for authored canActivate, canActivateChild, resolver and title callbacks. */
+export function callbackInputs(
+  set: RouteSet,
+  id: string,
+  snapshot: ActivatedRouteSnapshot,
+): Enriched {
+  const base = parseInputs(set, id, snapshot);
+
+  return enrich(activationCallbacks, set.records[id].definition(), snapshot, base);
+}
+
+/** Matching-phase inputs for authored canMatch callbacks; undefined when path params fail. */
+export function matchingCallbackInputs(
+  set: RouteSet,
+  id: string,
+  snapshot: PartialMatchRouteSnapshot,
+): Enriched | undefined {
+  const base = matchingInputs(set, id, snapshot);
+
+  if (base === undefined) {
+    return undefined;
+  }
+
+  return enrich(matchingCallbacks, set.records[id].definition(), snapshot, base);
+}

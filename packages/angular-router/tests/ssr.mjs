@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { emitPackage, extensionSource } from "./extension/emit.mjs";
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(packageDirectory, "../..");
 
@@ -93,6 +94,101 @@ export default class App {
 `,
 );
 
+// Route extension routes (plan scenarios 1 and 5): a handle-only page whose route builds
+// no members, and two overlapping requests whose callbacks each see their own REQUEST.
+await mkdir(join(fixture, "src/routes/ext-plain/$id"), { recursive: true });
+await writeFile(
+  join(fixture, "src/routes/ext-plain/$id/route.ts"),
+  `import { numberParam, withFallback } from "@loozo/angular-router";
+import { defineRoute } from "@fixture/route-extension";
+
+export default defineRoute("ext-plain/$id", {
+  params: { id: numberParam },
+  search: { score: numberParam, page: withFallback(numberParam, 1) },
+}).procedures(({ query }) => ({ account: { me: query(() => "me") } }));
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/ext-plain/$id/page.ts"),
+  `import { Component, inject } from "@angular/core";
+import { inputProbe } from "@fixture/route-extension";
+import { injectRoute } from "./route.generated.js";
+
+@Component({
+  template: \`
+    <p id="ext-id">{{ route.params().id }}</p>
+    <p id="ext-score">{{ route.search().score }}</p>
+    <p id="ext-page">{{ route.search().page }}</p>
+    <p id="ext-calls">{{ probe.calls }}</p>
+  \`,
+})
+export default class ExtensionPlain {
+  readonly route = injectRoute();
+  readonly probe = inject(inputProbe);
+}
+`,
+);
+await writeFile(
+  join(fixture, "src/barrier.ts"),
+  `// Both concurrent requests must enter before either resolver finishes.
+let entered = 0;
+let release!: () => void;
+const both = new Promise<void>((resolve) => {
+  release = resolve;
+});
+
+export async function barrier(): Promise<void> {
+  entered += 1;
+
+  if (entered === 2) {
+    release();
+  }
+
+  await Promise.race([
+    both,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("barrier timed out")), 5000)),
+  ]);
+}
+`,
+);
+await mkdir(join(fixture, "src/routes/ext-concurrent/$id"), { recursive: true });
+await writeFile(
+  join(fixture, "src/routes/ext-concurrent/$id/route.ts"),
+  `import { numberParam } from "@loozo/angular-router";
+import { defineRoute } from "@fixture/route-extension";
+import { barrier } from "../../../barrier.js";
+
+export default defineRoute("ext-concurrent/$id", { params: { id: numberParam } })
+  .canMatch([({ request }) => request !== null])
+  .canActivate([({ request }) => request !== null])
+  .resolve({
+    request: async ({ request }) => {
+      await barrier();
+
+      return request;
+    },
+  });
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/ext-concurrent/$id/page.ts"),
+  `import { Component, inject } from "@angular/core";
+import { inputProbe } from "@fixture/route-extension";
+import { injectRoute } from "./route.generated.js";
+
+@Component({
+  template: \`
+    <p id="ext-request">{{ route.data().request }}</p>
+    <p id="ext-calls">{{ probe.calls }}</p>
+  \`,
+})
+export default class ExtensionConcurrent {
+  readonly route = injectRoute();
+  readonly probe = inject(inputProbe);
+}
+`,
+);
+
 const metadataText = await readFile(join(packageDirectory, "package.json"), "utf8");
 const metadata = JSON.parse(metadataText);
 
@@ -113,6 +209,9 @@ for (const name of new Set([
 
   await symlink(target, leaf, "dir");
 }
+
+// The test route extension, installed as a published package: emitted JS and declarations.
+await emitPackage(fixture, "@fixture/route-extension", { "index.ts": await extensionSource() });
 
 const require = createRequire(join(packageDirectory, "package.json"));
 const { Architect } = require("@angular-devkit/architect");
@@ -452,16 +551,9 @@ async function ready(origin) {
   throw new Error("Native SSR server did not become ready");
 }
 
-function inspectHtml(body) {
-  const window = new Window();
-  const template = window.document.createElement("template");
-
-  template.innerHTML = body;
-
-  const document = template.content;
-  const result = {};
-
-  for (const id of [
+function inspectHtml(
+  body,
+  ids = [
     "parsed-team",
     "parsed-id",
     "parsed-score",
@@ -471,7 +563,17 @@ function inspectHtml(body) {
     "handle-page",
     "missing",
     "active-route",
-  ]) {
+  ],
+) {
+  const window = new Window();
+  const template = window.document.createElement("template");
+
+  template.innerHTML = body;
+
+  const document = template.content;
+  const result = {};
+
+  for (const id of ids) {
     result[id] = document.querySelector("#" + id)?.textContent ?? null;
   }
 
@@ -610,11 +712,51 @@ try {
     assert.equal(values["active-route"], "other", url);
     invalidValues[url] = { status: response.status, values };
   }
+  // An extension route with no authored callback: handles parse params and search, and the
+  // extension's input() never runs (no injection-context error either).
+  const extensionPlain = await requestSsr(origin + "/ext-plain/41?score=47&page=x");
+  const plainValues = inspectHtml(extensionPlain.body, [
+    "ext-id",
+    "ext-score",
+    "ext-page",
+    "ext-calls",
+  ]);
+
+  await writeFile(join(evidence, "http-ext-plain.html"), extensionPlain.body);
+  assert.equal(extensionPlain.status, 200);
+  assert.deepEqual(plainValues, {
+    "ext-id": "41",
+    "ext-score": "47",
+    "ext-page": "1",
+    "ext-calls": "0",
+  });
+
+  // Two overlapping requests meet at an asynchronous resolver barrier; each request's
+  // callbacks see its own REQUEST, and input() runs once per phase per request.
+  const concurrent = await Promise.all([
+    requestSsr(origin + "/ext-concurrent/1?who=A"),
+    requestSsr(origin + "/ext-concurrent/2?who=B"),
+  ]);
+  const concurrentExtension = [];
+
+  for (const [index, response] of concurrent.entries()) {
+    await writeFile(join(evidence, `http-ext-concurrent-${index}.html`), response.body);
+    assert.equal(response.status, 200);
+    concurrentExtension.push(inspectHtml(response.body, ["ext-request", "ext-calls"]));
+  }
+
+  assert.match(concurrentExtension[0]["ext-request"], /\/ext-concurrent\/1\?who=A$/);
+  assert.match(concurrentExtension[1]["ext-request"], /\/ext-concurrent\/2\?who=B$/);
+  assert.equal(concurrentExtension[0]["ext-calls"], "2");
+  assert.equal(concurrentExtension[1]["ext-calls"], "2");
+  assert.doesNotMatch(nodeStdout + nodeStderr, /NG0203/);
+
   await save("http-observations.json", {
     alias: { status: alias.status, location: location.href },
     concurrentValues: values,
     handleOnly: handleValues,
     invalidValues,
+    extension: { plain: plainValues, concurrent: concurrentExtension },
   });
 } catch (error) {
   nodeFailures.push(error);

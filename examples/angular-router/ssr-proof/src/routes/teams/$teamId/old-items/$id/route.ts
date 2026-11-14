@@ -6,9 +6,8 @@ export default defineRoute("old-items/$id", {
   parent: team,
   params: { id: numberParam },
   fragments: ["old"],
-  redirect: {
-    to: item,
-    search: { mode: "drop" },
-    fragment: { mode: "drop" },
-  },
+}).redirect({
+  to: item,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
 });

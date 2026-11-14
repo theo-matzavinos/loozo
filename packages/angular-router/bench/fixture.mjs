@@ -25,20 +25,20 @@ function groupName(group) {
 }
 
 function leafRouteSource(leaf, { title = false, resolve = false } = {}) {
-  let options = "parent";
+  let steps = "";
 
   if (title) {
-    options += ', title: () => "Benchmark title"';
+    steps += '.title(() => "Benchmark title")';
   }
 
   if (resolve) {
-    options += ", resolve: { value: () => 42 }";
+    steps += ".resolve({ value: () => 42 })";
   }
 
   return `import { defineRoute } from "@loozo/angular-router";
 import parent from "../../route.js";
 
-export default defineRoute("static/l${leaf}", { ${options} });
+export default defineRoute("static/l${leaf}", { parent })${steps};
 `;
 }
 

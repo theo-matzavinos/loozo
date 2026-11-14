@@ -276,7 +276,7 @@ export const routes: Routes = [${[...before, ...ordinary, ...after].map(record).
   const shared: string[] = [
     markers["destinations.generated.ts"],
     "import type { Signal } from '@angular/core';",
-    "import { injectGeneratedActiveRoute, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
+    "import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
   ];
 
   for (const declaration of declarations) {
@@ -288,7 +288,9 @@ export const routes: Routes = [${[...before, ...ordinary, ...after].map(record).
   shared.push("\nexport type Definitions = {");
 
   for (const declaration of declarations) {
-    shared.push(`${JSON.stringify(declaration.id)}: typeof ${names.get(declaration)};`);
+    shared.push(
+      `${JSON.stringify(declaration.id)}: RouteSchema<typeof ${names.get(declaration)}>;`,
+    );
   }
 
   shared.push("};\ndeclare const setIdentity: unique symbol;");
