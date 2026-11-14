@@ -8,6 +8,7 @@ import {
   captureReferences,
 } from "./observation.js";
 import { geometry, expectPreferred, candidates } from "./geometry.js";
+import { pauseExitOnStart } from "./animations.js";
 
 interface PresentationFrame {
   opacity: string;
@@ -2653,24 +2654,8 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
       (motion === "finite" || motion === "mixed") &&
       info.project.metadata.motion === "no-preference";
 
-    // Pause the 800 ms exit in the page as it starts: on a loaded host, the round trips before the
-    // retained exit is sampled can outlast it.
     if (retained) {
-      await page.getByTestId("native-content").evaluate((node) => {
-        const observer = new MutationObserver(() => {
-          if (!node.hasAttribute("data-leaving")) {
-            return;
-          }
-
-          observer.disconnect();
-
-          for (const animation of node.getAnimations()) {
-            animation.pause();
-          }
-        });
-
-        observer.observe(node, { attributes: true, attributeFilter: ["data-leaving"] });
-      });
+      await pauseExitOnStart(page.getByTestId("native-content"));
     }
 
     await page.getByTestId("native-inside-close").click();
@@ -2722,9 +2707,17 @@ test("V5 V12: before-hide reversal reuses native promotion; during-hide reentry 
 }, info) => {
   await fixture(page, "popover", info);
   await nativeOpen(page);
+
+  const finite = info.project.metadata.motion === "no-preference";
+
+  // The reopen reverses the paused exit, so it never needs resuming.
+  if (finite) {
+    await pauseExitOnStart(page.getByTestId("native-content"));
+  }
+
   await page.getByTestId("native-inside-close").click();
 
-  if (info.project.metadata.motion === "no-preference") {
+  if (finite) {
     await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "closing");
     await scriptControl(page, "native-open");
     await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "open");
@@ -3154,33 +3147,57 @@ async function presentationNative(page: Page): Promise<boolean> {
   return page.getByTestId("presentation-content").evaluate((node) => node.matches(":popover-open"));
 }
 
-/** Pause the genuine finite host animation for one transition and keep its reference. */
+/**
+ * Runs `start`, pausing the genuine finite host animation of the transition it begins and keeping
+ * its reference. The pause is armed in the page first and lands as `marker` appears: on a loaded
+ * host, the round trips after `start` could outlast the transition.
+ */
 async function pausePresentation(
   page: Page,
   marker: "data-entering" | "data-leaving",
   slot: string,
+  start: () => Promise<void>,
 ): Promise<void> {
   const content = page.getByTestId("presentation-content");
 
+  await content.evaluate(
+    (host, { marker, slot }) => {
+      delete window.presentationProof.animations[slot];
+
+      const observer = new MutationObserver(() => {
+        if (!host.hasAttribute(marker)) {
+          return;
+        }
+
+        observer.disconnect();
+
+        for (const animation of host.getAnimations()) {
+          const end = Number(animation.effect?.getComputedTiming().endTime);
+
+          if (Number.isFinite(end)) {
+            animation.pause();
+            window.presentationProof.animations[slot] = animation;
+
+            return;
+          }
+        }
+      });
+
+      observer.observe(host, { attributes: true, attributeFilter: [marker] });
+    },
+    { marker, slot },
+  );
+  await start();
   await expect(content).toHaveAttribute(marker, "");
-  await content.evaluate((host, slot) => {
-    let finite: Animation | null = null;
 
-    for (const animation of host.getAnimations()) {
-      const end = Number(animation.effect?.getComputedTiming().endTime);
+  const paused = await page.evaluate(
+    (slot) => window.presentationProof.animations[slot] !== undefined,
+    slot,
+  );
 
-      if (finite === null && Number.isFinite(end)) {
-        finite = animation;
-      }
-    }
-
-    if (finite === null) {
-      throw new Error("Expected a genuine finite host animation");
-    }
-
-    finite.pause();
-    window.presentationProof.animations[slot] = finite;
-  }, slot);
+  if (!paused) {
+    throw new Error("Expected a genuine finite host animation");
+  }
 }
 
 async function presentationStyles(page: Page) {
@@ -3261,25 +3278,39 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
   if (finite) {
     // A consumer script entrance survives suppression, unlike the marker-bound CSS one.
     await scriptControl(page, "presentation-arm-script-entrance");
+    // The show starts it before the reveal, so it's live when the entering marker appears.
+    await content.evaluate((host) => {
+      const observer = new MutationObserver(() => {
+        if (!host.hasAttribute("data-entering")) {
+          return;
+        }
+
+        observer.disconnect();
+
+        for (const animation of host.getAnimations()) {
+          if (animation.id === "script-entrance") {
+            animation.pause();
+            window.presentationProof.animations["script"] = animation;
+          }
+        }
+      });
+
+      observer.observe(host, { attributes: true, attributeFilter: ["data-entering"] });
+    });
+    await pausePresentation(page, "data-entering", "released", () =>
+      scriptControl(page, "presentation-open"),
+    );
+  } else {
+    await scriptControl(page, "presentation-open");
   }
 
-  await scriptControl(page, "presentation-open");
   await expect.poll(() => presentationNative(page)).toBe(true);
 
   if (finite) {
-    await pausePresentation(page, "data-entering", "released");
-    await content.evaluate((host) => {
-      for (const animation of host.getAnimations()) {
-        if (animation.id === "script-entrance") {
-          animation.pause();
-          window.presentationProof.animations["script"] = animation;
-        }
-      }
-
-      if (!window.presentationProof.animations["script"]) {
-        throw new Error("Expected the consumer's live script entrance");
-      }
-    });
+    expect(
+      await page.evaluate(() => window.presentationProof.animations["script"] !== undefined),
+      "Expected the consumer's live script entrance",
+    ).toBe(true);
     await expect(content).toHaveAttribute("data-phase", "opening");
     // Presence discovered this entrance, so its wait includes the script animation.
     expect(
@@ -3340,12 +3371,18 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
 
   await expect(intent).toHaveText("true");
   // Restoring the Anchor keeps intent unchanged: same host, fresh native activation.
-  await scriptControl(page, "presentation-restore-anchor");
+  if (finite) {
+    await pausePresentation(page, "data-entering", "fresh", () =>
+      scriptControl(page, "presentation-restore-anchor"),
+    );
+  } else {
+    await scriptControl(page, "presentation-restore-anchor");
+  }
+
   await expect.poll(() => presentationNative(page)).toBe(true);
   await expect(shows).toHaveText("2");
 
   if (finite) {
-    await pausePresentation(page, "data-entering", "fresh");
     expect(
       await page.evaluate(
         () =>
@@ -3386,13 +3423,15 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
   await expect.poll(() => presentationNative(page)).toBe(true);
 
   // A visible exit settles from its own leaving discovery without a fresh reveal.
-  await scriptControl(page, "presentation-close");
-
   if (finite) {
-    await pausePresentation(page, "data-leaving", "exit");
+    await pausePresentation(page, "data-leaving", "exit", () =>
+      scriptControl(page, "presentation-close"),
+    );
     await expect(content).toHaveAttribute("data-phase", "closing");
     expect(await presentationNative(page)).toBe(true);
     await page.evaluate(() => window.presentationProof.animations["exit"]?.finish());
+  } else {
+    await scriptControl(page, "presentation-close");
   }
 
   await expect(content).toHaveAttribute("data-phase", "closed");
@@ -3400,13 +3439,15 @@ test("V10 V12 R3: Anchor suppression rejects an obsolete paused entrance; the sa
   await expect(shows).toHaveText("2");
 
   // A suppressed preparatory activation closes nonvisually and settles directly.
-  await scriptControl(page, "presentation-open");
-  await expect.poll(() => presentationNative(page)).toBe(true);
-
   if (finite) {
-    await pausePresentation(page, "data-entering", "nonvisual");
+    await pausePresentation(page, "data-entering", "nonvisual", () =>
+      scriptControl(page, "presentation-open"),
+    );
+  } else {
+    await scriptControl(page, "presentation-open");
   }
 
+  await expect.poll(() => presentationNative(page)).toBe(true);
   await scriptControl(page, "presentation-remove-anchor");
   await expect.poll(() => presentationNative(page)).toBe(false);
 
@@ -3498,8 +3539,9 @@ test("V12 V13: a finite entrance or exit that settles after the READ starting a 
     return;
   }
 
-  await scriptControl(page, "presentation-open");
-  await pausePresentation(page, "data-entering", "entrance");
+  await pausePresentation(page, "data-entering", "entrance", () =>
+    scriptControl(page, "presentation-open"),
+  );
   await expect.poll(() => presentationNative(page)).toBe(true);
   await expect(content).toHaveAttribute("data-phase", "opening");
   await expectPreferred(page, "block-end", "start", 8, hosts);
@@ -3536,8 +3578,9 @@ test("V12 V13: a finite entrance or exit that settles after the READ starting a 
   expect(movedBatch).toBeGreaterThanOrEqual(presentBatch);
 
   // A visible exit that settles while that READ's calculation is pending hides without error.
-  await scriptControl(page, "presentation-close");
-  await pausePresentation(page, "data-leaving", "exit");
+  await pausePresentation(page, "data-leaving", "exit", () =>
+    scriptControl(page, "presentation-close"),
+  );
   await expect(content).toHaveAttribute("data-phase", "closing");
   expect(await presentationNative(page)).toBe(true);
   await page.evaluate(() => {

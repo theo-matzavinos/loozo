@@ -2,6 +2,7 @@ import { test, expect, type ErrorRecord } from "./contract-test.js";
 import type { Locator, Page, TestInfo } from "playwright/test";
 import { fixture } from "./observation.js";
 import { expectPreferred } from "./geometry.js";
+import { pauseExitOnStart, resumeAnimations } from "./animations.js";
 import {
   sharedOwnerCase,
   tooltipOutsideFieldCase,
@@ -1020,24 +1021,9 @@ test("N3: reopened during a retained visible exit, a leave toward the still-visi
     .poll(async () => await content.evaluate((node) => getComputedStyle(node).opacity))
     .toBe("1");
 
-  // Pause the 300 ms exit in the page as it starts: on a loaded host, the round trips before a
-  // later pause can outlast it.
+  // Pause the 300 ms exit in the page as it starts.
   if (finite) {
-    await content.evaluate((node) => {
-      const observer = new MutationObserver(() => {
-        if (!node.hasAttribute("data-leaving")) {
-          return;
-        }
-
-        observer.disconnect();
-
-        for (const animation of node.getAnimations()) {
-          animation.pause();
-        }
-      });
-
-      observer.observe(node, { attributes: true, attributeFilter: ["data-leaving"] });
-    });
+    await pauseExitOnStart(content);
   }
 
   await away(page);
@@ -1121,11 +1107,7 @@ test("N3: reopened during a retained visible exit, a leave toward the still-visi
     type: "reversal",
     description: `data-entering at the leave: ${leave.entering}`,
   });
-  await content.evaluate((node) => {
-    for (const animation of node.getAnimations()) {
-      animation.play();
-    }
-  });
+  await resumeAnimations(content);
   await settle(page);
   await elapse(page, 100);
   await expect(intent).toHaveText("true");
@@ -2090,6 +2072,11 @@ test("N11: Popover's lifecycle: retained finite exit while inert, reuse before n
   await script(page, "life-open");
   await expectShown(content);
   await expect(content).toHaveAttribute("data-present", "");
+
+  if (!reduced) {
+    await pauseExitOnStart(content);
+  }
+
   await script(page, "life-close");
 
   if (reduced) {
@@ -2102,6 +2089,7 @@ test("N11: Popover's lifecycle: retained finite exit while inert, reuse before n
         inert: true,
         leaving: true,
       });
+    await resumeAnimations(content);
     await expect.poll(() => lifePhase(content)).toMatchObject({ native: false, leaving: false });
   }
 
@@ -2111,21 +2099,13 @@ test("N11: Popover's lifecycle: retained finite exit while inert, reuse before n
   if (!reduced) {
     await script(page, "life-open");
     await expect(content).toHaveAttribute("data-present", "");
+    await pauseExitOnStart(content);
     await script(page, "life-close");
     await expect(content).toHaveAttribute("data-leaving", "");
-    await content.evaluate((node) => {
-      for (const animation of node.getAnimations()) {
-        animation.pause();
-      }
-    });
     await script(page, "life-open");
     await expectShown(content);
     await expect(shows).toHaveText("2");
-    await content.evaluate((node) => {
-      for (const animation of node.getAnimations()) {
-        animation.play();
-      }
-    });
+    await resumeAnimations(content);
     await expect(content).toHaveAttribute("data-present", "");
     await expect(shows).toHaveText("2");
     await script(page, "life-close");
