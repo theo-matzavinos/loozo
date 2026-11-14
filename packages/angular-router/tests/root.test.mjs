@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as root from "@loozo/angular-router";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { createRouteFactory, routeContributions, routeMetadata } from "@loozo/angular-router/_core";
 import { emitPackage, installExtension } from "./extension/emit.mjs";
@@ -797,7 +798,10 @@ const extensionRoot = resolve(
 async function fixture() {
   await installExtension(extensionRoot);
 
-  return import(resolve(extensionRoot, "node_modules/@fixture/route-extension/dist/index.js"));
+  return import(
+    pathToFileURL(resolve(extensionRoot, "node_modules/@fixture/route-extension/dist/index.js"))
+      .href
+  );
 }
 
 test("an extension records root-first raw contributions and forwards them through router routes", async () => {
