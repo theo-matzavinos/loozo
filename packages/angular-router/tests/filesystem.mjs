@@ -222,6 +222,26 @@ async function waitFor(predicate, message) {
   throw new Error(message);
 }
 
+// A rename that retries while Windows reports the directory busy (a watcher or the dev
+// server still has a file in it open); any other failure, or a lasting lock, still throws.
+async function renameSettled(from, to) {
+  const deadline = Date.now() + 10_000;
+
+  for (;;) {
+    try {
+      await rename(from, to);
+
+      return;
+    } catch (error) {
+      if (!["EPERM", "EBUSY", "EACCES"].includes(error?.code) || Date.now() >= deadline) {
+        throw error;
+      }
+
+      await new Promise((done) => setTimeout(done, 200));
+    }
+  }
+}
+
 function page(label) {
   return `import { Component } from "@angular/core";
 @Component({ template: '<p data-proof="filesystem">${label}</p>' })
@@ -1271,7 +1291,14 @@ try {
     async () => (await read("generated/routes.generated.ts")).includes('path: "Items"'),
     "Watcher did not publish the cased route",
   );
-  await rename(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
+  // Let the dev server finish the rebuild that reads the new directory: Windows refuses to
+  // rename a directory while another process has a file in it open.
+  await waitFor(
+    async () =>
+      (await (await fetch(new URL("main.js", output.baseUrl))).text()).includes('path: "Items"'),
+    "Native server did not consume the cased route",
+  );
+  await renameSettled(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
   await waitFor(
     async () => (await read("src/routes/items/route.ts")).includes('defineRoute("items"'),
     "Watcher did not synchronize a case-only rename",
