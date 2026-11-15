@@ -2,7 +2,7 @@ import { InjectionToken, inject, type Signal } from "@angular/core";
 import { RedirectCommand, Router } from "@angular/router";
 import { createUrl } from "@loozo/angular-router";
 import type { GuidePage, PackageContent } from "../generated/content/model.generated.js";
-import notFound from "./routes/$segments[]/route.js";
+import { destination as notFound } from "./routes/$segments[]/destination.generated.js";
 
 /**
  * The content of the package the package layout shows, for the pages inside it. The package route

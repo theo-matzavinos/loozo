@@ -10,7 +10,21 @@ import {
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
-import type { RouteSchema, UrlValues } from "@loozo/angular-router/_core";
+import { defineDestination, routeOf } from "@loozo/angular-router/_core";
+import type {
+  ContributionOf,
+  ExtensionSpec,
+  FragmentsOf,
+  InputContribution,
+  ParamsOf,
+  RouteFactory,
+  RouteSchema,
+  SearchOf,
+  StepSignature,
+  TargetOf,
+  TitleOf,
+  UrlValues,
+} from "@loozo/angular-router/_core";
 import type { Handle } from "@loozo/angular-router/_generated";
 import type { Signal } from "@angular/core";
 import type {
@@ -300,10 +314,12 @@ const arrayCodec: ParamCodec<readonly string[]> = {
   parse: (raw) => raw.split(","),
   stringify: (value) => value.join(","),
 };
-const destination = defineRoute("docs/$parts[]", {
-  params: { parts: stringParam },
-  fragments: ["summary"],
-});
+// Redirect targets are destinations, as destination.generated.ts files declare them.
+const destination = defineDestination(
+  "docs/$parts[]",
+  { params: { parts: stringParam }, fragments: ["summary"] },
+  "docs",
+);
 
 defineRoute("packed/$array", { params: { array: arrayCodec } }).redirect({
   to: destination,
@@ -330,7 +346,7 @@ defineRoute("$parts[]", { params: { parts: stringParam } })
   // @ts-expect-error A guard step rules a redirect out.
   .redirect({ to: destination, search: { mode: "drop" }, fragment: { mode: "drop" } });
 
-const root = defineRoute("", {});
+const root = defineDestination("", {}, "root");
 const unknownReplacement = { extra: "x" };
 
 defineRoute("alias", {}).redirect({
@@ -346,6 +362,17 @@ const invalidNative: MaybeAsync<GuardResult> = false;
 
 void invalidNative;
 
+const prototypeOptionalTo = defineDestination(
+  "prototype-optional",
+  {
+    search: {
+      constructor: stringParam,
+      toString: numberParam,
+      ["__proto__"]: enumParam(["one", "two"]),
+    },
+  },
+  "prototype-optional",
+);
 const prototypeOptional = defineRoute("prototype-optional", {
   search: {
     constructor: stringParam,
@@ -420,6 +447,11 @@ createUrl(prototypeAll, { search: { extra: "wrong" } });
 // @ts-expect-error Logical constructor values are never widened to Function.
 createUrl(prototypeAll, { search: { constructor: () => undefined } });
 
+const onlyConstructorTo = defineDestination(
+  "only-constructor",
+  { search: { constructor: stringParam } },
+  "only-constructor",
+);
 const onlyConstructor = defineRoute("only-constructor", {
   search: { constructor: stringParam },
 });
@@ -439,33 +471,38 @@ createUrl(onlyConstructor, { search: { constructor: () => undefined } });
 createUrl(onlyToString, { search: { toString: () => "wrong" } });
 
 defineRoute("prototype-drop", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   search: { mode: "drop" },
   fragment: { mode: "drop" },
 });
 defineRoute("prototype-preserve", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   search: { mode: "preserve" },
   fragment: { mode: "drop" },
 });
 defineRoute("prototype-replace", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   search: { mode: "replace", values: {} },
   fragment: { mode: "drop" },
 });
 defineRoute("constructor-replace", {}).redirect({
-  to: onlyConstructor,
+  to: onlyConstructorTo,
   search: { mode: "replace", values: {} },
   fragment: { mode: "drop" },
 });
 
 defineRoute("prototype-replace-wrong", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   // @ts-expect-error Replacement inputs retain logical prototype-named value types.
   search: { mode: "replace", values: { constructor: () => undefined } },
   fragment: { mode: "drop" },
 });
 
+const mixedPrototypeTo = defineDestination(
+  "prototype-mixed",
+  { search: { q: numberParam, constructor: stringParam, toString: numberParam } },
+  "prototype-mixed",
+);
 const mixedPrototype = defineRoute("prototype-mixed", {
   search: {
     q: numberParam,
@@ -530,6 +567,7 @@ createUrl(mixedPrototype, { search: wrongMultiple });
 // @ts-expect-error Supplied bindings retain their codec type through a variable.
 createUrl(mixedPrototype, { search: wrongRequired });
 
+const ordinaryTo = defineDestination("ordinary", { search: { q: numberParam } }, "ordinary");
 const ordinary = defineRoute("ordinary", { search: { q: numberParam } });
 const structuralExtra = { q: 7, extra: "structural" };
 
@@ -552,90 +590,90 @@ createUrl(mixedPrototype, { search: { q: 7, constructor: () => undefined } });
 // @ts-expect-error Mixed inputs reject unknown literal keys.
 createUrl(mixedPrototype, { search: { q: 7, extra: "wrong" } });
 defineRoute("mixed-preserve", { search: { q: numberParam } }).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "preserve" },
   fragment: { mode: "drop" },
 });
 defineRoute("mixed-replace", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "replace", values: { q: 7 } },
   fragment: { mode: "drop" },
 });
 defineRoute("mixed-replace-wrong", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   // @ts-expect-error Optional prototype-named replacement remains codec-typed.
   search: { mode: "replace", values: { q: 7, toString: "wrong" } },
   fragment: { mode: "drop" },
 });
 
 defineRoute("variable-empty-replace", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   search: { mode: "replace", values: emptySearch },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-partial-replace", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   search: { mode: "replace", values: partialToString },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-mixed-replace", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "replace", values: mixedSubset },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-optional-subset-replace", {}).redirect({
-  to: prototypeOptional,
+  to: prototypeOptionalTo,
   search: { mode: "replace", values: optionalSubset },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-required-replace", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "replace", values: mixedRequired },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-constructor-wrong", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   // @ts-expect-error Replacement variables cannot hide wrong own constructor values.
   search: { mode: "replace", values: wrongConstructor },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-tostring-wrong", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   // @ts-expect-error Replacement variables cannot hide wrong own toString values.
   search: { mode: "replace", values: wrongToString },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-subset-wrong", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   // @ts-expect-error Replacement subsets retain each supplied logical value type.
   search: { mode: "replace", values: wrongSubset },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-multiple-wrong", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   // @ts-expect-error Several wrong values cannot broaden the selected replacement schema.
   search: { mode: "replace", values: wrongMultiple },
   fragment: { mode: "drop" },
 });
 defineRoute("variable-structural-replace", {}).redirect({
-  to: ordinary,
+  to: ordinaryTo,
   search: { mode: "replace", values: structuralExtra },
   fragment: { mode: "drop" },
 });
 
 // No destination search key is required, so every policy accepts any target.
 defineRoute("mixed-drop", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "drop" },
   fragment: { mode: "drop" },
 });
 defineRoute("mixed-missing", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "replace", values: {} },
   fragment: { mode: "drop" },
 });
 defineRoute("mixed-preserve-searchless", {}).redirect({
-  to: mixedPrototype,
+  to: mixedPrototypeTo,
   search: { mode: "preserve" },
   fragment: { mode: "drop" },
 });
@@ -651,6 +689,11 @@ const undefinedBox: ParamCodec<BoxWithUndefined> = {
   parse: () => ({ nested: { value: undefined, mutable: true } }),
   stringify: () => "boxed",
 };
+const ownUndefinedTo = defineDestination(
+  "own-undefined",
+  { search: { q: undefinedCodec, box: undefinedBox } },
+  "own-undefined",
+);
 const ownUndefined = defineRoute("own-undefined", {
   search: { q: undefinedCodec, box: undefinedBox },
 }).resolve({
@@ -673,7 +716,7 @@ const boxWithUndefined: BoxWithUndefined = { nested: { value: undefined, mutable
 createUrl(ownUndefined, { search: { q: undefined, box: boxWithUndefined } });
 createUrl(defineRoute("$id", { params: { id: undefinedCodec } }), { params: { id: undefined } });
 defineRoute("undefined-replace", {}).redirect({
-  to: ownUndefined,
+  to: ownUndefinedTo,
   search: { mode: "replace", values: { q: undefined, box: boxWithUndefined } },
   fragment: { mode: "drop" },
 });
@@ -686,6 +729,11 @@ createUrl(ownUndefined, {
 });
 
 // Invalid local path params: the route doesn't match unless its handler decides otherwise.
+const invalidItemTo = defineDestination(
+  "invalid-items/$id",
+  { params: { id: numberParam } },
+  "invalid-items",
+);
 const invalidItem = defineRoute("invalid-items/$id", {
   params: { id: numberParam },
 }).onInvalidParams((error, routeConfig, segments, partialSnapshot) => {
@@ -727,10 +775,22 @@ defineRoute("invalid-child", { parent: invalidItem }).onInvalidParams(() => fals
 defineRoute("invalid-redirect/$id", { params: { id: numberParam } })
   .onInvalidParams(() => false)
   // @ts-expect-error Angular rejects canMatch on redirect records, so the handler has no guard.
-  .redirect({ to: invalidItem, search: { mode: "drop" }, fragment: { mode: "drop" } });
+  .redirect({ to: invalidItemTo, search: { mode: "drop" }, fragment: { mode: "drop" } });
 
 // A plain search key reads as optional; a fallback key always reads a value.
 // Either may be omitted, or passed as undefined, when writing a URL.
+const pagedTo = defineDestination(
+  "paged",
+  {
+    search: {
+      page: withFallback(numberParam, 1),
+      sort: enumParam(["asc", "desc"]),
+      score: withFallback(numberParam, 0),
+      q: stringParam,
+    },
+  },
+  "paged",
+);
 const paged = defineRoute("paged", {
   search: {
     page: withFallback(numberParam, 1),
@@ -772,6 +832,11 @@ createUrl(paged, { search: { q: 2 } });
 // @ts-expect-error Unknown search keys fail.
 createUrl(paged, { search: { other: 2 } });
 
+const fallbackOnlyTo = defineDestination(
+  "fallback-only",
+  { search: { page: withFallback(numberParam, 1) } },
+  "fallback-only",
+);
 const fallbackOnly = defineRoute("fallback-only", {
   search: { page: withFallback(numberParam, 1) },
 });
@@ -789,27 +854,27 @@ defineRoute("fallback-docs/$parts[]", { params: { parts: withFallback(stringPara
 
 // Redirects: no search key is ever required, on either side.
 defineRoute("fallback-drop", {}).redirect({
-  to: fallbackOnly,
+  to: fallbackOnlyTo,
   search: { mode: "drop" },
   fragment: { mode: "drop" },
 });
 defineRoute("fallback-preserve", {}).redirect({
-  to: fallbackOnly,
+  to: fallbackOnlyTo,
   search: { mode: "preserve" },
   fragment: { mode: "drop" },
 });
 defineRoute("fallback-replace", {}).redirect({
-  to: paged,
+  to: pagedTo,
   search: { mode: "replace", values: { q: "x" } },
   fragment: { mode: "drop" },
 });
 defineRoute("fallback-replace-value", {}).redirect({
-  to: paged,
+  to: pagedTo,
   search: { mode: "replace", values: { q: "x", page: 3, score: undefined } },
   fragment: { mode: "drop" },
 });
 defineRoute("fallback-replace-wrong", {}).redirect({
-  to: paged,
+  to: pagedTo,
   // @ts-expect-error Replacement values keep their codec type.
   search: { mode: "replace", values: { page: "3" } },
   fragment: { mode: "drop" },
@@ -841,6 +906,11 @@ pagedHandle.data = otherData;
 
 // An array key always reads a readonly array; writing it is optional, and the
 // guards, resolvers, children and handle all see the same shape.
+const articlesTo = defineDestination(
+  "articles",
+  { search: { tag: arrayParam(enumParam(["news", "guides"])), single: stringParam } },
+  "articles",
+);
 const articles = defineRoute("articles", {
   search: { tag: arrayParam(enumParam(["news", "guides"])), single: stringParam },
 }).resolve({
@@ -886,17 +956,17 @@ arrayParam(arrayParam(numberParam));
 // @ts-expect-error A promise-valued element codec fails where it is declared.
 arrayParam(promisedCodec);
 defineRoute("articles-replace", {}).redirect({
-  to: articles,
+  to: articlesTo,
   search: { mode: "replace", values: { tag: ["news"], single: undefined } },
   fragment: { mode: "drop" },
 });
 defineRoute("articles-replace-empty", {}).redirect({
-  to: articles,
+  to: articlesTo,
   search: { mode: "replace", values: { tag: [] } },
   fragment: { mode: "drop" },
 });
 defineRoute("articles-replace-wrong", {}).redirect({
-  to: articles,
+  to: articlesTo,
   // @ts-expect-error Replacement values keep the array shape.
   search: { mode: "replace", values: { tag: "news" } },
   fragment: { mode: "drop" },
@@ -904,7 +974,7 @@ defineRoute("articles-replace-wrong", {}).redirect({
 
 // Steps: each at most once, in any order; a used step is gone from the value.
 const once = defineRoute("once/$id", { params: { id: numberParam } });
-const redirectTarget = defineRoute("redirect-target", {});
+const redirectTarget = defineDestination("redirect-target", {}, "redirect-target");
 const drop = { to: redirectTarget, search: { mode: "drop" }, fragment: { mode: "drop" } } as const;
 // @ts-expect-error canMatch is used.
 once.canMatch([]).canMatch([]);
@@ -988,3 +1058,279 @@ exact<
     >
   >
 >();
+
+// Destinations and route copies, written by hand exactly as destination.generated.ts and
+// route.generated.ts declare them, against the equivalent authored chains.
+type DataOf<Target> = Target extends { readonly __data?: infer Data } ? Data : never;
+
+const tabCodec = withFallback(enumParam(["a", "b"]), "a");
+const authoredOrg = defineRoute("orgs/$orgId", {
+  params: { orgId: numberParam },
+  search: { tab: tabCodec },
+})
+  .resolve({ orgData: ({ params }) => `org-${params.orgId}` })
+  .title("Org");
+const authoredPathless = defineRoute("", { parent: authoredOrg }).resolve({
+  group: () => "pathless-data",
+});
+const authoredLeaf = defineRoute("items/$itemId", {
+  parent: authoredPathless,
+  params: { itemId: numberParam },
+  search: { q: numberParam },
+  fragments: ["detail"],
+})
+  .canActivate([({ params, search }) => params.orgId > 0 && search.tab === "a"])
+  .resolve({ answer: ({ params }) => params.itemId * 2 })
+  .title(({ params }) => `Item ${params.itemId}`);
+const authoredDocs = defineRoute("docs/$rest[]", {
+  params: { rest: stringParam },
+  fragments: ["top"],
+}).title(({ params }) => params.rest.join("/"));
+
+const orgDestination = defineDestination(
+  "orgs/$orgId",
+  { params: { orgId: numberParam }, search: { tab: tabCodec } },
+  "src/routes/org/route.ts",
+);
+const pathlessDestination = defineDestination(
+  "",
+  { parent: orgDestination },
+  "src/routes/org/pathless/route.ts",
+);
+const leafDestination = defineDestination(
+  "items/$itemId",
+  {
+    parent: pathlessDestination,
+    params: { itemId: numberParam },
+    search: { q: numberParam },
+    fragments: ["detail"],
+  },
+  "src/routes/org/pathless/leaf/route.ts",
+);
+const docsDestination = defineDestination(
+  "docs/$rest[]",
+  { params: { rest: stringParam }, fragments: ["top"] },
+  "src/routes/docs/route.ts",
+);
+const orgCopy = routeOf(defineRoute, orgDestination)
+  .resolve({ orgData: ({ params }) => `org-${params.orgId}` })
+  .title("Org");
+const pathlessCopy = routeOf(defineRoute, pathlessDestination, orgCopy).resolve({
+  group: () => "pathless-data",
+});
+const leafCopy = routeOf(defineRoute, leafDestination, pathlessCopy)
+  .canActivate([({ params, search }) => params.orgId > 0 && search.tab === "a"])
+  .resolve({ answer: ({ params }) => params.itemId * 2 })
+  .title(({ params }) => `Item ${params.itemId}`);
+const docsCopy = routeOf(defineRoute, docsDestination).title(({ params }) => params.rest.join("/"));
+
+// A copy types exactly like the authored chain: inherited params, fallback search, data, title, fragments.
+exact<Equal<ParamsOf<typeof leafCopy>, ParamsOf<typeof authoredLeaf>>>();
+exact<Equal<SearchOf<typeof leafCopy>, SearchOf<typeof authoredLeaf>>>();
+exact<Equal<DataOf<typeof leafCopy>, DataOf<typeof authoredLeaf>>>();
+exact<Equal<TitleOf<typeof leafCopy>, TitleOf<typeof authoredLeaf>>>();
+exact<Equal<FragmentsOf<typeof leafCopy>, FragmentsOf<typeof authoredLeaf>>>();
+exact<Equal<ParamsOf<typeof pathlessCopy>, ParamsOf<typeof authoredPathless>>>();
+exact<Equal<DataOf<typeof pathlessCopy>, DataOf<typeof authoredPathless>>>();
+exact<Equal<ParamsOf<typeof docsCopy>, ParamsOf<typeof authoredDocs>>>();
+// A destination's target carries the authored route's URL schema.
+exact<Equal<ParamsOf<TargetOf<typeof leafDestination>>, ParamsOf<typeof authoredLeaf>>>();
+exact<Equal<SearchOf<TargetOf<typeof leafDestination>>, SearchOf<typeof authoredLeaf>>>();
+exact<Equal<FragmentsOf<TargetOf<typeof leafDestination>>, "detail">>();
+exact<Equal<ParamsOf<TargetOf<typeof docsDestination>>, ParamsOf<typeof authoredDocs>>>();
+exact<Equal<FragmentsOf<TargetOf<typeof docsDestination>>, "top">>();
+exact<Equal<TargetOf<typeof authoredLeaf>, undefined>>();
+// A destination is not a route: the bare extractors don't read it.
+exact<Equal<ParamsOf<typeof leafDestination>, {}>>();
+
+// createUrl takes a destination, a route copy or an inline declaration.
+createUrl(leafDestination, {
+  params: { orgId: 1, itemId: 2 },
+  search: { q: 3, tab: "b" },
+  fragment: "detail",
+});
+createUrl(leafCopy, { params: { orgId: 1, itemId: 2 }, fragment: "detail" });
+createUrl(orgDestination, { params: { orgId: 1 }, search: { tab: "a" } });
+createUrl(pathlessDestination, { params: { orgId: 1 } });
+createUrl(docsDestination, { params: { rest: ["a", "b"] }, fragment: "top" });
+createUrl(docsDestination, { params: { rest: [] } });
+createUrl(authoredLeaf, { params: { orgId: 1, itemId: 2 } });
+// @ts-expect-error A missing inherited param.
+createUrl(leafDestination, { params: { itemId: 2 } });
+// @ts-expect-error Another route's fragment.
+createUrl(leafDestination, { params: { orgId: 1, itemId: 2 }, fragment: "top" });
+// @ts-expect-error A catchall takes an array.
+createUrl(docsDestination, { params: { rest: "a" } });
+// @ts-expect-error The enum's values.
+createUrl(orgDestination, { params: { orgId: 1 }, search: { tab: "c" } });
+// @ts-expect-error A structural fake is neither a route nor a destination.
+createUrl({ path: "x" }, {});
+// @ts-expect-error A pathless destination takes only the params it inherits.
+createUrl(pathlessDestination, { params: { orgId: 1, itemId: 2 } });
+
+// Admission: routes and destinations don't stand in for each other.
+// @ts-expect-error A catchall destination can't have children.
+defineDestination("x", { parent: docsDestination }, "x");
+// @ts-expect-error A destination is not a route's parent.
+defineRoute("x", { parent: leafDestination });
+// @ts-expect-error A route is not a destination's parent.
+defineDestination("x", { parent: authoredLeaf }, "x");
+// @ts-expect-error An inherited key can't be redeclared.
+defineDestination("y/$orgId", { parent: orgDestination, params: { orgId: numberParam } }, "y");
+// @ts-expect-error A route copy is not a destination.
+routeOf(defineRoute, leafCopy);
+// @ts-expect-error A destination is not a parent copy.
+routeOf(defineRoute, leafDestination, pathlessDestination);
+
+// `..` is typed from the generated parent destination; a destination `to` from itself.
+declare const leafHandle: Handle<typeof leafCopy, typeof pathlessDestination>;
+declare const docsHandle: Handle<typeof docsCopy, typeof orgDestination>;
+declare const orgHandle: Handle<typeof orgCopy>;
+const twin = defineDestination(
+  "orgs/$orgId",
+  { params: { orgId: numberParam }, search: { tab: tabCodec } },
+  "other",
+);
+declare const either: typeof orgDestination | typeof twin;
+
+exact<Equal<ReturnType<typeof leafHandle.params>, Readonly<ParamsOf<typeof authoredLeaf>>>>();
+exact<Equal<ReturnType<typeof leafHandle.search>["tab"], "a" | "b">>();
+exact<Equal<ReturnType<typeof leafHandle.data>["orgData"], string>>();
+exact<Equal<ReturnType<typeof leafHandle.data>["group"], string>>();
+exact<Equal<ReturnType<typeof leafHandle.data>["answer"], number>>();
+exact<Equal<ReturnType<typeof leafHandle.title>, string>>();
+exact<Equal<ParamsOf<TargetOf<typeof twin>>, ParamsOf<TargetOf<typeof orgDestination>>>>();
+leafHandle.link({ to: "..", params: { orgId: 1 } });
+leafHandle.link({ to: "..", params: { orgId: 1 }, search: { tab: "b" } });
+leafHandle.link({ params: { orgId: 1, itemId: 2 }, fragment: "detail" });
+leafHandle.link({ to: docsDestination, params: { rest: ["x"] }, fragment: "top" });
+void leafHandle.navigate({ to: orgDestination, params: { orgId: 3 }, replaceUrl: true });
+void leafHandle.navigate({ to: "..", params: { orgId: 3 }, replaceUrl: true });
+docsHandle.link({ to: "..", params: { orgId: 1 } });
+// @ts-expect-error `..` is the pathless parent: it has no itemId.
+leafHandle.link({ to: "..", params: { orgId: 1, itemId: 2 } });
+// @ts-expect-error `..` needs the parent's params.
+leafHandle.link({ to: ".." });
+// @ts-expect-error A destination's values are checked.
+leafHandle.link({ to: docsDestination, params: { rest: "x" } });
+// @ts-expect-error A route copy is not a destination.
+leafHandle.link({ to: leafCopy, params: { orgId: 1, itemId: 2 } });
+// @ts-expect-error No string selectors: only a destination, `..` or omitted.
+leafHandle.link({ to: "/orgs/$orgId", params: { orgId: 1 } });
+// @ts-expect-error Without a generated `..` target there is no `..` overload.
+orgHandle.link({ to: ".." });
+// @ts-expect-error A union of two destinations is ambiguous, even with identical schemas.
+orgHandle.link({ to: either, params: { orgId: 1 } });
+
+// `.redirect` takes a destination and is typed from it.
+const oldDestination = defineDestination(
+  "old/$orgId/$itemId",
+  { params: { orgId: numberParam, itemId: numberParam } },
+  "src/routes/old/route.ts",
+);
+const oldCopy = routeOf(defineRoute, oldDestination).redirect({
+  to: leafDestination,
+  search: { mode: "replace", values: { q: 7 } },
+  fragment: { mode: "replace", value: "detail" },
+});
+
+exact<Equal<ParamsOf<typeof oldCopy>, { readonly orgId: number; readonly itemId: number }>>();
+defineRoute("o/$orgId/$itemId", { params: { orgId: numberParam, itemId: numberParam } }).redirect({
+  to: leafDestination,
+  search: { mode: "drop" },
+  fragment: { mode: "replace", value: "detail" },
+});
+defineRoute("o/$orgId/$itemId", { params: { orgId: numberParam, itemId: numberParam } }).redirect({
+  to: leafDestination,
+  search: { mode: "drop" },
+  // @ts-expect-error An unknown target fragment.
+  fragment: { mode: "replace", value: "top" },
+});
+defineRoute("o/$orgId/$itemId", { params: { orgId: numberParam, itemId: numberParam } }).redirect({
+  to: leafDestination,
+  // @ts-expect-error Replacement values are typed from the destination.
+  search: { mode: "replace", values: { q: "x" } },
+  fragment: { mode: "drop" },
+});
+defineRoute("o/$orgId/$itemId", { params: { orgId: numberParam, itemId: numberParam } }).redirect({
+  // @ts-expect-error A route is not a redirect target.
+  to: authoredLeaf,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
+});
+// @ts-expect-error Params must be mapped when the names differ.
+defineRoute("o/$x", { params: { x: numberParam } }).redirect({
+  to: orgDestination,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
+});
+defineRoute("o/$x", { params: { x: numberParam } }).redirect({
+  to: orgDestination,
+  params: { orgId: "x" },
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
+});
+
+// An extension factory's copy keeps its contributed steps' typing, through the parent copy.
+declare const miniWitness: unique symbol;
+type Arg<A> = A extends readonly [infer Value] ? Value : never;
+type MarkRecord<A> = { mark: Arg<A> };
+type GroupsRecord<A> = { groups: Arg<A> };
+type MiniInputOf<Chain> = { rpc: GroupsOf<Chain> };
+interface MarkStep extends StepSignature {
+  readonly parameters: [mark: string];
+  readonly own: MarkRecord<this["args"]>;
+}
+interface GroupsStep extends StepSignature {
+  readonly parameters: [groups: Record<string, () => number>];
+  readonly own: GroupsRecord<this["args"]>;
+}
+type GroupsOf<Chain> = Chain extends readonly [infer Head, ...infer Rest]
+  ? (Head extends { groups: infer G } ? G : {}) & GroupsOf<Rest>
+  : {};
+interface MiniInput extends InputContribution {
+  readonly input: MiniInputOf<this["chain"]>;
+}
+interface MiniSpec extends ExtensionSpec {
+  readonly steps: readonly [
+    { name: "mark"; type: MarkStep; serverOnly: true; arity: { min: 1; max: 1 } },
+    { name: "groups"; type: GroupsStep; serverOnly: false; arity: { min: 1; max: 1 } },
+  ];
+  readonly input: MiniInput;
+  readonly witness: typeof miniWitness;
+}
+declare const extended: RouteFactory<MiniSpec>;
+
+const authoredXorg = extended("x/$orgId", { params: { orgId: numberParam } })
+  .groups({ count: () => 2 })
+  .resolve({ items: ({ rpc, params }) => rpc.count() + params.orgId });
+const authoredXleaf = extended("i/$id", {
+  parent: authoredXorg,
+  params: { id: numberParam },
+}).resolve({ total: ({ rpc, params }) => rpc.count() + params.id + params.orgId });
+const xorgDestination = defineDestination("x/$orgId", { params: { orgId: numberParam } }, "xorg");
+const xleafDestination = defineDestination(
+  "i/$id",
+  { parent: xorgDestination, params: { id: numberParam } },
+  "xleaf",
+);
+// The extension overload resolves first, so the copy offers the contributed steps.
+const xorgCopy = routeOf(extended, xorgDestination)
+  .groups({ count: () => 2 })
+  .resolve({ items: ({ rpc, params }) => rpc.count() + params.orgId });
+const xleafCopy = routeOf(extended, xleafDestination, xorgCopy).resolve({
+  total: ({ rpc, params }) => rpc.count() + params.id + params.orgId,
+});
+
+exact<Equal<DataOf<typeof xorgCopy>, DataOf<typeof authoredXorg>>>();
+exact<Equal<DataOf<typeof xleafCopy>, DataOf<typeof authoredXleaf>>>();
+exact<Equal<ContributionOf<typeof xleafCopy>, ContributionOf<typeof authoredXleaf>>>();
+exact<Equal<ParamsOf<typeof xleafCopy>, ParamsOf<typeof authoredXleaf>>>();
+routeOf(extended, xorgDestination)
+  .mark("m")
+  .groups({ count: () => 1 });
+const grouped = routeOf(extended, xorgDestination).groups({ count: () => 1 });
+// @ts-expect-error A used contributed step drops itself and every earlier one.
+grouped.mark("m");
+// @ts-expect-error The router's factory offers no contributed step.
+routeOf(defineRoute, xorgDestination).groups({ count: () => 1 });

@@ -1,7 +1,8 @@
 import type { Route as NativeRoute, RunGuardsAndResolvers } from "@angular/router";
 import type { PathCodec, SyncCodecs } from "./codecs.js";
 import type { CatchallName, PathNames, ValidPath } from "./path.js";
-import { declareRoute, routeMetadata, reservedStepNames } from "./route.js";
+import { copyRoute, declareRoute, defineRoute, routeMetadata, reservedStepNames } from "./route.js";
+import type { Destination, LocalFacts, TargetOf } from "./destination.js";
 import type {
   ActivationGuard,
   AnyRoute,
@@ -25,6 +26,10 @@ import type {
 /**
  * URL facts: the only object `defineRoute` takes. Behavior goes in chained steps.
  * Local params/search cannot redeclare keys inherited from the parent.
+ *
+ * @typeParam Parent - The parent's schema, which the inherited-key and catchall checks read.
+ * @typeParam ParentRef - What `parent` takes: the parent route itself, or, for a
+ * destination, the parent destination whose target is `Parent`.
  */
 export type UrlFacts<
   Path extends string,
@@ -32,9 +37,10 @@ export type UrlFacts<
   Params extends Record<string, PathCodec>,
   Search extends CodecMap,
   Fragments extends readonly string[],
+  ParentRef = Parent,
 > = {
   /** Genuine authored parent; pathless nodes retain inherited input ownership. */
-  parent?: Parent &
+  parent?: ParentRef &
     (Parent extends Route<string, any, any, any, any, true, any, any> ? never : unknown);
   /** Local search codecs; a plain key is absent unless present and valid. withFallback and arrayParam keys always read a value. */
   search?: Search &
@@ -293,8 +299,8 @@ export interface RouteSteps<
     handler: InvalidParamsHandler,
   ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "onInvalidParams", E, Own, Remaining>;
   /**
-   * A typed native redirect. Terminal: no step follows it, and it isn't offered after
-   * any guard step or onInvalidParams.
+   * A typed native redirect to a destination. Terminal: no step follows it, and it
+   * isn't offered after any guard step or onInvalidParams.
    */
   redirect<Target extends AnyRoute, Keys extends keyof SearchOf<NoInfer<Target>> = never>(
     redirect: Redirect<Eff<P, Params, Parent>, Target, Keys>,
@@ -534,4 +540,59 @@ export function routeContributions(
   }
 
   return slot.chain;
+}
+
+type CopyOf<D, Parent extends AnyRoute | undefined, E extends ExtensionSpec> =
+  TargetOf<D> extends {
+    readonly __facts?: LocalFacts<
+      infer P extends string,
+      infer Params extends Record<string, PathCodec>,
+      infer Search extends CodecMap,
+      infer F extends readonly string[]
+    >;
+  }
+    ? RouteBuilder<P, ParentSchema<Parent>, Params, Search, {}, F, unknown, never, E>
+    : never;
+
+/**
+ * Starts a route copy: the chain a generated `route.generated.ts` continues with its
+ * route's kept steps. Generation emits the only calls; never call it from application code.
+ *
+ * @remarks
+ * The copy takes its URL facts from `destination` and its behavior parent from
+ * `parent`, the parent route's copy, and offers the steps `factory` offers. Every
+ * stage of the copy keeps `destination` as its canonical identity.
+ *
+ * @param factory - The router's `defineRoute`, or a route factory made by `createRouteFactory`.
+ * @param destination - The route's own genuine destination.
+ * @param parent - The parent route's copy, whose destination is the destination's parent;
+ * omitted for a top-level route.
+ * @throws TypeError for an unknown factory, a nongenuine destination or parent, a parent
+ * copy whose destination isn't the destination's parent, or mixed route extensions.
+ *
+ * @internal
+ */
+// Extension overload first: a RouteFactory<E> is also assignable to `typeof defineRoute`.
+export function routeOf<
+  E extends ExtensionSpec,
+  D extends Destination<AnyRoute>,
+  Parent extends AnyRoute | undefined = undefined,
+>(factory: RouteFactory<E>, destination: D, parent?: Parent): CopyOf<D, Parent, E>;
+export function routeOf<
+  D extends Destination<AnyRoute>,
+  Parent extends AnyRoute | undefined = undefined,
+>(factory: typeof defineRoute, destination: D, parent?: Parent): CopyOf<D, Parent, NoExtension>;
+
+export function routeOf(factory: unknown, destination: unknown, parent?: unknown): AnyRoute {
+  let runtime: RuntimeExtension<ExtensionSpec> | undefined;
+
+  if (factory !== defineRoute) {
+    runtime = factories.get(factory as object);
+
+    if (!runtime) {
+      throw new TypeError("Expected a route factory");
+    }
+  }
+
+  return copyRoute(runtime, destination, parent);
 }

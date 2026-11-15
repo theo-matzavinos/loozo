@@ -66,7 +66,7 @@ function pageSource({ sibling, outlet = false, id = false, resolved = false }) {
   return `import { Component } from "@angular/core";
 import { ${imports} } from "@angular/router";
 import { injectRoute } from "./route.generated.js";
-import { destination as sibling } from "${sibling}/route.generated.js";
+import { destination as sibling } from "${sibling}/destination.generated.js";
 
 @Component({
   imports: [${imports}],
@@ -86,7 +86,7 @@ export default class Page {
 const shellSource = `import { Component, computed } from "@angular/core";
 import { RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/destinations.generated.js";
-import { destination as selected } from "./routes/g0000/$id/route.generated.js";
+import { destination as selected } from "./routes/g0000/$id/destination.generated.js";
 
 @Component({
   selector: "proof-app",

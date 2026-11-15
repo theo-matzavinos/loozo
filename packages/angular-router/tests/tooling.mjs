@@ -31,7 +31,8 @@ async function consumer(source, name, project) {
     recursive: true,
     filter: (path) =>
       !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&
-      !path.endsWith("route.generated.ts"),
+      !path.endsWith("route.generated.ts") &&
+      !path.endsWith("destination.generated.ts"),
   });
 
   for (const dependency of new Set([

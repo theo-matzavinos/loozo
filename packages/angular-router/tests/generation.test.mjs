@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, writeFile, readFile, rename, rm, realpath, stat, symlink } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import ts from "typescript";
 import {
   AnchorState,
@@ -15,6 +18,7 @@ import { selections } from "../node/src/generation/validate.js";
 import { emit } from "../node/src/generation/emit.js";
 import { emitPackage, extensionSource, installExtension } from "./extension/emit.mjs";
 
+const run = promisify(execFile);
 const scratch = resolve(import.meta.dirname, "../../../.scratch/router-generation");
 let sequence = 0;
 
@@ -358,6 +362,7 @@ test("session-backed generation follows edits across passes and recovers after a
   assert.match(await readFile(routes, "utf8"), /path: "guide"/);
   assert.match(await readFile(resolve(root, "src/routes/docs/guide/route.ts"), "utf8"), /guide/);
   await readFile(resolve(root, "src/routes/docs/guide/route.generated.ts"), "utf8");
+  await readFile(resolve(root, "src/routes/docs/guide/destination.generated.ts"), "utf8");
 
   // An unchanged warm pass writes nothing.
   const { mtimeNs } = await stat(routes, { bigint: true });
@@ -370,21 +375,21 @@ test("session-backed generation follows edits across passes and recovers after a
   await writeFile(definition, `${seeded}const broken: number = "text";\n`);
   await assert.rejects(pass(), /TS2322/);
 
-  // The repair also adds a title, which the next pass must adapt through the route set. Callback
-  // options reach the definition through the route set, so routes.generated.ts doesn't import it.
+  // The repair also adds a title, which the next pass must adapt from the route copy, which
+  // routes.generated.ts then imports.
   await writeFile(definition, seeded.replace("{})", '{}).title("Manual")'));
   await pass();
+  assert.match(await readFile(routes, "utf8"), /\.\.\.callbacks\(route_docs_route\)/);
   assert.match(
     await readFile(routes, "utf8"),
-    /\.\.\.callbacks\(getRouteSet\(\), "src\/routes\/docs\/route\.ts"\)/,
+    /import \{ route as route_docs_route \} from "\.\.\/src\/routes\/docs\/route\.generated\.js";/,
   );
-  assert.doesNotMatch(await readFile(routes, "utf8"), /import definition/);
 
-  // A native option is read from the definition itself, which is then imported.
+  // A native option is read from the route copy too.
   await writeFile(definition, seeded.replace("{})", "{}).providers([])"));
   await pass();
-  assert.match(await readFile(routes, "utf8"), /nativeOptions\(definition_docs_route\)/);
-  assert.match(await readFile(routes, "utf8"), /import definition_docs_route from/);
+  assert.match(await readFile(routes, "utf8"), /nativeOptions\(route_docs_route\)/);
+  assert.match(await readFile(routes, "utf8"), /import \{ route as route_docs_route \} from/);
   assert.doesNotMatch(await readFile(routes, "utf8"), /callbacks/);
 
   // Session passes leave exactly what stateless generation would publish.
@@ -475,6 +480,7 @@ test("output checked out with CRLF line endings stays owned and current", async 
     "generated/destinations.generated.ts",
     "src/routes/teams/$teamId/route.ts",
     "src/routes/teams/$teamId/route.generated.ts",
+    "src/routes/teams/$teamId/destination.generated.ts",
   ];
 
   await project.page("teams/$teamId");
@@ -514,7 +520,7 @@ test("output checked out with CRLF line endings stays owned and current", async 
   assert.doesNotMatch(await project.routes(), /\r/);
 });
 
-test("definition bindings follow paths, so adding or removing a route changes only its own lines", async () => {
+test("shared bindings follow paths, so adding or removing a route changes only its own lines", async () => {
   const project = await filesystemProject();
   const destinations = () => project.read("generated/destinations.generated.ts");
 
@@ -528,12 +534,12 @@ test("definition bindings follow paths, so adding or removing a route changes on
 
   assert.ok(
     before.includes(
-      'import definition_teams_$teamId_route from "../src/routes/teams/$teamId/route.js";',
+      'import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";',
     ),
   );
   // Paths that sanitize alike keep distinct bindings.
-  assert.ok(before.includes("import definition_old_items_route from"));
-  assert.ok(before.includes("import definition_old_items_route_2 from"));
+  assert.ok(before.includes("import { route as route_old_items_route } from"));
+  assert.ok(before.includes("import { route as route_old_items_route_2 } from"));
 
   // Every line that remains is unchanged: an addition only adds lines, a removal only removes them.
   function onlyAdded(from, to) {
@@ -586,7 +592,7 @@ test("the shared module exports injectActiveRoute and its active route types", a
   assert.ok(imports.includes("import type { Signal } from '@angular/core';"));
   assert.ok(
     imports.includes(
-      "import { injectGeneratedActiveRoute, type RouteSchema, type RouteSet, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
+      "import { injectGeneratedActiveRoute, type RouteSchema, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
     ),
   );
 
@@ -613,17 +619,24 @@ test("the shared module exports injectActiveRoute and its active route types", a
   assert.equal(exported(inject), true);
   assert.equal(inject.parameters.length, 0);
   assert.equal(inject.type.getText(file), "Signal<ActiveRoute | undefined>");
+  // The active table is built inside the call: copy and ".." destination per retained route.
   assert.equal(
     inject.body.getText(file),
-    "{\n  return injectGeneratedActiveRoute(getRouteSet());\n}",
+    `{
+  // Built inside the call: nothing is read while this module evaluates.
+  return injectGeneratedActiveRoute({
+"src/routes/teams/$teamId/items/$id/route.ts": [route_teams_$teamId_items_$id_route, up_teams_$teamId_route],
+"src/routes/teams/$teamId/route.ts": [route_teams_$teamId_route],
+  });
+}`,
   );
 
   // A strict consumer narrows an ancestor through chain and the deepest route through is().
   await project.write(
     "src/shell.ts",
     `import { injectActiveRoute } from "../generated/destinations.generated.js";
-import { destination as team } from "./routes/teams/$teamId/route.generated.js";
-import { destination as item } from "./routes/teams/$teamId/items/$id/route.generated.js";
+import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
+import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
 
 const active = injectActiveRoute();
 export const teamId: string | undefined = active()?.chain.find((route) => route.is(team))?.params().teamId;
@@ -827,6 +840,11 @@ test("filesystem mode: only directories with a page or declaration become record
 
   assert.match(generated, /^export const routes: Routes = \[\{ path: "plain",$/m);
   assert.match(generated, /path: "teams\/:teamId\/items\/:id"/);
+  // The loader's return annotation keeps the array's subtype reduction off page classes.
+  assert.match(
+    generated,
+    /loadComponent: \(\): ReturnType<NonNullable<Routes\[number\]\["loadComponent"\]>> => import\("/,
+  );
   assert.match(generated, /path: "shell",\ndata: [^\n]+\nchildren: \[\{ path: "docs\/:slug"/);
   assert.doesNotMatch(generated, /path: ""|path: "teams",|path: "items"/);
 
@@ -845,8 +863,8 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
   const { header, read } = project;
   const declarations = {
     topic: "",
-    shared: "export const same = libRoute;\n",
-    busy: 'export const parent = "occupied";\n',
+    shared: "const same = libRoute;\n",
+    busy: 'const parent = "occupied";\n',
   };
 
   await project.page("lib");
@@ -865,17 +883,25 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
     "src/routes/lib/section/route.ts",
     `${header}import parent from "../route.js";\n\nexport default defineRoute("section", { parent });\n`,
   );
+
+  // A binding used elsewhere keeps its import and the new parent gets its own, but that kept
+  // import is now a grandparent's, which only the parent default import may be: nothing is
+  // published.
+  const shared = "src/routes/lib/section/shared/route.ts";
+  const authored = await read(shared);
+
+  await assert.rejects(
+    project.generate(),
+    /shared[\\/]route\.ts:2:22: Import of a route declaration: \.\.\/\.\.\/route\.js\. Import its destination from \.\.\/\.\.\/destination\.generated\.js instead\.$/,
+  );
+  assert.equal(await read(shared), authored);
+  await rm(resolve(project.root, "src/routes/lib/section/shared"), { recursive: true });
   await project.generate();
 
   // A binding that named the previous parent and is used nowhere else becomes `parent`.
   assert.equal(
     await read("src/routes/lib/section/topic/route.ts"),
     `${header}import parent from "../route.js";\n\nexport default defineRoute("topic", { parent });\n`,
-  );
-  // A binding used elsewhere keeps its import; the new parent gets its own.
-  assert.equal(
-    await read("src/routes/lib/section/shared/route.ts"),
-    `${header}import libRoute from "../../route.js";\nimport parent from "../route.js";\n\n${declarations.shared}export default defineRoute("shared", { parent });\n`,
   );
   // With `parent` taken, the binding keeps its name.
   assert.equal(
@@ -891,8 +917,8 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
 test("filesystem mode: moving a declaration under and out of a page-less prefix rewrites its path, parent and imports", async () => {
   const project = await filesystemProject();
   const { header, read } = project;
-  const solo = `// Keep this header.\n${header.trimEnd()} // keep with this import\n\nexport const marker = 1;\nexport default defineRoute("solo", {}).data({ marker });\n`;
-  const taken = `${header}\nexport const parent = "occupied";\nexport default defineRoute("taken", {});\n`;
+  const solo = `// Keep this header.\n${header.trimEnd()} // keep with this import\n\nconst marker = 1;\nexport default defineRoute("solo", {}).data({ marker });\n`;
+  const taken = `${header}\nconst parent = "occupied";\nexport default defineRoute("taken", {});\n`;
 
   await project.write(
     "src/routes/shell/route.ts",
@@ -944,7 +970,7 @@ test("filesystem mode: a page-less param prefix adds a string codec and keeps au
   const imports = 'import { defineRoute, numberParam } from "@loozo/angular-router";\n';
   const parentImport = 'import parent from "../route.js";\n';
   const item = `${imports}${parentImport}\nexport default defineRoute("$id", { parent, params: { id: numberParam /* comment */ } });\n`;
-  const aliased = `import { defineRoute, numberParam, stringParam as text } from "@loozo/angular-router";\nimport parent from "../../route.js";\n\nexport const label = text;\nexport default defineRoute("codes/$code", { parent, params: { code: numberParam } });\n`;
+  const aliased = `import { defineRoute, numberParam, stringParam as text } from "@loozo/angular-router";\nimport parent from "../../route.js";\n\nconst label = text;\nexport default defineRoute("codes/$code", { parent, params: { code: numberParam } });\n`;
   const file = "src/routes/shell/$team/$id/route.ts";
 
   await project.write(
@@ -1100,16 +1126,12 @@ test("local path params get the generated matching guard; misplaced onInvalidPar
     ),
   ]);
 
-  // A params-only route reaches its definition through the route set, not an import.
+  // A params-only route gets its matching guard from its route copy.
   await generate(root, options, () => false);
 
   const generated = await readFile(routes, "utf8");
 
-  assert.match(
-    generated,
-    /\.\.\.callbacks\(getRouteSet\(\), "src\/routes\/items\/definition\.ts"\)/,
-  );
-  assert.doesNotMatch(generated, /import definition/);
+  assert.match(generated, /\.\.\.callbacks\(route_items_definition\)/);
 
   for (const [chain, message] of [
     [
@@ -1123,7 +1145,7 @@ test("local path params get the generated matching guard; misplaced onInvalidPar
   ]) {
     await writeFile(
       resolve(root, "src/routes/old/definition.ts"),
-      `${imports}import items from "../items/definition.js";\nvoid items;\nexport default ${chain};\n`,
+      `${imports}import { destination as items } from "../items/destination.generated.js";\nexport default ${chain};\n`,
     );
     await assert.rejects(
       generate(root, options, () => false),
@@ -1204,7 +1226,7 @@ test("effective search gets the generated matching guard; redirect replacements 
   ]) {
     await writeFile(
       resolve(root, "src/routes/old/definition.ts"),
-      `${imports}import list from "../list/definition.js";\n${values}\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values }, fragment: { mode: "drop" } });\n`,
+      `${imports}import { destination as list } from "../list/destination.generated.js";\n${values}\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values }, fragment: { mode: "drop" } });\n`,
     );
     await generate(root, options, () => false);
   }
@@ -1213,21 +1235,15 @@ test("effective search gets the generated matching guard; redirect replacements 
   const generated = await readFile(routes, "utf8");
 
   for (const name of ["list", "detail"]) {
-    assert.match(
-      generated,
-      new RegExp(`\\.\\.\\.callbacks\\(getRouteSet\\(\\), "src/routes/${name}/definition\\.ts"\\)`),
-    );
+    assert.match(generated, new RegExp(`\\.\\.\\.callbacks\\(route_${name}_definition\\)`));
   }
   for (const name of ["plain", "old"]) {
-    assert.doesNotMatch(
-      generated,
-      new RegExp(`callbacks\\(getRouteSet\\(\\), "src/routes/${name}/`),
-    );
+    assert.doesNotMatch(generated, new RegExp(`callbacks\\(route_${name}_definition\\)`));
   }
 
   await writeFile(
     resolve(root, "src/routes/old/definition.ts"),
-    `${imports}import list from "../list/definition.js";\ndeclare const page: string | undefined;\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values: { page } }, fragment: { mode: "drop" } });\n`,
+    `${imports}import { destination as list } from "../list/destination.generated.js";\ndeclare const page: string | undefined;\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values: { page } }, fragment: { mode: "drop" } });\n`,
   );
   await assert.rejects(
     generate(root, options, () => false),
@@ -1238,7 +1254,7 @@ test("effective search gets the generated matching guard; redirect replacements 
   // One value where the array key takes a list fails the same way.
   await writeFile(
     resolve(root, "src/routes/old/definition.ts"),
-    `${imports}import list from "../list/definition.js";\ndeclare const tag: number;\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values: { tag } }, fragment: { mode: "drop" } });\n`,
+    `${imports}import { destination as list } from "../list/destination.generated.js";\ndeclare const tag: number;\nexport default defineRoute("old", {}).redirect({ to: list, search: { mode: "replace", values: { tag } }, fragment: { mode: "drop" } });\n`,
   );
   await assert.rejects(
     generate(root, options, () => false),
@@ -1366,7 +1382,7 @@ export const defineRoute: RouteFactory<FixtureSpec> = (() => ({ forged: true }))
     write,
     // Writes the routes (directory → route.ts text, each with a page), then discovers and
     // validates them without publishing.
-    async analyze(routes, paths) {
+    async analyze(routes, paths, compilerOptions = {}) {
       await rm(resolve(root, "src/routes"), { recursive: true, force: true });
 
       for (const [directory, text] of Object.entries(routes)) {
@@ -1390,6 +1406,7 @@ export const defineRoute: RouteFactory<FixtureSpec> = (() => ({ forged: true }))
             lib: ["ES2022", "DOM"],
             types: [],
             paths,
+            ...compilerOptions,
           },
           include: ["src/**/*.ts"],
         }),
@@ -1419,13 +1436,13 @@ test("emitted extension packages: manifests, step metadata and authentication th
   const expectedManifest = [
     { name: "context", serverOnly: true, arity: { min: 1, max: 1 } },
     { name: "use", serverOnly: true, arity: { min: 0, max: null } },
-    { name: "procedures", serverOnly: true, arity: { min: 1, max: 1 } },
+    { name: "procedures", serverOnly: false, arity: { min: 1, max: 1 } },
   ];
   const chain = `defineRoute("x", {}).context(x).use(a, b).procedures(y).title("t")`;
   const fullSteps = [
     { name: "context", args: 1, contributed: true, serverOnly: true },
     { name: "use", args: 2, contributed: true, serverOnly: true },
-    { name: "procedures", args: 1, contributed: true, serverOnly: true },
+    { name: "procedures", args: 1, contributed: true, serverOnly: false },
     { name: "title", args: 1, contributed: false, serverOnly: false },
   ];
   const setup = `const x = () => ({ user: { id: "u", name: "User" } });
@@ -1450,8 +1467,16 @@ const y = () => ({ account: { me: () => "u" } });`;
     { name: "zero-step extension chain", expr: `defineRoute("x", {})`, steps: [] },
     {
       name: "inline inferred Launch chain",
-      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).use(({ context }) => { const id: string = context.user.id; }, ({ context }) => { context.user.id; }).procedures(({ query }) => ({ account: { me: query(({ context }) => context.user.id) } })).title(({ rpc }) => rpc.account.me())`,
+      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).use(({ context }) => { const id: string = context.user.id; }, ({ context }) => { context.user.id; }).procedures(({ query }) => ({ account: { me: query(() => "u") } })).title(({ rpc }) => rpc.account.me())`,
       steps: fullSteps,
+    },
+    // The route copy strips the server-only context step, so a kept step typed from it no
+    // longer type-checks there; the diagnostic points at the declaration's line.
+    {
+      name: "kept step typed from a stripped step",
+      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).procedures(({ query }) => ({ account: { me: query(({ context }) => context.user.id) } }))`,
+      reason:
+        /route\.ts:8:\d+: TS2339: Property 'user' does not exist on type '\{\}'\. \(in its generated route copy\)$/,
     },
     {
       name: "router same rule",
@@ -1689,7 +1714,7 @@ const y = () => ({ account: { me: () => "u" } });`;
   ];
 
   await project.write("wrapper.ts", `export { defineRoute } from "@fixture/route-extension";\n`);
-  assert.equal(cases.length, 43);
+  assert.equal(cases.length, 44);
 
   for (const testCase of cases) {
     let pkg = testCase.pkg ?? "route-extension";
@@ -1747,7 +1772,7 @@ const y = () => ({ account: { me: () => "u" } });`;
   }
 });
 
-test("extension routes: ancestry, facades, emitted projection and a linked router alias", async () => {
+test("extension routes: ancestry, copies, emitted projection and a linked router alias", async () => {
   const project = await extensionProject();
   const header = 'import { defineRoute } from "@fixture/route-extension";\n';
 
@@ -1759,10 +1784,7 @@ test("extension routes: ancestry, facades, emitted projection and a linked route
   });
   const shared = desired.get(resolve(project.root, "generated/destinations.generated.ts"));
 
-  assert.match(
-    shared,
-    /"src\/routes\/parent\/route\.ts": RouteSchema<typeof definition_parent_route>;/,
-  );
+  assert.match(shared, /"src\/routes\/parent\/route\.ts": RouteSchema<typeof route_parent_route>;/);
   assert.match(shared, /import \{ injectGeneratedActiveRoute, type RouteSchema,/);
 
   // Two extensions in one ancestry are rejected.
@@ -1853,15 +1875,15 @@ test("route chains: shape, URL facts and router step rules", async () => {
     [`export default defineRoute("x", {}).context(() => ({}));`, /Unknown step: context$/],
     [`export default defineRoute("x", {}).title("a").title("b");`, /Repeated step: title$/],
     [
-      `import target from "../target/route.js";\nexport default defineRoute("x", {}).canActivate([]).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
+      `import { destination as target } from "../target/destination.generated.js";\nexport default defineRoute("x", {}).canActivate([]).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
       /Redirect cannot follow canActivate$/,
     ],
     [
-      `import target from "../target/route.js";\nexport default defineRoute("x", {}).canDeactivate([]).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
+      `import { destination as target } from "../target/destination.generated.js";\nexport default defineRoute("x", {}).canDeactivate([]).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
       /Redirect cannot follow canDeactivate$/,
     ],
     [
-      `import target from "../target/route.js";\nexport default defineRoute("x", {}).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } }).title("t");`,
+      `import { destination as target } from "../target/destination.generated.js";\nexport default defineRoute("x", {}).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } }).title("t");`,
       /No step may follow redirect: title$/,
     ],
     [
@@ -1896,5 +1918,1682 @@ test("route chains: shape, URL facts and router step rules", async () => {
         .config.keys(),
     ],
     ["params", "onInvalidParams", "title", "providers"],
+  );
+});
+
+// ---------------------------------------------------------------------------------------------
+// Per-route copies: destination.generated.ts and route.generated.ts, line-aligned with route.ts.
+
+const markerOf = {
+  destination: "// @loozo/angular-router routegen: owned destination.generated.ts",
+  route: "// @loozo/angular-router routegen: owned route.generated.ts",
+};
+const componentPage = (name) =>
+  `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport default class Page {}\n`;
+
+// A router project in explicit mode: each route is a directory under src/routes holding
+// route.ts and, unless it's listed as componentless, a page. Analysis discovers, emits and
+// validates without publishing.
+async function copyProject() {
+  const root = await fixture();
+  const packageDirectory = resolve(import.meta.dirname, "..");
+
+  await mkdir(resolve(root, "node_modules/@loozo"), { recursive: true });
+  await Promise.all([
+    symlink(packageDirectory, resolve(root, "node_modules/@loozo/angular-router"), "dir"),
+    symlink(
+      resolve(packageDirectory, "node_modules/@angular"),
+      resolve(root, "node_modules/@angular"),
+      "dir",
+    ),
+  ]);
+
+  async function write(path, text) {
+    await mkdir(dirname(resolve(root, path)), { recursive: true });
+    await writeFile(resolve(root, path), text);
+  }
+
+  async function author(routes, { files = {}, componentless = [], compilerOptions = {} } = {}) {
+    await rm(resolve(root, "src"), { recursive: true, force: true });
+
+    for (const [directory, text] of Object.entries(routes)) {
+      await write(`src/routes/${directory}/route.ts`, text);
+
+      if (!componentless.includes(directory)) {
+        await write(`src/routes/${directory}/page.ts`, componentPage(directory));
+      }
+    }
+
+    for (const [path, text] of Object.entries(files)) {
+      await write(path, text);
+    }
+
+    await write(
+      "tsconfig.json",
+      JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          strict: true,
+          skipLibCheck: true,
+          experimentalDecorators: true,
+          lib: ["ES2022", "DOM"],
+          types: [],
+          ...compilerOptions,
+        },
+        include: ["src/**/*.ts"],
+      }),
+    );
+  }
+
+  const options = {
+    tsconfig: "tsconfig.json",
+    scanDirectories: ["src/routes"],
+    outDirectory: "generated",
+    autoDefineRoutes: false,
+  };
+
+  return {
+    root,
+    write,
+    author,
+    read: (path) => readFile(resolve(root, path), "utf8"),
+    async analyze(routes, settings) {
+      await author(routes, settings);
+
+      const sources = await discover(
+        root,
+        "tsconfig.json",
+        ["src/routes"],
+        "generated",
+        undefined,
+        new Map(),
+        false,
+      );
+      const desired = emit(sources, selections(sources));
+
+      await validateRoutes(sources, desired, createValidationProgram(sources, desired, []));
+      assertNoDeclarationReferences(sources, desired);
+
+      return {
+        sources,
+        desired,
+        copy: (directory, kind) =>
+          desired.get(resolve(root, `src/routes/${directory}/${kind}.generated.ts`)),
+      };
+    },
+    generate: (extra = {}) => generate(root, { ...options, ...extra }, () => false),
+  };
+}
+
+// Acceptance 1: no generated file references a declaration module, in any form.
+function assertNoDeclarationReferences(sources, desired) {
+  const declarations = new Set(sources.declarations.map((declaration) => declaration.file));
+
+  for (const [file, text] of desired) {
+    for (const { fileName } of ts.preProcessFile(text, true, true).importedFiles) {
+      if (!fileName.startsWith(".")) {
+        continue;
+      }
+
+      const target = resolve(dirname(file), fileName);
+
+      for (const candidate of [target, target.replace(/\.js$/, ".ts"), `${target}.ts`]) {
+        assert.equal(declarations.has(candidate), false, `${file} references ${fileName}`);
+      }
+    }
+  }
+}
+
+function parseRoute(text) {
+  const source = ts.createSourceFile("route.ts", text, ts.ScriptTarget.Latest, true);
+  const exported = source.statements.find((statement) => ts.isExportAssignment(statement));
+  const steps = [];
+  let current = exported.expression;
+
+  while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+    steps.unshift(current);
+    current = current.expression.expression;
+  }
+
+  const units = [];
+
+  for (const statement of source.statements) {
+    if (statement === exported) {
+      continue;
+    }
+
+    const clause = ts.isImportDeclaration(statement) && statement.importClause;
+
+    if (!clause) {
+      let label = statement.getText(source).split("\n")[0];
+
+      if (ts.isVariableStatement(statement)) {
+        label = statement.declarationList.declarations.map((d) => d.name.getText(source)).join(",");
+      } else if (statement.name) {
+        label = statement.name.text;
+      }
+
+      units.push({ label, node: statement, statement });
+
+      continue;
+    }
+
+    if (clause.name) {
+      units.push({ label: clause.name.text, node: clause.name, statement });
+    }
+
+    const named = clause.namedBindings;
+
+    if (named && ts.isNamespaceImport(named)) {
+      units.push({ label: named.name.text, node: named, statement });
+    } else if (named) {
+      for (const element of named.elements) {
+        units.push({ label: element.name.text, node: element, statement });
+      }
+    }
+  }
+
+  return { source, exported, root: current, steps, units };
+}
+
+/**
+ * The alignment oracle (plan-3 step 7 group C): checks one copy against its declaration's AST
+ * and returns the labels of the top-level units the copy dropped.
+ */
+function oracle(authored, copy, kind, { server = [] } = {}) {
+  const { source, root, steps, units } = parseRoute(authored);
+  const authoredLines = authored.split(/\r?\n/);
+
+  if (/\r?\n$/.test(authored)) {
+    authoredLines.pop();
+  }
+
+  const n = authoredLines.length;
+  const lines = copy.split("\n");
+
+  // 1. N aligned lines, then the tail; the marker is the last line, followed by "\n".
+  assert.equal(lines.pop(), "");
+  assert.equal(lines.at(-1), markerOf[kind]);
+  assert.ok(lines.length > n + 1);
+  assert.match(lines[n], /^import /);
+
+  const lineOf = (position) => source.getLineAndCharacterOfPosition(position).line;
+  const within = (first, last) => lines.slice(first, last + 1).join("\n");
+  const removedSpans = [];
+  const removed = [];
+  const facts = root.arguments[1];
+  const parentProperty = facts.properties.find((property) => property.name.text === "parent");
+  const parentBinding = parentProperty && (parentProperty.initializer ?? parentProperty.name).text;
+  const parentImport = units.find(
+    (unit) => unit.node === unit.statement.importClause?.name && unit.label === parentBinding,
+  )?.statement;
+
+  // 2, 3. Each unit is kept on its own lines verbatim, or gone from them.
+  for (const unit of units) {
+    if (unit.statement === parentImport) {
+      continue;
+    }
+
+    const text = unit.node.getText(source);
+    const start = unit.node.getStart(source);
+
+    if (within(lineOf(start), lineOf(unit.node.end)).includes(text)) {
+      continue;
+    }
+
+    removed.push(unit.label);
+    removedSpans.push([start, unit.node.end]);
+  }
+
+  for (const step of steps) {
+    const dot = step.expression.getChildAt(1, source).getStart(source);
+    const text = authored.slice(dot, step.end);
+    const window = within(lineOf(dot), lineOf(step.end));
+
+    if (kind === "destination" || server.includes(step.expression.name.text)) {
+      removedSpans.push([step.expression.expression.end, step.end]);
+      assert.ok(!window.includes(text), `stripped step kept: ${text}`);
+    } else {
+      assert.ok(window.includes(text), `kept step moved: ${text}`);
+    }
+  }
+
+  // 5. The root call's first line holds the generated call; the parent import is rewritten.
+  const rootLine = lineOf(root.getStart(source));
+
+  if (kind === "route") {
+    assert.ok(lines[rootLine].includes("routegen$routeOf("));
+    removedSpans.push([source.getLineStarts()[rootLine + 1] ?? root.end, root.end]);
+  } else {
+    assert.ok(lines[rootLine].includes("routegen$defineDestination("));
+
+    for (const argument of root.arguments) {
+      const window = within(lineOf(argument.getStart(source)), lineOf(argument.end));
+
+      assert.ok(window.includes(argument.getText(source)), "URL facts moved");
+    }
+  }
+
+  if (parentImport) {
+    assert.match(
+      lines[lineOf(parentImport.getStart(source))],
+      new RegExp(
+        `^import \\{ ${kind} as ${parentBinding} \\} from ".*/${kind}\\.generated\\.js";$`,
+      ),
+    );
+  }
+
+  // 4. A line whose every non-whitespace character was removed is empty.
+  const starts = source.getLineStarts();
+
+  for (let line = 0; line < n; line += 1) {
+    const text = authoredLines[line];
+    let any = false;
+    let all = true;
+
+    for (let index = 0; index < text.length; index += 1) {
+      if (/\s/.test(text[index])) {
+        continue;
+      }
+
+      const position = starts[line] + index;
+
+      any = true;
+
+      if (!removedSpans.some(([start, end]) => position >= start && position < end)) {
+        all = false;
+      }
+    }
+
+    if (any && all) {
+      assert.equal(lines[line], "", `line ${line + 1} of the ${kind} copy`);
+    }
+  }
+
+  return removed.sort();
+}
+
+const destinationDoc =
+  "/** This route's destination: an inert URL reference for createUrl, handle link/navigate, redirect targets and the active route's is/contains. */";
+const routeDoc =
+  "/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */";
+const injectDoc = `/**
+ * Injects a typed handle bound to this exact generated activated route record.
+ *
+ * @remarks
+ * Call in an Angular injection context. The handle exposes readonly native
+ * params/search/data/title Signals and destination-typed link/navigate methods.
+ * Data holds the resolver results of this route and its ancestors, a nearer
+ * key hiding an ancestor's; native static data and the title stay out. Title
+ * is the nearest declared title in the chain, or undefined when none declares one.
+ * All navigation values are explicit; current inputs are never reused implicitly.
+ *
+ * @returns A noncallable handle for this declaration.
+ * @throws A synchronous wiring error outside an injection context or when the
+ * activated record does not carry this declaration's own generated identity.
+ */`;
+const destinationTail = `import { defineDestination as routegen$defineDestination } from "@loozo/angular-router/_generated";
+export { routegen$destination as destination };
+${markerOf.destination}
+`;
+
+const snippetTeam = `import { defineRoute, numberParam } from "@loozo/angular-router";
+
+export default defineRoute("teams/$teamId", {
+  params: { teamId: numberParam },
+  search: { score: numberParam },
+}).resolve({
+  team: ({ params }) => ({ id: params.teamId, name: \`Team \${params.teamId}\` }),
+});
+`;
+const snippetItem = `import { inject } from "@angular/core";
+import { defineRoute, numberParam } from "@loozo/angular-router";
+import team from "../../route.js";
+import { ItemCatalog } from "../../../../../catalog.js";
+
+export default defineRoute("items/$id", { parent: team, params: { id: numberParam } })
+  .runGuardsAndResolvers("paramsOrQueryParamsChange")
+  .title(({ params }) => \`Item \${params.id}\`)
+  .resolve({
+    item: ({ params, search }) => {
+      const catalog = inject(ItemCatalog);
+
+      return catalog({ teamId: params.teamId, id: params.id, score: search.score });
+    },
+  });
+`;
+const snippetOldItems = `import { defineRoute, numberParam } from "@loozo/angular-router";
+import team from "../../route.js";
+import { destination as item } from "../../items/$id/destination.generated.js";
+
+export default defineRoute("old-items/$id", {
+  parent: team,
+  params: { id: numberParam },
+}).redirect({
+  to: item,
+  search: { mode: "drop" }, // or "preserve", or { mode: "replace", values }
+  fragment: { mode: "drop" }, // or "preserve", or { mode: "replace", value }
+});
+`;
+const snippetCatalog = `import { InjectionToken } from "@angular/core";
+
+export const ItemCatalog = new InjectionToken<
+  (query: { teamId: number; id: number; score: number | undefined }) => Promise<string>
+>("ItemCatalog");
+`;
+
+function snippetRoutes(item = snippetItem) {
+  return {
+    routes: {
+      "teams/$teamId": snippetTeam,
+      "teams/$teamId/items/$id": item,
+      "teams/$teamId/old-items/$id": snippetOldItems,
+    },
+    settings: {
+      files: { "src/catalog.ts": snippetCatalog },
+      componentless: ["teams/$teamId", "teams/$teamId/old-items/$id"],
+    },
+  };
+}
+
+test("route copies: the step-3 samples, byte for byte, and line endings don't change them", async () => {
+  const project = await copyProject();
+  const { routes, settings } = snippetRoutes();
+  const result = await project.analyze(routes, settings);
+  const item = "teams/$teamId/items/$id";
+  const old = "teams/$teamId/old-items/$id";
+  const itemId = JSON.stringify("src/routes/teams/$teamId/items/$id/route.ts");
+  const oldId = JSON.stringify("src/routes/teams/$teamId/old-items/$id/route.ts");
+
+  assert.equal(
+    result.copy(item, "destination"),
+    `
+import { numberParam } from "@loozo/angular-router";
+import { destination as team } from "../../destination.generated.js";
+
+
+${destinationDoc} const routegen$destination = routegen$defineDestination("items/$id", { parent: team, params: { id: numberParam } }, ${itemId})
+
+
+
+
+
+
+
+
+;
+${destinationTail}`,
+  );
+  assert.equal(
+    result.copy(item, "route"),
+    `import { inject } from "@angular/core";
+import { defineRoute } from "@loozo/angular-router";
+import { route as team } from "../../route.generated.js";
+import { ItemCatalog } from "../../../../../catalog.js";
+
+${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination, team)
+${snippetItem.split("\n").slice(6).join("\n")}import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
+import { destination as routegen$destination } from "./destination.generated.js";
+import { destination as routegen$up } from "../../destination.generated.js";
+export { routegen$route as route };
+${injectDoc}
+function routegen$injectRoute(): routegen$Handle<typeof routegen$route, typeof routegen$up> { return routegen$injectGeneratedRoute(routegen$route, routegen$up); }
+export { routegen$injectRoute as injectRoute };
+${markerOf.route}
+`,
+  );
+  assert.equal(
+    result.copy(old, "destination"),
+    `import { numberParam } from "@loozo/angular-router";
+import { destination as team } from "../../destination.generated.js";
+
+
+${destinationDoc} const routegen$destination = routegen$defineDestination("old-items/$id", {
+  parent: team,
+  params: { id: numberParam },
+}, ${oldId})
+
+
+
+;
+${destinationTail}`,
+  );
+  // A redirect record never activates: no ".." and no injectRoute.
+  assert.equal(
+    result.copy(old, "route"),
+    `import { defineRoute } from "@loozo/angular-router";
+import { route as team } from "../../route.generated.js";
+import { destination as item } from "../../items/$id/destination.generated.js";
+
+${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination, team)
+
+
+.redirect({
+${snippetOldItems.split("\n").slice(8).join("\n")}import { routeOf as routegen$routeOf } from "@loozo/angular-router/_generated";
+import { destination as routegen$destination } from "./destination.generated.js";
+export { routegen$route as route };
+${markerOf.route}
+`,
+  );
+
+  // The oracle holds for every pair, and drops exactly the units each copy doesn't use.
+  const dropped = {};
+
+  for (const [directory, text] of Object.entries(routes)) {
+    dropped[directory] = {
+      destination: oracle(text, result.copy(directory, "destination"), "destination"),
+      route: oracle(text, result.copy(directory, "route"), "route"),
+    };
+  }
+
+  assert.deepEqual(dropped, {
+    "teams/$teamId": { destination: ["defineRoute"], route: ["numberParam"] },
+    [item]: {
+      destination: ["ItemCatalog", "defineRoute", "inject"],
+      route: ["numberParam"],
+    },
+    [old]: { destination: ["defineRoute", "item"], route: ["numberParam"] },
+  });
+
+  // CRLF and a BOM produce the same bytes; without a final line break, lines 1..N still align.
+  for (const variant of [
+    snippetItem.replaceAll("\n", "\r\n"),
+    `\uFEFF${snippetItem}`,
+    snippetItem.trimEnd(),
+  ]) {
+    const { routes: changed, settings: same } = snippetRoutes(variant);
+    const again = await project.analyze(changed, same);
+
+    assert.equal(again.copy(item, "destination"), result.copy(item, "destination"));
+    assert.equal(again.copy(item, "route"), result.copy(item, "route"));
+  }
+});
+
+test("route copies: the oracle holds over the snippets and the SSR proof route trees", async () => {
+  const router = resolve(import.meta.dirname, "..");
+  const trees = [
+    resolve(router, "snippets/src"),
+    resolve(router, "../../examples/angular-router/ssr-proof/src"),
+  ];
+
+  for (const tree of trees) {
+    const project = await copyProject();
+    const routes = {};
+    const componentless = [];
+
+    async function collect(directory, prefix) {
+      const { readdir } = await import("node:fs/promises");
+
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = resolve(directory, entry.name);
+
+        if (entry.isDirectory()) {
+          await collect(path, `${prefix}${entry.name}/`);
+        } else if (entry.name === "route.ts") {
+          // Until the in-repo redirects import destinations, read them as migrated.
+          routes[prefix.slice(0, -1)] = (await readFile(path, "utf8")).replace(
+            'import item from "../../items/$id/route.js";',
+            'import { destination as item } from "../../items/$id/destination.generated.js";',
+          );
+        }
+      }
+
+      if (!(await stat(resolve(directory, "page.ts")).catch(() => undefined)) && prefix) {
+        componentless.push(prefix.slice(0, -1));
+      }
+    }
+
+    await collect(resolve(tree, "routes"), "");
+    await project.author(routes, {
+      files: { "src/catalog.ts": await readFile(resolve(tree, "catalog.ts"), "utf8") },
+      componentless,
+    });
+
+    const sources = await discover(
+      project.root,
+      "tsconfig.json",
+      ["src/routes"],
+      "generated",
+      undefined,
+      new Map(),
+      false,
+    );
+    const desired = emit(sources, selections(sources));
+
+    assert.ok(Object.keys(routes).length >= 5, tree);
+    assertNoDeclarationReferences(sources, desired);
+
+    for (const [directory, text] of Object.entries(routes)) {
+      for (const kind of ["destination", "route"]) {
+        oracle(
+          text,
+          desired.get(resolve(project.root, `src/routes/${directory}/${kind}.generated.ts`)),
+          kind,
+        );
+      }
+    }
+  }
+});
+
+test("route copies: liveness keeps what the copy still reaches and strips the rest", async () => {
+  const project = await extensionProject();
+  const header = 'import { defineRoute } from "@fixture/route-extension";\n';
+  const secrets = 'import { secret } from "../../secrets.server.js";\n';
+  const server = ["context", "use"];
+
+  await project.write(
+    "src/secrets.server.ts",
+    "export const secret = (value?: unknown): string => String(value);\n",
+  );
+  await project.write("src/effects.ts", "export {};\n");
+
+  async function copiesOf(text) {
+    const { desired } = await project.analyze({ x: text });
+    const read = (kind) => desired.get(resolve(project.root, `src/routes/x/${kind}.generated.ts`));
+
+    return {
+      destination: read("destination"),
+      route: read("route"),
+      dropped: {
+        destination: oracle(text, read("destination"), "destination", { server }),
+        route: oracle(text, read("route"), "route", { server }),
+      },
+    };
+  }
+
+  // Mutual helpers reached only from a stripped step go with their server import.
+  const mutual = `${header}${secrets}const a = (): object => b();\nconst b = (): object => ({ value: secret(a) });\n`;
+  const helpers = await copiesOf(
+    `${mutual}export default defineRoute("x", {}).context(a).title("ok");\n`,
+  );
+
+  assert.deepEqual(helpers.dropped.route, ["a", "b", "secret"]);
+  assert.equal(
+    helpers.route.split("\n").slice(0, 5).join("\n"),
+    `${header}\n\n\n${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination).title("ok");`,
+  );
+
+  // So does a single helper.
+  const single = await copiesOf(
+    `${header}${secrets}const load = (): object => ({ value: secret() });\nexport default defineRoute("x", {}).context(load).title("ok");\n`,
+  );
+
+  assert.deepEqual(single.dropped.route, ["load", "secret"]);
+
+  // An untouched top-level effect keeps the helpers it reaches, so the server import stays
+  // and generation fails naming it.
+  await assert.rejects(
+    copiesOf(
+      `${mutual}console.log(a);\nexport default defineRoute("x", {}).context(a).title("ok");\n`,
+    ),
+    /src[\\/]routes[\\/]x[\\/]route\.ts:2:24: Browser route copy imports a server module: \.\.\/\.\.\/secrets\.server\.js\. Use `import type` for types\.$/,
+  );
+
+  // A helper a kept step still uses stays; a dead authored cycle is untouched.
+  const shared = await copiesOf(
+    `${header}const label = (): string => "x";\nexport default defineRoute("x", {}).context(label).title(label);\n`,
+  );
+
+  assert.deepEqual(shared.dropped.route, []);
+
+  const cycle = await copiesOf(
+    `${header}const x = (): unknown => y();\nconst y = (): unknown => x();\nexport default defineRoute("x", {}).title("ok");\n`,
+  );
+
+  assert.deepEqual(cycle.dropped.route, []);
+  // The destination copy keeps only what the path and facts reach: no effects, no imports.
+  assert.deepEqual(cycle.dropped.destination, ["defineRoute", "x", "y"]);
+
+  const effects = await copiesOf(
+    `import "../../effects.js";\n${header}console.log("effect");\nexport default defineRoute("x", {}).title("ok");\n`,
+  );
+
+  assert.deepEqual(effects.dropped.route, []);
+  assert.deepEqual(effects.dropped.destination, [
+    'console.log("effect");',
+    "defineRoute",
+    'import "../../effects.js";',
+  ]);
+
+  // A kept step's type arguments are roots (A1): a type a stripped step also uses stays, and
+  // the copy type-checks.
+  const typed = await copiesOf(
+    `${header}type ResolverMap = { me: () => string };\nexport default defineRoute("x", {}).context((): ResolverMap => ({ me: () => "u" })).resolve<ResolverMap>({ me: () => "u" });\n`,
+  );
+
+  assert.deepEqual(typed.dropped.route, []);
+  assert.match(typed.route, /\.resolve<ResolverMap>\(/);
+
+  // A type only a stripped step's type arguments name goes with it.
+  const strippedType = await copiesOf(
+    `${header}type Only = { a: 1 };\nexport default defineRoute("x", {}).context<Only>(() => ({ a: 1 })).title("ok");\n`,
+  );
+
+  assert.deepEqual(strippedType.dropped.route, ["Only"]);
+});
+
+test("route copies: a pruned import specifier takes its own comma, not one in a comment", async () => {
+  const project = await extensionProject();
+  const header = 'import { defineRoute } from "@fixture/route-extension";\n';
+
+  await project.write(
+    "src/helpers.ts",
+    'export const server = () => ({});\nexport const label = "x";\n',
+  );
+
+  async function routeCopy(imports) {
+    const { desired } = await project.analyze({
+      x: `${header}${imports}\nexport default defineRoute("x", {}).context(server).title(label);\n`,
+    });
+
+    return desired.get(resolve(project.root, "src/routes/x/route.generated.ts")).split("\n")[1];
+  }
+
+  assert.equal(
+    await routeCopy(
+      'import { server /* stripped, with a comma */, label } from "../../helpers.js";',
+    ),
+    'import { label } from "../../helpers.js";',
+  );
+  assert.equal(
+    await routeCopy('import { label, server /* a, b */, } from "../../helpers.js";'),
+    'import { label, } from "../../helpers.js";',
+  );
+});
+
+test("route copies: a stripped default import keeps its untouched sibling bindings and their module", async () => {
+  const project = await extensionProject();
+  const header = 'import { defineRoute } from "@fixture/route-extension";\n';
+  const key = `effects${process.pid}`;
+  const effect = (name) =>
+    `(globalThis as any).${key} = [...((globalThis as any).${key} ?? []), "${name}"];\n`;
+
+  await project.write(
+    "src/helpers.ts",
+    `${effect("helpers")}export default function server() { return {}; }\nexport const unused = 1;\n`,
+  );
+  await project.write(
+    "src/more.ts",
+    `${effect("more")}export default function server() { return {}; }\nexport const unused = 1;\n`,
+  );
+
+  const routes = {
+    named: `${header}import server, { unused } from "../../helpers.js";\nexport default defineRoute("named", {}).context(server).title("ok");\n`,
+    namespace: `${header}import server, * as more from "../../more.js";\nexport default defineRoute("namespace", {}).context(server).title("ok");\n`,
+  };
+  const compilerOptions = { verbatimModuleSyntax: true };
+  const { desired } = await project.analyze(routes, undefined, compilerOptions);
+  const read = (directory, kind) =>
+    desired.get(resolve(project.root, `src/routes/${directory}/${kind}.generated.ts`));
+
+  // The default binding goes with the stripped step; the untouched binding stays a root.
+  assert.equal(read("named", "route").split("\n")[1], 'import { unused } from "../../helpers.js";');
+  assert.equal(read("namespace", "route").split("\n")[1], 'import * as more from "../../more.js";');
+
+  // Under verbatimModuleSyntax the kept import still runs its module.
+  const files = {
+    "src/helpers.ts": await readFile(resolve(project.root, "src/helpers.ts"), "utf8"),
+    "src/more.ts": await readFile(resolve(project.root, "src/more.ts"), "utf8"),
+  };
+
+  for (const directory of Object.keys(routes)) {
+    for (const kind of ["destination", "route"]) {
+      files[`src/routes/${directory}/${kind}.generated.ts`] = read(directory, kind);
+    }
+  }
+
+  for (const [path, text] of Object.entries(files)) {
+    const { outputText } = ts.transpileModule(text, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        ...compilerOptions,
+      },
+      fileName: path,
+    });
+
+    await project.write(path.replace(/\.ts$/, ".js"), outputText);
+  }
+
+  // Each copy runs in a fresh process, as an application would load it.
+  const effects = {};
+
+  for (const directory of Object.keys(routes)) {
+    const copyUrl = pathToFileURL(
+      resolve(project.root, `src/routes/${directory}/route.generated.js`),
+    ).href;
+    const { stdout } = await run(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `await import("@angular/compiler");\nawait import(${JSON.stringify(copyUrl)});\nconsole.log(JSON.stringify(globalThis.${key} ?? []));`,
+      ],
+      { cwd: project.root },
+    );
+
+    effects[directory] = JSON.parse(stdout);
+  }
+
+  assert.deepEqual(effects, { named: ["helpers"], namespace: ["more"] });
+});
+
+test("route copies: destination ids type as literals in generated consumers", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute, numberParam, stringParam } from "@loozo/angular-router";\n';
+  const routes = {
+    about: `${header}export default defineRoute("about", {});\n`,
+    "teams/$teamId": `${header}export default defineRoute("teams/$teamId", { params: { teamId: numberParam } });\n`,
+    "teams/$teamId/items/$id": `${header}import team from "../../route.js";\nexport default defineRoute("items/$id", { parent: team, params: { id: stringParam }, fragments: ["notes"] });\n`,
+  };
+  const shell = `import { createUrl } from "@loozo/angular-router";
+import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { destination as about } from "./routes/about/destination.generated.js";
+import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
+import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
+import { injectRoute as injectItem } from "./routes/teams/$teamId/items/$id/route.generated.js";
+
+const active = injectActiveRoute();
+export const onAbout: boolean = active()?.is(about) ?? false;
+export const inTeam: boolean = active()?.contains(team) ?? false;
+export const teamUrl: string = createUrl(team, { params: { teamId: 7 } });
+export const itemUrl: string = createUrl(item, { params: { teamId: 7, id: "x" }, fragment: "notes" });
+const route = active();
+
+if (route?.is(item)) {
+  const id: string = route.params().id;
+  const teamId: number = route.params().teamId;
+
+  route.link({ params: { teamId, id }, fragment: "notes" });
+}
+
+export const link = () => injectItem().link({ params: { teamId: 7, id: "x" } });
+`;
+  const { sources, desired, copy } = await project.analyze(routes, {
+    files: { "src/shell.ts": shell },
+  });
+  const call = (directory) =>
+    copy(directory, "destination")
+      .split("\n")
+      .find((line) => line.includes("routegen$defineDestination("))
+      .replace(/^.* = /, "");
+
+  // No type arguments, so inference types the generated id as its literal.
+  assert.equal(
+    call("teams/$teamId/items/$id"),
+    'routegen$defineDestination("items/$id", { parent: team, params: { id: stringParam }, fragments: ["notes"] }, "src/routes/teams/$teamId/items/$id/route.ts");',
+  );
+
+  // The application type-checks over the generated overlay.
+  const { program } = createValidationProgram(sources, desired, []);
+  const shellFile = program.getSourceFile(resolve(project.root, "src/shell.ts"));
+
+  assert.deepEqual(
+    program
+      .getSemanticDiagnostics(shellFile)
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")),
+    [],
+  );
+});
+
+test("route declarations: the root call takes no type arguments, for every factory form", async () => {
+  const project = await extensionProject();
+  const reason =
+    "Route declaration root call takes no type arguments: remove them; defineRoute infers its types from the URL facts";
+  const types =
+    'import { numberParam, type ParamCodec, type ParamsOf } from "@loozo/angular-router";\n';
+  const factories = [
+    "@loozo/angular-router",
+    "@fixture/route-extension",
+    "@fixture/route-extension-annotated",
+  ];
+
+  for (const factory of factories) {
+    const header = `import { defineRoute } from "${factory}";\n${types}`;
+    // Each child type-checks as authored; its type arguments name the parent route, which its
+    // destination copy would rebind to the parent's destination.
+    const witnesses = [
+      {
+        name: "ParamsOf<typeof parent>",
+        parent: `${header}export default defineRoute("teams/$teamId", { params: { teamId: numberParam } });\n`,
+        child: `${header}import parent from "../route.js";\ntype TeamId = ParamsOf<typeof parent>["teamId"];\nexport default defineRoute<\n  "child",\n  typeof parent,\n  {},\n  { selectedTeam: ParamCodec<TeamId> }\n>("child", { parent, search: { selectedTeam: numberParam } });\n`,
+        at: "6:3",
+      },
+      {
+        name: "typeof parent.path",
+        parent: `${header}export default defineRoute("section", {});\n`,
+        child: `${header}import parent from "../route.js";\nexport default defineRoute<typeof parent.path, typeof parent>("section", { parent });\n`,
+        at: "4:28",
+      },
+    ];
+
+    for (const { name, parent, child, at } of witnesses) {
+      await assert.rejects(project.analyze({ parent, "parent/child": child }), (error) => {
+        assert.ok(
+          error.message.endsWith(`child${sep}route.ts:${at}: ${reason}`),
+          `${factory}, ${name}: ${error.message}`,
+        );
+
+        return true;
+      });
+    }
+  }
+});
+
+test("route declarations: URL facts use the parent import only as `parent:`, for every factory form", async () => {
+  const project = await extensionProject();
+  const reason =
+    "URL facts may use the parent import only as `parent:`; for its URL types use ParamsOf<TargetOf<typeof d>> with d imported from the parent's destination.generated.js";
+  const types =
+    'import { numberParam, type ParamCodec, type ParamsOf, type TargetOf } from "@loozo/angular-router";\n';
+  const factories = [
+    "@loozo/angular-router",
+    "@fixture/route-extension",
+    "@fixture/route-extension-annotated",
+  ];
+
+  for (const factory of factories) {
+    const header = `import { defineRoute } from "${factory}";\n${types}`;
+    const team = `${header}export default defineRoute("teams/$teamId", { params: { teamId: numberParam } });\n`;
+    const imported = `${header}import parent from "../route.js";\n`;
+    // Each child type-checks as authored, with no root type arguments; its destination copy
+    // would rebind `parent` to the parent's destination, which has no route types or `path`.
+    const rejected = [
+      {
+        name: "codec type from ParamsOf<typeof parent>",
+        parent: team,
+        child: `${imported}type TeamId = ParamsOf<typeof parent>["teamId"];\nconst selectedTeam: ParamCodec<TeamId> = numberParam;\nexport default defineRoute("child", {\n  parent,\n  search: { selectedTeam },\n});\n`,
+        at: "4:31",
+      },
+      {
+        name: "fragments: [parent.path]",
+        parent: `${header}export default defineRoute("section", {});\n`,
+        child: `${imported}export default defineRoute("child", { parent, fragments: [parent.path] });\n`,
+        at: "4:59",
+      },
+    ];
+
+    for (const { name, parent, child, at } of rejected) {
+      await assert.rejects(project.analyze({ parent, "parent/child": child }), (error) => {
+        assert.ok(
+          error.message.endsWith(`child${sep}route.ts:${at}: ${reason}`),
+          `${factory}, ${name}: ${error.message}`,
+        );
+
+        return true;
+      });
+    }
+
+    // Accepted: either `parent` spelling; steps and what only they reach use `parent` freely
+    // (the route copy binds it to the parent's route copy); a helper both reach that doesn't
+    // name `parent`; and the parent's destination for its URL types.
+    const accepted = [
+      {
+        name: "{ parent }",
+        child: `${imported}export default defineRoute("child", { parent });\n`,
+      },
+      {
+        name: "parent: parent",
+        child: `${imported}export default defineRoute("child", { parent: parent });\n`,
+      },
+      {
+        name: "steps",
+        child: `${imported}type Team = ParamsOf<typeof parent>;\nconst describe = (team: Team): string => \`Team \${team.teamId}\`;\nexport default defineRoute("child", { parent })\n  .resolve({ section: (): string => parent.path })\n  .title(({ params }) => describe(params));\n`,
+      },
+      {
+        name: "a helper the facts and a step share",
+        child: `${imported}const selectedTeam: ParamCodec<number> = numberParam;\nexport default defineRoute("child", { parent, search: { selectedTeam } }).resolve({ codec: () => selectedTeam });\n`,
+      },
+      {
+        name: "ParamsOf<TargetOf<typeof d>>",
+        child: `${imported}import { destination as team } from "../destination.generated.js";\ntype TeamId = ParamsOf<TargetOf<typeof team>>["teamId"];\nconst selectedTeam: ParamCodec<TeamId> = numberParam;\nexport default defineRoute("child", { parent, search: { selectedTeam } });\n`,
+        destination: 'type TeamId = ParamsOf<TargetOf<typeof team>>["teamId"];',
+      },
+    ];
+
+    for (const { name, child, destination } of accepted) {
+      // analyze validates the generated copies, so each must type-check.
+      const { desired } = await project
+        .analyze({ parent: team, "parent/child": child })
+        .catch((error) => assert.fail(`${factory}, ${name}: ${error.message}`));
+
+      if (destination) {
+        const copy = desired.get(
+          resolve(project.root, "src/routes/parent/child/destination.generated.ts"),
+        );
+
+        assert.ok(copy.includes(destination), `${factory}, ${name}: ${copy}`);
+      }
+    }
+  }
+});
+
+test("route copies: one line holding the root, a stripped step and a kept step", async () => {
+  const project = await extensionProject();
+  const authored = `import { defineRoute } from "@fixture/route-extension";
+import { server } from "../../helpers.js";
+export default defineRoute("", {}).context(server).title("Home");
+`;
+
+  await project.write("src/helpers.ts", "export const server = () => ({});\n");
+
+  const first = await project.analyze({ home: authored });
+  const read = (result, kind) =>
+    result.desired.get(resolve(project.root, `src/routes/home/${kind}.generated.ts`));
+  const id = JSON.stringify("src/routes/home/route.ts");
+
+  assert.equal(
+    read(first, "destination"),
+    `\n\n${destinationDoc} const routegen$destination = routegen$defineDestination("", {}, ${id});\n${destinationTail}`,
+  );
+  assert.equal(
+    read(first, "route").split("\n").slice(0, 3).join("\n"),
+    `import { defineRoute } from "@fixture/route-extension";\n\n${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination).title("Home");`,
+  );
+
+  // Editing a stripped server step on its own line leaves both copies byte-identical.
+  const edited = authored.replace(".context(server)", ".context(() => ({ a: 2, b: [3] }))");
+  const second = await project.analyze({ home: edited });
+
+  assert.equal(read(second, "destination"), read(first, "destination"));
+
+  const multiline = `import { defineRoute } from "@fixture/route-extension";
+export default defineRoute("", {})
+  .context(() => ({ a: 1 }))
+  .title("Home");
+`;
+  const before = await project.analyze({ home: multiline });
+  const after = await project.analyze({
+    home: multiline.replace("({ a: 1 })", '({ a: "changed", b: [2, 3] })'),
+  });
+
+  assert.equal(read(after, "destination"), read(before, "destination"));
+  assert.equal(read(after, "route"), read(before, "route"));
+});
+
+test("route copies: a directive goes with its target line's code and stays while the line keeps some", async () => {
+  const project = await extensionProject();
+
+  await project.write("src/helpers.ts", "export const present = 1;\n");
+
+  // Every directive here suppresses an error in route.ts. Validation type-checks both copies,
+  // so a directive left above a line without its error fails with TS2578.
+  const authored = `import { defineRoute } from "@fixture/route-extension";
+// @ts-expect-error A missing export only a stripped step uses.
+import { missing } from "../../helpers.js";
+// @ts-expect-error A missing export an untouched statement uses.
+import { absent } from "../../helpers.js";
+/* A mismatch only a stripped step reaches; blank lines between don't unbind it.
+ * @ts-expect-error */
+
+const helper: number = "helper";
+// @ts-expect-error A mismatch a kept step reaches.
+const kept: number = "kept";
+void absent;
+// @ts-ignore Its target line keeps the root call and loses a stripped step.
+export default defineRoute("x", {}).context(() => ({ missing, helper }))
+  // @ts-expect-error A mismatch on a stripped step's own line.
+  .use(() => { const wrong: number = "stripped"; })
+  // @ts-expect-error A mismatch on a kept step's own line.
+  .title(() => { const wrong: number = "kept"; return "t"; })
+  .resolve({ kept: () => kept });
+`;
+  const { desired } = await project.analyze({ x: authored });
+  const read = (kind) => desired.get(resolve(project.root, `src/routes/x/${kind}.generated.ts`));
+  const lines = (kind) => read(kind).split("\n");
+  const server = ["context", "use"];
+
+  assert.deepEqual(oracle(authored, read("route"), "route", { server }), ["helper", "missing"]);
+  assert.deepEqual(oracle(authored, read("destination"), "destination", { server }), [
+    "absent",
+    "defineRoute",
+    "helper",
+    "kept",
+    "missing",
+    "void absent;",
+  ]);
+
+  // The route copy keeps the directives above the import, the constant and the kept step it
+  // keeps, and the one above the root line; the pruned import's and helper's go.
+  assert.deepEqual(lines("route").slice(0, 18), [
+    'import { defineRoute } from "@fixture/route-extension";',
+    "",
+    "",
+    "// @ts-expect-error A missing export an untouched statement uses.",
+    'import { absent } from "../../helpers.js";',
+    "",
+    "",
+    "",
+    "",
+    "// @ts-expect-error A mismatch a kept step reaches.",
+    'const kept: number = "kept";',
+    "void absent;",
+    "// @ts-ignore Its target line keeps the root call and loses a stripped step.",
+    `${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination)`,
+    "",
+    "",
+    "  // @ts-expect-error A mismatch on a kept step's own line.",
+    '  .title(() => { const wrong: number = "kept"; return "t"; })',
+  ]);
+
+  // The destination copy keeps only the root line's directive.
+  const destination = lines("destination").slice(0, 18);
+
+  assert.deepEqual(destination.slice(0, 12), Array(12).fill(""));
+  assert.equal(
+    destination[12],
+    "// @ts-ignore Its target line keeps the root call and loses a stripped step.",
+  );
+  assert.match(destination[13], /^\/\*\* .* const routegen\$destination = /);
+  assert.deepEqual(destination.slice(14), ["", "", "", ""]);
+});
+
+test("route copies: generated names are hygienic and routegen$ is reserved", async () => {
+  const project = await copyProject();
+  const home = `import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("", {});\n`;
+  const hygiene = `import { defineRoute as routeOf } from "@loozo/angular-router";
+type Handle = { label: string };
+const route = (handle: Handle) => handle.label;
+const destination = "kept";
+function injectRoute(): Handle { return { label: destination }; }
+const defineDestination = () => route(injectRoute());
+const up = "!";
+export default routeOf("hyg", {}).title(() => defineDestination() + up);
+`;
+  const result = await project.analyze({ "+home": home, hyg: hygiene });
+  const route = result.copy("hyg", "route");
+  const exportsOf = (text) => {
+    const source = ts.createSourceFile("copy.ts", text, ts.ScriptTarget.Latest, true);
+    const names = [];
+
+    for (const statement of source.statements) {
+      if (ts.isExportDeclaration(statement)) {
+        names.push(...statement.exportClause.elements.map((element) => element.name.text));
+      } else if (ts.getModifiers(statement)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+        names.push("<declaration>");
+      }
+    }
+
+    return names;
+  };
+
+  // The authored local name of the factory is what the copy calls; its own helpers stay.
+  assert.ok(
+    route
+      .split("\n")[7]
+      .startsWith(
+        `${routeDoc} const routegen$route = routegen$routeOf(routeOf, routegen$destination)`,
+      ),
+  );
+  assert.deepEqual(oracle(hygiene, route, "route"), []);
+  assert.match(
+    route,
+    /import \{ destination as routegen\$up \} from "\.\.\/\+home\/destination\.generated\.js";/,
+  );
+  assert.deepEqual(exportsOf(route), ["route", "injectRoute"]);
+  assert.deepEqual(exportsOf(result.copy("hyg", "destination")), ["destination"]);
+
+  await assert.rejects(
+    project.analyze({ hyg: `${home.replace('""', '"hyg"')}const routegen$x = 1;\n` }),
+    /hyg[\\/]route\.ts:4:7: Reserved generated binding prefix: routegen\$x$/,
+  );
+  await assert.rejects(
+    project.analyze({
+      hyg: `import { defineRoute as routegen$factory } from "@loozo/angular-router";\n\nexport default routegen$factory("hyg", {});\n`,
+    }),
+    /hyg[\\/]route\.ts:1:25: Reserved generated binding prefix: routegen\$factory$/,
+  );
+});
+
+test("route declarations: the import rule, computed specifiers and default-export-only", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const routes = {
+    a: `${header}\nexport default defineRoute("a", {});\n`,
+    "a/b": `${header}import a from "../route.js";\n\nexport default defineRoute("b", { parent: a });\n`,
+    "a/b/c": `${header}import b from "../route.js";\n\nexport default defineRoute("c", { parent: b });\n`,
+  };
+
+  // The child's parent default import is the one allowed edge.
+  await project.analyze(routes);
+
+  const destination = "Import its destination from ./routes/a/destination.generated.js instead.";
+  const forms = [
+    ['import a from "./routes/a/route.js";\nvoid a;\n', 1],
+    ['export { default } from "./routes/a/route.js";\n', 1],
+    ['export const load = () => import("./routes/a/route.js");\n', 1],
+    ['export type A = typeof import("./routes/a/route.js");\n', 1],
+    ['import type A from "./routes/a/route.js";\nexport type B = A;\n', 1],
+    ['import a = require("./routes/a/route.js");\nvoid a;\n', 1],
+    ['declare const require: (id: string) => unknown;\nrequire("./routes/a/route.js");\n', 2],
+  ];
+
+  for (const [text, line] of forms) {
+    await assert.rejects(
+      project.analyze(routes, { files: { "src/app.ts": text } }),
+      new RegExp(
+        `src[\\\\/]app\\.ts:${line}:\\d+: Import of a route declaration: \\./routes/a/route\\.js\\. ${destination.replaceAll(".", "\\.")}$`,
+      ),
+      text,
+    );
+  }
+
+  await assert.rejects(
+    project.analyze(routes, {
+      files: { "src/app.ts": '/// <reference path="./routes/a/route.ts" />\nexport {};\n' },
+    }),
+    /src[\\/]app\.ts:1:\d+: Import of a route declaration: \.\/routes\/a\/route\.ts\. /,
+  );
+
+  // A grandparent import from a declaration is not its parent edge.
+  await assert.rejects(
+    project.analyze({
+      ...routes,
+      "a/b/c": `${header}import b from "../route.js";\nimport a from "../../route.js";\nvoid a;\n\nexport default defineRoute("c", { parent: b });\n`,
+    }),
+    /c[\\/]route\.ts:3:15: Import of a route declaration: \.\.\/\.\.\/route\.js\. Import its destination from \.\.\/\.\.\/destination\.generated\.js instead\.$/,
+  );
+
+  // Declarations are identified by identity, not by file name.
+  await assert.rejects(
+    project.analyze(
+      {},
+      {
+        files: {
+          "src/routes/d/definition.ts": `${header}\nexport default defineRoute("d", {});\n`,
+          "src/routes/d/page.ts": componentPage("d"),
+          "src/app.ts": 'import d from "./routes/d/definition.js";\nvoid d;\n',
+        },
+      },
+    ),
+    /app\.ts:1:\d+: Import of a route declaration: \.\/routes\/d\/definition\.js\. Import its destination from \.\/routes\/d\/destination\.generated\.js instead\.$/,
+  );
+
+  for (const [text, computed] of [
+    ['const name = "./x.js";\nexport const load = () => import(name);\n', "name"],
+    [
+      'declare const require: (id: string) => unknown;\nconst name = "./x.js";\nrequire(name);\n',
+      "name",
+    ],
+  ]) {
+    await assert.rejects(
+      project.analyze(routes, { files: { "src/app.ts": text } }),
+      new RegExp(`app\\.ts:\\d+:\\d+: Computed module specifier: ${computed}$`),
+    );
+  }
+
+  for (const extra of [
+    "export const extra = 1;\n",
+    "export type Extra = 1;\n",
+    'export * from "@angular/core";\n',
+    "const local = 1;\nexport { local };\n",
+  ]) {
+    await assert.rejects(
+      project.analyze({ ...routes, a: `${routes.a}${extra}` }),
+      /a[\\/]route\.ts:\d+:1: Route declaration module may only default-export its route$/,
+      extra,
+    );
+  }
+});
+
+// A componentless layout whose route.ts imports `../../helper.*`, and its leaf child.
+function layoutRoutes(helper = "../../helper.js") {
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+
+  return {
+    layout: `${header}import { guard } from ${JSON.stringify(helper)};\n\nexport default defineRoute("layout", {}).canActivate([guard]);\n`,
+    "layout/leaf": `${header}import layout from "../route.js";\n\nexport default defineRoute("leaf", { parent: layout });\n`,
+  };
+}
+
+const leafCopy = "./routes/layout/leaf/route.generated.js";
+
+function reaches(chain) {
+  return new RegExp(
+    `layout[\\\\/]route\\.ts:2:\\d+: Route copy import reaches a generated route module: ${chain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Import a destination\\.generated\\.js for URLs, or make (\\S+) \`import type\` if it only needs types\\.$`,
+  );
+}
+
+test("route copies: imports that reach a route copy, by edge kind", async () => {
+  const project = await copyProject();
+  const routes = layoutRoutes();
+  const settings = (helper, compilerOptions) => ({
+    componentless: ["layout"],
+    files: { "src/helper.ts": helper },
+    compilerOptions,
+  });
+  const leaf = "src/routes/layout/leaf/route.generated.ts";
+  const value = `src/routes/layout/route.ts:2 (value import) → src/helper.ts:1 (value import) → ${leaf}`;
+
+  // A value import, used as a value or only as a type, is an edge; the message names it.
+  for (const helper of [
+    `import { route } from "${leafCopy}";\nexport const guard = () => route !== undefined;\n`,
+    `import { route } from "${leafCopy}";\nexport type Leaf = typeof route;\nexport const guard = () => true;\n`,
+  ]) {
+    const error = await project.analyze(routes, settings(helper)).then(
+      () => assert.fail("accepted"),
+      (reason) => reason,
+    );
+
+    assert.match(error.message, reaches(value));
+    assert.equal(error.message.match(reaches(value))[1], "src/helper.ts:1");
+  }
+
+  // `import type` is erased; so is an inline type specifier without verbatimModuleSyntax.
+  const typeOnly = `import type { route } from "${leafCopy}";\nexport type Leaf = typeof route;\nexport const guard = () => true;\n`;
+  const inline = `import { type route } from "${leafCopy}";\nexport type Leaf = typeof route;\nexport const guard = () => true;\n`;
+
+  await project.analyze(routes, settings(typeOnly));
+  await project.analyze(routes, settings(inline));
+  await assert.rejects(
+    project.analyze(routes, settings(inline, { verbatimModuleSyntax: true })),
+    reaches(
+      `src/routes/layout/route.ts:2 (value import) → src/helper.ts:1 (type-specifier import under verbatimModuleSyntax) → ${leaf}`,
+    ),
+  );
+
+  // The same through a barrel's `export { type … } from`.
+  const barrel = {
+    componentless: ["layout"],
+    files: {
+      "src/helper.ts":
+        'import * as barrel from "./barrel.js";\nexport const guard = () => barrel !== undefined;\n',
+      "src/barrel.ts": `export { type route } from "${leafCopy}";\n`,
+    },
+  };
+
+  await project.analyze(routes, barrel);
+  await assert.rejects(
+    project.analyze(routes, { ...barrel, compilerOptions: { verbatimModuleSyntax: true } }),
+    reaches(
+      `src/routes/layout/route.ts:2 (value import) → src/helper.ts:1 (value import) → src/barrel.ts:1 (type-specifier import under verbatimModuleSyntax) → ${leaf}`,
+    ),
+  );
+
+  // Synchronous CommonJS forms are edges; a dynamic import is deferred.
+  await assert.rejects(
+    project.analyze(
+      routes,
+      settings(
+        `import leaf = require("${leafCopy}");\nexport const guard = () => leaf !== undefined;\n`,
+        { module: "Preserve" },
+      ),
+    ),
+    reaches(`src/routes/layout/route.ts:2 (value import) → src/helper.ts:1 (import =) → ${leaf}`),
+  );
+  await assert.rejects(
+    project.analyze(
+      routes,
+      settings(
+        `declare const require: (id: string) => { route: unknown };\nconst leaf = require("${leafCopy}").route;\nexport const guard = () => leaf !== undefined;\n`,
+      ),
+    ),
+    reaches(`src/routes/layout/route.ts:2 (value import) → src/helper.ts:2 (require) → ${leaf}`),
+  );
+  await project.analyze(
+    routes,
+    settings(
+      `export const guard = async () => (await import("${leafCopy}")).route !== undefined;\n`,
+    ),
+  );
+
+  // A declaration importing its own route copy.
+  await assert.rejects(
+    project.analyze(
+      {
+        ...routes,
+        layout: routes.layout.replace('"../../helper.js"', '"./route.generated.js"'),
+      },
+      { componentless: ["layout"] },
+    ),
+    reaches(`src/routes/layout/route.ts:2 (value import) → src/routes/layout/route.generated.ts`),
+  );
+});
+
+test("route copies: helpers in every runtime format TypeScript resolves are walked", async () => {
+  const project = await copyProject();
+  const leaf = "src/routes/layout/leaf/route.generated.ts";
+  const require = `require("${leafCopy}")`;
+  const cases = [
+    {
+      name: "cjs + d.cts",
+      helper: "../../helper.cjs",
+      files: {
+        "src/helper.cjs": `const leaf = ${require}.route;\nexports.guard = () => Boolean(leaf);\n`,
+        "src/helper.d.cts": "export declare const guard: () => boolean;\n",
+      },
+      hop: "src/helper.cjs:1 (require)",
+      allowJs: [false, true],
+    },
+    {
+      name: "cjs without a sidecar",
+      helper: "../../helper.cjs",
+      files: {
+        "src/helper.cjs": `const leaf = ${require}.route;\nexports.guard = () => Boolean(leaf);\n`,
+      },
+      hop: "src/helper.cjs:1 (require)",
+    },
+    {
+      name: "mts",
+      helper: "../../helper.mjs",
+      files: {
+        "src/helper.mts": `import { route } from "${leafCopy}";\nexport const guard = (): boolean => Boolean(route);\n`,
+      },
+      hop: "src/helper.mts:1 (value import)",
+    },
+    {
+      name: "cts with import =",
+      helper: "../../helper.cjs",
+      files: {
+        "src/helper.cts": `import leaf = require("${leafCopy}");\nexport const guard = (): boolean => Boolean(leaf.route);\n`,
+      },
+      hop: "src/helper.cts:1 (import =)",
+    },
+    {
+      name: "cts with a literal require",
+      helper: "../../helper.cjs",
+      files: {
+        "src/helper.cts": `declare const require: (id: string) => any;\nconst leaf = ${require}.route;\nexport const guard = (): boolean => Boolean(leaf);\n`,
+      },
+      hop: "src/helper.cts:2 (require)",
+    },
+    {
+      name: "js + d.ts",
+      helper: "../../helper.js",
+      files: {
+        "src/helper.js": `import { route } from "${leafCopy}";\nexport const guard = () => Boolean(route);\n`,
+        "src/helper.d.ts": "export declare const guard: () => boolean;\n",
+      },
+      hop: "src/helper.js:1 (value import)",
+    },
+    {
+      name: "mjs + d.mts",
+      helper: "../../helper.mjs",
+      files: {
+        "src/helper.mjs": `import { route } from "${leafCopy}";\nexport const guard = () => Boolean(route);\n`,
+        "src/helper.d.mts": "export declare const guard: () => boolean;\n",
+      },
+      hop: "src/helper.mjs:1 (value import)",
+    },
+  ];
+
+  for (const testCase of cases) {
+    for (const module of ["ESNext", "Preserve"]) {
+      for (const allowJs of testCase.allowJs ?? [false]) {
+        await assert.rejects(
+          project.analyze(layoutRoutes(testCase.helper), {
+            componentless: ["layout"],
+            files: testCase.files,
+            compilerOptions: { module, allowJs },
+          }),
+          reaches(`src/routes/layout/route.ts:2 (value import) → ${testCase.hop} → ${leaf}`),
+          `${testCase.name}, ${module}, allowJs ${allowJs}`,
+        );
+      }
+    }
+  }
+});
+
+test("route copies: URL fact modules reach no generated file; copies import no server module", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const home = `${header}\nexport default defineRoute("", {});\n`;
+  const item = `${header}import { id } from "../../../codecs.js";\n\nexport default defineRoute("item/$id", { params: { id } });\n`;
+  const homeDestination = "./routes/+home/destination.generated.js";
+  const codecs = (body) => ({
+    files: {
+      "src/codecs.ts": `import { numberParam } from "@loozo/angular-router";\n${body}export const id = numberParam;\n`,
+      "src/helper.ts": `import { destination } from "${homeDestination}";\nexport const home = destination;\n`,
+    },
+  });
+  const reachesFile = (chain) =>
+    new RegExp(
+      `item[\\\\/]\\$id[\\\\/]route\\.ts:2:\\d+: URL facts import reaches a generated file: ${chain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. URL fact modules may import only packages and other non-generated modules; make \\S+ \`import type\` if it only needs types\\.$`,
+    );
+  const routes = { "+home": home, "item/$id": item };
+
+  await project.analyze(routes, codecs(""));
+
+  for (const [body, chain] of [
+    [
+      `import { destination } from "${homeDestination}";\nvoid destination;\n`,
+      "src/codecs.ts:2 (value import) → src/routes/+home/destination.generated.ts",
+    ],
+    [
+      'import { home } from "./helper.js";\nvoid home;\n',
+      "src/codecs.ts:2 (value import) → src/helper.ts:1 (value import) → src/routes/+home/destination.generated.ts",
+    ],
+    [
+      `declare const require: (id: string) => unknown;\nrequire("${homeDestination}");\n`,
+      "src/codecs.ts:3 (require) → src/routes/+home/destination.generated.ts",
+    ],
+  ]) {
+    await assert.rejects(
+      project.analyze(routes, codecs(body)),
+      reachesFile(`src/routes/item/$id/route.ts:2 (value import) → ${chain}`),
+    );
+  }
+
+  const server = {
+    files: {
+      "src/db.server.ts":
+        'export interface Db {\n  name: string;\n}\nexport const db: Db = { name: "db" };\n',
+      "src/node.d.ts": 'declare module "node:path" {\n  export const sep: string;\n}\n',
+    },
+  };
+  const rejected = (specifier) =>
+    new RegExp(
+      `x[\\\\/]route\\.ts:2:\\d+: Browser route copy imports a server module: ${specifier.replaceAll(".", "\\.")}\\. Use \`import type\` for types\\.$`,
+    );
+
+  for (const [imports, step] of [
+    ['import "../../db.server.js";\n', ""],
+    ['import { db } from "../../db.server.js";\n', ""],
+    ['import { db } from "../../db.server.js";\n', ".title(() => db.name)"],
+  ]) {
+    await assert.rejects(
+      project.analyze(
+        { x: `${header}${imports}\nexport default defineRoute("x", {})${step};\n` },
+        server,
+      ),
+      rejected("../../db.server.js"),
+    );
+  }
+
+  await assert.rejects(
+    project.analyze(
+      {
+        x: `${header}import { sep } from "node:path";\n\nexport default defineRoute("x", {}).title(sep);\n`,
+      },
+      server,
+    ),
+    rejected("node:path"),
+  );
+
+  // Types are erased.
+  await project.analyze(
+    {
+      x: `${header}import type { Db } from "../../db.server.js";\n\nexport default defineRoute("x", {}).title((): Db["name"] => "x");\n`,
+    },
+    server,
+  );
+});
+
+test("route copies: '..' destinations come from the winner's destination file", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute, stringParam } from "@loozo/angular-router";\n';
+  const result = await project.analyze(
+    {
+      "+home": `${header}\nexport default defineRoute("", {});\n`,
+      "docs/$segments[]": `${header}\nexport default defineRoute("docs/$segments[]", { params: { segments: stringParam } });\n`,
+      scope: `${header}\nexport default defineRoute("scope", {});\n`,
+      "scope/+terminal": `${header}import scope from "../route.js";\nimport { destination as x } from "../x/destination.generated.js";\n\nexport default defineRoute("", { parent: scope }).redirect({ to: x, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+      "scope/x": `${header}import scope from "../route.js";\n\nexport default defineRoute("x", { parent: scope });\n`,
+    },
+    { componentless: ["scope", "scope/+terminal"] },
+  );
+  const shared = result.desired.get(resolve(project.root, "generated/destinations.generated.ts"));
+
+  // A catchall origin's ".." is the root; a redirect source can be the winner.
+  assert.match(
+    result.copy("docs/$segments[]", "route"),
+    /import \{ destination as routegen\$up \} from "\.\.\/\.\.\/\+home\/destination\.generated\.js";/,
+  );
+  assert.match(
+    result.copy("scope/x", "route"),
+    /import \{ destination as routegen\$up \} from "\.\.\/\+terminal\/destination\.generated\.js";/,
+  );
+  assert.match(shared, /"src\/routes\/scope\/x\/route\.ts": typeof up_scope__terminal_route;/);
+  assert.match(
+    shared,
+    /"src\/routes\/scope\/x\/route\.ts": \[route_scope_x_route, up_scope__terminal_route\],/,
+  );
+
+  // Without a root, top-level origins have no winner: no "..", and Parents lacks them.
+  const rootless = await project.analyze({
+    a: `${header}\nexport default defineRoute("a", {});\n`,
+  });
+  const copy = rootless.copy("a", "route");
+
+  assert.doesNotMatch(copy, /routegen\$up/);
+  assert.match(
+    copy,
+    /function routegen\$injectRoute\(\): routegen\$Handle<typeof routegen\$route> \{ return routegen\$injectGeneratedRoute\(routegen\$route\); \}/,
+  );
+  assert.match(
+    rootless.desired.get(resolve(project.root, "generated/destinations.generated.ts")),
+    /export type Parents = \{\n\};/,
+  );
+});
+
+test("route copies: a new root winner rewrites only its pair, the shared files and the top-level copies", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const routes = {
+    a: `${header}\nexport default defineRoute("a", {});\n`,
+    "a/b": `${header}import a from "../route.js";\n\nexport default defineRoute("b", { parent: a });\n`,
+    c: `${header}\nexport default defineRoute("c", {});\n`,
+  };
+  const { readdir } = await import("node:fs/promises");
+
+  async function snapshot() {
+    const files = new Map();
+
+    for (const directory of ["src", "generated"]) {
+      for (const entry of await readdir(resolve(project.root, directory), {
+        recursive: true,
+        withFileTypes: true,
+      })) {
+        if (entry.isFile() && entry.name.endsWith(".generated.ts")) {
+          const path = resolve(entry.parentPath, entry.name);
+
+          files.set(
+            path
+              .slice(project.root.length + 1)
+              .split("\\")
+              .join("/"),
+            await readFile(path, "utf8"),
+          );
+        }
+      }
+    }
+
+    return files;
+  }
+
+  await project.author(routes);
+  await project.generate();
+
+  const first = await snapshot();
+
+  await project.write(
+    "src/routes/+home/route.ts",
+    `${header}\nexport default defineRoute("", {});\n`,
+  );
+  await project.write("src/routes/+home/page.ts", componentPage("home"));
+  await project.generate();
+
+  const second = await snapshot();
+  const changed = [];
+
+  for (const [path, bytes] of second) {
+    if (first.get(path) !== bytes) {
+      changed.push(path);
+    }
+  }
+
+  assert.deepEqual(
+    changed.sort((a, b) => Number(a > b) - Number(a < b)),
+    [
+      "generated/destinations.generated.ts",
+      "generated/routes.generated.ts",
+      "src/routes/+home/destination.generated.ts",
+      "src/routes/+home/route.generated.ts",
+      "src/routes/a/route.generated.ts",
+      "src/routes/c/route.generated.ts",
+    ],
+  );
+
+  await rm(resolve(project.root, "src/routes/+home"), { recursive: true });
+  await project.generate();
+  assert.deepEqual(await snapshot(), first);
+});
+
+test("route copies: ownership of the per-route pair", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const routes = {
+    a: `${header}\nexport default defineRoute("a", {});\n`,
+    b: `${header}\nexport default defineRoute("b", {});\n`,
+  };
+  const exists = (path) =>
+    stat(resolve(project.root, path)).then(
+      () => true,
+      () => false,
+    );
+
+  await project.author(routes);
+  await project.generate();
+  assert.equal(await exists("src/routes/b/destination.generated.ts"), true);
+
+  // A declaration that goes takes its pair with it.
+  await rm(resolve(project.root, "src/routes/b/route.ts"));
+  await rm(resolve(project.root, "src/routes/b/page.ts"));
+  await project.generate();
+  assert.equal(await exists("src/routes/b/destination.generated.ts"), false);
+  assert.equal(await exists("src/routes/b/route.generated.ts"), false);
+
+  // An unmarked file in the pair's place, or one marked on its first line (the old facade
+  // shape), is not owned.
+  for (const [name, bytes] of [
+    ["destination.generated.ts", "export const destination = {};\n"],
+    ["route.generated.ts", `${markerOf.route}\nexport const route = {};\n`],
+  ]) {
+    await project.author(routes, { files: { [`src/routes/b/${name}`]: bytes } });
+    await assert.rejects(
+      project.generate(),
+      new RegExp(`Unmarked generated-output collision: .*b[\\\\/]${name.replaceAll(".", "\\.")}$`),
+    );
+  }
+
+  // An ancestor pruned by redirect hoisting keeps its pair: the redirect source's copies
+  // import it.
+  const pruned = await project.analyze(
+    {
+      t: `${header}\nexport default defineRoute("t", {});\n`,
+      p: `${header}\nexport default defineRoute("p", {});\n`,
+      "p/old": `${header}import p from "../route.js";\nimport { destination as t } from "../../t/destination.generated.js";\n\nexport default defineRoute("old", { parent: p }).redirect({ to: t, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+    },
+    { componentless: ["p", "p/old"] },
+  );
+
+  assert.equal(pruned.sources.declarations.find((d) => d.path === "p").retained, false);
+  assert.ok(pruned.copy("p", "destination"));
+  assert.ok(pruned.copy("p", "route"));
+  assert.doesNotMatch(
+    pruned.desired.get(resolve(project.root, "generated/destinations.generated.ts")),
+    /src\/routes\/p\/route\.ts/,
   );
 });

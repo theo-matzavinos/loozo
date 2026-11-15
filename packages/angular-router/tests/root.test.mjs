@@ -4,7 +4,14 @@ import * as root from "@loozo/angular-router";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { createRouteFactory, routeContributions, routeMetadata } from "@loozo/angular-router/_core";
+import {
+  createRouteFactory,
+  defineDestination,
+  destinationRecord,
+  routeContributions,
+  routeMetadata,
+  routeOf,
+} from "@loozo/angular-router/_core";
 import { emitPackage, installExtension } from "./extension/emit.mjs";
 
 const {
@@ -325,9 +332,11 @@ test("arrayParam keys write one pair per element and nothing for an empty list",
       return input;
     },
   };
-  const list = defineRoute("articles", {
+  const listFacts = {
     search: { tag: arrayParam(stringParam), q: stringParam, n: arrayParam(numberParam) },
-  });
+  };
+  const list = defineRoute("articles", listFacts);
+  const listDestination = defineDestination("articles", listFacts, "articles");
 
   assert.equal(
     createUrl(list, { search: { tag: ["c", "a", "a"], q: "s", n: [2, 1] } }),
@@ -363,7 +372,7 @@ test("arrayParam keys write one pair per element and nothing for an empty list",
   // Redirect replacements are checked for shape at declaration, without running codecs.
   for (const values of [{ tag: ["a"] }, { tag: [] }, { tag: undefined }, {}]) {
     defineRoute("old", {}).redirect({
-      to: list,
+      to: listDestination,
       search: { mode: "replace", values },
       fragment: { mode: "drop" },
     });
@@ -372,7 +381,7 @@ test("arrayParam keys write one pair per element and nothing for an empty list",
   assert.throws(
     () =>
       defineRoute("old", {}).redirect({
-        to: list,
+        to: listDestination,
         search: { mode: "replace", values: { tag: "a" } },
         fragment: { mode: "drop" },
       }),
@@ -487,11 +496,12 @@ test("redirect declaration validates shape and remains inert for source URL crea
     },
     stringify: (value) => value.join(","),
   };
-  const target = defineRoute("new/$parts[]", {
+  const targetFacts = {
     params: { parts: stringParam },
     search: { q: stringParam },
     fragments: ["summary"],
-  });
+  };
+  const target = defineDestination("new/$parts[]", targetFacts, "new");
   const redirect = {
     to: target,
     params: { parts: "packed" },
@@ -503,9 +513,25 @@ test("redirect declaration validates shape and remains inert for source URL crea
   assert.equal(createUrl(source, { params: { packed: ["a", "b"] } }), "/old/a%2Cb");
   assert.equal(calls, 0);
 
+  // The snapshot keeps the destination itself.
+  assert.equal(routeMetadata(source).config.redirect.to, target);
+
+  // Only a genuine destination is a target: never a route, a spread or a fake.
+  for (const to of [
+    defineRoute("new/$parts[]", targetFacts),
+    { ...target },
+    Object.create(target),
+    {},
+    undefined,
+  ]) {
+    assert.throws(
+      () => defineRoute("$packed", { params: { packed: codec } }).redirect({ ...redirect, to }),
+      /^TypeError: Redirect target must be a genuine destination$/,
+    );
+  }
+
   for (const malformed of [
     { ...redirect, params: {} },
-    { ...redirect, to: { ...target } },
     { ...redirect, search: { mode: "drop", values: {} } },
     { ...redirect, search: { mode: "keep" } },
     { ...redirect, search: { mode: "replace", values: { q: "x", extra: "y" } } },
@@ -559,7 +585,8 @@ test("onInvalidParams is a callback on routes with local path params only", () =
 
 test("every search key may be omitted when writing a URL or redirect", () => {
   const page = withFallback(numberParam, 1);
-  const list = defineRoute("items", { search: { page, sort: stringParam, q: stringParam } });
+  const listFacts = { search: { page, sort: stringParam, q: stringParam } };
+  const list = defineRoute("items", listFacts);
 
   assert.equal(createUrl(list, {}), "/items");
   assert.equal(createUrl(list, { search: {} }), "/items");
@@ -575,7 +602,11 @@ test("every search key may be omitted when writing a URL or redirect", () => {
     { mode: "replace", values: {} },
     { mode: "replace", values: { page: undefined, q: "x" } },
   ]) {
-    defineRoute("old", {}).redirect({ to: list, search, fragment: { mode: "drop" } });
+    defineRoute("old", {}).redirect({
+      to: defineDestination("items", listFacts, "items"),
+      search,
+      fragment: { mode: "drop" },
+    });
   }
 });
 
@@ -616,7 +647,7 @@ test("absent prototype-named optional search never reads inherited input", () =>
     assert.equal(calls.length, 0);
 
     const alias = defineRoute("optional-alias", {}).redirect({
-      to: optionalObject,
+      to: defineDestination("object", { search: { [key]: codec } }, "object"),
       search: { mode: "replace", values: {} },
       fragment: { mode: "drop" },
     });
@@ -691,7 +722,7 @@ test("an undefined search value omits the key; codec values stay opaque", () => 
   };
   const target = defineRoute("target", { search: { q: sentinel, box } });
   const alias = defineRoute("alias", {}).redirect({
-    to: target,
+    to: defineDestination("target", { search: { q: sentinel, box } }, "target"),
     search: { mode: "replace", values: { q: undefined, box: opaque } },
     fragment: { mode: "drop" },
   });
@@ -771,7 +802,7 @@ test("each step returns a new frozen stage and leaves the earlier one unchanged"
   assert.equal("redirect" in guarded, false);
   assert.equal(typeof titled.redirect, "function");
 
-  const target = defineRoute("new", {});
+  const target = defineDestination("new", {}, "new");
   const ended = titled.redirect({
     to: target,
     search: { mode: "drop" },
@@ -983,18 +1014,13 @@ test("callback inputs reject extension members that shadow params or search", as
   // The generated runtime needs Angular's compiler for its injectables outside a build.
   await import("@angular/compiler");
 
-  const { callbackInputs } = await import("@loozo/angular-router/_generated");
+  const { callbacks } = await import("@loozo/angular-router/_generated");
   const shadowing = createRouteFactory({
     steps: [],
     input: () => ({ params: { forged: true } }),
   });
-  const route = shadowing("shadow", {}).resolve({ value: () => 1 });
-  const set = {
-    records: { shadow: { definition: () => route, owners: ["shadow"] } },
-    destinations: {},
-    absolute: {},
-    parents: {},
-  };
+  const destination = defineDestination("shadow", {}, "shadow");
+  const route = routeOf(shadowing, destination).resolve({ value: () => 1 });
   const snapshot = {
     routeConfig: { data: { __loozoAngularRouterRouteId: "shadow" } },
     queryParamMap: { getAll: () => [] },
@@ -1002,12 +1028,15 @@ test("callback inputs reject extension members that shadow params or search", as
   };
 
   snapshot.pathFromRoot = [snapshot];
+
+  const { value } = callbacks(route).resolve;
+
   assert.throws(
-    () => callbackInputs(set, "shadow", snapshot),
+    () => value(snapshot, {}),
     /^TypeError: Route extension input cannot replace params or search$/,
   );
   // The failure is memoized for that snapshot and phase.
-  assert.throws(() => callbackInputs(set, "shadow", snapshot), /cannot replace params or search/);
+  assert.throws(() => value(snapshot, {}), /cannot replace params or search/);
 });
 
 test("declaration emit names every child route's inferred type", async () => {
@@ -1079,4 +1108,464 @@ export default defineRoute("child", { parent }).use();
   }
 
   assert.deepEqual(diagnostics, []);
+});
+
+// Destinations and route copies below are written by hand exactly as a
+// destination.generated.ts and a route.generated.ts evaluate them.
+
+test("a destination validates URL facts like defineRoute and evaluates no codec", () => {
+  const throwing = {
+    parse() {
+      throw new Error("parsed");
+    },
+    stringify() {
+      throw new Error("stringified");
+    },
+  };
+  const org = defineDestination(
+    "orgs/$orgId",
+    { params: { orgId: throwing }, search: { tab: throwing }, fragments: ["top"] },
+    "src/routes/orgs/$orgId/route.ts",
+  );
+
+  assert.deepEqual(Reflect.ownKeys(org), []);
+  assert.equal(Object.isFrozen(org), true);
+  assert.equal(destinationRecord(org).id, "src/routes/orgs/$orgId/route.ts");
+  assert.equal(destinationRecord(org).path, "orgs/$orgId");
+  assert.deepEqual(destinationRecord(org).url.fragments, ["top"]);
+
+  // Same validation as defineRoute.
+  assert.throws(
+    () => defineDestination("$orgId", { parent: org, params: { orgId: numberParam } }, "x"),
+    /Inherited param already owned: orgId/,
+  );
+  assert.throws(
+    () => defineDestination("x", { parent: org, search: { tab: stringParam } }, "x"),
+    /Inherited search already owned: tab/,
+  );
+  assert.throws(() => defineDestination("x", { title: "t" }, "x"), /Unknown URL facts key: title/);
+  assert.throws(() => defineDestination("$id", {}, "x"), TypeError);
+  assert.throws(
+    () => defineDestination("$id", { params: { id: withFallback(numberParam, 1) } }, "x"),
+    /withFallback codecs are search-only/,
+  );
+
+  const docs = defineDestination("docs/$rest[]", { params: { rest: stringParam } }, "docs");
+
+  assert.throws(
+    () => defineDestination("x", { parent: docs }, "x"),
+    /Catchall declarations cannot have children/,
+  );
+
+  // A destination is not a route, and a destination's parent is a destination.
+  const route = defineRoute("orgs/$orgId", { params: { orgId: numberParam } });
+
+  assert.throws(() => routeMetadata(org), /Expected a genuine route from this package instance/);
+  assert.throws(() => defineRoute("child", { parent: org }), /Expected a genuine route/);
+
+  for (const parent of [route, { ...org }, Object.create(org), {}, null]) {
+    assert.throws(
+      () => defineDestination("x", { parent }, "x"),
+      /^TypeError: Expected a genuine destination$/,
+    );
+  }
+
+  for (const value of [route, { ...org }, Object.create(org), {}, null, undefined]) {
+    assert.throws(() => destinationRecord(value), /^TypeError: Expected a genuine destination$/);
+  }
+});
+
+test("a destination, its route copy and the inline declaration create the same URL", () => {
+  const box = { parse: (raw) => ({ raw }), stringify: (value) => value.raw };
+  const cases = [
+    [
+      "teams/$teamId",
+      {
+        params: { teamId: numberParam },
+        search: { z: stringParam, page: withFallback(numberParam, 1) },
+        fragments: ["top"],
+      },
+      { params: { teamId: 7 }, search: { z: "", page: 2 }, fragment: "top" },
+    ],
+    ["docs/$parts[]", { params: { parts: stringParam } }, { params: { parts: ["a b", "(c)"] } }],
+    ["docs/$parts[]", { params: { parts: stringParam } }, { params: { parts: [] } }],
+    ["$id/middle/$id", { params: { id: stringParam } }, { params: { id: "λ/(1)" } }],
+    [
+      "articles",
+      { search: { tag: arrayParam(enumParam(["news", "guides"])), box, on: booleanParam } },
+      { search: { tag: ["news", "news"], box: { raw: "x&y" }, on: false } },
+    ],
+    ["articles", { search: { tag: arrayParam(stringParam) } }, { search: { tag: [] } }],
+    ["", {}, {}],
+  ];
+
+  for (const [path, facts, values] of cases) {
+    const destination = defineDestination(path, facts, path);
+    const copy = routeOf(defineRoute, destination).title("copy");
+    const expected = createUrl(defineRoute(path, facts), values);
+
+    assert.equal(createUrl(destination, values), expected);
+    assert.equal(createUrl(copy, values), expected);
+  }
+
+  // Inherited through a pathless parent, with the same failures as a declaration.
+  const team = defineDestination(
+    "teams/$teamId",
+    { params: { teamId: numberParam }, search: { q: stringParam } },
+    "team",
+  );
+  const layout = defineDestination("", { parent: team }, "layout");
+  const item = defineDestination(
+    "items/$id",
+    { parent: layout, params: { id: numberParam }, search: { score: numberParam } },
+    "item",
+  );
+
+  assert.equal(
+    createUrl(item, { params: { teamId: 1, id: 7 }, search: { score: 3 } }),
+    "/teams/1/items/7?score=3",
+  );
+  assert.equal(
+    createUrl(item, { params: { teamId: 1, id: 7 }, search: { q: "x" } }),
+    "/teams/1/items/7?q=x",
+  );
+  assert.throws(() => createUrl(item, { params: { id: 7 } }), /Missing path value: teamId/);
+  assert.throws(
+    () => createUrl(item, { params: { teamId: 1, id: 7 }, fragment: "x" }),
+    /Fragment must belong to this declaration/,
+  );
+  assert.throws(() => createUrl(layout, { params: { teamId: 1, id: 7 } }), /Unknown path values/);
+
+  for (const fake of [
+    undefined,
+    null,
+    {},
+    { ...item },
+    Object.create(item),
+    { path: "items/$id" },
+  ]) {
+    assert.throws(
+      () => createUrl(fake, {}),
+      /^TypeError: Expected a genuine route or destination from this package instance$/,
+    );
+  }
+});
+
+test("routeOf builds a route copy from its destination and its parent's copy", () => {
+  let parses = 0;
+  const counted = {
+    parse: (raw) => {
+      parses += 1;
+
+      return raw;
+    },
+    stringify: (value) => value,
+  };
+  const team = defineDestination("teams/$teamId", { params: { teamId: counted } }, "team");
+  const item = defineDestination(
+    "items/$id",
+    { parent: team, params: { id: numberParam }, fragments: ["detail"] },
+    "item",
+  );
+  const teamCopy = routeOf(defineRoute, team).resolve({ team: () => 1 });
+  const itemStart = routeOf(defineRoute, item, teamCopy);
+  const itemCopy = itemStart.canActivate([() => true]).title("Item");
+
+  assert.equal(parses, 0);
+  assert.equal(itemCopy.path, "items/$id");
+  assert.deepEqual(Object.keys(itemCopy), ["path"]);
+  assert.equal(Object.isFrozen(itemCopy), true);
+  assert.equal("canActivate" in itemCopy, false);
+  assert.equal(typeof itemStart.canActivate, "function");
+
+  // Every stage keeps the destination, its canonical identity, and the parent copy.
+  for (const stage of [itemStart, itemCopy]) {
+    assert.equal(routeMetadata(stage).destination, item);
+    assert.equal(routeMetadata(stage).parent, teamCopy);
+  }
+
+  assert.equal(routeMetadata(teamCopy).destination, team);
+  assert.equal(routeMetadata(defineRoute("plain", {})).destination, undefined);
+  // URL facts come from the destination.
+  assert.deepEqual(Object.keys(routeMetadata(itemCopy).params), ["teamId", "id"]);
+  assert.deepEqual(routeMetadata(itemCopy).fragments, ["detail"]);
+  assert.equal(
+    createUrl(itemCopy, { params: { teamId: "t", id: 2 }, fragment: "detail" }),
+    "/teams/t/items/2#detail",
+  );
+
+  // A copy is a route, not a destination.
+  assert.throws(() => destinationRecord(itemCopy), /^TypeError: Expected a genuine destination$/);
+  assert.throws(
+    () => defineDestination("x", { parent: itemCopy }, "x"),
+    /^TypeError: Expected a genuine destination$/,
+  );
+  assert.throws(
+    () =>
+      defineRoute("x", {}).redirect({
+        to: itemCopy,
+        search: { mode: "drop" },
+        fragment: { mode: "drop" },
+      }),
+    /^TypeError: Redirect target must be a genuine destination$/,
+  );
+
+  // The parent must be the copy of the destination's parent.
+  const other = defineDestination("other", {}, "other");
+  const otherCopy = routeOf(defineRoute, other);
+
+  for (const parent of [
+    otherCopy,
+    defineRoute("teams/$teamId", { params: { teamId: counted } }),
+    undefined,
+  ]) {
+    assert.throws(
+      () => routeOf(defineRoute, item, parent),
+      /^TypeError: Route copy parent does not match its destination$/,
+    );
+  }
+
+  assert.throws(
+    () => routeOf(defineRoute, other, teamCopy),
+    /^TypeError: Route copy parent does not match its destination$/,
+  );
+  assert.throws(
+    () => routeOf(defineRoute, item, team),
+    /^TypeError: Expected a genuine route from this package instance$/,
+  );
+
+  for (const destination of [itemCopy, { ...item }, Object.create(item), {}, undefined]) {
+    assert.throws(
+      () => routeOf(defineRoute, destination),
+      /^TypeError: Expected a genuine destination$/,
+    );
+  }
+
+  for (const factory of [() => otherCopy, undefined, {}, defineRoute.bind(null)]) {
+    assert.throws(() => routeOf(factory, other), /^TypeError: Expected a route factory$/);
+  }
+});
+
+test("routeOf with an extension factory keeps contributed steps and ancestry", async () => {
+  const { defineRoute: extended } = await fixture();
+  const context = () => ({ user: null });
+  const procedures = ({ query }) => ({ items: { list: query(() => []) } });
+  const parent = defineDestination("parent", {}, "parent");
+  const child = defineDestination("child", { parent }, "child");
+  const leaf = defineDestination("leaf", { parent: child }, "leaf");
+  const parentCopy = routeOf(extended, parent).context(context);
+  const childStart = routeOf(extended, child, parentCopy);
+
+  for (const name of ["context", "use", "procedures", "title"]) {
+    assert.equal(typeof childStart[name], "function", name);
+  }
+
+  const childCopy = childStart.procedures(procedures).title("t");
+  const childSlot = routeMetadata(childCopy).extension;
+
+  assert.deepEqual(childSlot.chain, [{ context }, { procedures }]);
+  assert.equal(childSlot.declared, true);
+  assert.equal(routeContributions(extended, childCopy), childSlot.chain);
+  assert.equal(routeMetadata(childCopy).destination, child);
+
+  // A router copy below forwards the slot, undeclared.
+  const leafCopy = routeOf(defineRoute, leaf, childCopy);
+
+  assert.equal(routeMetadata(leafCopy).extension.chain, childSlot.chain);
+  assert.equal(routeMetadata(leafCopy).extension.declared, false);
+
+  const other = createRouteFactory({ steps: [], input: () => ({}) });
+
+  assert.throws(() => routeOf(other, child, parentCopy), /Route ancestry mixes route extensions/);
+});
+
+test("a destination redirect snapshots its policies and its adapter reads the destination", async () => {
+  await import("@angular/compiler");
+
+  const { Injector, runInInjectionContext } = await import("@angular/core");
+  const { Router } = await import("@angular/router");
+  const { redirect } = await import("@loozo/angular-router/_generated");
+  const org = defineDestination("orgs/$orgId", { params: { orgId: numberParam } }, "org");
+  const layout = defineDestination("", { parent: org }, "layout");
+  const item = defineDestination(
+    "items/$itemId",
+    {
+      parent: layout,
+      params: { itemId: numberParam },
+      search: { q: numberParam },
+      fragments: ["detail"],
+    },
+    "item",
+  );
+  const old = defineDestination(
+    "old/$orgId/$id",
+    { params: { orgId: numberParam, id: numberParam } },
+    "old",
+  );
+  const oldCopy = routeOf(defineRoute, old).redirect({
+    to: item,
+    params: { orgId: "orgId", itemId: "id" },
+    search: { mode: "replace", values: { q: 7 } },
+    fragment: { mode: "replace", value: "detail" },
+  });
+  const snapshot = routeMetadata(oldCopy).config.redirect;
+
+  assert.equal(snapshot.to, item);
+  assert.deepEqual({ ...snapshot.params }, { orgId: "orgId", itemId: "id" });
+  assert.deepEqual(snapshot.search, { mode: "replace", values: { q: 7 } });
+  assert.deepEqual(snapshot.fragment, { mode: "replace", value: "detail" });
+  // Mapping and replacement checks read the destination's URL facts.
+  assert.throws(
+    () =>
+      routeOf(defineRoute, old).redirect({
+        to: item,
+        search: { mode: "drop" },
+        fragment: { mode: "drop" },
+      }),
+    /Cannot forward redirect param: itemId/,
+  );
+  assert.throws(
+    () =>
+      routeOf(defineRoute, old).redirect({
+        to: item,
+        params: { orgId: "orgId", itemId: "id" },
+        search: { mode: "replace", values: { other: 1 } },
+        fragment: { mode: "drop" },
+      }),
+    TypeError,
+  );
+
+  const router = { parseUrl: (url) => ({ url }) };
+  const injector = Injector.create({ providers: [{ provide: Router, useValue: router }] });
+  const tree = runInInjectionContext(injector, () =>
+    redirect(oldCopy)({
+      url: [{ path: "old" }, { path: "6" }, { path: "11" }],
+      queryParams: { dropped: "x" },
+      fragment: "dropped",
+    }),
+  );
+
+  assert.equal(tree.url, "/orgs/6/items/11");
+  assert.deepEqual({ ...tree.queryParams }, { q: "7" });
+  assert.equal(tree.fragment, "detail");
+});
+
+test("generated callbacks and handles run on route copies without a route set", async () => {
+  await import("@angular/compiler");
+
+  const { callbacks, createHandle } = await import("@loozo/angular-router/_generated");
+  const counts = { orgId: 0, itemId: 0 };
+  const counted = (key) => ({
+    parse: (raw) => {
+      counts[key] += 1;
+
+      return Number(raw);
+    },
+    stringify: (value) => String(value),
+  });
+  const org = defineDestination("orgs/$orgId", { params: { orgId: counted("orgId") } }, "org");
+  const layout = defineDestination("", { parent: org }, "layout");
+  const item = defineDestination(
+    "items/$itemId",
+    { parent: layout, params: { itemId: counted("itemId") }, fragments: ["detail"] },
+    "item",
+  );
+  const docs = defineDestination("docs/$rest[]", { params: { rest: stringParam } }, "docs");
+  const seen = [];
+  const orgCopy = routeOf(defineRoute, org)
+    .canActivate([(inputs) => seen.push(["org", inputs])])
+    .canActivateChild([(inputs, child) => seen.push(["orgChild", inputs, child])]);
+  const layoutCopy = routeOf(defineRoute, layout, orgCopy).resolve({ group: () => "g" });
+  const itemResolved = routeOf(defineRoute, item, layoutCopy).resolve({
+    answer: (inputs) => seen.push(["resolve", inputs]),
+  });
+  const itemCopy = itemResolved.canActivate([(inputs) => seen.push(["item", inputs])]);
+
+  // Angular's root record, a hand-written native wrapper without a stamp, then the
+  // generated records.
+  function record(id, paths, parent) {
+    const snapshot = {
+      routeConfig: id === undefined ? null : { data: { __loozoAngularRouterRouteId: id } },
+      url: paths.map((path) => ({ path })),
+      queryParamMap: { getAll: () => [] },
+    };
+
+    snapshot.pathFromRoot = [...(parent?.pathFromRoot ?? []), snapshot];
+
+    return snapshot;
+  }
+
+  const root = record(undefined, []);
+  const wrapper = record(undefined, [], root);
+  const orgRecord = record("org", ["orgs", "4"], wrapper);
+  const layoutRecord = record("layout", [], orgRecord);
+  const itemRecord = record("item", ["items", "8"], layoutRecord);
+
+  callbacks(itemCopy).canActivate[0](itemRecord, {});
+  // An earlier stage of the same copy shares the parse: it's keyed by the destination.
+  callbacks(itemResolved).resolve.answer(itemRecord, {});
+  callbacks(orgCopy).canActivate[0](orgRecord, {});
+  callbacks(orgCopy).canActivateChild[0](itemRecord, {});
+
+  const [item1, resolved, org1, orgChild] = seen;
+
+  assert.deepEqual({ ...item1[1].params }, { orgId: 4, itemId: 8 });
+  assert.equal(resolved[1], item1[1]);
+  assert.deepEqual({ ...org1[1].params }, { orgId: 4 });
+  // canActivateChild reads its declaring record's inputs and gets the native child.
+  assert.equal(orgChild[1], org1[1]);
+  assert.equal(orgChild[2], itemRecord);
+  // One parse per route and snapshot: item's full parse, then org's own.
+  assert.deepEqual(counts, { orgId: 2, itemId: 1 });
+
+  // Ancestry comes from parent links: each parent copy pairs with the nearest stamped
+  // ancestor record, and a missing one fails with that ancestor's id.
+  const orphanLayout = record("layout", [], wrapper);
+  const orphan = record("item", ["items", "9"], orphanLayout);
+
+  assert.throws(
+    () => callbacks(itemCopy).canActivate[0](orphan, {}),
+    /^Error: Generated route ancestor missing: org$/,
+  );
+  assert.throws(
+    () => callbacks(itemCopy).canActivate[0](orgRecord, {}),
+    /^Error: Generated route wiring identity mismatch: item$/,
+  );
+  assert.throws(
+    () => callbacks(defineRoute("plain", {}).title(() => "t")),
+    /^TypeError: Expected a generated route copy$/,
+  );
+
+  // Handles resolve `to` against the copy, its `..` destination and genuine destinations.
+  const router = {
+    parseUrl: (url) => ({ url }),
+    navigateByUrl: (url, options) => Promise.resolve({ url, options }),
+  };
+  const view = { params: null, search: null, data: null, title: null };
+  const handle = createHandle(itemCopy, layout, router, view);
+
+  assert.deepEqual(handle.link({ params: { orgId: 4, itemId: 8 }, fragment: "detail" }), {
+    url: "/orgs/4/items/8#detail",
+  });
+  assert.deepEqual(handle.link({ to: "..", params: { orgId: 4 } }), { url: "/orgs/4" });
+  assert.deepEqual(handle.link({ to: docs, params: { rest: ["a", "b"] } }), { url: "/docs/a/b" });
+  assert.deepEqual(await handle.navigate({ to: org, params: { orgId: 5 }, replaceUrl: true }), {
+    url: "/orgs/5",
+    options: { replaceUrl: true },
+  });
+  assert.throws(
+    () => handle.link({ to: "/orgs/$orgId", params: { orgId: 4 } }),
+    /^TypeError: Unknown generated selector: \/orgs\/\$orgId$/,
+  );
+  assert.throws(
+    () => createHandle(orgCopy, undefined, router, view).link({ to: "..", params: {} }),
+    /^TypeError: Unknown generated selector: \.\.$/,
+  );
+
+  for (const to of [{ ...docs }, Object.create(docs), {}, itemCopy, null]) {
+    assert.throws(
+      () => handle.link({ to, params: { rest: ["a"] } }),
+      /^TypeError: Expected a genuine destination$/,
+    );
+  }
 });

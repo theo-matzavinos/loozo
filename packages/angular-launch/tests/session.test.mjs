@@ -428,7 +428,7 @@ test("direct-dependency, isolated and verbatim modes still reject errors through
   }
 });
 
-test("warm genuine aliases/facades, lookalike/ambient factories, underlying router redirection and fresh suffix resolution", async () => {
+test("warm genuine aliases, lookalike/ambient factories, underlying router redirection and fresh suffix resolution", async () => {
   const root = await fixture();
   const session = createGenerationSession(root, options);
   const rpc = await readFile(resolve(root, "src/routes/left/rpc.ts"), "utf8");
@@ -440,7 +440,9 @@ test("warm genuine aliases/facades, lookalike/ambient factories, underlying rout
     await put(
       root,
       "src/routes/left/route.ts",
-      route.replace("'@loozo/angular-router'", "'./route.generated.js'"),
+      route
+        .replace("{defineRoute}", "{defineRoute as declareRoute}")
+        .replace("default defineRoute", "default declareRoute"),
     );
     await put(
       root,

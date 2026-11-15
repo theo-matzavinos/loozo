@@ -5,8 +5,8 @@ import { RpcNotFound, RpcRedirect } from "./outcomes.js";
 /** Options for {@link rpcNavigationErrors}. */
 export interface RpcNavigationErrorsOptions {
   /**
-   * The root-relative URL of the app's not-found page, such as
-   * `createUrl(notFoundRoute, {})`. It's rendered at the requested URL.
+   * The root-relative URL of the app's not-found page, such as `createUrl(notFound, {})`
+   * with the not-found route's generated `destination`. It's rendered at the requested URL.
    */
   readonly notFound: `/${string}`;
 }
@@ -30,7 +30,7 @@ export interface RpcNavigationErrorsOptions {
  * ```ts
  * provideRouter(
  *   routes,
- *   withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFoundRoute, {}) })),
+ *   withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFound, {}) })),
  * );
  * ```
  *

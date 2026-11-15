@@ -79,6 +79,23 @@ function declaration(file, name) {
   return found;
 }
 
+// Per-route copies declare reserved locals and export them under their public names.
+function exportedLocal(file, name) {
+  for (const statement of file.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.exportClause) {
+      continue;
+    }
+
+    for (const element of statement.exportClause.elements) {
+      if (element.name.text === name) {
+        return (element.propertyName ?? element.name).text;
+      }
+    }
+  }
+
+  return name;
+}
+
 await test("published root declarations retain documentation for every supported export", async () => {
   const consumer = fileURLToPath(new URL("consumer.ts", import.meta.url));
   const program = ts.createProgram([consumer], {
@@ -102,7 +119,7 @@ await test("published root declarations retain documentation for every supported
 
   const exports = checker.getExportsOfModule(root);
 
-  assert.equal(exports.length, 10);
+  assert.equal(exports.length, 14);
 
   const missing = [];
 
@@ -133,12 +150,14 @@ await test("published root declarations retain documentation for every supported
 });
 
 await test("published handle signals and every navigation overload retain documentation", async () => {
-  const file = await source("../dist/types/loozo-angular-router-_generated.d.ts");
-  const handle = declaration(file, "Handle");
-  const destination = declaration(file, "Destination");
+  const generated = await source("../dist/types/loozo-angular-router-_generated.d.ts");
+  const core = await source("../dist/types/loozo-angular-router-_core.d.ts");
+  const handle = declaration(generated, "Handle");
+  const destination = declaration(core, "Destination");
   const missing = [];
 
-  assert.equal(handle.members.length, 12);
+  // params, search, data, title, then link and navigate for this route, ".." and a destination.
+  assert.equal(handle.members.length, 10);
   checkMembers(handle, "Handle", missing);
   checkMembers(destination, "Destination", missing);
   assert.deepEqual(missing, [], "Published handle and destination members need documentation");
@@ -150,23 +169,26 @@ await test("checked-in generated application exports carry documentation", async
     "../../../examples/angular-router/ssr-proof/",
   ]) {
     const routes = await source(`${example}generated/routes.generated.ts`);
-    const facade = await source(`${example}src/routes/+home/route.generated.ts`);
+    const destination = await source(`${example}src/routes/+home/destination.generated.ts`);
+    const copy = await source(`${example}src/routes/+home/route.generated.ts`);
 
     // Variable documentation belongs to the statement, not its declaration node.
     for (const { file, name } of [
       { file: routes, name: "routes" },
-      { file: facade, name: "destination" },
+      { file: destination, name: "destination" },
+      { file: copy, name: "route" },
     ]) {
+      const local = exportedLocal(file, name);
       const statement = file.statements.find(
         (node) =>
           ts.isVariableStatement(node) &&
-          node.declarationList.declarations.some((value) => value.name.getText(file) === name),
+          node.declarationList.declarations.some((value) => value.name.getText(file) === local),
       );
 
       assert.ok(statement, `Missing generated export: ${name}`);
       assert.ok(documented(statement), `Missing documentation for ${name}`);
     }
 
-    declaration(facade, "injectRoute");
+    declaration(copy, exportedLocal(copy, "injectRoute"));
   }
 });

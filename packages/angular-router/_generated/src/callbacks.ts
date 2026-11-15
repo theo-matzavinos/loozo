@@ -14,26 +14,32 @@ import {
   type RedirectFunction,
 } from "@angular/router";
 import { from, isObservable, map, type ObservableInput } from "rxjs";
-import { isArrayCodec, routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
+import {
+  destinationRecord,
+  isArrayCodec,
+  routeMetadata,
+  type AnyRoute,
+  type UrlMetadata,
+} from "@loozo/angular-router/_core";
 import {
   hasIdentity,
   callbackInputs,
   matchingCallbackInputs,
   matchingInputs,
   pathInputs,
+  routeId,
   runPathJobs,
   validateRaw,
   type Job,
-  type RouteSet,
 } from "./inputs.js";
 
 // Parsing is synchronous, so every adapter calls its callback in the same call Angular
 // made: Angular's injection context is still active and inject() works at entry.
 export function callbacks(
-  set: RouteSet,
-  id: string,
+  route: AnyRoute,
 ): Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> {
-  const metadata = routeMetadata(set.records[id].definition());
+  const id = routeId(route);
+  const metadata = routeMetadata(route);
   const config = metadata.config;
   const result: Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> =
     {};
@@ -43,7 +49,7 @@ export function callbacks(
     result.canActivate = activate.map(
       (callback): CanActivateFn =>
         (snapshot, state) =>
-          callback(callbackInputs(set, id, snapshot), snapshot, state),
+          callback(callbackInputs(route, snapshot), snapshot, state),
     );
   }
 
@@ -70,7 +76,7 @@ export function callbacks(
             throw new Error(`Generated guard ancestor missing: ${id}`);
           }
 
-          return callback(callbackInputs(set, id, parent), child, state);
+          return callback(callbackInputs(route, parent), child, state);
         },
     );
   }
@@ -86,13 +92,13 @@ export function callbacks(
   ) {
     const handler = config.onInvalidParams as ((...args: any[]) => unknown) | undefined;
 
-    canMatch.push((route, segments, snapshot) => {
-      const path = pathInputs(set, id, snapshot);
+    canMatch.push((native, segments, snapshot) => {
+      const path = pathInputs(route, snapshot);
 
       if (!("error" in path)) {
         // Search never decides the match, but Angular runs this guard on every navigation,
         // query-only ones included, so a thenable search parse fails it here.
-        matchingInputs(set, id, snapshot);
+        matchingInputs(route, snapshot);
 
         return true;
       }
@@ -101,7 +107,7 @@ export function callbacks(
         return false;
       }
 
-      const decision = handler(path.error, route, segments, snapshot);
+      const decision = handler(path.error, native, segments, snapshot);
 
       if (isObservable(decision) || isPromiseResult(decision)) {
         return from(decision as ObservableInput<unknown>).pipe(map(invalidParamsResult));
@@ -113,15 +119,15 @@ export function callbacks(
 
   if (matching) {
     for (const callback of matching) {
-      canMatch.push((route, segments, snapshot) => {
-        const inputs = matchingCallbackInputs(set, id, snapshot);
+      canMatch.push((native, segments, snapshot) => {
+        const inputs = matchingCallbackInputs(route, snapshot);
 
         // Invalid path params: the generated guard ahead of this one decides.
         if (inputs === undefined) {
           return false;
         }
 
-        return callback(inputs, route, segments, snapshot);
+        return callback(inputs, native, segments, snapshot);
       });
     }
   }
@@ -142,7 +148,7 @@ export function callbacks(
 
     for (const key of Reflect.ownKeys(resolvers)) {
       resolve[key] = (snapshot, state) =>
-        resolvers[key](callbackInputs(set, id, snapshot), snapshot, state);
+        resolvers[key](callbackInputs(route, snapshot), snapshot, state);
     }
 
     result.resolve = resolve;
@@ -155,7 +161,7 @@ export function callbacks(
 
   // Angular runs a title callback as a resolver, so it's adapted like one.
   if (typeof title === "function") {
-    result.title = (snapshot, state) => title(callbackInputs(set, id, snapshot), snapshot, state);
+    result.title = (snapshot, state) => title(callbackInputs(route, snapshot), snapshot, state);
   } else if (title !== undefined) {
     result.title = title;
   }
@@ -176,17 +182,19 @@ function invalidParamsResult(decision: unknown): GuardResult {
   throw new TypeError("onInvalidParams must return false, a UrlTree or a RedirectCommand");
 }
 
-export function redirect(definition: () => AnyRoute): RedirectFunction {
+// Reads the source copy's snapshotted redirect when routes.generated.ts evaluates.
+export function redirect(route: AnyRoute): RedirectFunction {
+  const source = routeMetadata(route);
+  const config = source.config.redirect as {
+    to: unknown;
+    params: Record<string, string>;
+    search: { mode: string; values?: Record<string, unknown> };
+    fragment: { mode: string; value?: string };
+  };
+  const target = destinationRecord(config.to).url;
+
   return (snapshot) => {
     const router = inject(Router);
-    const source = routeMetadata(definition());
-    const config = source.config.redirect as {
-      to: AnyRoute;
-      params: Record<string, string>;
-      search: { mode: string; values?: Record<string, unknown> };
-      fragment: { mode: string; value?: string };
-    };
-    const target = routeMetadata(config.to);
     const raw = new Map<string, { values: string[]; array: boolean }>();
 
     for (let index = 0; index < source.segments.length; index += 1) {
@@ -225,7 +233,7 @@ export function redirect(definition: () => AnyRoute): RedirectFunction {
       params[key] = logical[sourceKey];
     }
 
-    const path = createUrlForPath(config.to, params);
+    const path = createUrlForPath(target, params);
     const replacement: Record<string, string | string[]> = Object.create(null);
 
     if (config.search.mode === "replace") {
@@ -290,8 +298,7 @@ function stringifySearch(
   return raw;
 }
 
-function createUrlForPath(definition: AnyRoute, params: Record<string, unknown>): string {
-  const metadata = routeMetadata(definition);
+function createUrlForPath(metadata: UrlMetadata, params: Record<string, unknown>): string {
   const parts: string[] = [];
 
   function encode(raw: string): string {

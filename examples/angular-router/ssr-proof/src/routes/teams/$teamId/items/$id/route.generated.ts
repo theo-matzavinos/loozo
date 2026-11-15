@@ -1,13 +1,21 @@
-// @loozo/angular-router routegen: owned route.generated.ts
-import { createDestination, injectGeneratedRoute } from '@loozo/angular-router/_generated';
-import { getRouteSet, type Destination, type Handle } from "../../../../../../generated/destinations.generated.js";
-export { defineRoute } from '@loozo/angular-router';
-/**
- * Inert reference to this exact declaration for same-set handle link/navigate calls.
- * No injection context is required; copies and foreign-set references are invalid.
- * This is not an authored route and cannot be passed to the root createUrl function.
- */
-export const destination: Destination<"src/routes/teams/$teamId/items/$id/route.ts"> = /* @__PURE__ */ createDestination(() => getRouteSet(), "src/routes/teams/$teamId/items/$id/route.ts");
+import { inject } from "@angular/core";
+import { defineRoute } from "@loozo/angular-router";
+import { route as team } from "../../route.generated.js";
+import { ItemCatalog } from "../../../../../catalog.js";
+
+/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination, team)
+  .runGuardsAndResolvers("paramsOrQueryParamsChange")
+  .resolve({
+    item: ({ params, search }) => {
+      const catalog = inject(ItemCatalog);
+
+      return catalog({ teamId: params.teamId, id: params.id, score: search.score });
+    },
+  });
+import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
+import { destination as routegen$destination } from "./destination.generated.js";
+import { destination as routegen$up } from "../../destination.generated.js";
+export { routegen$route as route };
 /**
  * Injects a typed handle bound to this exact generated activated route record.
  *
@@ -23,4 +31,6 @@ export const destination: Destination<"src/routes/teams/$teamId/items/$id/route.
  * @throws A synchronous wiring error outside an injection context or when the
  * activated record does not carry this declaration's own generated identity.
  */
-export function injectRoute(): Handle<"src/routes/teams/$teamId/items/$id/route.ts"> { return injectGeneratedRoute(getRouteSet(), "src/routes/teams/$teamId/items/$id/route.ts"); }
+function routegen$injectRoute(): routegen$Handle<typeof routegen$route, typeof routegen$up> { return routegen$injectGeneratedRoute(routegen$route, routegen$up); }
+export { routegen$injectRoute as injectRoute };
+// @loozo/angular-router routegen: owned route.generated.ts

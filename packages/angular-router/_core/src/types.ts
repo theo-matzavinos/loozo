@@ -12,6 +12,7 @@ import type {
 import type { Observable } from "rxjs";
 import type { ParamCodec, CodecValue, HasFallback, IsArray } from "./codecs.js";
 import type { CatchallName } from "./path.js";
+import type { Destination } from "./destination.js";
 
 declare const routeBrand: unique symbol;
 /**
@@ -330,7 +331,7 @@ type Forwardable<Source, Destination> = {
   ? true
   : false;
 /**
- * A typed redirect to a genuine authored declaration, not a concrete URL.
+ * A typed redirect to a genuine destination, not a concrete URL.
  *
  * @remarks
  * Params map destination keys to compatible effective source path keys. Omission
@@ -345,8 +346,8 @@ export type Redirect<
   Target extends AnyRoute,
   SearchKeys extends keyof SearchOf<Target>,
 > = {
-  /** The already constructed target; generation requires a direct default import. */
-  to: Target;
+  /** A destination imported from the target route's `destination.generated.ts`. */
+  to: Destination<Target>;
   /** Explicit query policy: preserve incoming text, drop it, or replace with values. */
   search:
     | {

@@ -1,33 +1,64 @@
 // Regeneration while serving, in its own process: node bench/serve.mjs <consumer> <result.json>
 // <log.json> <options JSON>. Runs the consumer's real router serve target in-process through
 // Architect, then toggles the edited route's title and times each write until (1) the full
-// expected routes.generated.ts is on disk and (2) the served main.js carries the change.
+// expected routes.generated.ts and route copy are on disk and (2) the served main.js carries the
+// change.
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { packageDirectory } from "./consumer.mjs";
+import { generate } from "../node/src/generation/generate.js";
+import { packageDirectory, readWorkspace } from "./consumer.mjs";
 import { editedRoute } from "./fixture.mjs";
 
 const [consumer, resultPath, logPath, optionsJson] = process.argv.slice(2);
 const { edits, timeoutMs, pollMs, settleMs } = JSON.parse(optionsJson);
 const generatedPath = join(consumer, "generated/routes.generated.ts");
+const copyPath = join(consumer, editedRoute.path.replace(/route\.ts$/, "route.generated.ts"));
 const routeId = editedRoute.path;
+const editedPath = join(consumer, editedRoute.path);
 
-// The generated record without a title has no callbacks; with one, the callbacks spread sits
-// between its data and loadComponent. Each edit waits for these exact full-file bytes.
-const withoutTitle = await readFile(generatedPath, "utf8");
+async function readGenerated() {
+  const [routes, copy] = await Promise.all([
+    readFile(generatedPath, "utf8"),
+    readFile(copyPath, "utf8"),
+  ]);
+
+  return { routes, copy };
+}
+
+function sameGenerated(left, right) {
+  return left.routes === right.routes && left.copy === right.copy;
+}
+
+// A title edit changes two files: the route copy gains its .title step, and routes.generated.ts
+// imports that copy and spreads its callbacks into the record. Each edit waits for the exact bytes
+// of both, which the generator itself writes here once each way, outside every timed window.
+const { tsconfig, scanDirectories, outDirectory } = (await readWorkspace(consumer)).projects.proof
+  .architect.build.options;
+const withoutTitle = await readGenerated();
 const anchor = `data: { __loozoAngularRouterRouteId: ${JSON.stringify(routeId)} },\nloadComponent:`;
 
-if (withoutTitle.split(anchor).length !== 2) {
+if (withoutTitle.routes.split(anchor).length !== 2) {
   throw new Error(`Expected exactly one title-less record for ${routeId} in ${generatedPath}`);
 }
 
-const withTitle = withoutTitle.replace(
-  anchor,
-  `data: { __loozoAngularRouterRouteId: ${JSON.stringify(routeId)} },\n...callbacks(getRouteSet(), ${JSON.stringify(routeId)}),\nloadComponent:`,
-);
+await writeFile(editedPath, editedRoute.source(true));
+await generate(consumer, { tsconfig, scanDirectories, outDirectory }, () => false);
+
+const withTitle = await readGenerated();
+
+await writeFile(editedPath, editedRoute.source(false));
+await generate(consumer, { tsconfig, scanDirectories, outDirectory }, () => false);
+
+if (!sameGenerated(await readGenerated(), withoutTitle)) {
+  throw new Error("Generating the title-less route again changed its generated files");
+}
+
+if (withTitle.routes.includes(anchor) || !withTitle.copy.includes(".title(")) {
+  throw new Error(`The title edit did not reach ${routeId}'s record and copy`);
+}
 
 // Served code may lower the object spread to __spreadValues/__spreadProps, so the probe takes the
 // record's text from its id to the next loadComponent and looks for a callbacks call in it.
@@ -101,26 +132,27 @@ async function waitFor(label, predicate) {
   throw new Error(`Timed out after ${timeoutMs / 1000} s waiting for ${label}`);
 }
 
-// Waits for the exact expected bytes. Content that is neither the previous nor the expected bytes
-// may be a write in progress; seen unchanged a second later, it's wrong output and fails the run.
+// Waits for the exact expected bytes of both files. Content that is neither the previous nor the
+// expected bytes may be a write in progress (the two files are written one after the other); seen
+// unchanged a second later, it's wrong output and fails the run.
 async function waitForGenerated(previous, expected) {
   let unexpected;
   let unexpectedSince = 0;
 
-  await waitFor("routes.generated.ts", async () => {
-    const current = await readFile(generatedPath, "utf8");
+  await waitFor("the generated files", async () => {
+    const current = await readGenerated();
 
-    if (current === expected) {
+    if (sameGenerated(current, expected)) {
       return true;
     }
 
-    if (current === previous) {
+    if (sameGenerated(current, previous)) {
       unexpected = undefined;
 
       return false;
     }
 
-    if (current !== unexpected) {
+    if (unexpected === undefined || !sameGenerated(current, unexpected)) {
       unexpected = current;
       unexpectedSince = performance.now();
 
@@ -128,10 +160,10 @@ async function waitForGenerated(previous, expected) {
     }
 
     if (performance.now() - unexpectedSince >= 1000) {
-      const evidence = `${resultPath}.unexpected-routes.generated.ts`;
+      const evidence = `${resultPath}.unexpected-generated.json`;
 
-      await writeFile(evidence, current);
-      throw new Error(`routes.generated.ts settled on unexpected bytes, saved to ${evidence}`);
+      await writeFile(evidence, JSON.stringify(current, null, 2));
+      throw new Error(`The generated files settled on unexpected bytes, saved to ${evidence}`);
     }
 
     return false;
@@ -159,7 +191,16 @@ const result = {
   routeId,
   pollMs,
   settleMs,
-  bytes: { withoutTitle: Buffer.byteLength(withoutTitle), withTitle: Buffer.byteLength(withTitle) },
+  bytes: {
+    withoutTitle: {
+      routes: Buffer.byteLength(withoutTitle.routes),
+      copy: Buffer.byteLength(withoutTitle.copy),
+    },
+    withTitle: {
+      routes: Buffer.byteLength(withTitle.routes),
+      copy: Buffer.byteLength(withTitle.copy),
+    },
+  },
   edits: [],
 };
 let run;
@@ -167,8 +208,6 @@ let subscription;
 let failure;
 
 try {
-  await writeFile(join(consumer, editedRoute.path), editedRoute.source(false));
-
   const startup = performance.now();
 
   run = await architect.scheduleTarget({ project: "proof", target: "serve" }, {}, { logger });
@@ -203,15 +242,15 @@ try {
       expected = withTitle;
     }
 
-    const before = await readFile(generatedPath, "utf8");
+    const before = await readGenerated();
 
-    if (before !== previous) {
-      throw new Error(`routes.generated.ts changed before edit ${index + 1}`);
+    if (!sameGenerated(before, previous)) {
+      throw new Error(`The generated files changed before edit ${index + 1}`);
     }
 
     const started = performance.now();
 
-    await writeFile(join(consumer, editedRoute.path), editedRoute.source(title));
+    await writeFile(editedPath, editedRoute.source(title));
     await waitForGenerated(previous, expected);
 
     const generatedMs = performance.now() - started;
@@ -227,8 +266,8 @@ try {
       title,
       generatedMs,
       servedMs,
-      before: { bytes: Buffer.byteLength(before), sha256: sha256(before) },
-      after: { bytes: Buffer.byteLength(expected), sha256: sha256(expected) },
+      before: { routes: sha256(before.routes), copy: sha256(before.copy) },
+      after: { routes: sha256(expected.routes), copy: sha256(expected.copy) },
     };
 
     result.edits.push(edit);

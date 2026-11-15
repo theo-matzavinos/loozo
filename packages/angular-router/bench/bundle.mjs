@@ -9,7 +9,9 @@ import { join } from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { readWorkspace } from "./consumer.mjs";
 
-const routeTables = /(?:^|\/)generated\/(?:routes|destinations)\.generated\.ts$/;
+// Generated route code: the shared tables and every route's destination and route copy.
+const routeTables =
+  /(?:^|\/)generated\/(?:routes|destinations)\.generated\.ts$|(?:^|\/)(?:destination|route)\.generated\.ts$/;
 
 function total(files) {
   const sum = { files: 0, raw: 0, gzip: 0, brotli: 0 };

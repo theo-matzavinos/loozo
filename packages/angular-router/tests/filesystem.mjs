@@ -258,7 +258,7 @@ await write("src/routes/files/$parts[]/page.ts", page("files"));
 
 const team = `// Keep this header and the exact codec/data expressions.
 import { defineRoute, numberParam } from "@loozo/angular-router";
-export const marker = { untouched: "bytes" };
+const marker = { untouched: "bytes" };
 export default defineRoute('$team', { params: { team: numberParam /* custom numeric codec */ } }).data(marker);\n`;
 
 await write("src/routes/teams/$team/named-definition.ts", team);
@@ -274,7 +274,7 @@ import { legacy } from "../../legacy.js"; // keep this trailing comment
 import { defineRoute } from "@loozo/angular-router";
 // @ts-expect-error Keep this directive attached to the following statement too.
 const suppressed: number = "retained";
-export const unrelated = legacy;
+void legacy;
 export default defineRoute("trivia", {}).data({ suppressed });
 `;
 
@@ -352,6 +352,7 @@ assert.equal(
 );
 assert.equal(await exists("src/routes/-tools/route.ts"), false);
 assert.equal(await exists("src/routes/-tools/route.generated.ts"), false);
+assert.equal(await exists("src/routes/-tools/destination.generated.ts"), false);
 assert.equal(await exists("src/routes/unused/route.ts"), false);
 assert.equal(await exists("src/routes/empty/route.ts"), false);
 // Page-less directories contribute their segment to the records below them.
@@ -460,7 +461,7 @@ await expectBuild();
 const rootSource = `// Keep root trivia, including commas inside comments.
 import { defineRoute } from "@loozo/angular-router";
 import previous from "./home/route.js";
-export const marker = { untouched: "root bytes" };
+const marker = { untouched: "root bytes" };
 export default defineRoute("configured-root", { fragments: ["top"] /* comma, retained */, parent: previous /* parent comment, retained */ }).data(marker);\n`;
 
 await write("src/routes/route.ts", rootSource);
@@ -484,7 +485,7 @@ await write("tsconfig.routes.json", JSON.stringify(noUnused));
 for (const binding of ["previous", "parent"]) {
   const rootExplicitParent = `import { defineRoute } from "@loozo/angular-router";
 import ${binding} from "./home/route.js";
-export const keyOnly = { ${binding}: "key" }.${binding};
+void { ${binding}: "key" }.${binding};
 export default defineRoute("configured-root", { parent: ${binding} });
 `;
 
@@ -500,18 +501,18 @@ export default defineRoute("configured-root", { parent: ${binding} });
   );
 }
 
+// A shorthand value reference keeps the imported binding, so the root would keep importing its
+// child's route.ts: only a parent may be imported, so nothing is written.
 const rootShorthand = `import { defineRoute } from "@loozo/angular-router";
 import parent from "./home/route.js";
-export const shared = { parent };
+void { parent };
 export default defineRoute("configured-root", { parent: parent });
 `;
 
 await write("src/routes/route.ts", rootShorthand);
-await expectBuild();
-assert.equal(
-  await read("src/routes/route.ts"),
-  rootShorthand.replace('"configured-root"', '""').replace("parent: parent", ""),
-  "Shorthand value references must keep the unrelated imported binding",
+await preflight(
+  "shorthand reference keeps a child import",
+  /routes[\\/]+route\.ts:2:\d+: Import of a route declaration: \.\/home\/route\.js\./,
 );
 await write("tsconfig.routes.json", rootConfig);
 await write("src/routes/route.ts", repairedRoot);
@@ -660,7 +661,8 @@ await rename(
 );
 await expectBuild();
 assert.equal(await exists("src/routes/home/route.ts"), false);
-assert.match(await read("src/routes/home/route.generated.ts"), /home\/handwritten.ts/);
+// The declaration's id, its path, is part of its destination.
+assert.match(await read("src/routes/home/destination.generated.ts"), /home\/handwritten.ts/);
 
 // Native strict generated-consumer types: inherited numeric/custom and local defaults.
 await write(
@@ -706,22 +708,26 @@ assert.equal(
 );
 assert.match(await read("src/routes/+layout/renamed/route.ts"), /defineRoute\("renamed",/);
 
-// Reparent while keeping an old import's unrelated uses intact.
+// Reparenting with an unrelated use of the old parent import would keep importing a route that
+// is no longer the parent, which only a parent import may do: nothing is written.
 const flat = await read("src/routes/-tools/flat/route.ts");
 
-await write("src/routes/-tools/flat/route.ts", `${flat}\nexport const unrelated = parent;\n`);
+await write("src/routes/-tools/flat/route.ts", `${flat}\nvoid parent;\n`);
 await rename(join(fixture, "src/routes/-tools/flat"), join(fixture, "src/routes/+layout/moved"));
+await preflight(
+  "reparent keeps a former parent import",
+  /moved[\\/]+route\.ts:\d+:\d+: Import of a route declaration: \.\.\/\.\.\/route\.js\./,
+);
+await write("src/routes/+layout/moved/route.ts", flat);
 await expectBuild();
 
 const reparented = await read("src/routes/+layout/moved/route.ts");
 
-assert.match(reparented, /import parent from "\.\.\/\.\.\/route.js"/);
-assert.match(reparented, /export const unrelated = parent;/);
-assert.match(reparented, /parent: filesystemParent/);
-assert.match(reparented, /import filesystemParent from "\.\.\/route.js"/);
+assert.match(reparented, /import parent from "\.\.\/route\.js"/);
+assert.doesNotMatch(reparented, /\.\.\/\.\.\/route\.js/);
 
 const renamed = await read("src/routes/+layout/renamed/route.ts");
-const sharedParent = `${renamed}\nexport const sameParent = parent;\n`;
+const sharedParent = `${renamed}\nvoid parent;\n`;
 
 await write("src/routes/+layout/renamed/route.ts", sharedParent);
 await rm(join(fixture, "src/routes/+layout/route.ts"));
@@ -890,7 +896,7 @@ await write(
   "src/routes/stale/definition.ts",
   `import { defineRoute } from "@loozo/angular-router";
 import previous from "../missing.js";
-export const unrelated = previous;
+void previous;
 export default defineRoute("stale", { parent: previous });\n`,
 );
 await write("src/routes/stale/page.ts", page("stale"));
@@ -1154,9 +1160,10 @@ await expectBuild();
 
 // Missing/changed generated drift is read-only, then repair converges without source rewrites.
 await rm(join(fixture, "generated/destinations.generated.ts"));
+// The ownership marker stays the last line, so the copy is still owned, just changed.
 await write(
   "src/routes/home/route.generated.ts",
-  `${await read("src/routes/home/route.generated.ts")}\n// drift\n`,
+  `// drift\n${await read("src/routes/home/route.generated.ts")}`,
 );
 
 const drift = await snapshot();
@@ -1238,6 +1245,8 @@ try {
     "Native server did not consume new route",
   );
   await rendered("watched", "watched");
+  assert.equal(await exists("src/routes/watched/destination.generated.ts"), true);
+  assert.equal(await exists("src/routes/watched/route.generated.ts"), true);
 
   await rename(join(fixture, "src/routes/watched"), join(fixture, "src/routes/changed"));
   await waitFor(
@@ -1250,6 +1259,12 @@ try {
     "Native server did not consume renamed route",
   );
   await rendered("changed", "watched");
+  // Both per-route files move with the declaration and follow its new path.
+  assert.match(
+    await read("src/routes/changed/destination.generated.ts"),
+    /routegen\$defineDestination\("changed", /,
+  );
+  assert.equal(await exists("src/routes/changed/route.generated.ts"), true);
 
   await write("src/routes/Items/page.ts", page("cased"));
   await waitFor(

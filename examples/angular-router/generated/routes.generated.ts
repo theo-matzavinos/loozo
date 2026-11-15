@@ -8,4 +8,4 @@ import type { Routes } from '@angular/router';
 export const routes: Routes = [{ path: "",
 pathMatch: 'full',
 data: { __loozoAngularRouterRouteId: "src/routes/+home/route.ts" },
-loadComponent: () => import("../src/routes/+home/page") }];
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/+home/page") }];

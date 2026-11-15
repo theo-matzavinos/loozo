@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { spawnSync } from "node:child_process";
 
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
@@ -17,7 +18,8 @@ await cp(join(repository, "examples/angular-router"), fixture, {
   recursive: true,
   filter: (path) =>
     !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&
-    !path.endsWith("route.generated.ts"),
+    !path.endsWith("route.generated.ts") &&
+    !path.endsWith("destination.generated.ts"),
 });
 
 // These fixtures author paths and parents by hand, so they opt out of filesystem mode.
@@ -148,6 +150,11 @@ const definitions = {
   old: "defineRoute('old', {})",
   alias:
     "defineRoute('alias/$id', { parent: old, params: { id: numberParam } }).redirect({ to: optional, search: { mode: 'replace', values: { label: 'aliased' } }, fragment: { mode: 'drop' } })",
+  // A redirect source is /legacy's only route, so it is legacyPage's ".." winner.
+  legacy: "defineRoute('legacy', {})",
+  legacyIndex:
+    "defineRoute('', { parent: legacy }).redirect({ to: plain, search: { mode: 'drop' }, fragment: { mode: 'drop' } })",
+  legacyPage: "defineRoute('page', { parent: legacy })",
 };
 const parents = {
   middle: "scope",
@@ -157,7 +164,30 @@ const parents = {
   twin: "nonleaf",
   deep: "twin",
   alias: "old",
+  legacyIndex: "legacy",
+  legacyPage: "legacy",
 };
+const redirectTargets = { alias: "optional", legacyIndex: "plain" };
+// A page that exposes its handle, for the ".." cases each origin has to show itself.
+const probe = (name) => `import { Component, inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { injectRoute } from './route.generated.js';
+@Component({ template: '<p data-probe="${name}">${name}</p>' })
+export default class Probe {
+  readonly route = injectRoute();
+  readonly router = inject(Router);
+  constructor() {
+    const h = this.route;
+    const router = this.router;
+    (window as any).probes = {
+      ...(window as any).probes,
+      ${name}: {
+        link: (...args: any[]) => router.serializeUrl((h.link as any)(...args)),
+        navigate: (...args: any[]) => (h.navigate as any)(...args),
+      },
+    };
+  }
+}\n`;
 
 for (const [name, expression] of Object.entries(definitions)) {
   let imports =
@@ -167,13 +197,17 @@ for (const [name, expression] of Object.entries(definitions)) {
     imports += `import ${parents[name]} from '../${parents[name]}/definition.js';\n`;
   }
 
-  if (name === "alias") {
-    imports += "import optional from '../optional/definition.js';\n";
+  if (redirectTargets[name]) {
+    const target = redirectTargets[name];
+
+    imports += `import { destination as ${target} } from '../${target}/destination.generated.js';\n`;
   }
 
   await write(`src/routes/${name}/definition.ts`, `${imports}export default ${expression};\n`);
 
-  if (!["middle", "twin", "old", "alias"].includes(name)) {
+  if (["docs", "deep", "legacyPage"].includes(name)) {
+    await write(`src/routes/${name}/page.ts`, probe(name));
+  } else if (!["middle", "twin", "old", "alias", "legacy", "legacyIndex"].includes(name)) {
     await write(`src/routes/${name}/page.ts`, page);
   }
 }
@@ -196,40 +230,75 @@ await write(
 );
 await build();
 
-// A byte-identical generated module copy is a distinct set, not a hash/ID singleton.
-await cp(join(fixture, "src"), join(fixture, "foreign/src"), { recursive: true });
-await cp(join(fixture, "generated"), join(fixture, "foreign/generated"), { recursive: true });
+// A second tree generated on its own from the same declaration source: per-route files are
+// colocated, so it is its own source subtree with its own tsconfig and output. Its destinations
+// are genuine and carry the same ids, but they are other objects.
+await write(
+  "foreign/src/routes/scope/definition.ts",
+  await readFile(join(fixture, "src/routes/scope/definition.ts"), "utf8"),
+);
+await write("foreign/src/routes/scope/page.ts", page);
+await write(
+  "foreign/tsconfig.routes.json",
+  JSON.stringify({ extends: "../tsconfig.app.json", files: [], include: ["src/**/*.ts"] }),
+);
+
+const { generate } = await import(
+  pathToFileURL(join(packageDirectory, "node/src/generation/generate.js")).href
+);
+
+await generate(
+  join(fixture, "foreign"),
+  {
+    tsconfig: "tsconfig.routes.json",
+    scanDirectories: ["src/routes"],
+    outDirectory: "generated",
+    autoDefineRoutes: false,
+    check: false,
+  },
+  () => false,
+);
 assert.deepEqual(
-  await readFile(join(fixture, "generated/destinations.generated.ts")),
-  await readFile(join(fixture, "foreign/generated/destinations.generated.ts")),
+  await readFile(join(fixture, "src/routes/scope/destination.generated.ts")),
+  await readFile(join(fixture, "foreign/src/routes/scope/destination.generated.ts")),
 );
 
 const types = `import { type Signal } from '@angular/core';
 import { type UrlTree } from '@angular/router';
+import { defineRoute, stringParam } from '@loozo/angular-router';
 import { injectRoute as multiRoute } from './routes/multi/route.generated.js';
-import { injectRoute as scopeRoute, destination as scope } from './routes/scope/route.generated.js';
-import { destination as terminal } from './routes/terminal/route.generated.js';
-import { destination as middle } from './routes/middle/route.generated.js';
-import { destination as nonleaf } from './routes/nonleaf/route.generated.js';
-import { destination as twin } from './routes/twin/route.generated.js';
+import { injectRoute as scopeRoute } from './routes/scope/route.generated.js';
+import { destination as scope } from './routes/scope/destination.generated.js';
+import { destination as terminal } from './routes/terminal/destination.generated.js';
+import { destination as middle } from './routes/middle/destination.generated.js';
+import { destination as nonleaf } from './routes/nonleaf/destination.generated.js';
+import { destination as twin } from './routes/twin/destination.generated.js';
 import { injectRoute as docsRoute } from './routes/docs/route.generated.js';
+import { destination as docsDestination } from './routes/docs/destination.generated.js';
 import { injectRoute as deepRoute } from './routes/deep/route.generated.js';
-import { injectRoute as optionalRoute, destination as optional } from './routes/optional/route.generated.js';
-import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
-import definition from './routes/scope/definition.js';
+import { injectRoute as optionalRoute } from './routes/optional/route.generated.js';
+import { destination as optional } from './routes/optional/destination.generated.js';
+import { destination as enumKind } from './routes/enum/destination.generated.js';
+import { destination as alias } from './routes/alias/destination.generated.js';
+import { destination as weird } from './routes/weird/destination.generated.js';
+import { destination as foreign } from '../foreign/src/routes/scope/destination.generated.js';
 import { type NavigationBehaviorOptions } from '@angular/router';
-import { injectRoute as productsRoute, destination as products } from './routes/products/route.generated.js';
-import { injectRoute as plainRoute, destination as plain } from './routes/plain/route.generated.js';
-import { destination as item } from './routes/item/route.generated.js';
+import { injectRoute as productsRoute } from './routes/products/route.generated.js';
+import { destination as products } from './routes/products/destination.generated.js';
+import { injectRoute as plainRoute } from './routes/plain/route.generated.js';
+import { destination as plain } from './routes/plain/destination.generated.js';
+import { destination as item } from './routes/item/destination.generated.js';
+// A declaration made in place: createUrl takes it, but it is not a destination.
+const definition = defineRoute('scope/$scopeId', { params: { scopeId: stringParam } });
 const h = multiRoute();
-const link: UrlTree = h.link({ to: '/enum/$kind', params: { kind: 'a' } });
-const nativePromise: Promise<boolean> = h.navigate({ to: '/' });
+const link: UrlTree = h.link({ to: enumKind, params: { kind: 'a' } });
+const nativePromise: Promise<boolean> = h.navigate({ to: plain });
 // The parent route: the pathless parent shares /scope/$scopeId, so .. selects that path's canonical terminal.
 h.link({ to: '..', params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'leaf' });
 h.navigate({ to: '..', params: { scopeId: 'x' } });
-h.link({ to: '/docs/$parts[]', params: { parts: [] } });
-h.link({ to: '/old/alias/$id', params: { id: 1 } });
-h.link({ to: '/literal?/#' });
+h.link({ to: docsDestination, params: { parts: [] } });
+h.link({ to: alias, params: { id: 1 } });
+h.link({ to: weird });
 h.link({ to: scope, params: { scopeId: 'x' }, fragment: 'own' });
 h.link({ to: terminal, params: { scopeId: 'x' }, search: { leaf: 'a' } });
 const middleVariable = middle;
@@ -304,7 +373,7 @@ const opt = optionalRoute();
 opt.link({ params: { id: 1 }, search: { label: 'x' } });
 opt.link({ params: { id: 1 }, search: { label: '', constructor: 2, toString: 3, valueOf: '' }, fragment: 'summary' });
 h.link({ to: optional, params: { id: 1 }, search: { label: 'x', constructor: 2 } });
-h.link({ to: '/optional/$id', params: { id: 1 }, search: { label: undefined } });
+h.link({ to: optional, params: { id: 1 }, search: { label: undefined } });
 // Every search key may be omitted.
 h.link({ to: optional, params: { id: 1 } });
 const optionalSearch: { readonly label?: string; readonly toString?: number } = opt.search();
@@ -323,24 +392,20 @@ h.params.set({ scopeId: 'x', projectId: 'p' });
 h.params.hasValue();
 // @ts-expect-error supplied prototype key retains numeric type
 opt.link({ params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
-// @ts-expect-error supplied prototype key retains numeric type through selected string
-h.link({ to: '/optional/$id', params: { id: 1 }, search: { label: 'x', toString: 'bad' } });
 // @ts-expect-error supplied prototype key retains numeric type through ref
 h.link({ to: optional, params: { id: 1 }, search: { label: 'x', constructor: 'bad' } });
 // @ts-expect-error a supplied search value keeps its codec type
 h.link({ to: optional, params: { id: 1 }, search: { label: null } });
 // @ts-expect-error required target path values explicit
-h.link({ to: '/enum/$kind' });
-// @ts-expect-error values cannot widen selected enum
-h.link({ to: '/enum/$kind', params: { kind: 'c' } });
+h.link({ to: enumKind });
+// @ts-expect-error values cannot widen the target's enum
+h.link({ to: enumKind, params: { kind: 'c' } });
 // @ts-expect-error unknown params
-h.link({ to: '/enum/$kind', params: { kind: 'a', extra: 1 } });
+h.link({ to: enumKind, params: { kind: 'a', extra: 1 } });
 // @ts-expect-error unknown option
-h.link({ to: '/enum/$kind', params: { kind: 'a' }, extra: 1 });
+h.link({ to: enumKind, params: { kind: 'a' }, extra: 1 });
 // @ts-expect-error wrong fragment target
 h.link({ to: terminal, params: { scopeId: 'x' }, search: { leaf: 'a' }, fragment: 'own' });
-// @ts-expect-error canonical terminal, not exact scope: only scope declares 'own'
-own.link({ to: '/scope/$scopeId', params: { scopeId: 'x' }, fragment: 'own' });
 // @ts-expect-error parent values are the parent's
 h.link({ to: '..', params: { scopeId: 'x', projectId: 'p' } });
 // @ts-expect-error .. is the only relative selector
@@ -355,12 +420,8 @@ h.link({ to: '../projects/$projectId/detail', params: { scopeId: 'x', projectId:
 h.link({ to: '../../../../../../' });
 // @ts-expect-error the parent path /unresolved has no destination
 deepRoute().link({ to: '..' });
-// @ts-expect-error unresolved shared path
-h.link({ to: '/unresolved' });
-// @ts-expect-error pruned owner not destination
-h.link({ to: '/old' });
-// @ts-expect-error concrete substitution
-h.link({ to: '/enum/a', params: { kind: 'a' } });
+// @ts-expect-error a route's path is not a target: import its destination
+h.link({ to: '/enum/$kind', params: { kind: 'a' } });
 // @ts-expect-error unknown literal
 h.link({ to: '/unknown' });
 declare const wide: string;
@@ -372,28 +433,28 @@ h.link({ to: union, params: { kind: 'a' } });
 declare const unionReference: typeof scope | typeof terminal;
 // @ts-expect-error reference selector union forbidden
 h.link({ to: unionReference, params: { scopeId: 'x' }, search: { leaf: 'a' } });
-// @ts-expect-error raw declaration not generated reference
+// @ts-expect-error a declaration is not a destination
 h.link({ to: definition, params: { scopeId: 'x' } });
 // @ts-expect-error injected handle not reference
 h.link({ to: own, params: { scopeId: 'x' } });
 // @ts-expect-error fake ref
 h.link({ to: {} });
-// @ts-expect-error foreign static set identity, despite identical bytes/schema
+// Another tree's destination is genuine: its URL comes from its own facts.
 h.link({ to: foreign, params: { scopeId: 'x' } });
-h.navigate({ to: '/', replaceUrl: true });
+h.navigate({ to: plain, replaceUrl: true });
 // @ts-expect-error a single record, no second argument
-h.navigate({ to: '/' }, { replaceUrl: true });
+h.navigate({ to: plain }, { replaceUrl: true });
 // @ts-expect-error no implicit reuse
 h.navigate({ params: { projectId: 'p' } });
 // @ts-expect-error invalid relative suffix even with complete values
 h.link({ to: '../../../projects//$projectId/detail', params: { scopeId: 'x', projectId: 'p' } });
-// @ts-expect-error static ?/# only absolute
+// @ts-expect-error no relative paths
 h.link({ to: '../../../../../literal?/#' });
 // @ts-expect-error mixed traversal
 h.link({ to: './../' });
 const docs = docsRoute();
 docs.link({ params: { parts: ['a/b'] } });
-docs.link({ to: '/' });
+docs.link({ to: plain });
 // A catchall route's parent is its parent route's path, here the root.
 docs.link({ to: '..' });
 // @ts-expect-error parent values are the parent's
@@ -411,8 +472,8 @@ f.navigate({ search: { q, page: undefined }, replaceUrl: true, state: { from: 'f
 f.navigate({ replaceUrl: true });
 f.navigate({});
 f.navigate({ search: {}, skipLocationChange: true });
-f.navigate({ to: '/products', search: { q }, replaceUrl: true });
-f.navigate({ to: '/items/$id', params: { id: 1 }, replaceUrl: true });
+f.navigate({ to: products, search: { q }, replaceUrl: true });
+f.navigate({ to: item, params: { id: 1 }, replaceUrl: true });
 f.navigate({ to: item, params: { id: 1 }, fragment: 'top', onSameUrlNavigation: 'reload' });
 f.navigate({ to: products, scroll: 'manual' });
 f.navigate({ search: { q }, browserUrl: '/shown' });
@@ -457,8 +518,8 @@ f.navigate({ to: '..', search: { q } });
 f.link({ search: { q }, replaceUrl: true });
 // @ts-expect-error link takes no navigation options after a selector
 f.link({ to: item, params: { id: 1 }, state: {} });
-// @ts-expect-error link takes no navigation options after a literal selector
-f.link({ to: '/products', skipLocationChange: true });
+// @ts-expect-error link takes no navigation options after its own destination
+f.link({ to: products, skipLocationChange: true });
 // @ts-expect-error link takes no navigation options after ..
 p.link({ to: '..', replaceUrl: true });
 // @ts-expect-error link takes no second argument
@@ -489,11 +550,13 @@ await write("src/type-proof.ts", types);
 await write(
   "src/active-type-proof.ts",
   `import { injectActiveRoute } from '../generated/destinations.generated.js';
-import { destination as scope } from './routes/scope/route.generated.js';
-import { destination as multi } from './routes/multi/route.generated.js';
-import { destination as item } from './routes/item/route.generated.js';
-import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
-import definition from './routes/scope/definition.js';
+import { defineRoute, stringParam } from '@loozo/angular-router';
+import { destination as scope } from './routes/scope/destination.generated.js';
+import { destination as multi } from './routes/multi/destination.generated.js';
+import { destination as item } from './routes/item/destination.generated.js';
+import { destination as foreign } from '../foreign/src/routes/scope/destination.generated.js';
+
+const definition = defineRoute('scope/$scopeId', { params: { scopeId: stringParam } });
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 
@@ -520,13 +583,12 @@ active()?.chain.find((parent) => parent.is(scope))?.link({ params: { scopeId: 'x
 active()?.link({ to: item, params: { id: 1 } });
 // @ts-expect-error navigate needs is() first
 void active()?.navigate({ to: item, params: { id: 1 } });
-// @ts-expect-error a foreign set's destination
-active()?.is(foreign);
-// @ts-expect-error a foreign set's destination
-active()?.contains(foreign);
+// Another tree's destination is a destination; at runtime it is never this tree's route.
+const foreignIs: boolean = active()?.is(foreign) ?? false;
+const foreignContained: boolean = active()?.contains(foreign) ?? false;
 // @ts-expect-error a declaration is not a destination
 active()?.is(definition);
-// @ts-expect-error params before narrowing are the union of the set's params
+// @ts-expect-error params before narrowing are the union of the tree's params
 active()?.params().projectId;
 if (route?.contains(multi)) {
   // @ts-expect-error contains does not narrow
@@ -541,11 +603,18 @@ active.set(undefined);
 
 const driver = `import { Component, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { defineRoute, stringParam } from '@loozo/angular-router';
 import { injectRoute } from './route.generated.js';
-import { destination as scope } from '../scope/route.generated.js';
-import { destination as terminal } from '../terminal/route.generated.js';
-import { destination as foreign } from '../../../foreign/src/routes/scope/route.generated.js';
-import definition from '../scope/definition.js';
+import { destination as scope } from '../scope/destination.generated.js';
+import { destination as terminal } from '../terminal/destination.generated.js';
+import { destination as enumKind } from '../enum/destination.generated.js';
+import { destination as optional } from '../optional/destination.generated.js';
+import { destination as docs } from '../docs/destination.generated.js';
+import { destination as alias } from '../alias/destination.generated.js';
+import { destination as weird } from '../weird/destination.generated.js';
+import { destination as plain } from '../plain/destination.generated.js';
+import { destination as foreign } from '../../../foreign/src/routes/scope/destination.generated.js';
+const definition = defineRoute('scope/$scopeId', { params: { scopeId: stringParam } });
 @Component({ imports: [RouterLink], template: '<p data-navigation="ready">navigation</p><a id="typed" [routerLink]="route.link(target)">scope</a>' })
 export default class Multi {
   readonly route = injectRoute();
@@ -571,7 +640,7 @@ export default class Multi {
         const result = (h.navigate as any)(...args);
         return { same: result === calls.promise, result };
       },
-      references: { scope, terminal, foreign, definition, handle: h },
+      references: { scope, terminal, enumKind, optional, docs, alias, weird, plain, foreign, definition, handle: h },
       ready: () => h.params().projectId === 'p',
     };
   }
@@ -583,13 +652,16 @@ await write(
   "src/shell.ts",
   `import { Component, inject } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
+import { defineRoute, stringParam } from '@loozo/angular-router';
 import { injectActiveRoute } from '../generated/destinations.generated.js';
-import { destination as scope } from './routes/scope/route.generated.js';
-import { destination as middle } from './routes/middle/route.generated.js';
-import { destination as multi } from './routes/multi/route.generated.js';
-import { destination as item } from './routes/item/route.generated.js';
-import { destination as foreign } from '../foreign/src/routes/scope/route.generated.js';
-import definition from './routes/scope/definition.js';
+import { destination as scope } from './routes/scope/destination.generated.js';
+import { route as scopeCopy } from './routes/scope/route.generated.js';
+import { destination as middle } from './routes/middle/destination.generated.js';
+import { destination as multi } from './routes/multi/destination.generated.js';
+import { destination as item } from './routes/item/destination.generated.js';
+import { destination as foreign } from '../foreign/src/routes/scope/destination.generated.js';
+
+const definition = defineRoute('scope/$scopeId', { params: { scopeId: stringParam } });
 
 @Component({ selector: 'proof-app', imports: [RouterOutlet], template: '<router-outlet />' })
 export default class Shell {
@@ -600,7 +672,7 @@ export default class Shell {
     (window as any).activeProof = {
       active: this.active,
       router: this.router,
-      references: { scope, middle, multi, item, foreign, definition },
+      references: { scope, scopeCopy, middle, multi, item, foreign, definition },
     };
   }
 }
@@ -612,7 +684,8 @@ await write(
   `import { Component, inject } from '@angular/core';
 import { NavigationStart, Router } from '@angular/router';
 import { injectRoute } from './route.generated.js';
-import { destination as item } from '../item/route.generated.js';
+import { destination as products } from './destination.generated.js';
+import { destination as item } from '../item/destination.generated.js';
 @Component({ template: '<input id="q" [value]="route.search().q ?? \\'\\'" (input)="filter($any($event.target).value)"><p id="shown">{{ route.search().q ?? "none" }}</p>' })
 export default class Products {
   readonly route = injectRoute();
@@ -654,7 +727,7 @@ export default class Products {
         const result = (h.navigate as any)(...args);
         return { same: result === last, result };
       },
-      references: { item },
+      references: { item, products },
     };
   }
 }\n`,
@@ -677,9 +750,9 @@ const before = await snapshot();
 await build({ check: true });
 assert.deepEqual(await snapshot(), before);
 assert.deepEqual(
-  await readFile(join(fixture, "generated/destinations.generated.ts")),
-  await readFile(join(fixture, "foreign/generated/destinations.generated.ts")),
-  "Runtime foreign-set proof starts with byte-identical shared graphs",
+  await readFile(join(fixture, "src/routes/scope/destination.generated.ts")),
+  await readFile(join(fixture, "foreign/src/routes/scope/destination.generated.ts")),
+  "The foreign tree's scope destination has this tree's bytes",
 );
 
 const instance = await architect();
@@ -733,16 +806,18 @@ try {
     );
     results.push(
       link({
-        to: "/optional/$id",
+        to: p.references.optional,
         params: { id: 1 },
         search: { label: "null", toString: 2, constructor: 3, valueOf: "" },
         fragment: "summary",
       }),
     );
-    results.push(link({ to: "/docs/$parts[]", params: { parts: ["a/b", "(c)"] } }));
-    results.push(link({ to: "/old/alias/$id", params: { id: 7 } }));
-    results.push(link({ to: "/literal?/#" }));
+    results.push(link({ to: p.references.docs, params: { parts: ["a/b", "(c)"] } }));
+    results.push(link({ to: p.references.alias, params: { id: 7 } }));
+    results.push(link({ to: p.references.weird }));
     results.push(link({ params: { scopeId: "own", projectId: "p" } }));
+    // Another tree's genuine destination serializes from its own URL facts.
+    results.push(link({ to: p.references.foreign, params: { scopeId: "f" }, fragment: "own" }));
 
     const parses = p.calls.parse.length;
     const navigations = p.calls.navigate.length;
@@ -752,25 +827,36 @@ try {
       [{ to: "./", params: { scopeId: "x", projectId: "p" } }],
       [{ to: ".", params: { scopeId: "x", projectId: "p" } }],
       [{ to: "../../../../../../" }],
-      [{ to: "/unresolved" }],
-      [{ to: "/old" }],
+      [{ to: "/unknown" }],
+      [{ to: "/enum/$kind", params: { kind: "a" } }],
       [{ to: "./../" }],
       [{ to: "../../../../../literal?/#" }],
-      [{ to: "/enum/a", params: { kind: "a" } }],
-      [{ to: p.references.foreign, params: { scopeId: "x" } }],
       [{ to: { ...p.references.scope }, params: { scopeId: "x" } }],
       [{ to: Object.create(p.references.scope), params: { scopeId: "x" } }],
       [{ to: p.references.definition, params: { scopeId: "x" } }],
       [{ to: p.references.handle }],
       [{ to: 5 }],
       [{ to: null }],
-      [{ to: "/enum/$kind", params: { kind: "c" } }],
-      [{ to: "/enum/$kind" }],
-      [{ to: "/optional/$id", params: { id: 1 }, search: { label: "x" }, fragment: "unknown" }],
-      [{ to: "/optional/$id", params: { id: 1 }, search: { label: "x", constructor: "bad" } }],
-      [{ to: "/optional/$id", params: { id: 1 }, search: { other: "x" } }],
+      [{ to: p.references.enumKind, params: { kind: "c" } }],
+      [{ to: p.references.enumKind }],
+      [
+        {
+          to: p.references.optional,
+          params: { id: 1 },
+          search: { label: "x" },
+          fragment: "unknown",
+        },
+      ],
+      [
+        {
+          to: p.references.optional,
+          params: { id: 1 },
+          search: { label: "x", constructor: "bad" },
+        },
+      ],
+      [{ to: p.references.optional, params: { id: 1 }, search: { other: "x" } }],
       [{ params: { projectId: "p" } }],
-      [{ to: "/" }, { replaceUrl: true }],
+      [{ to: p.references.plain }, { replaceUrl: true }],
       ["/", {}],
       ["/"],
       [undefined],
@@ -812,7 +898,9 @@ try {
     // An own `__proto__` key is a key like any other: link rejects it, navigate forwards it as an
     // own option, and its nested values never become inherited behavior options.
     const prototypeKey = () =>
-      JSON.parse('{"to":"/enum/$kind","params":{"kind":"b"},"__proto__":{"replaceUrl":true}}');
+      Object.assign(JSON.parse('{"params":{"kind":"b"},"__proto__":{"replaceUrl":true}}'), {
+        to: p.references.enumKind,
+      });
     let prototypeLinkThrew = false;
 
     try {
@@ -834,7 +922,7 @@ try {
       plainPrototype: Object.getPrototypeOf(forwarded) === Object.prototype,
     };
 
-    const native = p.navigate({ to: "/enum/$kind", params: { kind: "a" } });
+    const native = p.navigate({ to: p.references.enumKind, params: { kind: "a" } });
     const success = await native.result;
 
     return {
@@ -856,6 +944,7 @@ try {
     "/old/alias/7",
     "/literal%3F/%23",
     "/scope/own/projects/p/detail",
+    "/scope/f#own",
   ]);
   assert.equal(observations.samePromise, true);
   assert.equal(observations.success, true);
@@ -946,7 +1035,7 @@ try {
     search: { q: "hidden" },
   });
 
-  // Every navigate form: own (above), destination, absolute and parent.
+  // Every navigate form: own (above), another destination, its own destination and parent.
   const forms = await tab.evaluate(async () => {
     const proof = window.filterProof;
     const before = history.length;
@@ -963,17 +1052,17 @@ try {
       address: location.pathname + location.hash,
       form: history.state?.form,
     };
-    const absolute = await proof.navigate({
-      to: "/products",
-      search: { q: "absolute" },
-      info: { form: "absolute" },
+    const ownDestination = await proof.navigate({
+      to: proof.references.products,
+      search: { q: "own" },
+      info: { form: "own destination" },
     }).result;
     const parent = await proof.navigate({ to: "..", replaceUrl: true }).result;
 
     return {
       before,
       destination: destinationView,
-      absolute,
+      ownDestination,
       parent,
       address: location.pathname + location.search,
       calls: proof.calls.slice(2),
@@ -988,14 +1077,14 @@ try {
       address: "/items/3#top",
       form: "destination",
     },
-    absolute: true,
+    ownDestination: true,
     parent: true,
     address: "/",
     calls: [
       ["/products?q=s", { state: { from: "filter" }, info: { source: "test" } }],
       ["/products?q=hidden", { skipLocationChange: true }],
       ["/items/3#top", { replaceUrl: true, state: { form: "destination" } }],
-      ["/products?q=absolute", { info: { form: "absolute" } }],
+      ["/products?q=own", { info: { form: "own destination" } }],
       ["/", { replaceUrl: true }],
     ],
   });
@@ -1030,7 +1119,7 @@ try {
       messages,
       reachedAngular: proof.calls.length - calls,
       parsed: proof.parses() - parses,
-      link: proof.link({ to: "/items/$id", params: { id: 1 }, fragment: "top" }),
+      link: proof.link({ to: proof.references.item, params: { id: 1 }, fragment: "top" }),
     };
   });
 
@@ -1044,7 +1133,7 @@ try {
       "TypeError: Expected one navigation target record",
       "TypeError: Unknown generated selector: .",
       "TypeError: Unknown generated selector: /unknown",
-      "TypeError: Expected a destination from the same generated set",
+      "TypeError: Expected a genuine destination",
     ],
     reachedAngular: 0,
     parsed: 0,
@@ -1059,14 +1148,14 @@ try {
 
   const active = await tab.evaluate(async () => {
     const { active, router, references } = window.activeProof;
-    const { scope, middle, multi, item, foreign, definition } = references;
+    const { scope, scopeCopy, middle, multi, item, foreign, definition } = references;
     const route = active();
     const rejected = [];
 
     for (const fake of [
       { ...scope },
       Object.create(scope),
-      foreign,
+      scopeCopy,
       definition,
       route,
       {},
@@ -1100,6 +1189,8 @@ try {
         router.serializeUrl(route.chain[0].link({ params: { scopeId: "z" }, fragment: "own" })),
       ],
       rejected,
+      // Same id, other object: identity, not the id, decides.
+      foreign: [route.is(foreign), route.contains(foreign), route.chain[0].is(foreign)],
       navigated: await route.navigate({ to: item, params: { id: 3 }, replaceUrl: true }),
     };
     const next = active();
@@ -1125,18 +1216,70 @@ try {
     prefixes: true,
     frozen: true,
     links: ["/scope/y/projects/q/detail", "/scope/x", "/scope/z#own"],
-    rejected: Array(16).fill("TypeError: Expected a destination from the same generated set"),
+    rejected: Array(16).fill("TypeError: Expected a genuine destination"),
+    foreign: [false, false, false],
     navigated: true,
     url: "/items/3",
     replaced: true,
     next: { item: true, params: { id: 3 }, chain: 1 },
     departed: { multi: true, params: { scopeId: "x", projectId: "p" } },
   });
+
+  // ".." from the edges. multi -> terminal (above) is the falsifier for parent links: multi's
+  // parent is middle, but ".." serializes terminal's search. A catchall's ".." is its parent's
+  // path, here the root; an origin whose parent path has no route has no ".."; a redirect
+  // source can be the winner, and navigating to it redirects.
+  async function probeAt(path, name) {
+    await tab.goto(new URL(path, output.baseUrl).href);
+    await tab.waitForFunction((key) => window.probes?.[key], name);
+  }
+
+  await probeAt("docs/a/b", "docs");
+
+  const catchall = await tab.evaluate(() => window.probes.docs.link({ to: ".." }));
+
+  await probeAt("unresolved/deep", "deep");
+
+  const noWinner = await tab.evaluate(() => {
+    try {
+      window.probes.deep.link({ to: ".." });
+
+      return "admitted";
+    } catch (error) {
+      return `${error.name}: ${error.message}`;
+    }
+  });
+
+  await probeAt("legacy/page", "legacyPage");
+
+  const redirectWinner = await tab.evaluate(async () => {
+    const link = window.probes.legacyPage.link({ to: ".." });
+    const success = await window.probes.legacyPage.navigate({ to: ".." });
+
+    return { link, success, address: location.pathname };
+  });
+
+  assert.equal(catchall, "/");
+  assert.equal(noWinner, "TypeError: Unknown generated selector: ..");
+  assert.deepEqual(redirectWinner, { link: "/legacy", success: true, address: "/plain" });
   assert.deepEqual(errors, []);
   await writeFile(
     join(evidence, "browser-observations.json"),
     JSON.stringify(
-      { ...observations, routerLinkUrl, typed, stateful, skipped, forms, rejected, active, errors },
+      {
+        ...observations,
+        routerLinkUrl,
+        typed,
+        stateful,
+        skipped,
+        forms,
+        rejected,
+        active,
+        catchall,
+        noWinner,
+        redirectWinner,
+        errors,
+      },
       null,
       2,
     ),
@@ -1148,6 +1291,10 @@ try {
   await writeFile(join(evidence, "serve-reports.json"), JSON.stringify(serve, null, 2));
 }
 
+// Stability. The type proofs are done; they name the root winner's ".." overloads, so they go
+// before the tree loses it.
+await rm(join(fixture, "src/type-proof.ts"));
+await rm(join(fixture, "src/active-type-proof.ts"));
 await write(
   "src/routes/independent/definition.ts",
   "import { defineRoute } from '@loozo/angular-router';\nexport default defineRoute('independent', {});\n",
@@ -1156,20 +1303,83 @@ await write("src/routes/independent/page.ts", page);
 await build();
 
 const after = await snapshot();
+const perRoute = /^src\/routes\/.*\/(?:route|destination)\.generated\.ts$/;
 
 for (const [name, value] of Object.entries(before)) {
-  if (name.startsWith("src/routes/") && name.endsWith("route.generated.ts")) {
+  if (perRoute.test(name)) {
     assert.deepEqual(
       after[name],
       value,
-      "Independent route preserves unrelated facade bytes/modes/ns-mtimes",
+      `An independent route preserves ${name} bytes/modes/ns-mtimes`,
     );
   }
 }
 
-await writeFile(join(evidence, "facade-stability-before.json"), JSON.stringify(before, null, 2));
-await writeFile(join(evidence, "facade-stability-after.json"), JSON.stringify(after, null, 2));
+assert.ok(after["src/routes/independent/destination.generated.ts"]);
+assert.ok(after["src/routes/independent/route.generated.ts"]);
+
+// Removing the root winner changes exactly its own pair, both shared files and the route copies
+// whose ".." it was; every destination and every other copy keeps its bytes, modes and mtimes.
+const homeRoute = await readFile(join(fixture, "src/routes/+home/route.ts"), "utf8");
+const homePage = await readFile(join(fixture, "src/routes/+home/page.ts"), "utf8");
+
+await rm(join(fixture, "src/routes/+home/route.ts"));
+await rm(join(fixture, "src/routes/+home/page.ts"));
+await build();
+
+const withoutHome = await snapshot();
+const upCopies = [];
+const changed = [];
+
+for (const [name, value] of Object.entries(after)) {
+  if (!name.endsWith(".generated.ts")) {
+    continue;
+  }
+
+  if (name.startsWith("src/routes/+home/")) {
+    assert.equal(withoutHome[name], undefined, `${name} is removed with its declaration`);
+    continue;
+  }
+
+  if (
+    name.endsWith("/route.generated.ts") &&
+    value.bytes.includes("+home/destination.generated.js")
+  ) {
+    upCopies.push(name);
+    assert.doesNotMatch(withoutHome[name].bytes, /routegen\$up/);
+  }
+
+  if (!isDeepStrictEqual(withoutHome[name], value)) {
+    changed.push(name);
+  }
+}
+
+assert.ok(upCopies.length > 0, "Top-level origins' copies import the root winner's destination");
+assert.deepEqual(
+  changed.sort(),
+  ["generated/destinations.generated.ts", "generated/routes.generated.ts", ...upCopies].sort(),
+);
+
+// Restoring it restores every byte.
+await write("src/routes/+home/route.ts", homeRoute);
+await write("src/routes/+home/page.ts", homePage);
+await build();
+
+const restored = await snapshot();
+
+for (const [name, value] of Object.entries(after)) {
+  if (name.endsWith(".generated.ts")) {
+    assert.equal(restored[name]?.bytes, value.bytes, `${name} is restored`);
+  }
+}
+
+await writeFile(join(evidence, "stability-before.json"), JSON.stringify(before, null, 2));
+await writeFile(join(evidence, "stability-after.json"), JSON.stringify(after, null, 2));
+await writeFile(
+  join(evidence, "stability-without-home.json"),
+  JSON.stringify({ changed, upCopies }, null, 2),
+);
 
 console.log(
-  "Public generated navigation typing, same-set/foreign-set, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions and stable facade proof passed",
+  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges and per-route stability proof passed",
 );

@@ -1,5 +1,5 @@
 import { createUrl } from "@loozo/angular-router";
-import product from "./routes/products/$productId/route.js";
+import { destination as product } from "./routes/products/$productId/destination.generated.js";
 
 createUrl(product, {
   params: { productId: 42 },

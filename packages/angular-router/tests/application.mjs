@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cp,
@@ -13,8 +14,9 @@ import {
   writeFile,
   rm,
 } from "node:fs/promises";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
@@ -24,39 +26,44 @@ const evidence = resolve(process.argv[2]);
 await mkdir(evidence); // Require a fresh receipt/fixture directory.
 
 const fixture = join(evidence, "consumer");
-
-await cp(join(repository, "examples/angular-router"), fixture, {
-  recursive: true,
-  filter: (path) =>
-    !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&
-    !path.endsWith("route.generated.ts"),
-});
-
-// These fixtures author paths and parents by hand, so they opt out of filesystem mode.
-const configuration = JSON.parse(await readFile(join(fixture, "angular.json"), "utf8"));
-
-configuration.projects.proof.architect.build.options.autoDefineRoutes = false;
-await writeFile(join(fixture, "angular.json"), JSON.stringify(configuration));
-
 const metadata = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
 
-for (const name of new Set([
-  ...Object.keys(metadata.dependencies),
-  ...Object.keys(metadata.devDependencies),
-  "@loozo/angular-router",
-])) {
-  const link = join(fixture, "node_modules", name);
+// A copy of the example without generated output, linked to this package and its toolchain.
+async function createConsumer(directory) {
+  await cp(join(repository, "examples/angular-router"), directory, {
+    recursive: true,
+    filter: (path) =>
+      !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&
+      !path.endsWith("route.generated.ts") &&
+      !path.endsWith("destination.generated.ts"),
+  });
 
-  await mkdir(dirname(link), { recursive: true });
+  // These fixtures author paths and parents by hand, so they opt out of filesystem mode.
+  const configuration = JSON.parse(await readFile(join(directory, "angular.json"), "utf8"));
 
-  let target = join(packageDirectory, "node_modules", name);
+  configuration.projects.proof.architect.build.options.autoDefineRoutes = false;
+  await writeFile(join(directory, "angular.json"), JSON.stringify(configuration));
 
-  if (name === "@loozo/angular-router") {
-    target = packageDirectory;
+  for (const name of new Set([
+    ...Object.keys(metadata.dependencies),
+    ...Object.keys(metadata.devDependencies),
+    "@loozo/angular-router",
+  ])) {
+    const link = join(directory, "node_modules", name);
+
+    await mkdir(dirname(link), { recursive: true });
+
+    let target = join(packageDirectory, "node_modules", name);
+
+    if (name === "@loozo/angular-router") {
+      target = packageDirectory;
+    }
+
+    await symlink(target, link, "dir");
   }
-
-  await symlink(target, link, "dir");
 }
+
+await createConsumer(fixture);
 
 const require = createRequire(join(packageDirectory, "package.json"));
 const { Architect } = require("@angular-devkit/architect");
@@ -68,18 +75,18 @@ const { chromium } = require("playwright");
 let sequence = 0;
 const reports = [];
 
-async function architect() {
+async function architect(root = fixture) {
   const host = core.workspaces.createWorkspaceHost(new NodeJsSyncHost());
-  const { workspace } = await core.workspaces.readWorkspace(fixture, host);
+  const { workspace } = await core.workspaces.readWorkspace(root, host);
   const registry = new core.json.schema.CoreSchemaRegistry();
 
   registry.addPostTransform(core.json.schema.transforms.addUndefinedDefaults);
 
-  return new Architect(new WorkspaceNodeModulesArchitectHost(workspace, fixture), registry);
+  return new Architect(new WorkspaceNodeModulesArchitectHost(workspace, root), registry);
 }
 
-async function build(overrides = {}) {
-  const instance = await architect();
+async function build(overrides = {}, root = fixture) {
+  const instance = await architect(root);
   const logger = new core.logging.Logger("development");
   const logs = [];
 
@@ -147,7 +154,7 @@ async function snapshot(generatedOnly = true, fullFixture = false) {
         };
       } else if (
         entry.isFile() &&
-        (!generatedOnly || /(?:routes|destinations|route)\.generated\.ts$/.test(file))
+        (!generatedOnly || /(?:routes|destinations|route|destination)\.generated\.ts$/.test(file))
       ) {
         const info = await stat(file, { bigint: true });
 
@@ -231,7 +238,7 @@ await expectBuild(true);
 
 const initial = await snapshot();
 
-assert.equal(Object.keys(initial).length, 3);
+assert.equal(Object.keys(initial).length, 4);
 assert.match(
   initial["generated/routes.generated.ts"].bytes,
   /import\("\.\.\/src\/routes\/\+home\/page"\)/,
@@ -242,12 +249,20 @@ assert.match(
   /\/\*\*[\s\S]*?provideRouter\(routes\)[\s\S]*?\*\/\nexport const routes/,
 );
 assert.match(
-  initial["src/routes/+home/route.generated.ts"].bytes,
-  /\/\*\*[\s\S]*?Inert reference[\s\S]*?\*\/\nexport const destination/,
+  initial["src/routes/+home/destination.generated.ts"].bytes,
+  /\/\*\* This route's destination: an inert URL reference[^\n]*\*\/ const routegen\$destination = /,
+);
+assert.match(
+  initial["src/routes/+home/destination.generated.ts"].bytes,
+  /\nexport \{ routegen\$destination as destination \};\n\/\/ @loozo\/angular-router routegen: owned destination\.generated\.ts\n$/,
 );
 assert.match(
   initial["src/routes/+home/route.generated.ts"].bytes,
-  /\/\*\*[\s\S]*?@returns A noncallable handle[\s\S]*?\*\/\nexport function injectRoute/,
+  /\/\*\* This route's browser copy[^\n]*\*\/ const routegen\$route = /,
+);
+assert.match(
+  initial["src/routes/+home/route.generated.ts"].bytes,
+  /\/\*\*[\s\S]*?@returns A noncallable handle[\s\S]*?\*\/\nfunction routegen\$injectRoute/,
 );
 await expectBuild(true);
 await expectUnchanged(initial, "Identical generation must preserve nanosecond mtimes");
@@ -261,7 +276,7 @@ await write(
 await rm(join(fixture, "generated/destinations.generated.ts"));
 await write(
   "src/routes/stale/route.generated.ts",
-  "// @loozo/angular-router routegen: owned route.generated.ts\n// stale\n",
+  "// stale\n// @loozo/angular-router routegen: owned route.generated.ts\n",
 );
 
 const drift = await snapshot();
@@ -282,7 +297,7 @@ await expectBuild(true);
 
 const repaired = await snapshot();
 
-assert.equal(Object.keys(repaired).length, 3);
+assert.equal(Object.keys(repaired).length, 4);
 
 const definition = await readFile(join(fixture, "src/routes/+home/route.ts"), "utf8");
 
@@ -330,36 +345,52 @@ async function expectPreflight(name, diagnostic) {
 const tsconfig = await readFile(join(fixture, "tsconfig.routes.json"), "utf8");
 const pageSource = await readFile(join(fixture, "src/routes/+home/page.ts"), "utf8");
 
-// Genuine cold own-facade aliases and default-imported parents remain admitted.
-await rm(join(fixture, "src/routes/+home/route.generated.ts"));
-await write(
-  "src/routes/parent/definition.ts",
-  `import { defineRoute as parentRoute } from './route.generated.js';
-export default parentRoute('', {});\n`,
-);
+// A declaration's factory comes from the package's public entry; its own generated copy
+// exports no defineRoute, so an alias through it is rejected before anything is written.
 await write(
   "src/routes/+home/route.ts",
   `import { defineRoute as homeRoute } from './route.generated.js';
+export default homeRoute('', {});\n`,
+);
+await expectPreflight(
+  "own route copy as factory source",
+  /route\.ts:1:1: Factory import must name a concrete package public entry/,
+);
+await write("src/routes/+home/route.ts", definition);
+
+// Default-imported parents in explicit files remain admitted.
+await write(
+  "src/routes/parent/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+export default defineRoute('', {});\n`,
+);
+await write(
+  "src/routes/+home/route.ts",
+  `import { defineRoute } from '@loozo/angular-router';
 import parent from '../parent/definition.js';
-export default homeRoute('', { parent });\n`,
+export default defineRoute('', { parent });\n`,
 );
 await expectBuild(true);
 
-const genuineFacade = await snapshot();
+const explicitParent = await snapshot();
 
 await expectBuild(true, { check: true });
-await expectUnchanged(genuineFacade);
+await expectUnchanged(explicitParent);
 await write(
   "src/fake-router.ts",
   "export function defineRoute(path: string, config: unknown) { return { path }; }\n",
 );
 
 for (const [name, target, diagnostic] of [
-  ["fake public facade reexport", "./src/fake-router.ts", /Factory facade.*concrete public entry/],
   [
-    "circular facade reexport",
+    "fake public entry",
+    "./src/fake-router.ts",
+    /defineRoute import does not resolve to this package's concrete public entry/,
+  ],
+  [
+    "public entry mapped to a generated route copy",
     "./src/routes/+home/route.generated.ts",
-    /Factory facade.*concrete public entry/,
+    /defineRoute import does not resolve to this package's concrete public entry/,
   ],
   [
     "redirected underlying factory binding",
@@ -438,7 +469,7 @@ await expectPreflight(
 await rm(join(fixture, "src/helper-types.d.ts"));
 await write(
   "src/routes/obsolete/route.generated.ts",
-  "// @loozo/angular-router routegen: owned route.generated.ts\n// removable obsolete body\n",
+  "// removable obsolete body\n// @loozo/angular-router routegen: owned route.generated.ts\n",
 );
 await write(
   "src/helper.ts",
@@ -447,41 +478,19 @@ await write(
 // Even a native ambient pattern cannot authorize a physically resolved stale file.
 await write("src/ambient.d.ts", "declare module '*route.generated.js';\n");
 await expectPreflight(
-  "unretained dynamic facade",
+  "unretained dynamic route copy",
   /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
 );
 await rm(join(fixture, "src/routes/obsolete"), { recursive: true });
 
-// Known redirects/pruned owners and unadmitted locations never acquire facades
-// through ambient declarations, even when the target and its directory are absent.
-const facadeless = `import { defineRoute } from '@loozo/angular-router';
-import target from '../+home/route.js';
-export default defineRoute('facadeless', {}).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } });\n`;
+// Redirect sources and their pruned ancestors get a destination and a route copy too, so a
+// helper may reach them. Unadmitted locations never become owned targets, ambient or not.
+const redirectSource = `import { defineRoute } from '@loozo/angular-router';
+import { destination as target } from '../+home/destination.generated.js';
+export default defineRoute('redirect-source', {}).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } });\n`;
 
-await write("src/routes/facadeless/definition.ts", facadeless);
-await write(
-  "src/helper.ts",
-  "export const absent = () => import('./routes/facadeless/route.generated.js');\n",
-);
 await rm(join(fixture, "src/ambient.d.ts"));
-await expectPreflight(
-  "absent redirect facade without ambient",
-  /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
-);
-await write("src/ambient.d.ts", "declare module '*route.generated.js';\n");
-await expectPreflight(
-  "absent redirect facade with ambient",
-  /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
-);
-await write(
-  "src/routes/facadeless/route.generated.ts",
-  "// @loozo/angular-router routegen: owned route.generated.ts\n// obsolete redirect facade\n",
-);
-await expectPreflight(
-  "present redirect facade with ambient",
-  /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
-);
-await rm(join(fixture, "src/routes/facadeless/route.generated.ts"));
+await write("src/routes/redirect-source/definition.ts", redirectSource);
 await write(
   "src/routes/pruned/definition.ts",
   "import { defineRoute } from '@loozo/angular-router';\nexport default defineRoute('pruned', {});\n",
@@ -490,44 +499,76 @@ await write(
   "src/routes/pruned/alias/definition.ts",
   `import { defineRoute } from '@loozo/angular-router';
 import parent from '../definition.js';
-import target from '../../+home/route.js';
+import { destination as target } from '../../+home/destination.generated.js';
 export default defineRoute('alias', { parent }).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'drop' } });\n`,
 );
 await write(
   "src/helper.ts",
-  "export const absent = () => import('./routes/pruned/route.generated.js');\n",
+  "export const redirectCopy = () => import('./routes/redirect-source/route.generated.js');\n" +
+    "export const prunedCopy = () => import('./routes/pruned/route.generated.js');\n" +
+    "export const prunedDestination = () => import('./routes/pruned/destination.generated.js');\n",
 );
-await expectPreflight(
-  "absent pruned facade with ambient",
-  /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
-);
-await write(
-  "src/helper.ts",
-  "export const absent = () => import('./routes/unadmitted-new/route.generated.js');\n",
-);
-await expectPreflight(
-  "absent unadmitted facade and directory with ambient",
-  /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
-);
+await expectBuild(true);
 
-const facadePaths = JSON.parse(tsconfig);
+const redirectPairs = await snapshot();
 
-facadePaths.compilerOptions = {
-  ...facadePaths.compilerOptions,
-  paths: { "@facadeless": ["./src/routes/facadeless/route.generated.js"] },
+for (const directory of ["redirect-source", "pruned", "pruned/alias"]) {
+  for (const name of ["destination", "route"]) {
+    assert.match(
+      redirectPairs[`src/routes/${directory}/${name}.generated.ts`]?.bytes ?? "",
+      new RegExp(`// @loozo/angular-router routegen: owned ${name}\\.generated\\.ts\\n$`),
+      `${directory} gets its ${name}.generated.ts`,
+    );
+  }
+}
+
+// A pruned declaration gets no record and no place in the active route union.
+assert.doesNotMatch(
+  redirectPairs["generated/destinations.generated.ts"].bytes,
+  /"src\/routes\/pruned\/definition\.ts"/,
+);
+await expectBuild(true, { check: true });
+await expectUnchanged(redirectPairs);
+
+for (const [name, ambient, target] of [
+  ["absent unadmitted route copy without ambient", undefined, "route"],
+  ["absent unadmitted route copy with ambient", "*route.generated.js", "route"],
+  ["absent unadmitted destination with ambient", "*destination.generated.js", "destination"],
+]) {
+  if (ambient === undefined) {
+    await rm(join(fixture, "src/ambient.d.ts"), { force: true });
+  } else {
+    await write("src/ambient.d.ts", `declare module '${ambient}';\n`);
+  }
+
+  await write(
+    "src/helper.ts",
+    `export const absent = () => import('./routes/unadmitted-new/${target}.generated.js');\n`,
+  );
+  await expectPreflight(
+    name,
+    /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
+  );
+}
+
+const unadmittedPaths = JSON.parse(tsconfig);
+
+unadmittedPaths.compilerOptions = {
+  ...unadmittedPaths.compilerOptions,
+  paths: { "@unadmitted": ["./src/routes/unadmitted-new/route.generated.js"] },
 };
-await write("tsconfig.routes.json", JSON.stringify(facadePaths));
+await write("tsconfig.routes.json", JSON.stringify(unadmittedPaths));
 await write(
   "src/ambient.d.ts",
-  "declare module '*route.generated.js';\ndeclare module '@facadeless';\n",
+  "declare module '*route.generated.js';\ndeclare module '@unadmitted';\n",
 );
-await write("src/helper.ts", "export const absent = () => import('@facadeless');\n");
+await write("src/helper.ts", "export const absent = () => import('@unadmitted');\n");
 await expectPreflight(
-  "native paths absent facade with exact ambient",
+  "native paths absent route copy with exact ambient",
   /helper\.ts:\d+:\d+: Generated import is not a retained owned target/,
 );
 await write("tsconfig.routes.json", tsconfig);
-await rm(join(fixture, "src/routes/facadeless"), { recursive: true });
+await rm(join(fixture, "src/routes/redirect-source"), { recursive: true });
 await rm(join(fixture, "src/routes/pruned"), { recursive: true });
 await write("src/ambient.d.ts", "declare module '*route.generated.js';\n");
 await write(
@@ -535,6 +576,7 @@ await write(
   "export const retained = () => import('./routes/+home/route.generated.js');\n",
 );
 await rm(join(fixture, "src/routes/+home/route.generated.ts"));
+await rm(join(fixture, "src/routes/+home/destination.generated.ts"));
 await expectBuild(true);
 
 const coldRetained = await snapshot(false);
@@ -545,7 +587,7 @@ const checkedRetained = await snapshot(false);
 
 assert.deepEqual(checkedRetained, coldRetained);
 preflightReports.push({
-  name: "cold retained facade with ambient",
+  name: "cold retained route copy with ambient",
   before: coldRetained,
   after: checkedRetained,
 });
@@ -636,7 +678,7 @@ await write(
 );
 
 const alias = `import { defineRoute } from '@loozo/angular-router';
-import target from '../+home/route.js';
+import { destination as target } from '../+home/destination.generated.js';
 export default defineRoute('alias', {}).redirect({ to: target, search: { mode: 'drop' }, fragment: { mode: 'replace', value: 'summary' } });\n`;
 
 await write("src/routes/alias/definition.ts", alias);
@@ -778,6 +820,432 @@ await write(
 await new Promise((done) => setTimeout(done, 600));
 await expectUnchanged(stopped, "Stopped server must not publish after subsequent edits");
 await writeFile(join(evidence, "final-artifacts.json"), JSON.stringify(stopped, null, 2));
+
+// Cycle safety by execution. A componentless layout whose guard imports its own descendant's
+// destination, a pathless home (the "/" winner), "other" (whose ".." is home), a redirect source
+// to other's destination, a codec module and three lazy pages run under the dev server, as an
+// optimized AOT build in two lazy load orders and as native ESM in five entry orders. Eager reads
+// patched into the compiled copies are the negative controls: the shapes generation rejects.
+const cycle = join(evidence, "cycle");
+
+await createConsumer(cycle);
+await rm(join(cycle, "src/routes/+home"), { recursive: true });
+
+const cycleSources = {
+  "src/codecs.ts": `import { numberParam } from "@loozo/angular-router";
+
+// URL facts only, so destination copies may import it.
+export const itemId = numberParam;
+`,
+  "src/shell.ts": `import { Component } from "@angular/core";
+import { RouterLink, RouterOutlet } from "@angular/router";
+import { createUrl } from "@loozo/angular-router";
+import { destination as home } from "./routes/layout/home/destination.generated.js";
+import { destination as other } from "./routes/layout/other/destination.generated.js";
+import { destination as item } from "./routes/layout/items/$id/destination.generated.js";
+import { destination as old } from "./routes/layout/old/destination.generated.js";
+
+@Component({
+  selector: "proof-app",
+  imports: [RouterLink, RouterOutlet],
+  template: \`
+    <nav>
+      <a data-proof="to-home" [routerLink]="homeUrl">Home</a>
+      <a data-proof="to-other" [routerLink]="otherUrl">Other</a>
+      <a data-proof="to-item" [routerLink]="itemUrl">Item</a>
+      <a data-proof="to-away" [routerLink]="homeUrl" [queryParams]="{ away: 1 }">Away</a>
+      <a data-proof="to-old" [routerLink]="oldUrl">Old</a>
+    </nav>
+    <router-outlet />
+  \`,
+})
+export default class Shell {
+  readonly homeUrl = createUrl(home, {});
+  readonly otherUrl = createUrl(other, {});
+  readonly itemUrl = createUrl(item, { params: { id: 5 } });
+  readonly oldUrl = createUrl(old, {});
+}
+`,
+  "src/routes/layout/route.ts": `import { inject } from "@angular/core";
+import { Router } from "@angular/router";
+import { createUrl, defineRoute } from "@loozo/angular-router";
+import { destination as item } from "./items/$id/destination.generated.js";
+
+// A componentless layout whose guard sends ?away=1 to its own descendant.
+export default defineRoute("", {})
+  .runGuardsAndResolvers("paramsOrQueryParamsChange")
+  .canActivate([
+    (_inputs, snapshot) => {
+      if (snapshot.queryParamMap.get("away") !== "1") {
+        return true;
+      }
+
+      return inject(Router).parseUrl(createUrl(item, { params: { id: 5 } }));
+    },
+  ]);
+`,
+  "src/routes/layout/home/route.ts": `import { defineRoute } from "@loozo/angular-router";
+import layout from "../route.js";
+
+export default defineRoute("", { parent: layout });
+`,
+  "src/routes/layout/home/page.ts": `import { Component } from "@angular/core";
+
+@Component({ template: '<h1 data-proof="home">Home</h1>' })
+export default class Home {}
+`,
+  "src/routes/layout/other/route.ts": `import { defineRoute } from "@loozo/angular-router";
+import layout from "../route.js";
+
+export default defineRoute("other", { parent: layout });
+`,
+  "src/routes/layout/other/page.ts": `import { Component } from "@angular/core";
+import { RouterLink } from "@angular/router";
+import { injectRoute } from "./route.generated.js";
+
+@Component({
+  imports: [RouterLink],
+  template: '<h1 data-proof="other">Other</h1><a data-proof="up" [routerLink]="up">Up</a>',
+})
+export default class Other {
+  readonly up = injectRoute().link({ to: ".." });
+}
+`,
+  "src/routes/layout/items/$id/route.ts": `import { defineRoute } from "@loozo/angular-router";
+import layout from "../../route.js";
+import { itemId } from "../../../../codecs.js";
+
+export default defineRoute("items/$id", { parent: layout, params: { id: itemId } });
+`,
+  "src/routes/layout/items/$id/page.ts": `import { Component } from "@angular/core";
+import { injectRoute } from "./route.generated.js";
+
+@Component({ template: '<p data-proof="item">Item {{ route.params().id }}</p>' })
+export default class Item {
+  readonly route = injectRoute();
+}
+`,
+  "src/routes/layout/old/route.ts": `import { defineRoute } from "@loozo/angular-router";
+import layout from "../route.js";
+import { destination as other } from "../other/destination.generated.js";
+
+export default defineRoute("old", { parent: layout }).redirect({
+  to: other,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
+});
+`,
+};
+
+for (const [path, bytes] of Object.entries(cycleSources)) {
+  await mkdir(dirname(join(cycle, path)), { recursive: true });
+  await writeFile(join(cycle, path), bytes);
+}
+
+// Collects page errors and console errors, so a TDZ failure in a lazy chunk can't pass silently.
+function watchErrors(page) {
+  const errors = [];
+
+  page.on("pageerror", (error) => errors.push(String(error)));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      errors.push(message.text());
+    }
+  });
+
+  return errors;
+}
+
+async function expectAt(page, pathname, selector, text) {
+  await page.waitForURL((url) => url.pathname === pathname);
+  await page.locator(selector).waitFor();
+  assert.equal(await page.locator(selector).textContent(), text);
+}
+
+// 1. The dev server.
+const cycleLogs = [];
+const cycleLogger = new core.logging.Logger("cycle-serve");
+
+cycleLogger.subscribe((entry) => cycleLogs.push(entry));
+
+const cycleServer = await (
+  await architect(cycle)
+).scheduleTarget({ project: "proof", target: "serve" }, {}, { logger: cycleLogger });
+const cycleOutputs = [];
+const cycleSubscription = cycleServer.output.subscribe({
+  next: (output) => cycleOutputs.push(output),
+});
+let cycleBrowser;
+
+try {
+  await waitFor(
+    () => cycleOutputs.some((output) => output.success && output.baseUrl),
+    `Cycle server did not publish ready output: ${JSON.stringify(cycleLogs)}`,
+  );
+
+  const base = cycleOutputs.find((output) => output.success && output.baseUrl).baseUrl;
+
+  cycleBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+
+  const page = await cycleBrowser.newPage();
+  const errors = watchErrors(page);
+
+  await page.goto(base);
+  await expectAt(page, "/", '[data-proof="home"]', "Home");
+  await page.goto(new URL("other", base).href);
+  await expectAt(page, "/other", '[data-proof="other"]', "Other");
+  await page.click('[data-proof="up"]');
+  await expectAt(page, "/", '[data-proof="home"]', "Home");
+  await page.goto(new URL("?away=1", base).href);
+  await expectAt(page, "/items/5", '[data-proof="item"]', "Item 5");
+  await page.goto(new URL("old", base).href);
+  await expectAt(page, "/other", '[data-proof="other"]', "Other");
+  assert.deepEqual(errors, [], "The dev server app runs without errors");
+} finally {
+  await cycleBrowser?.close();
+  cycleSubscription.unsubscribe();
+  await cycleServer.stop();
+  await writeFile(join(evidence, "cycle-serve-logs.json"), JSON.stringify(cycleLogs, null, 2));
+}
+
+// 2. An executed optimized AOT build with lazy chunks, served statically, in two load orders.
+assert.equal(
+  await build(
+    {
+      optimization: { scripts: true, styles: true, fonts: false },
+      outputPath: "dist/optimized",
+      statsJson: true,
+    },
+    cycle,
+  ),
+  true,
+  "Optimized cycle build",
+);
+
+const stats = JSON.parse(await readFile(join(cycle, "dist/optimized/browser-stats.json"), "utf8"));
+const lazyPages = new Map();
+
+for (const [output, info] of Object.entries(stats.outputs)) {
+  if (info.entryPoint?.endsWith("/page.ts")) {
+    lazyPages.set(basename(output), info.entryPoint);
+  }
+}
+
+assert.equal(lazyPages.size, 3, "Each page is its own lazy chunk");
+
+// 5. The production graph holds route copies and destinations, never a declaration module.
+const browserInputs = Object.keys(stats.inputs);
+
+assert.deepEqual(
+  browserInputs.filter((path) => /(?:^|\/)route\.ts$/.test(path)),
+  [],
+  "No route.ts in the browser build",
+);
+assert.ok(browserInputs.some((path) => path.endsWith("layout/route.generated.ts")));
+assert.ok(browserInputs.some((path) => path.endsWith("items/$id/destination.generated.ts")));
+
+const browserRoot = join(cycle, "dist/optimized/browser");
+const staticServer = createServer(async (request, response) => {
+  let file = join(browserRoot, new URL(request.url, "http://localhost").pathname);
+  const found = await stat(file).catch(() => undefined);
+
+  if (!found?.isFile()) {
+    file = join(browserRoot, "index.html");
+  }
+
+  let type = "text/html";
+
+  if (file.endsWith(".js")) {
+    type = "text/javascript";
+  } else if (file.endsWith(".css")) {
+    type = "text/css";
+  }
+
+  response.writeHead(200, { "content-type": type });
+  response.end(await readFile(file));
+});
+
+await new Promise((done) => staticServer.listen(0, "127.0.0.1", done));
+
+const origin = `http://127.0.0.1:${staticServer.address().port}`;
+const loadOrders = {};
+
+cycleBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+
+// Each order runs in a fresh context, so no chunk is cached from the other.
+async function loadOrder(name, steps) {
+  const context = await cycleBrowser.newContext();
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  const chunks = [];
+
+  page.on("request", (request) => {
+    const file = basename(new URL(request.url()).pathname);
+
+    if (lazyPages.has(file)) {
+      chunks.push(lazyPages.get(file));
+    }
+  });
+
+  try {
+    await steps(page);
+  } finally {
+    await context.close();
+  }
+
+  assert.deepEqual(errors, [], `${name}: runs without errors`);
+  assert.ok(chunks.length >= 2, `${name}: loads at least two lazy chunks`);
+  loadOrders[name] = chunks;
+}
+
+try {
+  await loadOrder("item first", async (page) => {
+    await page.goto(`${origin}/items/5`);
+    await expectAt(page, "/items/5", '[data-proof="item"]', "Item 5");
+    await page.click('[data-proof="to-other"]');
+    await expectAt(page, "/other", '[data-proof="other"]', "Other");
+    await page.click('[data-proof="up"]');
+    await expectAt(page, "/", '[data-proof="home"]', "Home");
+  });
+  await loadOrder("home first", async (page) => {
+    await page.goto(`${origin}/`);
+    await expectAt(page, "/", '[data-proof="home"]', "Home");
+    await page.click('[data-proof="to-away"]');
+    await expectAt(page, "/items/5", '[data-proof="item"]', "Item 5");
+    await page.click('[data-proof="to-old"]');
+    await expectAt(page, "/other", '[data-proof="other"]', "Other");
+  });
+} finally {
+  await cycleBrowser.close();
+  await new Promise((done) => staticServer.close(done));
+  await writeFile(join(evidence, "cycle-load-orders.json"), JSON.stringify(loadOrders, null, 2));
+}
+
+assert.notDeepEqual(loadOrders["item first"], loadOrders["home first"]);
+
+// 3. Native ESM: the generated and authored modules as plain Node modules, one fresh process
+// per entry, each asserting URL bytes and that the copy carries its destination.
+await writeFile(
+  join(cycle, "tsconfig.native.json"),
+  JSON.stringify({
+    extends: "./tsconfig.app.json",
+    compilerOptions: { noCheck: true, outDir: "native", rootDir: ".", sourceMap: false },
+    files: [],
+    include: ["src/**/*.ts", "generated/**/*.ts"],
+  }),
+);
+
+const emitted = spawnSync(
+  process.execPath,
+  [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.native.json"],
+  { cwd: cycle, encoding: "utf8" },
+);
+
+assert.equal(emitted.status, 0, `${emitted.stdout}${emitted.stderr}`);
+await writeFile(
+  join(cycle, "native/probe.mjs"),
+  `import assert from "node:assert/strict";
+
+await import(new URL(process.argv[2], import.meta.url).href);
+
+const { createUrl } = await import("@loozo/angular-router");
+const { routeMetadata } = await import("@loozo/angular-router/_core");
+const layout = await import("./src/routes/layout/route.generated.js");
+const item = await import("./src/routes/layout/items/$id/destination.generated.js");
+const itemCopy = await import("./src/routes/layout/items/$id/route.generated.js");
+const other = await import("./src/routes/layout/other/destination.generated.js");
+
+assert.equal(createUrl(item.destination, { params: { id: 5 } }), "/items/5");
+assert.equal(createUrl(other.destination, {}), "/other");
+assert.equal(routeMetadata(itemCopy.route).destination, item.destination);
+assert.equal(routeMetadata(itemCopy.route).parent, layout.route);
+`,
+);
+
+const entries = [
+  "generated/routes.generated.js",
+  "generated/destinations.generated.js",
+  "src/routes/layout/items/$id/route.generated.js",
+  "src/routes/layout/items/$id/destination.generated.js",
+  "src/routes/layout/route.js",
+];
+
+function runEntries(directory) {
+  const results = {};
+
+  for (const entry of entries) {
+    const run = spawnSync(process.execPath, ["--import", "@angular/compiler", "probe.mjs", entry], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+
+    results[entry] = { status: run.status, stderr: run.stderr };
+  }
+
+  return results;
+}
+
+const nativeResults = { positive: runEntries(join(cycle, "native")) };
+
+for (const entry of entries) {
+  assert.equal(
+    nativeResults.positive[entry].status,
+    0,
+    `${entry} first: ${nativeResults.positive[entry].stderr}`,
+  );
+}
+
+// 4. Negative controls on copies of the compiled tree: an eager read of the leaf's own copy, and
+// the layout copy importing the leaf copy (a downward copy edge).
+async function patched(name, file, prefix) {
+  const directory = join(cycle, `native-${name}`);
+
+  await cp(join(cycle, "native"), directory, { recursive: true });
+
+  const source = await readFile(join(directory, file), "utf8");
+
+  await writeFile(join(directory, file), prefix + source);
+
+  return runEntries(directory);
+}
+
+nativeResults.ownEager = await patched(
+  "own-eager",
+  "src/routes/layout/items/$id/route.generated.js",
+  'import { route as routegen$self } from "./route.generated.js";\nconst routegen$eager = routegen$self.path;\n',
+);
+nativeResults.childCopy = await patched(
+  "child-copy",
+  "src/routes/layout/route.generated.js",
+  'import { route as routegen$child } from "./items/$id/route.generated.js";\nexport const routegen$later = () => routegen$child;\n',
+);
+await writeFile(join(evidence, "cycle-native.json"), JSON.stringify(nativeResults, null, 2));
+
+for (const entry of entries) {
+  assert.notEqual(nativeResults.ownEager[entry].status, 0, `own eager read, ${entry} first`);
+  assert.match(nativeResults.ownEager[entry].stderr, /ReferenceError/);
+}
+
+// The leaf copy reads its parent copy while it evaluates. With a downward edge, every order that
+// enters the layout copy before the leaf copy (destinations.generated.js imports home's copy
+// first, whose parent is the layout) reads the layout's binding uninitialized; the orders that
+// enter the leaf copy first happen to pass.
+for (const entry of [
+  "generated/destinations.generated.js",
+  "src/routes/layout/items/$id/destination.generated.js",
+  "src/routes/layout/route.js",
+]) {
+  assert.notEqual(nativeResults.childCopy[entry].status, 0, `child copy edge, ${entry} first`);
+  assert.match(nativeResults.childCopy[entry].stderr, /ReferenceError: Cannot access 'layout'/);
+}
+
+for (const entry of [
+  "generated/routes.generated.js",
+  "src/routes/layout/items/$id/route.generated.js",
+]) {
+  assert.equal(nativeResults.childCopy[entry].status, 0, `child copy edge, ${entry} first`);
+}
+
 console.log(
-  "Public Architect generation/check/ownership/watch/repair/stop and real Angular collision browser proof passed",
+  "Public Architect generation/check/ownership/watch/repair/stop, real Angular collision browser proof and cycle safety by execution passed",
 );

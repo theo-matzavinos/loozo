@@ -3,6 +3,7 @@
 // deterministic. The filesystem, navigation and lifecycle proofs cover the real collaborators.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { mock, test } from "node:test";
@@ -340,6 +341,42 @@ test("an edit during a pass causes exactly one more pass, however many edits arr
 
 // The edit lands at each microtask boundary from the pass settling until well after the pass's
 // bookkeeping finishes, covering the window between the last dirty check and finalization.
+// Generation's own writes of the per-route copies need no further pass; their marker is the last
+// line, also when Git checks them out with CRLF. A lookalike without it is an edit.
+test("marked writes of route.generated.ts and destination.generated.ts are not edits", async () => {
+  const { run, scenario: state } = await started();
+  const directory = resolve(packageDirectory, "../../.scratch/router-serve", String(process.pid));
+  const marker = (name) => `// @loozo/angular-router routegen: owned ${name}`;
+
+  await mkdir(directory, { recursive: true });
+
+  async function written(name, bytes) {
+    const path = resolve(directory, name);
+
+    await writeFile(path, bytes);
+    watcherOf(state).emit("all", "change", path);
+    await settle();
+  }
+
+  await written("route.generated.ts", `const route = 1;\n${marker("route.generated.ts")}\n`);
+  await written(
+    "destination.generated.ts",
+    `const destination = 1;\r\n${marker("destination.generated.ts")}\r\n`,
+  );
+  assert.equal(state.passes.length, 1, "Owned copies are not edits");
+
+  // The old facade carried the marker on its first line; it isn't owned output anymore.
+  await written("route.generated.ts", `${marker("route.generated.ts")}\nconst route = 1;\n`);
+  await until(() => state.passes.length === 2, "the pass for an unowned route.generated.ts");
+  state.passes[1].resolve();
+  await settle();
+  await written("destination.generated.ts", "export const destination = {};\n");
+  await until(() => state.passes.length === 3, "the pass for an unmarked destination.generated.ts");
+  state.passes[2].resolve();
+
+  await run.stop();
+});
+
 test("an edit at any point after a pass settles is never lost", async () => {
   const { run, scenario: state } = await started();
 

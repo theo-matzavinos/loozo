@@ -1,9 +1,18 @@
 import ts from "typescript";
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parsePath, type Segment } from "../../_core/src/path.js";
-import { auditPath, contains, marked, metadata, walk, workspacePaths, markers } from "./files.js";
+import {
+  auditPath,
+  contains,
+  metadata,
+  walk,
+  workspacePaths,
+  markers,
+  ownedBy,
+  routeFiles,
+} from "./files.js";
 import { overlayDirectory, overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
 import { synchronize, transparent, type AutoDefineRoutes } from "./filesystem.js";
@@ -25,6 +34,8 @@ export interface Declaration {
   segments: readonly Segment[];
   effective: readonly Segment[];
   parent?: Declaration;
+  // The parent's default import, rewritten in place by both copies.
+  parentImport?: ts.ImportDeclaration;
   target?: Declaration;
   children: Declaration[];
   page?: string;
@@ -74,10 +85,12 @@ export interface Sources {
   output: string;
   encountered: string[];
   declarations: Declaration[];
+  // The discovery program that produced every declaration's SourceFile; copies read its
+  // checker's symbols, never another program's.
+  program: ts.Program;
   factoryEntry: string;
   // The router's physical `/_core` types entry, which declares RouteFactory.
   coreEntry: string;
-  deferredFactories: Declaration[];
   authored: ReadonlyMap<string, string>;
   filesystem: boolean;
   launch?: { typeEntry: string; declarations: LaunchDeclaration[] };
@@ -85,7 +98,12 @@ export interface Sources {
 
 export function fail(node: ts.Node, message: string): never {
   const source = node.getSourceFile();
-  const position = source.getLineAndCharacterOfPosition(node.getStart());
+
+  failAt(source, node.getStart(source), message);
+}
+
+export function failAt(source: ts.SourceFile, at: number, message: string): never {
+  const position = source.getLineAndCharacterOfPosition(at);
 
   // Native, like the generator's other file diagnostics; TypeScript's fileName uses "/" everywhere.
   const file = resolve(source.fileName);
@@ -755,7 +773,6 @@ export async function discover(
   const launchDeclarations: LaunchDeclaration[] = [];
   const launchEntry = launch && (await realpath(launch.typeEntry));
   const pages = new Map<string, string>();
-  const deferredFactories: Declaration[] = [];
   const syntaxHost = overlayHost(parsed.options, authored);
   let syntaxProgram: ts.Program;
   // Built only when an extension factory's manifest must be read.
@@ -783,7 +800,7 @@ export async function discover(
       throw new Error(`Cannot read admitted TypeScript source: ${file}`);
     }
 
-    if (file.endsWith(`${sep}route.generated.ts`) && marked(bytes, markers["route.generated.ts"])) {
+    if (routeFiles.has(basename(file)) && ownedBy(basename(file), bytes, markers)) {
       continue;
     }
 
@@ -885,6 +902,15 @@ export async function discover(
       );
     }
 
+    // The destination copy rebinds `parent` to a destination, so authored type arguments that
+    // name it would change meaning there; inference from the URL facts never needs them.
+    if (call.typeArguments) {
+      fail(
+        call.typeArguments[0] ?? call,
+        "Route declaration root call takes no type arguments: remove them; defineRoute infers its types from the URL facts",
+      );
+    }
+
     const [path, configNode] = call.arguments;
 
     if (call.arguments.length !== 2 || !path || !ts.isStringLiteral(path) || !configNode) {
@@ -903,13 +929,10 @@ export async function discover(
       }
     }
 
-    // The router's own import (by name, through its own facade, or through any link that
-    // resolves to its public entry) takes the router path; anything else is an extension.
+    // The router's own import (by name, or through any link that resolves to its public
+    // entry) takes the router path; anything else is an extension.
     const specifier = moduleText(imported);
-    const ownFacade = resolve(dirname(file), "route.generated.ts");
     const resolved = resolveModule(specifier, file, parsed.options, syntaxHost);
-    const facadeSpelling = resolve(dirname(file), specifier).replace(/\.js$/, ".ts");
-    const deferred = resolved === ownFacade || (!resolved && facadeSpelling === ownFacade);
     let extension: RouteExtension | undefined;
     let manifest: readonly ManifestStep[] = [];
 
@@ -922,10 +945,7 @@ export async function discover(
           "defineRoute import does not resolve to this package's concrete public entry",
         );
       }
-    } else if (
-      !deferred &&
-      !(await genuineImport(imported, factoryEntry, parsed.options, syntaxHost))
-    ) {
+    } else if (!(await genuineImport(imported, factoryEntry, parsed.options, syntaxHost))) {
       checker ??= syntaxProgram.getTypeChecker();
 
       const annotation = factoryAnnotation(checker, call);
@@ -1009,9 +1029,6 @@ export async function discover(
       retained: true,
       full: false,
     };
-    if (deferred) {
-      deferredFactories.push(declaration);
-    }
 
     declarations.push(declaration);
   }
@@ -1035,12 +1052,6 @@ export async function discover(
 
       if (transparent(roots[0], dirname(declaration.file))) {
         declarations.splice(index, 1);
-
-        const deferred = deferredFactories.indexOf(declaration);
-
-        if (deferred >= 0) {
-          deferredFactories.splice(deferred, 1);
-        }
       }
     }
   }
@@ -1071,9 +1082,12 @@ export async function discover(
 
   const compilerOptions = parsed.options;
 
-  function referenced(node: ts.Expression, declaration: Declaration): Declaration {
+  function parentOf(
+    node: ts.Expression,
+    declaration: Declaration,
+  ): { parent: Declaration; statement: ts.ImportDeclaration } {
     if (!ts.isIdentifier(node)) {
-      fail(node, "Parent/redirect target must directly reference a default import");
+      fail(node, "Parent must directly reference a default import");
     }
 
     for (const statement of declaration.source.statements) {
@@ -1091,26 +1105,92 @@ export async function discover(
         compilerOptions,
         syntaxHost,
       );
-      const target = file && byFile.get(file);
+      const parent = file && byFile.get(file);
 
-      if (target) {
-        return target;
+      if (parent) {
+        return { parent, statement };
+      }
+
+      fail(node, `Parent is not an admitted declaration: ${file ?? moduleText(statement)}`);
+    }
+
+    fail(node, "Parent must directly reference a default import");
+  }
+
+  // A redirect target is a destination: an identifier bound to a named `destination` import
+  // (aliases allowed) of an admitted declaration's destination.generated.ts. The file needn't
+  // exist yet, so resolution falls back to the candidates TypeScript probes.
+  function targetOf(node: ts.Expression, declaration: Declaration): Declaration {
+    if (!ts.isIdentifier(node)) {
+      fail(node, "Redirect target must directly reference a destination import");
+    }
+
+    for (const statement of declaration.source.statements) {
+      if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) {
+        continue;
+      }
+
+      const bindings = statement.importClause?.namedBindings;
+
+      if (!bindings || !ts.isNamedImports(bindings)) {
+        continue;
+      }
+
+      const element = bindings.elements.find(
+        (candidate) => !candidate.isTypeOnly && candidate.name.text === node.text,
+      );
+
+      if (!element) {
+        continue;
+      }
+
+      if ((element.propertyName ?? element.name).text !== "destination") {
+        fail(node, "Redirect target must directly reference a destination import");
+      }
+
+      const name = moduleText(statement);
+      const probed: string[] = [];
+      const resolutionHost: ts.ModuleResolutionHost = {
+        ...syntaxHost,
+        directoryExists: undefined,
+        fileExists(file) {
+          probed.push(resolve(file));
+
+          return syntaxHost.fileExists(file);
+        },
+      };
+      const resolved = resolveModule(name, declaration.file, compilerOptions, resolutionHost);
+      let candidates = probed;
+
+      if (resolved) {
+        candidates = [resolved];
+      }
+
+      for (const candidate of candidates) {
+        const target = byDirectory.get(dirname(candidate));
+
+        if (basename(candidate) === "destination.generated.ts" && target) {
+          return target;
+        }
       }
 
       fail(
         node,
-        `Parent/redirect target is not an admitted declaration: ${file ?? moduleText(statement)}`,
+        `Redirect target is not an admitted declaration's destination: ${resolved ?? name}`,
       );
     }
 
-    fail(node, "Parent/redirect target must directly reference a default import");
+    fail(node, "Redirect target must directly reference a destination import");
   }
 
   for (const declaration of declarations) {
     const parent = declaration.config.get("parent");
 
     if (parent) {
-      declaration.parent = referenced(parent, declaration);
+      const found = parentOf(parent, declaration);
+
+      declaration.parent = found.parent;
+      declaration.parentImport = found.statement;
       declaration.parent.children.push(declaration);
     }
 
@@ -1131,7 +1211,7 @@ export async function discover(
         fail(redirect, "Redirect requires a direct target");
       }
 
-      declaration.target = referenced(target, declaration);
+      declaration.target = targetOf(target, declaration);
 
       if (declaration.page || declaration.children.length) {
         fail(redirect, "Redirect cannot have a component or children");
@@ -1252,12 +1332,6 @@ export async function discover(
     }
   }
 
-  for (const declaration of deferredFactories) {
-    if (!declaration.retained) {
-      fail(declaration.source, "Factory facade is not a final retained generated location");
-    }
-  }
-
   let launchSources: Sources["launch"];
 
   if (launchEntry) {
@@ -1271,9 +1345,9 @@ export async function discover(
     output,
     encountered,
     declarations,
+    program: syntaxProgram,
     factoryEntry,
     coreEntry,
-    deferredFactories,
     authored,
     filesystem,
     launch: launchSources,

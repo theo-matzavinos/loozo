@@ -9,9 +9,18 @@ export {
   isArrayCodec,
 } from "./codecs.js";
 export type { ParamCodec } from "./codecs.js";
-export { defineRoute, routeMetadata } from "./route.js";
+export { defineDestination, defineRoute, routeMetadata } from "./route.js";
 export type { RouteMetadata } from "./route.js";
-export { createRouteFactory, routeContributions } from "./fluent.js";
+export { destinationRecord } from "./destination.js";
+export type {
+  Destination,
+  DestinationRecord,
+  LocalFacts,
+  TargetOf,
+  UrlMetadata,
+  UrlTarget,
+} from "./destination.js";
+export { createRouteFactory, routeContributions, routeOf } from "./fluent.js";
 export type {
   Apply,
   ContributionOf,

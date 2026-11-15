@@ -190,7 +190,7 @@ defineRoute("arity", {}).context(stage, stage);
 const runtimeSteps = [
   { name: "context", serverOnly: true, arity: { min: 1, max: 1 } },
   { name: "use", serverOnly: true, arity: { min: 0, max: null } },
-  { name: "procedures", serverOnly: true, arity: { min: 1, max: 1 } },
+  { name: "procedures", serverOnly: false, arity: { min: 1, max: 1 } },
 ] as const;
 const input = () => ({});
 const matching: RuntimeExtension<FixtureSpec> = { steps: runtimeSteps, input };

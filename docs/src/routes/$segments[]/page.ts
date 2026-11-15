@@ -1,7 +1,7 @@
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { createUrl } from "@loozo/angular-router";
-import home from "../+home/route.js";
+import { destination as home } from "../+home/destination.generated.js";
 
 @Component({
   imports: [RouterLink],
