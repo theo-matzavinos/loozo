@@ -263,6 +263,41 @@ export class RuntimeGraph {
     ).resolvedModule;
   }
 
+  /**
+   * A resolved module's application file and the implementation files it runs: the file
+   * itself, or a declaration's runtime siblings. Package entries are leaves.
+   */
+  runs(resolved: ts.ResolvedModuleFull | undefined): {
+    readonly name?: string;
+    readonly targets: readonly string[];
+  } {
+    let name: string | undefined;
+    const targets: string[] = [];
+
+    if (resolved && !resolved.isExternalLibraryImport) {
+      name = resolve(resolved.resolvedFileName);
+    }
+
+    // `.d.<ext>.ts` describes a non-JavaScript asset: a leaf, like a package entry.
+    if (name && !name.split(sep).includes("node_modules") && !/\.d\.[^.]+\.ts$/.test(name)) {
+      const declaration = siblings.find(([extension]) => name.endsWith(extension));
+
+      if (declaration) {
+        const stem = name.slice(0, -declaration[0].length);
+
+        for (const extension of declaration[1]) {
+          if (this.#host.fileExists(stem + extension)) {
+            targets.push(stem + extension);
+          }
+        }
+      } else if (implementations.has(extname(name))) {
+        targets.push(name);
+      }
+    }
+
+    return { name, targets };
+  }
+
   edges(file: string): readonly Edge[] {
     const known = this.#edges.get(file);
 
@@ -278,30 +313,7 @@ export class RuntimeGraph {
         continue;
       }
 
-      const resolved = this.resolve(source, reference);
-      let name: string | undefined;
-      const targets: string[] = [];
-
-      if (resolved && !resolved.isExternalLibraryImport) {
-        name = resolve(resolved.resolvedFileName);
-      }
-
-      // `.d.<ext>.ts` describes a non-JavaScript asset: a leaf, like a package entry.
-      if (name && !name.split(sep).includes("node_modules") && !/\.d\.[^.]+\.ts$/.test(name)) {
-        const declaration = siblings.find(([extension]) => name.endsWith(extension));
-
-        if (declaration) {
-          const stem = name.slice(0, -declaration[0].length);
-
-          for (const extension of declaration[1]) {
-            if (this.#host.fileExists(stem + extension)) {
-              targets.push(stem + extension);
-            }
-          }
-        } else if (implementations.has(extname(name))) {
-          targets.push(name);
-        }
-      }
+      const { name, targets } = this.runs(this.resolve(source, reference));
 
       edges.push({ from: file, reference, kind: reference.edge, resolved: name, targets });
     }

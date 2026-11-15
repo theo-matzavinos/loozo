@@ -608,6 +608,9 @@ export async function validateRoutes(
     }
   }
 
+  const runtime = new RuntimeGraph(program, host);
+  const outside: string[] = [];
+
   // Authored files first, so an authored import is reported at the author's line rather
   // than through the copy that repeats it.
   scanned.sort(
@@ -696,7 +699,7 @@ export async function validateRoutes(
         mode = ts.ModuleKind.CommonJS;
       }
 
-      const file = ts.resolveModuleName(
+      const resolved = ts.resolveModuleName(
         name,
         source.fileName,
         sources.parsed.options,
@@ -704,7 +707,8 @@ export async function validateRoutes(
         undefined,
         undefined,
         mode,
-      ).resolvedModule?.resolvedFileName;
+      ).resolvedModule;
+      const file = resolved?.resolvedFileName;
 
       if (file && obsolete.has(resolve(file))) {
         fail(specifier, `Generated import is not a retained owned target: ${name}`);
@@ -749,6 +753,47 @@ export async function validateRoutes(
 
       if (file && !file.includes("/node_modules/") && !generated.has(resolve(file))) {
         await auditPath(file);
+      }
+
+      if (reference.edge || reference.form === "dynamic import") {
+        for (const target of runtime.runs(resolved).targets) {
+          if (!program.getSourceFile(target)) {
+            outside.push(target);
+          }
+        }
+      }
+    }
+  }
+
+  // The runtime files the program's modules execute that the program doesn't hold, such as a
+  // `.js` behind its `.d.ts` without allowJs or a `.cjs` behind its `.d.cts`, and those they
+  // execute in turn, are application code too: the import rule binds them.
+  const walked = new Set<string>();
+
+  while (outside.length > 0) {
+    const file = outside.pop()!;
+
+    if (walked.has(file)) {
+      continue;
+    }
+
+    walked.add(file);
+
+    const source = runtime.source(file);
+
+    for (const reference of moduleReferences(source, verbatim)) {
+      const resolved = runtime.resolve(source, reference);
+
+      if (resolved && !resolved.isExternalLibraryImport) {
+        importRule(source, reference, resolve(resolved.resolvedFileName));
+      }
+
+      if (reference.edge || reference.form === "dynamic import") {
+        for (const target of runtime.runs(resolved).targets) {
+          if (!program.getSourceFile(target)) {
+            outside.push(target);
+          }
+        }
       }
     }
   }
@@ -965,7 +1010,7 @@ export async function validateRoutes(
     await Promise.all(promises);
   }
 
-  validateCopies(sources, generated, validation, globalTargets);
+  validateCopies(sources, generated, validation, globalTargets, runtime);
 }
 
 // Any export other than the default one: named exports (value or type), `export *`,
@@ -1005,17 +1050,18 @@ function exportsBesidesDefault(statement: ts.Statement): boolean {
 /**
  * The checks of the generated copies over the runtime import graph: neither copy keeps a
  * runtime import of a server module; nothing a destination copy imports reaches a generated
- * file or a declaration module; nothing a route copy imports reaches a route copy or a shared
- * file. Then every copy must type-check; its diagnostics point at the declaration's line.
+ * file or a declaration module; nothing a route copy imports reaches a route copy, a shared
+ * file or a declaration module. Then every copy must type-check; its diagnostics point at
+ * the declaration's line.
  */
 function validateCopies(
   sources: Sources,
   generated: ReadonlyMap<string, string>,
   validation: ReturnType<typeof createValidationProgram>,
   shared: ReadonlySet<string>,
+  graph: RuntimeGraph,
 ): void {
-  const { program, host } = validation;
-  const graph = new RuntimeGraph(program, host);
+  const { program } = validation;
   const base = dirname(sources.configFile);
   const declared = new Set(sources.declarations.map((declaration) => declaration.file));
 
@@ -1139,7 +1185,8 @@ function validateCopies(
     }
 
     // A route copy's own imports reach destinations at most: destination files can't reach
-    // back, so the walk stops there.
+    // back, so the walk stops there. Its parent's copy is the one route module it may import;
+    // no authored declaration is reachable.
     for (const edge of graph.edges(routeCopy)) {
       if (edge.targets.length === 1 && edge.targets[0] === parentCopy) {
         continue;
@@ -1147,7 +1194,7 @@ function validateCopies(
 
       const found = graph.path(
         edge,
-        (file) => routeCopies.has(file) || shared.has(file),
+        (file) => routeCopies.has(file) || shared.has(file) || declared.has(file),
         (file) => basename(file) === "destination.generated.ts" && generated.has(file),
       );
 

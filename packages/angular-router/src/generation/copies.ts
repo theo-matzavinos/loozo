@@ -340,6 +340,103 @@ export function copies(
     }
   }
 
+  // The destination copy keeps the declarations of the bindings its facts reach but drops
+  // every other statement, so a later write to one of them would give the copy different URL
+  // facts from the declaration's. Any write to one, anywhere in the file, fails.
+  const factBindings = new Set<ts.Symbol>();
+
+  for (const statement of source.statements) {
+    for (const name of bindings(statement)) {
+      const unit = unitOf(name);
+      const symbol = checker.getSymbolAtLocation(name);
+
+      if (unit && destinationLive.has(unit) && symbol) {
+        factBindings.add(symbol);
+      }
+    }
+  }
+
+  let write: ts.Identifier | undefined;
+
+  function written(identifier: ts.Identifier): void {
+    const symbol = symbolOf(identifier);
+
+    if (
+      symbol &&
+      factBindings.has(symbol) &&
+      (!write || identifier.getStart(source) < write.getStart(source))
+    ) {
+      write = identifier;
+    }
+  }
+
+  // The bindings an assignment target writes, through destructuring patterns.
+  function target(node: ts.Expression): void {
+    if (ts.isIdentifier(node)) {
+      written(node);
+    } else if (
+      ts.isParenthesizedExpression(node) ||
+      ts.isNonNullExpression(node) ||
+      ts.isAsExpression(node) ||
+      ts.isTypeAssertionExpression(node) ||
+      ts.isSatisfiesExpression(node) ||
+      ts.isSpreadElement(node)
+    ) {
+      target(node.expression);
+    } else if (ts.isArrayLiteralExpression(node)) {
+      for (const element of node.elements) {
+        target(element);
+      }
+    } else if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (ts.isPropertyAssignment(property)) {
+          target(property.initializer);
+        } else if (ts.isShorthandPropertyAssignment(property)) {
+          written(property.name);
+        } else if (ts.isSpreadAssignment(property)) {
+          target(property.expression);
+        }
+      }
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      // A pattern element's default value.
+      target(node.left);
+    }
+  }
+
+  function writes(node: ts.Node): void {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      target(node.left);
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken ||
+        node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      target(node.operand);
+    } else if (
+      (ts.isForInStatement(node) || ts.isForOfStatement(node)) &&
+      !ts.isVariableDeclarationList(node.initializer)
+    ) {
+      target(node.initializer);
+    }
+
+    ts.forEachChild(node, writes);
+  }
+
+  if (factBindings.size > 0) {
+    writes(source);
+  }
+
+  if (write) {
+    fail(write, "a binding the URL facts read is reassigned; declare it const");
+  }
+
   // Removals of dead units, leaving the parent import to its rewrite.
   function removals(live: ReadonlySet<Unit>): Edit[] {
     const edits: Edit[] = [];

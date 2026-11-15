@@ -2432,11 +2432,8 @@ test("route copies: the oracle holds over the snippets and the SSR proof route t
         if (entry.isDirectory()) {
           await collect(path, `${prefix}${entry.name}/`);
         } else if (entry.name === "route.ts") {
-          // Until the in-repo redirects import destinations, read them as migrated.
-          routes[prefix.slice(0, -1)] = (await readFile(path, "utf8")).replace(
-            'import item from "../../items/$id/route.js";',
-            'import { destination as item } from "../../items/$id/destination.generated.js";',
-          );
+          // A Windows checkout may write CRLF; the oracle compares against LF copies.
+          routes[prefix.slice(0, -1)] = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
         }
       }
 
@@ -2868,6 +2865,68 @@ test("route declarations: URL facts use the parent import only as `parent:`, for
       }
     }
   }
+});
+
+test("route declarations: a binding the URL facts read can't be reassigned", async () => {
+  const project = await copyProject();
+  const header =
+    'import { defineRoute, numberParam, stringParam, type ParamCodec } from "@loozo/angular-router";\n';
+  const reason = "a binding the URL facts read is reassigned; declare it const";
+  const codec = "let id: ParamCodec<string | number> = stringParam;\n";
+  const facts = 'export default defineRoute("a/$id", { params: { id } })';
+  // The destination copy would keep `let id = stringParam` and drop every write.
+  const rejected = [
+    {
+      name: "assignment",
+      text: `${header}${codec}id = numberParam;\n${facts};\n`,
+      at: "3:1",
+    },
+    {
+      name: "assignment inside a function a step calls",
+      text: `${header}${codec}const reset = (): void => {\n  id = numberParam;\n};\n${facts}.title(() => {\n  reset();\n  return "a";\n});\n`,
+      at: "4:3",
+    },
+    {
+      name: "array destructuring",
+      text: `${header}${codec}[id] = [numberParam];\n${facts};\n`,
+      at: "3:2",
+    },
+    {
+      name: "object destructuring shorthand",
+      text: `${header}${codec}({ id } = { id: numberParam });\n${facts};\n`,
+      at: "3:4",
+    },
+    {
+      name: "for … of target",
+      text: `${header}${codec}for (id of [numberParam]) {\n  void id;\n}\n${facts};\n`,
+      at: "3:6",
+    },
+    {
+      name: "++ on a binding a facts helper reads",
+      text: `${header}let uses = 0;\nuses++;\nconst id = uses > 0 ? numberParam : numberParam;\n${facts};\n`,
+      at: "3:1",
+    },
+  ];
+
+  for (const { name, text, at } of rejected) {
+    await assert.rejects(project.analyze({ a: text }), (error) => {
+      assert.ok(
+        error.message.endsWith(`a${sep}route.ts:${at}: ${reason}`),
+        `${name}: ${error.message}`,
+      );
+
+      return true;
+    });
+  }
+
+  // A binding only a step reads is the route copy's, which keeps every statement that writes
+  // it; const codecs are unaffected.
+  const { copy } = await project.analyze({
+    a: `${header}let title = "a";\ntitle = "b";\nconst id = numberParam;\n${facts}.title(() => title);\n`,
+  });
+
+  assert.ok(copy("a", "route").includes('title = "b";'), copy("a", "route"));
+  assert.ok(!copy("a", "destination").includes("title"), copy("a", "destination"));
 });
 
 test("route copies: one line holding the root, a stripped step and a kept step", async () => {
@@ -3333,6 +3392,97 @@ test("route copies: helpers in every runtime format TypeScript resolves are walk
         );
       }
     }
+  }
+});
+
+test("route copies: runtime files the program doesn't hold are bound by the import rule", async () => {
+  const project = await extensionProject();
+  const header = 'import { defineRoute } from "@fixture/route-extension";\n';
+  // B's server-only context step and its server import are stripped from B's copies; a
+  // helper importing authored B would still run them in the browser.
+  const b = `${header}import { db } from "../../lib/db.server.js";\n\nexport default defineRoute("b", {}).context(() => ({ secret: db }));\n`;
+  const a = (helper) =>
+    `${header}import { label } from ${JSON.stringify(helper)};\n\nexport default defineRoute("a", {}).title(label);\n`;
+  const rule = (importer, line, column, specifier, destination) =>
+    `src${sep}lib${sep}${importer}:${line}:${column}: Import of a route declaration: ${specifier}. Import its destination from ${destination} instead.`;
+  // allowJs stays off, so neither helper.js nor helper.cjs is a program file: their
+  // declaration files are, and the runtime files run behind them.
+  const cases = [
+    {
+      name: "helper.js behind helper.d.ts imports another route",
+      helper: "../../lib/helper.js",
+      files: {
+        "src/lib/helper.js":
+          'import route from "../routes/b/route.js";\nexport const label = route.path;\n',
+        "src/lib/helper.d.ts": "export declare const label: string;\n",
+      },
+      expected: rule(
+        "helper.js",
+        1,
+        19,
+        "../routes/b/route.js",
+        "../routes/b/destination.generated.js",
+      ),
+    },
+    {
+      name: "helper.js behind helper.d.ts imports its own importer",
+      helper: "../../lib/helper.js",
+      files: {
+        "src/lib/helper.js":
+          'import route from "../routes/a/route.js";\nexport const label = String(route);\n',
+        "src/lib/helper.d.ts": "export declare const label: string;\n",
+      },
+      expected: rule(
+        "helper.js",
+        1,
+        19,
+        "../routes/a/route.js",
+        "../routes/a/destination.generated.js",
+      ),
+    },
+    {
+      name: "helper.cjs behind helper.d.cts, through a second runtime file",
+      helper: "../../lib/helper.cjs",
+      files: {
+        "src/lib/helper.cjs":
+          'const inner = require("./inner.cjs");\nexports.label = inner.label;\n',
+        "src/lib/inner.cjs":
+          'const route = require("../routes/b/route.js");\nexports.label = route.default.path;\n',
+        "src/lib/helper.d.cts": "export declare const label: string;\n",
+      },
+      expected: rule(
+        "inner.cjs",
+        1,
+        23,
+        "../routes/b/route.js",
+        "../routes/b/destination.generated.js",
+      ),
+    },
+  ];
+
+  async function files(extra) {
+    await rm(resolve(project.root, "src/lib"), { recursive: true, force: true });
+    await project.write("src/lib/db.server.ts", 'export const db = { name: "db" };\n');
+
+    for (const [path, text] of Object.entries(extra)) {
+      await project.write(path, text);
+    }
+  }
+
+  // The same layout without the route import generates.
+  await files({
+    "src/lib/helper.js": 'export const label = "a";\n',
+    "src/lib/helper.d.ts": "export declare const label: string;\n",
+  });
+  await project.analyze({ a: a("../../lib/helper.js"), b });
+
+  for (const testCase of cases) {
+    await files(testCase.files);
+    await assert.rejects(project.analyze({ a: a(testCase.helper), b }), (error) => {
+      assert.ok(error.message.endsWith(testCase.expected), `${testCase.name}: ${error.message}`);
+
+      return true;
+    });
   }
 });
 

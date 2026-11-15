@@ -90,7 +90,7 @@ The template reads the signals directly: they hold the activated route's values 
 defineRoute(path, facts).step(argument)…;
 ```
 
-`path` must be a string literal; TypeScript infers everything else, and generation rejects type arguments on the `defineRoute` call itself (a step's are fine). In the facts and the helpers they use, the parent import may only be the `parent:` value; for the parent's URL types write `ParamsOf<TargetOf<typeof d>>` with `d` imported from the parent's `destination.generated.js` (steps can use `parent` freely). `facts` holds the URL facts: the parent and the codecs for params, search and fragments. Behavior follows as chained steps. By default the builder writes `path` and `parent` from the directories, and you write the rest.
+`path` must be a string literal; TypeScript infers everything else, and generation rejects type arguments on the `defineRoute` call itself (a step's are fine). In the facts and the helpers they use, the parent import may only be the `parent:` value; for the parent's URL types write `ParamsOf<TargetOf<typeof d>>` with `d` imported from the parent's `destination.generated.js` (steps can use `parent` freely). A top-level `let` or `var` the facts read, directly or through a helper, can't be assigned anywhere in the file, inside functions included (`a binding the URL facts read is reassigned; declare it const`): the generated destination keeps the declaration but not the assignment. `facts` holds the URL facts: the parent and the codecs for params, search and fragments. Behavior follows as chained steps. By default the builder writes `path` and `parent` from the directories, and you write the rest.
 
 ### Paths
 
@@ -406,7 +406,7 @@ Generation checks route structure, not your whole program. Type errors elsewhere
 
 ### Importing routes
 
-Nothing imports a `route.ts` except its child routes' `route.ts`, as their `parent` default import. Everything else, server code included, imports the route's `destination` from `destination.generated.ts`, and a page imports `injectRoute` from its own `route.generated.ts`. Any other import of a route module, in any form (`import`, `import type`, `export … from`, `import()`, `require`), fails generation. That covers every file in the program of the `tsconfig` option:
+Nothing imports a `route.ts` except its child routes' `route.ts`, as their `parent` default import. Everything else, server code included, imports the route's `destination` from `destination.generated.ts`, and a page imports `injectRoute` from its own `route.generated.ts`. Any other import of a route module, in any form (`import`, `import type`, `export … from`, `import()`, `require`), fails generation. That covers every file in the program of the `tsconfig` option, and the JavaScript files those files run that the program doesn't hold, such as a `helper.js` behind its `helper.d.ts` without `allowJs`:
 
 ```text
 /workspace/src/config.ts:3:21: Import of a route declaration: ./routes/not-found/route.js. Import its destination from ./routes/not-found/destination.generated.js instead.
@@ -417,7 +417,7 @@ A route module exports only its route, as its default export; move shared helper
 The generated copies run when the app starts, so generation also checks what they import, following imports through your own modules:
 
 - The modules a route's URL facts import, such as a custom codec, may import only packages and other non-generated modules (`URL facts import reaches a generated file`).
-- The modules a route's steps import, such as a guard helper, may import destination files but no `route.generated.ts`, `routes.generated.ts` or `destinations.generated.ts` (`Route copy import reaches a generated route module`): that import would read a route before it exists.
+- The modules a route's steps import, such as a guard helper, may import destination files but no `route.ts`, `route.generated.ts`, `routes.generated.ts` or `destinations.generated.ts` (`Route copy import reaches a generated route module`): that import would read a route before it exists.
 - The copies run in the browser, so neither may keep an import of a `*.server.*` module or a `node:` builtin (`Browser route copy imports a server module`). An import that only server-only steps use leaves with them, and an `import type` is erased.
 
 Each message names the chain of imports that broke the rule. When the last link only needs types, make it `import type`: type-only imports aren't followed, and neither is `import { type X }` with every name marked `type`, unless `verbatimModuleSyntax` is on. A dynamic `import()` isn't followed either, since it runs later. Every other import counts, `require` included, even one used only as a type, because Angular keeps imports that dependency injection uses. Imports with a computed specifier, such as `import(name)`, fail anywhere in the app, because generation can't follow them.
