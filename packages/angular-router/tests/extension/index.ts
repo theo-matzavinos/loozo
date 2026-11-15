@@ -1,5 +1,7 @@
 // A test route extension shaped like Launch's: context, middleware and procedure steps
-// before the router's own, plus an `rpc` callback input. It imports only the router's
+// before the router's own, plus an `rpc` callback input. Context and middleware are
+// server-only, so route copies strip them; procedures stay in the browser copy, which keeps
+// the `rpc` enrichment provable there. It imports only the router's
 // `/_core` seam, so its emitted declarations are what a published extension ships.
 import { assertInInjectionContext, inject, InjectionToken, REQUEST } from "@angular/core";
 import {
@@ -79,7 +81,7 @@ export interface FixtureSpec extends ExtensionSpec {
   readonly steps: readonly [
     { name: "context"; type: ContextStep; serverOnly: true; arity: { min: 1; max: 1 } },
     { name: "use"; type: UseStep; serverOnly: true; arity: { min: 0; max: null } },
-    { name: "procedures"; type: ProceduresStep; serverOnly: true; arity: { min: 1; max: 1 } },
+    { name: "procedures"; type: ProceduresStep; serverOnly: false; arity: { min: 1; max: 1 } },
   ];
   readonly input: Input;
   readonly witness: typeof witness;
@@ -121,7 +123,7 @@ export const fixtureRuntime: RuntimeExtension<FixtureSpec> = {
   steps: [
     { name: "context", serverOnly: true, arity: { min: 1, max: 1 } },
     { name: "use", serverOnly: true, arity: { min: 0, max: null } },
-    { name: "procedures", serverOnly: true, arity: { min: 1, max: 1 } },
+    { name: "procedures", serverOnly: false, arity: { min: 1, max: 1 } },
   ],
   input,
 };

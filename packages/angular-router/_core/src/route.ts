@@ -5,8 +5,17 @@ import {
   type ParamCodec,
   type PathCodec,
 } from "./codecs.js";
-import { parsePath, type Segment, type ValidPath } from "./path.js";
+import { parsePath, type ValidPath } from "./path.js";
 import { checkKeys, has, ownRecord } from "./records.js";
+import {
+  destinationRecord,
+  findDestination,
+  registerDestination,
+  type Destination,
+  type TargetOf,
+  type UrlMetadata,
+  type UrlTarget,
+} from "./destination.js";
 import type {
   ContributionRecord,
   ExtensionSpec,
@@ -19,15 +28,10 @@ import type {
 } from "./fluent.js";
 import type { AnyRoute, CodecMap } from "./types.js";
 
-export interface RouteMetadata {
+export interface RouteMetadata extends Omit<UrlMetadata, "parent"> {
   readonly parent?: AnyRoute;
-  readonly localSegments: readonly Segment[];
-  readonly segments: readonly Segment[];
-  readonly localParams: Readonly<Record<string, ParamCodec<any>>>;
-  readonly localSearch: Readonly<Record<string, ParamCodec<any>>>;
-  readonly params: Readonly<Record<string, ParamCodec<any>>>;
-  readonly search: Readonly<Record<string, ParamCodec<any>>>;
-  readonly fragments: readonly string[];
+  /** A route copy's own destination, kept by every later stage: the route's canonical identity. */
+  readonly destination?: Destination<AnyRoute>;
   /** URL facts and router steps: local codecs, parent, fragments and native behavior. */
   readonly config: Readonly<Record<string, unknown>>;
   /** Present once this route or an ancestor was made by an extension factory. Frozen. */
@@ -88,12 +92,23 @@ const policies = new Set([
 ]);
 const identityKey = "__loozoAngularRouterRouteId";
 
+/** The metadata of a genuine route from this package instance, or undefined. */
+export function findRoute(value: unknown): RouteMetadata | undefined {
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
+
+  return routes.get(value);
+}
+
 export function routeMetadata(route: unknown): RouteMetadata {
-  if (route === null || typeof route !== "object" || !routes.has(route)) {
+  const metadata = findRoute(route);
+
+  if (!metadata) {
     throw new TypeError("Expected a genuine route from this package instance");
   }
 
-  return routes.get(route)!;
+  return metadata;
 }
 
 function copyCodecs(value: unknown, path: boolean): Readonly<Record<string, ParamCodec<any>>> {
@@ -127,7 +142,13 @@ function snapshotRedirect(
 
   checkKeys(redirect, new Set(["to", "params", "search", "fragment"]), "redirect");
 
-  const target = routeMetadata(redirect.to);
+  const destination = findDestination(redirect.to);
+
+  if (!destination) {
+    throw new TypeError("Redirect target must be a genuine destination");
+  }
+
+  const target = destination.url;
   const mapping: Record<string, string> = Object.create(null);
 
   if (has(redirect, "params")) {
@@ -205,19 +226,32 @@ function snapshotRedirect(
   });
 }
 
-// Path grammar, parent, local codecs and fragments: everything but behavior.
-function facts(path: unknown, value: unknown): RouteMetadata {
+interface Facts<Parent> extends Omit<UrlMetadata, "parent"> {
+  readonly parent?: Parent;
+  readonly config: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Path grammar, parent, local codecs and fragments: everything but behavior.
+ * `inheritedOf` authenticates the parent in the registry the caller means (routes
+ * for `defineRoute`, destinations for `defineDestination`) and returns its URL facts.
+ */
+function facts<Parent>(
+  path: unknown,
+  value: unknown,
+  inheritedOf: (parent: unknown) => Omit<UrlMetadata, "parent">,
+): Facts<Parent> {
   const supplied = ownRecord(value, "URL facts");
 
   checkKeys(supplied, factsKeys, "URL facts");
 
   const localSegments = parsePath(path);
-  let parent: AnyRoute | undefined;
-  let inherited: RouteMetadata | undefined;
+  let parent: Parent | undefined;
+  let inherited: Omit<UrlMetadata, "parent"> | undefined;
 
   if (has(supplied, "parent")) {
-    inherited = routeMetadata(supplied.parent);
-    parent = supplied.parent as AnyRoute;
+    inherited = inheritedOf(supplied.parent);
+    parent = supplied.parent as Parent;
 
     for (const segment of inherited.segments) {
       if (segment.kind === "catchall") {
@@ -491,13 +525,12 @@ function stage(state: Stage): AnyRoute {
   return Object.freeze(route) as unknown as AnyRoute;
 }
 
-/** The fluent engine behind the router's `defineRoute` and every extension factory. */
-export function declareRoute(
+// Starts a chain: same-extension ancestry is kept, mixed extensions are rejected.
+function start(
   runtime: RuntimeExtension<ExtensionSpec> | undefined,
-  path: unknown,
-  value: unknown,
+  path: string,
+  metadata: RouteMetadata,
 ): AnyRoute {
-  const metadata = facts(path, value);
   const inherited = metadata.parent && routeMetadata(metadata.parent).extension;
   let extension: RouteMetadata["extension"];
   let ancestors: readonly ContributionRecord[] = Object.freeze([]);
@@ -522,12 +555,63 @@ export function declareRoute(
   }
 
   return stage({
-    path: path as string,
+    path,
     metadata: { ...metadata, extension },
     used: new Set(),
     runtime,
     ancestors,
     next: 0,
+  });
+}
+
+/** The fluent engine behind the router's `defineRoute` and every extension factory. */
+export function declareRoute(
+  runtime: RuntimeExtension<ExtensionSpec> | undefined,
+  path: unknown,
+  value: unknown,
+): AnyRoute {
+  return start(runtime, path as string, facts<AnyRoute>(path, value, routeMetadata));
+}
+
+/**
+ * The fluent engine behind `routeOf`: a route copy's first stage, from a genuine
+ * destination and its parent's route copy. Runs no codec or callback.
+ */
+export function copyRoute(
+  runtime: RuntimeExtension<ExtensionSpec> | undefined,
+  destination: unknown,
+  parent: unknown,
+): AnyRoute {
+  const record = destinationRecord(destination);
+  let parentDestination: Destination<AnyRoute> | undefined;
+
+  if (parent !== undefined) {
+    parentDestination = routeMetadata(parent).destination;
+
+    if (parentDestination === undefined) {
+      throw new TypeError("Route copy parent does not match its destination");
+    }
+  }
+
+  if (parentDestination !== record.url.parent) {
+    throw new TypeError("Route copy parent does not match its destination");
+  }
+
+  const config: Record<string, unknown> = {};
+
+  if (parent !== undefined) {
+    config.parent = parent;
+  }
+
+  config.params = record.url.localParams;
+  config.search = record.url.localSearch;
+  config.fragments = record.url.fragments;
+
+  return start(runtime, record.path, {
+    ...record.url,
+    parent: parent as AnyRoute | undefined,
+    destination: destination as Destination<AnyRoute>,
+    config: Object.freeze(config),
   });
 }
 
@@ -555,9 +639,10 @@ export function declareRoute(
  * retain identity and are not deep-frozen.
  *
  * For generation, author a direct default export of this call chain with a literal
- * path, inline URL facts and one argument per step. Parent and redirect targets must
- * be direct default imports of admitted declarations. Angular owns activation and
- * navigation; declaration alone does not register a route with Angular.
+ * path, inline URL facts and one argument per step. The parent must be a direct
+ * default import of the parent's `route.ts`; a redirect target is the target route's
+ * destination, imported from its `destination.generated.ts`. Angular owns activation
+ * and navigation; declaration alone does not register a route with Angular.
  *
  * @param path - The literal local path, relative to the authored parent.
  * @param facts - Local codecs, parent and fragments. Behavior goes in chained steps;
@@ -567,7 +652,8 @@ export function declareRoute(
  * @throws TypeError for invalid paths or URL facts, missing or extra local codecs,
  * fallback or array codecs in path params, inherited key conflicts, and, from the
  * step that supplies them, invalid behavior values, nonarray redirect replacements
- * for array search keys, or nongenuine parent/redirect routes.
+ * for array search keys, a nongenuine parent route, or a redirect target that isn't a
+ * genuine destination.
  *
  * @example
  * ```ts
@@ -601,4 +687,44 @@ export function defineRoute<
 
 export function defineRoute(path: unknown, facts: unknown): AnyRoute {
   return declareRoute(undefined, path, facts);
+}
+
+/**
+ * Declares a route's destination from its URL facts. Generation emits the only
+ * calls, in `destination.generated.ts`; never call it from application code.
+ *
+ * @remarks
+ * Validates the facts exactly like `defineRoute` (path grammar, exact local codecs,
+ * inherited keys, fragments), with a genuine destination as `parent`. Evaluates no
+ * codec and nothing else.
+ *
+ * @param path - The literal local path, relative to the parent destination.
+ * @param facts - Local codecs, parent destination and fragments.
+ * @param id - The exact generated declaration identity.
+ * @returns A frozen empty object registered as a genuine destination.
+ * @throws TypeError for invalid paths or URL facts, or a parent that isn't a genuine destination.
+ *
+ * @internal
+ */
+export function defineDestination<
+  const P extends string,
+  ParentDestination extends Destination<AnyRoute> | undefined = undefined,
+  Params extends Record<string, PathCodec> = {},
+  Search extends CodecMap = {},
+  const F extends readonly string[] = [],
+  const Id extends string = string,
+>(
+  path: P & ValidPath<P>,
+  facts: UrlFacts<P, TargetOf<ParentDestination>, Params, Search, F, ParentDestination>,
+  id: Id,
+): Destination<UrlTarget<P, TargetOf<ParentDestination>, Params, Search, F>, Id>;
+
+export function defineDestination(path: unknown, value: unknown, id: string): unknown {
+  const { config: _config, ...url } = facts<Destination<AnyRoute>>(
+    path,
+    value,
+    (parent) => destinationRecord(parent).url,
+  );
+
+  return registerDestination({ id, path: path as string, url: Object.freeze(url) });
 }

@@ -1,32 +1,35 @@
 {
   "100": {
-    "generate.ms": 5000,
-    "serve.generatedMs": 3000,
-    "serve.servedMs": 5000,
-    "build.ms": 11000,
-    "typecheck.ngcMs": 4000,
-    "typecheck.instantiations": 106000,
-    "bundle.initial.raw": 275000,
-    "bundle.initial.brotli": 65000
+    "generate.ms": 3000,
+    "serve.generatedMs": 2000,
+    "serve.servedMs": 4000,
+    "build.ms": 8000,
+    "typecheck.ngcMs": 3000,
+    "typecheck.instantiations": 143000,
+    "bundle.initial.raw": 265000,
+    "bundle.initial.gzip": 78000,
+    "bundle.initial.brotli": 68000
   },
   "300": {
-    "generate.ms": 5000,
-    "serve.generatedMs": 4000,
-    "serve.servedMs": 6000,
-    "build.ms": 12000,
+    "generate.ms": 6000,
+    "serve.generatedMs": 6000,
+    "serve.servedMs": 8000,
+    "build.ms": 14000,
     "typecheck.ngcMs": 5000,
-    "typecheck.instantiations": 293000,
-    "bundle.initial.raw": 371000,
-    "bundle.initial.brotli": 69000
+    "typecheck.instantiations": 289000,
+    "bundle.initial.raw": 338000,
+    "bundle.initial.gzip": 91000,
+    "bundle.initial.brotli": 77000
   },
   "1000": {
     "generate.ms": 15000,
-    "serve.generatedMs": 13000,
-    "serve.servedMs": 22000,
-    "build.ms": 29000,
-    "typecheck.ngcMs": 12000,
-    "typecheck.instantiations": 948000,
-    "bundle.initial.raw": 709000,
-    "bundle.initial.brotli": 84000
+    "serve.generatedMs": 14000,
+    "serve.servedMs": 19000,
+    "build.ms": 31000,
+    "typecheck.ngcMs": 11000,
+    "typecheck.instantiations": 799000,
+    "bundle.initial.raw": 596000,
+    "bundle.initial.gzip": 136000,
+    "bundle.initial.brotli": 107000
   }
 }

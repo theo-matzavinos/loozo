@@ -8,9 +8,9 @@ import {
 import { packages } from "../../../generated/content/index.generated.js";
 import { CurrentPackage } from "../../package-content.js";
 import { injectRoute } from "./route.generated.js";
-import { destination as guide } from "./guide/$guide/route.generated.js";
-import { destination as api } from "./api/$symbol/route.generated.js";
-import { destination as generatedApi } from "./generated-api/route.generated.js";
+import { destination as guide } from "./guide/$guide/destination.generated.js";
+import { destination as api } from "./api/$symbol/destination.generated.js";
+import { destination as generatedApi } from "./generated-api/destination.generated.js";
 
 /** Layout for every page of one package: the documentation sidebar beside the page. */
 @Component({

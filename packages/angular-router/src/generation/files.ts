@@ -6,7 +6,15 @@ export const markers = {
   "routes.generated.ts": "// @loozo/angular-router routegen: owned routes.generated.ts",
   "destinations.generated.ts": "// @loozo/angular-router routegen: owned destinations.generated.ts",
   "route.generated.ts": "// @loozo/angular-router routegen: owned route.generated.ts",
+  "destination.generated.ts": "// @loozo/angular-router routegen: owned destination.generated.ts",
 } as const;
+
+// The per-route copies are line-aligned with their declaration, so their marker is the last
+// line; every other generated file carries it on the first line.
+export const routeFiles: ReadonlySet<string> = new Set([
+  "route.generated.ts",
+  "destination.generated.ts",
+]);
 
 export const launchMarkers = {
   "rpc.generated.ts": "// @loozo/angular-launch: owned rpc.generated.ts",
@@ -17,14 +25,50 @@ export const launchMarkers = {
 // Git may check committed generated files out with CRLF line endings (core.autocrlf on
 // Windows). Such a file is still owned output, and current when that conversion is all that
 // separates it from the desired bytes; the generator itself always writes LF.
-export function marked(bytes: string, marker: string): boolean {
-  const line = bytes.split("\n", 1)[0];
+export function marked(bytes: string, marker: string, where: "first" | "last"): boolean {
+  let line: string | undefined;
+
+  if (where === "first") {
+    line = bytes.split("\n", 1)[0];
+  } else {
+    line = bytes.split("\n").findLast((text) => text !== "" && text !== "\r");
+  }
 
   return line === marker || line === `${marker}\r`;
 }
 
+/** Whether `bytes` carry the marker the generator writes into a file named `name`. */
+export function ownedBy(
+  name: string,
+  bytes: string,
+  ownership: Readonly<Record<string, string>>,
+): boolean {
+  const marker = ownership[name];
+
+  if (marker === undefined) {
+    return false;
+  }
+
+  if (routeFiles.has(name)) {
+    return marked(bytes, marker, "last");
+  }
+
+  return marked(bytes, marker, "first");
+}
+
 function current(bytes: string, expected: string): boolean {
   return bytes === expected || bytes === expected.replaceAll("\n", "\r\n");
+}
+
+/** The `.js`-suffixed relative specifier `from` uses to import the TypeScript file `file`. */
+export function specifier(from: string, file: string): string {
+  let name = relative(dirname(from), file).split(sep).join("/").replace(/\.ts$/, ".js");
+
+  if (!name.startsWith(".")) {
+    name = `./${name}`;
+  }
+
+  return name;
 }
 
 export function contains(directory: string, file: string): boolean {
@@ -211,7 +255,7 @@ export async function planOutputs(
 
   for (const path of encountered) {
     if (
-      path.endsWith(`${sep}route.generated.ts`) ||
+      [...routeFiles].some((name) => path.endsWith(`${sep}${name}`)) ||
       (mode === "router-and-launch" &&
         Object.keys(launchMarkers).some((name) => path.endsWith(`${sep}${name}`)))
     ) {
@@ -245,8 +289,7 @@ export async function planOutputs(
     }
 
     const name = path.slice(path.lastIndexOf(sep) + 1);
-    const marker = ownership[name];
-    const owned = marker !== undefined && marked(bytes, marker);
+    const owned = ownedBy(name, bytes, ownership);
 
     if (!owned) {
       if (expected !== undefined) {

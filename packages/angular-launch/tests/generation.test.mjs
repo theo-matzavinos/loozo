@@ -698,7 +698,7 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
         await put(
           root,
           "src/routes/left/route.ts",
-          `import {defineRoute} from '@loozo/angular-router'; import to from '../right/route'; export default defineRoute('old',{}).redirect({to,search:{mode:'drop'},fragment:{mode:'drop'}});`,
+          `import {defineRoute} from '@loozo/angular-router'; import {destination as to} from '../right/destination.generated'; export default defineRoute('old',{}).redirect({to,search:{mode:'drop'},fragment:{mode:'drop'}});`,
         );
       },
       /colocated retained/,
@@ -753,7 +753,7 @@ test("missing/duplicate context, unknown defaults, missing/redirect owners and n
           await put(
             root,
             `src/routes/${name}/route.ts`,
-            `import {defineRoute} from '@loozo/angular-router'; import parent from '../+auth/route'; import to from '../destination/route'; export default defineRoute('${name}',{parent}).redirect({to,search:{mode:'drop'},fragment:{mode:'drop'}});`,
+            `import {defineRoute} from '@loozo/angular-router'; import parent from '../+auth/route'; import {destination as to} from '../destination/destination.generated'; export default defineRoute('${name}',{parent}).redirect({to,search:{mode:'drop'},fragment:{mode:'drop'}});`,
           );
         }
       },

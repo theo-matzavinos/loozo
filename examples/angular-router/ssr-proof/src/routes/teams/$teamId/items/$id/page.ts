@@ -1,6 +1,7 @@
 import { Component, afterNextRender } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { injectRoute } from "./route.generated.js";
+import { destination as oldItem } from "../../old-items/$id/destination.generated.js";
 
 @Component({
   selector: "proof-item",
@@ -28,7 +29,7 @@ export default class Item {
   readonly route = injectRoute();
   readonly direct = this.route.link({ params: { teamId: 7, id: 8 }, search: { score: 43 } });
   readonly alias = this.route.link({
-    to: "/teams/$teamId/old-items/$id",
+    to: oldItem,
     params: { teamId: 7, id: 8 },
     search: { score: 99 },
     fragment: "old",

@@ -1,8 +1,8 @@
 import { computed, signal, type Signal } from "@angular/core";
 import type { ActivatedRoute, ActivatedRouteSnapshot, Router } from "@angular/router";
-import { routeMetadata } from "@loozo/angular-router/_core";
+import { routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
 import { merge } from "rxjs";
-import { assertIdentity, hasIdentity, parseInputs, type RouteSet } from "./inputs.js";
+import { assertIdentity, owners, parseInputs, routeId } from "./inputs.js";
 
 export interface RouteView {
   readonly params: Signal<Readonly<Record<string, unknown>>>;
@@ -19,13 +19,12 @@ export interface RouteView {
  * the route, after which the signals keep their last values.
  */
 export function observeRoute(
-  set: RouteSet,
-  id: string,
+  route: AnyRoute,
   activated: ActivatedRoute,
   router: Router,
   teardown: (release: () => void) => void,
 ): RouteView {
-  assertIdentity(activated.snapshot, id);
+  assertIdentity(activated.snapshot, routeId(route));
 
   const snapshot = signal<ActivatedRouteSnapshot>(activated.snapshot);
   // Activation replaces the snapshot, then emits the route's changed observables, then
@@ -46,13 +45,13 @@ export function observeRoute(
 
   // Shares the parse of guards and resolvers for the same snapshot. An error here
   // means a codec rejected a value it accepted while matching, and reading rethrows it.
-  const inputs = computed(() => parseInputs(set, id, snapshot()));
+  const inputs = computed(() => parseInputs(route, snapshot()));
 
   return {
     params: computed(() => inputs().params),
     search: computed(() => inputs().search),
-    data: computed(() => effectiveData(set, id, snapshot())),
-    title: computed(() => effectiveTitle(set, id, snapshot())),
+    data: computed(() => effectiveData(route, snapshot())),
+    title: computed(() => effectiveTitle(route, snapshot())),
   };
 }
 
@@ -62,28 +61,21 @@ export function observeRoute(
  * paramsInheritanceStrategy; nearer owners overwrite outer ones.
  */
 function effectiveData(
-  set: RouteSet,
-  id: string,
+  route: AnyRoute,
   snapshot: ActivatedRouteSnapshot,
 ): Readonly<Record<PropertyKey, unknown>> {
   const data: Record<PropertyKey, unknown> = Object.create(null);
 
-  for (const ownerId of set.records[id].owners) {
-    const resolvers = routeMetadata(set.records[ownerId].definition()).config.resolve;
+  for (const owner of owners(route, snapshot)) {
+    const resolvers = routeMetadata(owner.route).config.resolve;
 
     if (!resolvers) {
       continue;
     }
 
-    const owner = snapshot.pathFromRoot.findLast((record) => hasIdentity(record, ownerId));
-
-    if (!owner) {
-      throw new Error(`Generated route ancestor missing: ${ownerId}`);
-    }
-
     for (const key of Reflect.ownKeys(resolvers)) {
-      if (Object.hasOwn(owner.data, key)) {
-        data[key] = owner.data[key];
+      if (Object.hasOwn(owner.snapshot.data, key)) {
+        data[key] = owner.snapshot.data[key];
       }
     }
   }
@@ -96,27 +88,17 @@ function effectiveData(
  * read from that declaration's own record of the snapshot, so the result doesn't depend
  * on Angular's paramsInheritanceStrategy.
  */
-function effectiveTitle(
-  set: RouteSet,
-  id: string,
-  snapshot: ActivatedRouteSnapshot,
-): string | undefined {
-  const owners = set.records[id].owners;
+function effectiveTitle(route: AnyRoute, snapshot: ActivatedRouteSnapshot): string | undefined {
+  const chain = owners(route, snapshot);
 
-  for (let index = owners.length - 1; index >= 0; index -= 1) {
-    const ownerId = owners[index];
+  for (let index = chain.length - 1; index >= 0; index -= 1) {
+    const owner = chain[index];
 
-    if (routeMetadata(set.records[ownerId].definition()).config.title === undefined) {
+    if (routeMetadata(owner.route).config.title === undefined) {
       continue;
     }
 
-    const owner = snapshot.pathFromRoot.findLast((record) => hasIdentity(record, ownerId));
-
-    if (!owner) {
-      throw new Error(`Generated route ancestor missing: ${ownerId}`);
-    }
-
-    return owner.title;
+    return owner.snapshot.title;
   }
 
   return undefined;

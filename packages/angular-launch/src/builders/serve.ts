@@ -27,11 +27,19 @@ const settleDelay = 150;
 
 // Generation's own marked outputs in the scan directory; their events need no further pass. The
 // output directory can't overlap the scan directory, so its files never reach the watcher. The
-// router's marker isn't part of its generation seam; if this copy drifts, a write only causes one
-// redundant pass, which writes nothing.
-const generatedMarkers: Record<string, string> = {
-  "route.generated.ts": "// @loozo/angular-router routegen: owned route.generated.ts",
-  "rpc.generated.ts": launchMarkers["rpc.generated.ts"],
+// router's markers aren't part of its generation seam; if this copy drifts, a write only causes one
+// redundant pass, which writes nothing. The router's per-route copies are line-aligned with their
+// declaration, so they carry the marker on their last line; Launch's files on their first.
+const generatedMarkers: Record<string, { marker: string; line: "first" | "last" }> = {
+  "route.generated.ts": {
+    marker: "// @loozo/angular-router routegen: owned route.generated.ts",
+    line: "last",
+  },
+  "destination.generated.ts": {
+    marker: "// @loozo/angular-router routegen: owned destination.generated.ts",
+    line: "last",
+  },
+  "rpc.generated.ts": { marker: launchMarkers["rpc.generated.ts"], line: "first" },
 };
 
 function contains(directory: string, file: string): boolean {
@@ -138,16 +146,21 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        const marker = generatedMarkers[basename(path)];
+        const owned = generatedMarkers[basename(path)];
 
-        if (marker !== undefined) {
+        if (owned !== undefined) {
           try {
             const bytes = await readFile(path, "utf8");
+            const lines = bytes.split("\n");
+            let line = lines[0];
+
+            if (owned.line === "last") {
+              line = lines.findLast((text) => text !== "" && text !== "\r") ?? "";
+            }
+
             // Git may check the file out with CRLF line endings (core.autocrlf on Windows); the
             // router's generation still treats it as its own output.
-            const line = bytes.split("\n", 1)[0];
-
-            if (line === marker || line === `${marker}\r`) {
+            if (line === owned.marker || line === `${owned.marker}\r`) {
               return;
             }
           } catch (error) {

@@ -1,9 +1,8 @@
 import ts from "typescript";
 import { basename, dirname, resolve } from "node:path";
 import { parsePath, type Segment } from "../../_core/src/path.js";
-import { auditPath, metadata } from "./files.js";
+import { auditPath, metadata, specifier } from "./files.js";
 import { fail, properties, resolveModule, type Declaration } from "./sources.js";
-import { specifier } from "./emit.js";
 
 export interface AutoDefineRoutes {
   filename?: string;

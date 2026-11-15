@@ -18,7 +18,8 @@ await cp(join(repository, "examples/angular-router"), fixture, {
   recursive: true,
   filter: (path) =>
     !/(?:^|\/)(?:node_modules|dist|\.angular|generated)(?:\/|$)/.test(path) &&
-    !path.endsWith("route.generated.ts"),
+    !path.endsWith("route.generated.ts") &&
+    !path.endsWith("destination.generated.ts"),
 });
 
 // These fixtures author paths and parents by hand, so they opt out of filesystem mode.
@@ -370,7 +371,7 @@ await write("src/routes/preserved/page.ts", simplePage);
 await write(
   "src/routes/alias/definition.ts",
   `import { defineRoute, numberParam } from '@loozo/angular-router';
-import target from '../preserved/definition.js';
+import { destination as target } from '../preserved/destination.generated.js';
 import { codec } from '../../probes.js';
 
 export default defineRoute('alias/$id', { params: { id: codec('alias') }, search: { score: numberParam } }).redirect({
@@ -383,7 +384,7 @@ export default defineRoute('alias/$id', { params: { id: codec('alias') }, search
 await write(
   "src/routes/thenable-alias/definition.ts",
   `import { defineRoute } from '@loozo/angular-router';
-import target from '../preserved/definition.js';
+import { destination as target } from '../preserved/destination.generated.js';
 import { thenableCodec } from '../../probes.js';
 
 export default defineRoute('thenable-alias/$id', { params: { id: thenableCodec } }).redirect({ to: target, params: { id: 'id' }, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
@@ -626,7 +627,7 @@ for (const [name, search] of [
   await write(
     `src/routes/${name}/definition.ts`,
     `import { defineRoute } from '@loozo/angular-router';
-import searching from '../searching/definition.js';
+import { destination as searching } from '../searching/destination.generated.js';
 
 export default defineRoute('${name}', {}).redirect({ to: searching, search: ${search}, fragment: { mode: 'drop' } });
 `,
@@ -746,10 +747,9 @@ await write(
 import { injectRoute } from './routes/item/route.generated.js';
 import { injectRoute as searchingRoute } from './routes/searching/route.generated.js';
 import { injectRoute as squadRoute } from './routes/squad/route.generated.js';
-import {
-  injectRoute as squadMemberRoute, destination as squadMember,
-} from './routes/squad-member/route.generated.js';
-import { destination as searchingDestination } from './routes/searching/route.generated.js';
+import { injectRoute as squadMemberRoute } from './routes/squad-member/route.generated.js';
+import { destination as squadMember } from './routes/squad-member/destination.generated.js';
+import { destination as searchingDestination } from './routes/searching/destination.generated.js';
 import { injectActiveRoute } from '../generated/destinations.generated.js';
 import { localSymbol } from './probes.js';
 
@@ -1664,36 +1664,11 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 // The active route: a shell reading the deepest route, page constructors reading during
 // activation, and scoped readers created mid-navigation. Its pages run only in their own
 // tabs, so the proofs above keep their parse counts.
+// The routes' own callbacks: route copies import them, so this module reaches no shared
+// generated file.
 await write(
-  "src/active-probes.ts",
-  `import { Injector, inject, runInInjectionContext, type Signal } from '@angular/core';
-import { Router } from '@angular/router';
-import { injectActiveRoute, type ActiveRoute } from '../generated/destinations.generated.js';
-import { destination as crew } from './routes/crew/route.generated.js';
-import { destination as task } from './routes/task/route.generated.js';
-import { destination as good } from './routes/good/route.generated.js';
-import { destination as frame } from './routes/frame/route.generated.js';
-import { destination as part } from './routes/part/route.generated.js';
-import { destination as stem } from './routes/stem/route.generated.js';
-import { destination as leaf } from './routes/leaf/route.generated.js';
-import { destination as gate } from './routes/gate/route.generated.js';
-import { destination as crash } from './routes/crash/route.generated.js';
-
-export const destinations = { crew, task, good, frame, part, stem, leaf, gate, crash };
-
-// The destination name a route is(), and its params and chain names.
-export function describe(route: ActiveRoute | undefined) {
-  if (!route) {
-    return null;
-  }
-
-  const names = (entry: ActiveRoute) =>
-    Object.entries(destinations).filter(([, destination]) => entry.is(destination)).map(([name]) => name);
-
-  return { route: names(route).join(), params: route.params(), chain: route.chain.map((entry) => names(entry).join()) };
-}
-
-let held: Promise<void> | undefined;
+  "src/active-callbacks.ts",
+  `let held: Promise<void> | undefined;
 let release: (() => void) | undefined;
 let guarded: ((value: boolean) => void) | undefined;
 
@@ -1740,6 +1715,48 @@ export function gatePending() {
 export function brokenResolver(): number {
   throw new Error('deliberate resolver failure');
 }
+`,
+);
+await write(
+  "src/active-probes.ts",
+  `import { Injector, inject, runInInjectionContext, type Signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { injectActiveRoute, type ActiveRoute } from '../generated/destinations.generated.js';
+import { destination as crew } from './routes/crew/destination.generated.js';
+import { destination as task } from './routes/task/destination.generated.js';
+import { destination as good } from './routes/good/destination.generated.js';
+import { destination as frame } from './routes/frame/destination.generated.js';
+import { destination as part } from './routes/part/destination.generated.js';
+import { destination as stem } from './routes/stem/destination.generated.js';
+import { destination as leaf } from './routes/leaf/destination.generated.js';
+import { destination as gate } from './routes/gate/destination.generated.js';
+import { destination as crash } from './routes/crash/destination.generated.js';
+
+export const destinations = { crew, task, good, frame, part, stem, leaf, gate, crash };
+
+// The destination name a route is(), and its params and chain names.
+export function describe(route: ActiveRoute | undefined) {
+  if (!route) {
+    return null;
+  }
+
+  const names = (entry: ActiveRoute) =>
+    Object.entries(destinations).filter(([, destination]) => entry.is(destination)).map(([name]) => name);
+
+  return { route: names(route).join(), params: route.params(), chain: route.chain.map((entry) => names(entry).join()) };
+}
+
+// Route callbacks live in their own module: route copies may not reach the shared generated files.
+export {
+  holdTask,
+  releaseTask,
+  taskEntries,
+  taskValue,
+  gateGuard,
+  openGate,
+  gatePending,
+  brokenResolver,
+} from './active-callbacks.js';
 
 // Page constructors: each holds its own reader, first read during activation.
 export const constructed: {
@@ -1812,7 +1829,7 @@ const activeRoutes = {
 
 for (const [name, [declaration, outlet]] of Object.entries(activeRoutes)) {
   let imports =
-    "import { defineRoute, numberParam } from '@loozo/angular-router';\nimport { taskValue, gateGuard, brokenResolver } from '../../active-probes.js';\n";
+    "import { defineRoute, numberParam } from '@loozo/angular-router';\nimport { taskValue, gateGuard, brokenResolver } from '../../active-callbacks.js';\n";
 
   for (const parent of ["crew", "frame", "stem"]) {
     if (declaration.includes(`parent: ${parent}`)) {
@@ -2242,13 +2259,252 @@ export const activeProofProvider = provideEnvironmentInitializer(() => {
 `,
 );
 
+// Route copies without a route set: an org layout (componentless; canActivate,
+// canActivateChild and a resolver; a counting codec), a pathless child with a resolver, and an
+// item (canActivate, resolver, title, a counting codec) whose page reads its handle while an
+// application-level reader reads the active route.
+await write(
+  "src/copies-probes.ts",
+  `import type { ActivatedRouteSnapshot } from '@angular/router';
+
+export const counts: Record<string, number> = {};
+export const entries: { group: string; kind: string; inputs: any; record: unknown }[] = [];
+
+export function counting(key: string) {
+  return {
+    parse: (raw: string): number => {
+      counts[key] = (counts[key] ?? 0) + 1;
+
+      const value = Number(raw);
+
+      if (raw.trim() === '' || !Number.isFinite(value)) {
+        throw new Error('bad number');
+      }
+
+      return value;
+    },
+    stringify: (value: number) => String(value),
+  };
+}
+
+// Records the inputs each callback gets and the generated record its native snapshot belongs to.
+function enter(group: string, kind: string, inputs: any, snapshot: ActivatedRouteSnapshot) {
+  entries.push({ group, kind, inputs, record: snapshot.routeConfig?.data?.['__loozoAngularRouterRouteId'] ?? null });
+}
+
+export function guard(group: string, kind: string) {
+  return (inputs: any, snapshot: ActivatedRouteSnapshot) => {
+    enter(group, kind, inputs, snapshot);
+    return true;
+  };
+}
+
+export function resolver(group: string, value: unknown) {
+  return (inputs: any, snapshot: ActivatedRouteSnapshot) => {
+    enter(group, 'resolve', inputs, snapshot);
+    return value;
+  };
+}
+
+export function title(group: string) {
+  return (inputs: any, snapshot: ActivatedRouteSnapshot) => {
+    enter(group, 'title', inputs, snapshot);
+    return 'Org item ' + inputs.params.itemId;
+  };
+}
+`,
+);
+await write(
+  "src/routes/orgs/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+import { counting, guard, resolver } from '../../copies-probes.js';
+
+export default defineRoute('orgs/$orgId', { params: { orgId: counting('orgId') } })
+  .canActivate([guard('org', 'canActivate')])
+  .canActivateChild([guard('org', 'canActivateChild')])
+  .resolve({ org: resolver('org', 'org data') });
+`,
+);
+await write(
+  "src/routes/org-scope/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+import org from '../orgs/definition.js';
+import { resolver } from '../../copies-probes.js';
+
+export default defineRoute('', { parent: org }).resolve({ scope: resolver('pathless', 'scope data') });
+`,
+);
+await write(
+  "src/routes/org-item/definition.ts",
+  `import { defineRoute } from '@loozo/angular-router';
+import scope from '../org-scope/definition.js';
+import { counting, guard, resolver, title } from '../../copies-probes.js';
+
+export default defineRoute('items/$itemId', { parent: scope, params: { itemId: counting('itemId') } })
+  .canActivate([guard('item', 'canActivate')])
+  .resolve({ answer: resolver('item', 42) })
+  .title(title('item'));
+`,
+);
+await write(
+  "src/routes/org-item/page.ts",
+  `import { Component } from '@angular/core';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="org-item">{{ handle.params().orgId }}/{{ handle.params().itemId }}</p>' })
+export default class OrgItem {
+  readonly handle = injectRoute();
+
+  constructor() {
+    (window as any).orgItem = this;
+  }
+}
+`,
+);
+// Hand-written native records around generated ones: a component-bearing wrapper with a param
+// of its own above the org, and a native parent that drops the item's generated ancestors.
+await write(
+  "src/native-wrappers.ts",
+  `import { Component } from '@angular/core';
+import { RouterOutlet, type Route, type Routes } from '@angular/router';
+
+@Component({ selector: 'proof-native-wrapper', imports: [RouterOutlet], template: '<router-outlet />' })
+class Wrapper {}
+
+function find(records: Routes, id: string): Route | undefined {
+  for (const record of records) {
+    if (record.data?.['__loozoAngularRouterRouteId'] === id) {
+      return record;
+    }
+
+    const found = find(record.children ?? [], id);
+
+    if (found) {
+      return found;
+    }
+  }
+
+  return undefined;
+}
+
+export function nativeWrappers(routes: Routes): Routes {
+  return [
+    { path: 'wrapped/:tenant', component: Wrapper, children: [find(routes, 'src/routes/orgs/definition.ts')!] },
+    { path: 'orphan/:orgId', children: [find(routes, 'src/routes/org-item/definition.ts')!] },
+  ];
+}
+`,
+);
+await write(
+  "src/copies-proof.ts",
+  `import { ApplicationRef, inject, provideEnvironmentInitializer } from '@angular/core';
+import { Router } from '@angular/router';
+import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { destination as orgItem } from './routes/org-item/destination.generated.js';
+import { counts, entries } from './copies-probes.js';
+
+export const copiesProofProvider = provideEnvironmentInitializer(() => {
+  const router = inject(Router);
+  const app = inject(ApplicationRef);
+  const active = injectActiveRoute();
+
+  (window as any).copiesProof = async (prefix: string) => {
+    const navigated = await router.navigateByUrl(prefix + '/orgs/4/items/2');
+
+    await app.whenStable();
+
+    const parsed = { ...counts };
+    const page = (window as any).orgItem;
+    const handle = { params: page.handle.params(), data: { ...page.handle.data() }, title: page.handle.title() };
+    const current = active();
+    const activeReads = {
+      is: current?.is(orgItem) ?? false,
+      params: current?.params(),
+      chain: current?.chain.map((entry) => entry.params()),
+    };
+    const reread = { ...counts };
+    const groups: Record<string, { kinds: string[]; records: unknown[]; shared: boolean; frozen: boolean }> = {};
+    const firsts: Record<string, any> = {};
+
+    for (const { group, kind, inputs, record } of entries) {
+      firsts[group] ??= inputs;
+      groups[group] ??= { kinds: [], records: [], shared: true, frozen: true };
+      groups[group].kinds.push(kind);
+      groups[group].records.push(record);
+      groups[group].shared &&= inputs === firsts[group];
+      groups[group].frozen &&= Object.isFrozen(inputs) && Object.isFrozen(inputs.params);
+    }
+
+    return {
+      navigated,
+      url: router.url,
+      parsed,
+      reread,
+      groups,
+      distinct: firsts.org !== firsts.pathless && firsts.pathless !== firsts.item && firsts.org !== firsts.item,
+      params: { org: firsts.org?.params, pathless: firsts.pathless?.params, item: firsts.item?.params },
+      handle,
+      handleShared: handle.params === firsts.item?.params,
+      activeReads,
+      title: document.title,
+    };
+  };
+
+  (window as any).orphanProof = async () => {
+    try {
+      return String(await router.navigateByUrl('/orphan/4/items/2'));
+    } catch (error) {
+      return String(error);
+    }
+  };
+});
+`,
+);
+
+// Server-only extension steps are stripped from the route copy, with the import only they used;
+// the kept procedures step still enriches the browser callbacks.
+await write(
+  "src/stripped-probe.ts",
+  `(globalThis as any).strippedProbeLoaded = true;
+
+export const strippedSecret = 'stripped context';
+`,
+);
+await write(
+  "src/routes/ext-stripped/definition.ts",
+  `import { numberParam } from '@loozo/angular-router';
+import { defineRoute } from '@fixture/route-extension';
+import { strippedSecret } from '../../stripped-probe.js';
+
+export default defineRoute('ext-stripped/$id', { params: { id: numberParam } })
+  .context(() => ({ secret: strippedSecret }))
+  .use(() => {
+    throw new Error('middleware ran in the browser');
+  })
+  .procedures(({ query }) => ({ account: { me: query(() => 'stripped me') } }))
+  .resolve({ value: (inputs) => inputs.rpc.account.me() });
+`,
+);
+await write(
+  "src/routes/ext-stripped/page.ts",
+  `import { Component } from '@angular/core';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="ext-stripped">{{ handle.data().value }}</p>' })
+export default class ExtensionStripped {
+  readonly handle = injectRoute();
+}
+`,
+);
+
 const main = await readFile(join(fixture, "src/main.ts"), "utf8");
 
+// The inheritance strategy comes from the tab, so one build runs under both.
 await write(
   "src/main.ts",
-  `import { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\n${main.replace(
+  `import { withRouterConfig } from '@angular/router';\nimport { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\nimport { copiesProofProvider } from './copies-proof.js';\nimport { nativeWrappers } from './native-wrappers.js';\n${main.replace(
     "provideRouter(routes)",
-    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...routes]), proofProvider, activeProofProvider, extensionProofProvider",
+    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...nativeWrappers(routes), ...routes], withRouterConfig({ paramsInheritanceStrategy: (window as any).inheritance ?? 'emptyOnly' })), proofProvider, activeProofProvider, extensionProofProvider, copiesProofProvider",
   )}`,
 );
 
@@ -2278,6 +2534,17 @@ try {
 } finally {
   await build.stop();
 }
+
+// The copy keeps procedures and the resolver, and drops context, use and the import only context
+// used.
+const strippedCopy = await readFile(
+  join(fixture, "src/routes/ext-stripped/route.generated.ts"),
+  "utf8",
+);
+
+assert.match(strippedCopy, /\n {2}\.procedures\(/);
+assert.match(strippedCopy, /\n {2}\.resolve\(/);
+assert.doesNotMatch(strippedCopy, /\.context\(|\.use\(|stripped-probe|middleware ran/);
 
 const types = spawnSync(
   process.execPath,
@@ -2331,6 +2598,48 @@ try {
   const ancestors = await tab.evaluate(() => window.ancestorProof());
   const extension = await tab.evaluate(() => window.extensionProof());
 
+  // Route copies under both inheritance strategies, at the top level and below a native
+  // component wrapper with a param of its own; each run is a fresh application.
+  const copies = {};
+
+  for (const inheritance of ["emptyOnly", "always"]) {
+    for (const prefix of ["", "/wrapped/t1"]) {
+      const page = await browser.newPage();
+
+      page.on("pageerror", (error) => errors.push(String(error)));
+      await page.addInitScript((value) => {
+        window.inheritance = value;
+      }, inheritance);
+      await page.goto(output.baseUrl);
+      await page.waitForFunction(() => typeof window.copiesProof === "function");
+      copies[`${inheritance} ${prefix || "/"}`] = await page.evaluate(
+        (value) => window.copiesProof(value),
+        prefix,
+      );
+
+      if (prefix === "") {
+        copies[`${inheritance} orphan`] = await page.evaluate(() => window.orphanProof());
+      }
+
+      await page.close();
+    }
+  }
+
+  // The stripped extension route: procedures still enrich the resolver, and the module only the
+  // stripped context step imported never loads.
+  const strippedPage = await browser.newPage();
+
+  strippedPage.on("pageerror", (error) => errors.push(String(error)));
+  await strippedPage.goto(new URL("ext-stripped/3", output.baseUrl).href);
+  await strippedPage.locator("#ext-stripped").waitFor();
+
+  const stripped = {
+    value: await strippedPage.locator("#ext-stripped").textContent(),
+    probeLoaded: await strippedPage.evaluate(() => globalThis.strippedProbeLoaded ?? false),
+  };
+
+  await strippedPage.close();
+
   // The active route, each run in a fresh application: a shell scenario from /crews/7, and a
   // direct load of a child URL.
   const active = {};
@@ -2358,9 +2667,81 @@ try {
 
   await writeFile(
     join(evidence, "browser-observations.json"),
-    JSON.stringify({ result, matching, ancestors, extension, active, errors }, null, 2),
+    JSON.stringify(
+      { result, matching, ancestors, extension, copies, stripped, active, errors },
+      null,
+      2,
+    ),
   );
   assert.deepEqual(errors, []);
+  assert.deepEqual(stripped, { value: "stripped me", probeLoaded: false });
+
+  // Three callback groups, each sharing one frozen inputs object, pairwise distinct; each native
+  // snapshot is its own record's (the child's for canActivateChild). Path values parse once
+  // while matching and once while activating per record: the org's twice more for the item.
+  // Second reads parse nothing, and nothing depends on the strategy or the native wrapper.
+  for (const [name, run] of Object.entries(copies)) {
+    if (name.endsWith("orphan")) {
+      assert.match(run, /Generated route ancestor missing: src\/routes\/org-scope\/definition\.ts/);
+      continue;
+    }
+
+    const prefix = name.split(" ")[1].replace(/^\/$/, "");
+
+    assert.deepEqual(
+      run,
+      {
+        navigated: true,
+        url: `${prefix}/orgs/4/items/2`,
+        parsed: { orgId: 4, itemId: 2 },
+        reread: { orgId: 4, itemId: 2 },
+        groups: {
+          org: {
+            kinds: ["canActivate", "canActivateChild", "canActivateChild", "resolve"],
+            records: [
+              "src/routes/orgs/definition.ts",
+              "src/routes/org-scope/definition.ts",
+              "src/routes/org-item/definition.ts",
+              "src/routes/orgs/definition.ts",
+            ],
+            shared: true,
+            frozen: true,
+          },
+          pathless: {
+            kinds: ["resolve"],
+            records: ["src/routes/org-scope/definition.ts"],
+            shared: true,
+            frozen: true,
+          },
+          item: {
+            kinds: ["canActivate", "resolve", "title"],
+            records: [
+              "src/routes/org-item/definition.ts",
+              "src/routes/org-item/definition.ts",
+              "src/routes/org-item/definition.ts",
+            ],
+            shared: true,
+            frozen: true,
+          },
+        },
+        distinct: true,
+        params: { org: { orgId: 4 }, pathless: { orgId: 4 }, item: { orgId: 4, itemId: 2 } },
+        handle: {
+          params: { orgId: 4, itemId: 2 },
+          data: { org: "org data", scope: "scope data", answer: 42 },
+          title: "Org item 2",
+        },
+        handleShared: true,
+        activeReads: {
+          is: true,
+          params: { orgId: 4, itemId: 2 },
+          chain: [{ orgId: 4 }, { orgId: 4 }, { orgId: 4, itemId: 2 }],
+        },
+        title: "Org item 2",
+      },
+      name,
+    );
+  }
 
   // Extension callbacks (plan scenarios 2-4): a query-only navigation reuses the page and
   // reruns no resolver, so input() ran once in total; the handle reads the new search.
@@ -2554,5 +2935,5 @@ try {
 }
 
 console.log(
-  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching proof passed",
+  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching/route-copy proof passed",
 );

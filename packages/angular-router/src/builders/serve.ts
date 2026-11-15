@@ -4,7 +4,7 @@ import { Observable } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
 import { readFile } from "node:fs/promises";
 import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
-import { workspacePaths, marked, markers } from "../generation/files.js";
+import { workspacePaths, markers, ownedBy, routeFiles } from "../generation/files.js";
 import { CompilerState } from "../generation/compiler.js";
 import { AnchorState } from "../generation/anchor.js";
 import { buildTargetOptions, message, type JsonObject } from "./options.js";
@@ -108,11 +108,11 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
-        if (basename(path) === "route.generated.ts") {
+        if (routeFiles.has(basename(path))) {
           try {
             const bytes = await readFile(path, "utf8");
 
-            if (marked(bytes, markers["route.generated.ts"])) {
+            if (ownedBy(basename(path), bytes, markers)) {
               return;
             }
           } catch (error) {

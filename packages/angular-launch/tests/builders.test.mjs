@@ -713,7 +713,7 @@ await test("serve runs one pass for a burst of watcher events", async () => {
       // A rename reports its re-adds at once and its unlinks about 100 ms later.
       const renamed = await passesFor(
         () => rename(todos, tasks),
-        async () => (await read("src/routes/tasks/route.generated.ts")).includes("tasks"),
+        async () => (await read("src/routes/tasks/destination.generated.ts")).includes("tasks"),
         "renaming a route directory",
       );
 
@@ -743,7 +743,11 @@ await test("serve runs no pass for its own outputs checked out with CRLF line en
   const fsPromises = require("node:fs/promises");
   const readManifest = fsPromises.readFile;
   const manifest = resolve(packageDirectory, "dist/package.json");
-  const outputs = ["src/routes/todos/route.generated.ts", "src/routes/todos/rpc.generated.ts"];
+  const outputs = [
+    "src/routes/todos/destination.generated.ts",
+    "src/routes/todos/route.generated.ts",
+    "src/routes/todos/rpc.generated.ts",
+  ];
   const originals = {};
   let passes = 0;
 

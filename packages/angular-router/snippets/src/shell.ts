@@ -1,8 +1,8 @@
 import { Component, computed } from "@angular/core";
 import { RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/destinations.generated.js";
-import { destination as team } from "./routes/teams/$teamId/route.generated.js";
-import { destination as item } from "./routes/teams/$teamId/items/$id/route.generated.js";
+import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
+import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
 
 @Component({
   selector: "app-shell",

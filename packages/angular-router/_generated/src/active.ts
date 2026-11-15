@@ -6,12 +6,17 @@ import {
   type ActivatedRouteSnapshot,
   type Navigation,
 } from "@angular/router";
-import type { AnyRoute } from "@loozo/angular-router/_core";
+import {
+  destinationRecord,
+  routeMetadata,
+  type AnyRoute,
+  type Destination,
+} from "@loozo/angular-router/_core";
 import { observeRoute } from "./handle.js";
-import { createHandle, destinationId, type Handle } from "./index.js";
-import { routeIdentity, type RouteSet } from "./inputs.js";
+import { createHandle, type Handle } from "./index.js";
+import { destinationOf, routeIdentity } from "./inputs.js";
 
-interface ActiveEntryHandle extends Handle<AnyRoute> {
+interface ActiveEntryHandle extends Handle<AnyRoute, Destination<AnyRoute>> {
   is(destination: unknown): boolean;
   contains(destination: unknown): boolean;
   readonly chain: readonly ActiveEntryHandle[];
@@ -20,15 +25,19 @@ interface ActiveEntryHandle extends Handle<AnyRoute> {
 interface Entry {
   readonly handle: ActiveEntryHandle;
   readonly parent: Entry | undefined;
-  /** The declarations of the chain, top-level first, ending with this one. */
-  readonly ids: readonly string[];
   readonly release: () => void;
 }
 
 /**
- * One reader of the deepest active primary-outlet route of the set.
+ * One reader of the deepest active primary-outlet route of a generated tree.
  *
  * @remarks
+ * `table` maps each retained route's generated id to its route copy and, when it has
+ * one, the destination of its `..` target. It is read when the reader is injected,
+ * never while a module evaluates. Active records whose id isn't in the table are
+ * skipped. `is` and `contains` take a genuine destination and compare identities: a
+ * genuine destination of another tree is never active here.
+ *
  * The selection changes only after a navigation commits: the computed tracks
  * `lastSuccessfulNavigation`, and a reader first read before its tree has committed
  * returns undefined until the running navigation ends. The reader reads itself at each
@@ -37,25 +46,46 @@ interface Entry {
  * departed entries are released at the commit and keep their last values. Destroying
  * the injection context releases the rest; the reader then keeps its last selection.
  */
-export function injectGeneratedActiveRoute<Active>(set: RouteSet): Signal<Active | undefined> {
+export function injectGeneratedActiveRoute<Active>(
+  table: Readonly<Record<string, readonly [AnyRoute, Destination<AnyRoute>?]>>,
+): Signal<Active | undefined> {
   const router = inject(Router);
   const destroyRef = inject(DestroyRef);
   const entries = new Map<ActivatedRoute, Entry>();
   let destroyed = false;
   let selected: ActiveEntryHandle | undefined;
 
-  function createEntry(route: ActivatedRoute, id: string, parent: Entry | undefined): Entry {
+  function createEntry(
+    activated: ActivatedRoute,
+    [route, up]: readonly [AnyRoute, Destination<AnyRoute>?],
+    parent: Entry | undefined,
+  ): Entry {
     const releases: (() => void)[] = [];
-    const view = observeRoute(set, id, route, router, (release) => {
+    const view = observeRoute(route, activated, router, (release) => {
       releases.push(release);
     });
-    const ids = [...(parent?.ids ?? []), id];
+    const own = destinationOf(route);
+    // The destinations of the route copy and its parent copies.
+    const destinations: Destination<AnyRoute>[] = [];
+
+    for (let owner: AnyRoute | undefined = route; owner; owner = routeMetadata(owner).parent) {
+      destinations.push(destinationOf(owner));
+    }
+
     const chain: ActiveEntryHandle[] = [...(parent?.handle.chain ?? [])];
-    const base: Handle<AnyRoute> = createHandle(set, id, router, view);
+    const base = createHandle(route, up, router, view);
     const handle: ActiveEntryHandle = {
       ...base,
-      is: (destination) => destinationId(set, destination) === id,
-      contains: (destination) => ids.includes(destinationId(set, destination)),
+      is: (destination) => {
+        destinationRecord(destination);
+
+        return destination === own;
+      },
+      contains: (destination) => {
+        destinationRecord(destination);
+
+        return destinations.includes(destination as Destination<AnyRoute>);
+      },
       chain,
     };
 
@@ -65,7 +95,6 @@ export function injectGeneratedActiveRoute<Active>(set: RouteSet): Signal<Active
     return {
       handle,
       parent,
-      ids,
       release: () => {
         for (const release of releases) {
           release();
@@ -79,14 +108,14 @@ export function injectGeneratedActiveRoute<Active>(set: RouteSet): Signal<Active
     const kept = new Set<ActivatedRoute>();
     let parent: Entry | undefined;
 
-    for (const route of live) {
-      const id = routeIdentity(route);
+    for (const activated of live) {
+      const id = routeIdentity(activated);
 
-      if (typeof id !== "string" || !Object.hasOwn(set.records, id)) {
+      if (typeof id !== "string" || !Object.hasOwn(table, id)) {
         continue;
       }
 
-      let entry = entries.get(route);
+      let entry = entries.get(activated);
 
       if (entry && entry.parent !== parent) {
         entry.release();
@@ -94,11 +123,11 @@ export function injectGeneratedActiveRoute<Active>(set: RouteSet): Signal<Active
       }
 
       if (!entry) {
-        entry = createEntry(route, id, parent);
-        entries.set(route, entry);
+        entry = createEntry(activated, table[id], parent);
+        entries.set(activated, entry);
       }
 
-      kept.add(route);
+      kept.add(activated);
       parent = entry;
     }
 

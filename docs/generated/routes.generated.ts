@@ -1,7 +1,12 @@
 // @loozo/angular-router routegen: owned routes.generated.ts
 import type { Routes } from '@angular/router';
-import { getRouteSet } from './destinations.generated.js';
 import { callbacks } from '@loozo/angular-router/_generated';
+import { route as route_$package_api_$symbol_route } from "../src/routes/$package/api/$symbol/route.generated.js";
+import { route as route_$package_generated_api_route } from "../src/routes/$package/generated-api/route.generated.js";
+import { route as route_$package_guide_$guide_route } from "../src/routes/$package/guide/$guide/route.generated.js";
+import { route as route_$package_route } from "../src/routes/$package/route.generated.js";
+import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
+import { route as route__home_route } from "../src/routes/+home/route.generated.js";
 
 /**
  * Generated native Angular route configuration; install with provideRouter(routes).
@@ -10,29 +15,29 @@ import { callbacks } from '@loozo/angular-router/_generated';
 export const routes: Routes = [{ path: "",
 pathMatch: 'full',
 data: { __loozoAngularRouterRouteId: "src/routes/+home/route.ts" },
-...callbacks(getRouteSet(), "src/routes/+home/route.ts"),
-loadComponent: () => import("../src/routes/+home/page") },
+...callbacks(route__home_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/+home/page") },
 { path: ":package",
 data: { __loozoAngularRouterRouteId: "src/routes/$package/route.ts" },
-...callbacks(getRouteSet(), "src/routes/$package/route.ts"),
-loadComponent: () => import("../src/routes/$package/page"),
+...callbacks(route_$package_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/page"),
 children: [{ path: "",
 pathMatch: 'full',
 data: { __loozoAngularRouterRouteId: "src/routes/$package/+overview/route.ts" },
-loadComponent: () => import("../src/routes/$package/+overview/page") },
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/+overview/page") },
 { path: "api/:symbol",
 data: { __loozoAngularRouterRouteId: "src/routes/$package/api/$symbol/route.ts" },
-...callbacks(getRouteSet(), "src/routes/$package/api/$symbol/route.ts"),
-loadComponent: () => import("../src/routes/$package/api/$symbol/page") },
+...callbacks(route_$package_api_$symbol_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/api/$symbol/page") },
 { path: "generated-api",
 data: { __loozoAngularRouterRouteId: "src/routes/$package/generated-api/route.ts" },
-...callbacks(getRouteSet(), "src/routes/$package/generated-api/route.ts"),
-loadComponent: () => import("../src/routes/$package/generated-api/page") },
+...callbacks(route_$package_generated_api_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/generated-api/page") },
 { path: "guide/:guide",
 data: { __loozoAngularRouterRouteId: "src/routes/$package/guide/$guide/route.ts" },
-...callbacks(getRouteSet(), "src/routes/$package/guide/$guide/route.ts"),
-loadComponent: () => import("../src/routes/$package/guide/$guide/page") }] },
+...callbacks(route_$package_guide_$guide_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/guide/$guide/page") }] },
 { path: "**",
 data: { __loozoAngularRouterRouteId: "src/routes/$segments[]/route.ts" },
-...callbacks(getRouteSet(), "src/routes/$segments[]/route.ts"),
-loadComponent: () => import("../src/routes/$segments[]/page") }];
+...callbacks(route_$segments___route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$segments[]/page") }];

@@ -1,7 +1,7 @@
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { injectRoute } from "./route.generated.js";
-import { destination as item } from "../teams/$teamId/items/$id/route.generated.js";
+import { destination as item } from "../teams/$teamId/items/$id/destination.generated.js";
 
 @Component({
   imports: [RouterLink],

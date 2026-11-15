@@ -1,8 +1,7 @@
 export { callbacks, redirect } from "./callbacks.js";
-export { assertIdentity, callbackInputs, parseInputs } from "./inputs.js";
-export type { RouteSchema } from "@loozo/angular-router/_core";
-export type { RecordBinding, RouteSet } from "./inputs.js";
 export { injectGeneratedActiveRoute } from "./active.js";
+export { defineDestination, routeOf } from "@loozo/angular-router/_core";
+export type { Destination, RouteSchema } from "@loozo/angular-router/_core";
 
 import { DestroyRef, inject, type Signal } from "@angular/core";
 import {
@@ -13,8 +12,10 @@ import {
 } from "@angular/router";
 import {
   createUrl,
+  destinationRecord,
   routeMetadata,
   type AnyRoute,
+  type Destination,
   type ParamsOf,
   type SearchOf,
   type UrlValues,
@@ -25,70 +26,7 @@ import {
   type TitleOf,
 } from "@loozo/angular-router/_core";
 import { observeRoute, type RouteView } from "./handle.js";
-import type { RouteSet } from "./inputs.js";
-
-declare const destinationBrand: unique symbol;
-
-/**
- * An inert nominal reference exported as `destination` by a route-local facade.
- *
- * @remarks
- * Pass the exported object as `to` in a handle's link/navigate record; no injection
- * context or target activation is needed. It selects its exact declaration,
- * not a canonical pathless winner. Only references from the caller's generated
- * set are accepted. Copies, spreads, fakes and authored routes are not references.
- * Do not construct this type or pass it to the root createUrl function.
- *
- * @typeParam Target - The referenced route's input and fragment schema.
- * @typeParam Set - The generator's nominal route-set identity.
- * @typeParam Id - The exact generated declaration identity.
- */
-export declare class Destination<
-  Target extends AnyRoute,
-  Set = unknown,
-  Id extends string = string,
-> {
-  // Type-only identity, intentionally not read; object spreads must lose this member.
-  // oxlint-disable-next-line no-unused-private-class-members
-  readonly #nominal: void;
-  /** Type-only nominal brand carrying the reference's identity; not populated at runtime. */
-  readonly [destinationBrand]: {
-    /** Type-only: the referenced route's input and fragment schema. */
-    readonly target: Target;
-    /** Type-only: the generator's nominal route-set identity. */
-    readonly set: Set;
-    /** Type-only: the exact generated declaration identity. */
-    readonly id: Id;
-  };
-}
-
-const destinations = new WeakMap<object, { getSet: () => RouteSet; id: string }>();
-
-export function createDestination<Target extends AnyRoute, Set, Id extends string>(
-  getSet: () => RouteSet,
-  id: Id,
-): Destination<Target, Set, Id> {
-  const destination = Object.freeze({});
-
-  destinations.set(destination, { getSet, id });
-
-  return destination as Destination<Target, Set, Id>;
-}
-
-/** The declaration a genuine destination of this set references. */
-export function destinationId(set: RouteSet, destination: unknown): string {
-  let identity;
-
-  if (typeof destination === "object" && destination !== null) {
-    identity = destinations.get(destination);
-  }
-
-  if (!identity || identity.getSet() !== set || !Object.hasOwn(set.records, identity.id)) {
-    throw new TypeError("Expected a destination from the same generated set");
-  }
-
-  return identity.id;
-}
+import { destinationOf } from "./inputs.js";
 
 type DataOf<Target> = Target extends { readonly __data?: infer Data } ? Readonly<Data> : never;
 type IsUnion<Value, Whole = Value> = Value extends unknown
@@ -117,6 +55,9 @@ type OwnLink<
 > = keyof ParamsOf<Target> extends never
   ? PathlessOwnLink<SearchFieldOf<Target, Keys>, FragmentsOf<Target>>
   : PathOwnLink<ParamsOf<Target>, SearchFieldOf<Target, Keys>, FragmentsOf<Target>>;
+// The `..` target's URL schema, unwrapped from its destination. A conditional infer, not
+// `TargetOf<P> & AnyRoute`: AnyRoute's `any` members would widen the inferred params.
+type Up<Parent> = Parent extends Destination<infer Target, any> ? Target : never;
 type OwnNavigation<
   Target extends AnyRoute,
   Keys extends keyof SearchOf<Target>,
@@ -144,26 +85,23 @@ type OwnNavigation<
  * rejects a value it accepted while matching, a programming error.
  *
  * `link` and `navigate` take one target record. Its `to` selects the
- * destination: omitted for this exact declaration, not its pathless winner; a
- * single known absolute authored literal, never a concrete URL or string union;
+ * destination: omitted for this exact declaration, not its pathless winner;
  * `..` for the parent route, the nearest ancestor with a shorter path or the
- * root for a top-level route; or a same-set generated destination. Literal and
- * `..` selectors use generated canonical targets. `params`, `search` and
- * `fragment` are the destination's complete explicit values; there is no
- * current-value reuse or implicit query merge. For `navigate`, the record's
- * other keys are Angular's `NavigationBehaviorOptions`, passed to
- * `Router.navigateByUrl` as given; `link` takes none, so set them on RouterLink.
+ * root for a top-level route, as generation resolved it; or a genuine
+ * destination imported from any `destination.generated.ts`, never a string path.
+ * `params`, `search` and `fragment` are the destination's complete explicit
+ * values; there is no current-value reuse or implicit query merge. For
+ * `navigate`, the record's other keys are Angular's `NavigationBehaviorOptions`,
+ * passed to `Router.navigateByUrl` as given; `link` takes none, so set them on
+ * RouterLink.
  *
  * @typeParam Target - The bound declaration's schema.
- * @typeParam Absolute - Absolute literal selectors and their target schemas.
- * @typeParam Parent - The `..` target's schema, or never when there is none.
- * @typeParam Set - The generator's nominal route-set identity.
- * @typeParam References - Exact declarations addressable by same-set references.
+ * @typeParam Parent - The `..` target's destination, or never when there is none.
  *
  * @example
  * ```ts
  * import { injectRoute } from "./route.generated.js";
- * import { destination as report } from "../report/route.generated.js";
+ * import { destination as report } from "../report/destination.generated.js";
  *
  * const route = injectRoute(); // Inside an Angular injection context.
  * const link = route.link({ to: report, params: { reportId: 42 } });
@@ -171,13 +109,7 @@ type OwnNavigation<
  * void route.navigate({ to: report, params: { reportId: 42 }, replaceUrl: true });
  * ```
  */
-export interface Handle<
-  Target extends AnyRoute,
-  Absolute extends Record<string, AnyRoute> = {},
-  Parent extends AnyRoute = never,
-  Set = unknown,
-  References extends Record<string, AnyRoute> = {},
-> {
+export interface Handle<Target extends AnyRoute, Parent extends Destination<AnyRoute> = never> {
   /** Effective positional params of the committed snapshot; kept while a navigation is pending. */
   readonly params: Signal<Readonly<ParamsOf<Target>>>;
   /** Effective declared search, from the same snapshot as params; absent keys have no value or fallback. */
@@ -195,50 +127,34 @@ export interface Handle<
    */
   link<Keys extends keyof SearchOf<Target> = never>(target: OwnLink<Target, Keys>): UrlTree;
   /**
-   * Creates a UrlTree for a statically admitted absolute authored selector.
-   *
-   * @param target - `to`, a single known template literal, never a concrete URL, and the selected target's complete explicit values.
-   * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronously for unknown selectors, invalid URL values or a behavior option.
-   */
-  link<
-    const Selector extends keyof Absolute & string,
-    Keys extends keyof SearchOf<NoInfer<Absolute[Selector]>> = never,
-  >(
-    target: {
-      /** A single known absolute authored selector, never a concrete URL. */
-      readonly to: Selector & (IsUnion<Selector> extends true ? never : unknown);
-    } & UrlValues<NoInfer<Absolute[Selector]>, Keys>,
-  ): UrlTree;
-  /**
    * Creates a UrlTree for the parent route, when the bound declaration has one.
    *
    * @param target - `to: ".."` and the parent route's complete explicit values.
    * @returns Router.parseUrl's result without navigating.
    * @throws Synchronously for invalid URL values or a behavior option.
    */
-  link<Keys extends keyof SearchOf<Parent> = never>(
+  link<Keys extends keyof SearchOf<Up<Parent>> = never>(
     target: {
       /** The parent route: the nearest ancestor with a shorter path, or the root. */
       readonly to: [Parent] extends [never] ? never : "..";
-    } & UrlValues<Parent, Keys>,
+    } & UrlValues<Up<Parent>, Keys>,
   ): UrlTree;
   /**
-   * Creates a UrlTree for a generated reference's own exact declaration.
+   * Creates a UrlTree for a destination's own exact declaration.
    *
-   * @param target - `to`, a genuine destination exported by a facade in this route set, and the referenced declaration's complete explicit values.
+   * @param target - `to`, a genuine destination imported from a `destination.generated.ts`, and the referenced declaration's complete explicit values.
    * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronously for foreign/fake references, invalid URL values or a behavior option.
+   * @throws Synchronously for fake destinations, invalid URL values or a behavior option.
    */
   link<
-    const Id extends keyof References & string,
-    Keys extends keyof SearchOf<NoInfer<References[Id]>> = never,
+    To extends AnyRoute,
+    const Id extends string,
+    Keys extends keyof SearchOf<NoInfer<To>> = never,
   >(
     target: {
-      /** A genuine destination exported by a facade in this route set. */
-      readonly to: Destination<NoInfer<References[Id]>, Set, Id> &
-        (IsUnion<Id> extends true ? never : unknown);
-    } & UrlValues<NoInfer<References[Id]>, Keys>,
+      /** A genuine destination imported from a `destination.generated.ts`. */
+      readonly to: Destination<To, Id> & (IsUnion<Id> extends true ? never : unknown);
+    } & UrlValues<NoInfer<To>, Keys>,
   ): UrlTree;
   /**
    * Navigates to this exact declaration, not its pathless winner, via Router.navigateByUrl.
@@ -251,58 +167,41 @@ export interface Handle<
     target: OwnNavigation<Target, Keys>,
   ): Promise<boolean>;
   /**
-   * Navigates to a statically admitted absolute authored selector.
-   *
-   * @param target - `to`, a single known template literal, never a concrete URL; the selected target's complete explicit values; and Angular's navigation behavior options.
-   * @returns Angular's identical Router.navigateByUrl Promise.
-   * @throws Synchronously for unknown selectors or invalid URL values.
-   */
-  navigate<
-    const Selector extends keyof Absolute & string,
-    Keys extends keyof SearchOf<NoInfer<Absolute[Selector]>> = never,
-  >(
-    target: {
-      /** A single known absolute authored selector, never a concrete URL. */
-      readonly to: Selector & (IsUnion<Selector> extends true ? never : unknown);
-    } & UrlValues<NoInfer<Absolute[Selector]>, Keys> &
-      NavigationBehaviorOptions,
-  ): Promise<boolean>;
-  /**
    * Navigates to the parent route, when the bound declaration has one.
    *
    * @param target - `to: ".."`, the parent route's complete explicit values and Angular's navigation behavior options.
    * @returns Angular's identical Router.navigateByUrl Promise.
    * @throws Synchronously for invalid URL values.
    */
-  navigate<Keys extends keyof SearchOf<Parent> = never>(
+  navigate<Keys extends keyof SearchOf<Up<Parent>> = never>(
     target: {
       /** The parent route: the nearest ancestor with a shorter path, or the root. */
       readonly to: [Parent] extends [never] ? never : "..";
-    } & UrlValues<Parent, Keys> &
+    } & UrlValues<Up<Parent>, Keys> &
       NavigationBehaviorOptions,
   ): Promise<boolean>;
   /**
-   * Navigates to a generated reference's own exact declaration.
+   * Navigates to a destination's own exact declaration.
    *
-   * @param target - `to`, a genuine destination exported by a facade in this route set; the referenced declaration's complete explicit values; and Angular's navigation behavior options.
+   * @param target - `to`, a genuine destination imported from a `destination.generated.ts`; the referenced declaration's complete explicit values; and Angular's navigation behavior options.
    * @returns Angular's identical Router.navigateByUrl Promise.
-   * @throws Synchronously for foreign/fake references or invalid URL values.
+   * @throws Synchronously for fake destinations or invalid URL values.
    */
   navigate<
-    const Id extends keyof References & string,
-    Keys extends keyof SearchOf<NoInfer<References[Id]>> = never,
+    To extends AnyRoute,
+    const Id extends string,
+    Keys extends keyof SearchOf<NoInfer<To>> = never,
   >(
     target: {
-      /** A genuine destination exported by a facade in this route set. */
-      readonly to: Destination<NoInfer<References[Id]>, Set, Id> &
-        (IsUnion<Id> extends true ? never : unknown);
-    } & UrlValues<NoInfer<References[Id]>, Keys> &
+      /** A genuine destination imported from a `destination.generated.ts`. */
+      readonly to: Destination<To, Id> & (IsUnion<Id> extends true ? never : unknown);
+    } & UrlValues<NoInfer<To>, Keys> &
       NavigationBehaviorOptions,
   ): Promise<boolean>;
 }
 
-export function nativeOptions(definition: AnyRoute): Record<string, unknown> {
-  const config = routeMetadata(definition).config;
+export function nativeOptions(route: AnyRoute): Record<string, unknown> {
+  const config = routeMetadata(route).config;
   const options: Record<string, unknown> = {};
 
   for (const key of ["providers", "data", "canDeactivate", "runGuardsAndResolvers"]) {
@@ -314,35 +213,32 @@ export function nativeOptions(definition: AnyRoute): Record<string, unknown> {
   return options;
 }
 
+/**
+ * The typed handle of a route copy's activated record. `up` is the destination of
+ * the copy's `..` target, as generation resolved it; omitted when there is none.
+ */
 export function injectGeneratedRoute<
   Target extends AnyRoute,
-  Absolute extends Record<string, AnyRoute>,
-  Parent extends AnyRoute,
-  Set,
-  References extends Record<string, AnyRoute>,
->(set: RouteSet, id: string): Handle<Target, Absolute, Parent, Set, References> {
+  Parent extends Destination<AnyRoute> = never,
+>(route: Target, up?: Parent): Handle<Target, Parent> {
   const router = inject(Router);
   const destroy = inject(DestroyRef);
-  const view = observeRoute(set, id, inject(ActivatedRoute), router, (release) => {
+  const view = observeRoute(route, inject(ActivatedRoute), router, (release) => {
     destroy.onDestroy(release);
   });
 
-  return createHandle(set, id, router, view);
+  return createHandle(route, up, router, view);
 }
 
-/** A declaration's handle over the signals of one activated record. */
-export function createHandle<
-  Target extends AnyRoute,
-  Absolute extends Record<string, AnyRoute>,
-  Parent extends AnyRoute,
-  Set,
-  References extends Record<string, AnyRoute>,
->(
-  set: RouteSet,
-  id: string,
+/** A route copy's handle over the signals of one activated record. */
+export function createHandle<Target extends AnyRoute, Parent extends Destination<AnyRoute>>(
+  route: Target,
+  up: Parent | undefined,
   router: Router,
   view: RouteView,
-): Handle<Target, Absolute, Parent, Set, References> {
+): Handle<Target, Parent> {
+  const own = destinationOf(route);
+
   // Splits the one target record into its destination, URL values and behavior options.
   function resolve(args: readonly unknown[]): { url: string; options: Record<string, unknown> } {
     const record = args[0];
@@ -373,22 +269,21 @@ export function createHandle<
     // fromEntries defines own properties, so an own `__proto__` key stays a key, not a prototype.
     const options: Record<string, unknown> = Object.fromEntries(rest);
 
-    let target = id;
+    let target: Destination<AnyRoute> = own;
 
     if (typeof to === "string") {
-      if (Object.hasOwn(set.absolute, to)) {
-        target = set.absolute[to];
-      } else if (to === ".." && Object.hasOwn(set.parents, id)) {
-        target = set.parents[id];
-      } else {
+      if (to !== ".." || up === undefined) {
         throw new TypeError(`Unknown generated selector: ${to}`);
       }
+
+      target = up;
     } else if (to !== undefined) {
-      target = destinationId(set, to);
+      destinationRecord(to);
+      target = to as Destination<AnyRoute>;
     }
 
     return {
-      url: createUrl(set.destinations[target](), values as unknown as UrlValues<AnyRoute>),
+      url: createUrl(target, values as unknown as UrlValues<AnyRoute>),
       options,
     };
   }
@@ -409,11 +304,11 @@ export function createHandle<
       }
 
       return router.parseUrl(url);
-    }) as Handle<Target, Absolute, Parent, Set, References>["link"],
+    }) as Handle<Target, Parent>["link"],
     navigate: ((...args: unknown[]) => {
       const { url, options } = resolve(args);
 
       return router.navigateByUrl(url, options);
-    }) as Handle<Target, Absolute, Parent, Set, References>["navigate"],
+    }) as Handle<Target, Parent>["navigate"],
   };
 }

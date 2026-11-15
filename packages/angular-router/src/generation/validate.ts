@@ -1,9 +1,17 @@
 import ts from "typescript";
 import { realpath } from "node:fs/promises";
-import { basename, dirname, resolve, sep } from "node:path";
-import { auditPath, contains, holdsAny } from "./files.js";
+import { basename, dirname, relative, resolve, sep } from "node:path";
+import {
+  auditPath,
+  contains,
+  holdsAny,
+  routeFiles,
+  specifier as importSpecifier,
+} from "./files.js";
+import { moduleReferences, RuntimeGraph, type Edge, type ModuleReference } from "./graph.js";
 import {
   fail,
+  failAt,
   factoryAnnotation,
   isPackageRoot,
   namedImport,
@@ -219,6 +227,13 @@ export function createValidationProgram(
 
   if (sources.launch) {
     rootNames.push(sources.launch.typeEntry, ...generated.keys());
+  } else {
+    // Every copy is validated, whether or not anything imports it yet.
+    for (const file of generated.keys()) {
+      if (routeFiles.has(basename(file))) {
+        rootNames.push(file);
+      }
+    }
   }
 
   let program: ts.Program;
@@ -504,7 +519,6 @@ export async function validateRoutes(
   const canonicalFactory = anchor.get("defineRoute");
   const anchors = passAnchors();
 
-  // Tentative own-facade admission is not authority for its re-exported binding.
   // Prove both the concrete module boundary and the final native alias identity.
   for (const declaration of sources.declarations) {
     const call = chainOf(program, declaration).root;
@@ -521,30 +535,6 @@ export async function validateRoutes(
       );
 
       continue;
-    }
-
-    if (sources.deferredFactories.includes(declaration)) {
-      const facade = program.getSourceFile(
-        resolve(dirname(declaration.file), "route.generated.ts"),
-      )!;
-      const reexport = facade.statements.find(
-        (statement): statement is ts.ExportDeclaration =>
-          ts.isExportDeclaration(statement) &&
-          !!statement.exportClause &&
-          ts.isNamedExports(statement.exportClause) &&
-          statement.exportClause.elements.some((element) => element.name.text === "defineRoute"),
-      )!;
-      const moduleSpecifier = reexport.moduleSpecifier as ts.StringLiteral;
-      const resolved = resolveModule(
-        moduleSpecifier.text,
-        facade.fileName,
-        sources.parsed.options,
-        host,
-      );
-
-      if (!resolved || (await realpath(resolved)) !== sources.factoryEntry) {
-        fail(call, "Factory facade does not re-export this package's concrete public entry");
-      }
     }
 
     const importedFactory = checker.getSymbolAtLocation(call.expression);
@@ -588,50 +578,108 @@ export async function validateRoutes(
     globalTargets.add(resolve(sources.output, "server.generated.ts"));
   }
 
+  const declarations = new Map<string, Declaration>();
+
+  for (const declaration of sources.declarations) {
+    declarations.set(declaration.file, declaration);
+  }
+
+  // A declaration module has exactly its default export.
+  for (const declaration of sources.declarations) {
+    const source = program.getSourceFile(declaration.file)!;
+
+    for (const statement of source.statements) {
+      if (exportsBesidesDefault(statement)) {
+        fail(statement, "Route declaration module may only default-export its route");
+      }
+    }
+  }
+
+  const verbatim = sources.parsed.options.verbatimModuleSyntax === true;
+  const scanned: ts.SourceFile[] = [];
+
   for (const source of program.getSourceFiles()) {
     if (
-      source.fileName.includes("/node_modules/") ||
-      program.isSourceFileFromExternalLibrary(source) ||
-      program.isSourceFileDefaultLibrary(source)
+      !source.fileName.includes("/node_modules/") &&
+      !program.isSourceFileFromExternalLibrary(source) &&
+      !program.isSourceFileDefaultLibrary(source)
     ) {
-      continue;
+      scanned.push(source);
+    }
+  }
+
+  const runtime = new RuntimeGraph(program, host);
+  const outside: string[] = [];
+
+  // Authored files first, so an authored import is reported at the author's line rather
+  // than through the copy that repeats it.
+  scanned.sort(
+    (a, b) =>
+      Number(generated.has(resolve(a.fileName))) - Number(generated.has(resolve(b.fileName))),
+  );
+
+  // The import rule: a declaration module is imported only by its child, as that child's
+  // parent default import; nothing else in the program may reference it in any form.
+  function importRule(source: ts.SourceFile, reference: ModuleReference, target: string): void {
+    const declaration = declarations.get(target);
+
+    if (!declaration) {
+      return;
     }
 
+    const importer = declarations.get(resolve(source.fileName));
+    const statement = reference.specifier?.parent;
+
+    if (
+      importer?.parent === declaration &&
+      importer.parentImport &&
+      statement &&
+      ts.isImportDeclaration(statement) &&
+      statement.getStart(source) === importer.parentImport.getStart(importer.source) &&
+      !statement.importClause?.isTypeOnly &&
+      statement.importClause?.name &&
+      !statement.importClause.namedBindings
+    ) {
+      return;
+    }
+
+    if (generated.has(resolve(source.fileName))) {
+      failAt(
+        source,
+        reference.position,
+        `Generated file imports a route declaration: ${reference.text}`,
+      );
+    }
+
+    const destination = importSpecifier(
+      source.fileName,
+      resolve(dirname(target), "destination.generated.ts"),
+    );
+
+    failAt(
+      source,
+      reference.position,
+      `Import of a route declaration: ${reference.text}. Import its destination from ${destination} instead.`,
+    );
+  }
+
+  for (const source of scanned) {
     if (!generated.has(resolve(source.fileName))) {
       await auditPath(source.fileName);
     }
 
-    const references: ts.StringLiteralLike[] = [];
-
-    function visit(node: ts.Node): void {
-      let specifier: ts.Node | undefined;
-
-      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-        specifier = node.moduleSpecifier;
-      } else if (
-        ts.isCallExpression(node) &&
-        node.expression.kind === ts.SyntaxKind.ImportKeyword
-      ) {
-        specifier = node.arguments[0];
-      } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
-        specifier = node.argument.literal;
-      } else if (
-        ts.isImportEqualsDeclaration(node) &&
-        ts.isExternalModuleReference(node.moduleReference)
-      ) {
-        specifier = node.moduleReference.expression;
+    for (const reference of moduleReferences(source, verbatim)) {
+      if (reference.computed) {
+        failAt(source, reference.position, `Computed module specifier: ${reference.text}`);
       }
 
-      if (specifier && ts.isStringLiteralLike(specifier)) {
-        references.push(specifier);
+      if (reference.form === "reference") {
+        importRule(source, reference, resolve(dirname(source.fileName), reference.text));
+
+        continue;
       }
 
-      ts.forEachChild(node, visit);
-    }
-
-    visit(source);
-
-    for (const specifier of references) {
+      const specifier = reference.specifier!;
       const name = specifier.text;
       const candidates = new Set<string>();
       const resolutionHost: ts.ModuleResolutionHost = {
@@ -645,15 +693,22 @@ export async function validateRoutes(
           return host.fileExists(file);
         },
       };
-      const file = ts.resolveModuleName(
+      let mode = program.getModeForUsageLocation(source, specifier);
+
+      if (reference.form === "require" || reference.form === "import =") {
+        mode = ts.ModuleKind.CommonJS;
+      }
+
+      const resolved = ts.resolveModuleName(
         name,
         source.fileName,
         sources.parsed.options,
         resolutionHost,
         undefined,
         undefined,
-        program.getModeForUsageLocation(source, specifier),
-      ).resolvedModule?.resolvedFileName;
+        mode,
+      ).resolvedModule;
+      const file = resolved?.resolvedFileName;
 
       if (file && obsolete.has(resolve(file))) {
         fail(specifier, `Generated import is not a retained owned target: ${name}`);
@@ -667,7 +722,7 @@ export async function validateRoutes(
 
       for (const candidate of candidates) {
         const facadeTarget =
-          (basename(candidate) === "route.generated.ts" ||
+          (routeFiles.has(basename(candidate)) ||
             (sources.launch && basename(candidate) === "rpc.generated.ts")) &&
           !candidate.split(sep).includes("node_modules") &&
           sources.roots.some((root) => contains(root, candidate));
@@ -677,7 +732,9 @@ export async function validateRoutes(
         }
       }
 
-      if (!file) {
+      // A require() names whatever its runtime finds; only TypeScript's own module forms
+      // must resolve.
+      if (!file && reference.form !== "require") {
         const symbol = checker.getSymbolAtLocation(specifier);
         const declaredAmbient = symbol?.declarations?.some(
           (node) => ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name),
@@ -690,8 +747,53 @@ export async function validateRoutes(
         }
       }
 
+      if (file) {
+        importRule(source, reference, resolve(file));
+      }
+
       if (file && !file.includes("/node_modules/") && !generated.has(resolve(file))) {
         await auditPath(file);
+      }
+
+      if (reference.edge || reference.form === "dynamic import") {
+        for (const target of runtime.runs(resolved).targets) {
+          if (!program.getSourceFile(target)) {
+            outside.push(target);
+          }
+        }
+      }
+    }
+  }
+
+  // The runtime files the program's modules execute that the program doesn't hold, such as a
+  // `.js` behind its `.d.ts` without allowJs or a `.cjs` behind its `.d.cts`, and those they
+  // execute in turn, are application code too: the import rule binds them.
+  const walked = new Set<string>();
+
+  while (outside.length > 0) {
+    const file = outside.pop()!;
+
+    if (walked.has(file)) {
+      continue;
+    }
+
+    walked.add(file);
+
+    const source = runtime.source(file);
+
+    for (const reference of moduleReferences(source, verbatim)) {
+      const resolved = runtime.resolve(source, reference);
+
+      if (resolved && !resolved.isExternalLibraryImport) {
+        importRule(source, reference, resolve(resolved.resolvedFileName));
+      }
+
+      if (reference.edge || reference.form === "dynamic import") {
+        for (const target of runtime.runs(resolved).targets) {
+          if (!program.getSourceFile(target)) {
+            outside.push(target);
+          }
+        }
       }
     }
   }
@@ -906,5 +1008,232 @@ export async function validateRoutes(
 
     visit(routes);
     await Promise.all(promises);
+  }
+
+  validateCopies(sources, generated, validation, globalTargets, runtime);
+}
+
+// Any export other than the default one: named exports (value or type), `export *`,
+// `export =` and re-exports. An empty `export {}` exports nothing.
+function exportsBesidesDefault(statement: ts.Statement): boolean {
+  if (ts.isExportAssignment(statement)) {
+    return statement.isExportEquals === true;
+  }
+
+  if (ts.isExportDeclaration(statement)) {
+    const clause = statement.exportClause;
+
+    return (
+      statement.moduleSpecifier !== undefined ||
+      !clause ||
+      !ts.isNamedExports(clause) ||
+      clause.elements.length > 0
+    );
+  }
+
+  if (ts.isNamespaceExportDeclaration(statement)) {
+    return true;
+  }
+
+  if (!ts.canHaveModifiers(statement)) {
+    return false;
+  }
+
+  const modifiers = ts.getModifiers(statement) ?? [];
+
+  return (
+    modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) &&
+    !modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+  );
+}
+
+/**
+ * The checks of the generated copies over the runtime import graph: neither copy keeps a
+ * runtime import of a server module; nothing a destination copy imports reaches a generated
+ * file or a declaration module; nothing a route copy imports reaches a route copy, a shared
+ * file or a declaration module. Then every copy must type-check; its diagnostics point at
+ * the declaration's line.
+ */
+function validateCopies(
+  sources: Sources,
+  generated: ReadonlyMap<string, string>,
+  validation: ReturnType<typeof createValidationProgram>,
+  shared: ReadonlySet<string>,
+  graph: RuntimeGraph,
+): void {
+  const { program } = validation;
+  const base = dirname(sources.configFile);
+  const declared = new Set(sources.declarations.map((declaration) => declaration.file));
+
+  function label(file: string): string {
+    return relative(base, file).split(sep).join("/");
+  }
+
+  // Lines past the declaration's own are the copy's generated tail.
+  function aligned(declaration: Declaration, line: number): boolean {
+    let lines = declaration.source.getLineStarts().length;
+
+    if (/\r?\n$/.test(declaration.source.text)) {
+      lines -= 1;
+    }
+
+    return line < lines;
+  }
+
+  function location(declaration: Declaration, copy: string, position: number): string {
+    const source = graph.source(copy);
+    const { line, character } = source.getLineAndCharacterOfPosition(position);
+
+    if (aligned(declaration, line)) {
+      return `${declaration.file}:${line + 1}:${character + 1}`;
+    }
+
+    return `${copy}:${line + 1}:${character + 1}`;
+  }
+
+  function hop(edge: Edge, file: string): string {
+    const line = graph
+      .source(edge.from)
+      .getLineAndCharacterOfPosition(edge.reference.position).line;
+
+    return `${label(file)}:${line + 1}`;
+  }
+
+  function chain(
+    declaration: Declaration,
+    found: { readonly chain: readonly Edge[]; readonly target: string },
+  ): { text: string; edge: string } {
+    const hops: string[] = [];
+
+    for (let index = 0; index < found.chain.length; index += 1) {
+      const edge = found.chain[index];
+      let file = edge.from;
+
+      // The copy's lines are the declaration's.
+      if (index === 0) {
+        file = declaration.file;
+      }
+
+      hops.push(`${hop(edge, file)} (${edge.kind})`);
+    }
+
+    const last = found.chain[found.chain.length - 1];
+    let lastFile = last.from;
+
+    if (found.chain.length === 1) {
+      lastFile = declaration.file;
+    }
+
+    return { text: [...hops, label(found.target)].join(" → "), edge: hop(last, lastFile) };
+  }
+
+  const routeCopies = new Set<string>();
+
+  for (const file of generated.keys()) {
+    if (basename(file) === "route.generated.ts") {
+      routeCopies.add(file);
+    }
+  }
+
+  for (const declaration of sources.declarations) {
+    const directory = dirname(declaration.file);
+    const destinationCopy = resolve(directory, "destination.generated.ts");
+    const routeCopy = resolve(directory, "route.generated.ts");
+    let parentDestination: string | undefined;
+    let parentCopy: string | undefined;
+
+    if (declaration.parent) {
+      parentDestination = resolve(dirname(declaration.parent.file), "destination.generated.ts");
+      parentCopy = resolve(dirname(declaration.parent.file), "route.generated.ts");
+    }
+
+    // Server modules (D5): the copies are browser code.
+    for (const copy of [destinationCopy, routeCopy]) {
+      for (const edge of graph.edges(copy)) {
+        const text = edge.reference.text;
+
+        if (
+          text.startsWith("node:") ||
+          (edge.resolved && /\.server\./.test(basename(edge.resolved)))
+        ) {
+          throw new Error(
+            `${location(declaration, copy, edge.reference.position)}: Browser route copy imports a server module: ${text}. Use \`import type\` for types.`,
+          );
+        }
+      }
+    }
+
+    // URL facts modules reach no generated file and no declaration module.
+    for (const edge of graph.edges(destinationCopy)) {
+      if (edge.targets.length === 1 && edge.targets[0] === parentDestination) {
+        continue;
+      }
+
+      const found = graph.path(
+        edge,
+        (file) => generated.has(file) || shared.has(file) || declared.has(file),
+        () => false,
+      );
+
+      if (found) {
+        const { text, edge: last } = chain(declaration, found);
+
+        throw new Error(
+          `${location(declaration, destinationCopy, edge.reference.position)}: URL facts import reaches a generated file: ${text}. URL fact modules may import only packages and other non-generated modules; make ${last} \`import type\` if it only needs types.`,
+        );
+      }
+    }
+
+    // A route copy's own imports reach destinations at most: destination files can't reach
+    // back, so the walk stops there. Its parent's copy is the one route module it may import;
+    // no authored declaration is reachable.
+    for (const edge of graph.edges(routeCopy)) {
+      if (edge.targets.length === 1 && edge.targets[0] === parentCopy) {
+        continue;
+      }
+
+      const found = graph.path(
+        edge,
+        (file) => routeCopies.has(file) || shared.has(file) || declared.has(file),
+        (file) => basename(file) === "destination.generated.ts" && generated.has(file),
+      );
+
+      if (found) {
+        const { text, edge: last } = chain(declaration, found);
+
+        throw new Error(
+          `${location(declaration, routeCopy, edge.reference.position)}: Route copy import reaches a generated route module: ${text}. Import a destination.generated.js for URLs, or make ${last} \`import type\` if it only needs types.`,
+        );
+      }
+    }
+  }
+
+  const messages: string[] = [];
+
+  for (const declaration of sources.declarations) {
+    const directory = dirname(declaration.file);
+
+    for (const [copy, kind] of [
+      [resolve(directory, "destination.generated.ts"), "destination copy"],
+      [resolve(directory, "route.generated.ts"), "route copy"],
+    ] as const) {
+      const source = program.getSourceFile(copy)!;
+      const diagnostics = [
+        ...program.getSyntacticDiagnostics(source),
+        ...program.getSemanticDiagnostics(source),
+      ];
+
+      for (const diagnostic of diagnostics) {
+        const text = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+
+        messages.push(
+          `${location(declaration, copy, diagnostic.start ?? 0)}: TS${diagnostic.code}: ${text} (in its generated ${kind})`,
+        );
+      }
+    }
+  }
+
+  if (messages.length > 0) {
+    throw new Error(messages.join("\n"));
   }
 }

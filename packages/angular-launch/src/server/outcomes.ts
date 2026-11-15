@@ -71,6 +71,7 @@ export function notFound(): Error {
  *
  * @example
  * ```ts
+ * // signIn: the sign-in route's `destination`, from its destination.generated.ts
  * if (context.user === null) {
  *   throw redirect(createUrl(signIn, {}));
  * }

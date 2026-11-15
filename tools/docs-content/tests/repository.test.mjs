@@ -67,7 +67,7 @@ function entryPoint(content, importPath) {
   return undefined;
 }
 
-test("router's root entry point yields its 10 public symbols with descriptions", () => {
+test("router's root entry point yields its 14 public symbols with descriptions", () => {
   const names = [];
 
   for (const apiSymbol of entryPoint(router, "@loozo/angular-router").symbols) {
@@ -75,12 +75,16 @@ test("router's root entry point yields its 10 public symbols with descriptions",
     assert.notEqual(apiSymbol.summaryHtml, "", `${apiSymbol.name} has a description`);
   }
 
-  assert.equal(names.length, 10);
+  assert.equal(names.length, 14);
   assert.deepEqual(
     new Set(names),
     new Set([
+      "Destination",
       "ParamCodec",
+      "ParamsOf",
       "Route",
+      "SearchOf",
+      "TargetOf",
       "arrayParam",
       "booleanParam",
       "createUrl",
@@ -125,24 +129,36 @@ test("router's defineRoute carries params, returns, throws and an example", () =
   );
 });
 
-test("router's Handle and Destination land in generatedApi without _core duplicates", () => {
-  const publicNames = new Set();
+test("router's Handle lands in generatedApi and Destination on the root, without duplicates", () => {
+  const publicSymbols = new Map();
   const generated = new Map();
 
   for (const apiSymbol of entryPoint(router, "@loozo/angular-router").symbols) {
-    publicNames.add(apiSymbol.name);
+    publicSymbols.set(apiSymbol.name, apiSymbol);
   }
 
   for (const apiSymbol of router.generatedApi) {
     generated.set(apiSymbol.name, apiSymbol);
-    assert.equal(publicNames.has(apiSymbol.name), false, `${apiSymbol.name} is not public`);
+    assert.equal(publicSymbols.has(apiSymbol.name), false, `${apiSymbol.name} is not public`);
   }
 
   assert.equal(generated.get("Handle").importPath, "@loozo/angular-router/_generated");
-  assert.equal(generated.get("Destination").importPath, "@loozo/angular-router/_generated");
-  assert.equal(generated.get("Destination").kind, "class");
+  assert.equal(generated.has("Destination"), false);
+  assert.equal(publicSymbols.get("Destination").kind, "class");
   // #private and symbol-keyed members are not documented.
-  assert.deepEqual(generated.get("Destination").members, []);
+  assert.deepEqual(publicSymbols.get("Destination").members, []);
+
+  // Route sets and their identity helpers don't exist.
+  for (const name of [
+    "RouteSet",
+    "RecordBinding",
+    "createDestination",
+    "destinationId",
+    "getRouteSet",
+  ]) {
+    assert.equal(publicSymbols.has(name), false, `${name} is gone from the root`);
+    assert.equal(generated.has(name), false, `${name} is gone from generatedApi`);
+  }
 });
 
 test("router's Handle groups link/navigate overloads with per-overload params", () => {
@@ -176,23 +192,26 @@ test("router's Handle groups link/navigate overloads with per-overload params", 
     }
 
     assert.equal(member.kind, "method");
-    assert.deepEqual(params, ["target", "target", "target", "target"]);
+    assert.deepEqual(params, ["target", "target", "target"]);
   }
 
-  // Each overload documents its own kind of target: none, absolute, parent or destination.
+  // Each overload documents its own kind of target: none, parent or destination.
   const targets = new Set();
 
   for (const signature of members.get("link").signatures) {
     targets.add(signature.params[0].descriptionHtml);
   }
 
-  assert.equal(targets.size, 4);
+  assert.equal(targets.size, 3);
 });
 
 test("router's Handle and Destination list their documented type params", () => {
   const typeParams = {};
 
-  for (const apiSymbol of router.generatedApi) {
+  for (const apiSymbol of [
+    ...router.generatedApi,
+    ...entryPoint(router, "@loozo/angular-router").symbols,
+  ]) {
     if (apiSymbol.name !== "Handle" && apiSymbol.name !== "Destination") {
       continue;
     }
@@ -205,8 +224,8 @@ test("router's Handle and Destination list their documented type params", () => 
     }
   }
 
-  assert.deepEqual(typeParams.Handle, ["Target", "Absolute", "Parent", "Set", "References"]);
-  assert.deepEqual(typeParams.Destination, ["Target", "Set", "Id"]);
+  assert.deepEqual(typeParams.Handle, ["Target", "Parent"]);
+  assert.deepEqual(typeParams.Destination, ["Target", "Id"]);
 });
 
 test("launch's RpcError documents code/status/data and frameworkFailures is not truncated", () => {

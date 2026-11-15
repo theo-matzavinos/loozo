@@ -7,7 +7,7 @@ import { createUrl } from "@loozo/angular-router";
 import { provideLaunchQueries } from "@loozo/angular-launch/tanstack-query";
 import { MutationCache, provideTanStackQuery, QueryClient } from "@tanstack/angular-query";
 import { routes } from "../generated/routes.generated";
-import notFound from "./routes/not-found/route";
+import { destination as notFound } from "./routes/not-found/destination.generated";
 
 export const config: ApplicationConfig = {
   providers: [

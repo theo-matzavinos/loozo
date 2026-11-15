@@ -6,7 +6,7 @@ export const metrics = [
   { key: "generate.ms", label: "First generation: generate()", unit: "ms" },
   { key: "generate.processMs", label: "First generation: fresh process", unit: "ms" },
   { key: "serve.startupMs", label: "Serve: startup to first build", unit: "ms" },
-  { key: "serve.generatedMs", label: "Serve: edit → routes.generated.ts", unit: "ms" },
+  { key: "serve.generatedMs", label: "Serve: edit → generated files", unit: "ms" },
   { key: "serve.servedMs", label: "Serve: edit → served main.js", unit: "ms" },
   { key: "build.ms", label: "ng build (incl. generator preflight)", unit: "ms" },
   { key: "typecheck.ngcMs", label: "Type-check: ngc --noEmit", unit: "ms" },

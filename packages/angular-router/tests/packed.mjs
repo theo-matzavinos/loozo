@@ -199,6 +199,8 @@ await run(
 
 const firstEntry = pathToFileURL(join(first, metadata.exports["."].default)).href;
 const secondEntry = pathToFileURL(join(second, secondMetadata.exports["."].default)).href;
+const firstCore = pathToFileURL(join(first, metadata.exports["./_core"].default)).href;
+const secondCore = pathToFileURL(join(second, secondMetadata.exports["./_core"].default)).href;
 
 await run(
   "plain-node-instances",
@@ -210,6 +212,8 @@ await run(
   import assert from 'node:assert/strict';
   const a = await import(${JSON.stringify(firstEntry)});
   const b = await import(${JSON.stringify(secondEntry)});
+  const ac = await import(${JSON.stringify(firstCore)});
+  const bc = await import(${JSON.stringify(secondCore)});
   const publicValues = ['arrayParam','booleanParam','createUrl','defineRoute','enumParam','numberParam','stringParam','withFallback'];
   assert.deepEqual(Object.keys(a).sort(), publicValues);
   assert.deepEqual(Object.keys(b).sort(), publicValues);
@@ -222,15 +226,27 @@ await run(
   assert.throws(() => a.createUrl(foreign, { params: { id: 8 } }), TypeError);
   assert.throws(() => b.defineRoute('child', { parent: local }), TypeError);
   assert.throws(() => b.createUrl(local, { params: { id: 7 } }), TypeError);
-  const localAlias = a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
-  const foreignAlias = b.defineRoute('alias/$id', { params: { id: b.numberParam } }).redirect({ to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
+  assert.equal(ac.defineRoute, a.defineRoute);
+  // A destination is genuine only in its own physical package instance.
+  const localTarget = ac.defineDestination('local/$id', { params: { id: a.numberParam } }, 'local');
+  const foreignTarget = bc.defineDestination('foreign/$id', { params: { id: b.numberParam } }, 'foreign');
+  assert.equal(a.createUrl(localTarget, { params: { id: 7 } }), '/local/7');
+  assert.equal(b.createUrl(foreignTarget, { params: { id: 8 } }), '/foreign/8');
+  assert.throws(() => a.createUrl(foreignTarget, { params: { id: 8 } }), { name: 'TypeError', message: /^Expected a genuine route or destination from this package instance$/ });
+  assert.throws(() => b.createUrl(localTarget, { params: { id: 7 } }), { name: 'TypeError', message: /^Expected a genuine route or destination from this package instance$/ });
+  assert.throws(() => ac.defineDestination('child', { parent: foreignTarget }, 'child'), { name: 'TypeError', message: /^Expected a genuine destination$/ });
+  assert.throws(() => ac.routeOf(a.defineRoute, foreignTarget), { name: 'TypeError', message: /^Expected a genuine destination$/ });
+  assert.throws(() => ac.routeOf(b.defineRoute, localTarget), { name: 'TypeError', message: /^Expected a route factory$/ });
+  const localAlias = a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: localTarget, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
+  const foreignAlias = b.defineRoute('alias/$id', { params: { id: b.numberParam } }).redirect({ to: foreignTarget, search: { mode: 'drop' }, fragment: { mode: 'drop' } });
   assert.equal(a.createUrl(localAlias, { params: { id: 7 } }), '/alias/7');
   assert.equal(b.createUrl(foreignAlias, { params: { id: 8 } }), '/alias/8');
-  assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: foreign, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /genuine route from this package instance/ });
-  assert.throws(() => b.defineRoute('alias/$id', { params: { id: b.numberParam } }).redirect({ to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /genuine route from this package instance/ });
+  assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: foreignTarget, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /^Redirect target must be a genuine destination$/ });
+  assert.throws(() => b.defineRoute('alias/$id', { params: { id: b.numberParam } }).redirect({ to: localTarget, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /^Redirect target must be a genuine destination$/ });
+  assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /^Redirect target must be a genuine destination$/ });
   const product = a.defineRoute('products/$productId', { params: { productId: a.numberParam }, search: { tab: a.withFallback(a.enumParam(['details','reviews']), 'details') }, fragments: ['summary','reviews'] });
   assert.equal(a.createUrl(product, { params: { productId: 42 }, search: { tab: 'reviews' }, fragment: 'summary' }), '/products/42?tab=reviews#summary');
-  console.log('fresh plain Node: 7 values; product URL; own core membership; distinct physical instances');
+  console.log('fresh plain Node: 8 values; product URL; own core membership for routes and destinations; distinct physical instances');
 `,
   ],
   evidence,

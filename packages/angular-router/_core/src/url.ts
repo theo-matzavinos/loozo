@@ -1,6 +1,7 @@
 import { isArrayCodec, type ParamCodec } from "./codecs.js";
 import { ownRecord, checkKeys, has } from "./records.js";
-import { routeMetadata } from "./route.js";
+import { findRoute } from "./route.js";
+import { findDestination, type Destination, type UrlMetadata } from "./destination.js";
 import type { AnyRoute, SearchOf, UrlValues } from "./types.js";
 
 function encode(value: string): string {
@@ -21,8 +22,25 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
   return encode(text);
 }
 
+// A destination and a route carry the same URL fields.
+function urlOf(target: unknown): Omit<UrlMetadata, "parent"> {
+  const destination = findDestination(target);
+
+  if (destination) {
+    return destination.url;
+  }
+
+  const route = findRoute(target);
+
+  if (route) {
+    return route;
+  }
+
+  throw new TypeError("Expected a genuine route or destination from this package instance");
+}
+
 /**
- * Synchronously serializes a route's explicit values into a root-relative URL.
+ * Synchronously serializes a destination's or route's explicit values into a root-relative URL.
  *
  * @remarks
  * Includes inherited path/search declarations, but only this route's fragment
@@ -38,23 +56,22 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
  * element in array order, and nothing for `[]`. An empty effective path produces `/`.
  * Redirect declarations serialize their source URL, not their redirect target.
  *
- * @param route - A genuine declaration from this physical package instance,
- * not a generated destination, spread/copy or structural lookalike.
+ * @param target - A genuine destination imported from a `destination.generated.ts`,
+ * or a genuine route, from this physical package instance; not a spread/copy or
+ * structural lookalike. A route copy and its destination create the same URL.
  * @param values - Explicit destination-typed params, search and optional fragment.
  * Pass an empty object when the route needs no values.
  * @returns A root-relative URL string, typed `` `/${string}` ``; this does not navigate or
  * return a UrlTree.
- * @throws TypeError for invalid routes/records, missing or unknown keys,
+ * @throws TypeError for nongenuine targets, invalid records, missing or unknown keys,
  * undeclared fragments, nonarray catchalls or array search values, nonstring codec output, or empty/dot
  * path output. Application stringifier failures propagate unchanged.
  * @throws URIError for ill-formed Unicode in a serialized value.
  *
  * @example
  * ```ts
- * const product = defineRoute("products/$productId", {
- *   params: { productId: numberParam },
- *   fragments: ["summary"],
- * });
+ * import { destination as product } from "./routes/products/$productId/destination.generated.js";
+ *
  * createUrl(product, { params: { productId: 42 }, fragment: "summary" });
  * // /products/42#summary
  * ```
@@ -62,10 +79,13 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
 export function createUrl<
   Target extends AnyRoute,
   SearchKeys extends keyof SearchOf<NoInfer<Target>> = never,
->(route: Target, values: UrlValues<NoInfer<Target>, SearchKeys>): `/${string}`;
+>(
+  target: Target | Destination<Target>,
+  values: UrlValues<NoInfer<Target>, SearchKeys>,
+): `/${string}`;
 
-export function createUrl(route: unknown, values: unknown): `/${string}` {
-  const metadata = routeMetadata(route);
+export function createUrl(target: unknown, values: unknown): `/${string}` {
+  const metadata = urlOf(target);
   const options = ownRecord(values, "URL options");
 
   checkKeys(options, new Set(["params", "search", "fragment"]), "URL options");
