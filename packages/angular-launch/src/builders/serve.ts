@@ -39,6 +39,10 @@ const generatedMarkers: Record<string, { marker: string; line: "first" | "last" 
     marker: "// @loozo/angular-router routegen: owned destination.generated.ts",
     line: "last",
   },
+  "children.generated.ts": {
+    marker: "// @loozo/angular-router routegen: owned children.generated.ts",
+    line: "first",
+  },
   "rpc.generated.ts": { marker: launchMarkers["rpc.generated.ts"], line: "first" },
 };
 

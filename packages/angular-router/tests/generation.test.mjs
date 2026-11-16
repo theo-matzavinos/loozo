@@ -359,7 +359,12 @@ test("session-backed generation follows edits across passes and recovers after a
   await writeFile(resolve(root, "src/routes/docs/guide/page.ts"), page("guide"));
 
   await pass();
-  assert.match(await readFile(routes, "utf8"), /path: "guide"/);
+  // docs gains its first child, so its record loads the child's record from its children table.
+  assert.match(await readFile(routes, "utf8"), /path: "docs"[^\n]*\n[^]*loadChildren: /);
+  assert.match(
+    await readFile(resolve(root, "src/routes/docs/children.generated.ts"), "utf8"),
+    /path: "guide"/,
+  );
   assert.match(await readFile(resolve(root, "src/routes/docs/guide/route.ts"), "utf8"), /guide/);
   await readFile(resolve(root, "src/routes/docs/guide/route.generated.ts"), "utf8");
   await readFile(resolve(root, "src/routes/docs/guide/destination.generated.ts"), "utf8");
@@ -652,10 +657,12 @@ test("routes.generated.ts exports RouteTypes and a typed injectActiveRoute witho
   return injectGeneratedActiveRoute<RouteTypes>();
 }`,
   );
+  // The child's record lives in its parent's children table; RouteTypes above stays global.
   assert.match(
-    source,
+    await project.read("src/routes/teams/$teamId/children.generated.ts"),
     /path: "items\/:id",\n\.\.\.record\(destination_teams_\$teamId_items_\$id_route, destination_teams_\$teamId_route\),/,
   );
+  assert.doesNotMatch(source, /path: "items\/:id"/);
 
   // A strict consumer narrows an ancestor through chain and the deepest route through is().
   await project.write(
@@ -871,9 +878,14 @@ test("filesystem mode: only directories with a page or declaration become record
     generated,
     /loadComponent: \(\): ReturnType<NonNullable<Routes\[number\]\["loadComponent"\]>> => import\("/,
   );
+  // shell keeps its record here and loads its children's records from its children table.
   assert.match(
     generated,
-    /path: "shell",\n\.\.\.record\([^\n]+\nchildren: \[\{ path: "docs\/:slug"/,
+    /path: "shell",\n\.\.\.record\([^\n]+\nloadChildren: [^\n]+import\("\.\.\/src\/routes\/shell\/children\.generated\.js"\)\.then\(\(m\) => m\.routes\) \}/,
+  );
+  assert.match(
+    await read("src/routes/shell/children.generated.ts"),
+    /^export const routes: Routes = \[\{ path: "docs\/:slug",$/m,
   );
   assert.doesNotMatch(generated, /path: ""|path: "teams",|path: "items"/);
 
@@ -907,7 +919,7 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
   }
 
   await project.generate();
-  assert.match(await project.routes(), /path: "section\/topic"/);
+  assert.match(await read("src/routes/lib/children.generated.ts"), /path: "section\/topic"/);
   await project.write(
     "src/routes/lib/section/route.ts",
     `${header}import parent from "../route.js";\n\nexport default defineRoute("section", { parent });\n`,
@@ -937,9 +949,14 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
     await read("src/routes/lib/section/busy/route.ts"),
     `${header}import libRoute from "../route.js";\n\n${declarations.busy}export default defineRoute("busy", { parent: libRoute });\n`,
   );
+  // section is lib's child and a parent itself: its record sits in lib's children table.
   assert.match(
-    await project.routes(),
-    /path: "section",\n\.\.\.record\([^\n]+\nchildren: \[\{ path: "busy"/,
+    await read("src/routes/lib/children.generated.ts"),
+    /path: "section",\n\.\.\.record\([^\n]+\nloadChildren: [^\n]+import\("\.\/section\/children\.generated\.js"\)/,
+  );
+  assert.match(
+    await read("src/routes/lib/section/children.generated.ts"),
+    /^export const routes: Routes = \[\{ path: "busy",$/m,
   );
 });
 
@@ -980,7 +997,7 @@ test("filesystem mode: moving a declaration under and out of a page-less prefix 
       .replace(header, `${header}import filesystemParent from "../../route.js";\n`)
       .replace('"taken", {}', '"extra/taken", { parent: filesystemParent }'),
   );
-  assert.match(await project.routes(), /path: "extra\/solo"/);
+  assert.match(await read("src/routes/shell/children.generated.ts"), /path: "extra\/solo"/);
 
   // Moving back out drops the prefix and the parent.
   await project.move("src/routes/shell/extra/solo", "src/routes/solo");
@@ -1034,9 +1051,10 @@ test("filesystem mode: a page-less param prefix adds a string codec and keeps au
       .replace('"codes/$code"', '"$team/codes/$code"')
       .replace("code: numberParam }", 'code: numberParam , "team": text }'),
   );
+  assert.match(await project.routes(), /path: "shell",\n\.\.\.record\([^\n]+\nloadChildren: /);
   assert.match(
-    await project.routes(),
-    /path: "shell",\n\.\.\.record\([^\n]+\nchildren: \[[^\n]*path: ":team\/:id"/,
+    await read("src/routes/shell/children.generated.ts"),
+    /^export const routes: Routes = \[[^\n]*path: ":team\/:id"/m,
   );
 
   // A second pass has nothing left to write.
@@ -1261,11 +1279,12 @@ test("effective search gets the generated matching guard; redirect replacements 
   }
 
   // Search alone gets the guard, inherited search too; a redirect and a searchless route don't.
+  // detail's record is in list's children table.
   const generated = await readFile(routes, "utf8");
+  const children = await readFile(resolve(root, "src/routes/list/children.generated.ts"), "utf8");
 
-  for (const name of ["list", "detail"]) {
-    assert.match(generated, new RegExp(`\\.\\.\\.callbacks\\(route_${name}_definition\\)`));
-  }
+  assert.match(generated, /\.\.\.callbacks\(route_list_definition\)/);
+  assert.match(children, /\.\.\.callbacks\(route_detail_definition\)/);
   for (const name of ["plain", "old"]) {
     assert.doesNotMatch(generated, new RegExp(`callbacks\\(route_${name}_definition\\)`));
   }
@@ -3632,9 +3651,18 @@ test("route copies: '..' destinations come from the winner's destination file", 
     shared,
     /"src\/routes\/scope\/x\/route\.ts": \{ schema: RouteSchema<typeof route_scope_x_route>; up: typeof destination_scope__terminal_route \};/,
   );
+  // The record sits in scope's children table, which value-imports the winner's destination.
+  const children = result.desired.get(
+    resolve(project.root, "src/routes/scope/children.generated.ts"),
+  );
+
   assert.match(
-    shared,
+    children,
     /path: "x",\n\.\.\.record\(destination_scope_x_route, destination_scope__terminal_route\),/,
+  );
+  assert.match(
+    children,
+    /^import \{ destination as destination_scope__terminal_route \} from "\.\/\+terminal\/destination\.generated\.js";$/m,
   );
 
   // Without a root, top-level origins have no winner: no "..", and RouteTypes has no up.
@@ -3785,4 +3813,545 @@ test("route copies: ownership of the per-route pair", async () => {
     pruned.desired.get(resolve(project.root, "generated/routes.generated.ts")),
     /src\/routes\/p\/route\.ts|destination_p_route\b/,
   );
+});
+
+// Route children tables: every route with a retained child loads their records lazily.
+
+const childrenMarker = "// @loozo/angular-router routegen: owned children.generated.ts";
+
+function importLines(text) {
+  return text.split("\n").filter((line) => line.startsWith("import "));
+}
+
+function recordPaths(text) {
+  const table = text.slice(text.indexOf("export const routes: Routes = ["));
+
+  return [
+    ...table.matchAll(
+      /^(?:export const routes: Routes = \[|,\n)?\{ (?:\.\.\.nativeOptions\([^)]*\),\n)?path: ("[^"]*")/gm,
+    ),
+  ].map((match) => JSON.parse(match[1]));
+}
+
+test("route children: each route with retained children keeps its record and loads theirs from its children table", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute, numberParam, stringParam } from "@loozo/angular-router";\n';
+  const child = (from) => `${header}import parent from "${from}";\n`;
+  const result = await project.analyze(
+    {
+      "+home": `${header}\nexport default defineRoute("", {});\n`,
+      // A static root with native options and callbacks.
+      shell: `${header}\nexport default defineRoute("shell", {}).canMatch([() => true]).canActivateChild([() => true]).providers([]).data({ a: 1 });\n`,
+      // A terminal empty-path child is the canonical /shell: a ".." winner inside the group.
+      "shell/+index": `${child("../route.js")}\nexport default defineRoute("", { parent });\n`,
+      "shell/docs/$slug": `${child("../../route.js")}\nexport default defineRoute("docs/$slug", { parent, params: { slug: stringParam } });\n`,
+      "shell/native": `${child("../route.js")}\nexport default defineRoute("native", { parent }).providers([]).data({ b: 2 });\n`,
+      "shell/$rest[]": `${child("../route.js")}\nexport default defineRoute("$rest[]", { parent, params: { rest: stringParam } });\n`,
+      // A param root; its child's ".." winner is the root, outside the children table.
+      "teams/$teamId": `${header}\nexport default defineRoute("teams/$teamId", { params: { teamId: numberParam } });\n`,
+      "teams/$teamId/items/$id": `${child("../../route.js")}\nexport default defineRoute("items/$id", { parent, params: { id: numberParam } });\n`,
+      // Three nested levels, two of them pathless (the Launch example's shape).
+      a: `${header}\nexport default defineRoute("a", {});\n`,
+      "a/+b": `${child("../route.js")}\nexport default defineRoute("", { parent });\n`,
+      "a/+b/+c": `${child("../route.js")}\nexport default defineRoute("", { parent });\n`,
+      "a/+b/+c/leaf": `${child("../route.js")}\nexport default defineRoute("leaf", { parent });\n`,
+      // A page whose only children are redirects stays a plain record.
+      plain: `${header}\nexport default defineRoute("plain", {});\n`,
+      "plain/old": `${child("../route.js")}import { destination as to } from "../../+home/destination.generated.js";\n\nexport default defineRoute("old", { parent }).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+      // A page-less parent of redirects alone is pruned and emits nothing.
+      legacy: `${header}\nexport default defineRoute("legacy", {});\n`,
+      "legacy/x": `${child("../route.js")}import { destination as to } from "../../plain/destination.generated.js";\n\nexport default defineRoute("x", { parent }).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+      // A top-level redirect keeps reading its copy eagerly.
+      old: `${header}import { destination as to } from "../plain/destination.generated.js";\n\nexport default defineRoute("old", {}).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+    },
+    {
+      componentless: ["a/+b", "a/+b/+c", "plain/old", "legacy", "legacy/x", "old"],
+    },
+  );
+  const read = (path) => result.desired.get(resolve(project.root, path));
+  const routes = read("generated/routes.generated.ts");
+  const children = [...result.desired.keys()]
+    .filter((path) => path.endsWith(`${sep}children.generated.ts`))
+    .map((path) =>
+      path
+        .slice(project.root.length + 1)
+        .split(sep)
+        .join("/"),
+    )
+    .sort();
+
+  assert.deepEqual(children, [
+    "src/routes/a/+b/+c/children.generated.ts",
+    "src/routes/a/+b/children.generated.ts",
+    "src/routes/a/children.generated.ts",
+    "src/routes/shell/children.generated.ts",
+    "src/routes/teams/$teamId/children.generated.ts",
+  ]);
+
+  // The global table: top-level records and every hoisted redirect, in today's order.
+  assert.deepEqual(recordPaths(routes), [
+    "legacy/x",
+    "old",
+    "plain/old",
+    "",
+    "a",
+    "plain",
+    "shell",
+    "teams/:teamId",
+  ]);
+  assert.match(
+    routes,
+    /\{ \.\.\.nativeOptions\(route_shell_route\),\npath: "shell",\n\.\.\.record\(destination_shell_route, destination__home_route\),\n\.\.\.callbacks\(route_shell_route\),\nloadComponent: [^\n]+import\("\.\.\/src\/routes\/shell\/page"\),\nloadChildren: \(\): ReturnType<NonNullable<Routes\[number\]\["loadChildren"\]>> => import\("\.\.\/src\/routes\/shell\/children\.generated\.js"\)\.then\(\(m\) => m\.routes\) \}/,
+  );
+  assert.match(
+    routes,
+    /path: "teams\/:teamId",\n[^]*?loadChildren: [^\n]+import\("\.\.\/src\/routes\/teams\/\$teamId\/children\.generated\.js"\)/,
+  );
+  assert.match(
+    routes,
+    /path: "plain",\n\.\.\.record\(destination_plain_route, destination__home_route\),\nloadComponent: [^\n]+ \}/,
+  );
+  assert.doesNotMatch(routes, /path: "legacy",/);
+  assert.match(
+    routes,
+    /path: "plain\/old",\npathMatch: 'full',\n\.\.\.record\(destination_plain_old_route\),\nredirectTo: lazyRedirect\(\(\) => import\("\.\.\/src\/routes\/plain\/old\/route\.generated\.js"\)\) \}/,
+  );
+  assert.match(
+    routes,
+    /path: "legacy\/x",\npathMatch: 'full',\n\.\.\.record\(destination_legacy_x_route\),\nredirectTo: lazyRedirect\(\(\) => import\("\.\.\/src\/routes\/legacy\/x\/route\.generated\.js"\)\) \}/,
+  );
+  assert.match(
+    routes,
+    /path: "old",\npathMatch: 'full',\n\.\.\.record\(destination_old_route\),\nredirectTo: redirect\(route_old_route\) \}/,
+  );
+
+  // Its value imports are exactly the top-level records' own copies and destinations, their
+  // ".." winners' and the redirect sources'. Everything else only types RouteTypes.
+  const values = importLines(routes).filter((line) => !line.startsWith("import type "));
+
+  assert.deepEqual(values.slice(1).sort(), [
+    'import { destination as destination__home_route } from "../src/routes/+home/destination.generated.js";',
+    'import { destination as destination_a_route } from "../src/routes/a/destination.generated.js";',
+    'import { destination as destination_legacy_x_route } from "../src/routes/legacy/x/destination.generated.js";',
+    'import { destination as destination_old_route } from "../src/routes/old/destination.generated.js";',
+    'import { destination as destination_plain_old_route } from "../src/routes/plain/old/destination.generated.js";',
+    'import { destination as destination_plain_route } from "../src/routes/plain/destination.generated.js";',
+    'import { destination as destination_shell_route } from "../src/routes/shell/destination.generated.js";',
+    'import { destination as destination_teams_$teamId_route } from "../src/routes/teams/$teamId/destination.generated.js";',
+    'import { route as route_old_route } from "../src/routes/old/route.generated.js";',
+    'import { route as route_shell_route } from "../src/routes/shell/route.generated.js";',
+    'import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";',
+  ]);
+  assert.equal(
+    values[0],
+    "import { record, nativeOptions, callbacks, redirect, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';",
+  );
+  // A winner only RouteTypes names is a type import.
+  assert.ok(
+    importLines(routes).includes(
+      'import type { destination as destination_shell__index_route } from "../src/routes/shell/+index/destination.generated.js";',
+    ),
+  );
+  assert.match(
+    routes,
+    /^"src\/routes\/shell\/docs\/\$slug\/route\.ts": \{ schema: RouteSchema<typeof route_shell_docs_\$slug_route>; up: typeof destination_shell__index_route \};$/m,
+  );
+
+  // A children table: its route's children in today's sibling order, catchalls last, with the
+  // helpers and value imports its own records read, the ".." winners' wherever they live.
+  const shell = read("src/routes/shell/children.generated.ts");
+
+  assert.equal(shell.split("\n", 1)[0], childrenMarker);
+  assert.deepEqual(recordPaths(shell), ["", "docs/:slug", "native", "**"]);
+  assert.deepEqual(importLines(shell), [
+    "import type { Routes } from '@angular/router';",
+    "import { record, nativeOptions, callbacks } from '@loozo/angular-router/_generated';",
+    ...importLines(shell).slice(2, 5),
+    // Destinations in id order, as in routes.generated.ts.
+    'import { destination as destination__home_route } from "../+home/destination.generated.js";',
+    'import { destination as destination_shell__index_route } from "./+index/destination.generated.js";',
+    'import { destination as destination_shell_$rest___route } from "./$rest[]/destination.generated.js";',
+    'import { destination as destination_shell_docs_$slug_route } from "./docs/$slug/destination.generated.js";',
+    'import { destination as destination_shell_native_route } from "./native/destination.generated.js";',
+  ]);
+  assert.deepEqual(importLines(shell).slice(2, 5).sort(), [
+    'import { route as route_shell_$rest___route } from "./$rest[]/route.generated.js";',
+    'import { route as route_shell_docs_$slug_route } from "./docs/$slug/route.generated.js";',
+    'import { route as route_shell_native_route } from "./native/route.generated.js";',
+  ]);
+  assert.match(
+    shell,
+    /The generated records of the children of src\/routes\/shell\/route\.ts, loaded lazily by its record\./,
+  );
+  assert.match(
+    shell,
+    /\{ \.\.\.nativeOptions\(route_shell_native_route\),\npath: "native",\n\.\.\.record\(destination_shell_native_route, destination_shell__index_route\),\nloadComponent: [^\n]+import\("\.\/native\/page"\) \}/,
+  );
+  assert.match(
+    shell,
+    /path: "\*\*",\n\.\.\.record\(destination_shell_\$rest___route, destination_shell__index_route\),\n\.\.\.callbacks\(route_shell_\$rest___route\),/,
+  );
+
+  // The param root's child reads the root's destination, which lives outside the table.
+  const team = read("src/routes/teams/$teamId/children.generated.ts");
+
+  assert.deepEqual(recordPaths(team), ["items/:id"]);
+  assert.ok(
+    importLines(team).includes(
+      'import { destination as destination_teams_$teamId_route } from "./destination.generated.js";',
+    ),
+  );
+
+  // Nested groups: each nested root's record sits in its parent's table with its own loader.
+  assert.match(
+    read("src/routes/a/children.generated.ts"),
+    /^export const routes: Routes = \[\{ path: "",\n\.\.\.record\(destination_a__b_route[^\n]*\),\nloadChildren: [^\n]+import\("\.\/\+b\/children\.generated\.js"\)\.then\(\(m\) => m\.routes\) \}\];$/m,
+  );
+  assert.match(
+    read("src/routes/a/+b/children.generated.ts"),
+    /^export const routes: Routes = \[\{ path: "",\n\.\.\.record\(destination_a__b__c_route[^\n]*\),\nloadChildren: [^\n]+import\("\.\/\+c\/children\.generated\.js"\)\.then\(\(m\) => m\.routes\) \}\];$/m,
+  );
+  assert.deepEqual(recordPaths(read("src/routes/a/+b/+c/children.generated.ts")), ["leaf"]);
+
+  // No table imports a route declaration; nothing eager value-imports a descendant's copy.
+  for (const line of values) {
+    assert.doesNotMatch(
+      line,
+      /shell\/(?:native|docs|\$rest|\+index)|items\/\$id|plain\/old\/route|legacy\/x\/route/,
+    );
+  }
+});
+
+test("route children: a tree without parents has no children table and no loader", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const result = await project.analyze(
+    {
+      "+home": `${header}\nexport default defineRoute("", {});\n`,
+      a: `${header}\nexport default defineRoute("a", {}).title("A");\n`,
+      old: `${header}import { destination as to } from "../a/destination.generated.js";\n\nexport default defineRoute("old", {}).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+    },
+    { componentless: ["old"] },
+  );
+  const routes = result.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+
+  assert.equal(
+    [...result.desired.keys()].some((path) => path.endsWith("children.generated.ts")),
+    false,
+  );
+  assert.doesNotMatch(routes, /loadChildren|lazyRedirect/);
+  assert.match(routes, /import \{ record, callbacks, redirect, injectGeneratedActiveRoute,/);
+});
+
+test("route children: a redirect with a parent can't use native options; a top-level one can", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const base = {
+    "+home": `${header}\nexport default defineRoute("", {});\n`,
+    p: `${header}\nexport default defineRoute("p", {});\n`,
+    "p/q": `${header}import parent from "../route.js";\n\nexport default defineRoute("q", { parent });\n`,
+  };
+  const redirect = (parent, step) =>
+    `${header}${parent}import { destination as to } from "${parent ? "../" : "./"}../+home/destination.generated.js";\n\nexport default defineRoute("old", ${parent ? "{ parent }" : "{}"})${step}.redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`;
+
+  await project.author(base);
+  await project.generate();
+
+  const routes = await project.read("generated/routes.generated.ts");
+
+  for (const [directory, parent] of [
+    ["p/old", 'import parent from "../route.js";\n'],
+    ["p/q/old", 'import parent from "../route.js";\n'],
+  ]) {
+    for (const [step, name] of [
+      [".providers([])", "providers"],
+      [".data({ a: 1 })", "data"],
+      ['.runGuardsAndResolvers("always")', "runGuardsAndResolvers"],
+    ]) {
+      const text = redirect(parent, step).replace(
+        "../../+home",
+        `${"../".repeat(directory.split("/").length)}+home`,
+      );
+
+      await project.author({ ...base, [directory]: text }, { componentless: [directory] });
+      await assert.rejects(
+        project.generate(),
+        new RegExp(
+          `old[\\\\/]route\\.ts:\\d+:\\d+: A redirect with a parent can't use \\.${name}: its record is hoisted into the eager table and would load its route copy$`,
+        ),
+      );
+      // Preflight: nothing was published.
+      assert.equal(await project.read("generated/routes.generated.ts"), routes);
+    }
+  }
+
+  await project.author(
+    { ...base, old: redirect("", ".providers([])").replace("./../+home", "../+home") },
+    { componentless: ["old"] },
+  );
+  await project.generate();
+  assert.match(
+    await project.read("generated/routes.generated.ts"),
+    /\{ \.\.\.nativeOptions\(route_old_route\),\npath: "old",\npathMatch: 'full',\n\.\.\.record\(destination_old_route\),\nredirectTo: redirect\(route_old_route\) \}/,
+  );
+});
+
+test("route children: ownership of children tables", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const routes = {
+    a: `${header}\nexport default defineRoute("a", {});\n`,
+    "a/b": `${header}import parent from "../route.js";\n\nexport default defineRoute("b", { parent });\n`,
+    c: `${header}\nexport default defineRoute("c", {});\n`,
+    "c/d": `${header}import parent from "../route.js";\n\nexport default defineRoute("d", { parent });\n`,
+  };
+  const table = "src/routes/a/children.generated.ts";
+  const exists = (path) =>
+    stat(resolve(project.root, path)).then(
+      () => true,
+      () => false,
+    );
+
+  await project.author(routes);
+  await project.generate();
+  assert.equal((await project.read(table)).split("\n", 1)[0], childrenMarker);
+
+  // A checkout with CRLF line endings is current.
+  const bytes = await project.read(table);
+
+  await writeFile(resolve(project.root, table), bytes.replaceAll("\n", "\r\n"));
+  await project.generate({ check: true });
+  await writeFile(resolve(project.root, table), bytes);
+
+  // Check mode reports changed, then missing, then stale tables.
+  await writeFile(resolve(project.root, table), `${bytes}// edit\n`);
+  await rm(resolve(project.root, "src/routes/c/children.generated.ts"));
+  await writeFile(
+    resolve(project.root, "src/routes/c/d/children.generated.ts"),
+    `${childrenMarker}\n`,
+  );
+  await assert.rejects(
+    project.generate({ check: true }),
+    /Generated artifacts changed:\n.*a[\\/]children\.generated\.ts\n/,
+  );
+  await writeFile(resolve(project.root, table), bytes);
+  await assert.rejects(
+    project.generate({ check: true }),
+    /Generated artifacts missing:\n.*c[\\/]children\.generated\.ts\n/,
+  );
+  await project.generate();
+  assert.equal(await exists("src/routes/c/children.generated.ts"), true);
+  await writeFile(
+    resolve(project.root, "src/routes/c/d/children.generated.ts"),
+    `${childrenMarker}\n`,
+  );
+  await assert.rejects(
+    project.generate({ check: true }),
+    /Generated artifacts stale:\n.*d[\\/]children\.generated\.ts\n/,
+  );
+  await project.generate();
+  assert.equal(await exists("src/routes/c/d/children.generated.ts"), false);
+
+  // A route that loses its last child page loses its table.
+  await rm(resolve(project.root, "src/routes/a/b"), { recursive: true });
+  await project.generate();
+  assert.equal(await exists(table), false);
+  assert.doesNotMatch(await project.read("generated/routes.generated.ts"), /routes\/a\/children/);
+
+  // So does one whose only child becomes a redirect.
+  await project.author(
+    {
+      ...routes,
+      "c/d": `${header}import parent from "../route.js";\nimport { destination as to } from "../../a/destination.generated.js";\n\nexport default defineRoute("d", { parent }).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+    },
+    { componentless: ["c/d"] },
+  );
+  await project.generate();
+  assert.equal(await exists("src/routes/c/children.generated.ts"), false);
+
+  // An unmarked file at a table's path is not owned.
+  await project.author(routes, { files: { [table]: "export const routes = [];\n" } });
+  await assert.rejects(
+    project.generate(),
+    /Unmarked generated-output collision: .*a[\\/]children\.generated\.ts$/,
+  );
+
+  // An app import of a table generation doesn't produce fails.
+  await project.author(routes, {
+    files: { "src/app.ts": 'export { routes } from "./routes/b/children.generated.js";\n' },
+  });
+  await assert.rejects(
+    project.generate(),
+    /Generated import is not a retained owned target: \.\/routes\/b\/children\.generated\.js/,
+  );
+
+  // A route copy can't reach a children table: the table imports copies.
+  await assert.rejects(
+    project.analyze(
+      {
+        ...routes,
+        c: `${header}import { guard } from "../../guard.js";\n\nexport default defineRoute("c", {}).canMatch([guard]);\n`,
+      },
+      {
+        files: {
+          "src/guard.ts":
+            'import { routes } from "./routes/a/children.generated.js";\n\nexport const guard = () => routes.length > 0;\n',
+        },
+      },
+    ),
+    /c[\\/]route\.ts:\d+:\d+: Route copy import reaches a generated route module: src\/routes\/c\/route\.ts:\d+ \(value import\) → src\/guard\.ts:1 \(value import\) → src\/routes\/a\/children\.generated\.ts\./,
+  );
+});
+
+test("route children: adding a child changes its pair, its table and RouteTypes; a first child switches its parent's record", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const child = (path) =>
+    `${header}import parent from "../route.js";\n\nexport default defineRoute("${path}", { parent });\n`;
+  const routes = {
+    shell: `${header}\nexport default defineRoute("shell", {});\n`,
+    "shell/a": child("a"),
+    "shell/b": child("b"),
+    plain: `${header}\nexport default defineRoute("plain", {});\n`,
+  };
+  const { readdir } = await import("node:fs/promises");
+
+  async function snapshot() {
+    const files = new Map();
+
+    for (const directory of ["src", "generated"]) {
+      for (const entry of await readdir(resolve(project.root, directory), {
+        recursive: true,
+        withFileTypes: true,
+      })) {
+        if (entry.isFile() && entry.name.endsWith(".generated.ts")) {
+          const path = resolve(entry.parentPath, entry.name);
+
+          files.set(
+            path
+              .slice(project.root.length + 1)
+              .split(sep)
+              .join("/"),
+            await readFile(path, "utf8"),
+          );
+        }
+      }
+    }
+
+    return files;
+  }
+
+  function changed(before, after) {
+    return [...new Set([...before.keys(), ...after.keys()])]
+      .filter((path) => before.get(path) !== after.get(path))
+      .sort((a, b) => a.localeCompare(b, "en"));
+  }
+
+  const table = (text) =>
+    text.slice(text.indexOf("export const routes"), text.indexOf("export type RouteTypes"));
+  const valueImports = (text) =>
+    importLines(text).filter((line) => !line.startsWith("import type "));
+
+  await project.author(routes);
+  await project.generate();
+
+  const before = await snapshot();
+
+  // An independent child: its pair, its table, and RouteTypes' type lines.
+  await project.author({ ...routes, "shell/c": child("c") });
+  await project.generate();
+
+  const added = await snapshot();
+
+  assert.deepEqual(changed(before, added), [
+    "generated/routes.generated.ts",
+    "src/routes/shell/c/destination.generated.ts",
+    "src/routes/shell/c/route.generated.ts",
+    "src/routes/shell/children.generated.ts",
+  ]);
+  assert.equal(
+    table(added.get("generated/routes.generated.ts")),
+    table(before.get("generated/routes.generated.ts")),
+  );
+  assert.deepEqual(
+    valueImports(added.get("generated/routes.generated.ts")),
+    valueImports(before.get("generated/routes.generated.ts")),
+  );
+
+  // A first child: the parent's record switches to a loader and its table appears.
+  await project.author({ ...routes, "plain/x": child("x") });
+  await project.generate();
+
+  const first = await snapshot();
+
+  assert.deepEqual(changed(before, first), [
+    "generated/routes.generated.ts",
+    "src/routes/plain/children.generated.ts",
+    "src/routes/plain/x/destination.generated.ts",
+    "src/routes/plain/x/route.generated.ts",
+  ]);
+  assert.match(
+    first.get("generated/routes.generated.ts"),
+    /path: "plain",\n[^\n]+\nloadComponent: [^\n]+,\nloadChildren: [^\n]+plain\/children\.generated\.js/,
+  );
+
+  // Removing it switches the record back and the table goes.
+  await project.author(routes);
+  await project.generate();
+  assert.deepEqual(changed(before, await snapshot()), []);
+});
+
+test("route children: a children loader must resolve to its table even when no program file imports a table", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+  const child = (path) =>
+    `${header}import parent from "../route.js";\n\nexport default defineRoute("${path}", { parent });\n`;
+  // The tsconfig includes only src/: nothing it holds imports routes.generated.ts, and a clean
+  // first pass has no children table on disk either.
+  const routes = {
+    p: `${header}\nexport default defineRoute("p", {});\n`,
+    "p/q": child("q"),
+    "p/q/r": child("r"),
+  };
+  const shadow = "export const routes = [];\n";
+  const compilerOptions = { moduleSuffixes: [".browser", ""] };
+  const exists = (path) =>
+    stat(resolve(project.root, path)).then(
+      () => true,
+      () => false,
+    );
+
+  for (const [table, importer, name] of [
+    [
+      "src/routes/p/children.generated",
+      "generated/routes.generated.ts",
+      "../src/routes/p/children.generated.js",
+    ],
+    [
+      "src/routes/p/q/children.generated",
+      "src/routes/p/children.generated.ts",
+      "./q/children.generated.js",
+    ],
+  ]) {
+    await project.author(routes, {
+      compilerOptions,
+      files: { [`${table}.browser.ts`]: shadow },
+    });
+    await assert.rejects(
+      project.generate(),
+      (error) =>
+        error.message.startsWith(`${resolve(project.root, importer)}:`) &&
+        error.message.endsWith(`Lazy import does not resolve to its generated target: ${name}`),
+    );
+    // Preflight: nothing was published.
+    assert.equal(await exists("generated/routes.generated.ts"), false);
+    assert.equal(await exists("src/routes/p/children.generated.ts"), false);
+    assert.equal(await exists("src/routes/p/q/children.generated.ts"), false);
+  }
+
+  // Without the shadow module the same options generate both tables.
+  await project.author(routes, { compilerOptions });
+  await project.generate();
+  assert.equal(await exists("src/routes/p/children.generated.ts"), true);
+  assert.equal(await exists("src/routes/p/q/children.generated.ts"), true);
 });

@@ -2,18 +2,15 @@
 import type { Signal } from '@angular/core';
 import type { Routes } from '@angular/router';
 import { record, callbacks, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
-import { route as route_$package_api_$symbol_route } from "../src/routes/$package/api/$symbol/route.generated.js";
-import { route as route_$package_generated_api_route } from "../src/routes/$package/generated-api/route.generated.js";
-import { route as route_$package_guide_$guide_route } from "../src/routes/$package/guide/$guide/route.generated.js";
 import { route as route_$package_route } from "../src/routes/$package/route.generated.js";
 import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
 import { route as route__home_route } from "../src/routes/+home/route.generated.js";
 import type { route as route_$package__overview_route } from "../src/routes/$package/+overview/route.generated.js";
+import type { route as route_$package_api_$symbol_route } from "../src/routes/$package/api/$symbol/route.generated.js";
+import type { route as route_$package_generated_api_route } from "../src/routes/$package/generated-api/route.generated.js";
+import type { route as route_$package_guide_$guide_route } from "../src/routes/$package/guide/$guide/route.generated.js";
 import { destination as destination__home_route } from "../src/routes/+home/destination.generated.js";
-import { destination as destination_$package__overview_route } from "../src/routes/$package/+overview/destination.generated.js";
-import { destination as destination_$package_api_$symbol_route } from "../src/routes/$package/api/$symbol/destination.generated.js";
-import { destination as destination_$package_generated_api_route } from "../src/routes/$package/generated-api/destination.generated.js";
-import { destination as destination_$package_guide_$guide_route } from "../src/routes/$package/guide/$guide/destination.generated.js";
+import type { destination as destination_$package__overview_route } from "../src/routes/$package/+overview/destination.generated.js";
 import { destination as destination_$package_route } from "../src/routes/$package/destination.generated.js";
 import { destination as destination_$segments___route } from "../src/routes/$segments[]/destination.generated.js";
 
@@ -30,22 +27,7 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 ...record(destination_$package_route, destination__home_route),
 ...callbacks(route_$package_route),
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/page"),
-children: [{ path: "",
-pathMatch: 'full',
-...record(destination_$package__overview_route, destination__home_route),
-loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/+overview/page") },
-{ path: "api/:symbol",
-...record(destination_$package_api_$symbol_route, destination_$package__overview_route),
-...callbacks(route_$package_api_$symbol_route),
-loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/api/$symbol/page") },
-{ path: "generated-api",
-...record(destination_$package_generated_api_route, destination_$package__overview_route),
-...callbacks(route_$package_generated_api_route),
-loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/generated-api/page") },
-{ path: "guide/:guide",
-...record(destination_$package_guide_$guide_route, destination_$package__overview_route),
-...callbacks(route_$package_guide_$guide_route),
-loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$package/guide/$guide/page") }] },
+loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("../src/routes/$package/children.generated.js").then((m) => m.routes) },
 { path: "**",
 ...record(destination_$segments___route, destination__home_route),
 ...callbacks(route_$segments___route),

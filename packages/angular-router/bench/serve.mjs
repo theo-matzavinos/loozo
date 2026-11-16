@@ -1,8 +1,8 @@
 // Regeneration while serving, in its own process: node bench/serve.mjs <consumer> <result.json>
 // <log.json> <options JSON>. Runs the consumer's real router serve target in-process through
 // Architect, then toggles the edited route's title and times each write until (1) the full
-// expected routes.generated.ts and route copy are on disk and (2) the served main.js carries the
-// change.
+// expected children table and route copy are on disk and (2) the served children chunk carries
+// the change.
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -14,7 +14,8 @@ import { editedRoute } from "./fixture.mjs";
 
 const [consumer, resultPath, logPath, optionsJson] = process.argv.slice(2);
 const { edits, timeoutMs, pollMs, settleMs } = JSON.parse(optionsJson);
-const generatedPath = join(consumer, "generated/routes.generated.ts");
+// g0000/static/l0 is a child of g0000, so its record is in g0000's children table.
+const generatedPath = join(consumer, "src/routes/g0000/children.generated.ts");
 const copyPath = join(consumer, editedRoute.path.replace(/route\.ts$/, "route.generated.ts"));
 const routeId = editedRoute.path;
 const editedPath = join(consumer, editedRoute.path);
@@ -32,9 +33,10 @@ function sameGenerated(left, right) {
   return left.routes === right.routes && left.copy === right.copy;
 }
 
-// A title edit changes two files: the route copy gains its .title step, and routes.generated.ts
-// imports that copy and spreads its callbacks into the record. Each edit waits for the exact bytes
-// of both, which the generator itself writes here once each way, outside every timed window.
+// A title edit changes two files: the route copy gains its .title step, and g0000's children table
+// imports that copy and spreads its callbacks into the record; routes.generated.ts only types the
+// route, so it doesn't change. Each edit waits for the exact bytes of both, which the generator
+// itself writes here once each way, outside every timed window.
 const { tsconfig, scanDirectories, outDirectory } = (await readWorkspace(consumer)).projects.proof
   .architect.build.options;
 const withoutTitle = await readGenerated();
@@ -62,10 +64,14 @@ if (withTitle.routes.includes(anchor) || !withTitle.copy.includes(".title(")) {
 }
 
 // Served code may lower the object spread to __spreadValues/__spreadProps and rename bindings, so
-// the probe takes the record's text from its group's path and its own path to the next
-// loadComponent and looks for a callbacks call in it.
-const servedRecord =
-  /path:\s*["']g0000["'][\s\S]*?path:\s*["']static\/l0["']([\s\S]*?)loadComponent:/;
+// the probe follows the import() of g0000's loader in main.js to its children chunk, takes the
+// record's text from its own path to the next loadComponent there and looks for a callbacks call.
+// g0000's record runs from its path to the next record's path; its loader is the import() after
+// loadChildren there.
+const servedRoot = /path:\s*["']g0000["']([\s\S]*?)(?:path:\s*["']|$)/;
+// The dev server serves an import as "/chunk-….js", with "?t=…" once hot updates replaced it.
+const servedLoader = /loadChildren:[^]*?import\(\s*["']\.?\/([^"'?]+\.js(?:\?[^"']*)?)["']\s*\)/;
+const servedRecord = /path:\s*["']static\/l0["']([\s\S]*?)loadComponent:/;
 
 const require = createRequire(join(packageDirectory, "package.json"));
 const { Architect } = require("@angular-devkit/architect");
@@ -170,18 +176,35 @@ async function waitForGenerated(previous, expected) {
   });
 }
 
+// Whether the served record has callbacks, or undefined while its chunk isn't served yet.
 async function servedHasTitle(baseUrl, remainingMs) {
-  const response = await fetch(new URL("main.js", baseUrl), {
-    signal: AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs))),
-  });
-  const body = await response.text();
-  const match = body.match(servedRecord);
+  const signal = AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs)));
+  const main = await (await fetch(new URL("main.js", baseUrl), { signal })).text();
+  const loader = main.match(servedRoot)?.[1].match(servedLoader);
 
-  if (!match) {
+  if (!loader) {
     const evidence = `${resultPath}.unmatched-main.js`;
 
-    await writeFile(evidence, body);
-    throw new Error(`Served main.js has no record for ${routeId}, saved to ${evidence}`);
+    await writeFile(evidence, main);
+    throw new Error(`Served main.js has no children loader for g0000, saved to ${evidence}`);
+  }
+
+  const response = await fetch(new URL(loader[1], baseUrl), { signal });
+
+  // A rebuild can replace the chunk between the two requests: not served yet, ask again.
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const chunk = await response.text();
+  const match = chunk.match(servedRecord);
+
+  if (!match) {
+    const evidence = `${resultPath}.unmatched-${loader[1].replace(/\?.*$/, "")}`;
+
+    await writeFile(evidence, chunk);
+    await writeFile(`${resultPath}.unmatched-main.js`, main);
+    throw new Error(`Served ${loader[1]} has no record for ${routeId}, saved to ${evidence}`);
   }
 
   return /\b\w*callbacks\w*\(/.test(match[1]);
@@ -229,7 +252,7 @@ try {
   await waitFor("the served title-less record", async (remainingMs) => {
     const titled = await servedHasTitle(ready.baseUrl, remainingMs);
 
-    return !titled;
+    return titled === false;
   });
 
   let previous = withoutTitle;

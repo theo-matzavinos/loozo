@@ -5,6 +5,7 @@ import {
   auditPath,
   contains,
   holdsAny,
+  colocatedFiles,
   routeFiles,
   specifier as importSpecifier,
 } from "./files.js";
@@ -228,7 +229,8 @@ export function createValidationProgram(
   if (sources.launch) {
     rootNames.push(sources.launch.typeEntry, ...generated.keys());
   } else {
-    // Every copy is validated, whether or not anything imports it yet.
+    // Every copy is validated, whether or not anything imports it yet. Children tables are
+    // validated like routes.generated.ts, through the app's import of it.
     for (const file of generated.keys()) {
       if (routeFiles.has(basename(file))) {
         rootNames.push(file);
@@ -495,6 +497,23 @@ export async function validateRoutes(
     }
   }
 
+  // A redirect source with a parent loads its copy only when it first redirects, so its hoisted
+  // record can't carry the native options read from that copy.
+  for (const declaration of sources.declarations) {
+    if (!declaration.target || !declaration.parent) {
+      continue;
+    }
+
+    for (const step of declaration.steps) {
+      if (["providers", "data", "runGuardsAndResolvers"].includes(step.name)) {
+        fail(
+          step.call,
+          `A redirect with a parent can't use .${step.name}: its record is hoisted into the eager table and would load its route copy`,
+        );
+      }
+    }
+  }
+
   const checker = program.getTypeChecker();
 
   const entry = program.getSourceFile(sources.factoryEntry)!;
@@ -719,7 +738,7 @@ export async function validateRoutes(
 
       for (const candidate of candidates) {
         const facadeTarget =
-          (routeFiles.has(basename(candidate)) ||
+          (colocatedFiles.has(basename(candidate)) ||
             (sources.launch && basename(candidate) === "rpc.generated.ts")) &&
           !candidate.split(sep).includes("node_modules") &&
           sources.roots.some((root) => contains(root, candidate));
@@ -973,12 +992,45 @@ export async function validateRoutes(
     }
   }
 
-  // Native Bundler resolution must preserve the discovered lazy component identity.
-  const routesFile = resolve(sources.output, "routes.generated.ts");
-  const routes = program.getSourceFile(routesFile);
+  // Native Bundler resolution must preserve the discovered lazy component identity, in the global
+  // table and in every children table. Their other lazy imports name generated files, a
+  // children table or the copy of a redirect source with a parent, and must resolve to the
+  // file they name. A table no program file imports is checked from its desired text.
+  const pages = new Set<string>();
+  const lazyTargets = new Set<string>();
 
-  if (routes) {
-    const promises: Promise<void>[] = [];
+  for (const declaration of sources.declarations) {
+    if (declaration.page) {
+      pages.add(declaration.page);
+    }
+
+    if (declaration.target && declaration.parent) {
+      lazyTargets.add(resolve(dirname(declaration.file), "route.generated.ts"));
+    }
+  }
+
+  const tables = [resolve(sources.output, "routes.generated.ts")];
+
+  for (const file of generated.keys()) {
+    if (basename(file) === "children.generated.ts") {
+      lazyTargets.add(file);
+      tables.push(file);
+    }
+  }
+
+  const promises: Promise<void>[] = [];
+
+  for (const table of tables) {
+    const text = generated.get(table);
+    let source = program.getSourceFile(table);
+
+    if (!source && text !== undefined) {
+      source = ts.createSourceFile(table, text, ts.ScriptTarget.Latest, true);
+    }
+
+    if (!source) {
+      continue;
+    }
 
     function visit(node: ts.Node): void {
       if (
@@ -988,12 +1040,18 @@ export async function validateRoutes(
         ts.isStringLiteral(node.arguments[0])
       ) {
         const name = node.arguments[0].text;
-        const resolved = resolveModule(name, routesFile, sources.parsed.options, host);
+        const resolved = resolveModule(name, table, sources.parsed.options, host);
+        const named = resolve(dirname(table), name).replace(/\.js$/, ".ts");
 
-        if (
-          !resolved ||
-          !sources.declarations.some((declaration) => declaration.page === resolved)
-        ) {
+        if (lazyTargets.has(named)) {
+          if (resolved !== named) {
+            fail(node, `Lazy import does not resolve to its generated target: ${name}`);
+          }
+
+          return;
+        }
+
+        if (!resolved || !pages.has(resolved)) {
           fail(node, `Lazy page import does not resolve to its discovered component: ${name}`);
         }
 
@@ -1003,9 +1061,10 @@ export async function validateRoutes(
       ts.forEachChild(node, visit);
     }
 
-    visit(routes);
-    await Promise.all(promises);
+    visit(source);
   }
+
+  await Promise.all(promises);
 
   validateCopies(sources, generated, validation, globalTargets, runtime);
 }
@@ -1124,11 +1183,13 @@ function validateCopies(
     return { text: [...hops, label(found.target)].join(" → "), edge: hop(last, lastFile) };
   }
 
-  const routeCopies = new Set<string>();
+  // Route copies and children tables: a children table imports copies, so a copy reaching
+  // one would be a cycle.
+  const routeModules = new Set<string>();
 
   for (const file of generated.keys()) {
-    if (basename(file) === "route.generated.ts") {
-      routeCopies.add(file);
+    if (basename(file) === "route.generated.ts" || basename(file) === "children.generated.ts") {
+      routeModules.add(file);
     }
   }
 
@@ -1191,7 +1252,7 @@ function validateCopies(
 
       const found = graph.path(
         edge,
-        (file) => routeCopies.has(file) || shared.has(file) || declared.has(file),
+        (file) => routeModules.has(file) || shared.has(file) || declared.has(file),
         (file) => basename(file) === "destination.generated.ts" && generated.has(file),
       );
 

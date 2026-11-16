@@ -10,7 +10,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { measureBundle } from "./bundle.mjs";
 import { cachePolicy, createConsumer, packageDirectory, setCache } from "./consumer.mjs";
-import { editedRoute, groupSize, writeFixture } from "./fixture.mjs";
+import { blockSize, editedRoute, writeFixture } from "./fixture.mjs";
 import { load, machine } from "./machine.mjs";
 import { checkBudgets, median, readBudgets, table } from "./metrics.mjs";
 
@@ -71,8 +71,8 @@ function parseArguments(argv) {
       for (const part of value.split(",")) {
         const size = Number(part);
 
-        if (!Number.isInteger(size) || size <= 0 || size % groupSize !== 0) {
-          usage(`--sizes takes positive multiples of ${groupSize}, got "${part}"`);
+        if (!Number.isInteger(size) || size <= 0 || size % blockSize !== 0) {
+          usage(`--sizes takes positive multiples of ${blockSize}, got "${part}"`);
         }
 
         if (options.sizes.includes(size)) {
@@ -493,6 +493,7 @@ async function measure(result, options, directory, save) {
       }
     }
 
+    record("bundle.initial.files", [bundle.initial.files]);
     record("bundle.initial.routeCopies", [bundle.initial.routeCopies]);
 
     result.bundle = bundle;

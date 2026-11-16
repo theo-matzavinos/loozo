@@ -1,3 +1,4 @@
 generated/
+src/**/children.generated.ts
 src/**/rpc.generated.ts
 src/**/route.generated.ts

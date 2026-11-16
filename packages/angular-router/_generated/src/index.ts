@@ -1,4 +1,4 @@
-export { callbacks, redirect } from "./callbacks.js";
+export { callbacks, lazyRedirect, redirect } from "./callbacks.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 export type { ActiveHandle, ActiveRoute, RouteTypeEntry, RouteTypeMap } from "./active.js";
 export { record, recordFacts, resolverKeys } from "./record.js";

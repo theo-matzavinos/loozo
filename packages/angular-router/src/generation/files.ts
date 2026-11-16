@@ -6,6 +6,7 @@ export const markers = {
   "routes.generated.ts": "// @loozo/angular-router routegen: owned routes.generated.ts",
   "route.generated.ts": "// @loozo/angular-router routegen: owned route.generated.ts",
   "destination.generated.ts": "// @loozo/angular-router routegen: owned destination.generated.ts",
+  "children.generated.ts": "// @loozo/angular-router routegen: owned children.generated.ts",
 } as const;
 
 // The per-route copies are line-aligned with their declaration, so their marker is the last
@@ -13,6 +14,13 @@ export const markers = {
 export const routeFiles: ReadonlySet<string> = new Set([
   "route.generated.ts",
   "destination.generated.ts",
+]);
+
+// Every generated file colocated with a declaration in a scan directory: its pair, and the
+// children table of a route with children.
+export const colocatedFiles: ReadonlySet<string> = new Set([
+  ...routeFiles,
+  "children.generated.ts",
 ]);
 
 export const launchMarkers = {
@@ -254,7 +262,7 @@ export async function planOutputs(
 
   for (const path of encountered) {
     if (
-      [...routeFiles].some((name) => path.endsWith(`${sep}${name}`)) ||
+      [...colocatedFiles].some((name) => path.endsWith(`${sep}${name}`)) ||
       (mode === "router-and-launch" &&
         Object.keys(launchMarkers).some((name) => path.endsWith(`${sep}${name}`)))
     ) {

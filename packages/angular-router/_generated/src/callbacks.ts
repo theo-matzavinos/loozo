@@ -1,4 +1,4 @@
-import { inject } from "@angular/core";
+import { EnvironmentInjector, inject, runInInjectionContext } from "@angular/core";
 import {
   Router,
   RedirectCommand,
@@ -196,7 +196,7 @@ function invalidParamsResult(decision: unknown): GuardResult {
 }
 
 // Reads the source copy's snapshotted redirect when routes.generated.ts evaluates.
-export function redirect(route: AnyRoute): RedirectFunction {
+export function redirect(route: AnyRoute): (snapshot: Parameters<RedirectFunction>[0]) => UrlTree {
   const source = routeMetadata(route);
   const config = source.config.redirect as {
     to: unknown;
@@ -294,6 +294,20 @@ export function redirect(route: AnyRoute): RedirectFunction {
     }
 
     return tree;
+  };
+}
+
+/**
+ * The redirect of a source with a parent: it loads the source copy on first use, then
+ * redirects as {@link redirect} does. A failed load or parse fails the navigation.
+ */
+export function lazyRedirect(load: () => Promise<{ route: AnyRoute }>): RedirectFunction {
+  return async (snapshot) => {
+    // Angular calls a redirect function in an injection context; keep it across the await.
+    const injector = inject(EnvironmentInjector);
+    const module = await load();
+
+    return runInInjectionContext(injector, () => redirect(module.route)(snapshot));
   };
 }
 

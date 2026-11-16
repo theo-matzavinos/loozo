@@ -1335,10 +1335,23 @@ export const proofProvider = provideEnvironmentInitializer(() => {
 
     // An actual complete future ancestry: earlier own-ID duplicate and supplied child's
     // own-ID spoof must not replace the nearest proper declaring parent7.
+    // Routes with children load their records lazily, and Angular recognizes against its own
+    // copies of loaded records (standardizeConfig). So prime the route, keep the committed
+    // snapshots' native configs, leave, and reset the instrumentation the priming entered.
+    await router.navigateByUrl('/duplicate/100/teams/7/items/9');
+    const configs: NonNullable<ActivatedRouteSnapshot['routeConfig']>[] = [];
+
+    for (let node = router.routerState.snapshot.root.firstChild; node; node = node.firstChild) {
+      configs.push(node.routeConfig!);
+    }
+
+    const [earlier, declaring, guarded] = configs;
+
+    check(configs.length === 3 && !earlier.children && !!earlier.loadChildren &&
+      !declaring.children && !!declaring.loadChildren && !guarded.loadChildren,
+      'both ancestors load their children lazily; the leaf has none');
     await router.navigateByUrl('/');
-    const earlier = router.config.find((route) => route.path === 'duplicate/100')!;
-    const declaring = earlier.children![0];
-    const guarded = declaring.children![0];
+    ancestry.length = 0;
     const declaringFacts = recordFacts(declaring)!;
     const earlierFacts = recordFacts(earlier)!;
     const guardedFacts = recordFacts(guarded)!;
@@ -2561,15 +2574,27 @@ import { recordFacts } from '@loozo/angular-router/_generated';
 @Component({ selector: 'proof-native-wrapper', imports: [RouterOutlet], template: '<router-outlet />' })
 class Wrapper {}
 
-function find(records: Routes, id: string): Route | undefined {
-  for (const record of records) {
-    const facts = recordFacts(record);
+function owns(record: Route, id: string): boolean {
+  const facts = recordFacts(record);
 
-    if (facts && destinationRecord(facts.destination).id === id) {
+  return !!facts && destinationRecord(facts.destination).id === id;
+}
+
+// A route with children loads its children's records: walk through the generated loader,
+// which resolves to the very records Angular loads (and then copies).
+async function find(records: Routes, id: string): Promise<Route | undefined> {
+  for (const record of records) {
+    if (owns(record, id)) {
       return record;
     }
 
-    const found = find(record.children ?? [], id);
+    let children = record.children;
+
+    if (!children && record.loadChildren) {
+      children = (await record.loadChildren()) as Routes;
+    }
+
+    const found = await find(children ?? [], id);
 
     if (found) {
       return found;
@@ -2579,18 +2604,19 @@ function find(records: Routes, id: string): Route | undefined {
   return undefined;
 }
 
-// The authored generated records the lazy wrapper hands Angular.
-export const lazyRecords: { org?: Route; item?: Route } = {};
+// The authored generated records the lazy wrapper hands Angular. The item sits two children
+// tables below the org, so it's found on demand.
+export const lazyRecords: { org?: Route; item?: () => Promise<Route> } = {};
 
 export function nativeWrappers(routes: Routes): Routes {
-  lazyRecords.org = find(routes, 'src/routes/orgs/definition.ts')!;
-  lazyRecords.item = find(routes, 'src/routes/org-item/definition.ts')!;
+  lazyRecords.org = routes.find((record) => owns(record, 'src/routes/orgs/definition.ts'))!;
+  lazyRecords.item = async () => (await find(routes, 'src/routes/org-item/definition.ts'))!;
 
   return [
     { path: 'wrapped/:tenant', component: Wrapper, children: [lazyRecords.org] },
     // Angular standardizes lazily loaded children on their own path.
     { path: 'lazy/:tenant', component: Wrapper, loadChildren: () => Promise.resolve([lazyRecords.org!]) },
-    { path: 'orphan/:orgId', children: [lazyRecords.item] },
+    { path: 'orphan/:orgId', loadChildren: async () => [await lazyRecords.item!()] },
   ];
 }
 `,
@@ -2673,7 +2699,7 @@ export const copiesProofProvider = provideEnvironmentInitializer(() => {
       title: document.title,
       records: {
         org: compare(lazyRecords.org!, committed('orgs/:orgId', router.routerState.snapshot.root)),
-        item: compare(lazyRecords.item!, committed('items/:itemId', router.routerState.snapshot.root)),
+        item: compare(await lazyRecords.item!(), committed('items/:itemId', router.routerState.snapshot.root)),
         dataKeys: Reflect.ownKeys(page.handle.data()),
         activeDataKeys: Reflect.ownKeys(current!.data()),
       },

@@ -242,6 +242,33 @@ async function renameSettled(from, to) {
   }
 }
 
+// The authored scan-root declaration below is the parent of every top-level route, so their
+// records live in its children table.
+const rootChildren = "src/routes/children.generated.ts";
+
+// The scan root's children table is served in a lazy chunk: main.js and the chunks its
+// import()s name, the root's loader among them.
+async function servedRoutes(base) {
+  const main = await (await fetch(new URL("main.js", base))).text();
+  const texts = [main];
+
+  // The dev server serves lazy imports as "/chunk-….js", with "?t=…" once hot updates replaced
+  // them; built output names "./chunk-….js".
+  for (const [, chunk] of main.matchAll(/import\("\.?\/([^"?]+\.js(?:\?[^"]*)?)"\)/g)) {
+    texts.push(await (await fetch(new URL(chunk, base))).text());
+  }
+
+  const text = texts.join("\n");
+
+  // The positive check first: undefined until the children table's chunk is among them, so
+  // an absence below is never read from a missed or half-rebuilt chunk.
+  if (!text.includes('path: "home"')) {
+    return undefined;
+  }
+
+  return text;
+}
+
 function page(label) {
   return `import { Component } from "@angular/core";
 @Component({ template: '<p data-proof="filesystem">${label}</p>' })
@@ -384,7 +411,7 @@ assert.match(
   await read("src/routes/files/$parts[]/route.ts"),
   /defineRoute\("files\/\$parts\[\]", \{ parent, params: \{ "parts": stringParam \} \}\)/,
 );
-assert.match(await read("generated/routes.generated.ts"), /path: "teams\/:team"/);
+assert.match(await read(rootChildren), /path: "teams\/:team"/);
 assert.equal(
   await read("src/routes/trivia/definition.ts"),
   trivia
@@ -472,7 +499,7 @@ await write("src/routes/native-owned/page.ts", page("native-owned"));
 assert.equal(await build(), false);
 assert.match(JSON.stringify(reports.at(-1)), /TS2322|not assignable to type 'number'/);
 assert.equal(await exists("src/routes/native-owned/route.ts"), true);
-assert.match(await read("generated/routes.generated.ts"), /path: "native-owned"/);
+assert.match(await read(rootChildren), /path: "native-owned"/);
 await rm(join(fixture, "src/unrelated-type-error.ts"));
 await rm(join(fixture, "src/routes/native-owned"), { recursive: true });
 await expectBuild();
@@ -794,7 +821,7 @@ const disabledWorkspace = structuredClone(workspace);
 disabledWorkspace.projects.proof.architect.build.options.autoDefineRoutes = false;
 await writeFile(join(fixture, "angular.json"), JSON.stringify(disabledWorkspace));
 await expectBuild();
-assert.match(await read("generated/routes.generated.ts"), /path: "explicit"/);
+assert.match(await read(rootChildren), /path: "explicit"/);
 assert.match(await read("src/routes/custom/definition.ts"), /defineRoute\("explicit",/);
 await write("src/routes/opt-out/page.ts", page("opt-out"));
 await preflight("opt-out never seeds", /Component without a colocated admitted declaration/);
@@ -812,6 +839,7 @@ for (const autoDefineRoutes of [
   { filename: 7 },
   { filename: "../route.ts" },
   { filename: "route.generated.ts" },
+  { filename: "children.generated.ts" },
   { filename: "routes.generated.ts" },
   { filename: "types.d.ts" },
 ]) {
@@ -1038,7 +1066,7 @@ assert.match(JSON.stringify(reports.at(-1)), /definitions missing\/changed/);
 assert.deepEqual(await snapshot(), beforeAccessSeed);
 await expectBuild();
 assert.equal(await exists("src/routes/access-prefix/route.ts"), true);
-assert.match(await read("generated/routes.generated.ts"), /path: "access-prefix"/);
+assert.match(await read(rootChildren), /path: "access-prefix"/);
 
 const admittedAccessSeed = await snapshot();
 
@@ -1060,7 +1088,7 @@ assert.match(JSON.stringify(reports.at(-1)), /definitions missing\/changed/);
 assert.deepEqual(await snapshot(), beforeWildcardSeed);
 await expectBuild();
 assert.equal(await exists("src/routes/wildcard-access/route.ts"), true);
-assert.match(await read("generated/routes.generated.ts"), /path: "wildcard-access"/);
+assert.match(await read(rootChildren), /path: "wildcard-access"/);
 
 const admittedWildcardSeed = await snapshot();
 
@@ -1167,11 +1195,11 @@ async function assertNoStaleCasing(name) {
 await write("src/routes/Items/page.ts", page("cased"));
 await expectBuild();
 assert.match(await read("src/routes/Items/route.ts"), /defineRoute\("Items"/);
-assert.match(await read("generated/routes.generated.ts"), /path: "Items"/);
+assert.match(await read(rootChildren), /path: "Items"/);
 await rename(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
 await expectBuild();
 assert.match(await read("src/routes/items/route.ts"), /defineRoute\("items"/);
-assert.match(await read("generated/routes.generated.ts"), /path: "items"/);
+assert.match(await read(rootChildren), /path: "items"/);
 await assertNoStaleCasing("Case-only rename republished under the new casing");
 await expectBuild({ check: true });
 await rm(join(fixture, "src/routes/items"), { recursive: true });
@@ -1224,6 +1252,8 @@ try {
   );
 
   const output = outputs.find((value) => value.success && value.baseUrl);
+
+  const served = () => servedRoutes(output.baseUrl);
   // The build target omits aot; Angular's schema default (true) must reach the dev server, which
   // then compiles component HMR into the served bundle.
   const main = await fetch(new URL("main.js", output.baseUrl));
@@ -1255,12 +1285,11 @@ try {
   await write("src/routes/watched/page.ts", page("watched"));
   await waitFor(() => exists("src/routes/watched/route.ts"), "Watcher did not seed a new page");
   await waitFor(
-    async () => (await read("generated/routes.generated.ts")).includes('path: "watched"'),
+    async () => (await read(rootChildren)).includes('path: "watched"'),
     "Watcher did not publish the new route",
   );
   await waitFor(
-    async () =>
-      (await (await fetch(new URL("main.js", output.baseUrl))).text()).includes('path: "watched"'),
+    async () => (await served())?.includes('path: "watched"'),
     "Native server did not consume new route",
   );
   await rendered("watched", "watched");
@@ -1273,8 +1302,7 @@ try {
     "Watcher did not synchronize a rename",
   );
   await waitFor(
-    async () =>
-      (await (await fetch(new URL("main.js", output.baseUrl))).text()).includes('path: "changed"'),
+    async () => (await served())?.includes('path: "changed"'),
     "Native server did not consume renamed route",
   );
   await rendered("changed", "watched");
@@ -1287,14 +1315,13 @@ try {
 
   await write("src/routes/Items/page.ts", page("cased"));
   await waitFor(
-    async () => (await read("generated/routes.generated.ts")).includes('path: "Items"'),
+    async () => (await read(rootChildren)).includes('path: "Items"'),
     "Watcher did not publish the cased route",
   );
   // Let the dev server finish the rebuild that reads the new directory: Windows refuses to
   // rename a directory while another process has a file in it open.
   await waitFor(
-    async () =>
-      (await (await fetch(new URL("main.js", output.baseUrl))).text()).includes('path: "Items"'),
+    async () => (await served())?.includes('path: "Items"'),
     "Native server did not consume the cased route",
   );
   await renameSettled(join(fixture, "src/routes/Items"), join(fixture, "src/routes/items"));
@@ -1303,9 +1330,9 @@ try {
     "Watcher did not synchronize a case-only rename",
   );
   await waitFor(async () => {
-    const served = await (await fetch(new URL("main.js", output.baseUrl))).text();
+    const text = await served();
 
-    return served.includes('path: "items"') && !served.includes('path: "Items"');
+    return !!text?.includes('path: "items"') && !text.includes('path: "Items"');
   }, "Native server did not consume a case-only rename");
   await assertNoStaleCasing("Watcher republished a case-only rename under the new casing");
   await rendered("items", "cased");
@@ -1332,12 +1359,11 @@ try {
 
   await rm(join(fixture, "src/routes/changed"), { recursive: true });
   await waitFor(
-    async () => !(await read("generated/routes.generated.ts")).includes('path: "changed"'),
+    async () => !(await read(rootChildren)).includes('path: "changed"'),
     "Watcher did not remove an authored subtree from generated routes",
   );
   await waitFor(
-    async () =>
-      !(await (await fetch(new URL("main.js", output.baseUrl))).text()).includes('path: "changed"'),
+    async () => (await served())?.includes('path: "changed"') === false,
     "Native server did not consume subtree removal",
   );
 
@@ -1424,9 +1450,7 @@ try {
     }
   }, `ng serve --port ${port} did not serve on that port`);
 
-  const main = await fetch(`http://127.0.0.1:${port}/main.js`);
-
-  assert.match(await main.text(), /path: "after-stop"/);
+  assert.match((await servedRoutes(`http://127.0.0.1:${port}/`)) ?? "", /path: "after-stop"/);
 } finally {
   cli.kill("SIGTERM");
   await closed;

@@ -41,6 +41,7 @@
                     "enum": [
                       "route.generated.ts",
                       "destination.generated.ts",
+                      "children.generated.ts",
                       "routes.generated.ts"
                     ]
                   }
