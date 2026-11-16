@@ -46,7 +46,7 @@ src/routes/gNNNN/            layout page with a RouterOutlet
 
 `static/` is a plain directory without a page, so it contributes a URL segment but no declaration; it keeps the leaves from overlapping `$id`. URLs and declarations are at most three levels deep. The whole fixture has one resolver (`g0000/static/l2`).
 
-Every page uses the generated route shape a consumer would: `injectRoute()` from its colocated `route.generated.ts`, `title()` read in its template (and `params().id` or `data()` where it has them), its `params`, `search` and `data` signals, and a typed `link({ to })` to a sibling's `destination` from that sibling's `destination.generated.ts`. The shell uses `injectActiveRoute()`, reads the active title and narrows with `is()` to read and navigate with `g0000/$id`'s typed `id`.
+Every page uses the generated route shape a consumer would: `injectRoute()` from its colocated `route.generated.ts`, `title()` read in its template (and `params().id` or `data()` where it has them), its `params`, `search` and `data` signals, and a typed `link({ to })` to a sibling's `destination` from that sibling's `destination.generated.ts`. The shell uses `injectActiveRoute()` from `generated/routes.generated.ts`, reads the active title and narrows with `is()` to read and navigate with `g0000/$id`'s typed `id`.
 
 ## Metrics
 
@@ -63,7 +63,8 @@ Each metric key below is how `results.json` and the budgets file name it. Times 
 | `typecheck.ngcMs`                                      | `ngc -p tsconfig.app.json --noEmit`, whole process: the app's TypeScript plus its Angular templates under `strictTemplates`.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `typecheck.tscMs`                                      | `tsc -p tsconfig.app.json --noEmit --extendedDiagnostics --incremental false`, whole process: TypeScript only, no templates.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `typecheck.tscCheckMs`, `.instantiations`, `.memoryKB` | That `tsc` run's own `Check time`, `Instantiations` and `Memory used` (TypeScript's figure, not the process's peak). Every reported diagnostic is kept in `results.json`.                                                                                                                                                                                                                                                                                                                                                     |
-| `bundle.initial.raw`, `.gzip`, `.brotli`               | Initial bundle: the build's output for `src/main.ts` and every JS/CSS file it reaches through static imports in `browser-stats.json` (dynamic imports, such as lazy pages, excluded), cross-checked against `index.html`. Each file is compressed on its own (gzip level 9, Brotli quality 11) and the sizes summed. The manifest's `routeTables` flag marks the files holding generated route code: the shared route tables and the per-route destinations and route copies.                                                 |
+| `bundle.initial.raw`, `.gzip`, `.brotli`               | Initial bundle: the build's output for `src/main.ts` and every JS/CSS file it reaches through static imports in `browser-stats.json` (dynamic imports, such as lazy pages, excluded), cross-checked against `index.html`. Each file is compressed on its own (gzip level 9, Brotli quality 11) and the sizes summed. The manifest's `routeTables` flag marks the files holding generated route code: `routes.generated.ts` and the per-route destinations and route copies.                                                   |
+| `bundle.initial.routeCopies`                           | Initial bundle: the distinct `route.generated.ts` modules with bytes in those initial files, each counted once across them. It guards that `main` loads only the route copies its records' native options, callbacks and redirects read, not every copy. Counted by file name, so a rename of the route copies would need its pattern in `bundle.mjs` updated.                                                                                                                                                                |
 | `bundle.lazy.raw`, `.gzip`, `.brotli`                  | Every other emitted JS/CSS file, summed the same way.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Boundaries worth keeping in mind:
@@ -91,7 +92,7 @@ Boundaries worth keeping in mind:
 
 For example, `"1000": { "serve.generatedMs": …, "bundle.initial.gzip": … }` budgets two metrics at 1,000 routes.
 
-`bench/budgets.json` holds regression guards for the recorded run below, not targets: timings are its median plus 30%, rounded up to the second; `typecheck.instantiations` plus 10%; `bundle.initial.raw`, `bundle.initial.gzip` and `bundle.initial.brotli` plus 2%; byte and instantiation budgets rounded up to the thousand. They describe the machine that recorded them. A change that makes generation faster tightens them in the same change, from a new recorded run.
+`bench/budgets.json` holds regression guards for the recorded run below, not targets: timings are its median plus 30%, rounded up to the second; `typecheck.instantiations` plus 10%; `bundle.initial.raw`, `bundle.initial.gzip` and `bundle.initial.brotli` plus 2%; byte and instantiation budgets rounded up to the thousand; `bundle.initial.routeCopies` at its measured count, since a count doesn't vary between machines, so a change that keeps one more copy in `main` re-records it in the same change. They describe the machine that recorded them. A change that makes generation faster tightens them in the same change, from a new recorded run.
 
 ## Results
 
@@ -148,6 +149,22 @@ Why the numbers moved:
 - Generation takes longer because each route copy is semantic-checked during generation, and type-checking covers each route's chain twice: in its `route.ts`, which stays in the program, and in its copy.
 - Instantiations fall at 300 and 1,000 routes and rise at 100, where the router's generic types' one-time cost weighs more. Without the generated `loadComponent` return annotation (`(): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import(…)`), TypeScript's array subtype reduction in `routes.generated.ts` compares every lazy page module's class, including its route handle's fluent types; that took 3,102,184 instantiations at 1,000 routes, 260% over `acff08c`. The annotation stops the comparison at Angular's declared loader type and still checks each page import against it. It changes no emitted JavaScript.
 - The initial bundle's split into per-group chunks is accepted for now (2026-11-15). Lazy route groups (B2, parked item `f94e566a`) will fix it, measured with this benchmark at 1,000 routes (follow-up `e84e039d`).
+
+### Records carry their destinations
+
+Each generated record now carries its own destination, and `injectActiveRoute()` reads the active route from the records instead of a table that imported every route copy into `main`. The same machine on 2026-11-15 (`0414b3d`, before) and 2026-11-16 (after), same fixture and samples. Sizes are deterministic; the timings of both runs were taken under unrelated machine load (one-minute load average 4 to 8) and aren't comparable to the recorded run above. Alternating fresh-process `generate()` runs of both versions on the same 1,000-route fixture took a median 21.85 s before and 22.15 s after.
+
+| Metric                         | 100 routes          | 300 routes          | 1000 routes         |
+| ------------------------------ | ------------------- | ------------------- | ------------------- |
+| Initial bundle: route copies   | 100 → 31            | 300 → 91            | 1,000 → 301         |
+| Initial bundle: raw            | 259,199 → 245,520 B | 330,986 → 288,569 B | 583,382 → 439,935 B |
+| Initial bundle: gzip           | 75,758 → 74,289 B   | 88,842 → 84,270 B   | 132,900 → 118,605 B |
+| Initial bundle: brotli         | 66,635 → 65,748 B   | 75,346 → 73,193 B   | 104,736 → 99,149 B  |
+| Initial bundle: files          | 12 → 12             | 32 → 32             | 102 → 102           |
+| Lazy chunks: raw               | 67,609 → 73,351 B   | 202,829 → 220,231 B | 676,099 → 734,311 B |
+| Type-check: tsc instantiations | 129,629 → 128,809   | 262,049 → 259,529   | 725,519 → 717,049   |
+
+The route copies left in `main` are the ones a record's native options, callbacks or redirect read: at 1,000 routes, the 100 param-bearing copies, the 100 titled leaves, their 100 parent copies and the one resolver leaf. The others moved to the lazy chunks of the pages that import them. Every destination is still initial, and `main` still splits into about one chunk per group of ten routes.
 
 ### Directory lookups
 

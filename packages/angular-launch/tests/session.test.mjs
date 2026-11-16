@@ -204,7 +204,7 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
     await rm(resolve(root, "src/routes/right"), { recursive: true });
     await session.generate();
     assert.doesNotMatch(
-      (await snapshot(root))["generated/destinations.generated.ts"].bytes,
+      (await snapshot(root))["generated/routes.generated.ts"].bytes,
       /right/,
     );
 

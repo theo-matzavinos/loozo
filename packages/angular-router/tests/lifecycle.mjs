@@ -639,6 +639,8 @@ export default defineRoute('${name}', {}).redirect({ to: searching, search: ${se
 await write(
   "src/squad-probes.ts",
   `export const squadCalls: string[] = [];
+// An authored symbol resolver key on the dynamically titled layout, next to Angular's own title entry.
+export const squadSymbol = Symbol('squad symbol');
 let gate: Promise<void> | undefined;
 
 // Holds the next team resolver until the returned function runs.
@@ -668,11 +670,12 @@ export function team(id: number): { id: number; name: string } | Promise<{ id: n
 await write(
   "src/routes/squad/definition.ts",
   `import { defineRoute, numberParam } from '@loozo/angular-router';
-import { team } from '../../squad-probes.js';
+import { squadSymbol, team } from '../../squad-probes.js';
 
 export default defineRoute('squads/$teamId', { params: { teamId: numberParam } }).resolve({
     team: ({ params }) => team(params.teamId),
     label: () => 'squad label',
+    [squadSymbol]: () => 'squad symbol',
   }).title(({ params }) => 'Squad ' + params.teamId);
 `,
 );
@@ -750,7 +753,7 @@ import { injectRoute as squadRoute } from './routes/squad/route.generated.js';
 import { injectRoute as squadMemberRoute } from './routes/squad-member/route.generated.js';
 import { destination as squadMember } from './routes/squad-member/destination.generated.js';
 import { destination as searchingDestination } from './routes/searching/destination.generated.js';
-import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { injectActiveRoute } from '../generated/routes.generated.js';
 import { localSymbol } from './probes.js';
 
 const handle = injectRoute();
@@ -990,17 +993,23 @@ export const extensionProofProvider = provideEnvironmentInitializer(() => {
 );
 await write(
   "src/proof.ts",
-  `import { ApplicationRef, inject, provideEnvironmentInitializer } from '@angular/core';
+  `import { ApplicationRef, Injector, inject, provideEnvironmentInitializer, runInInjectionContext } from '@angular/core';
 import {
   Router, RedirectCommand, ActivationEnd, type ActivatedRouteSnapshot, type RouterStateSnapshot,
 } from '@angular/router';
+import { recordFacts, resolverKeys } from '@loozo/angular-router/_generated';
+import { injectActiveRoute } from '../generated/routes.generated.js';
+import { destination as squadDestination } from './routes/squad/destination.generated.js';
+import { destination as squadScope } from './routes/squad-scope/destination.generated.js';
+import { destination as squadMember } from './routes/squad-member/destination.generated.js';
+import { destination as itemDestination } from './routes/item/destination.generated.js';
 import {
   calls, inputs, localSymbol, leaves, allowLeave, failAfterMatching, prototypeResults, opaque,
   ancestry, usePromises, promiseConstructor, guardPromise, resolverPromise, finishGuard,
   finishResolver, promiseEntries, resolverCalls, matchEntries, activations, invalidErrors,
   decisionEntries, decideWith, holdResolver, slowEntries,
 } from './probes.js';
-import { holdTeam, squadCalls } from './squad-probes.js';
+import { holdTeam, squadCalls, squadSymbol } from './squad-probes.js';
 import { of } from 'rxjs';
 
 const wait = (ms = 20) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -1009,6 +1018,54 @@ function check(value: unknown, label: string): void {
   if (!value) {
     throw new Error(label);
   }
+}
+
+// Element-wise, so symbol keys count (JSON.stringify drops them).
+function sameKeys(object: object, expected: readonly PropertyKey[]): boolean {
+  return sameList(Reflect.ownKeys(object), expected);
+}
+
+// The same entries, in order.
+function sameList(list: readonly PropertyKey[], expected: readonly PropertyKey[]): boolean {
+  if (list.length !== expected.length) {
+    return false;
+  }
+
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] !== expected[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// The same keys, each with the identical value.
+function sameData(left: any, right: any): boolean {
+  const keys = Reflect.ownKeys(left);
+
+  if (!sameKeys(right, keys)) {
+    return false;
+  }
+
+  for (const key of keys) {
+    if (!Object.is(left[key], right[key])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Whether an own key of the data holds the resolved title.
+function holdsTitle(data: any, title: string): boolean {
+  for (const key of Reflect.ownKeys(data)) {
+    if (data[key] === title) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Path values parse once while matching and once more for the activated route.
@@ -1028,7 +1085,45 @@ async function until(test: () => boolean, label: string) {
 export const proofProvider = provideEnvironmentInitializer(() => {
   const router = inject(Router);
   const app = inject(ApplicationRef);
+  const environment = inject(Injector);
   const unhandled: unknown[] = [];
+
+  // An active-route reader in its own injection context, destroyed on demand.
+  function reader() {
+    const scope = Injector.create({ parent: environment, providers: [] });
+
+    return { read: runInInjectionContext(scope, injectActiveRoute), destroy: () => scope.destroy() };
+  }
+
+  // The committed snapshot of the native record at this path.
+  function committed(path: string): ActivatedRouteSnapshot {
+    let snapshot: ActivatedRouteSnapshot | null = router.routerState.snapshot.root;
+
+    while (snapshot) {
+      if (snapshot.routeConfig?.path === path) {
+        return snapshot;
+      }
+
+      snapshot = snapshot.firstChild;
+    }
+
+    throw new Error('No committed record at ' + path);
+  }
+
+  // The committed snapshot of the generated record that carries this destination.
+  function committedRecord(destination: unknown): ActivatedRouteSnapshot {
+    let snapshot: ActivatedRouteSnapshot | null = router.routerState.snapshot.root;
+
+    while (snapshot) {
+      if (recordFacts(snapshot.routeConfig)?.destination === destination) {
+        return snapshot;
+      }
+
+      snapshot = snapshot.firstChild;
+    }
+
+    throw new Error('No committed generated record');
+  }
 
   window.addEventListener('unhandledrejection', (event) => {
     unhandled.push(String(event.reason));
@@ -1157,12 +1252,21 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     // The guard, title and resolvers share one parse and one inputs container, each entered
     // synchronously in the route's injection context. Own ordinary/symbol/undefined/opaque
     // results survive projection; accepted native __proto__ loss means absence.
+    const itemReader = reader();
+
     await router.navigateByUrl('/teams/7/items/8?score=44');
     await app.whenStable();
     const item = (window as any).item;
     const localData = item.handle.data();
     const nativeData = item.native.snapshot.data;
     const shared = inputs[0];
+    const itemActive = itemReader.read();
+
+    check(sameKeys(localData, ['item', 'empty', 'opaque', 'slow', localSymbol]),
+      'the item handle has exactly its authored resolver keys');
+    check(itemActive !== undefined && itemActive.is(itemDestination), 'the active route is the item');
+    check(sameData(localData, itemActive!.data()), 'the active item has the page handle keys and values');
+    itemReader.destroy();
 
     check(inputs.length === 5, 'guard plus title and ordinary/prototype/symbol resolvers');
     check(document.title === 'Item 8', 'title callback resolves from parsed inputs');
@@ -1232,14 +1336,15 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     // An actual complete future ancestry: earlier own-ID duplicate and supplied child's
     // own-ID spoof must not replace the nearest proper declaring parent7.
     await router.navigateByUrl('/');
-    const identity = '__loozoAngularRouterRouteId';
     const earlier = router.config.find((route) => route.path === 'duplicate/100')!;
     const declaring = earlier.children![0];
     const guarded = declaring.children![0];
-    const earlierData = earlier.data!;
-    const declaringData = declaring.data!;
-    const guardedData = guarded.data!;
-    const declaringId = declaringData[identity];
+    const declaringFacts = recordFacts(declaring)!;
+    const earlierFacts = recordFacts(earlier)!;
+    const guardedFacts = recordFacts(guarded)!;
+    // The module-private key, read back from the record that owns it.
+    const key = Object.getOwnPropertySymbols(declaring).find((symbol) =>
+      (declaring as any)[symbol] === declaringFacts)!;
     let nativeChild: ActivatedRouteSnapshot | undefined;
     let nativeState: RouterStateSnapshot | undefined;
 
@@ -1248,8 +1353,8 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       nativeState = state;
       return true;
     });
-    earlier.data = { ...earlierData, [identity]: declaringId };
-    guarded.data = { ...guardedData, [identity]: declaringId };
+    (earlier as any)[key] = declaringFacts;
+    (guarded as any)[key] = declaringFacts;
     const ancestryAccepted = await router.navigateByUrl('/duplicate/100/teams/7/items/9');
     const selectedParent = ancestry[0];
 
@@ -1261,14 +1366,21 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       'declaring future parent and native DI');
 
     await router.navigateByUrl('/');
-    earlier.data = earlierData;
-    guarded.data = guardedData;
-    const wrong = { ...declaringData, [identity]: 'wrong own ID' };
-    const inherited = Object.create({ [identity]: declaringId });
+    (earlier as any)[key] = earlierFacts;
+    (guarded as any)[key] = guardedFacts;
     const ancestryFailures: string[] = [];
 
-    for (const data of [wrong, inherited]) {
-      declaring.data = data;
+    // Another record's facts as its own, then the right facts only through the prototype.
+    for (const tamper of ['wrong', 'inherited']) {
+      const prototype = Object.getPrototypeOf(declaring);
+
+      if (tamper === 'wrong') {
+        (declaring as any)[key] = earlierFacts;
+      } else {
+        delete (declaring as any)[key];
+        Object.setPrototypeOf(declaring, Object.create(prototype, { [key]: { value: declaringFacts } }));
+      }
+
       const before = ancestry.length;
       let error: unknown;
 
@@ -1278,6 +1390,9 @@ export const proofProvider = provideEnvironmentInitializer(() => {
         error = cause;
       }
 
+      Object.setPrototypeOf(declaring, prototype);
+      (declaring as any)[key] = declaringFacts;
+
       if (!(error instanceof Error)) {
         throw new Error('wrong/missing own parent must reject natively');
       }
@@ -1285,7 +1400,6 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       check(ancestry.length === before, 'invalid own identity never enters application callback');
       ancestryFailures.push(error.message);
     }
-    declaring.data = declaringData;
 
 
     // Genuine iframe intrinsic Promise vs host Promise, public generated callbacks.
@@ -1393,6 +1507,65 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       await app.whenStable();
     }
 
+    const activeReader = reader();
+    const squadKeys = ['team', 'label', squadSymbol];
+    const memberKeys = ['team', 'label', 'scope', 'member', squadSymbol];
+    const scopeKeys = ['team', 'label', 'scope', squadSymbol];
+    let squadStamp: readonly PropertyKey[] | undefined;
+
+    // Page and active handles project exactly the authored resolver keys, never Angular's title
+    // entry in the layout's native resolve map, whatever the inheritance strategy.
+    function exactKeys(step: string, title: string): void {
+      const squad = (window as any).squad;
+      const member = (window as any).squadMember;
+      const active = activeReader.read();
+
+      check(sameKeys(squad.handle.data(), squadKeys) && squad.handle.data().label === 'squad label' &&
+        squad.handle.data()[squadSymbol] === 'squad symbol', step + ': the layout handle has its own keys only');
+      check(sameKeys(member.handle.data(), memberKeys) && member.handle.data().label === 42 &&
+        member.handle.data().scope === 'pathless scope' && member.handle.data()[squadSymbol] === 'squad symbol',
+        step + ': the member handle has the chain keys');
+      check(active !== undefined && active.is(squadMember), step + ': the active route is the member');
+      check(sameData(member.handle.data(), active!.data()), step + ': the active member matches its page handle');
+
+      const activeSquad = active!.chain.find((entry) => entry.is(squadDestination));
+      const activeScope = active!.chain.find((entry) => entry.is(squadScope));
+
+      check(activeSquad !== undefined && sameData(squad.handle.data(), activeSquad.data()),
+        step + ': the active layout matches its page handle');
+      check(activeScope !== undefined && sameKeys(activeScope.data(), scopeKeys),
+        step + ': the active pathless entry has the keys above it and its own');
+      check(squad.handle.title() === title && member.handle.title() === title && active!.title() === title,
+        step + ': every handle reads the layout title');
+      check(!holdsTitle(squad.handle.data(), title) && !holdsTitle(member.handle.data(), title) &&
+        !holdsTitle(active!.data(), title) && !holdsTitle(activeSquad!.data(), title) &&
+        !holdsTitle(activeScope!.data(), title), step + ': no handle data holds the title');
+
+      // Hazard control: Angular really added its title entry to the layout's native resolve map
+      // and data, so the checks above exercise it.
+      const native = committed('squads/:teamId');
+      const resolveKeys = Reflect.ownKeys(native.routeConfig!.resolve!);
+      const extra = resolveKeys.filter((key) => !squadKeys.includes(key));
+
+      check(resolveKeys.length === 4 && extra.length === 1 &&
+        (native.routeConfig!.resolve as any)[extra[0]] === native.routeConfig!.title,
+        step + ': Angular adds exactly one title entry to the native resolve map');
+      check(Object.hasOwn(native.data, extra[0]) && native.data[extra[0] as any] === title,
+        step + ': the native data owns the title entry');
+
+      // The record carries the authored keys beside the native map, frozen, as one array.
+      const stamp = resolverKeys(native.routeConfig);
+
+      check(sameList(stamp, squadKeys) && Object.isFrozen(stamp) &&
+        (stamp as unknown) !== native.routeConfig!.resolve, step + ': the layout record stamps its authored keys');
+      check(squadStamp === undefined || stamp === squadStamp, step + ': the stamp is the same array');
+      squadStamp = stamp;
+      check(sameList(resolverKeys(committedRecord(squadScope).routeConfig), ['scope']),
+        step + ': the pathless record stamps its own key');
+      check(resolverKeys(router.config.find((route) => route.path === 'blocked')).length === 0,
+        step + ': a record without resolvers has no stamp');
+    }
+
     await visit('/squads/1/members/5');
     const member = (window as any).squadMember;
     const squad = (window as any).squad;
@@ -1407,8 +1580,10 @@ export const proofProvider = provideEnvironmentInitializer(() => {
       'the member reads the layout title from the first read; the layout reads its own');
     check(Object.isFrozen(first.data) && Object.getPrototypeOf(first.data) === null,
       'frozen null-prototype data');
-    check(JSON.stringify(Reflect.ownKeys(squad.handle.data())) === JSON.stringify(['team', 'label']) &&
-      squad.handle.data().label === 'squad label', 'the layout handle has its own keys only');
+    check(sameKeys(first.data, memberKeys) && sameData(first.data, member.handle.data()),
+      'the constructor read has the chain keys');
+    check(squad.handle.data().team === first.data.team, 'the layout and member share the team result');
+    exactKeys('first visit', 'Squad 1');
 
     // A pending ancestor resolver keeps the committed values.
     const settled = [member.handle.params(), member.handle.data()];
@@ -1434,6 +1609,7 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     check(document.getElementById('squad-member')!.textContent === 'Team 2 / 5', 'rendered team 2');
     check(member.handle.title() === 'Squad 2' && squad.handle.title() === 'Squad 2' &&
       document.title === 'Squad 2', 'the inherited title follows the ancestor param');
+    exactKeys('ancestor param', 'Squad 2');
 
     // A child-param-only navigation keeps the team and changes the member.
     await visit('/squads/2/members/6');
@@ -1442,11 +1618,14 @@ export const proofProvider = provideEnvironmentInitializer(() => {
     check((window as any).squadMember === member && moved.team === changed.team,
       'the team result stays when only the child param changes');
     check(moved.member.id === 6 && member.handle.params().memberId === 6, 'own data follows the child param');
+    exactKeys('child param', 'Squad 2');
     for (const [params, data, title] of member.seen) {
       check(params.teamId === data.team.id && params.teamId === data.member.teamId &&
         params.memberId === data.member.id && title === 'Squad ' + params.teamId,
         'effects never see a mixed tuple ' + JSON.stringify(member.seen));
     }
+
+    activeReader.destroy();
 
     return {
       first: { params: first.params, data: { ...first.data } },
@@ -1721,7 +1900,7 @@ await write(
   "src/active-probes.ts",
   `import { Injector, inject, runInInjectionContext, type Signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { injectActiveRoute, type ActiveRoute } from '../generated/destinations.generated.js';
+import { injectActiveRoute, type ActiveRoute } from '../generated/routes.generated.js';
 import { destination as crew } from './routes/crew/destination.generated.js';
 import { destination as task } from './routes/task/destination.generated.js';
 import { destination as good } from './routes/good/destination.generated.js';
@@ -1889,7 +2068,7 @@ await write(
   "src/shell.ts",
   `import { Component, Injector, computed, effect, inject, untracked } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
-import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { injectActiveRoute } from '../generated/routes.generated.js';
 import { describe, destinations } from './active-probes.js';
 
 @Component({
@@ -1944,7 +2123,7 @@ await write(
   "src/active-proof.ts",
   `import { ApplicationRef, Injector, inject, provideEnvironmentInitializer, runInInjectionContext } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { injectActiveRoute } from '../generated/routes.generated.js';
 import {
   constructed, crashFirst, crashReader, describe, destinations, gatePending, holdTask, idle, openGate,
   releaseTask, taskEntries,
@@ -2266,6 +2445,8 @@ export const activeProofProvider = provideEnvironmentInitializer(() => {
 await write(
   "src/copies-probes.ts",
   `import type { ActivatedRouteSnapshot } from '@angular/router';
+import { destinationRecord } from '@loozo/angular-router/_core';
+import { recordFacts } from '@loozo/angular-router/_generated';
 
 export const counts: Record<string, number> = {};
 export const entries: { group: string; kind: string; inputs: any; record: unknown }[] = [];
@@ -2289,7 +2470,14 @@ export function counting(key: string) {
 
 // Records the inputs each callback gets and the generated record its native snapshot belongs to.
 function enter(group: string, kind: string, inputs: any, snapshot: ActivatedRouteSnapshot) {
-  entries.push({ group, kind, inputs, record: snapshot.routeConfig?.data?.['__loozoAngularRouterRouteId'] ?? null });
+  const facts = recordFacts(snapshot.routeConfig);
+  let record: string | null = null;
+
+  if (facts) {
+    record = destinationRecord(facts.destination).id;
+  }
+
+  entries.push({ group, kind, inputs, record });
 }
 
 export function guard(group: string, kind: string) {
@@ -2367,13 +2555,17 @@ await write(
   "src/native-wrappers.ts",
   `import { Component } from '@angular/core';
 import { RouterOutlet, type Route, type Routes } from '@angular/router';
+import { destinationRecord } from '@loozo/angular-router/_core';
+import { recordFacts } from '@loozo/angular-router/_generated';
 
 @Component({ selector: 'proof-native-wrapper', imports: [RouterOutlet], template: '<router-outlet />' })
 class Wrapper {}
 
 function find(records: Routes, id: string): Route | undefined {
   for (const record of records) {
-    if (record.data?.['__loozoAngularRouterRouteId'] === id) {
+    const facts = recordFacts(record);
+
+    if (facts && destinationRecord(facts.destination).id === id) {
       return record;
     }
 
@@ -2387,10 +2579,18 @@ function find(records: Routes, id: string): Route | undefined {
   return undefined;
 }
 
+// The authored generated records the lazy wrapper hands Angular.
+export const lazyRecords: { org?: Route; item?: Route } = {};
+
 export function nativeWrappers(routes: Routes): Routes {
+  lazyRecords.org = find(routes, 'src/routes/orgs/definition.ts')!;
+  lazyRecords.item = find(routes, 'src/routes/org-item/definition.ts')!;
+
   return [
-    { path: 'wrapped/:tenant', component: Wrapper, children: [find(routes, 'src/routes/orgs/definition.ts')!] },
-    { path: 'orphan/:orgId', children: [find(routes, 'src/routes/org-item/definition.ts')!] },
+    { path: 'wrapped/:tenant', component: Wrapper, children: [lazyRecords.org] },
+    // Angular standardizes lazily loaded children on their own path.
+    { path: 'lazy/:tenant', component: Wrapper, loadChildren: () => Promise.resolve([lazyRecords.org!]) },
+    { path: 'orphan/:orgId', children: [lazyRecords.item] },
   ];
 }
 `,
@@ -2398,10 +2598,34 @@ export function nativeWrappers(routes: Routes): Routes {
 await write(
   "src/copies-proof.ts",
   `import { ApplicationRef, inject, provideEnvironmentInitializer } from '@angular/core';
-import { Router } from '@angular/router';
-import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { Router, type ActivatedRouteSnapshot, type Route } from '@angular/router';
+import { recordFacts, resolverKeys } from '@loozo/angular-router/_generated';
+import { injectActiveRoute } from '../generated/routes.generated.js';
 import { destination as orgItem } from './routes/org-item/destination.generated.js';
 import { counts, entries } from './copies-probes.js';
+import { lazyRecords } from './native-wrappers.js';
+
+// How Angular's copy of an authored generated record compares with it: a different object
+// that owns the identical facts and resolver stamp.
+function compare(authored: Route, snapshot: ActivatedRouteSnapshot) {
+  const native = snapshot.routeConfig!;
+
+  return {
+    copied: native !== authored,
+    facts: recordFacts(native) !== undefined && recordFacts(native) === recordFacts(authored),
+    stamp: resolverKeys(native).length > 0 && resolverKeys(native) === resolverKeys(authored),
+  };
+}
+
+function committed(path: string, root: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
+  let snapshot: ActivatedRouteSnapshot | null = root;
+
+  while (snapshot && snapshot.routeConfig?.path !== path) {
+    snapshot = snapshot.firstChild;
+  }
+
+  return snapshot!;
+}
 
 export const copiesProofProvider = provideEnvironmentInitializer(() => {
   const router = inject(Router);
@@ -2447,6 +2671,12 @@ export const copiesProofProvider = provideEnvironmentInitializer(() => {
       handleShared: handle.params === firsts.item?.params,
       activeReads,
       title: document.title,
+      records: {
+        org: compare(lazyRecords.org!, committed('orgs/:orgId', router.routerState.snapshot.root)),
+        item: compare(lazyRecords.item!, committed('items/:itemId', router.routerState.snapshot.root)),
+        dataKeys: Reflect.ownKeys(page.handle.data()),
+        activeDataKeys: Reflect.ownKeys(current!.data()),
+      },
     };
   };
 
@@ -2595,15 +2825,27 @@ try {
 
   const result = await tab.evaluate(() => window.lifecycleProof());
   const matching = await tab.evaluate(() => window.matchingProof());
-  const ancestors = await tab.evaluate(() => window.ancestorProof());
+  const ancestors = { emptyOnly: await tab.evaluate(() => window.ancestorProof()) };
+  // The same chain under the other inheritance strategy, in a fresh application.
+  const alwaysPage = await browser.newPage();
+
+  alwaysPage.on("pageerror", (error) => errors.push(String(error)));
+  await alwaysPage.addInitScript(() => {
+    window.inheritance = "always";
+  });
+  await alwaysPage.goto(output.baseUrl);
+  await alwaysPage.waitForFunction(() => typeof window.ancestorProof === "function");
+  ancestors.always = await alwaysPage.evaluate(() => window.ancestorProof());
+  await alwaysPage.close();
   const extension = await tab.evaluate(() => window.extensionProof());
 
   // Route copies under both inheritance strategies, at the top level and below a native
-  // component wrapper with a param of its own; each run is a fresh application.
+  // component wrapper with a param of its own, as eager children and through loadChildren;
+  // each run is a fresh application.
   const copies = {};
 
   for (const inheritance of ["emptyOnly", "always"]) {
-    for (const prefix of ["", "/wrapped/t1"]) {
+    for (const prefix of ["", "/wrapped/t1", "/lazy/t1"]) {
       const page = await browser.newPage();
 
       page.on("pageerror", (error) => errors.push(String(error)));
@@ -2738,6 +2980,14 @@ try {
           chain: [{ orgId: 4 }, { orgId: 4 }, { orgId: 4, itemId: 2 }],
         },
         title: "Org item 2",
+        // Angular copies each generated record, eagerly or from loadChildren, and the copy owns
+        // the authored record's facts and resolver stamp.
+        records: {
+          org: { copied: true, facts: true, stamp: true },
+          item: { copied: true, facts: true, stamp: true },
+          dataKeys: ["org", "scope", "answer"],
+          activeDataKeys: ["org", "scope", "answer"],
+        },
       },
       name,
     );

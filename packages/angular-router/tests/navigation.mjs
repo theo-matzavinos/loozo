@@ -549,7 +549,7 @@ await write("src/type-proof.ts", types);
 // The active route: a common read interface until is() narrows it to one route's handle.
 await write(
   "src/active-type-proof.ts",
-  `import { injectActiveRoute } from '../generated/destinations.generated.js';
+  `import { injectActiveRoute } from '../generated/routes.generated.js';
 import { defineRoute, stringParam } from '@loozo/angular-router';
 import { destination as scope } from './routes/scope/destination.generated.js';
 import { destination as multi } from './routes/multi/destination.generated.js';
@@ -601,9 +601,12 @@ active.set(undefined);
 `,
 );
 
+// The driver is a lazy page that reads the active route from routes.generated.ts, which
+// lazily imports it back.
 const driver = `import { Component, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { defineRoute, stringParam } from '@loozo/angular-router';
+import { injectActiveRoute } from '../../../generated/routes.generated.js';
 import { injectRoute } from './route.generated.js';
 import { destination as scope } from '../scope/destination.generated.js';
 import { destination as terminal } from '../terminal/destination.generated.js';
@@ -618,6 +621,7 @@ const definition = defineRoute('scope/$scopeId', { params: { scopeId: stringPara
 @Component({ imports: [RouterLink], template: '<p data-navigation="ready">navigation</p><a id="typed" [routerLink]="route.link(target)">scope</a>' })
 export default class Multi {
   readonly route = injectRoute();
+  readonly active = injectActiveRoute();
   readonly target = { to: scope, params: { scopeId: 'clicked' } };
   readonly router = inject(Router);
   constructor() {
@@ -641,6 +645,7 @@ export default class Multi {
         return { same: result === calls.promise, result };
       },
       references: { scope, terminal, enumKind, optional, docs, alias, weird, plain, foreign, definition, handle: h },
+      active: this.active,
       ready: () => h.params().projectId === 'p',
     };
   }
@@ -653,7 +658,7 @@ await write(
   `import { Component, inject } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { defineRoute, stringParam } from '@loozo/angular-router';
-import { injectActiveRoute } from '../generated/destinations.generated.js';
+import { injectActiveRoute } from '../generated/routes.generated.js';
 import { destination as scope } from './routes/scope/destination.generated.js';
 import { route as scopeCopy } from './routes/scope/route.generated.js';
 import { destination as middle } from './routes/middle/destination.generated.js';
@@ -1173,7 +1178,10 @@ try {
     }
 
     const length = history.length;
+    const page = window.navigationProof.active();
     const view = {
+      // The lazy page's own reader, typed by RouteTypes, reads the same route.
+      page: [page.is(multi), page.params(), page.chain.length],
       params: route.params(),
       chain: route.chain.map((entry) => [entry.is(scope), entry.is(middle), entry.is(multi)]),
       contains: [scope, middle, multi, item].map((destination) => route.contains(destination)),
@@ -1206,6 +1214,7 @@ try {
   });
 
   assert.deepEqual(active, {
+    page: [true, { scopeId: "x", projectId: "p" }, 3],
     params: { scopeId: "x", projectId: "p" },
     chain: [
       [true, false, false],
@@ -1355,10 +1364,7 @@ for (const [name, value] of Object.entries(after)) {
 }
 
 assert.ok(upCopies.length > 0, "Top-level origins' copies import the root winner's destination");
-assert.deepEqual(
-  changed.sort(),
-  ["generated/destinations.generated.ts", "generated/routes.generated.ts", ...upCopies].sort(),
-);
+assert.deepEqual(changed.sort(), ["generated/routes.generated.ts", ...upCopies].sort());
 
 // Restoring it restores every byte.
 await write("src/routes/+home/route.ts", homeRoute);

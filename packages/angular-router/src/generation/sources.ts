@@ -991,22 +991,6 @@ export async function discover(
       fail(handler.call, "onInvalidParams requires local path placeholders");
     }
 
-    const data = config.get("data");
-
-    if (data && ts.isObjectLiteralExpression(data)) {
-      for (const property of data.properties) {
-        const name = property.name;
-
-        if (
-          name &&
-          (ts.isIdentifier(name) || ts.isStringLiteral(name)) &&
-          name.text === "__loozoAngularRouterRouteId"
-        ) {
-          fail(data, "Static data cannot supply reserved generated identity");
-        }
-      }
-    }
-
     const id = relative(configDirectory, file).split(sep).join("/");
 
     if (isAbsolute(id)) {

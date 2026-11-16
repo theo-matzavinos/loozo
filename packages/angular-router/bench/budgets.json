@@ -6,9 +6,10 @@
     "build.ms": 8000,
     "typecheck.ngcMs": 3000,
     "typecheck.instantiations": 143000,
-    "bundle.initial.raw": 265000,
+    "bundle.initial.raw": 251000,
     "bundle.initial.gzip": 78000,
-    "bundle.initial.brotli": 68000
+    "bundle.initial.brotli": 68000,
+    "bundle.initial.routeCopies": 31
   },
   "300": {
     "generate.ms": 6000,
@@ -17,9 +18,10 @@
     "build.ms": 14000,
     "typecheck.ngcMs": 5000,
     "typecheck.instantiations": 289000,
-    "bundle.initial.raw": 338000,
+    "bundle.initial.raw": 295000,
     "bundle.initial.gzip": 91000,
-    "bundle.initial.brotli": 77000
+    "bundle.initial.brotli": 75000,
+    "bundle.initial.routeCopies": 91
   },
   "1000": {
     "generate.ms": 15000,
@@ -28,8 +30,9 @@
     "build.ms": 31000,
     "typecheck.ngcMs": 11000,
     "typecheck.instantiations": 799000,
-    "bundle.initial.raw": 596000,
+    "bundle.initial.raw": 449000,
     "bundle.initial.gzip": 136000,
-    "bundle.initial.brotli": 107000
+    "bundle.initial.brotli": 102000,
+    "bundle.initial.routeCopies": 301
   }
 }

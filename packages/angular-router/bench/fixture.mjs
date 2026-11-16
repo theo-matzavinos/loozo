@@ -85,7 +85,7 @@ export default class Page {
 // The shell reads the deepest active route and narrows it to g0000/$id with is().
 const shellSource = `import { Component, computed } from "@angular/core";
 import { RouterOutlet } from "@angular/router";
-import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as selected } from "./routes/g0000/$id/destination.generated.js";
 
 @Component({

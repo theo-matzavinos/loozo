@@ -1,5 +1,7 @@
 export { callbacks, redirect } from "./callbacks.js";
 export { injectGeneratedActiveRoute } from "./active.js";
+export type { ActiveHandle, ActiveRoute, RouteTypeEntry, RouteTypeMap } from "./active.js";
+export { record, recordFacts, resolverKeys } from "./record.js";
 export { defineDestination, routeOf } from "@loozo/angular-router/_core";
 export type { Destination, RouteSchema } from "@loozo/angular-router/_core";
 
@@ -25,7 +27,7 @@ import {
   type FragmentsOf,
   type TitleOf,
 } from "@loozo/angular-router/_core";
-import { observeRoute, type RouteView } from "./handle.js";
+import { observeRecord, type RouteView } from "./handle.js";
 import { destinationOf } from "./inputs.js";
 
 type DataOf<Target> = Target extends { readonly __data?: infer Data } ? Readonly<Data> : never;
@@ -223,22 +225,27 @@ export function injectGeneratedRoute<
 >(route: Target, up?: Parent): Handle<Target, Parent> {
   const router = inject(Router);
   const destroy = inject(DestroyRef);
-  const view = observeRoute(route, inject(ActivatedRoute), router, (release) => {
+  const own = destinationOf(route);
+  const view = observeRecord(own, inject(ActivatedRoute), router, (release) => {
     destroy.onDestroy(release);
   });
 
-  return createHandle(route, up, router, view);
+  return createDestinationHandle(own, up, router, view);
 }
 
-/** A route copy's handle over the signals of one activated record. */
-export function createHandle<Target extends AnyRoute, Parent extends Destination<AnyRoute>>(
-  route: Target,
+/**
+ * The handle of the declaration whose destination is `own`, over the signals of one
+ * activated record. `up` is the destination of its `..` target, when it has one.
+ */
+export function createDestinationHandle<
+  Target extends AnyRoute,
+  Parent extends Destination<AnyRoute>,
+>(
+  own: Destination<AnyRoute>,
   up: Parent | undefined,
   router: Router,
   view: RouteView,
 ): Handle<Target, Parent> {
-  const own = destinationOf(route);
-
   // Splits the one target record into its destination, URL values and behavior options.
   function resolve(args: readonly unknown[]): { url: string; options: Record<string, unknown> } {
     const record = args[0];

@@ -17,6 +17,7 @@ export const metrics = [
   { key: "bundle.initial.raw", label: "Initial bundle: raw", unit: "bytes" },
   { key: "bundle.initial.gzip", label: "Initial bundle: gzip", unit: "bytes" },
   { key: "bundle.initial.brotli", label: "Initial bundle: brotli", unit: "bytes" },
+  { key: "bundle.initial.routeCopies", label: "Initial bundle: route copies", unit: "count" },
   { key: "bundle.lazy.raw", label: "Lazy chunks: raw", unit: "bytes" },
   { key: "bundle.lazy.gzip", label: "Lazy chunks: gzip", unit: "bytes" },
   { key: "bundle.lazy.brotli", label: "Lazy chunks: brotli", unit: "bytes" },

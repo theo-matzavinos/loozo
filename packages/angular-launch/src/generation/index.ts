@@ -946,7 +946,6 @@ async function runGeneration(
   const outputInventory = await walk(sources.output);
   const globals = [
     "routes.generated.ts",
-    "destinations.generated.ts",
     "context.generated.d.ts",
     "server.generated.ts",
   ].map((name) => resolve(sources.output, name));

@@ -13,7 +13,7 @@ The concrete consumer is an Angular application that:
 1. Authors route declarations and standalone pages.
 2. Generates and commits route configuration and, beside each declaration, its destination and route copies.
 3. Installs generated `routes` with `provideRouter`.
-4. Imports route destinations for URLs, links, navigation, redirects and active-route tests; its colocated parameterless `injectRoute()` for typed values, data, links, and navigation; and the shared `injectActiveRoute()` where it reads the active route from outside the route's page, such as a shell. Application code never imports a declaration module (§10).
+4. Imports route destinations for URLs, links, navigation, redirects and active-route tests; its colocated parameterless `injectRoute()` for typed values, data, links, and navigation; and the generated `injectActiveRoute()` where it reads the active route from outside the route's page, such as a shell. Application code never imports a declaration module (§10).
 5. Uses Angular's application build, dev-server, SSR, and hydration.
 
 ### Supported surfaces
@@ -26,8 +26,7 @@ The concrete consumer is an Angular application that:
 | `@loozo/angular-router:serve`          | Angular Architect dev-server companion                                                                                                                                                                   |
 | Colocated `destination.generated` module | Inert typed `destination` reference (§6)                                                                                                                                                               |
 | Colocated `route.generated` module     | `route`, the declaration's browser route copy (§11), and, for an activating declaration, parameterless `injectRoute()`                                                                                  |
-| Shared `destinations.generated` module | `injectActiveRoute()` and its `ActiveRoute` and `ActiveHandle` types                                                                                                                                     |
-| Global `routes.generated` module       | `routes: Routes`                                                                                                                                                                                         |
+| Global `routes.generated` module       | `routes: Routes`, `injectActiveRoute()`, its `ActiveRoute` and `ActiveHandle` types, and the type-only `RouteTypes` map they're typed with                                                                  |
 
 The root has no `injectRoute(route)`, `parseSearch`, `defineRedirect`, resolver executor, or general parser export. Do not expose private helper APIs merely to accommodate tests written against them. There is no supported programmatic source-graph API: the old `/tooling`, `buildRouteSourceGraph()`, and exported graph/diagnostic types are deliberately outside compatibility.
 
@@ -87,7 +86,7 @@ Generation owns paths, matching strategy, ancestry/children, component discovery
 - A codec whose `parse` result type is a Promise/PromiseLike is a type error where it is declared in a params or search map (catchall element codecs included) and as a `withFallback` or `arrayParam` argument.
 - Malformed URL facts and codec records, unknown facts keys, and invalid paths fail at runtime independently of TypeScript, at `defineRoute`; a malformed step value fails at the step that supplies it. Codec entries must have callable parse/stringify methods.
 - Declaration does not execute parsers, stringifiers, guards, resolvers, title callbacks, provider factories, or resolver-policy predicates.
-- Native behavioral values are emitted/referenced without generation-time evaluation. Angular owns their DI, execution, ordering, and semantics. Static data cannot supply the reserved generated identity key `__loozoAngularRouterRouteId`; ordinary application data must not overwrite binding identity.
+- Native behavioral values are emitted/referenced without generation-time evaluation. Angular owns their DI, execution, ordering, and semantics. Static data is forwarded as authored, under any key: generated identity doesn't live in data (§11).
 - Guard arrays and fragment-name lists are snapshotted without freezing caller-owned objects. Callback/provider identities are retained; no deep freezing of application values is promised.
 
 ### Declared fragment names
@@ -126,7 +125,7 @@ The exact local `path` is the value's only enumerable own property. The steps it
 
 `Route<Path, Params, Search, Resolvers>` remains an exported nominal type: the first three parameters retain their meaning and are required; the fourth is a local resolver callback map and defaults to an empty map. Additional defaulted type parameters may support new inference, but callers need no generic arguments. `Route` has no step members: a chain value's type is its `Route` plus the steps it still offers, so it stays assignable to `Route`. Generated code reads the step-free `Route` through a private type-only member. The search values URL creation accepts derive from `Search`: every key optional, `undefined` allowed. Readonly optional `__params`, `__search`, `__data`, and `__title` type witnesses preserve inferred inputs, unwrapped effective resolver data, and whether the declaration or an ancestor declares a title (§8); an optional `__contribution` witness carries a route extension's contribution chain. They do not promise populated runtime fields. `__data` excludes redirect commands. The branding mechanism itself is private.
 
-Resolver maps are copied and shallow-frozen, retain original callback identities, and reject non-functions, non-records, inherited resolver entries, and the reserved key `__loozoAngularRouterRouteId`.
+Resolver maps are copied and shallow-frozen, retain original callback identities, and reject non-functions, non-records and inherited resolver entries.
 
 Native policy values are the Angular names `pathParamsChange`, `pathParamsOrQueryParamsChange`, `paramsChange`, `paramsOrQueryParamsChange`, `always`, or a native snapshot predicate. Omission preserves Angular's default. Explicit undefined, null, invalid names, and other invalid values fail at runtime. Declaration never evaluates the predicate.
 
@@ -296,7 +295,7 @@ import { injectRoute } from "./route.generated.js";
 const route = injectRoute();
 ```
 
-`injectRoute()` takes no arguments or caller generics and binds its route copy to its **own exact activated Angular route record**. It requires an Angular injection context. Missing/different `__loozoAngularRouterRouteId` in `ActivatedRoute.snapshot.routeConfig.data` is a synchronous wiring error. Inherited snapshot data is not identity evidence.
+`injectRoute()` takes no arguments or caller generics and binds its route copy to its **own exact activated Angular route record**. It requires an Angular injection context. Its identity is the destination the generated record carries as its own property (§11): a missing or different own destination on `ActivatedRoute.snapshot.routeConfig` is a synchronous wiring error. Inherited properties and snapshot data are not identity evidence.
 
 The returned handle is not callable. Its readonly properties expose readonly Angular Signals:
 
@@ -341,7 +340,7 @@ Selection controls typing and serialization, not exclusive activation: parent an
 
 - Omitting `to` selects the exact bound declaration, not a canonical pathless descendant. No `"."` selector exists.
 - `".."` selects the parent route: the nearest ancestor declaration whose effective path is shorter than the bound declaration's, or the root path `/` for a declaration without one. Pathless ancestors share their child's path, so they are skipped. The target is that path's winner (above), which can be a redirect source; when the path has no winner, or the bound declaration has the root path itself, `".."` is not admitted. Catchall-bound handles have a parent like any other.
-- Generation resolves the winner and imports its destination into the bound declaration's route copy and into `destinations.generated.ts`; the handle's `..` overload is typed from that destination, and absent without one.
+- Generation resolves the winner and imports its destination into the bound declaration's route copy and into `routes.generated.ts`, which carries it on the declaration's record and types it in `RouteTypes`; the handle's `..` overload is typed from that destination, and absent without one.
 - No other relative expression exists. `../`, `./`, `./suffix`, `../..` and `../suffix` fail typing and throw synchronously like other unknown selectors. Each handle admits at most one relative selector, so each route copy imports at most one destination for it.
 - Destination values remain explicit and use the selected target's effective params/search and declared fragment names; `..` never implicitly reuses current values.
 
@@ -368,7 +367,7 @@ A destination is not a route: it offers no steps, can't be a `parent`, and the r
 ### Active route
 
 ```ts
-import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
 import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
 
@@ -381,19 +380,38 @@ if (route?.is(item)) {
 }
 ```
 
-The shared module exports parameterless `injectActiveRoute()`. It requires an Angular injection context and returns a readonly Signal of the **deepest active record of this generated set** in the primary outlet: the set is the retained declarations of the shared module's table, which maps each declaration id to its route copy and `..` destination and is built when `injectActiveRoute()` is called. Its value is `undefined` before the first navigation commits and when no route of the set is active. Walk the committed chain from the root through each route's first child; records whose own route data carries no declaration id of this set (native routes) are skipped, so the deepest record can be any retained declaration: a parent with children at its own URL, a componentless parent, or an authored pathless child. Records are identified by declaration id alone: two generated trees whose declarations share ids, installed in one router, are unsupported.
+`routes.generated.ts` exports parameterless `injectActiveRoute()`. It requires an Angular injection context and returns a readonly Signal of the **deepest active generated record** in the primary outlet. Its value is `undefined` before the first navigation commits and when no generated record is active. Walk the committed chain from the root through each route's first child; records that carry no generated destination of their own (native routes) are skipped, so the deepest record can be any retained declaration: a parent with children at its own URL, a componentless parent, or an authored pathless child. Each entry's values come from the generated records of the committed snapshot alone, its destination and `..` target from its own record (§11); there is no route table, and the reader loads no route copy. Nothing filters records by tree: every generated record installed in the router takes part, typed as this tree's `RouteTypes`, so install one generated tree per router.
+
+`RouteTypes` is a type-only map from each retained declaration's id to its schema and, when it has one, its `..` destination. `injectActiveRoute()` passes it to the package's internal reader, so callers write no type argument.
 
 ```ts
-interface ActiveBase {
-  is<Other extends Retained>(destination: Destination<any, Other>): this is ActiveHandle<Other>;
-  contains(destination: Destination<any, Retained>): boolean;
-  readonly chain: readonly ActiveRoute[];
+// routes.generated.ts (excerpt). A route copy is a value import where its record reads it at
+// runtime (native options, callbacks, redirects) and an `import type` otherwise.
+import { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
+import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
+import { destination as destination_teams_$teamId_route } from "../src/routes/teams/$teamId/destination.generated.js";
+
+export type RouteTypes = {
+  "src/routes/teams/$teamId/items/$id/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_items_$id_route>; up: typeof destination_teams_$teamId_route };
+  "src/routes/teams/$teamId/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_route> }; // no `..` target: no `up`
+};
+export type ActiveHandle<Id extends keyof RouteTypes> = GeneratedActiveHandle<RouteTypes, Id>;
+export type ActiveRoute = GeneratedActiveRoute<RouteTypes>;
+
+// The package's internal generic types they alias:
+type UpOf<Entry> = Entry extends { readonly up: infer Up extends Destination<AnyRoute> } ? Up : never;
+interface ActiveBase<Types extends RouteTypeMap> {
+  is<Id extends keyof Types & string>(destination: Destination<any, Id>): this is GeneratedActiveHandle<Types, Id>;
+  contains(destination: Destination<any, keyof Types & string>): boolean;
+  readonly chain: readonly GeneratedActiveRoute<Types>[];
 }
-export interface ActiveHandle<Id extends Retained> extends Handle<Id>, ActiveBase {}
-export interface ActiveRoute extends Pick<Handle<Retained>, "params" | "search" | "data" | "title">, ActiveBase {}
+type GeneratedActiveHandle<Types extends RouteTypeMap, Id extends keyof Types> =
+  Handle<Types[Id]["schema"], UpOf<Types[Id]>> & ActiveBase<Types>;
+type GeneratedActiveRoute<Types extends RouteTypeMap> =
+  Pick<Handle<Types[keyof Types]["schema"]>, "params" | "search" | "data" | "title"> & ActiveBase<Types>;
 ```
 
-`ActiveRoute` is a common read interface, not a union of handles: `params`, `search`, `data` and `title` read the union of the set's values (`title` is `Signal<string | undefined>` unless every retained declaration's chain declares a title), and `link`/`navigate` exist only after `is()` narrows. `is(destination)` holds for exactly that declaration, not an ancestor, and narrows to its full handle, with the §6 calls. `contains(destination)` is a plain boolean: that declaration is this route or one of its active ancestors; it does not narrow. `chain` lists the active records of the set, top-level first, ending with this one; it is frozen, and each entry's own `chain` is the prefix ending at that entry. Generated ids stay private; callers pass `destination`s, typed to the set's retained declarations. `is` and `contains` compare destination identity: `is` holds for the route copy's own destination, `contains` for the destinations of the copy and its parent copies. A genuine destination of another generated tree is never active here, so both return false for it; anything that isn't a genuine destination throws `TypeError("Expected a genuine destination")`, like `link`.
+`ActiveRoute` is a common read interface, not a union of handles: `params`, `search`, `data` and `title` read the union of the tree's values (`title` is `Signal<string | undefined>` unless every retained declaration's chain declares a title), and `link`/`navigate` exist only after `is()` narrows. Data holds the same effective resolver keys as the page handle's (§8). `is(destination)` holds for exactly that declaration, not an ancestor, and narrows to its full handle, with the §6 calls. `contains(destination)` is a plain boolean: that declaration is this route or one of its active ancestors; it does not narrow. `chain` lists the active generated records, top-level first, ending with this one; it is frozen, and each entry's own `chain` is the prefix ending at that entry. Generated ids stay private; callers pass `destination`s, typed to the tree's retained declarations. `is` and `contains` compare destination identity: `is` holds for the record's own destination, `contains` for it and the destinations of its declaration ancestors. A genuine destination of a tree not installed in this router is never active, so both return false for it; anything that isn't a genuine destination throws `TypeError("Expected a genuine destination")`, like `link`.
 
 Each call is its own reader with its own handles: within a reader, an active record keeps one handle object while its ActivatedRoute stays active, so a reused route with new values keeps its handle and only its signals change; leaving and re-entering gives a new handle. Two readers' handles for the same route are different objects with equal values, and neither is that page's `injectRoute()` handle. A handle that has left the chain keeps its last values and its `link`/`navigate`; it is never re-attached. §7 specifies when the value changes.
 
@@ -520,11 +538,11 @@ No manual generic or ResolveFn annotation is needed. Raw native ResolveFn's snap
 
 Scalar/object, Promise, Observable, and RedirectCommand results are supported. Data inference unwraps asynchronous outputs and excludes RedirectCommand; a redirect-only resolver has never as activated data.
 
-Handle data is the route's effective resolver data: the resolver results of its whole declaration chain, the outermost ancestor's first, then nearer ones, then its own, including pathless and componentless ancestors. Each owner contributes only its own resolver keys, read from its own record of the committed snapshot. The type follows the same merge.
+Handle data is the route's effective resolver data: the resolver results of its whole declaration chain, the outermost ancestor's first, then nearer ones, then its own, including pathless and componentless ancestors. Each owner contributes only its own authored resolver keys, read from its own record of the committed snapshot. The keys are the ones the generated callbacks stamp onto the record (§11), not the keys of Angular's native resolve map, which Angular extends with its own title entry during resolution. The type follows the same merge.
 
 - A nearer route's resolver key hides an ancestor's key of the same name, as in Angular's own data inheritance; the hidden value isn't reachable through the handle.
 - The merge doesn't depend on `paramsInheritanceStrategy`. Under `'emptyOnly'`, a route below a component (layout) parent has that parent's resolver data in its handle although Angular's own `snapshot.data` doesn't. Angular 22's default is `'always'`.
-- Only resolver results take part: native static `data`, the Angular title (read through the handle's `title`, below) and the generated identity stay out. A static value can be exposed through a resolver, such as `.resolve({ label: () => "Teams" })`.
+- Only resolver results take part: native static `data`, and the Angular title (read through the handle's `title`, below) stay out. A static value can be exposed through a resolver, such as `.resolve({ label: () => "Teams" })`.
 
 Generated adapters must:
 
@@ -674,7 +692,7 @@ Each reference resolves from its file with TypeScript's module resolution. A pac
 **Copy rules.** For each declaration, over that graph:
 
 - Destination copy: no module its runtime imports reach, other than its parent's destination file and package entries, may reach a generated file of this tree or a declaration module: `` URL facts import reaches a generated file: <chain>. URL fact modules may import only packages and other non-generated modules; make <edge> `import type` if it only needs types. ``
-- Route copy: no module its runtime imports reach, other than its parent's route copy, may reach a `route.generated.ts` (its own included), `routes.generated.ts`, `destinations.generated.ts` or a declaration module. Destination files may be reached; they end the walk, since the rule above keeps them from reaching back: `` Route copy import reaches a generated route module: <chain>. Import a destination.generated.js for URLs, or make <edge> `import type` if it only needs types. ``
+- Route copy: no module its runtime imports reach, other than its parent's route copy, may reach a `route.generated.ts` (its own included), `routes.generated.ts` or a declaration module. Destination files may be reached; they end the walk, since the rule above keeps them from reaching back: `` Route copy import reaches a generated route module: <chain>. Import a destination.generated.js for URLs, or make <edge> `import type` if it only needs types. ``
 - Server modules: a runtime import kept in either copy whose specifier starts with `node:` or that resolves to a file whose name contains `.server.` fails: `` Browser route copy imports a server module: <spec>. Use `import type` for types. `` Only the copies' own imports are checked, not the modules they reach.
 
 Each message is located at the declaration's import line. `<chain>` lists every hop as `file:line (edge kind)`, edge kinds `value import`, `require`, `import =` and `type-specifier import under verbatimModuleSyntax`, ending at the reached file; `<edge>` is the last hop. Together these keep module initialization safe: no generated module reads an imported binding while it evaluates, except a route copy reading its own destination and its parent's copy, both initialized first, and `routes.generated.ts` reading route copies.
@@ -697,19 +715,18 @@ There is no public diagnostic union, serialized target/reference object, graph-r
 
 One builder generation pass produces:
 
-1. `<out-dir>/routes.generated.ts`, exporting `routes: Routes`.
-2. `<out-dir>/destinations.generated.ts` when any ordinary (non-redirect) declaration is retained, exporting `injectActiveRoute()` and its types (§6).
-3. Beside every admitted declaration, redirect sources and pruned ancestors included (§9), a pair of per-route files: `destination.generated.ts`, exporting its inert typed `destination` (§6), and `route.generated.ts`, exporting its route copy as `route` and, for a declaration whose record activates, parameterless `injectRoute()`.
+1. `<out-dir>/routes.generated.ts`, exporting `routes: Routes`, `injectActiveRoute()`, its types and `RouteTypes` (§6).
+2. Beside every admitted declaration, redirect sources and pruned ancestors included (§9), a pair of per-route files: `destination.generated.ts`, exporting its inert typed `destination` (§6), and `route.generated.ts`, exporting its route copy as `route` and, for a declaration whose record activates, parameterless `injectRoute()`.
 
-Only primary-outlet generation is included. Preserve explicit authored nesting/local decoded paths, translate whole scalar `$name` segments to Angular `:name`, and terminal `$name[]` to native `**`. Put each record's stable authored source ID in its own `Route.data.__loozoAngularRouterRouteId`.
+Only primary-outlet generation is included. Preserve explicit authored nesting/local decoded paths, translate whole scalar `$name` segments to Angular `:name`, and terminal `$name[]` to native `**`. Every record, redirect records included, spreads the facts helper of `@loozo/angular-router/_generated` with its own destination and, for a retained declaration with one, its `..` winner's destination: a private, frozen own symbol property that Angular's shallow record copies (standardization, `resetConfig`, lazy `loadChildren`) keep. It is the record's identity; `data` carries only authored static data. A record whose route copy declares resolvers also gets, from the generated callbacks, a private own symbol property holding the frozen list of the authored resolver keys, kept beside the native resolve map, never on it.
 
-Colocated default standalone components use lazy loadComponent. Componentless ancestors with children are valid. Ordinary componentless leaves fail generation before writing. Apply §9 redirect pruning/ordering and §6 shared-path matching. `routes.generated.ts` imports a route copy only where a record reads it: native options, redirects, and the guard/resolver/title adapters and the generated matching guard (§8) every non-redirect record receives when it has local path params or it or an ancestor declares `search`. `destinations.generated.ts` imports the retained route copies and the distinct `..` destinations (§6). Neither imports a declaration module. Components remain lazy. Forward providers/static data/native canDeactivate/rerun policy to Angular, and a static title; adapt a title callback like a resolver (§8); preserve the generated identity key. Static data remains observable through native Angular snapshots/data; the package handle's data signal holds **effective resolver keys only** (§8), never static data. Do not assign authored parsed-input resolve maps directly to native Angular Route.resolve.
+Colocated default standalone components use lazy loadComponent. Componentless ancestors with children are valid. Ordinary componentless leaves fail generation before writing. Apply §9 redirect pruning/ordering and §6 shared-path matching. `routes.generated.ts` imports a route copy at runtime only where a record reads it: native options, redirects, and the guard/resolver/title adapters and the generated matching guard (§8) every non-redirect record receives when it has local path params or it or an ancestor declares `search`. The other retained copies are imported with `import type`, for `RouteTypes` alone. It imports every record's destination and each distinct `..` winner's destination, and no declaration module. Components remain lazy. Forward providers/static data/native canDeactivate/rerun policy to Angular, and a static title; adapt a title callback like a resolver (§8). Static data remains observable through native Angular snapshots/data; the package handle's data signal holds **effective resolver keys only** (§8), never static data. Do not assign authored parsed-input resolve maps directly to native Angular Route.resolve.
 
 Generated TypeScript and emitted relative JavaScript specifiers must typecheck/build under the Angular application consumer environment. Authored `.ts` imports use emitted `.js` specifiers. Root-package NodeNext consumer checks and Angular application/Bundler checks are distinct; admitting a source extension does not imply every module-mode or CommonJS interoperability combination. Generator bootstrapping tolerates missing/removable stale per-route files at their known generated locations for admitted declarations, including a `destination` imported by application code or a redirect. This is not permission for arbitrary unresolved imports or references to undeclared/unadmitted generated targets. This is private analysis behavior needed to generate an application's first outputs, not a public graph option.
 
-Codecs and resolver dependencies may be eager. No generated module reads an imported binding while it evaluates, except a route copy reading its own destination and its parent's route copy, which initialize first, and `routes.generated.ts` reading route copies; `destinations.generated.ts` builds its active table when `injectActiveRoute()` is called. §10's copy rules keep application modules from closing an initialization cycle through a generated module, for the reference forms and file formats §10 scans; a cycle through anything else is not promised safe.
+Codecs and resolver dependencies may be eager. No generated module reads an imported binding while it evaluates, except a route copy reading its own destination and its parent's route copy, which initialize first, and `routes.generated.ts` reading route copies and destinations. §10's copy rules keep application modules from closing an initialization cycle through a generated module, for the reference forms and file formats §10 scans; a cycle through anything else is not promised safe.
 
-Adding or removing an independent declaration (one that no other declaration names as its `parent` or redirect target) changes only its own pair, both shared files, and the route copies of the declarations whose `..` winner it becomes or stops being; every other per-route file, every destination file included, keeps its bytes. Shared information belongs in the shared artifacts rather than requiring every per-route file to repeat the entire graph. The shared artifacts' helper export names/representation, relationship tables, and overall module organization are not prescribed. Deep trees may retain quadratic relationship counts; no universal byte-count target is imposed.
+Adding or removing an independent declaration (one that no other declaration names as its `parent` or redirect target) changes only its own pair, `routes.generated.ts`, and the route copies of the declarations whose `..` winner it becomes or stops being; every other per-route file, every destination file included, keeps its bytes. Shared information belongs in `routes.generated.ts` rather than requiring every per-route file to repeat the entire graph. Its helper export names/representation and overall module organization are not prescribed. Deep trees may retain quadratic relationship counts; no universal byte-count target is imposed.
 
 ### Per-route copies
 
@@ -723,11 +740,10 @@ A route copy is a genuine route whose canonical identity is its destination; its
 
 ### Ownership and filesystem effects
 
-Exact markers, on the first line of the shared files and on the last non-empty line of the per-route files:
+Exact markers, on the first line of `routes.generated.ts` and on the last non-empty line of the per-route files:
 
 ```ts
 // @loozo/angular-router routegen: owned routes.generated.ts
-// @loozo/angular-router routegen: owned destinations.generated.ts
 // @loozo/angular-router routegen: owned destination.generated.ts
 // @loozo/angular-router routegen: owned route.generated.ts
 ```
@@ -736,7 +752,7 @@ Only the corresponding exact-name marked generated outputs at the configured glo
 
 Output directory must be disjoint from every scan root. Reject unsafe/symlink output paths and unmarked collisions. Preflight source-validation failures, all matching overlaps, leaves, ownership, and paths before output modification. A failed preflight must leave all previous output bytes unchanged.
 
-Do not rewrite byte-identical outputs or change their mtimes. Outputs are written with LF line endings. A marked output whose only difference from the desired bytes is every LF written as CRLF, as Git's `core.autocrlf` checks text files out on Windows, is owned (its marker line may end in CR) and current: neither rewritten nor drift in check mode. Remove stale marked per-route files after authored declarations disappear, and stale shared/global artifacts when no longer needed. When no authored routes remain, remove marked stale artifacts, not unrelated content. Stale generated files can be removed even when their old authored imports are broken.
+Do not rewrite byte-identical outputs or change their mtimes. Outputs are written with LF line endings. A marked output whose only difference from the desired bytes is every LF written as CRLF, as Git's `core.autocrlf` checks text files out on Windows, is owned (its marker line may end in CR) and current: neither rewritten nor drift in check mode. Remove stale marked per-route files after authored declarations disappear, and stale global artifacts when no longer needed. When no authored routes remain, remove marked stale artifacts, not unrelated content. Stale generated files can be removed even when their old authored imports are broken.
 
 Changes may be published by individual file replacement, not an atomic all-output transaction. Interruption may leave mixed versions; a successful rerun repairs them. Preserve no promise of rollback or whole-directory atomicity.
 

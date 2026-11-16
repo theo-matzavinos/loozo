@@ -80,7 +80,7 @@ A route is a directory under the scan directory with a page, a `route.ts` declar
 
 [src/routes/products/$productId/page.ts](snippets/src/routes/products/$productId/page.ts)
 
-Running `ng build` or `ng serve` also writes `generated/routes.generated.ts` and `generated/destinations.generated.ts`, and `destination.generated.ts` and `route.generated.ts` in `src/routes/products/$productId/`. The page is lazy-loaded with `loadComponent`. See [Filesystem route definitions](#filesystem-route-definitions) for how directories map to paths and parents, and [Explicit authoring](#explicit-authoring) to write every path and parent yourself instead.
+Running `ng build` or `ng serve` also writes `generated/routes.generated.ts`, and `destination.generated.ts` and `route.generated.ts` in `src/routes/products/$productId/`. The page is lazy-loaded with `loadComponent`. See [Filesystem route definitions](#filesystem-route-definitions) for how directories map to paths and parents, and [Explicit authoring](#explicit-authoring) to write every path and parent yourself instead.
 
 The template reads the signals directly: they hold the activated route's values from the moment the page is created. A URL such as `/products/abc` doesn't match this route at all: a path param that fails to parse makes Angular try its next route, such as a `$segments[]` not-found route. A missing, repeated or unknown `tab` reads as its fallback, `"details"`.
 
@@ -230,7 +230,7 @@ The rest of a `navigate` object is Angular's `NavigationBehaviorOptions`, such a
 
 ### The active route
 
-Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads the active route with `injectActiveRoute()` from `destinations.generated.ts`:
+Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads the active route with `injectActiveRoute()` from `routes.generated.ts`:
 
 [src/shell.ts](snippets/src/shell.ts)
 
@@ -242,7 +242,7 @@ Until you narrow it, the active route has `params`, `search`, `data` and `title`
 - `contains(destination)`: whether that route is this one or one of its ancestors.
 - `chain`: the active routes, from the top-level one down to this one. `chain.find((route) => route.is(team))` finds an ancestor, already narrowed. For breadcrumbs, `chain.map((route) => route.title())` reads each route's title; a route without its own title repeats its ancestor's.
 
-The value changes only when a navigation completes. It stays the same while a navigation is pending, and when one is cancelled or fails. If it fails during activation, the routes above the failing one that stay active already have the new values, so `chain` can mix a parent's new params with the active route's old ones until the next navigation completes. While a route stays active it keeps its handle, so going from item 9 to item 10 changes that handle's `params`, not the active route. Each `injectActiveRoute()` call has its own handles, separate from the page's `injectRoute()` handle; their values are the same. A handle that's no longer active keeps its last values. `is` and `contains` compare destinations by identity, so a destination from another generated route tree is never active here. Active routes themselves are found by their declaration file's path relative to the tsconfig, so two generated route trees with declarations at the same paths can't share one router.
+The value changes only when a navigation completes. It stays the same while a navigation is pending, and when one is cancelled or fails. If it fails during activation, the routes above the failing one that stay active already have the new values, so `chain` can mix a parent's new params with the active route's old ones until the next navigation completes. While a route stays active it keeps its handle, so going from item 9 to item 10 changes that handle's `params`, not the active route. Each `injectActiveRoute()` call has its own handles, separate from the page's `injectRoute()` handle; their values are the same. A handle that's no longer active keeps its last values. `is` and `contains` compare destinations by identity, so a destination from another generated route tree is never active here. Every generated route record carries its own destination, and the active route reads those, so it sees every generated route installed in the router: install one generated tree per router.
 
 Use it outside the page. In the constructor of a page being activated it reads `undefined` until the navigation ends, while the page's own `injectRoute()` has its values right away. On a server-rendered page it's `undefined` from hydration until the browser's first navigation completes, so the shell shows what it shows for `undefined` in between.
 
@@ -389,14 +389,13 @@ A component that calls `injectActiveRoute()`, such as a shell, doesn't need a ro
 
 | File                                         | Contents                                                                                                           |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `<outDirectory>/routes.generated.ts`         | `routes: Routes` for `provideRouter`                                                                               |
-| `<outDirectory>/destinations.generated.ts`   | Shared typing and `injectActiveRoute()` (when any route has a page)                                                |
+| `<outDirectory>/routes.generated.ts`         | `routes: Routes` for `provideRouter`, `injectActiveRoute()`, and the `RouteTypes` it's typed with                  |
 | `destination.generated.ts` beside each route | `destination`: the route's URL facts                                                                               |
 | `route.generated.ts` beside each route       | `route`, the declaration's browser copy, and `injectRoute()` for a route that has a page or descendants with pages |
 
 The two files beside a route are copies of its declaration with the same line numbers, so a stack trace or a type error in either points at the matching line of the declaration. `destination.generated.ts` keeps only the path and URL facts, and the imports and top-level code they use. `route.generated.ts` takes its URL facts from the destination and keeps the steps, minus any that a route extension marks server-only; imports and top-level helpers that only the removed parts used go too, and other top-level code stays as you wrote it. Generation type-checks both copies and reports their errors at the declaration's line. Redirect routes get both files too, without `injectRoute()`.
 
-Each generated file carries an ownership marker comment such as `// @loozo/angular-router routegen: owned route.generated.ts`: on the first line of the two shared files, and on the last line of the two files beside each route, so their other lines can match the declaration's. The builder only replaces or deletes marked files with those exact names. It never overwrites an unmarked file in their place, and it removes stale marked files when their routes disappear. Hand edits to generated files are overwritten. Generated files are written with LF line endings; a copy that Git checked out with CRLF line endings, as it does on Windows by default, counts as up to date.
+Each generated file carries an ownership marker comment such as `// @loozo/angular-router routegen: owned route.generated.ts`: on the first line of `routes.generated.ts`, and on the last line of the two files beside each route, so their other lines can match the declaration's. The builder only replaces or deletes marked files with those exact names. It never overwrites an unmarked file in their place, and it removes stale marked files when their routes disappear. Hand edits to generated files are overwritten. Generated files are written with LF line endings; a copy that Git checked out with CRLF line endings, as it does on Windows by default, counts as up to date.
 
 Generation reads your source without importing or running it. It validates everything (declarations, overlapping routes, redirects, imports, file ownership) before writing anything, so a run that fails validation leaves your files as they were. Files are then written one at a time, with no rollback: if writing fails partway, for example on a file that isn't writable, or the run is interrupted, some files may already be updated. The next successful run repairs them. Unchanged files aren't rewritten, so their modification times stay the same.
 
@@ -417,7 +416,7 @@ A route module exports only its route, as its default export; move shared helper
 The generated copies run when the app starts, so generation also checks what they import, following imports through your own modules:
 
 - The modules a route's URL facts import, such as a custom codec, may import only packages and other non-generated modules (`URL facts import reaches a generated file`).
-- The modules a route's steps import, such as a guard helper, may import destination files but no `route.ts`, `route.generated.ts`, `routes.generated.ts` or `destinations.generated.ts` (`Route copy import reaches a generated route module`): that import would read a route before it exists.
+- The modules a route's steps import, such as a guard helper, may import destination files but no `route.ts`, `route.generated.ts` or `routes.generated.ts` (`Route copy import reaches a generated route module`): that import would read a route before it exists.
 - The copies run in the browser, so neither may keep an import of a `*.server.*` module or a `node:` builtin (`Browser route copy imports a server module`). An import that only server-only steps use leaves with them, and an `import type` is erased.
 
 Each message names the chain of imports that broke the rule. When the last link only needs types, make it `import type`: type-only imports aren't followed, and neither is `import { type X }` with every name marked `type`, unless `verbatimModuleSyntax` is on. A dynamic `import()` isn't followed either, since it runs later. Every other import counts, `require` included, even one used only as a type, because Angular keeps imports that dependency injection uses. Imports with a computed specifier, such as `import(name)`, fail anywhere in the app, because generation can't follow them.
@@ -432,7 +431,7 @@ All `@angular/build:application` options, plus:
 | ------------------ | -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `tsconfig`         | `string`                         | required | TypeScript config used to find route declarations. Relative to the workspace root.                                                                                 |
 | `scanDirectories`  | `string[]`                       | required | Exactly one directory containing your routes. Relative to the `tsconfig` file's directory.                                                                         |
-| `outDirectory`     | `string`                         | required | Where `routes.generated.ts` and `destinations.generated.ts` go. Relative to the workspace root; must be outside the scan directory.                                |
+| `outDirectory`     | `string`                         | required | Where `routes.generated.ts` goes. Relative to the workspace root; must be outside the scan directory.                                                              |
 | `check`            | `boolean`                        | `false`  | Verify generated files without writing them. Fails on any drift.                                                                                                   |
 | `autoDefineRoutes` | `false \| { filename?: string }` | `{}`     | [Filesystem route definitions](#filesystem-route-definitions), seeding `filename` (default `route.ts`). `false` selects [explicit authoring](#explicit-authoring). |
 

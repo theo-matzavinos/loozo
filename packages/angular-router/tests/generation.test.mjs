@@ -477,7 +477,6 @@ test("output checked out with CRLF line endings stays owned and current", async 
   const project = await filesystemProject();
   const files = [
     "generated/routes.generated.ts",
-    "generated/destinations.generated.ts",
     "src/routes/teams/$teamId/route.ts",
     "src/routes/teams/$teamId/route.generated.ts",
     "src/routes/teams/$teamId/destination.generated.ts",
@@ -520,9 +519,23 @@ test("output checked out with CRLF line endings stays owned and current", async 
   assert.doesNotMatch(await project.routes(), /\r/);
 });
 
-test("shared bindings follow paths, so adding or removing a route changes only its own lines", async () => {
+test("route type bindings follow paths, so adding or removing a route changes only its own lines", async () => {
   const project = await filesystemProject();
-  const destinations = () => project.read("generated/destinations.generated.ts");
+  // The per-route imports and RouteTypes entries; the routes array nests records, and the
+  // helper import lists what the remaining records need.
+  const typing = async () => {
+    const lines = [];
+
+    for (const line of (await project.read("generated/routes.generated.ts")).split("\n")) {
+      const perRoute = line.startsWith("import ") && line.includes("/src/routes/");
+
+      if (perRoute || /^"[^"]+": \{ schema: /.test(line)) {
+        lines.push(line);
+      }
+    }
+
+    return lines.join("\n");
+  };
 
   for (const directory of ["teams/$teamId", "old-items", "old_items", "zeta"]) {
     await project.page(directory);
@@ -530,16 +543,21 @@ test("shared bindings follow paths, so adding or removing a route changes only i
 
   await project.generate();
 
-  const before = await destinations();
+  const before = await typing();
 
   assert.ok(
     before.includes(
       'import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";',
     ),
   );
+  assert.ok(
+    before.includes(
+      'import { destination as destination_teams_$teamId_route } from "../src/routes/teams/$teamId/destination.generated.js";',
+    ),
+  );
   // Paths that sanitize alike keep distinct bindings.
-  assert.ok(before.includes("import { route as route_old_items_route } from"));
-  assert.ok(before.includes("import { route as route_old_items_route_2 } from"));
+  assert.ok(before.includes("import type { route as route_old_items_route } from"));
+  assert.ok(before.includes("import type { route as route_old_items_route_2 } from"));
 
   // Every line that remains is unchanged: an addition only adds lines, a removal only removes them.
   function onlyAdded(from, to) {
@@ -554,37 +572,33 @@ test("shared bindings follow paths, so adding or removing a route changes only i
   await project.page("about");
   await project.generate();
 
-  const added = await destinations();
+  const added = await typing();
 
   onlyAdded(before, added);
 
   await rm(resolve(project.root, "src/routes/teams"), { recursive: true });
   await project.generate();
-  onlyAdded(await destinations(), added);
+  onlyAdded(await typing(), added);
 });
 
-test("the shared module exports injectActiveRoute and its active route types", async () => {
+test("routes.generated.ts exports RouteTypes and a typed injectActiveRoute without a route table", async () => {
   const project = await filesystemProject();
 
   await project.page("teams/$teamId");
   await project.page("teams/$teamId/items/$id");
+  await project.page("about");
   await project.generate();
 
-  const path = resolve(project.root, "generated/destinations.generated.ts");
-  const file = ts.createSourceFile(
-    path,
-    await project.read("generated/destinations.generated.ts"),
-    {
-      languageVersion: ts.ScriptTarget.ES2022,
-    },
-  );
+  const path = resolve(project.root, "generated/routes.generated.ts");
+  const source = await project.read("generated/routes.generated.ts");
+  const file = ts.createSourceFile(path, source, { languageVersion: ts.ScriptTarget.ES2022 });
   const imports = [];
   const declarations = new Map();
 
   for (const statement of file.statements) {
     if (ts.isImportDeclaration(statement)) {
       imports.push(statement.getText(file));
-    } else if (ts.isInterfaceDeclaration(statement) || ts.isFunctionDeclaration(statement)) {
+    } else if (ts.isTypeAliasDeclaration(statement) || ts.isFunctionDeclaration(statement)) {
       declarations.set(statement.name.text, statement);
     }
   }
@@ -592,49 +606,61 @@ test("the shared module exports injectActiveRoute and its active route types", a
   assert.ok(imports.includes("import type { Signal } from '@angular/core';"));
   assert.ok(
     imports.includes(
-      "import { injectGeneratedActiveRoute, type RouteSchema, type Handle as GeneratedHandle, type Destination as GeneratedDestination } from '@loozo/angular-router/_generated';",
+      "import { record, callbacks, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';",
     ),
   );
+  // Copies a record reads load at runtime; the rest only type RouteTypes.
+  assert.ok(
+    imports.includes(
+      'import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";',
+    ),
+  );
+  assert.ok(
+    imports.includes(
+      'import type { route as route_about_route } from "../src/routes/about/route.generated.js";',
+    ),
+  );
+  assert.doesNotMatch(source, /import \{ route as route_about_route \}/);
 
   const exported = (node) =>
     !!node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
-  const base = declarations.get("ActiveBase");
+  const types = declarations.get("RouteTypes");
   const active = declarations.get("ActiveRoute");
   const narrowed = declarations.get("ActiveHandle");
   const inject = declarations.get("injectActiveRoute");
 
-  assert.equal(exported(base), false);
-  assert.deepEqual(
-    base.members.map((member) => member.name.getText(file)),
-    ["is", "contains", "chain"],
-  );
-  assert.equal(base.members[0].type.getText(file), "this is ActiveHandle<Other>");
-  assert.equal(exported(active), true);
+  assert.equal(exported(types), true);
   assert.equal(
-    active.heritageClauses[0].getText(file),
-    'extends Pick<Handle<Retained>, "params" | "search" | "data" | "title">, ActiveBase',
+    types.type.getText(file),
+    `{
+"src/routes/about/route.ts": { schema: RouteSchema<typeof route_about_route> };
+"src/routes/teams/$teamId/items/$id/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_items_$id_route>; up: typeof destination_teams_$teamId_route };
+"src/routes/teams/$teamId/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_route> };
+}`,
   );
+  assert.equal(exported(active), true);
+  assert.equal(active.type.getText(file), "GeneratedActiveRoute<RouteTypes>");
   assert.equal(exported(narrowed), true);
-  assert.equal(narrowed.heritageClauses[0].getText(file), "extends Handle<Id>, ActiveBase");
+  assert.equal(narrowed.type.getText(file), "GeneratedActiveHandle<RouteTypes, Id>");
   assert.equal(exported(inject), true);
   assert.equal(inject.parameters.length, 0);
   assert.equal(inject.type.getText(file), "Signal<ActiveRoute | undefined>");
-  // The active table is built inside the call: copy and ".." destination per retained route.
+  // No table: the reader finds records by the facts each one carries.
   assert.equal(
     inject.body.getText(file),
     `{
-  // Built inside the call: nothing is read while this module evaluates.
-  return injectGeneratedActiveRoute({
-"src/routes/teams/$teamId/items/$id/route.ts": [route_teams_$teamId_items_$id_route, up_teams_$teamId_route],
-"src/routes/teams/$teamId/route.ts": [route_teams_$teamId_route],
-  });
+  return injectGeneratedActiveRoute<RouteTypes>();
 }`,
+  );
+  assert.match(
+    source,
+    /path: "items\/:id",\n\.\.\.record\(destination_teams_\$teamId_items_\$id_route, destination_teams_\$teamId_route\),/,
   );
 
   // A strict consumer narrows an ancestor through chain and the deepest route through is().
   await project.write(
     "src/shell.ts",
-    `import { injectActiveRoute } from "../generated/destinations.generated.js";
+    `import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
 import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
 
@@ -845,7 +871,10 @@ test("filesystem mode: only directories with a page or declaration become record
     generated,
     /loadComponent: \(\): ReturnType<NonNullable<Routes\[number\]\["loadComponent"\]>> => import\("/,
   );
-  assert.match(generated, /path: "shell",\ndata: [^\n]+\nchildren: \[\{ path: "docs\/:slug"/);
+  assert.match(
+    generated,
+    /path: "shell",\n\.\.\.record\([^\n]+\nchildren: \[\{ path: "docs\/:slug"/,
+  );
   assert.doesNotMatch(generated, /path: ""|path: "teams",|path: "items"/);
 
   // Prefixed paths keep the path grammar's rejections, before any write.
@@ -910,7 +939,7 @@ test("filesystem mode: a declaration added to a page-less directory re-parents a
   );
   assert.match(
     await project.routes(),
-    /path: "section",\ndata: [^\n]+\nchildren: \[\{ path: "busy"/,
+    /path: "section",\n\.\.\.record\([^\n]+\nchildren: \[\{ path: "busy"/,
   );
 });
 
@@ -1007,7 +1036,7 @@ test("filesystem mode: a page-less param prefix adds a string codec and keeps au
   );
   assert.match(
     await project.routes(),
-    /path: "shell",\ndata: [^\n]+\nchildren: \[[^\n]*path: ":team\/:id"/,
+    /path: "shell",\n\.\.\.record\([^\n]+\nchildren: \[[^\n]*path: ":team\/:id"/,
   );
 
   // A second pass has nothing left to write.
@@ -1782,10 +1811,13 @@ test("extension routes: ancestry, copies, emitted projection and a linked router
     "parent/middle": `import { defineRoute } from "@loozo/angular-router";\nimport parent from "../route.js";\nexport default defineRoute("middle", { parent }).title("middle");\n`,
     "parent/middle/child": `${header}import parent from "../route.js";\nexport default defineRoute("child", { parent }).use().resolve({ me: ({ rpc }) => rpc }).title("child");\n`,
   });
-  const shared = desired.get(resolve(project.root, "generated/destinations.generated.ts"));
+  const shared = desired.get(resolve(project.root, "generated/routes.generated.ts"));
 
-  assert.match(shared, /"src\/routes\/parent\/route\.ts": RouteSchema<typeof route_parent_route>;/);
-  assert.match(shared, /import \{ injectGeneratedActiveRoute, type RouteSchema,/);
+  assert.match(
+    shared,
+    /"src\/routes\/parent\/route\.ts": \{ schema: RouteSchema<typeof route_parent_route> \};/,
+  );
+  assert.match(shared, /injectGeneratedActiveRoute, type RouteSchema,/);
 
   // Two extensions in one ancestry are rejected.
   await assert.rejects(
@@ -2686,7 +2718,7 @@ test("route copies: destination ids type as literals in generated consumers", as
     "teams/$teamId/items/$id": `${header}import team from "../../route.js";\nexport default defineRoute("items/$id", { parent: team, params: { id: stringParam }, fragments: ["notes"] });\n`,
   };
   const shell = `import { createUrl } from "@loozo/angular-router";
-import { injectActiveRoute } from "../generated/destinations.generated.js";
+import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as about } from "./routes/about/destination.generated.js";
 import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
 import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
@@ -3584,7 +3616,7 @@ test("route copies: '..' destinations come from the winner's destination file", 
     },
     { componentless: ["scope", "scope/+terminal"] },
   );
-  const shared = result.desired.get(resolve(project.root, "generated/destinations.generated.ts"));
+  const shared = result.desired.get(resolve(project.root, "generated/routes.generated.ts"));
 
   // A catchall origin's ".." is the root; a redirect source can be the winner.
   assert.match(
@@ -3595,13 +3627,17 @@ test("route copies: '..' destinations come from the winner's destination file", 
     result.copy("scope/x", "route"),
     /import \{ destination as routegen\$up \} from "\.\.\/\+terminal\/destination\.generated\.js";/,
   );
-  assert.match(shared, /"src\/routes\/scope\/x\/route\.ts": typeof up_scope__terminal_route;/);
+  // The record carries its winner, and RouteTypes types it.
   assert.match(
     shared,
-    /"src\/routes\/scope\/x\/route\.ts": \[route_scope_x_route, up_scope__terminal_route\],/,
+    /"src\/routes\/scope\/x\/route\.ts": \{ schema: RouteSchema<typeof route_scope_x_route>; up: typeof destination_scope__terminal_route \};/,
+  );
+  assert.match(
+    shared,
+    /path: "x",\n\.\.\.record\(destination_scope_x_route, destination_scope__terminal_route\),/,
   );
 
-  // Without a root, top-level origins have no winner: no "..", and Parents lacks them.
+  // Without a root, top-level origins have no winner: no "..", and RouteTypes has no up.
   const rootless = await project.analyze({
     a: `${header}\nexport default defineRoute("a", {});\n`,
   });
@@ -3613,12 +3649,16 @@ test("route copies: '..' destinations come from the winner's destination file", 
     /function routegen\$injectRoute\(\): routegen\$Handle<typeof routegen\$route> \{ return routegen\$injectGeneratedRoute\(routegen\$route\); \}/,
   );
   assert.match(
-    rootless.desired.get(resolve(project.root, "generated/destinations.generated.ts")),
-    /export type Parents = \{\n\};/,
+    rootless.desired.get(resolve(project.root, "generated/routes.generated.ts")),
+    /"src\/routes\/a\/route\.ts": \{ schema: RouteSchema<typeof route_a_route> \};/,
+  );
+  assert.match(
+    rootless.desired.get(resolve(project.root, "generated/routes.generated.ts")),
+    /\.\.\.record\(destination_a_route\),/,
   );
 });
 
-test("route copies: a new root winner rewrites only its pair, the shared files and the top-level copies", async () => {
+test("route copies: a new root winner rewrites only its pair, routes.generated.ts and the top-level copies", async () => {
   const project = await copyProject();
   const header = 'import { defineRoute } from "@loozo/angular-router";\n';
   const routes = {
@@ -3677,7 +3717,6 @@ test("route copies: a new root winner rewrites only its pair, the shared files a
   assert.deepEqual(
     changed.sort((a, b) => Number(a > b) - Number(a < b)),
     [
-      "generated/destinations.generated.ts",
       "generated/routes.generated.ts",
       "src/routes/+home/destination.generated.ts",
       "src/routes/+home/route.generated.ts",
@@ -3743,7 +3782,7 @@ test("route copies: ownership of the per-route pair", async () => {
   assert.ok(pruned.copy("p", "destination"));
   assert.ok(pruned.copy("p", "route"));
   assert.doesNotMatch(
-    pruned.desired.get(resolve(project.root, "generated/destinations.generated.ts")),
-    /src\/routes\/p\/route\.ts/,
+    pruned.desired.get(resolve(project.root, "generated/routes.generated.ts")),
+    /src\/routes\/p\/route\.ts|destination_p_route\b/,
   );
 });
