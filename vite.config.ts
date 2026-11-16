@@ -6,6 +6,8 @@ export default defineConfig({
   },
   fmt: {
     ignorePatterns: [
+      // Glob lines, not Markdown: the formatter would escape underscores and asterisks.
+      ".macroscope/ignore.md",
       "docs/generated/**/*.generated.ts",
       "docs/src/routes/**/route.generated.ts",
       "docs/src/routes/**/destination.generated.ts",

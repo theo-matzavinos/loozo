@@ -3,3 +3,4 @@ packages/angular-router/SPEC.md
 examples/angular-router/**/*.generated.ts
 docs/generated/**/*.generated.ts
 docs/src/routes/**/route.generated.ts
+.macroscope/ignore.md
