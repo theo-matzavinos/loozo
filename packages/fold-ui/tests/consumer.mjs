@@ -113,10 +113,13 @@ ng([
   "--names",
   "button",
   "alert-dialog",
+  "checkbox",
   "dialog",
   "field",
   "input",
+  "radio-group",
   "sheet",
+  "switch",
   "textarea",
 ]);
 
@@ -127,11 +130,14 @@ assert.deepEqual(installed.imports, { "#ui/*": "./src/ui/*/index.ts" });
 assert.deepEqual(folders.sort(), [
   "alert-dialog",
   "button",
+  "checkbox",
   "cn",
   "dialog",
   "field",
   "input",
+  "radio-group",
   "sheet",
+  "switch",
   "textarea",
   "theme.css",
 ]);

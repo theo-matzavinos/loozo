@@ -1,10 +1,20 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
 import { Component, inject, signal } from "@angular/core";
-import { FormField, disabled, email, form, required, submit } from "@angular/forms/signals";
+import {
+  FormField,
+  disabled,
+  email,
+  form,
+  readonly,
+  required,
+  submit,
+  validate,
+} from "@angular/forms/signals";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { Button, ButtonLink } from "#ui/button";
+import { Checkbox } from "#ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +25,9 @@ import {
 } from "#ui/dialog";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
+import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
 import { SheetParts } from "#ui/sheet";
+import { Switch } from "#ui/switch";
 import { Textarea } from "#ui/textarea";
 import { LucideTriangleAlert } from "@lucide/angular";
 
@@ -49,6 +61,7 @@ export class SearchDialog {
     Button,
     ButtonLink,
     AlertDialogParts,
+    Checkbox,
     DialogParts,
     Field,
     FieldDescription,
@@ -57,7 +70,10 @@ export class SearchDialog {
     FormField,
     Input,
     LucideTriangleAlert,
+    RadioGroup,
+    RadioGroupItem,
     SheetParts,
+    Switch,
     Textarea,
   ],
   template: `
@@ -265,6 +281,138 @@ export class SearchDialog {
       <button zzButton variant="primary" (click)="save()" id="save">Save</button>
       <output id="saves">{{ saves() }}</output>
     </section>
+
+    <!-- Checkbox, Switch and RadioGroup: one control per Field, since a Field takes one control. -->
+    <form class="grid w-96 gap-4 p-5" (submit)="saveControls($event)">
+      <div zzField orientation="horizontal" #termsField="zzField" id="terms-field">
+        <button zzCheckbox [formField]="controls.terms" id="terms"></button>
+        <label zzFieldLabel id="terms-label">Accept the leasing terms</label>
+        @if (termsField.state.errorsShown()) {
+          <p zzFieldError>{{ termsField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzField orientation="horizontal" id="vat-field">
+        <button zzCheckbox [formField]="controls.vat" id="vat"></button>
+        <label zzFieldLabel>Include VAT</label>
+      </div>
+      <div zzField orientation="horizontal" id="renew-field">
+        <button zzSwitch [formField]="controls.renew" id="renew"></button>
+        <label zzFieldLabel id="renew-label">Renew automatically</label>
+        <p zzFieldDescription id="renew-description">Renews 30 days before the end date.</p>
+      </div>
+      <div zzField orientation="horizontal" id="locked-field">
+        <button zzSwitch [formField]="controls.locked" id="locked"></button>
+        <label zzFieldLabel>Locked</label>
+      </div>
+      <div zzField orientation="horizontal" id="frozen-field">
+        <button zzSwitch [formField]="controls.frozen" id="frozen"></button>
+        <label zzFieldLabel>Frozen</label>
+      </div>
+
+      <div zzField #cycleField="zzField" id="cycle-field">
+        <span zzFieldLabel id="cycle-label">Billing cycle</span>
+        <div zzRadioGroup [formField]="controls.cycle" id="cycle">
+          @for (option of cycles; track option.value) {
+            <button
+              zzRadioGroupItem
+              [value]="option.value"
+              [disabled]="option.locked"
+              [attr.id]="'cycle-' + option.value"
+            >
+              {{ option.label }}
+            </button>
+          }
+        </div>
+        @if (cycleField.state.errorsShown()) {
+          <p zzFieldError>{{ cycleField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <button zzButton (click)="controls.cycle().focusBoundControl()" id="focus-cycle">
+        Focus billing cycle
+      </button>
+
+      <div zzField #bandField="zzField" id="band-field">
+        <span zzFieldLabel id="band-label">Band</span>
+        <div zzRadioGroup [formField]="controls.band" id="band">
+          <button zzRadioGroupItem value="a" id="band-a">A</button>
+          <button zzRadioGroupItem value="b" id="band-b">B</button>
+        </div>
+        @if (bandField.state.errorsShown()) {
+          <p zzFieldError>{{ bandField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+
+      <!-- A valid inner group inside an invalid outer one keeps its own look. -->
+      <div zzField id="plan-field">
+        <span zzFieldLabel id="plan-label">Plan</span>
+        <div zzRadioGroup [formField]="controls.plan" id="plan">
+          <button zzRadioGroupItem value="basic" id="plan-basic">Basic</button>
+          <button zzRadioGroupItem value="pro" id="plan-pro">Pro</button>
+          <div class="ps-6">
+            <div zzField id="addon-field">
+              <span zzFieldLabel id="addon-label">Add-on</span>
+              <div zzRadioGroup [formField]="controls.addon" id="addon">
+                <button zzRadioGroupItem value="none" id="addon-none">None</button>
+                <button zzRadioGroupItem value="support" id="addon-support">Support</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- An editable inner group inside a readonly outer one keeps its own look. -->
+      <div zzField id="tier-field">
+        <span zzFieldLabel id="tier-label">Tier</span>
+        <div zzRadioGroup [formField]="controls.tier" id="tier">
+          <button zzRadioGroupItem value="standard" id="tier-standard">Standard</button>
+          <button zzRadioGroupItem value="priority" id="tier-priority">Priority</button>
+          <div zzField class="ps-6" id="tier-addon-field">
+            <span zzFieldLabel id="tier-addon-label">Tier add-on</span>
+            <div zzRadioGroup [(value)]="tierAddon" id="tier-addon">
+              <button zzRadioGroupItem value="a" id="tier-addon-a">A</button>
+              <button zzRadioGroupItem value="b" id="tier-addon-b">B</button>
+            </div>
+            <output id="tier-addon-value">{{ tierAddon() }}</output>
+          </div>
+        </div>
+      </div>
+
+      <!-- A checked or on value can be the invalid one. -->
+      <div zzField orientation="horizontal" #waiveField="zzField" id="waive-field">
+        <button zzCheckbox [formField]="controls.waive" id="waive"></button>
+        <label zzFieldLabel>Waive the insurance</label>
+        @if (waiveField.state.errorsShown()) {
+          <p zzFieldError>{{ waiveField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzField orientation="horizontal" #pauseField="zzField" id="pause-field">
+        <button zzSwitch [formField]="controls.pause" id="pause"></button>
+        <label zzFieldLabel>Pause billing</label>
+        @if (pauseField.state.errorsShown()) {
+          <p zzFieldError>{{ pauseField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button zzCheckbox aria-label="Select LC-2041" [(checked)]="selected" id="select-row"></button>
+        <output id="selected">{{ selected() }}</output>
+      </div>
+      <div zzRadioGroup aria-label="Density" [(value)]="density" class="flex-row gap-4" id="density">
+        <button zzRadioGroupItem value="compact">Compact</button>
+        <button zzRadioGroupItem value="comfortable">Comfortable</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <button zzCheckbox aria-label="Merged checkbox" class="rounded-full" id="merged-checkbox"></button>
+        <button zzSwitch aria-label="Merged switch" class="w-10" id="merged-switch"></button>
+      </div>
+      <div class="light flex items-center gap-2 bg-background p-2">
+        <button zzCheckbox aria-label="Light checkbox" [checked]="true" id="light-checkbox"></button>
+        <button zzSwitch aria-label="Light switch" [checked]="true" id="light-switch"></button>
+      </div>
+
+      <button zzButton variant="primary" type="submit" id="ctl-save">Save controls</button>
+      <output id="control-saves">{{ controlSaves() }}</output>
+    </form>
   `,
 })
 export class App {
@@ -282,6 +430,16 @@ export class App {
   protected readonly filterApplies = signal(0);
   protected readonly navOpen = signal(false);
   protected readonly panelOpen = signal(false);
+  protected readonly selected = signal(false);
+  protected readonly density = signal<string | null>("compact");
+  protected readonly tierAddon = signal<string | null>("a");
+  protected readonly controlSaves = signal(0);
+  protected readonly cycles = [
+    { value: "monthly", label: "Monthly", locked: false },
+    { value: "weekly", label: "Weekly", locked: true },
+    { value: "quarterly", label: "Quarterly", locked: false },
+    { value: "yearly", label: "Yearly", locked: false },
+  ];
   readonly #search = injectOrigamiDialogOpener(SearchDialog);
   protected readonly contact = form(
     signal({ email: "", notes: "", account: "ACC-0042" }),
@@ -291,6 +449,49 @@ export class App {
       disabled(path.account);
     },
   );
+
+  protected readonly controls = form(
+    signal({
+      terms: false,
+      vat: true,
+      renew: false,
+      locked: false,
+      frozen: true,
+      cycle: null as string | null,
+      band: "b" as string | null,
+      plan: null as string | null,
+      addon: "none" as string | null,
+      tier: "standard" as string | null,
+      waive: true,
+      pause: true,
+    }),
+    (path) => {
+      required(path.terms, { message: "Accept the terms to continue." });
+      disabled(path.locked);
+      readonly(path.frozen);
+      required(path.cycle, { message: "Choose a billing cycle." });
+      validate(path.band, ({ value }) =>
+        value() === "b" ? { kind: "band", message: "Band B is full." } : undefined,
+      );
+      required(path.plan, { message: "Choose a plan." });
+      readonly(path.tier);
+      validate(path.waive, ({ value }) =>
+        value() ? { kind: "insurance", message: "Leases need insurance." } : undefined,
+      );
+      validate(path.pause, ({ value }) =>
+        value() ? { kind: "pause", message: "Billing can't pause in the first term." } : undefined,
+      );
+    },
+  );
+
+  protected async saveControls(event: Event): Promise<void> {
+    event.preventDefault();
+    await submit(this.controls, async () => {
+      this.controlSaves.update((count) => count + 1);
+
+      return undefined;
+    });
+  }
 
   protected async save(): Promise<void> {
     await submit(this.contact, async () => {

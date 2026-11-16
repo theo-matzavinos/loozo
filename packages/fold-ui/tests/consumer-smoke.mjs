@@ -1,7 +1,8 @@
 // Chromium smoke of the consumer check's production build (consumer.mjs): the prerendered HTML,
 // hydration without errors, the button geometry, colors and type, the AlertDialog's, Dialog's and
-// Sheet's focus, dismissal, placement and motion, and a Signal Forms Field's wiring, errors and
-// control styling.
+// Sheet's focus, dismissal, placement and motion, a Signal Forms Field's wiring, errors and
+// control styling, and Checkbox's, Switch's and RadioGroup's states, keys, layout, nesting and
+// forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -54,6 +55,15 @@ function openingTag(html, id) {
   assert.ok(match, `the server HTML has no element with id "${id}"`);
 
   return match[0];
+}
+
+// The server HTML from an element's opening tag through its first closing tag of the same name.
+function element(html, id) {
+  const tag = openingTag(html, id);
+  const start = html.indexOf(tag);
+  const name = /^<([a-z]+)/.exec(tag)[1];
+
+  return html.slice(start, html.indexOf(`</${name}>`, start));
 }
 
 const port = await freePort();
@@ -152,6 +162,31 @@ try {
   assert.match(openingTag(html, "account-field"), /\bdata-disabled=""/);
   assert.doesNotMatch(html, /\bid="email-error"/);
 
+  // Checkbox, Switch and RadioGroup: Origami's state attributes and fold's inert markup are in the
+  // server HTML, and the labels name what they label.
+  const vat = openingTag(html, "vat");
+
+  assert.match(vat, /\baria-checked="true"/);
+  assert.match(vat, /\bdata-checked=""/);
+  assert.match(vat, /\bdata-slot="checkbox"/);
+  assert.match(element(html, "vat"), /<svg\b[^>]*\bdata-slot="checkbox-indicator"/);
+  assert.match(openingTag(html, "terms"), /\bid="terms"/);
+  assert.match(openingTag(html, "terms-label"), /\bfor="terms"/);
+  assert.match(openingTag(html, "cycle"), /\baria-labelledby="cycle-label"/);
+  assert.equal(
+    element(html, "cycle")
+      .match(/<button\b[^>]*>/g)
+      .filter((tag) => tag.includes('role="radio"') && tag.includes('tabindex="0"')).length,
+    1,
+    "one cycle tab stop on the server",
+  );
+  assert.match(openingTag(html, "terms-field"), /\bdata-orientation="horizontal"/);
+  assert.match(openingTag(html, "locked"), /\bdisabled=""/);
+  assert.match(openingTag(html, "locked"), /\bdata-disabled=""/);
+  assert.match(openingTag(html, "frozen"), /\baria-readonly="true"/);
+  assert.match(openingTag(html, "tier"), /\baria-readonly="true"/);
+  assert.doesNotMatch(openingTag(html, "tier-addon"), /\saria-readonly=/);
+
   browser = await chromium.launch();
 
   // Before hydration, the prerendered dialogs are hidden, also with the root on the <dialog>.
@@ -186,6 +221,31 @@ try {
     "nav-content": "none",
     "panel-content": "none",
   });
+
+  // Before hydration, CSS alone draws the controls' server state, and a nested editable group
+  // keeps its own look inside a readonly one.
+  assert.deepEqual(
+    await prerendered.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+      const thumbOffset = (id) => {
+        const track = document.getElementById(id);
+
+        return (
+          track.querySelector("[data-slot=switch-thumb]").getBoundingClientRect().left -
+          track.getBoundingClientRect().left
+        );
+      };
+
+      return {
+        fill: style("#vat").backgroundColor,
+        glyph: style("#vat > svg").opacity,
+        thumbTravel: thumbOffset("frozen") - thumbOffset("renew"),
+        outer: style("#tier-standard > [data-slot=radio-group-indicator]").borderTopStyle,
+        inner: style("#tier-addon-a > [data-slot=radio-group-indicator]").borderTopStyle,
+      };
+    }),
+    { fill: "rgb(237, 237, 235)", glyph: "1", thumbTravel: 16, outer: "dashed", inner: "solid" },
+  );
   await prerendered.close();
 
   const page = await browser.newPage();
@@ -837,6 +897,425 @@ try {
   assert.equal((await page.textContent("#email-error")).trim(), "Enter your email.");
   assert.equal(await page.getAttribute("#email", "aria-invalid"), "true");
   assert.equal(await page.textContent("#saves"), "0");
+
+  // Checkbox, Switch and RadioGroup, from a fresh page once Angular has hydrated it: a click
+  // before then would reach the server's native form.
+  const fresh = async () => {
+    await page.goto(base, { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => document.querySelector("app-root") && !document.querySelector("[ngh]"),
+    );
+  };
+  // Angular renders by the next animation frame after a change.
+  const rendered = () =>
+    page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+  const attribute = (id, name) => page.getAttribute(`#${id}`, name);
+  const until = (id, name, value) =>
+    page.waitForFunction(
+      ([id, name, value]) => document.getElementById(id).getAttribute(name) === value,
+      [id, name, value],
+    );
+  const indicator = (id) => `#${id} > [data-slot=radio-group-indicator]`;
+  const styleOf = (selector, properties) =>
+    page.evaluate(
+      ([selector, properties]) => {
+        const style = getComputedStyle(document.querySelector(selector));
+
+        return Object.fromEntries(properties.map((property) => [property, style[property]]));
+      },
+      [selector, properties],
+    );
+  const activeId = () => page.evaluate(() => document.activeElement?.id);
+  // Each radio's dot (opacity and color) and its indicator's outline.
+  const radioLooks = (ids) =>
+    page.evaluate(
+      (ids) =>
+        Object.fromEntries(
+          ids.map((id) => {
+            const indicator = document.querySelector(`#${id} > [data-slot=radio-group-indicator]`);
+            const dot = getComputedStyle(indicator.firstElementChild);
+            const ring = getComputedStyle(indicator);
+
+            return [
+              id,
+              {
+                dot: `${dot.opacity} ${dot.backgroundColor}`,
+                outline: `${ring.outlineStyle} ${ring.outlineWidth} ${ring.outlineColor}`,
+              },
+            ];
+          }),
+        ),
+      ids,
+    );
+  const foreground = "rgb(237, 237, 235)";
+  const ring = "solid 2px rgb(76, 196, 111)";
+
+  await fresh();
+
+  // Geometry: the 16px box, the 36×20 track, the 16px radio, a 24px option row whose hint lines up
+  // with its label, and regular-weight option labels beside semibold group labels.
+  const { firstRow, ...controlGeometry } = await page.evaluate(() => {
+    const size = (selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+
+      return `${style.width} ${style.height}`;
+    };
+    const left = (id) => document.getElementById(id).getBoundingClientRect().left;
+
+    return {
+      checkbox: size("#vat"),
+      checkboxRadius: getComputedStyle(document.getElementById("vat")).borderTopLeftRadius,
+      glyph: size("#vat > svg"),
+      switch: size("#renew"),
+      thumb: size("#renew > [data-slot=switch-thumb]"),
+      radio: size("#cycle-monthly > [data-slot=radio-group-indicator]"),
+      dot: size("#cycle-monthly > [data-slot=radio-group-indicator] > span"),
+      firstRow: parseFloat(
+        getComputedStyle(document.getElementById("terms-field")).gridTemplateRows,
+      ),
+      descriptionOffset: left("renew-description") - left("renew-label"),
+      optionLabel: getComputedStyle(document.getElementById("renew-label")).fontWeight,
+      groupLabel: getComputedStyle(document.getElementById("cycle-label")).fontWeight,
+    };
+  });
+
+  assert.ok(firstRow >= 24, `first option row ${firstRow}px`);
+  assert.deepEqual(controlGeometry, {
+    checkbox: "16px 16px",
+    checkboxRadius: "5px",
+    glyph: "12px 12px",
+    switch: "36px 20px",
+    thumb: "14px 14px",
+    radio: "16px 16px",
+    dot: "8px 8px",
+    descriptionOffset: 0,
+    optionLabel: "400",
+    groupLabel: "600",
+  });
+
+  // A click on the box or its label toggles it; Space toggles, Enter doesn't.
+  await page.click("#terms");
+  await until("terms", "aria-checked", "true");
+  await page.click("#terms-label");
+  await until("terms", "aria-checked", "false");
+  await page.focus("#terms");
+  await page.keyboard.press("Space");
+  await until("terms", "aria-checked", "true");
+  await page.keyboard.press("Enter");
+  await rendered();
+  assert.equal(
+    await attribute("terms", "aria-checked"),
+    "true",
+    "Enter doesn't toggle the checkbox",
+  );
+
+  // A switch toggles on Enter, and its thumb travels 16px.
+  const thumbOffset = () =>
+    page.evaluate(() => {
+      const track = document.getElementById("renew");
+
+      return (
+        track.querySelector("[data-slot=switch-thumb]").getBoundingClientRect().left -
+        track.getBoundingClientRect().left
+      );
+    });
+  const offOffset = await thumbOffset();
+
+  await page.focus("#renew");
+  await page.keyboard.press("Enter");
+  await until("renew", "aria-checked", "true");
+  assert.equal((await thumbOffset()) - offOffset, 16, "the thumb travels 16px");
+
+  // A standalone checkbox writes its two-way binding.
+  await page.click("#select-row");
+  await page.waitForFunction(() => document.getElementById("selected").textContent === "true");
+
+  // Arrows move and check, skipping the disabled item; Tab enters on the checked item. Only the
+  // checked item shows its dot, and only a keyboard-focused one rings its indicator.
+  await page.click("#cycle-monthly");
+  await until("cycle-monthly", "aria-checked", "true");
+
+  const clickedLooks = await radioLooks(["cycle-monthly", "cycle-quarterly"]);
+
+  assert.equal(clickedLooks["cycle-monthly"].dot, `1 ${foreground}`);
+  assert.match(clickedLooks["cycle-quarterly"].dot, /^0 /);
+  await page.keyboard.press("ArrowDown");
+  await until("cycle-quarterly", "aria-checked", "true");
+  assert.equal(await activeId(), "cycle-quarterly");
+
+  const arrowedLooks = await radioLooks(["cycle-monthly", "cycle-quarterly"]);
+
+  assert.match(arrowedLooks["cycle-monthly"].dot, /^0 /);
+  assert.match(arrowedLooks["cycle-monthly"].outline, /^none /);
+  assert.deepEqual(arrowedLooks["cycle-quarterly"], { dot: `1 ${foreground}`, outline: ring });
+  assert.equal(await attribute("cycle-weekly", "aria-checked"), "false");
+  await page.focus("#frozen");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "cycle-quarterly", "Tab enters on the checked item");
+
+  // Disabled controls and readonly ones keep their values; an editable group nested in a readonly
+  // one still changes.
+  await page.click("#cycle-weekly", { force: true });
+  await page.click("#locked", { force: true });
+  await page.click("#frozen");
+  await page.click("#tier-priority");
+  await page.click("#tier-addon-b");
+  await until("tier-addon-b", "aria-checked", "true");
+  await page.waitForFunction(() => document.getElementById("tier-addon-value").textContent === "b");
+  await rendered();
+  assert.deepEqual(
+    {
+      weekly: await attribute("cycle-weekly", "aria-checked"),
+      quarterly: await attribute("cycle-quarterly", "aria-checked"),
+      locked: await attribute("locked", "aria-checked"),
+      frozen: await attribute("frozen", "aria-checked"),
+      standard: await attribute("tier-standard", "aria-checked"),
+      priority: await attribute("tier-priority", "aria-checked"),
+    },
+    {
+      weekly: "false",
+      quarterly: "true",
+      locked: "false",
+      frozen: "true",
+      standard: "true",
+      priority: "false",
+    },
+  );
+
+  // Validation, from a fresh page: saving marks every control touched, and invalid groups turn
+  // their own items orange, including a checked one, but not a valid group nested inside one.
+  await fresh();
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const checked = (id) => document.getElementById(id).getAttribute("aria-checked");
+
+      return {
+        terms: checked("terms"),
+        cycle: [...document.querySelectorAll("#cycle [role=radio]")].some(
+          (item) => item.getAttribute("aria-checked") === "true",
+        ),
+        band: checked("band-b"),
+        plan: [checked("plan-basic"), checked("plan-pro")],
+        addon: checked("addon-none"),
+        waive: checked("waive"),
+        pause: checked("pause"),
+        invalid: ["cycle", "band", "plan", "addon", "terms", "waive", "pause"].filter((id) =>
+          document.getElementById(id).hasAttribute("aria-invalid"),
+        ),
+      };
+    }),
+    {
+      terms: "false",
+      cycle: false,
+      band: "true",
+      plan: ["false", "false"],
+      addon: "true",
+      waive: "true",
+      pause: "true",
+      invalid: [],
+    },
+  );
+  await page.click("#ctl-save");
+  await page.waitForSelector("#cycle-field [data-slot=field-error]");
+
+  const orange = "rgb(224, 144, 111)";
+  const validated = await page.evaluate(() => {
+    const border = (selector) => getComputedStyle(document.querySelector(selector)).borderTopColor;
+    const indicator = (id) => `#${id} > [data-slot=radio-group-indicator]`;
+    const solid = (id) => getComputedStyle(document.querySelector(indicator(id))).borderTopStyle;
+
+    return {
+      terms: border("#terms"),
+      cycle: [...document.querySelectorAll("#cycle [data-slot=radio-group-indicator]")].map(
+        (part) => getComputedStyle(part).borderTopColor,
+      ),
+      band: border(indicator("band-b")),
+      planInvalid: document.getElementById("plan").getAttribute("aria-invalid"),
+      plan: [border(indicator("plan-basic")), border(indicator("plan-pro"))],
+      addonInvalid: document.getElementById("addon").hasAttribute("aria-invalid"),
+      addon: [
+        border(indicator("addon-none")),
+        border(indicator("addon-support")),
+        solid("addon-none"),
+        solid("addon-support"),
+      ],
+      // A checked box and an on switch that fail validation keep their fill and turn orange.
+      boolean: ["waive", "pause"].map((id) => {
+        const control = document.getElementById(id);
+        const style = getComputedStyle(control);
+
+        return `${control.getAttribute("aria-checked")} ${style.backgroundColor} ${style.borderTopColor}`;
+      }),
+      saves: document.getElementById("control-saves").textContent,
+    };
+  });
+
+  assert.deepEqual(validated, {
+    terms: orange,
+    cycle: [orange, orange, orange, orange],
+    band: orange,
+    planInvalid: "true",
+    plan: [orange, orange],
+    addonInvalid: false,
+    addon: [foreground, "rgb(107, 107, 104)", "solid", "solid"],
+    boolean: [`true ${foreground} ${orange}`, `true ${foreground} ${orange}`],
+    saves: "0",
+  });
+
+  // Keyboard focus on an invalid checkbox: the ring outside, the orange border kept.
+  await page.focus("#vat");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await activeId(), "terms");
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const style = getComputedStyle(document.getElementById("terms"));
+
+      return {
+        border: style.borderTopColor,
+        outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
+      };
+    }),
+    { border: orange, outline: ring },
+  );
+
+  // Signal Forms' focusBoundControl() reaches the group's tab stop through fold's RadioGroup.
+  await page.click("#focus-cycle");
+  await page.waitForFunction(
+    () =>
+      document.activeElement?.closest("#cycle") &&
+      document.activeElement.getAttribute("role") === "radio",
+  );
+
+  // Disabled, readonly (a readonly switch keeps its on fill), nested editable, themed and merged.
+  const surface = "rgb(28, 28, 28)";
+
+  assert.equal((await styleOf("#locked", ["opacity"])).opacity, "0.5");
+  assert.deepEqual(await styleOf("#frozen", ["borderTopStyle", "cursor", "backgroundColor"]), {
+    borderTopStyle: "dashed",
+    cursor: "default",
+    backgroundColor: foreground,
+  });
+
+  for (const id of ["tier-standard", "tier-priority"]) {
+    assert.deepEqual(
+      {
+        ...(await styleOf(indicator(id), ["borderTopStyle", "backgroundColor"])),
+        ...(await styleOf(`#${id}`, ["cursor"])),
+      },
+      { borderTopStyle: "dashed", backgroundColor: "rgba(0, 0, 0, 0)", cursor: "default" },
+      id,
+    );
+  }
+
+  assert.equal(await attribute("tier-addon", "aria-labelledby"), "tier-addon-label");
+
+  for (const id of ["tier-addon-a", "tier-addon-b"]) {
+    assert.deepEqual(
+      {
+        ...(await styleOf(indicator(id), ["borderTopStyle", "backgroundColor"])),
+        ...(await styleOf(`#${id}`, ["cursor"])),
+      },
+      { borderTopStyle: "solid", backgroundColor: surface, cursor: "pointer" },
+      id,
+    );
+  }
+
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+
+      return {
+        checked: `${style("#vat").backgroundColor} ${style("#vat").borderTopColor}`,
+        glyph: style("#vat > svg").color,
+        unchecked: style("#merged-checkbox").borderTopColor,
+        lightFill: style("#light-checkbox").backgroundColor,
+        lightThumb: style("#light-switch > [data-slot=switch-thumb]").backgroundColor,
+        mergedRadius: parseFloat(style("#merged-checkbox").borderTopLeftRadius) >= 8,
+        mergedWidth: style("#merged-switch").width,
+      };
+    }),
+    {
+      checked: `${foreground} ${foreground}`,
+      glyph: "rgb(20, 20, 20)",
+      unchecked: "rgb(107, 107, 104)",
+      lightFill: "rgb(27, 27, 27)",
+      lightThumb: "rgb(233, 233, 231)",
+      mergedRadius: true,
+      mergedWidth: "40px",
+    },
+  );
+
+  // Reduced motion removes every control transition.
+  assert.deepEqual(
+    await page.evaluate(() =>
+      [
+        "#vat",
+        "#vat > svg",
+        "#renew",
+        "#renew > [data-slot=switch-thumb]",
+        "#cycle-monthly > [data-slot=radio-group-indicator]",
+        "#cycle-monthly > [data-slot=radio-group-indicator] > span",
+      ].map((selector) => getComputedStyle(document.querySelector(selector)).transitionDuration),
+    ),
+    ["0s", "0s", "0s", "0s", "0s", "0s"],
+  );
+
+  // Forced colors, from a fresh page: the radio's dot and the switch's thumb keep the system button
+  // text color, so a selected radio and an on switch look different from unselected and off ones.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+
+  // The opaque color painted on the dot or thumb, and on what it sits on.
+  const painted = (part, ground) =>
+    page.evaluate(
+      ([part, ground]) => ({
+        part: getComputedStyle(document.querySelector(part)).backgroundColor,
+        ground: getComputedStyle(document.querySelector(ground)).backgroundColor,
+      }),
+      [part, ground],
+    );
+  const assertStandsOut = ({ part, ground }, name) => {
+    assert.match(part, /^rgb\(/, `${name} is opaque`);
+    assert.notEqual(part, ground, `${name} differs from its ground`);
+  };
+  const shot = (selector) => page.locator(selector).screenshot({ animations: "disabled" });
+
+  const unselected = await shot(indicator("cycle-monthly"));
+
+  await page.click("#cycle-monthly");
+  await until("cycle-monthly", "aria-checked", "true");
+  await rendered();
+  assert.equal(
+    (await styleOf(`${indicator("cycle-monthly")} > span`, ["opacity"])).opacity,
+    "1",
+    "the selected dot shows",
+  );
+  assertStandsOut(
+    await painted(`${indicator("cycle-monthly")} > span`, indicator("cycle-monthly")),
+    "the selected dot",
+  );
+  assert.equal(
+    unselected.equals(await shot(indicator("cycle-monthly"))),
+    false,
+    "a selected radio looks different from an unselected one",
+  );
+
+  const thumb = "#renew > [data-slot=switch-thumb]";
+  const off = await shot("#renew");
+
+  assertStandsOut(await painted(thumb, "#renew"), "the off thumb");
+  await page.click("#renew");
+  await until("renew", "aria-checked", "true");
+  await rendered();
+  assertStandsOut(await painted(thumb, "#renew"), "the on thumb");
+  assert.equal(
+    off.equals(await shot("#renew")),
+    false,
+    "an on switch looks different from an off one",
+  );
+  await page.emulateMedia({ forcedColors: "none" });
 
   assert.deepEqual(errors, [], "console errors or warnings");
   console.log("Chromium smoke passed:", JSON.stringify(geometry));
