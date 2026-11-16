@@ -1,9 +1,4 @@
----
-include:
-  - "packages/origami-ui/**"
----
-
-These instructions restate the Origami rules in `AGENTS.md` at the repository root.
+These instructions restate the Origami rules in `AGENTS.md` at the repository root and apply to `packages/origami-ui/`. They're scoped here in prose, not with an `include`, because an `include` would bring that package's ignored tests back into review.
 
 ## Out-of-scope composition
 
