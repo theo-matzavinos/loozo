@@ -135,6 +135,16 @@ export const routes: Routes = [
       import("./fixtures/number-field-deferred.js").then((module) => module.NumberFieldDeferred),
   },
   {
+    path: "otp-field",
+    loadComponent: () =>
+      import("./fixtures/otp-field-deferred.js").then((module) => module.OtpFieldDeferred),
+  },
+  {
+    path: "otp-field-pin-pad",
+    loadComponent: () =>
+      import("./fixtures/otp-field-pin-pad.js").then((module) => module.OtpFieldPinPadFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

@@ -64,6 +64,7 @@ for (const directory of [
   "toast/src",
   "slider/src",
   "number-field/src",
+  "otp-field/src",
   "combobox/src",
 ]) {
   await collect(directory);
@@ -333,6 +334,11 @@ const directiveDefaults = {
   "OrigamiNumberField.useGrouping": ["true", /\btrue\b/i],
   "OrigamiNumberField.disabled": ["false", /\bfalse\b/i],
   "OrigamiNumberField.readonly": ["false", /\bfalse\b/i],
+  "OrigamiOtpField.value": ['""', /`""`/],
+  "OrigamiOtpField.length": ["6", /\b6\b/],
+  "OrigamiOtpField.mask": ["false", /\bfalse\b/i],
+  "OrigamiOtpField.disabled": ["false", /\bfalse\b/i],
+  "OrigamiOtpField.readonly": ["false", /\bfalse\b/i],
   "OrigamiCombobox.value": ["null", /\bnull\b/i],
   "OrigamiCombobox.query": ["empty string", /""|empty/i],
   "OrigamiCombobox.open": ["false", /\bfalse\b/i],

@@ -31,6 +31,7 @@ import {
 } from "@loozo/origami-ui/calendar";
 import { OrigamiDateField, OrigamiDateFieldInput } from "@loozo/origami-ui/date-field";
 import { OrigamiNumberField, OrigamiNumberFieldInput } from "@loozo/origami-ui/number-field";
+import { OrigamiOtpField, OrigamiOtpFieldInput } from "@loozo/origami-ui/otp-field";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -64,6 +65,8 @@ import { OrigamiNumberField, OrigamiNumberFieldInput } from "@loozo/origami-ui/n
     OrigamiDateFieldInput,
     OrigamiNumberField,
     OrigamiNumberFieldInput,
+    OrigamiOtpField,
+    OrigamiOtpFieldInput,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -104,6 +107,7 @@ import { OrigamiNumberField, OrigamiNumberFieldInput } from "@loozo/origami-ui/n
         <option value="calendar-cell-level">Month cell in a calendar's days view</option>
         <option value="date-field-input">Duplicate date field Input</option>
         <option value="number-field-input">Duplicate number field Input</option>
+        <option value="otp-field-input">Duplicate OTP field Input</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -182,6 +186,12 @@ import { OrigamiNumberField, OrigamiNumberFieldInput } from "@loozo/origami-ui/n
       <input ogNumberFieldInput aria-label="First number" />
       @if (mounted() && selected() === "number-field-input") {
         <input ogNumberFieldInput aria-label="Second number" />
+      }
+    </section>
+    <section ogOtpField>
+      <input ogOtpFieldInput aria-label="First code" />
+      @if (mounted() && selected() === "otp-field-input") {
+        <input ogOtpFieldInput aria-label="Second code" />
       }
     </section>
     <section ogCollapsible>

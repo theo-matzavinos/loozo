@@ -70,6 +70,7 @@ for (const [variant, caseId, context] of [
   ],
   ["date-field-input", "DF16", /Date field supports only one mounted Input/],
   ["number-field-input", "NF13", /Number field supports only one mounted Input/],
+  ["otp-field-input", "OT13", /OTP field supports only one mounted Input/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,

@@ -322,6 +322,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/toast",
     "@loozo/origami-ui/slider",
     "@loozo/origami-ui/number-field",
+    "@loozo/origami-ui/otp-field",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -369,6 +370,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/toast"].length, 11);
   assert.equal(names["@loozo/origami-ui/slider"].length, 5);
   assert.equal(names["@loozo/origami-ui/number-field"].length, 6);
+  assert.equal(names["@loozo/origami-ui/otp-field"].length, 5);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -418,6 +420,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "toast:Toast",
     "slider:Slider",
     "number-field:Number field",
+    "otp-field:OTP field",
     "utils:Utilities",
   ]);
 
@@ -433,7 +436,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 34 snippets that export one component", async () => {
+test("origami's guide pages run the 35 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -441,7 +444,7 @@ test("origami's guide pages run the 34 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 34);
+  assert.equal(ids.length, 35);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -510,6 +513,11 @@ test("origami's playgrounds get a control for each input and model of their comp
       "disabled:input:boolean",
       "readonly:input:boolean",
       "locale:input:options",
+    ],
+    "otp-field/verification-code.ts": [
+      "disabled:input:boolean",
+      "readonly:input:boolean",
+      "mask:input:boolean",
     ],
   });
 });
