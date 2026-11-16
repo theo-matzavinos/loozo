@@ -426,12 +426,15 @@ describe("add", () => {
     }
   });
 
-  test("copies Field, Input, Textarea, Dialog and Sheet with only what they import", async () => {
+  test("copies the form controls, Dialog and Sheet with only what they import", async () => {
     const cases = {
+      checkbox: ["checkbox", "cn"],
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
+      "radio-group": ["cn", "radio-group"],
       sheet: ["button", "cn", "sheet"],
+      switch: ["cn", "switch"],
       textarea: ["cn", "input", "textarea"],
     };
 
@@ -463,6 +466,16 @@ describe("add", () => {
 
     assert.match(field, /selector: "\[zzField\]"/);
     assert.match(field, /exportAs: "zzField"/);
+  });
+
+  test("renames RadioGroupItem's selector with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["radio-group"] }, await setUp(runner));
+
+    assert.match(
+      readText(tree, "src/ui/radio-group/radio-group-item.ts"),
+      /selector: "button\[zzRadioGroupItem\]"/,
+    );
   });
 
   test("skips an existing named component by default, with a warning", async () => {

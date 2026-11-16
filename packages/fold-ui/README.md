@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input and Textarea. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input, Textarea, Checkbox, Switch and RadioGroup. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -41,6 +41,7 @@ ng add @loozo/fold-ui
 ```sh
 ng generate @loozo/fold-ui:add --names button alert-dialog dialog sheet
 ng generate @loozo/fold-ui:add --names field input textarea
+ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ```
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
@@ -124,9 +125,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*` and `--shadow-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`.
+Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch and RadioGroupItem has its own: `checkbox-indicator`, `switch-thumb` and `radio-group-indicator`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`; Input and Textarea also style native `:disabled` and `[readonly]`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -446,7 +447,7 @@ import { Input } from "#ui/input";
 import { Textarea } from "#ui/textarea";
 ```
 
-Field stacks a label, a control, its descriptions and its errors, over Origami's [Field](../origami-ui/field/README.md), which links them for assistive technology and reads the control's [Signal Forms](https://angular.dev/guide/forms/signals/overview) state. Bind the control with `[formField]`:
+Field lays out a label, a control, its descriptions and its errors, over Origami's [Field](../origami-ui/field/README.md), which links them for assistive technology and reads the control's [Signal Forms](https://angular.dev/guide/forms/signals/overview) state. Bind the control with `[formField]`:
 
 ```html
 <div foldField #email="foldField">
@@ -463,8 +464,8 @@ Field stacks a label, a control, its descriptions and its errors, over Origami's
 </div>
 ```
 
-- `Field`: the root, a column with a 6px gap. Its template reference, `#email="foldField"` with your prefix, has `state`: Origami's Field state, with `errorsShown`, `errors`, `invalid`, `touched`, `disabled` and `required` signals.
-- `FieldLabel`: a `<label>` that names the control, in body text at weight 600. It dims while the Field is disabled. It takes `id`.
+- `Field`: the root, a column with a 6px gap. Its template reference, `#email="foldField"` with your prefix, has `state`: Origami's Field state, with `errorsShown`, `errors`, `invalid`, `touched`, `disabled` and `required` signals. It takes `orientation`, `vertical` (default) or `horizontal`; see [Option rows](#option-rows).
+- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox and Switch, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
 - `FieldDescription`: a 12px muted hint. It takes `id`.
 - `FieldError`: a 12px message in the destructive text color, after an alert icon hidden from assistive technology. It always shows while it's mounted, so put it under `@if (field.state.errorsShown())`; the text is yours. It takes `id`.
 
@@ -472,7 +473,26 @@ Origami's Field README describes the wiring, when errors show and the server ren
 
 Field's state needs Signal Forms' `[formField]` on the control. With reactive forms' `[formControl]`, `ngModel` or a bare native `disabled`, every state signal stays `false`: no error border, no `errorsShown` to gate errors on, and no dimmed label. Native `:disabled` and `[readonly]` still style the control.
 
-A disabled Field also dims the labels of Fields nested inside it.
+A disabled Field also dims the labels of Fields nested inside it, and a horizontal Field sets theirs at weight 400.
+
+The label dims only from the Field's Signal Forms disabled state: a Checkbox disabled through `[disabled]` without `[formField]` dims itself, not its label.
+
+### Option rows
+
+`orientation="horizontal"` lays a Checkbox or Switch out as an option row: the control first, then the label beside it, at least 24px tall and 8px from the control, with descriptions and errors under the label, aligned with its text:
+
+```html
+<div foldField orientation="horizontal" #terms="foldField">
+  <button foldCheckbox [formField]="f.terms"></button>
+  <label foldFieldLabel>Accept the leasing terms</label>
+  <p foldFieldDescription>You can cancel within 14 days.</p>
+  @if (terms.state.errorsShown()) {
+  <p foldFieldError>{{ terms.state.errors()[0]?.message }}</p>
+  }
+</div>
+```
+
+The layout is a two-column grid that places children by position: the first child takes the first column and every later one the second, so put the control first. A label that wraps centers the control on its lines. There's no label-first layout, such as a settings row with the switch at the end.
 
 ## Input
 
@@ -489,6 +509,81 @@ Use it for text-like types, such as `text`, `email`, `password`, `search`, `numb
 ## Textarea
 
 `Textarea` styles a native `<textarea>` with Input's look, at least 64px tall and resizable vertically; `rows` sets its height above that. It takes `id`. It imports `inputClasses` from `../input`, so adding `textarea` adds `input`.
+
+## Checkbox
+
+```ts
+import { Checkbox } from "#ui/checkbox";
+```
+
+`Checkbox` is a 16px box on a native `<button>`, over Origami's [Checkbox](../origami-ui/checkbox/README.md), which owns its behavior: a click or Space toggles it, Enter doesn't. It's the box only, so content inside it is dropped. Name it with a Field `<label>`, which also toggles it on click, or with `aria-label`:
+
+```html
+<div foldField orientation="horizontal">
+  <button foldCheckbox [formField]="f.includeVat"></button>
+  <label foldFieldLabel>Include VAT</label>
+</div>
+
+<button foldCheckbox aria-label="Select LC-2041" [(checked)]="selected"></button>
+```
+
+It takes `checked` (two-way), `disabled`, `focusableWhenDisabled` and `id`, and emits `checkedChange` and `touch`; `[formField]` binds them. Checked, it fills with the foreground color and shows a check icon hidden from assistive technology; it's never green. The focus ring is green, an invalid box has a destructive border, a readonly one a dashed border without fill (a checked one keeps its fill), and a disabled one 50% opacity. There's no mixed state.
+
+- **Readonly only in a Field.** Origami sets `aria-readonly` from Signal Forms inside a Field; outside one, a readonly checkbox looks editable.
+- **Render the error.** When a validator rejects a checked box, its destructive border sits against the fill, faint in the dark theme, so render the Field's FieldError as the cue.
+- **Target size.** In an option row, the label's click and the 8px gap make the 16px box meet WCAG 2.5.8's spacing exception. In denser layouts, such as a table cell with another control within 4px, give it room yourself.
+
+## Switch
+
+```ts
+import { Switch } from "#ui/switch";
+```
+
+`Switch` is a 36×20 track with a 14px thumb on a native `<button>`, over Origami's [Switch](../origami-ui/switch/README.md): a click, Enter or Space toggles it. It has Checkbox's inputs, outputs, naming and notes, and the same looks: on, the track fills with the foreground color and the thumb slides to the end, following the text direction.
+
+```html
+<div foldField orientation="horizontal">
+  <button foldSwitch [formField]="f.autoRenew"></button>
+  <label foldFieldLabel>Renew automatically</label>
+  <p foldFieldDescription>Renews 30 days before the end date.</p>
+</div>
+```
+
+## RadioGroup
+
+```ts
+import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
+```
+
+`RadioGroup` is a column of `RadioGroupItem`s, 8px apart, over Origami's [RadioGroup](../origami-ui/radio-group/README.md), which owns the behavior: one tab stop, arrow keys that move and select, and skipping disabled items. In a Field, name it with a FieldLabel on a `<span>`:
+
+```html
+<div foldField #cycle="foldField">
+  <span foldFieldLabel>Billing cycle</span>
+  <div foldRadioGroup [formField]="f.cycle">
+    @for (option of cycles; track option.value) {
+    <button foldRadioGroupItem [value]="option.value" [disabled]="option.locked">
+      {{ option.label }}
+    </button>
+    }
+  </div>
+  @if (cycle.state.errorsShown()) {
+  <p foldFieldError>{{ cycle.state.errors()[0]?.message }}</p>
+  }
+</div>
+
+<div foldRadioGroup aria-label="Density" [(value)]="density" class="flex-row gap-4">
+  <button foldRadioGroupItem value="compact">Compact</button>
+  <button foldRadioGroupItem value="comfortable">Comfortable</button>
+</div>
+```
+
+- `RadioGroup`: takes `value` (two-way), `disabled` and `class`, and emits `valueChange` and `touch`. Its `focus()` focuses the item with the tab stop, so Signal Forms' `focusBoundControl()` reaches the group. Its `class` can change the layout, such as `flex-row gap-4`.
+- `RadioGroupItem`: a whole row on a native `<button>`: a 16px circle and its content, which names it. It takes `value` (required), `disabled`, `focusableWhenDisabled` and `class`. Give each item a distinct value.
+
+A selected item shows a dot in the foreground color; the focus ring goes around the circle. The group's invalid and readonly looks reach only its own items, so a group nested inside another keeps its own. Like Checkbox, its readonly look needs a Field.
+
+The item's whole content is its accessible name, so a hint inside an item is read as part of it; use `aria-describedby` for longer hints. A multi-line item centers its circle on its lines.
 
 ## Limitations
 
