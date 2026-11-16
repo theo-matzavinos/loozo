@@ -1,6 +1,7 @@
 import { defineRoute } from "@loozo/angular-router";
 import { route as packageRoute } from "../route.generated.js";
 
+// `api` is the symbol index, which the sidebar's API Index link opens.
 /** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination, packageRoute);
 import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
 import { destination as routegen$destination } from "./destination.generated.js";

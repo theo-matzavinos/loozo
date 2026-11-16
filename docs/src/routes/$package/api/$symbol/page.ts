@@ -1,15 +1,34 @@
 import { Component, computed, inject } from "@angular/core";
+import { RouterLink } from "@angular/router";
 import { CurrentPackage } from "../../../../package-content.js";
 import { pageTitle } from "../../../../page-title.js";
 import { SymbolDetails } from "../../../../symbol-details.js";
 import { injectRoute } from "./route.generated.js";
+import { destination as overview } from "../../+overview/destination.generated.js";
+import { destination as guide } from "../../guide/$guide/destination.generated.js";
 
 @Component({
-  imports: [SymbolDetails],
+  imports: [RouterLink, SymbolDetails],
   template: `
     @if (page(); as page) {
       <article class="prose">
-        <p class="meta">{{ page.packageName }}</p>
+        <nav class="meta breadcrumb" aria-label="Breadcrumb">
+          <ol>
+            @if (page.entryGuide; as entryGuide) {
+              <li>
+                <a [routerLink]="page.overview">{{ page.packageName }}</a>
+              </li>
+              <li>
+                <a [routerLink]="entryGuide.link">{{ entryGuide.title }}</a>
+              </li>
+            } @else {
+              <!-- Without a guide, the entry point's place is its section of the API index. -->
+              <li>
+                <a [routerLink]="page.apiIndex">{{ page.importPath }}</a>
+              </li>
+            }
+          </ol>
+        </nav>
         <h1>
           <code>{{ page.symbol.name }}</code>
         </h1>
@@ -30,7 +49,26 @@ export default class ApiSymbolPage {
     for (const entryPoint of content.entryPoints) {
       for (const symbol of entryPoint.symbols) {
         if (symbol.slug === params.symbol) {
-          return { packageName: content.name, symbol };
+          const packageParams = { package: params.package };
+          let entryGuide = null;
+
+          if (entryPoint.guide !== null) {
+            const link = this.route.link({
+              to: guide,
+              params: { ...packageParams, guide: entryPoint.guide.slug },
+            });
+
+            entryGuide = { title: entryPoint.guide.title, link };
+          }
+
+          return {
+            packageName: content.name,
+            importPath: entryPoint.importPath,
+            overview: this.route.link({ to: overview, params: packageParams }),
+            apiIndex: this.route.link({ to: overview, params: packageParams, fragment: "api" }),
+            entryGuide,
+            symbol,
+          };
         }
       }
     }

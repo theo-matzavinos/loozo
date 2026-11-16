@@ -29,22 +29,24 @@ import { destination as generatedApi } from "../generated-api/destination.genera
           </ul>
         }
 
-        <h2>API</h2>
-        @for (entryPoint of page.entryPoints; track entryPoint.importPath) {
-          <h3>
-            <code>{{ entryPoint.importPath }}</code>
-          </h3>
-          <dl class="symbol-index">
-            @for (entry of entryPoint.symbols; track entry.symbol.slug) {
-              <dt>
-                <a [routerLink]="entry.link"
-                  ><code>{{ entry.symbol.name }}</code></a
-                >
-                <span class="kind">{{ kindLabels[entry.symbol.kind] }}</span>
-              </dt>
-              <dd [docsContentHtml]="entry.symbol.summaryHtml"></dd>
-            }
-          </dl>
+        @if (page.entryPoints.length > 0) {
+          <h2 id="api">API</h2>
+          @for (entryPoint of page.entryPoints; track entryPoint.importPath) {
+            <h3>
+              <code>{{ entryPoint.importPath }}</code>
+            </h3>
+            <dl class="symbol-index">
+              @for (entry of entryPoint.symbols; track entry.symbol.slug) {
+                <dt>
+                  <a [routerLink]="entry.link"
+                    ><code>{{ entry.symbol.name }}</code></a
+                  >
+                  <span class="kind">{{ kindLabels[entry.symbol.kind] }}</span>
+                </dt>
+                <dd [docsContentHtml]="entry.symbol.summaryHtml"></dd>
+              }
+            </dl>
+          }
         }
 
         @if (page.generatedApi; as link) {
