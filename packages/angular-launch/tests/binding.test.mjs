@@ -62,6 +62,7 @@ function backend(registry, application, scope, nativeRequest, fallback) {
 function renderedApp(rendering) {
   const app = {
     injector: rendering.injector,
+    components: [{}],
     destroyed: false,
     whenStable: async () => {},
     destroy: () => {
@@ -363,6 +364,118 @@ test("native prerendering fails for calls before the page is first stable, not o
 
   assert.match(html, /prerendered/);
   assert.equal(serialized.result, null);
+});
+
+// Route discovery boots without the root component and releases a blocking initial navigation
+// only after the bootstrap returns, then waits for stability itself.
+test("native route discovery with blocking initial navigation completes, running a root resolver's call anonymously and only logging its refusal", async () => {
+  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
+  const { provideServerRendering } = await import(require.resolve("@angular/platform-server"));
+  const { ɵgetRoutesFromAngularRouterConfig: discoverRoutes } = await import(
+    require.resolve("@angular/ssr")
+  );
+  const { Component, inject } = await import(require.resolve("@angular/core"));
+  const { HttpClient, provideHttpClient } = await import(require.resolve("@angular/common/http"));
+  const { provideRouter, RouterOutlet, withEnabledBlockingInitialNavigation } = await import(
+    require.resolve("@angular/router")
+  );
+
+  class Page {}
+
+  Component({ selector: "discovered-page", template: "discovered" })(Page);
+
+  class Root {}
+
+  Component({ selector: "discovery-root", imports: [RouterOutlet], template: "<router-outlet />" })(
+    Root,
+  );
+
+  async function discover(resolved) {
+    const { seen, application, registry } = prerenderFixture();
+    const results = [];
+    const root = { path: "", children: [{ path: "about", component: Page }] };
+
+    if (resolved) {
+      root.resolve = {
+        result: async () => {
+          const result = await firstValueFrom(inject(HttpClient).post(resolved, { input: null }));
+
+          results.push(result);
+
+          return result;
+        },
+      };
+    }
+
+    const logged = [];
+    const previousError = console.error;
+
+    console.error = (...args) => logged.push(args);
+
+    try {
+      const discovery = discoverRoutes(
+        async (context) => {
+          const app = await bootstrapApplication(
+            Root,
+            {
+              providers: [
+                provideServerRendering(),
+                provideHttpClient(),
+                provideLaunchServer(registry, application),
+                provideRouter([root], withEnabledBlockingInitialNavigation()),
+              ],
+            },
+            context,
+          );
+
+          return finishLaunchRendering(app);
+        },
+        "<discovery-root></discovery-root>",
+        new URL("http://localhost/"),
+      );
+      let timer;
+      const timeout = new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Route discovery didn't finish")), 5000);
+      });
+
+      try {
+        const { routes, errors } = await Promise.race([discovery, timeout]);
+
+        return { routes: routes.map((route) => route.route), errors, results, seen, logged };
+      } finally {
+        clearTimeout(timer);
+      }
+    } finally {
+      console.error = previousError;
+    }
+  }
+
+  const unresolved = await discover(null);
+
+  assert.deepEqual(unresolved.routes, ["/", "/about"]);
+  assert.deepEqual(unresolved.errors, []);
+  assert.equal(unresolved.seen.factories, 0);
+
+  const resolved = await discover(path);
+
+  assert.deepEqual(resolved.routes, ["/", "/about"]);
+  assert.deepEqual(resolved.errors, []);
+  assert.deepEqual(resolved.results, [
+    { context: 1, sameRequest: true, method: "GET", url: "http://localhost/", cookie: null },
+  ]);
+  assert.equal(resolved.seen.handlers, 1);
+
+  const refused = await discover("/_rpc/test/refuse");
+
+  assert.deepEqual(refused.routes, ["/", "/about"]);
+  assert.deepEqual(refused.errors, []);
+  assert.deepEqual(refused.results, []);
+  assert.ok(
+    refused.logged.some((args) =>
+      args.some((value) => value instanceof HttpErrorResponse && value.status === 403),
+    ),
+    "Angular logs the refusal",
+  );
 });
 
 test("a prerendering call's signal aborts when the render's application is destroyed", async () => {
