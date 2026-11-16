@@ -71,6 +71,9 @@ for (const [variant, caseId, context] of [
   ["date-field-input", "DF16", /Date field supports only one mounted Input/],
   ["number-field-input", "NF13", /Number field supports only one mounted Input/],
   ["otp-field-input", "OT13", /OTP field supports only one mounted Input/],
+  ["file-field-input", "FF8", /File field supports only one mounted Input/],
+  ["orphan-file-field-input", "FF8", /NG0201:[\s\S]*FileFieldContext/],
+  ["orphan-file-field-drop-zone", "FF8", /NG0201:[\s\S]*FileFieldContext/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,
@@ -110,6 +113,8 @@ for (const [variant, caseId, context] of [
         "orphan-toolbar-radio-group",
         "orphan-tooltip-trigger",
         "orphan-tooltip-content",
+        "orphan-file-field-input",
+        "orphan-file-field-drop-zone",
       ].includes(variant);
 
     if (nativeProductionProvider) {

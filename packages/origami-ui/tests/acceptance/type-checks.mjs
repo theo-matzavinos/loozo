@@ -131,6 +131,7 @@ import { OrigamiToaster, OrigamiToastRegionOptions, OrigamiToastOptions, Origami
 import { OrigamiSliderOptions, type OrigamiSliderState } from '@loozo/origami-ui/slider';
 import { OrigamiNumberFieldOptions, type OrigamiNumberFieldState } from '@loozo/origami-ui/number-field';
 import { OrigamiOtpFieldOptions, type OrigamiOtpFieldState, type OrigamiOtpFieldCell } from '@loozo/origami-ui/otp-field';
+import { OrigamiFileFieldOptions, type OrigamiFileFieldState } from '@loozo/origami-ui/file-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -594,6 +595,21 @@ const otpFieldChar: string | null = otpFieldCell!.char;
 otpFieldCell!.selected = true;
 void otpFieldComplete;
 void otpFieldChar;
+// Positive: a whole file field factory, with ordinary signals.
+OrigamiFileFieldOptions.provideFactory(() => ({value: signal<File | null>(null), disabled: computed(() => false)}));
+// @ts-expect-error file field value must be writable
+OrigamiFileFieldOptions.provideFactory(() => ({value: computed<File | null>(() => null), disabled: signal(false)}));
+// @ts-expect-error file field value is one File or null, never a list
+OrigamiFileFieldOptions.provideFactory(() => ({value: signal<readonly File[]>([]), disabled: signal(false)}));
+// @ts-expect-error a file field factory must supply disabled
+OrigamiFileFieldOptions.provideFactory(() => ({value: signal<File | null>(null)}));
+declare const fileFieldState: OrigamiFileFieldState;
+// @ts-expect-error file field State value is readonly
+fileFieldState.value.set(null);
+const fileFieldValue: File | null = fileFieldState.value();
+const fileFieldDisabled: boolean = fileFieldState.disabled();
+void fileFieldValue;
+void fileFieldDisabled;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
 OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
@@ -970,6 +986,10 @@ abstract class AbstractNumberField {
   abstract readonly disabled: Signal<boolean>;
   abstract readonly readonly: Signal<boolean>;
 }
+abstract class AbstractFileField {
+  abstract readonly value: WritableSignal<File | null>;
+  abstract readonly disabled: Signal<boolean>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -1071,6 +1091,8 @@ export const providers: Provider[] = [
   OrigamiNumberFieldOptions.provideExisting(() => AbstractNumberField),
   OrigamiOtpFieldOptions.provideFactory(() => ({value: signal('123'), length: signal(6), mask: signal(true), disabled: signal(false), readonly: signal(false)})),
   OrigamiOtpFieldOptions.provideExisting(() => AbstractOtpField),
+  OrigamiFileFieldOptions.provideFactory(() => ({value: signal<File | null>(null), disabled: signal(false)})),
+  OrigamiFileFieldOptions.provideExisting(() => AbstractFileField),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1372,6 +1394,21 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   countOutput(value: number): void { void value; }
   observeCell(cell: OrigamiOtpFieldCell): void { void cell; }
   observeState(state: OrigamiOtpFieldState): void { void state; }`,
+  },
+  "file-field": {
+    imports: `import { FormField, form, required } from "@angular/forms/signals";
+import { OrigamiFileField, OrigamiFileFieldInput, OrigamiFileFieldDropZone, OrigamiFileFieldState } from "@loozo/origami-ui/file-field";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives:
+      "FormField, OrigamiFileField, OrigamiFileFieldInput, OrigamiFileFieldDropZone, OrigamiField, OrigamiFieldLabel",
+    members: `
+  readonly attachment = signal<File | null>(null);
+  readonly model = signal<{ file: File | null; label: string | null; files: File[] }>({ file: null, label: null, files: [] });
+  readonly form = form(this.model, (path) => { required(path.file); });
+  touched(): void {}
+  fileOutput(value: File | null): void { void value; }
+  labelOutput(value: string | null): void { void value; }
+  observeState(state: OrigamiFileFieldState): void { void state; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -2313,6 +2350,41 @@ const templates = [
       code: -998003,
       span: "ogOtpFieldInput",
       message: /No directive found with exportAs 'ogOtpFieldInput'/,
+    },
+  },
+  {
+    name: "file-field-positive",
+    family: "file-field",
+    template: `<div ogField><div ogFileField #picker="ogFileField" [formField]="form.file" (touch)="touched()" (click)="picker.focus({ preventScroll: true }); fileOutput(picker.state.value()); observeState(picker.state)"><label ogFieldLabel ogFileFieldDropZone>Attachment <input ogFileFieldInput /></label></div></div><div ogFileField ogFileFieldDropZone [(value)]="attachment" (valueChange)="fileOutput($event)" disabled><input ogFileFieldInput aria-label="Attachment" /></div>`,
+  },
+  {
+    name: "file-field-form-string",
+    family: "file-field",
+    template: `<div ogFileField [formField]="form.label"><input ogFileFieldInput /></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /string \| null.*File \| null/s,
+    },
+  },
+  {
+    name: "file-field-form-array",
+    family: "file-field",
+    template: `<div ogFileField [formField]="form.files"><input ogFileFieldInput /></div>`,
+    expected: {
+      code: 2740,
+      span: "formField",
+      message: /Type 'File\[\]' is missing the following properties from type 'File'/,
+    },
+  },
+  {
+    name: "file-field-output",
+    family: "file-field",
+    template: `<div ogFileField [(value)]="attachment" (valueChange)="labelOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /File \| null.*not assignable to parameter of type 'string \| null'/s,
     },
   },
   {

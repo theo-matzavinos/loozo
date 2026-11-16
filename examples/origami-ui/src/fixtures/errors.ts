@@ -32,6 +32,11 @@ import {
 import { OrigamiDateField, OrigamiDateFieldInput } from "@loozo/origami-ui/date-field";
 import { OrigamiNumberField, OrigamiNumberFieldInput } from "@loozo/origami-ui/number-field";
 import { OrigamiOtpField, OrigamiOtpFieldInput } from "@loozo/origami-ui/otp-field";
+import {
+  OrigamiFileField,
+  OrigamiFileFieldDropZone,
+  OrigamiFileFieldInput,
+} from "@loozo/origami-ui/file-field";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -67,6 +72,9 @@ import { OrigamiOtpField, OrigamiOtpFieldInput } from "@loozo/origami-ui/otp-fie
     OrigamiNumberFieldInput,
     OrigamiOtpField,
     OrigamiOtpFieldInput,
+    OrigamiFileField,
+    OrigamiFileFieldInput,
+    OrigamiFileFieldDropZone,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -108,6 +116,9 @@ import { OrigamiOtpField, OrigamiOtpFieldInput } from "@loozo/origami-ui/otp-fie
         <option value="date-field-input">Duplicate date field Input</option>
         <option value="number-field-input">Duplicate number field Input</option>
         <option value="otp-field-input">Duplicate OTP field Input</option>
+        <option value="file-field-input">Duplicate file field Input</option>
+        <option value="orphan-file-field-input">Orphan file field Input</option>
+        <option value="orphan-file-field-drop-zone">Orphan file field drop zone</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -194,6 +205,18 @@ import { OrigamiOtpField, OrigamiOtpFieldInput } from "@loozo/origami-ui/otp-fie
         <input ogOtpFieldInput aria-label="Second code" />
       }
     </section>
+    <section ogFileField>
+      <input ogFileFieldInput aria-label="First file" />
+      @if (mounted() && selected() === "file-field-input") {
+        <input ogFileFieldInput aria-label="Second file" />
+      }
+    </section>
+    @if (mounted() && selected() === "orphan-file-field-input") {
+      <input ogFileFieldInput aria-label="Orphan file" />
+    }
+    @if (mounted() && selected() === "orphan-file-field-drop-zone") {
+      <div ogFileFieldDropZone>Orphan drop zone</div>
+    }
     <section ogCollapsible>
       <button ogCollapsibleTrigger>First trigger</button>
       <div ogCollapsiblePanel>First panel</div>

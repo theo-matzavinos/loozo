@@ -129,6 +129,21 @@ export const routes: Routes = [
       import("./fixtures/otp-field-pin-pad.js").then((module) => module.OtpFieldPinPadFixture),
   },
   {
+    path: "file-field",
+    loadComponent: () =>
+      import("./fixtures/file-field.js").then((module) => module.FileFieldFixture),
+  },
+  {
+    path: "file-field-guarded",
+    loadComponent: () =>
+      import("./fixtures/file-field-guarded.js").then((module) => module.FileFieldGuardedFixture),
+  },
+  {
+    path: "file-field-split",
+    loadComponent: () =>
+      import("./fixtures/file-field-split.js").then((module) => module.FileFieldSplitFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

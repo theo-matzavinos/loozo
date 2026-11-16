@@ -84,12 +84,17 @@ import {
   OrigamiFieldLabelOptions,
   OrigamiFieldState,
 } from "@loozo/origami-ui/field";
-import type { FormCheckboxControl } from "@angular/forms/signals";
+import type { FormCheckboxControl, FormValueControl } from "@angular/forms/signals";
 import {
   OrigamiCheckbox,
   OrigamiCheckboxOptions,
   OrigamiCheckboxState,
 } from "@loozo/origami-ui/checkbox";
+import type {
+  OrigamiFileField,
+  OrigamiFileFieldOptions,
+  OrigamiFileFieldState,
+} from "@loozo/origami-ui/file-field";
 import { OrigamiSwitch, OrigamiSwitchOptions, OrigamiSwitchState } from "@loozo/origami-ui/switch";
 
 type ExpectNever<T extends never> = T;
@@ -418,4 +423,18 @@ export function checkBooleanControls(checkbox: OrigamiCheckbox, toggle: OrigamiS
   void switchState;
   void switchOptions;
   void switchControl;
+}
+
+/** The file field root is its own Options, exposes its State and is a `File | null` value control. */
+export function checkFileField(root: OrigamiFileField): void {
+  const rootState: OrigamiFileFieldState = root.state;
+  const rootOptions: OrigamiFileFieldOptions = root;
+  const rootControl: FormValueControl<File | null> = root;
+  const value: File | null = rootState.value();
+  // @ts-expect-error file field State value is readonly
+  rootState.value.set(null);
+
+  void rootOptions;
+  void rootControl;
+  void value;
 }
