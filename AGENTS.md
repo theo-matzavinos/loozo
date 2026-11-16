@@ -34,6 +34,10 @@ the Screen reader workflow records what NVDA and VoiceOver are asked to say duri
 
 each signed-off slice ships as its own pull request into `main`; a slice that depends on an unmerged one stacks on its branch and is rebased onto `main` once that one merges. commits on the branch keep their attribution trailers. the pull request title becomes `main`'s commit subject, so it's a conventional commit subject. merge only when loozo says so, and only with `gh pr merge <number> --squash --subject "<title> (#<number>)" --body ""`, which keeps `Co-Authored-By` trailers off `main`.
 
+## macroscope
+
+`.macroscope/correctness/` restates the breaking-change, Origami composition and fringe-case rules above for Macroscope's review, which doesn't read this file. update it in the same change when those rules change.
+
 ## readmes
 
 each readme documents only its own scope:
