@@ -159,8 +159,9 @@ async function describe(page: Page): Promise<Record<string, unknown>> {
   });
 }
 
-test("OT3 typing commits each changed code at once; an edit that leaves anything but up to six digits is undone with its selection, after native listeners saw it; keys are native", async ({
+test("OT3 typing commits each changed code at once; a keystroke that would leave anything but up to six digits is cancelled before it lands, one in another form inserts its digits, and an edit that can't be cancelled is undone with its selection; keys are native", async ({
   page,
+  browserName,
 }, info) => {
   await fixture(page, "otp-field", info);
 
@@ -180,22 +181,34 @@ test("OT3 typing commits each changed code at once; an edit that leaves anything
   await expect(out(page, "direct-complete")).toHaveText("true");
   await expect(changes).toHaveText("0/false,01/false,012/false,0123/false,01234/false,012345/true");
 
+  // A capture-phase `input` listener records the text each `input` reached it with; a bubbling
+  // `beforeinput` listener on the document, after the Input's own, whether the edit was cancelled.
   await input.evaluate((element: HTMLInputElement) => {
-    const seen: string[] = [];
+    const seen = { inputs: [] as string[], before: [] as string[] };
 
-    (window as unknown as { otSeen: string[] }).otSeen = seen;
+    (window as unknown as { otSeen: typeof seen }).otSeen = seen;
     document.addEventListener(
       "input",
       (event) => {
         if (event.target === element) {
-          seen.push(element.value);
+          seen.inputs.push(element.value);
         }
       },
       true,
     );
+    document.addEventListener("beforeinput", (event) => {
+      if (event.target === element) {
+        seen.before.push(`${event.inputType}:${event.data}:${event.defaultPrevented}`);
+      }
+    });
   });
 
-  // A seventh digit at the end and a letter: undone, the caret kept.
+  const seen = () =>
+    page.evaluate(
+      () => (window as unknown as { otSeen: { inputs: string[]; before: string[] } }).otSeen,
+    );
+
+  // A seventh digit at the end and a letter: cancelled, the caret kept.
   for (const key of ["7", "x"]) {
     await select(input, 6, 6);
     await page.keyboard.type(key);
@@ -203,7 +216,7 @@ test("OT3 typing commits each changed code at once; an edit that leaves anything
     expect(await selection(input)).toEqual([6, 6]);
   }
 
-  // A letter over a selection, forward and backward: the selection comes back as it was.
+  // A letter over a selection, forward and backward: the selection stays as it was.
   await select(input, 1, 4);
   await page.keyboard.type("x");
   await expect(input).toHaveValue("012345");
@@ -214,19 +227,42 @@ test("OT3 typing commits each changed code at once; an edit that leaves anything
   expect(await input.evaluate((element: HTMLInputElement) => element.selectionDirection)).toBe(
     "backward",
   );
-  expect(await page.evaluate(() => (window as unknown as { otSeen: string[] }).otSeen)).toEqual([
-    "0123457",
-    "012345x",
-    "0x45",
-    "0x45",
-  ]);
-  await expect(changes).toHaveText("0/false,01/false,012/false,0123/false,01234/false,012345/true");
 
   // A collapsed caret inside a full code inserts nothing.
   await select(input, 3, 3);
   await page.keyboard.type("9");
   await expect(input).toHaveValue("012345");
   expect(await selection(input)).toEqual([3, 3]);
+
+  // Each was cancelled in its `beforeinput`: no `input`, no transient text.
+  expect(await seen()).toEqual({
+    inputs: [],
+    before: [
+      "insertText:7:true",
+      "insertText:x:true",
+      "insertText:x:true",
+      "insertText:x:true",
+      "insertText:9:true",
+    ],
+  });
+
+  // An edit that can't be cancelled, a drop of `x` over [1,4] backward: applied, seen by the
+  // capture listener, then undone with its selection, direction included.
+  await select(input, 1, 4, "backward");
+  await input.evaluate((element: HTMLInputElement) => {
+    element.dispatchEvent(
+      new InputEvent("beforeinput", { bubbles: true, inputType: "insertFromDrop", data: "x" }),
+    );
+    element.setRangeText("x", 1, 4, "end");
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertFromDrop" }));
+  });
+  await expect(input).toHaveValue("012345");
+  expect(await selection(input)).toEqual([1, 4]);
+  expect(await input.evaluate((element: HTMLInputElement) => element.selectionDirection)).toBe(
+    "backward",
+  );
+  expect((await seen()).inputs).toEqual(["0x45"]);
+  await expect(changes).toHaveText("0/false,01/false,012/false,0123/false,01234/false,012345/true");
 
   // Backspace, Delete, arrows, Home and End are native; deleting shifts the later digits left.
   await select(input, 6, 6);
@@ -253,6 +289,38 @@ test("OT3 typing commits each changed code at once; an edit that leaves anything
   await page.keyboard.type("-");
   await expect(input).toHaveValue("12934");
   await expect(changes).toHaveText(before!);
+  expect((await seen()).before.slice(-2)).toEqual(["insertText: :true", "insertText:-:true"]);
+
+  // A full-width digit typed inserts its ASCII digit with the browser's insertion. No trusted
+  // keystroke types one in Firefox, where Playwright's insertText composes it: a cancelable
+  // synthetic `beforeinput` stands in there, and is also run in the other engines.
+  await input.evaluate((element: HTMLInputElement) => {
+    element.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: "５",
+      }),
+    );
+  });
+  await expect(input).toHaveValue("129345");
+  await expect(value).toHaveText("129345");
+  expect(await selection(input)).toEqual([6, 6]);
+  await expect(changes).toHaveText(`${before},129345/true`);
+  expect((await seen()).before.at(-1)).toBe("insertText:５:true");
+  expect((await seen()).inputs.at(-1)).toBe("129345");
+  await page.keyboard.press("Backspace");
+  await expect(value).toHaveText("12934");
+
+  if (browserName !== "firefox") {
+    await page.keyboard.insertText("５");
+    await expect(input).toHaveValue("129345");
+    await expect(value).toHaveText("129345");
+    expect((await seen()).before.at(-1)).toBe("insertText:５:true");
+    await page.keyboard.press("Backspace");
+    await expect(value).toHaveText("12934");
+  }
 
   // Select all and type replaces; a leading zero stays.
   await page.keyboard.press("ControlOrMeta+a");
@@ -321,10 +389,12 @@ test("OT4 paste: a whole code replaces the text from any selection, a shorter on
 
   // Readonly: nothing.
   await scriptClick(page, "direct-freeze");
+  await expect(input).toHaveAttribute("readonly", "");
   await select(input, 0, 6);
   await paste(page, input, "333333");
   await expect(value).toHaveText("222222");
   await scriptClick(page, "direct-freeze");
+  await expect(input).not.toHaveAttribute("readonly");
 
   // Two undo steps: a paste, typing, another paste.
   await typeDirect(page, "");
@@ -345,6 +415,105 @@ test("OT4 paste: a whole code replaces the text from any selection, a shorter on
   await paste(page, pin, "246 810");
   await expect(out(page, "pin-value")).toHaveText("246810");
   await expect(pin).toHaveAttribute("type", "password");
+});
+
+/**
+ * Runs `steps` in the direct field of a fresh `otp-field` page, then presses Ctrl+Z twice: the
+ * values before and after each undo. A fresh page gives each run the same undo history.
+ */
+async function undoTrail(
+  page: Page,
+  info: TestInfo,
+  steps: (page: Page, input: Locator) => Promise<void>,
+): Promise<string[]> {
+  const fresh = await page.context().newPage();
+
+  try {
+    await fixture(fresh, "otp-field", info);
+
+    const input = field(fresh, "direct");
+
+    await moveFocus(input);
+    await steps(fresh, input);
+
+    const trail = [await input.inputValue()];
+
+    for (let step = 0; step < 2; step++) {
+      await fresh.keyboard.press("ControlOrMeta+z");
+      trail.push(await input.inputValue());
+    }
+
+    return trail;
+  } finally {
+    await fresh.close();
+  }
+}
+
+test("OT4 a rejected keystroke after a paste keeps the browser's undo history, as does a full-width digit typed", async ({
+  page,
+  browserName,
+}, info) => {
+  // Type `12`, paste `34` through the clipboard; then a letter, which is cancelled.
+  const typedAndPasted = (text: string) => async (page: Page, input: Locator) => {
+    await page.keyboard.type("12");
+    await expect(input).toHaveValue("12");
+    await paste(page, input, text);
+    await expect(input).toHaveValue(`12${text}`);
+  };
+  const pasted34 = await undoTrail(page, info, typedAndPasted("34"));
+
+  expect(pasted34[0]).toBe("1234");
+  expect(pasted34[1]).not.toBe("1234");
+  expect(
+    await undoTrail(page, info, async (page, input) => {
+      await typedAndPasted("34")(page, input);
+      await page.keyboard.type("x");
+    }),
+  ).toEqual(pasted34);
+
+  // The same with a seventh digit after `12` and a pasted `3456`.
+  const pasted3456 = await undoTrail(page, info, typedAndPasted("3456"));
+
+  expect(pasted3456[0]).toBe("123456");
+  expect(pasted3456[1]).not.toBe("123456");
+  expect(
+    await undoTrail(page, info, async (page, input) => {
+      await typedAndPasted("3456")(page, input);
+      await page.keyboard.type("7");
+    }),
+  ).toEqual(pasted3456);
+
+  // A full-width `３` after `12` undoes like the browser's own insertion of `3`. Firefox composes
+  // Playwright's insertText, so a cancelable synthetic `beforeinput` stands in there.
+  const inserted = await undoTrail(page, info, async (page, input) => {
+    await page.keyboard.type("12");
+    await expect(input).toHaveValue("12");
+    await page.evaluate(() => document.execCommand("insertText", false, "3"));
+  });
+
+  expect(inserted[0]).toBe("123");
+  expect(inserted[1]).not.toBe("123");
+  expect(
+    await undoTrail(page, info, async (page, input) => {
+      await page.keyboard.type("12");
+      await expect(input).toHaveValue("12");
+
+      if (browserName === "firefox") {
+        await input.evaluate((element: HTMLInputElement) => {
+          element.dispatchEvent(
+            new InputEvent("beforeinput", {
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertText",
+              data: "３",
+            }),
+          );
+        });
+      } else {
+        await page.keyboard.insertText("３");
+      }
+    }),
+  ).toEqual(inserted);
 });
 
 test("OT5 a fill, a drop and a scripted replacement without beforeinput are read as codes like typing", async ({
@@ -777,11 +946,14 @@ test("OT8 cells mirror the value, the caret and the selection; a click selects t
     element.style.visibility = "";
   });
 
-  // A readonly field still maps clicks: selection is allowed.
+  // A readonly field still maps clicks: selection is allowed. The application's toggle renders
+  // after its click: wait for it, since Chromium and WebKit ignore Shift+Arrow in a readonly input.
   await scriptClick(page, "direct-freeze");
+  await expect(input).toHaveAttribute("readonly", "");
   await clickCell(page, "direct", 2);
   expect(await selection(input)).toEqual([2, 3]);
   await scriptClick(page, "direct-freeze");
+  await expect(input).not.toHaveAttribute("readonly");
 
   // Keyboard selection and blur.
   await select(input, 6, 6);
@@ -942,6 +1114,7 @@ test("OT10 Field and Signal Forms: labelled, described, required and invalid; on
   await page.keyboard.type("5");
   await expect(out(page, "direct-value")).toHaveText("");
   await scriptClick(page, "direct-freeze");
+  await expect(input).not.toHaveAttribute("readonly");
 
   // Disabled: natively disabled, focusBoundControl() leaves focus where it is.
   await scriptClick(page, "direct-lock");

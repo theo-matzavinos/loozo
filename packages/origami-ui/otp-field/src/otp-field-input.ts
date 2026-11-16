@@ -102,17 +102,20 @@ function modified(event: MouseEvent): boolean {
  * `state`: read the root's. Requires a nearest OTP field root, which supports one mounted Input; a
  * second fails when it registers.
  *
- * Editing: typing, deleting, pasting, dropping and autofill apply natively and are checked on
- * `input`: the text is read with NFKC and without whitespace and dash-like separators, and is
- * kept when that leaves ASCII digits only, at most the root's `length`; it is then written back
- * in that form, the caret after the same digits, and committed when it differs from the value.
- * Anything else, a letter or a seventh digit, is undone, its text and selection, direction
- * included, restored, before the next frame. The browser's own `input` event still reaches
- * listeners before the undo, so a capture-phase listener sees the transient text. A composition
- * from an input method is checked once, when it ends; Firefox's `input` after its end isn't
- * another edit. A collapsed caret inside a full code inserts nothing: select the digit to
- * replace it. Keys are native: arrows, Backspace, Delete, Home, End, Ctrl+A and Enter, which
- * submits the form.
+ * Editing: every edit's text is read with NFKC and without whitespace and dash-like separators,
+ * and is kept when that leaves ASCII digits only, at most the root's `length`. Typing is settled
+ * in its `beforeinput`, before the browser applies it, so the browser's undo history is kept: a
+ * keystroke whose text wouldn't be kept, a letter or a seventh digit, is cancelled, with no
+ * `input` and the text and selection untouched; one typed in another form, a full-width digit, a
+ * space or a dash, inserts its digits instead, or nothing, with the browser's own insertion; any
+ * other applies natively. Deleting, dropping, autofill and a composition apply natively and are
+ * checked on `input`: an accepted text is written back in its read form, the caret after the same
+ * digits, and committed when it differs from the value; anything else is undone, its text and
+ * selection, direction included, restored, before the next frame, after the browser's own `input`
+ * reached listeners, and that undo clears the browser's undo history. A composition from an input
+ * method is checked once, when it ends; Firefox's `input` after its end isn't another edit. A
+ * collapsed caret inside a full code inserts nothing: select the digit to replace it. Keys are
+ * native: arrows, Backspace, Delete, Home, End, Ctrl+A and Enter, which submits the form.
  *
  * Paste: the clipboard's text is read the same way and inserted with the browser's own insertion,
  * so its undo works; a whole code (`length` digits, `987 654` or `９８７６５４` included) replaces
@@ -216,6 +219,8 @@ export class OrigamiOtpFieldInput {
   #rendered = !isPlatformBrowser(inject(PLATFORM_ID)) || !this.#element.hasAttribute("value");
   /** The selection at the edit's `beforeinput`, restored with the text if the edit is undone. */
   #selection: InputSelection | null = null;
+  /** The Input is inserting a code with the browser's insertion, whose `beforeinput` stays native. */
+  #inserting = false;
   /**
    * A composition is open: from a genuine `compositionstart`, or from the first render when the
    * events Angular holds for replay leave one open in the element, until a genuine
@@ -321,7 +326,13 @@ export class OrigamiOtpFieldInput {
     this.#context.registerInput({ element: this.#element }, this.#destroyRef);
   }
 
-  /** @internal Records the selection an undone edit restores. */
+  /**
+   * @internal Records the selection an undone edit restores, and settles a typed insertion before
+   * the browser applies it, which keeps its undo history: one whose text wouldn't leave a code is
+   * cancelled, and one typed in another form inserts its digits instead, or nothing. A composition,
+   * a replayed edit, the Input's own insertion and edits that can't be cancelled stay native, for
+   * the check on `input`.
+   */
   protected beforeInput(event: Event): void {
     if (replayed(event) || this.#composing || (event instanceof InputEvent && event.isComposing)) {
       return;
@@ -329,6 +340,35 @@ export class OrigamiOtpFieldInput {
 
     this.#composedText = null;
     this.#selection = selectionOf(this.#element);
+
+    if (
+      this.#inserting ||
+      !(event instanceof InputEvent) ||
+      event.inputType !== "insertText" ||
+      event.data === null ||
+      !event.cancelable
+    ) {
+      return;
+    }
+
+    const text = this.#element.value;
+    const start = this.#selection.start ?? text.length;
+    const end = this.#selection.end ?? text.length;
+    const data = normalizeCode(event.data);
+    const accepted = this.#context.accepts(
+      normalizeCode(text.slice(0, start) + data + text.slice(end)),
+    );
+
+    if (accepted && data === event.data) {
+      return;
+    }
+
+    event.preventDefault();
+    this.#selection = null;
+
+    if (accepted && data !== "") {
+      this.#insert(data);
+    }
   }
 
   /**
@@ -421,7 +461,7 @@ export class OrigamiOtpFieldInput {
     }
 
     // Its `input` runs the ordinary check, which commits the code once.
-    this.#document.execCommand("insertText", false, code);
+    this.#insert(code);
   }
 
   /** @internal Remembers where a primary pointer went down, for the `click` that follows. */
@@ -533,6 +573,20 @@ export class OrigamiOtpFieldInput {
     }
 
     this.#context.mirror({ start, end }, focused);
+  }
+
+  /**
+   * Inserts `code` at the selection with the browser's own insertion, so undo keeps working; its
+   * `beforeinput` stays native and its `input` runs the ordinary check.
+   */
+  #insert(code: string): void {
+    this.#inserting = true;
+
+    try {
+      this.#document.execCommand("insertText", false, code);
+    } finally {
+      this.#inserting = false;
+    }
   }
 
   /**
