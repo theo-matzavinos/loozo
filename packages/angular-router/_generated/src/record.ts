@@ -1,5 +1,13 @@
 import type { Route } from "@angular/router";
-import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
+import {
+  destinationRecord,
+  routeMetadata,
+  type AnyRoute,
+  type ContributionRecord,
+  type Destination,
+  type ExtensionSpec,
+  type RuntimeExtension,
+} from "@loozo/angular-router/_core";
 
 /**
  * Own symbols that generated code stamps onto its native route records. Module-private, so
@@ -8,6 +16,7 @@ import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angul
  */
 const generatedRoute = Symbol("@loozo/angular-router generated route");
 const generatedResolvers = Symbol("@loozo/angular-router generated resolvers");
+const generatedExtension = Symbol("@loozo/angular-router generated extension");
 
 /** What a generated record carries about its own declaration. */
 export interface RecordFacts {
@@ -46,6 +55,40 @@ export function recordFacts(config: Route | null | undefined): RecordFacts | und
   }
 
   return (config as { readonly [generatedRoute]: RecordFacts })[generatedRoute];
+}
+
+/** The route extension a generated record's copy was made by, and its contribution chain. */
+export interface RecordExtension {
+  readonly runtime: RuntimeExtension<ExtensionSpec>;
+  readonly chain: readonly ContributionRecord[];
+}
+
+/**
+ * The extension stamp generated code spreads into the native record of a non-redirect
+ * route that a route extension's factory made, so an active handle of that record gets
+ * the extension's members.
+ *
+ * @throws TypeError at module evaluation for a copy no extension factory made.
+ */
+export function extension(route: AnyRoute): { readonly [generatedExtension]: RecordExtension } {
+  const slot = routeMetadata(route).extension;
+
+  if (!slot?.declared) {
+    throw new TypeError("Route extension stamp needs an extension route copy");
+  }
+
+  return {
+    [generatedExtension]: Object.freeze({ runtime: slot.runtime, chain: slot.chain }),
+  };
+}
+
+/** A native record's own extension stamp, or undefined. */
+export function recordExtension(config: Route | null | undefined): RecordExtension | undefined {
+  if (!config || !Object.hasOwn(config, generatedExtension)) {
+    return undefined;
+  }
+
+  return (config as { readonly [generatedExtension]: RecordExtension })[generatedExtension];
 }
 
 /**

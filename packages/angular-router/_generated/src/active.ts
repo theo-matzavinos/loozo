@@ -1,4 +1,4 @@
-import { DestroyRef, computed, inject, untracked, type Signal } from "@angular/core";
+import { DestroyRef, Injector, computed, inject, untracked, type Signal } from "@angular/core";
 import {
   NavigationEnd,
   Router,
@@ -8,13 +8,17 @@ import {
 } from "@angular/router";
 import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
 import { observeRecord } from "./handle.js";
-import { createDestinationHandle, type Handle } from "./index.js";
-import { recordFacts, type RecordFacts } from "./record.js";
+import { addMembers, createDestinationHandle, type Handle } from "./index.js";
+import { recordExtension, recordFacts, type RecordFacts } from "./record.js";
 
-/** One generated route's types: its schema and, when it has one, its `..` destination. */
+/**
+ * One generated route's types: its schema, its `..` destination when it has one, and the
+ * members its route extension adds to its handles, when generation was told of any.
+ */
 export interface RouteTypeEntry {
   readonly schema: AnyRoute;
   readonly up?: Destination<AnyRoute>;
+  readonly members?: object;
 }
 
 /** Each generated route's types by id, as `routes.generated.ts` emits them in `RouteTypes`. */
@@ -23,6 +27,7 @@ export type RouteTypeMap = { readonly [id: string]: RouteTypeEntry };
 type UpOf<Entry> = Entry extends { readonly up: infer Up extends Destination<AnyRoute> }
   ? Up
   : never;
+type MembersOf<Entry> = Entry extends { readonly members: infer Members } ? Members : {};
 
 interface ActiveBase<Types extends RouteTypeMap> {
   /** Exactly this route, not an ancestor. Narrows to that route's handle. */
@@ -35,11 +40,12 @@ interface ActiveBase<Types extends RouteTypeMap> {
   readonly chain: readonly ActiveRoute<Types>[];
 }
 
-/** An active route narrowed by is(): that declaration's handle. */
+/** An active route narrowed by is(): that declaration's handle, with its extension's members. */
 export type ActiveHandle<Types extends RouteTypeMap, Id extends keyof Types> = Handle<
   Types[Id]["schema"],
   UpOf<Types[Id]>
 > &
+  MembersOf<Types[Id]> &
   ActiveBase<Types>;
 
 /**
@@ -71,7 +77,9 @@ interface Entry {
  * @remarks
  * Each active record's own generated facts give its destination and `..` target; native
  * records, which carry none, are skipped, and nothing filters generated records by tree.
- * `is` and `contains` take a genuine destination and compare identities.
+ * `is` and `contains` take a genuine destination and compare identities. A record stamped
+ * with its route extension gives its entry that extension's members, built with this
+ * reader's injector, once per entry.
  *
  * The selection changes only after a navigation commits: the computed tracks
  * `lastSuccessfulNavigation`, and a reader first read before its tree has committed
@@ -86,6 +94,9 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
 > {
   const router = inject(Router);
   const destroyRef = inject(DestroyRef);
+  // Extension members build with the reader's injector: Angular exposes no activated
+  // route's environment injector.
+  const injector = inject(Injector);
   const entries = new Map<ActivatedRoute, Entry>();
   let destroyed = false;
   let selected: ActiveEntryHandle | undefined;
@@ -126,6 +137,14 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
       },
       chain,
     };
+
+    // After the spread: the base holds plain values only, and the members' getters must
+    // stay unevaluated until read.
+    const stamp = recordExtension(activated.routeConfig);
+
+    if (stamp) {
+      addMembers(handle, stamp.runtime, stamp.chain, injector);
+    }
 
     chain.push(handle);
     Object.freeze(chain);

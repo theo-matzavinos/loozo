@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { cp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
+import { dirname, extname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { emitPackage, extensionSource } from "./extension/emit.mjs";
 
@@ -830,7 +831,8 @@ if (active.is(searchingDestination)) {
 `,
 );
 // Route extension callbacks: only authored callback adapters build the extension's members,
-// once per route, snapshot and phase; handles keep the base inputs.
+// once per route, snapshot and phase; handles keep the base inputs. Router generation writes
+// no copy data, so `remote` is empty here; the Launch-shaped app below covers data.
 await write(
   "src/extension-probes.ts",
   `export const extensionEntries: { kind: string; inputs: any }[] = [];
@@ -843,11 +845,11 @@ import { defineRoute } from '@fixture/route-extension';
 import { extensionEntries } from '../../extension-probes.js';
 
 export default defineRoute('ext-reused/$id', { params: { id: numberParam }, search: { q: stringParam } })
-  .procedures(({ query }) => ({ account: { me: query(() => 'reused me') } }))
+  .remote(({ query }) => ({ account: { me: query(() => 'reused me') } }))
   .resolve({
     value: (inputs) => {
       extensionEntries.push({ kind: 'reused resolver', inputs });
-      return inputs.rpc.account.me();
+      return 'reused ' + Object.keys(inputs.remote).length;
     },
   });
 `,
@@ -874,7 +876,7 @@ import { defineRoute } from '@fixture/route-extension';
 import { extensionEntries } from '../../extension-probes.js';
 
 export default defineRoute('ext-shared/$id', { params: { id: numberParam }, search: { q: stringParam } })
-  .procedures(({ query }) => ({ account: { me: query(() => 'shared me') } }))
+  .remote(({ query }) => ({ account: { me: query(() => 'shared me') } }))
   .canMatch([
     (inputs) => {
       extensionEntries.push({ kind: 'match 1', inputs });
@@ -894,7 +896,7 @@ export default defineRoute('ext-shared/$id', { params: { id: numberParam }, sear
   .resolve({
     value: (inputs) => {
       extensionEntries.push({ kind: 'resolver', inputs });
-      return inputs.rpc.account.me();
+      return 'shared ' + Object.keys(inputs.remote).length;
     },
   })
   .title((inputs) => {
@@ -956,7 +958,7 @@ export const extensionProofProvider = provideEnvironmentInitializer(() => {
       first: firstSearch.q,
       search: page.handle.search().q,
       value: page.handle.data().value,
-      handleHasRpc: 'rpc' in page.handle.params() || 'rpc' in page.handle.search(),
+      handleHasRemote: 'remote' in page.handle.params() || 'remote' in page.handle.search(),
     };
 
     // Matching and activation phases on one navigation.
@@ -978,8 +980,8 @@ export const extensionProofProvider = provideEnvironmentInitializer(() => {
         matchingShared: matching === byKind('match 2'),
         phasesDistinct: matching !== activation,
         frozen: Object.isFrozen(activation) && Object.isFrozen(matching),
-        rpc: activation.rpc.account.me(),
-        matchingRpc: matching.rpc.account.me(),
+        remote: activation.remote,
+        matchingRemote: matching.remote,
         request: activation.request,
         sameParams: activation.params === handle.params() && activation.search === handle.search(),
         inputCalls: probe.calls - shared,
@@ -2717,8 +2719,8 @@ export const copiesProofProvider = provideEnvironmentInitializer(() => {
 `,
 );
 
-// Server-only extension steps are stripped from the route copy, with the import only they used;
-// the kept procedures step still enriches the browser callbacks.
+// Every extension step is server-only, so the route copy strips them all, with the import only
+// they used, and is typed from its declaration; the kept resolver still gets the members.
 await write(
   "src/stripped-probe.ts",
   `(globalThis as any).strippedProbeLoaded = true;
@@ -2737,8 +2739,8 @@ export default defineRoute('ext-stripped/$id', { params: { id: numberParam } })
   .use(() => {
     throw new Error('middleware ran in the browser');
   })
-  .procedures(({ query }) => ({ account: { me: query(() => 'stripped me') } }))
-  .resolve({ value: (inputs) => inputs.rpc.account.me() });
+  .remote(({ query }) => ({ account: { me: query(() => 'stripped me') } }))
+  .resolve({ value: (inputs) => (typeof inputs.remote === 'object' ? 'stripped enriched' : 'bare') });
 `,
 );
 await write(
@@ -2791,16 +2793,16 @@ try {
   await build.stop();
 }
 
-// The copy keeps procedures and the resolver, and drops context, use and the import only context
-// used.
+// The copy keeps the resolver, drops context, use, remote and the import only context used, and
+// names its declaration in an erased import.
 const strippedCopy = await readFile(
   join(fixture, "src/routes/ext-stripped/route.generated.ts"),
   "utf8",
 );
 
-assert.match(strippedCopy, /\n {2}\.procedures\(/);
 assert.match(strippedCopy, /\n {2}\.resolve\(/);
-assert.doesNotMatch(strippedCopy, /\.context\(|\.use\(|stripped-probe|middleware ran/);
+assert.match(strippedCopy, /\nimport type routegen\$Authored from "\.\/definition\.js";\n/);
+assert.doesNotMatch(strippedCopy, /\.context\(|\.use\(|\.remote\(|stripped-probe|middleware ran/);
 
 const types = spawnSync(
   process.execPath,
@@ -2893,7 +2895,7 @@ try {
     }
   }
 
-  // The stripped extension route: procedures still enrich the resolver, and the module only the
+  // The stripped extension route: the resolver still gets the members, and the module only the
   // stripped context step imported never loads.
   const strippedPage = await browser.newPage();
 
@@ -2942,7 +2944,7 @@ try {
     ),
   );
   assert.deepEqual(errors, []);
-  assert.deepEqual(stripped, { value: "stripped me", probeLoaded: false });
+  assert.deepEqual(stripped, { value: "stripped enriched", probeLoaded: false });
 
   // Three callback groups, each sharing one frozen inputs object, pairwise distinct; each native
   // snapshot is its own record's (the child's for canActivateChild). Path values parse once
@@ -3027,8 +3029,8 @@ try {
     inputCalls: 1,
     first: "first",
     search: "second",
-    value: "reused me",
-    handleHasRpc: false,
+    value: "reused 0",
+    handleHasRemote: false,
   });
   // canActivate, resolver and title share one activation container whose params/search
   // are the handle's; both canMatch guards share one matching container; the generated
@@ -3039,13 +3041,13 @@ try {
     matchingShared: true,
     phasesDistinct: true,
     frozen: true,
-    rpc: "shared me",
-    matchingRpc: "shared me",
+    remote: {},
+    matchingRemote: {},
     request: null,
     sameParams: true,
     inputCalls: 2,
     title: "Shared 9",
-    value: "shared me",
+    value: "shared 0",
   });
 
   const task = (crewId, taskId) => ({
@@ -3210,6 +3212,408 @@ try {
   await writeFile(join(evidence, "serve-report.json"), JSON.stringify({ outputs, logs }, null, 2));
 }
 
+// A Launch-shaped app: routes generated with Launch's copy data, type exports and handle
+// members (`emitLaunchRoutes`), built with Angular's own builder. Handle members are lazy,
+// built in the injector captured when the handle was made, and reach narrowed active
+// handles through their records' extension stamps, a bare leaf's too.
+const launchApp = join(fixture, "launch-app");
+const launchPage = (name, body = "") => `import { Component } from '@angular/core';
+
+@Component({ template: '<p id="${name}">${name}</p>' })
+export default class Page {${body}}
+`;
+const launchFiles = {
+  "tsconfig.json": JSON.stringify({
+    extends: "../tsconfig.app.json",
+    files: ["src/main.ts"],
+    include: ["src/**/*.ts", "generated/**/*.ts"],
+  }),
+  "src/index.html":
+    '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <base href="/" />\n    <title>Launch-shaped proof</title>\n  </head>\n  <body>\n    <launch-app></launch-app>\n  </body>\n</html>\n',
+  "src/main.ts": `import { bootstrapApplication } from '@angular/platform-browser';
+import { provideRouter } from '@angular/router';
+import { routes } from '../generated/routes.generated.js';
+import App from './app.js';
+
+void bootstrapApplication(App, { providers: [provideRouter(routes)] });
+`,
+  // The shell's providers reach its pages' injectors, not the app's.
+  "src/routes/shell/route.ts": `import { defineRoute, remoteLabel } from '@fixture/route-extension';
+
+export default defineRoute('shell', {})
+  .context(() => ({ user: 'u' }))
+  .remote(({ query }) => ({ session: { current: query(({ context }) => context.user) } }))
+  .providers([{ provide: remoteLabel, useValue: 'shell route' }]);
+`,
+  "src/routes/shell/area/route.ts": `import { defineRoute } from '@fixture/route-extension';
+import parent from '../route.js';
+
+export default defineRoute('', { parent }).context(({ context }) => ({ user: context.user }));
+`,
+  // The canonical terminal of /shell: its children's ".." skips the pathless area to it.
+  "src/routes/shell/area/index/route.ts": `import { defineRoute } from '@fixture/route-extension';
+import parent from '../route.js';
+
+export default defineRoute('', { parent });
+`,
+  "src/routes/shell/area/index/page.ts": launchPage("index"),
+  "src/routes/shell/area/leaf/route.ts": `import { defineRoute } from '@fixture/route-extension';
+import parent from '../route.js';
+
+export default defineRoute('leaf', { parent });
+`,
+  "src/routes/shell/area/leaf/page.ts": `import { Component, inject } from '@angular/core';
+import { handleProbe } from '@fixture/route-extension';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="leaf">leaf</p>' })
+export default class Leaf {
+  readonly route = injectRoute();
+  // Enumerates the members without reading them.
+  readonly keys = Object.keys(this.route);
+  readonly builds = inject(handleProbe).builds;
+
+  constructor() {
+    (window as any).leafPage = this;
+  }
+}
+`,
+  // A bare leaf whose page never imports its copy: only its record's stamp reaches it.
+  "src/routes/shell/area/bare/route.ts": `import { defineRoute } from '@fixture/route-extension';
+import parent from '../route.js';
+
+export default defineRoute('bare', { parent });
+`,
+  "src/routes/shell/area/bare/page.ts": launchPage("bare"),
+  "src/routes/shell/area/todos/route.ts": `import { defineRoute } from '@fixture/route-extension';
+import parent from '../route.js';
+
+export default defineRoute('todos', { parent }).remote(({ query }) => ({
+  todos: { list: query(() => [] as string[]) },
+}));
+`,
+  "src/routes/shell/area/todos/page.ts": `import { Component } from '@angular/core';
+import { injectRoute } from './route.generated.js';
+
+@Component({ template: '<p id="todos">todos</p>' })
+export default class Todos {
+  readonly route = injectRoute();
+
+  constructor() {
+    (window as any).todosPage = this;
+  }
+}
+`,
+  "src/app.ts": `import { ApplicationRef, Component, inject } from '@angular/core';
+import { Router, RouterOutlet } from '@angular/router';
+import { handleProbe } from '@fixture/route-extension';
+import { injectActiveRoute } from '../generated/routes.generated.js';
+import { destination as bare } from './routes/shell/area/bare/destination.generated.js';
+import { destination as todos } from './routes/shell/area/todos/destination.generated.js';
+
+// A timer task: no injection context is active when it runs.
+function outside(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+@Component({ selector: 'launch-app', imports: [RouterOutlet], template: '<router-outlet />' })
+export default class App {
+  readonly active = injectActiveRoute();
+  readonly router = inject(Router);
+  readonly application = inject(ApplicationRef);
+  readonly probe = inject(handleProbe);
+
+  constructor() {
+    (window as any).handleProof = () => this.proof();
+  }
+
+  async visit(url: string): Promise<void> {
+    if (!(await this.router.navigateByUrl(url))) {
+      throw new Error('navigation failed: ' + url);
+    }
+
+    await this.application.whenStable();
+  }
+
+  async proof() {
+    const probe = this.probe;
+
+    // A page's own handle: enumerable, unread at creation, first read outside any injection
+    // context, built once in the page's injector, which sees the shell's providers.
+    let before = probe.builds;
+
+    await this.visit('/shell/leaf');
+
+    const page = (window as any).leafPage;
+    const created = { keys: page.keys, builds: page.builds - before, afterNavigation: probe.builds - before };
+
+    await outside();
+
+    const first = page.route.remote;
+    const firstBuilds = probe.builds - before;
+
+    await Promise.resolve();
+
+    const local = {
+      created,
+      getter: typeof Object.getOwnPropertyDescriptor(page.route, 'remote')?.get,
+      call: first.session.current(),
+      cached: page.route.remote === first,
+      builds: firstBuilds,
+      label: probe.labels.at(-1),
+      up: this.router.serializeUrl(page.route.link({ to: '..' })),
+    };
+
+    await page.route.navigate({ to: '..' });
+    await this.application.whenStable();
+
+    const navigated = this.router.url;
+
+    // A narrowed active handle of the bare leaf, read later from a timer: its members come
+    // from the record's stamp, built once per entry with the reader's injector.
+    await this.visit('/shell/bare');
+    before = probe.builds;
+
+    const route = this.active();
+
+    await outside();
+
+    if (!route?.is(bare)) {
+      throw new Error('not the bare leaf');
+    }
+
+    const unread = probe.builds - before;
+    const members = route.remote;
+    const active = {
+      unread,
+      call: members.session.current(),
+      cached: route.remote === members,
+      builds: probe.builds - before,
+      label: probe.labels.at(-1),
+      up: this.router.serializeUrl(route.link({ to: '..' })),
+      todos: 'todos' in members,
+    };
+
+    // Leaving and coming back makes a new entry, with members of its own.
+    await this.visit('/shell');
+    await this.visit('/shell/bare');
+    before = probe.builds;
+
+    const again = this.active();
+
+    if (!again?.is(bare)) {
+      throw new Error('not the bare leaf again');
+    }
+
+    const rebuilt = again !== route && again.remote !== members && probe.builds - before === 1;
+
+    // Own and inherited data, on the page's handle and the narrowed active handle.
+    await this.visit('/shell/todos');
+
+    const todosPage = (window as any).todosPage;
+    const current = this.active();
+    const own = {
+      local: [todosPage.route.remote.todos.list(), todosPage.route.remote.session.current()],
+      active: current?.is(todos) ? [current.remote.todos.list(), current.remote.session.current()] : null,
+    };
+
+    return { local: { ...local, navigated }, active: { ...active, rebuilt }, own };
+  }
+}
+`,
+};
+
+for (const [file, text] of Object.entries(launchFiles)) {
+  await write(join("launch-app", file), text);
+}
+
+const generation = (file) =>
+  import(pathToFileURL(join(packageDirectory, "node/src/generation", file)).href);
+const { discover } = await generation("sources.js");
+const { createValidationProgram, emitLaunchRoutes, planOutputs, publish, validateRoutes, walk } =
+  await generation("index.js");
+const launchSources = await discover(
+  fixture,
+  "launch-app/tsconfig.json",
+  ["src/routes"],
+  "launch-app/generated",
+  undefined,
+  new Map(),
+  false,
+);
+const launchData = new Map();
+
+for (const declaration of launchSources.declarations) {
+  if (declaration.file === join(launchApp, "src/routes/shell/route.ts")) {
+    launchData.set(declaration, { remote: { session: ["current"] } });
+  } else if (declaration.file === join(launchApp, "src/routes/shell/area/todos/route.ts")) {
+    launchData.set(declaration, { remote: { todos: ["list"] } });
+  }
+}
+
+const launchDesired = emitLaunchRoutes(launchSources, {
+  data: launchData,
+  types: [{ name: "Remote", type: "RemoteOf", from: "@fixture/route-extension" }],
+  members: [{ member: "remote", type: "Remote" }],
+});
+
+await walk(launchSources.output);
+
+const launchPlan = await planOutputs(launchDesired, launchSources.encountered, [
+  join(launchSources.output, "routes.generated.ts"),
+]);
+
+await validateRoutes(
+  launchSources,
+  launchDesired,
+  createValidationProgram(launchSources, launchDesired, launchPlan.stale),
+);
+publish(launchPlan, false, () => false, launchSources.authored, new Set());
+
+const launchRoutes = await readFile(join(launchApp, "generated/routes.generated.ts"), "utf8");
+
+await writeFile(join(evidence, "launch-routes.generated.ts"), launchRoutes);
+// The bare leaf's record reads its copy for the stamp; its page doesn't.
+assert.match(launchRoutes, /\nimport \{ route as route_shell_area_bare_route \} from /);
+assert.match(launchRoutes, /\.\.\.extension\(route_shell_area_bare_route\)/);
+
+const launchTypes = spawnSync(
+  process.execPath,
+  [
+    require.resolve("typescript/lib/tsc.js"),
+    "-p",
+    join(launchApp, "tsconfig.json"),
+    "--noEmit",
+    "--skipLibCheck",
+    "false",
+  ],
+  { encoding: "utf8" },
+);
+
+assert.equal(launchTypes.status, 0, launchTypes.stdout + launchTypes.stderr);
+
+const workspaceFile = join(fixture, "angular.json");
+const launchWorkspace = JSON.parse(await readFile(workspaceFile, "utf8"));
+
+launchWorkspace.projects.launch = {
+  projectType: "application",
+  root: "launch-app",
+  sourceRoot: "launch-app/src",
+  architect: {
+    build: {
+      builder: "@angular/build:application",
+      options: {
+        browser: "launch-app/src/main.ts",
+        index: "launch-app/src/index.html",
+        tsConfig: "launch-app/tsconfig.json",
+        outputPath: "dist/launch",
+        optimization: { scripts: false, styles: false, fonts: false },
+      },
+    },
+  },
+};
+await writeFile(workspaceFile, JSON.stringify(launchWorkspace));
+
+const launchArchitect = await architect();
+const launchBuild = await launchArchitect.scheduleTarget(
+  { project: "launch", target: "build" },
+  {},
+  { logger },
+);
+
+try {
+  const output = await launchBuild.result;
+
+  assert.equal(output.success, true, JSON.stringify(logs));
+} finally {
+  await launchBuild.stop();
+}
+
+// Serves the built browser output, falling back to index.html for route URLs.
+const launchRoot = join(fixture, "dist/launch/browser");
+const launchServer = createServer(async (request, response) => {
+  const path = new URL(request.url, "http://localhost").pathname;
+  let file = join(launchRoot, path);
+
+  if (!extname(path)) {
+    file = join(launchRoot, "index.html");
+  }
+
+  try {
+    const body = await readFile(file);
+    let type = "text/html";
+
+    if (file.endsWith(".js")) {
+      type = "text/javascript";
+    } else if (file.endsWith(".css")) {
+      type = "text/css";
+    }
+
+    response.writeHead(200, { "content-type": type });
+    response.end(body);
+  } catch {
+    response.writeHead(404);
+    response.end();
+  }
+});
+
+await new Promise((resolve) => launchServer.listen(0, "127.0.0.1", resolve));
+
+let launchBrowser;
+
+try {
+  launchBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+
+  const tab = await launchBrowser.newPage();
+  const errors = [];
+
+  tab.on("pageerror", (error) => errors.push(String(error)));
+  await tab.goto(`http://127.0.0.1:${launchServer.address().port}/`);
+  await tab.waitForFunction(() => typeof window.handleProof === "function");
+
+  const handles = await tab.evaluate(() => window.handleProof());
+
+  await writeFile(
+    join(evidence, "launch-handles.json"),
+    JSON.stringify({ handles, errors }, null, 2),
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(handles, {
+    local: {
+      // Enumerable, but nothing read it: no build at creation or on navigation.
+      created: {
+        keys: ["params", "search", "data", "title", "link", "navigate", "remote"],
+        builds: 0,
+        afterNavigation: 0,
+      },
+      getter: "function",
+      call: "session.current()",
+      cached: true,
+      builds: 1,
+      label: "shell route",
+      up: "/shell",
+      navigated: "/shell",
+    },
+    active: {
+      unread: 0,
+      call: "session.current()",
+      cached: true,
+      builds: 1,
+      label: "root",
+      up: "/shell",
+      todos: false,
+      rebuilt: true,
+    },
+    own: {
+      local: ["todos.list()", "session.current()"],
+      active: ["todos.list()", "session.current()"],
+    },
+  });
+} finally {
+  await launchBrowser?.close();
+  await new Promise((resolve) => launchServer.close(resolve));
+}
+
 console.log(
-  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching/route-copy proof passed",
+  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching/route-copy/extension-handle proof passed",
 );

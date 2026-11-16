@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import {
+  authoredRouteOf,
   createRouteFactory,
   defineDestination,
   destinationRecord,
@@ -854,8 +855,8 @@ async function fixture() {
 test("an extension records root-first raw contributions and forwards them through router routes", async () => {
   const { defineRoute: extended, timing, needsUser } = await fixture();
   const context = () => ({ user: null });
-  const procedures = ({ query }) => ({ inherited: { status: query(() => "ok") } });
-  const parent = extended("parent", {}).context(context).procedures(procedures);
+  const remote = ({ query }) => ({ inherited: { status: query(() => "ok") } });
+  const parent = extended("parent", {}).context(context).remote(remote);
   const middle = defineRoute("middle", { parent }).title("middle");
   const narrow = () => ({ user: { id: "u" } });
   const child = extended("child", { parent: middle }).context(narrow).use(timing, needsUser);
@@ -866,7 +867,7 @@ test("an extension records root-first raw contributions and forwards them throug
   const middleSlot = routeMetadata(middle).extension;
   const childSlot = routeMetadata(child).extension;
 
-  assert.deepEqual(parentSlot.chain, [{ context, procedures }]);
+  assert.deepEqual(parentSlot.chain, [{ context, remote }]);
   assert.equal(parentSlot.declared, true);
   // A router-made route forwards the same runtime and chain, undeclared.
   assert.equal(middleSlot.runtime, parentSlot.runtime);
@@ -894,7 +895,10 @@ test("an extension records root-first raw contributions and forwards them throug
   assert.equal(routeContributions(extended, child), childSlot.chain);
   assert.equal(routeContributions(extended, middle), parentSlot.chain);
   assert.equal(
-    routeContributions(createRouteFactory({ steps: [], input: () => ({}) }), child),
+    routeContributions(
+      createRouteFactory({ steps: [], input: () => ({}), handle: () => ({}) }),
+      child,
+    ),
     undefined,
   );
   assert.equal(routeContributions(extended, defineRoute("plain", {})), undefined);
@@ -906,7 +910,7 @@ test("contributed steps come first, in manifest order, once each", async () => {
 
   assert.deepEqual(Object.keys(fresh), ["path"]);
 
-  for (const name of ["context", "use", "procedures", "title", "canActivate"]) {
+  for (const name of ["context", "use", "remote", "title", "canActivate"]) {
     assert.equal(typeof fresh[name], "function", name);
   }
 
@@ -915,12 +919,12 @@ test("contributed steps come first, in manifest order, once each", async () => {
   // Using a step drops it and every earlier one.
   assert.equal("use" in used, false);
   assert.equal("context" in used, false);
-  assert.equal(typeof used.procedures, "function");
+  assert.equal(typeof used.remote, "function");
 
   // A router step closes the contributed steps.
   const routed = fresh.title("t");
 
-  for (const name of ["context", "use", "procedures"]) {
+  for (const name of ["context", "use", "remote"]) {
     assert.equal(name in routed, false, name);
   }
 
@@ -938,6 +942,7 @@ test("contributed steps come first, in manifest order, once each", async () => {
   const unbounded = createRouteFactory({
     steps: [{ name: "many", serverOnly: false, arity: { min: 1, max: null } }],
     input: () => ({}),
+    handle: () => ({}),
   });
 
   assert.throws(
@@ -951,6 +956,7 @@ test("contributed steps come first, in manifest order, once each", async () => {
 
 test("createRouteFactory validates its manifest", () => {
   const input = () => ({});
+  const handle = () => ({});
   const step = (name, overrides = {}) => ({
     name,
     serverOnly: true,
@@ -974,17 +980,17 @@ test("createRouteFactory validates its manifest", () => {
     "constructor",
   ]) {
     assert.throws(
-      () => createRouteFactory({ steps: [step(name)], input }),
+      () => createRouteFactory({ steps: [step(name)], input, handle }),
       new RegExp(`Reserved contributed step name: ${name}`),
     );
   }
 
   assert.throws(
-    () => createRouteFactory({ steps: [step("a"), step("a")], input }),
+    () => createRouteFactory({ steps: [step("a"), step("a")], input, handle }),
     /Duplicate contributed step name: a/,
   );
   assert.throws(
-    () => createRouteFactory({ steps: [step("a", { serverOnly: "yes" })], input }),
+    () => createRouteFactory({ steps: [step("a", { serverOnly: "yes" })], input, handle }),
     /serverOnly must be a boolean: a/,
   );
 
@@ -994,10 +1000,24 @@ test("createRouteFactory validates its manifest", () => {
     { min: 0, max: 0 },
     { min: 2, max: 1 },
   ]) {
-    assert.throws(() => createRouteFactory({ steps: [step("a", { arity })], input }), /arity\./);
+    assert.throws(
+      () => createRouteFactory({ steps: [step("a", { arity })], input, handle }),
+      /arity\./,
+    );
   }
 
-  assert.throws(() => createRouteFactory({ steps: [], input: undefined }), TypeError);
+  assert.throws(() => createRouteFactory({ steps: [], input: undefined, handle }), TypeError);
+  assert.throws(
+    () => createRouteFactory({ steps: [], input }),
+    /^TypeError: Route extension handle must be a function$/,
+  );
+
+  // The frozen runtime keeps the handle it was given, where every route's metadata reads it.
+  const factory = createRouteFactory({ steps: [step("a")], input, handle });
+  const runtime = routeMetadata(factory("x", {})).extension.runtime;
+
+  assert.equal(runtime.handle, handle);
+  assert.equal(Object.isFrozen(runtime), true);
 });
 
 test("one extension per ancestry; no input() runs at declaration", async () => {
@@ -1010,6 +1030,7 @@ test("one extension per ancestry; no input() runs at declaration", async () => {
 
       return {};
     },
+    handle: () => ({}),
   });
   const parent = extended("parent", {}).context(() => ({}));
   const middle = defineRoute("middle", { parent });
@@ -1034,6 +1055,7 @@ test("callback inputs reject extension members that shadow params or search", as
   const shadowing = createRouteFactory({
     steps: [],
     input: () => ({ params: { forged: true } }),
+    handle: () => ({}),
   });
   const destination = defineDestination("shadow", {}, "shadow");
   const route = routeOf(shadowing, destination).resolve({ value: () => 1 });
@@ -1070,13 +1092,13 @@ export default defineRoute("left", { parent });
 export default defineRoute("parent", {})
   .context(() => ({ count: 1 }))
   .use(timing)
-  .procedures(({ query }) => ({ items: { count: query(({ context }) => context.count) } }));
+  .remote(({ query }) => ({ items: { count: query(({ context }) => context.count) } }));
 `,
     "extended-child.ts": `import { defineRoute } from "@fixture/route-extension";
 import parent from "./extended-parent.js";
 export default defineRoute("child", { parent })
   .context(({ context }) => ({ doubled: context.count * 2 }))
-  .title(({ rpc }) => String(rpc.items.count()));
+  .title(({ remote }) => String(remote.items.count()));
 `,
     // Uses no contributed step, so its type still offers the whole manifest.
     "extended-leaf.ts": `import { defineRoute } from "@fixture/route-extension";
@@ -1365,21 +1387,21 @@ test("routeOf builds a route copy from its destination and its parent's copy", (
 test("routeOf with an extension factory keeps contributed steps and ancestry", async () => {
   const { defineRoute: extended } = await fixture();
   const context = () => ({ user: null });
-  const procedures = ({ query }) => ({ items: { list: query(() => []) } });
+  const remote = ({ query }) => ({ items: { list: query(() => []) } });
   const parent = defineDestination("parent", {}, "parent");
   const child = defineDestination("child", { parent }, "child");
   const leaf = defineDestination("leaf", { parent: child }, "leaf");
   const parentCopy = routeOf(extended, parent).context(context);
   const childStart = routeOf(extended, child, parentCopy);
 
-  for (const name of ["context", "use", "procedures", "title"]) {
+  for (const name of ["context", "use", "remote", "title"]) {
     assert.equal(typeof childStart[name], "function", name);
   }
 
-  const childCopy = childStart.procedures(procedures).title("t");
+  const childCopy = childStart.remote(remote).title("t");
   const childSlot = routeMetadata(childCopy).extension;
 
-  assert.deepEqual(childSlot.chain, [{ context }, { procedures }]);
+  assert.deepEqual(childSlot.chain, [{ context }, { remote }]);
   assert.equal(childSlot.declared, true);
   assert.equal(routeContributions(extended, childCopy), childSlot.chain);
   assert.equal(routeMetadata(childCopy).destination, child);
@@ -1390,9 +1412,60 @@ test("routeOf with an extension factory keeps contributed steps and ancestry", a
   assert.equal(routeMetadata(leafCopy).extension.chain, childSlot.chain);
   assert.equal(routeMetadata(leafCopy).extension.declared, false);
 
-  const other = createRouteFactory({ steps: [], input: () => ({}) });
+  const other = createRouteFactory({ steps: [], input: () => ({}), handle: () => ({}) });
 
   assert.throws(() => routeOf(other, child, parentCopy), /Route ancestry mixes route extensions/);
+});
+
+test("authoredRouteOf copies end their chain with their own data and offer no contributed step", async () => {
+  const { defineRoute: extended } = await fixture();
+  const parent = defineDestination("parent", {}, "parent");
+  const child = defineDestination("child", { parent }, "child");
+  const leaf = defineDestination("leaf", { parent: child }, "leaf");
+  const parentData = { remote: { session: ["current"] } };
+  const childData = { remote: { todos: ["list"] } };
+  const parentCopy = authoredRouteOf()(extended, parent, undefined, parentData);
+  const childCopy = authoredRouteOf()(extended, child, parentCopy, childData).title("t");
+  const parentChain = routeMetadata(parentCopy).extension.chain;
+  const childSlot = routeMetadata(childCopy).extension;
+
+  assert.deepEqual(parentChain, [parentData]);
+  assert.equal(childSlot.chain.length, 2);
+  assert.equal(childSlot.chain[0], parentChain[0]);
+  assert.deepEqual(childSlot.chain[1], childData);
+  assert.equal(childSlot.declared, true);
+  assert.equal(Object.isFrozen(childSlot.chain), true);
+  assert.equal(Object.isFrozen(childSlot.chain[1]), true);
+  assert.notEqual(childSlot.chain[1], childData);
+  assert.equal(routeMetadata(childCopy).destination, child);
+
+  // The own record closes the contributed steps; the router's stay.
+  const start = authoredRouteOf()(extended, leaf, childCopy, { remote: {} });
+
+  for (const name of ["context", "use", "remote"]) {
+    assert.equal(name in start, false, name);
+  }
+
+  assert.equal(typeof start.resolve, "function");
+
+  // Without data, the copy adds no record: routeOf's chain.
+  const bare = authoredRouteOf()(extended, leaf, childCopy);
+
+  assert.equal(routeMetadata(bare).extension.chain, childSlot.chain);
+  assert.equal(typeof bare.context, "function");
+
+  for (const own of [null, [], "data", new Map(), Object.create({ inherited: true })]) {
+    assert.throws(
+      () => authoredRouteOf()(extended, parent, undefined, own),
+      /^TypeError: Route copy own record must be a plain record$/,
+    );
+  }
+
+  assert.throws(
+    () => authoredRouteOf()(defineRoute, parent),
+    /^TypeError: An authored route copy needs a route extension factory$/,
+  );
+  assert.throws(() => authoredRouteOf()({}, parent), /^TypeError: Expected a route factory$/);
 });
 
 test("a destination redirect snapshots its policies and its adapter reads the destination", async () => {
@@ -1589,4 +1662,49 @@ test("generated callbacks and handles run on route copies without a route set", 
       /^TypeError: Expected a genuine destination$/,
     );
   }
+});
+
+test("extension record stamps carry the copy's runtime and chain, and handle members stay lazy", async () => {
+  await import("@angular/compiler");
+
+  const { addMembers, extension, recordExtension } =
+    await import("@loozo/angular-router/_generated");
+  const { defineRoute: extended } = await fixture();
+  const parent = defineDestination("parent", {}, "parent");
+  const child = defineDestination("child", { parent }, "child");
+  const parentCopy = authoredRouteOf()(extended, parent, undefined, { remote: { a: ["b"] } });
+  const slot = routeMetadata(parentCopy).extension;
+  // Angular's shallow record copies keep own enumerable symbols.
+  const config = { path: "parent", ...extension(parentCopy) };
+
+  assert.deepEqual(recordExtension({ ...config }), { runtime: slot.runtime, chain: slot.chain });
+  assert.equal(recordExtension({ path: "native" }), undefined);
+  assert.equal(recordExtension(null), undefined);
+
+  // Only a copy an extension's factory made is stamped; a router copy below forwards undeclared.
+  for (const copy of [routeOf(defineRoute, child, parentCopy), routeOf(defineRoute, parent)]) {
+    assert.throws(
+      () => extension(copy),
+      /^TypeError: Route extension stamp needs an extension route copy$/,
+    );
+  }
+
+  let reads = 0;
+  const runtime = {
+    handle: (chain, injector) => ({
+      get member() {
+        reads += 1;
+
+        return { chain, injector };
+      },
+    }),
+  };
+  const handle = { params: "own" };
+  const injector = {};
+
+  addMembers(handle, runtime, slot.chain, injector);
+  assert.equal(reads, 0);
+  assert.equal(typeof Object.getOwnPropertyDescriptor(handle, "member").get, "function");
+  assert.deepEqual(handle.member, { chain: slot.chain, injector });
+  assert.equal(reads, 1);
 });
