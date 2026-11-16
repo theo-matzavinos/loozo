@@ -19,7 +19,7 @@ import { cn } from "../cn";
       class="inline-grid size-4 shrink-0 place-items-center rounded-full border border-(--radio-invalid,var(--input)) [border-style:var(--radio-readonly-border,solid)] bg-(--radio-readonly-ground,var(--surface)) group-data-checked/radio-group-item:border-(--radio-invalid,var(--foreground)) group-focus-visible/radio-group-item:outline-2 group-focus-visible/radio-group-item:outline-offset-2 group-focus-visible/radio-group-item:outline-ring transition-[border-color] duration-120 ease-out motion-reduce:transition-none motion-reduce:duration-0"
     >
       <span
-        class="size-2 rounded-full bg-foreground opacity-0 group-data-checked/radio-group-item:opacity-100 transition-opacity duration-120 ease-out motion-reduce:transition-none motion-reduce:duration-0"
+        class="size-2 rounded-full bg-foreground opacity-0 forced-color-adjust-none forced-colors:bg-[ButtonText] group-data-checked/radio-group-item:opacity-100 transition-opacity duration-120 ease-out motion-reduce:transition-none motion-reduce:duration-0"
       ></span>
     </span>
     <span><ng-content /></span>

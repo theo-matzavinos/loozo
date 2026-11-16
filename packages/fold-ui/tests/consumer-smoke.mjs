@@ -1,7 +1,8 @@
 // Chromium smoke of the consumer check's production build (consumer.mjs): the prerendered HTML,
 // hydration without errors, the button geometry, colors and type, the AlertDialog's, Dialog's and
 // Sheet's focus, dismissal, placement and motion, a Signal Forms Field's wiring, errors and
-// control styling, and Checkbox's, Switch's and RadioGroup's states, keys, layout and nesting.
+// control styling, and Checkbox's, Switch's and RadioGroup's states, keys, layout, nesting and
+// forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -1260,6 +1261,61 @@ try {
     ),
     ["0s", "0s", "0s", "0s", "0s", "0s"],
   );
+
+  // Forced colors, from a fresh page: the radio's dot and the switch's thumb keep the system button
+  // text color, so a selected radio and an on switch look different from unselected and off ones.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+
+  // The opaque color painted on the dot or thumb, and on what it sits on.
+  const painted = (part, ground) =>
+    page.evaluate(
+      ([part, ground]) => ({
+        part: getComputedStyle(document.querySelector(part)).backgroundColor,
+        ground: getComputedStyle(document.querySelector(ground)).backgroundColor,
+      }),
+      [part, ground],
+    );
+  const assertStandsOut = ({ part, ground }, name) => {
+    assert.match(part, /^rgb\(/, `${name} is opaque`);
+    assert.notEqual(part, ground, `${name} differs from its ground`);
+  };
+  const shot = (selector) => page.locator(selector).screenshot({ animations: "disabled" });
+
+  const unselected = await shot(indicator("cycle-monthly"));
+
+  await page.click("#cycle-monthly");
+  await until("cycle-monthly", "aria-checked", "true");
+  await rendered();
+  assert.equal(
+    (await styleOf(`${indicator("cycle-monthly")} > span`, ["opacity"])).opacity,
+    "1",
+    "the selected dot shows",
+  );
+  assertStandsOut(
+    await painted(`${indicator("cycle-monthly")} > span`, indicator("cycle-monthly")),
+    "the selected dot",
+  );
+  assert.equal(
+    unselected.equals(await shot(indicator("cycle-monthly"))),
+    false,
+    "a selected radio looks different from an unselected one",
+  );
+
+  const thumb = "#renew > [data-slot=switch-thumb]";
+  const off = await shot("#renew");
+
+  assertStandsOut(await painted(thumb, "#renew"), "the off thumb");
+  await page.click("#renew");
+  await until("renew", "aria-checked", "true");
+  await rendered();
+  assertStandsOut(await painted(thumb, "#renew"), "the on thumb");
+  assert.equal(
+    off.equals(await shot("#renew")),
+    false,
+    "an on switch looks different from an off one",
+  );
+  await page.emulateMedia({ forcedColors: "none" });
 
   assert.deepEqual(errors, [], "console errors or warnings");
   console.log("Chromium smoke passed:", JSON.stringify(geometry));

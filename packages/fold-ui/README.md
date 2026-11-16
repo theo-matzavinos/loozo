@@ -541,6 +541,8 @@ import { Switch } from "#ui/switch";
 
 `Switch` is a 36×20 track with a 14px thumb on a native `<button>`, over Origami's [Switch](../origami-ui/switch/README.md): a click, Enter or Space toggles it. It has Checkbox's inputs, outputs, naming and notes, and the same looks: on, the track fills with the foreground color and the thumb slides to the end, following the text direction.
 
+In forced-colors mode, such as Windows High Contrast, the thumb uses the system button text color, so it stays visible against the track.
+
 ```html
 <div foldField orientation="horizontal">
   <button foldSwitch [formField]="f.autoRenew"></button>
@@ -581,7 +583,7 @@ import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
 - `RadioGroup`: takes `value` (two-way), `disabled` and `class`, and emits `valueChange` and `touch`. Its `focus()` focuses the item with the tab stop, so Signal Forms' `focusBoundControl()` reaches the group. Its `class` can change the layout, such as `flex-row gap-4`.
 - `RadioGroupItem`: a whole row on a native `<button>`: a 16px circle and its content, which names it. It takes `value` (required), `disabled`, `focusableWhenDisabled` and `class`. Give each item a distinct value.
 
-A selected item shows a dot in the foreground color; the focus ring goes around the circle. The group's invalid and readonly looks reach only its own items, so a group nested inside another keeps its own. Like Checkbox, its readonly look needs a Field.
+A selected item shows a dot in the foreground color, or the system button text color in forced-colors mode; the focus ring goes around the circle. The group's invalid and readonly looks reach only its own items, so a group nested inside another keeps its own. Like Checkbox, its readonly look needs a Field.
 
 The item's whole content is its accessible name, so a hint inside an item is read as part of it; use `aria-describedby` for longer hints. A multi-line item centers its circle on its lines.
 

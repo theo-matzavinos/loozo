@@ -27,7 +27,7 @@ import { cn } from "../cn";
   template: `<span
     data-slot="switch-thumb"
     aria-hidden="true"
-    class="size-3.5 rounded-full bg-foreground opacity-75 transition-[translate,background-color,opacity] duration-120 ease-out motion-reduce:transition-none motion-reduce:duration-0 group-data-checked/switch:translate-x-4 group-data-checked/switch:bg-background group-data-checked/switch:opacity-100 rtl:group-data-checked/switch:-translate-x-4"
+    class="size-3.5 rounded-full bg-foreground opacity-75 transition-[translate,background-color,opacity] duration-120 ease-out motion-reduce:transition-none motion-reduce:duration-0 group-data-checked/switch:translate-x-4 group-data-checked/switch:bg-background group-data-checked/switch:opacity-100 rtl:group-data-checked/switch:-translate-x-4 forced-color-adjust-none forced-colors:bg-[ButtonText] forced-colors:group-data-checked/switch:bg-[ButtonText]"
   ></span>`,
 })
 export class Switch {
