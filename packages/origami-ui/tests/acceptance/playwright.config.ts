@@ -34,11 +34,12 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // (MN33), the Toast region's server HTML (TO1) and its toasts waiting for a deferred region (TO7),
 // the Slider's server HTML (SL1) and its input replayed into a hydrating slider (SL12), and the
 // number field's server HTML in a Field (NF9) and its text typed or stepped before its block
-// hydrates (NF12), and the OTP field's server HTML (OT11) and its digits typed before its block
-// hydrates (OT12), check what hydration keeps, so they run there too.
+// hydrates (NF12), the OTP field's server HTML (OT11) and its digits typed before its block
+// hydrates (OT12), and the file field's server HTML (FF2), its picks and departures before
+// hydration (FF7) and its split layouts (FF9), check what hydration keeps, so they run there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
 const hydrationAndErrorCases =
-  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b/;
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b/;
 
 let browsers = browserNames;
 

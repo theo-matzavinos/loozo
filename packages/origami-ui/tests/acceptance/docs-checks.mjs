@@ -66,6 +66,7 @@ for (const directory of [
   "number-field/src",
   "otp-field/src",
   "combobox/src",
+  "file-field/src",
 ]) {
   await collect(directory);
 }
@@ -339,6 +340,8 @@ const directiveDefaults = {
   "OrigamiOtpField.mask": ["false", /\bfalse\b/i],
   "OrigamiOtpField.disabled": ["false", /\bfalse\b/i],
   "OrigamiOtpField.readonly": ["false", /\bfalse\b/i],
+  "OrigamiFileField.value": ["null", /\bnull\b/i],
+  "OrigamiFileField.disabled": ["false", /\bfalse\b/i],
   "OrigamiCombobox.value": ["null", /\bnull\b/i],
   "OrigamiCombobox.query": ["empty string", /""|empty/i],
   "OrigamiCombobox.open": ["false", /\bfalse\b/i],

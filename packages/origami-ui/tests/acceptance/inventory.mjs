@@ -297,6 +297,13 @@ export const inventory = {
     "OrigamiOtpFieldCell",
     "OrigamiOtpFieldInput",
   ],
+  "file-field": [
+    "OrigamiFileField",
+    "OrigamiFileFieldOptions",
+    "OrigamiFileFieldState",
+    "OrigamiFileFieldInput",
+    "OrigamiFileFieldDropZone",
+  ],
 };
 
 export const typeOnly = new Set([
