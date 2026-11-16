@@ -66,6 +66,10 @@ a {
   color: var(--link);
 }
 
+::selection {
+  background: var(--accent);
+}
+
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -303,6 +307,7 @@ h2,
 h3,
 h4 {
   line-height: 1.25;
+  text-wrap: balance;
 }
 
 .skip-link {
@@ -484,6 +489,8 @@ h4 {
   padding: 1.5rem 1rem 2rem 1.5rem;
   border-right: 1px solid var(--border);
   font-size: 0.9375rem;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
 }
 
 .sidebar ul {
@@ -576,6 +583,20 @@ h4 {
   border-bottom: 1px solid var(--border);
 }
 
+/* More space above a heading than below it, so it reads as the start of what follows. */
+.prose h3 {
+  margin: 2rem 0 0.5rem;
+}
+
+.prose h4 {
+  margin: 1.5rem 0 0.5rem;
+}
+
+/* Avoids a lone word on a paragraph's last line. */
+.prose :is(p, li, dd) {
+  text-wrap: pretty;
+}
+
 .kind,
 .badge {
   display: inline-block;
@@ -642,8 +663,8 @@ h4 {
 .callout {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
-  border-left: 4px solid var(--warning-border);
-  border-radius: 4px;
+  border: 1px solid var(--warning-border);
+  border-radius: 6px;
   background: var(--warning-surface);
 }
 
@@ -653,6 +674,11 @@ h4 {
 
 .member {
   margin-top: 1.5rem;
+}
+
+/* The member's section already spaces it from the one before. */
+.prose .member h3 {
+  margin-top: 0;
 }
 
 .member h3 {
@@ -742,9 +768,11 @@ h4 {
   color: var(--text);
 }
 
+/* Weight, not only color, marks it: forced colors replace both colors with the same one. */
 .toc-list a[aria-current] {
   border-left-color: var(--link);
   color: var(--link);
+  font-weight: 600;
 }
 
 .toc-list .nested a {

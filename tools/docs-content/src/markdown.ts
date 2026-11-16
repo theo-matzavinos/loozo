@@ -46,7 +46,9 @@ markdown.renderer.rules.table_close = (tokens, index, options, env, renderer) =>
   return `${renderer.renderToken(tokens, index, options)}</div>\n`;
 };
 
-const themes = { light: "github-light", dark: "github-dark" };
+// GitHub's current Primer palettes, which the site's own colors come from; every token color meets
+// WCAG AA (4.5:1) on its theme's background, which the older github-light and github-dark miss.
+const themes = { light: "github-light-default", dark: "github-dark-default" };
 const languages = [
   "typescript",
   "javascript",
