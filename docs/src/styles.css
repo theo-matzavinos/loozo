@@ -689,28 +689,116 @@ h4 {
   font-size: 1.125rem;
 }
 
+/* The article's table of contents: a disclosure under the header, and from 75rem a sticky column. */
 .toc {
-  margin: 1.5rem 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  margin: 1.25rem 0 0;
+  font-size: 0.875rem;
+  /* Entry text wraps at word boundaries; long API names still break rather than overflow. */
+  overflow-wrap: anywhere;
 }
 
-.prose .toc h2 {
-  margin: 0 0 0.25rem;
+.prose .toc-heading {
+  display: none;
+  margin: 0 0 0.5rem;
   padding: 0;
   border: none;
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.toc ul {
-  margin: 0;
-  padding-left: 1rem;
+.toc-button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
 }
 
-.toc li.nested {
-  margin-left: 1rem;
+.toc-button[aria-expanded="true"] {
+  background: var(--accent-surface);
+  border-color: var(--link);
+}
+
+.toc-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+
+.toc-list a {
+  display: block;
+  margin-left: -1px;
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  border-left: 1px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.toc-list a:hover {
+  color: var(--text);
+}
+
+.toc-list a[aria-current] {
+  border-left-color: var(--link);
+  color: var(--link);
+}
+
+.toc-list .nested a {
+  padding-left: 1.5rem;
+}
+
+@media (min-width: 75rem) {
+  .article {
+    display: grid;
+    grid-template-areas:
+      "header header"
+      "body toc";
+    grid-template-columns: minmax(0, 46rem) 12rem;
+    column-gap: 2.5rem;
+    align-items: start;
+    max-width: none;
+  }
+
+  .article > header {
+    grid-area: header;
+  }
+
+  .article-body {
+    grid-area: body;
+    min-width: 0;
+  }
+
+  .toc {
+    grid-area: toc;
+    position: sticky;
+    top: calc(var(--header-height) + 1.5rem);
+    max-height: calc(100vh - var(--header-height) - 3rem);
+    margin: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: var(--border) transparent;
+    scrollbar-width: thin;
+  }
+
+  .prose .toc-heading {
+    display: block;
+  }
+
+  .toc-button {
+    display: none;
+  }
+
+  /* Overrides the collapsed disclosure's hidden attribute; only narrow screens hide the list. */
+  .toc-list {
+    display: block;
+    margin: 0;
+  }
 }
 
 .pager {

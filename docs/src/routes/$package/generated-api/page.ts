@@ -1,16 +1,19 @@
-import { Component, inject } from "@angular/core";
+import { Component, computed, inject } from "@angular/core";
+import { Article, type ContentsEntry } from "../../../article.js";
 import { CurrentPackage } from "../../../package-content.js";
 import { pageTitle } from "../../../page-title.js";
 import { SymbolDetails } from "../../../symbol-details.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [SymbolDetails],
+  imports: [Article, SymbolDetails],
   template: `
     @if (content(); as page) {
-      <article class="prose">
-        <p class="meta">{{ page.name }}</p>
-        <h1>Generated API</h1>
+      <docs-article [contents]="contents()">
+        <header>
+          <p class="meta">{{ page.name }}</p>
+          <h1>Generated API</h1>
+        </header>
         <p class="lede">
           These are the types you meet through code the package generates for you, such as the files
           written next to your routes. They come from internal entry points: don't import them
@@ -22,16 +25,32 @@ import { injectRoute } from "./route.generated.js";
             <h2>
               <code>{{ symbol.name }}</code>
             </h2>
-            <docs-symbol-details [symbol]="symbol" [importable]="false" [headingLevel]="3" />
+            <docs-symbol-details
+              [symbol]="symbol"
+              [importable]="false"
+              [headingLevel]="3"
+              [idPrefix]="symbol.slug + '-'"
+            />
           </section>
         }
-      </article>
+      </docs-article>
     }
   `,
 })
 export default class GeneratedApi {
   readonly route = injectRoute();
   readonly content = inject(CurrentPackage);
+
+  /** Each symbol, without its sections: listing them all would bury the symbols. */
+  readonly contents = computed(() => {
+    const contents: ContentsEntry[] = [];
+
+    for (const symbol of this.content().generatedApi) {
+      contents.push({ id: symbol.slug, text: symbol.name, nested: false });
+    }
+
+    return contents;
+  });
 
   constructor() {
     pageTitle(() => {

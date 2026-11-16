@@ -1,5 +1,6 @@
 import { Component, computed, inject } from "@angular/core";
 import { RouterLink } from "@angular/router";
+import { Article, type ContentsEntry } from "../../../article.js";
 import { ContentHtml } from "../../../content-html.js";
 import { CurrentPackage } from "../../../package-content.js";
 import { pageTitle } from "../../../page-title.js";
@@ -10,16 +11,18 @@ import { destination as api } from "../api/$symbol/destination.generated.js";
 import { destination as generatedApi } from "../generated-api/destination.generated.js";
 
 @Component({
-  imports: [RouterLink, ContentHtml],
+  imports: [RouterLink, Article, ContentHtml],
   template: `
     @if (page(); as page) {
-      <article class="prose">
-        <h1>{{ page.content.name }}</h1>
-        <p class="meta">Version {{ page.content.version }}</p>
+      <docs-article [contents]="page.contents">
+        <header>
+          <h1>{{ page.content.name }}</h1>
+          <p class="meta">Version {{ page.content.version }}</p>
+        </header>
         <div [docsContentHtml]="page.content.overviewHtml"></div>
 
         @if (page.guides.length > 0) {
-          <h2>Guides</h2>
+          <h2 id="guides">Guides</h2>
           <ul>
             @for (entry of page.guides; track entry.slug) {
               <li>
@@ -32,7 +35,7 @@ import { destination as generatedApi } from "../generated-api/destination.genera
         @if (page.entryPoints.length > 0) {
           <h2 id="api">API</h2>
           @for (entryPoint of page.entryPoints; track entryPoint.importPath) {
-            <h3>
+            <h3 [id]="entryPoint.id">
               <code>{{ entryPoint.importPath }}</code>
             </h3>
             <dl class="symbol-index">
@@ -50,13 +53,13 @@ import { destination as generatedApi } from "../generated-api/destination.genera
         }
 
         @if (page.generatedApi; as link) {
-          <h2>Generated code</h2>
+          <h2 id="generated-code">Generated code</h2>
           <p>
             Some types reach your code through files the package generates for you.
             <a [routerLink]="link">See the generated API</a>.
           </p>
         }
-      </article>
+      </docs-article>
     }
   `,
 })
@@ -79,9 +82,31 @@ export default class PackageOverview {
       guides.push({ slug: page.slug, title: page.title, link });
     }
 
+    const contents: ContentsEntry[] = [];
+
+    if (guides.length > 0) {
+      contents.push({ id: "guides", text: "Guides", nested: false });
+    }
+
+    if (content.entryPoints.length > 0) {
+      contents.push({ id: "api", text: "API", nested: false });
+    }
+
     const entryPoints = [];
 
     for (const entryPoint of content.entryPoints) {
+      // The last import path segment: the subpath, or the package's name for its root.
+      const name = entryPoint.importPath.slice(entryPoint.importPath.lastIndexOf("/") + 1);
+      const id = `entry-${name}`;
+      let text = name;
+
+      // The rail is narrow: subpaths go by their name, and only the root by its whole path.
+      if (entryPoint.importPath === content.name) {
+        text = entryPoint.importPath;
+      }
+
+      contents.push({ id, text, nested: true });
+
       const symbols = [];
 
       for (const symbol of entryPoint.symbols) {
@@ -93,16 +118,17 @@ export default class PackageOverview {
         symbols.push({ symbol, link });
       }
 
-      entryPoints.push({ importPath: entryPoint.importPath, symbols });
+      entryPoints.push({ id, importPath: entryPoint.importPath, symbols });
     }
 
     let generatedApiLink = null;
 
     if (content.generatedApi.length > 0) {
       generatedApiLink = this.route.link({ to: generatedApi, params: { package: params.package } });
+      contents.push({ id: "generated-code", text: "Generated code", nested: false });
     }
 
-    return { content, guides, entryPoints, generatedApi: generatedApiLink };
+    return { content, guides, entryPoints, generatedApi: generatedApiLink, contents };
   });
 
   constructor() {
