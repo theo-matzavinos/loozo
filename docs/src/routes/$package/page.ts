@@ -28,70 +28,63 @@ import { destination as generatedApi } from "./generated-api/destination.generat
       <button ogCollapsibleTrigger class="menu-button">Contents</button>
       <!-- Collapsed hides the sidebar only under 52rem; styles.css keeps it visible on wider screens. -->
       <nav ogCollapsiblePanel id="sidebar" class="sidebar" (click)="closeMenuAfterLink($event)">
+        <h2 class="sidebar-heading">Packages</h2>
         <ul class="sidebar-packages">
           @for (item of packages; track item.slug) {
             <li>
+              <!-- Marks the package being read on all its pages; the page itself gets "active". -->
               <a
-                class="sidebar-package"
                 [routerLink]="item.link"
-                routerLinkActive="active"
-                [routerLinkActiveOptions]="{ exact: true }"
-                ariaCurrentWhenActive="page"
+                [attr.aria-current]="item.slug === route.params().package ? 'true' : null"
+                >{{ item.name }}</a
               >
-                {{ item.name }}
-              </a>
-              @if (item.slug === route.params().package) {
-                @if (sections(); as sections) {
-                  @if (sections.guides.length > 0) {
-                    <h2 class="sidebar-heading">Guides</h2>
-                    <ul>
-                      @for (entry of sections.guides; track entry.slug) {
-                        <li>
-                          <a
-                            [routerLink]="entry.link"
-                            routerLinkActive="active"
-                            ariaCurrentWhenActive="page"
-                            >{{ entry.title }}</a
-                          >
-                        </li>
-                      }
-                    </ul>
-                  }
-                  @if (sections.apiIndex; as index) {
-                    <h2 class="sidebar-heading">API</h2>
-                    <ul>
-                      <!-- No active state: it's the overview page, which the package link marks. -->
-                      <li><a [routerLink]="index">Index</a></li>
-                      @for (entry of sections.entryGuides; track entry.slug) {
-                        <li>
-                          <a
-                            [routerLink]="entry.link"
-                            routerLinkActive="active"
-                            ariaCurrentWhenActive="page"
-                            >{{ entry.title }}</a
-                          >
-                        </li>
-                      }
-                    </ul>
-                  }
-                  @if (sections.generatedApi; as link) {
-                    <h2 class="sidebar-heading">Generated code</h2>
-                    <ul>
-                      <li>
-                        <a
-                          [routerLink]="link"
-                          routerLinkActive="active"
-                          ariaCurrentWhenActive="page"
-                          >Generated API</a
-                        >
-                      </li>
-                    </ul>
-                  }
-                }
-              }
             </li>
           }
         </ul>
+        @if (sections(); as sections) {
+          @if (sections.guides.length > 0) {
+            <h2 class="sidebar-heading">Guides</h2>
+            <ul>
+              @for (entry of sections.guides; track entry.slug) {
+                <li>
+                  <a
+                    [routerLink]="entry.link"
+                    routerLinkActive="active"
+                    ariaCurrentWhenActive="page"
+                    >{{ entry.title }}</a
+                  >
+                </li>
+              }
+            </ul>
+          }
+          @if (sections.apiIndex; as index) {
+            <h2 class="sidebar-heading">API</h2>
+            <ul>
+              <!-- No active state: it's the overview page, which shares its URL with the package link. -->
+              <li><a [routerLink]="index">Index</a></li>
+              @for (entry of sections.entryGuides; track entry.slug) {
+                <li>
+                  <a
+                    [routerLink]="entry.link"
+                    routerLinkActive="active"
+                    ariaCurrentWhenActive="page"
+                    >{{ entry.title }}</a
+                  >
+                </li>
+              }
+            </ul>
+          }
+          @if (sections.generatedApi; as link) {
+            <h2 class="sidebar-heading">Generated code</h2>
+            <ul>
+              <li>
+                <a [routerLink]="link" routerLinkActive="active" ariaCurrentWhenActive="page"
+                  >Generated API</a
+                >
+              </li>
+            </ul>
+          }
+        }
       </nav>
       <main id="main" tabindex="-1" class="content">
         <router-outlet />

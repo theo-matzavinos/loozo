@@ -492,10 +492,6 @@ h4 {
   list-style: none;
 }
 
-.sidebar li ul {
-  margin-bottom: 0.5rem;
-}
-
 .sidebar a {
   display: block;
   padding: 0.2rem 0.5rem;
@@ -514,21 +510,23 @@ h4 {
   font-weight: 600;
 }
 
-.sidebar-package {
+/* The package being read, on any of its pages. */
+.sidebar-packages a[aria-current] {
+  color: var(--link);
   font-weight: 600;
 }
 
-.sidebar-packages > li + li {
-  margin-top: 0.5rem;
-}
-
 .sidebar-heading {
-  margin: 1rem 0 0.25rem 0.5rem;
+  margin: 1.25rem 0 0.25rem 0.5rem;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.sidebar-heading:first-child {
+  margin-top: 0;
 }
 
 .menu-button {
@@ -691,7 +689,7 @@ h4 {
 
 /* The article's table of contents: a disclosure under the header, and from 75rem a sticky column. */
 .toc {
-  margin: 1.25rem 0 0;
+  margin: 1.25rem 0;
   font-size: 0.875rem;
   /* Entry text wraps at word boundaries; long API names still break rather than overflow. */
   overflow-wrap: anywhere;
