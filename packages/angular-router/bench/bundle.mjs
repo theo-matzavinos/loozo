@@ -3,15 +3,17 @@
 // Initial files are the configured browser entry's output plus everything it reaches through
 // static imports (import-statement, import-rule) and CSS bundles; dynamic imports are lazy. Every
 // emitted JS/CSS file is compressed on its own (gzip level 9, Brotli quality 11) and the totals
-// sum those per-file sizes. HTML, licenses and maps aren't counted.
+// sum those per-file sizes. HTML, licenses and maps aren't counted. The initial input modules are
+// the source modules with bytes in the initial files, for closure checks.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { readWorkspace } from "./consumer.mjs";
 
-// Generated route code: the route table and every route's destination and route copy.
+// Generated route code: the route table, every children table and every route's destination and
+// route copy.
 const routeTables =
-  /(?:^|\/)generated\/routes\.generated\.ts$|(?:^|\/)(?:destination|route)\.generated\.ts$/;
+  /(?:^|\/)generated\/routes\.generated\.ts$|(?:^|\/)(?:destination|route|children)\.generated\.ts$/;
 // One route's browser copy.
 const routeCopy = /(?:^|\/)route\.generated\.ts$/;
 
@@ -84,8 +86,8 @@ export async function measureBundle(consumer) {
   }
 
   const files = [];
-  // The route copies with bytes in the initial files, each counted once across them.
-  const initialCopies = new Set();
+  // The input modules with bytes in the initial files, each counted once across them.
+  const initialInputs = new Set();
 
   for (const [path, value] of Object.entries(stats.outputs)) {
     if (!/\.(?:js|css)$/.test(path)) {
@@ -94,8 +96,8 @@ export async function measureBundle(consumer) {
 
     if (initial.has(path)) {
       for (const [input, contribution] of Object.entries(value.inputs)) {
-        if (contribution.bytesInOutput > 0 && routeCopy.test(input)) {
-          initialCopies.add(input);
+        if (contribution.bytesInOutput > 0) {
+          initialInputs.add(input);
         }
       }
     }
@@ -129,9 +131,15 @@ export async function measureBundle(consumer) {
     }
   }
 
+  const inputs = [...initialInputs].sort((a, b) => a.localeCompare(b, "en"));
+
   return {
     entry,
-    initial: { ...total(initialFiles), routeCopies: initialCopies.size },
+    initial: {
+      ...total(initialFiles),
+      routeCopies: inputs.filter((input) => routeCopy.test(input)).length,
+      inputs,
+    },
     lazy: total(lazyFiles),
     files,
   };

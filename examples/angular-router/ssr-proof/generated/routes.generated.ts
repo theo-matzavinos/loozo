@@ -1,15 +1,14 @@
 // @loozo/angular-router routegen: owned routes.generated.ts
 import type { Signal } from '@angular/core';
 import type { Routes } from '@angular/router';
-import { record, nativeOptions, callbacks, redirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
+import { record, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route_handle_only_$id_route } from "../src/routes/handle-only/$id/route.generated.js";
-import { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
-import { route as route_teams_$teamId_old_items_$id_route } from "../src/routes/teams/$teamId/old-items/$id/route.generated.js";
 import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
 import type { route as route__home_route } from "../src/routes/+home/route.generated.js";
+import type { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
 import { destination as destination__home_route } from "../src/routes/+home/destination.generated.js";
 import { destination as destination_handle_only_$id_route } from "../src/routes/handle-only/$id/destination.generated.js";
-import { destination as destination_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/destination.generated.js";
+import { destination as destination_teams_$teamId_items_$id_legacy_route } from "../src/routes/teams/$teamId/items/$id/legacy/destination.generated.js";
 import { destination as destination_teams_$teamId_old_items_$id_route } from "../src/routes/teams/$teamId/old-items/$id/destination.generated.js";
 import { destination as destination_teams_$teamId_route } from "../src/routes/teams/$teamId/destination.generated.js";
 
@@ -17,10 +16,14 @@ import { destination as destination_teams_$teamId_route } from "../src/routes/te
  * Generated native Angular route configuration; install with provideRouter(routes).
  * Regenerate through the router's Architect companions instead of editing this file.
  */
-export const routes: Routes = [{ path: "teams/:teamId/old-items/:id",
+export const routes: Routes = [{ path: "teams/:teamId/items/:id/legacy",
+pathMatch: 'full',
+...record(destination_teams_$teamId_items_$id_legacy_route),
+redirectTo: lazyRedirect(() => import("../src/routes/teams/$teamId/items/$id/legacy/route.generated.js")) },
+{ path: "teams/:teamId/old-items/:id",
 pathMatch: 'full',
 ...record(destination_teams_$teamId_old_items_$id_route),
-redirectTo: redirect(route_teams_$teamId_old_items_$id_route) },
+redirectTo: lazyRedirect(() => import("../src/routes/teams/$teamId/old-items/$id/route.generated.js")) },
 { path: "",
 pathMatch: 'full',
 ...record(destination__home_route),
@@ -32,11 +35,7 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 { path: "teams/:teamId",
 ...record(destination_teams_$teamId_route, destination__home_route),
 ...callbacks(route_teams_$teamId_route),
-children: [{ ...nativeOptions(route_teams_$teamId_items_$id_route),
-path: "items/:id",
-...record(destination_teams_$teamId_items_$id_route, destination_teams_$teamId_route),
-...callbacks(route_teams_$teamId_items_$id_route),
-loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/teams/$teamId/items/$id/page") }] }];
+loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("../src/routes/teams/$teamId/children.generated.js").then((m) => m.routes) }];
 
 /** Each generated route's types by id: its schema and, when it has one, its `..` destination. */
 export type RouteTypes = {

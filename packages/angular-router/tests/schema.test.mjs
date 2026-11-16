@@ -115,6 +115,7 @@ await test("autoDefineRoutes is false or an object, and stays omitted for the ge
     { extra: true },
     { filename: "route.generated.ts" },
     { filename: "destination.generated.ts" },
+    { filename: "children.generated.ts" },
   ]) {
     const result = await validate({ ...router, autoDefineRoutes });
 

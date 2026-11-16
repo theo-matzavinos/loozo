@@ -62,18 +62,18 @@ async function write(path, bytes) {
   await writeFile(join(fixture, path), bytes);
 }
 
-async function architect() {
+async function architect(directory = fixture) {
   const host = core.workspaces.createWorkspaceHost(new NodeJsSyncHost());
-  const { workspace } = await core.workspaces.readWorkspace(fixture, host);
+  const { workspace } = await core.workspaces.readWorkspace(directory, host);
   const registry = new core.json.schema.CoreSchemaRegistry();
 
   registry.addPostTransform(core.json.schema.transforms.addUndefinedDefaults);
 
-  return new Architect(new WorkspaceNodeModulesArchitectHost(workspace, fixture), registry);
+  return new Architect(new WorkspaceNodeModulesArchitectHost(workspace, directory), registry);
 }
 
-async function build(options = {}) {
-  const instance = await architect();
+async function build(options = {}, directory = fixture) {
+  const instance = await architect(directory);
   const logger = new core.logging.Logger("typed-navigation");
   const report = { options, logs: [] };
 
@@ -1312,7 +1312,8 @@ await write("src/routes/independent/page.ts", page);
 await build();
 
 const after = await snapshot();
-const perRoute = /^src\/routes\/.*\/(?:route|destination)\.generated\.ts$/;
+// A top-level independent route changes no children table either.
+const perRoute = /^src\/routes\/.*\/(?:route|destination|children)\.generated\.ts$/;
 
 for (const [name, value] of Object.entries(before)) {
   if (perRoute.test(name)) {
@@ -1327,8 +1328,10 @@ for (const [name, value] of Object.entries(before)) {
 assert.ok(after["src/routes/independent/destination.generated.ts"]);
 assert.ok(after["src/routes/independent/route.generated.ts"]);
 
-// Removing the root winner changes exactly its own pair, both shared files and the route copies
-// whose ".." it was; every destination and every other copy keeps its bytes, modes and mtimes.
+// Removing the root winner changes exactly its own pair, the global table, the route copies whose
+// ".." it was and the children tables holding records whose ".." it was: scope's (middle),
+// middle's (terminal), unresolved's (nonleaf) and nonleaf's (twin). Every destination and every
+// other copy and table keeps its bytes, modes and mtimes.
 const homeRoute = await readFile(join(fixture, "src/routes/+home/route.ts"), "utf8");
 const homePage = await readFile(join(fixture, "src/routes/+home/page.ts"), "utf8");
 
@@ -1364,7 +1367,17 @@ for (const [name, value] of Object.entries(after)) {
 }
 
 assert.ok(upCopies.length > 0, "Top-level origins' copies import the root winner's destination");
-assert.deepEqual(changed.sort(), ["generated/routes.generated.ts", ...upCopies].sort());
+assert.deepEqual(
+  changed.sort(),
+  [
+    "generated/routes.generated.ts",
+    "src/routes/middle/children.generated.ts",
+    "src/routes/nonleaf/children.generated.ts",
+    "src/routes/scope/children.generated.ts",
+    "src/routes/unresolved/children.generated.ts",
+    ...upCopies,
+  ].sort(),
+);
 
 // Restoring it restores every byte.
 await write("src/routes/+home/route.ts", homeRoute);
@@ -1386,6 +1399,1206 @@ await writeFile(
   JSON.stringify({ changed, upCopies }, null, 2),
 );
 
+// Route children through a built app. Every route with children loads them lazily: its own
+// record stays where it is and its children's records load from its children table. Prefixes
+// below are path text on top-level declarations: a prefix declaration would have children.
+const groupProbes = `import { InjectionToken } from '@angular/core';
+
+const store = ((globalThis as any).groupProof ??= { marks: [], calls: {} });
+
+/** A module's evaluation, or a callback's run, in the order it happened. */
+export function mark(name: string) {
+  store.marks.push({ name, at: performance.now() });
+}
+
+export function call(name: string, value: unknown) {
+  (store.calls[name] ??= []).push(value);
+}
+
+export const groupToken = new InjectionToken<string>('group token');
+`;
+
+await write("src/group-probes.ts", groupProbes);
+
+// From src/routes/<directory>/ up to src/.
+function up(directory) {
+  return "../".repeat(directory.split("/").length + 1);
+}
+
+const routeImports =
+  "import { defineRoute, numberParam, stringParam } from '@loozo/angular-router';\n";
+
+// A route: its definition, the parent's default import and the page, which registers its handle,
+// the active route and its own destination, and marks its evaluation.
+async function groupRoute(directory, expression, { parent, imports = "", page = "leaf" } = {}) {
+  let header = routeImports;
+
+  if (parent) {
+    header += `import parent from '${"../".repeat(directory.split("/").length - parent.split("/").length)}definition.js';\n`;
+  }
+
+  await write(
+    `src/routes/${directory}/definition.ts`,
+    `${header}${imports}export default ${expression};\n`,
+  );
+
+  if (!page) {
+    return;
+  }
+
+  const template =
+    page === "outlet"
+      ? `<p data-group="${directory}">${directory}</p><router-outlet />`
+      : `<p data-group="${directory}">${directory}</p>`;
+
+  await write(
+    `src/routes/${directory}/page.ts`,
+    `import { Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+import { injectActiveRoute } from '${up(directory)}../generated/routes.generated.js';
+import { injectRoute } from './route.generated.js';
+import { destination } from './destination.generated.js';
+import { mark } from '${up(directory)}group-probes.js';
+
+mark('page:${directory}');
+
+@Component({ imports: [RouterOutlet], template: ${JSON.stringify(template)} })
+export default class Page {
+  readonly handle = injectRoute();
+  readonly active = injectActiveRoute();
+
+  constructor() {
+    const pages = ((window as any).groupPages ??= {});
+
+    pages[${JSON.stringify(directory)}] = { handle: this.handle, active: this.active, own: destination };
+  }
+}
+`,
+  );
+}
+
+// A helper module that marks its own evaluation.
+async function helper(path, body) {
+  const directory = path.slice(0, path.lastIndexOf("/"));
+
+  await write(
+    `src/routes/${path}`,
+    `import { call, mark } from '${up(directory)}group-probes.js';\n\nmark('eval:${path}');\n\n${body}`,
+  );
+}
+
+const drop = "search: { mode: 'drop' }, fragment: { mode: 'drop' }";
+
+await groupRoute("outside", "defineRoute('outside', {})");
+// The outside page carries a typed link into the group.
+await write(
+  "src/routes/outside/page.ts",
+  `import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { injectActiveRoute } from '../../../generated/routes.generated.js';
+import { injectRoute } from './route.generated.js';
+import { destination } from './destination.generated.js';
+import { destination as detail } from '../group-root/$id/detail/destination.generated.js';
+import { mark } from '../../group-probes.js';
+
+mark('page:outside');
+
+@Component({
+  imports: [RouterLink],
+  template: '<p data-group="outside">outside</p><a id="into-group" [routerLink]="handle.link({ to: detail, params: { id: 7 }, search: { score: 42 } })">detail</a>',
+})
+export default class Page {
+  readonly handle = injectRoute();
+  readonly active = injectActiveRoute();
+  readonly detail = detail;
+
+  constructor() {
+    ((window as any).groupPages ??= {}).outside = { handle: this.handle, active: this.active, own: destination };
+  }
+}
+`,
+);
+await groupRoute("deep-target", "defineRoute('deep-target/$id', { params: { id: numberParam } })");
+
+// 1. A denied root never fetches its children.
+await groupRoute(
+  "group-denied/area",
+  "defineRoute('group-denied/area', {}).canMatch([() => { call('canMatch group-denied/area', true); return false; }])",
+  { imports: "import { call } from '../../../group-probes.js';\n", page: "outlet" },
+);
+await helper("group-denied/area/x/helper.ts", "export const xGuard = () => true;\n");
+await groupRoute("group-denied/area/x", "defineRoute('x', { parent }).canActivate([xGuard])", {
+  parent: "group-denied/area",
+  imports: "import { xGuard } from './helper.js';\n",
+});
+await groupRoute(
+  "group-denied/$rest[]",
+  "defineRoute('group-denied/$rest[]', { params: { rest: stringParam } })",
+);
+
+// 2. A root with canMatch, providers and canActivateChild above a nested group.
+await groupRoute(
+  "group-root",
+  "defineRoute('group-root', {}).canMatch([() => { mark('canMatch group-root'); return true; }]).canActivateChild([() => { call('canActivateChild group-root', true); return true; }]).providers([{ provide: groupToken, useValue: 'root token' }])",
+  { imports: "import { call, groupToken, mark } from '../../group-probes.js';\n", page: "outlet" },
+);
+await helper(
+  "group-root/$id/helper.ts",
+  `export const idMatch = () => {
+  mark('canMatch group-root/$id');
+  return true;
+};
+export const idActivate = (inputs: { params: { id: number } }) => inputs.params.id !== 13;
+export const idValue = (inputs: { params: { id: number } }) => 'value ' + inputs.params.id;
+export const idTitle = (inputs: { params: { id: number } }) => 'Item ' + inputs.params.id;
+`,
+);
+await groupRoute(
+  "group-root/$id",
+  "defineRoute('$id', { parent, params: { id: numberParam }, search: { score: numberParam } }).canMatch([idMatch]).canActivate([idActivate]).resolve({ value: idValue }).title(idTitle)",
+  {
+    parent: "group-root",
+    imports: "import { idActivate, idMatch, idTitle, idValue } from './helper.js';\n",
+    page: "outlet",
+  },
+);
+await helper(
+  "group-root/$id/detail/helper.ts",
+  "export const detailTitle = (inputs: { params: { id: number } }) => 'Detail ' + inputs.params.id;\n",
+);
+await groupRoute("group-root/$id/detail", "defineRoute('detail', { parent }).title(detailTitle)", {
+  parent: "group-root/$id",
+  imports: "import { detailTitle } from './helper.js';\n",
+});
+// The detail page also reads the root's provider and links out.
+await write(
+  "src/routes/group-root/$id/detail/token.ts",
+  `import { inject } from '@angular/core';
+import { createUrl } from '@loozo/angular-router';
+import { groupToken } from '../../../../group-probes.js';
+import { destination as detail } from './destination.generated.js';
+import { destination as id } from '../destination.generated.js';
+import { destination as root } from '../../destination.generated.js';
+import { destination as outside } from '../../../outside/destination.generated.js';
+
+export function detailProof() {
+  return {
+    token: inject(groupToken),
+    references: { detail, id, root, outside },
+    createUrl: () => createUrl(detail, { params: { id: 9 }, search: { score: 1 } }),
+  };
+}
+`,
+);
+await groupRoute("group-root/static/l1", "defineRoute('static/l1', { parent })", {
+  parent: "group-root",
+});
+await groupRoute(
+  "group-root/old/item/$id",
+  `defineRoute('old/item/$id', { parent, params: { id: numberParam } }).redirect({ to: id, params: { id: 'id' }, ${drop} })`,
+  {
+    parent: "group-root",
+    imports: "import { destination as id } from '../../../$id/destination.generated.js';\n",
+    page: false,
+  },
+);
+
+// 9. A deep redirect source three declarations below the root; users is a group itself.
+await groupRoute("group-deep", "defineRoute('group-deep', {})", { page: "outlet" });
+await helper(
+  "group-deep/users/guard-helper.ts",
+  "export const usersGuard = (inputs: { params: object }) => {\n  call('users guard', inputs.params);\n  return true;\n};\n",
+);
+await helper(
+  "group-deep/users/resolver-helper.ts",
+  "export const usersValue = () => 'users resolved';\n",
+);
+await helper(
+  "group-deep/users/token.ts",
+  "import { InjectionToken } from '@angular/core';\n\nexport const usersToken = new InjectionToken<string>('users token');\n",
+);
+await helper(
+  "group-deep/users/provider.ts",
+  "import { usersToken } from './token.js';\n\nexport const usersProviders = [{ provide: usersToken, useValue: 'users provided' }];\n",
+);
+await helper("group-deep/users/data.ts", "export const usersData = { kind: 'users static' };\n");
+await groupRoute(
+  "group-deep/users",
+  "defineRoute('users', { parent }).canActivate([usersGuard]).resolve({ resolved: usersValue }).providers(usersProviders).data(usersData)",
+  {
+    parent: "group-deep",
+    imports:
+      "import { usersGuard } from './guard-helper.js';\nimport { usersValue } from './resolver-helper.js';\nimport { usersProviders } from './provider.js';\nimport { usersData } from './data.js';\n",
+    page: "outlet",
+  },
+);
+await helper(
+  "group-deep/users/$id/callback-helper.ts",
+  "export const idGuard = (inputs: { params: { id: number } }) => {\n  call('users/$id guard', inputs.params);\n  return true;\n};\n",
+);
+await groupRoute(
+  "group-deep/users/$id",
+  "defineRoute('$id', { parent, params: { id: numberParam } }).canActivate([idGuard])",
+  { parent: "group-deep/users", imports: "import { idGuard } from './callback-helper.js';\n" },
+);
+// The $id page reads the users token and users' data through its parent snapshot.
+await write(
+  "src/routes/group-deep/users/$id/scope.ts",
+  `import { inject } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { usersToken } from '../token.js';
+
+export function usersScope() {
+  return { token: inject(usersToken), parentData: inject(ActivatedRoute).parent!.snapshot.data };
+}
+`,
+);
+await helper("group-deep/users/$id/old/old-helper.ts", "export const oldTitle = () => 'old';\n");
+await groupRoute(
+  "group-deep/users/$id/old",
+  `defineRoute('old', { parent }).title(oldTitle).redirect({ to: target, params: { id: 'id' }, ${drop} })`,
+  {
+    parent: "group-deep/users/$id",
+    imports:
+      "import { oldTitle } from './old-helper.js';\nimport { destination as target } from '../../../../deep-target/destination.generated.js';\n",
+    page: false,
+  },
+);
+
+// 7. Callbacks that read their route's child configuration (F7).
+await groupRoute(
+  "group-config/match",
+  "defineRoute('group-config/match', {}).canMatch([(_inputs, native) => { call('config match', { children: native.children === undefined, loader: typeof native.loadChildren }); return Boolean(native.children?.length); }])",
+  { imports: "import { call } from '../../../group-probes.js';\n", page: "outlet" },
+);
+await groupRoute(
+  "group-config/activation",
+  "defineRoute('group-config/activation', {}).canActivate([(_inputs, snapshot) => { call('config activation', { children: snapshot.routeConfig?.children === undefined, loader: typeof snapshot.routeConfig?.loadChildren }); return Boolean(snapshot.routeConfig?.children?.length); }])",
+  { imports: "import { call } from '../../../group-probes.js';\n", page: "outlet" },
+);
+await groupRoute(
+  "group-config/structure",
+  "defineRoute('group-config/structure', {}).canMatch([(_inputs, native) => Boolean(native.children?.length || native.loadChildren)]).canActivate([(_inputs, snapshot) => Boolean(snapshot.routeConfig?.children?.length || snapshot.routeConfig?.loadChildren)])",
+  { page: "outlet" },
+);
+
+for (const name of ["match", "activation", "structure"]) {
+  await groupRoute(`group-config/${name}/child`, "defineRoute('child', { parent })", {
+    parent: `group-config/${name}`,
+  });
+}
+
+await groupRoute(
+  "group-config/$rest[]",
+  "defineRoute('group-config/$rest[]', { params: { rest: stringParam } })",
+);
+
+// 6. Prototype-2 Q1's scenarios; their no-group results are the expected values.
+await groupRoute("group-q1a/area", "defineRoute('group-q1a/area', {}).canMatch([() => false])", {
+  page: "outlet",
+});
+await groupRoute("group-q1a/area/inner", "defineRoute('inner', { parent })", {
+  parent: "group-q1a/area",
+});
+await groupRoute(
+  "group-q1a/$rest[]",
+  "defineRoute('group-q1a/$rest[]', { params: { rest: stringParam } })",
+);
+await groupRoute("group-q1a2/area", "defineRoute('group-q1a2/area', {}).canMatch([() => false])", {
+  page: "outlet",
+});
+await groupRoute("group-q1a2/area/inner", "defineRoute('inner', { parent })", {
+  parent: "group-q1a2/area",
+});
+await groupRoute(
+  "group-q1a2/$rest[]",
+  `defineRoute('group-q1a2/$rest[]', { params: { rest: stringParam } }).redirect({ to: outside, ${drop} })`,
+  {
+    imports: "import { destination as outside } from '../../outside/destination.generated.js';\n",
+    page: false,
+  },
+);
+
+for (const [root, page] of [
+  ["group-q1b", "outlet"],
+  ["group-q1c", false],
+]) {
+  await groupRoute(root, `defineRoute('${root}', {})`, { page });
+  await groupRoute(`${root}/$id`, "defineRoute('$id', { parent, params: { id: numberParam } })", {
+    parent: root,
+    page: "outlet",
+  });
+  await groupRoute(`${root}/$id/more`, "defineRoute('more', { parent })", {
+    parent: `${root}/$id`,
+  });
+  await groupRoute(
+    `${root}/$rest[]`,
+    "defineRoute('$rest[]', { parent, params: { rest: stringParam } })",
+    {
+      parent: root,
+    },
+  );
+}
+
+await groupRoute("group-q1d", "defineRoute('group-q1d', {})", { page: "outlet" });
+await groupRoute("group-q1d/+gate", "defineRoute('', { parent }).canMatch([() => false])", {
+  parent: "group-q1d",
+  page: false,
+});
+await groupRoute("group-q1d/+gate/inner", "defineRoute('inner', { parent })", {
+  parent: "group-q1d/+gate",
+});
+// As in prototype-2: the generator forbids two ordinary siblings with one effective path, so the
+// later sibling matching /group-q1d is a catchall page.
+await groupRoute(
+  "group-q1d/fallback",
+  "defineRoute('$rest[]', { parent, params: { rest: stringParam } })",
+  { parent: "group-q1d" },
+);
+await groupRoute(
+  "group-q1e",
+  "defineRoute('group-q1e', {}).canActivateChild([(_inputs, child) => { call('q1e canActivateChild', child.routeConfig?.path); return child.data['permission'] === 'yes'; }])",
+  { imports: "import { call } from '../../group-probes.js';\n", page: "outlet" },
+);
+await groupRoute(
+  "group-q1e/group",
+  "defineRoute('group', { parent }).data({ permission: 'yes' })",
+  {
+    parent: "group-q1e",
+    page: "outlet",
+  },
+);
+await groupRoute(
+  "group-q1e/group/child",
+  "defineRoute('child', { parent }).data({ permission: 'yes' })",
+  { parent: "group-q1e/group" },
+);
+
+// 10. Prototype-2 Q3's ordering competitions.
+await groupRoute("group-order", "defineRoute('group-order', {})", { page: false });
+await groupRoute(
+  "group-order/old/$id",
+  `defineRoute('old/$id', { parent, params: { id: numberParam } }).redirect({ to: target, params: { id: 'id' }, ${drop} })`,
+  {
+    parent: "group-order",
+    imports:
+      "import { destination as target } from '../../../deep-target/destination.generated.js';\n",
+    page: false,
+  },
+);
+await groupRoute(
+  "group-order/$rest[]",
+  "defineRoute('$rest[]', { parent, params: { rest: stringParam } })",
+  {
+    parent: "group-order",
+  },
+);
+await groupRoute("group-order2", "defineRoute('group-order2', {})", { page: false });
+await groupRoute(
+  "group-order2/$rest[]",
+  `defineRoute('$rest[]', { parent, params: { rest: stringParam } }).redirect({ to: outside, ${drop} })`,
+  {
+    parent: "group-order2",
+    imports: "import { destination as outside } from '../../outside/destination.generated.js';\n",
+    page: false,
+  },
+);
+await groupRoute("group-order2/page", "defineRoute('page', { parent })", {
+  parent: "group-order2",
+});
+
+// The detail and $id pages expose what only they can inject.
+for (const [directory, module, name] of [
+  ["group-root/$id/detail", "./token.js", "detailProof"],
+  ["group-deep/users/$id", "./scope.js", "usersScope"],
+]) {
+  const path = `src/routes/${directory}/page.ts`;
+  const text = await readFile(join(fixture, path), "utf8");
+
+  await write(
+    path,
+    text
+      .replace("import { mark }", `import { ${name} } from '${module}';\nimport { mark }`)
+      .replace("own: destination };", `own: destination, proof: ${name}() };`),
+  );
+}
+
+// The users page exposes its data and token too.
+{
+  const path = "src/routes/group-deep/users/page.ts";
+  const text = await readFile(join(fixture, path), "utf8");
+
+  await write(
+    path,
+    text
+      .replace(
+        "import { mark }",
+        "import { inject } from '@angular/core';\nimport { usersToken } from './token.js';\nimport { mark }",
+      )
+      .replace("own: destination };", "own: destination, token: inject(usersToken) };"),
+  );
+}
+
+await build({ statsJson: true });
+
+const { measureBundle } = await import(
+  pathToFileURL(join(packageDirectory, "bench/bundle.mjs")).href
+);
+const groupsBundle = await measureBundle(fixture);
+const groupsOutput = join(fixture, "dist/proof");
+const groupsStats = JSON.parse(await readFile(join(groupsOutput, "browser-stats.json"), "utf8"));
+
+await writeFile(join(evidence, "groups-bundle.json"), JSON.stringify(groupsBundle, null, 2));
+
+// The output chunks holding bytes of an input module.
+function outputsOf(input) {
+  return Object.entries(groupsStats.outputs)
+    .filter(([, value]) => (value.inputs[input]?.bytesInOutput ?? 0) > 0)
+    .map(([path]) => path);
+}
+
+function chunkOf(input) {
+  const outputs = outputsOf(input);
+
+  assert.equal(outputs.length, 1, `${input} is in exactly one output: ${outputs.join(", ")}`);
+
+  return outputs[0];
+}
+
+const table = (directory) => `src/routes/${directory}/children.generated.ts`;
+const copy = (directory) => `src/routes/${directory}/route.generated.ts`;
+const pageModule = (directory) => `src/routes/${directory}/page.ts`;
+
+// 11. The closure, from the initial input modules. Descendants come from generation's own
+// Declaration tree: declarations with a group-root proper ancestor.
+const { discover } = await import(
+  pathToFileURL(join(packageDirectory, "node/src/generation/sources.js")).href
+);
+const groupSources = await discover(fixture, "tsconfig.routes.json", ["src/routes"], "generated");
+const isGroupRoot = (declaration) =>
+  declaration.retained && declaration.children.some((child) => child.retained);
+const descendants = groupSources.declarations.filter((declaration) => {
+  for (let ancestor = declaration.parent; ancestor; ancestor = ancestor.parent) {
+    if (isGroupRoot(ancestor)) {
+      return true;
+    }
+  }
+
+  return false;
+});
+const local = (file) => file.slice(fixture.length + 1);
+const byPath = (a, b) => a.localeCompare(b, "en");
+const initialInputs = new Set(
+  groupsBundle.initial.inputs.map((input) => input.replace(/^\.\//, "")),
+);
+
+assert.deepEqual(
+  [...initialInputs].filter((input) => input.endsWith("children.generated.ts")),
+  [],
+  "No children table is initial",
+);
+
+for (const declaration of descendants) {
+  const own = local(declaration.file).replace(/definition\.ts$/, "route.generated.ts");
+
+  assert.equal(initialInputs.has(own), false, `A descendant's copy is not initial: ${own}`);
+}
+
+for (const path of [
+  "group-denied/area/x/helper.ts",
+  "group-root/$id/helper.ts",
+  "group-root/$id/detail/helper.ts",
+  "group-deep/users/guard-helper.ts",
+  "group-deep/users/resolver-helper.ts",
+  "group-deep/users/token.ts",
+  "group-deep/users/provider.ts",
+  "group-deep/users/data.ts",
+  "group-deep/users/$id/callback-helper.ts",
+  "group-deep/users/$id/old/old-helper.ts",
+]) {
+  assert.equal(initialInputs.has(`src/routes/${path}`), false, `${path} is not initial`);
+}
+
+// Exactly the top-level records that read their copy: roots with callbacks or native options,
+// and the non-static ones (their generated matching guard), plus the shell's own copy import.
+assert.deepEqual(
+  [...initialInputs].filter((input) => input.endsWith("/route.generated.ts")).sort(byPath),
+  [
+    "deep-target",
+    "docs",
+    "enum",
+    "group-config/$rest[]",
+    "group-config/activation",
+    "group-config/match",
+    "group-config/structure",
+    "group-denied/$rest[]",
+    "group-denied/area",
+    "group-q1a/$rest[]",
+    "group-q1a/area",
+    "group-q1a2/$rest[]",
+    "group-q1a2/area",
+    "group-q1e",
+    "group-root",
+    "item",
+    "optional",
+    "products",
+    "scope",
+  ]
+    .map(copy)
+    .sort(byPath),
+);
+
+// The descendants' destinations that are initial: each hoisted redirect source's destination
+// chain, and what the eager shell imports (middle and multi, with their chains).
+const descendantDestinations = new Set(
+  descendants.map((declaration) =>
+    local(declaration.file).replace(/definition\.ts$/, "destination.generated.ts"),
+  ),
+);
+
+assert.deepEqual(
+  [...initialInputs].filter((input) => descendantDestinations.has(input)).sort(byPath),
+  [
+    "group-deep/users",
+    "group-deep/users/$id",
+    "group-deep/users/$id/old",
+    "group-order/old/$id",
+    "group-order2/$rest[]",
+    "group-root/old/item/$id",
+    "legacyIndex",
+    "middle",
+    "multi",
+  ]
+    .map((directory) => `src/routes/${directory}/destination.generated.ts`)
+    .sort(byPath),
+);
+
+// A static server for the built browser files, falling back to index.html.
+const { createServer } = await import("node:http");
+const browserFiles = join(groupsOutput, "browser");
+const staticServer = createServer(async (request, response) => {
+  const path = new URL(request.url, "http://localhost").pathname;
+  let body;
+  let type = "text/html";
+
+  try {
+    if (path.endsWith(".js")) {
+      body = await readFile(join(browserFiles, path));
+      type = "text/javascript";
+    } else if (path.endsWith(".css")) {
+      body = await readFile(join(browserFiles, path));
+      type = "text/css";
+    }
+  } catch {
+    response.writeHead(404).end();
+
+    return;
+  }
+
+  body ??= await readFile(join(browserFiles, "index.html"));
+  response.writeHead(200, { "content-type": type, "cache-control": "no-store" }).end(body);
+});
+
+await new Promise((done) => staticServer.listen(0, "127.0.0.1", done));
+
+const base = `http://127.0.0.1:${staticServer.address().port}/`;
+const groupBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+const groupObservations = {};
+
+// A fresh browser context booted at /outside, recording its script requests.
+async function context(name) {
+  const instance = await groupBrowser.newContext();
+  const tab = await instance.newPage();
+  const requests = [];
+  const errors = [];
+
+  tab.on("request", (request) => {
+    const path = new URL(request.url()).pathname.slice(1);
+
+    if (path.endsWith(".js")) {
+      requests.push(path);
+    }
+  });
+  tab.on("pageerror", (error) => errors.push(String(error)));
+  await tab.goto(new URL("outside", base).href);
+  await tab.waitForFunction(() => window.groupPages?.outside);
+  await tab.evaluate(() => {
+    window.navigationErrors = 0;
+    window.activeProof.router.events.subscribe((event) => {
+      // EventType.NavigationError
+      if (event.type === 3) {
+        window.navigationErrors += 1;
+      }
+    });
+  });
+
+  return { name, instance, tab, requests, errors };
+}
+
+// Navigates from /outside and reports the result, URL, rendered pages and navigation errors.
+async function visit(tab, url, leaf) {
+  return tab.evaluate(
+    async ([target, leaf]) => {
+      const { router } = window.activeProof;
+
+      await router.navigateByUrl("/outside");
+
+      const errors = window.navigationErrors;
+      let result;
+
+      try {
+        result = await router.navigateByUrl(target);
+      } catch (error) {
+        result = `rejected: ${error?.message ?? error}`;
+      }
+
+      await new Promise((done) => setTimeout(done, 50));
+
+      const seen = {
+        result,
+        url: router.url,
+        rendered: [...document.querySelectorAll("[data-group]")].map((node) =>
+          node.getAttribute("data-group"),
+        ),
+        navigationErrors: window.navigationErrors - errors,
+      };
+
+      // The active route is the leaf's own declaration.
+      if (leaf) {
+        seen.active = window.groupPages[leaf].active().is(window.groupPages[leaf].own);
+      }
+
+      return seen;
+    },
+    [url, leaf],
+  );
+}
+
+const marks = (tab) => tab.evaluate(() => window.groupProof.marks.map((entry) => entry.name));
+const calls = (tab) => tab.evaluate(() => structuredClone(window.groupProof.calls));
+
+try {
+  // 1. A cold denial, first, in a fresh context.
+  const denial = await context("denial");
+  const denialBoot = denial.requests.length;
+  const denied = await visit(denial.tab, "/group-denied/area/x");
+  const forbidden = new Set(
+    [
+      table("group-denied/area"),
+      copy("group-denied/area/x"),
+      "src/routes/group-denied/area/x/helper.ts",
+      pageModule("group-denied/area"),
+      pageModule("group-denied/area/x"),
+    ].flatMap(outputsOf),
+  );
+
+  assert.deepEqual(denied, {
+    result: true,
+    url: "/group-denied/area/x",
+    rendered: ["group-denied/$rest[]"],
+    navigationErrors: 0,
+  });
+  assert.deepEqual((await calls(denial.tab))["canMatch group-denied/area"], [true]);
+  assert.equal((await marks(denial.tab)).includes("eval:group-denied/area/x/helper.ts"), false);
+  assert.deepEqual(
+    denial.requests.slice(denialBoot).filter((path) => forbidden.has(path)),
+    [],
+    "A denied root fetches nothing of its children",
+  );
+  assert.ok(forbidden.size >= 2, "The denied root's lazy closure is in lazy chunks");
+  groupObservations.denial = { denied, requests: denial.requests };
+  await denial.instance.close();
+
+  // 2. A cold successful entry through a typed link, in a separate fresh context.
+  const entry = await context("entry");
+  const { tab } = entry;
+  const entryBoot = entry.requests.length;
+
+  assert.equal(
+    await tab.locator("#into-group").getAttribute("href"),
+    "/group-root/7/detail?score=42",
+  );
+  await tab.locator("#into-group").click();
+  await tab.waitForFunction(() => window.groupPages?.["group-root/$id/detail"]);
+  await tab.waitForFunction(() => document.title === "Detail 7");
+
+  const timeline = await tab.evaluate(() => ({
+    marks: window.groupProof.marks.map(({ name, at }) => ({ name, at })),
+    resources: performance.getEntriesByType("resource").map(({ name, startTime, responseEnd }) => ({
+      path: new URL(name).pathname.slice(1),
+      startTime,
+      responseEnd,
+    })),
+  }));
+  const at = (name) => {
+    const found = timeline.marks.find((entry) => entry.name === name);
+
+    assert.ok(found, `mark ${name}`);
+
+    return found.at;
+  };
+  const requested = (path) => {
+    const found = timeline.resources.filter((entry) => entry.path === path);
+
+    assert.equal(found.length, 1, `${path} is requested once`);
+
+    return found[0];
+  };
+  const rootTable = requested(chunkOf(table("group-root")));
+  const idTable = requested(chunkOf(table("group-root/$id")));
+
+  // Two serial table fetches, then the pages.
+  assert.ok(at("canMatch group-root") < rootTable.startTime, "root canMatch before its table");
+  assert.ok(
+    rootTable.responseEnd <= at("eval:group-root/$id/helper.ts"),
+    "root table, then evaluated",
+  );
+  assert.ok(at("canMatch group-root/$id") < idTable.startTime, "$id canMatch before its table");
+  assert.ok(
+    idTable.responseEnd <= at("eval:group-root/$id/detail/helper.ts"),
+    "$id table, then evaluated",
+  );
+
+  for (const directory of ["group-root", "group-root/$id", "group-root/$id/detail"]) {
+    assert.ok(
+      requested(chunkOf(pageModule(directory))).startTime >
+        at("eval:group-root/$id/detail/helper.ts"),
+      `${directory}'s page loads after both tables`,
+    );
+  }
+
+  const entered = await tab.evaluate(() => {
+    const page = window.groupPages["group-root/$id/detail"];
+    const id = window.groupPages["group-root/$id"];
+    const { references } = page.proof;
+    const active = page.active();
+
+    return {
+      params: page.handle.params(),
+      search: page.handle.search(),
+      data: id.handle.data(),
+      title: document.title,
+      is: active.is(references.detail),
+      contains: [active.contains(references.root), active.contains(references.id)],
+      token: page.proof.token,
+      canActivateChild: window.groupProof.calls["canActivateChild group-root"].length,
+      createUrl: page.proof.createUrl(),
+    };
+  });
+
+  assert.deepEqual(entered, {
+    params: { id: 7 },
+    search: { score: 42 },
+    data: { value: "value 7" },
+    title: "Detail 7",
+    is: true,
+    contains: [true, true],
+    token: "root token",
+    // One run per activated child below the root, as without groups.
+    canActivateChild: 2,
+    createUrl: "/group-root/9/detail?score=1",
+  });
+
+  // 3. Typed navigate.
+  const navigated = await tab.evaluate(async () => {
+    const page = window.groupPages["group-root/$id/detail"];
+    const result = await page.handle.navigate({ params: { id: 8 }, search: { score: 43 } });
+
+    await new Promise((done) => setTimeout(done, 50));
+
+    return {
+      result,
+      params: page.handle.params(),
+      search: page.handle.search(),
+      data: window.groupPages["group-root/$id"].handle.data(),
+    };
+  });
+
+  assert.deepEqual(navigated, {
+    result: true,
+    params: { id: 8 },
+    search: { score: 43 },
+    data: { value: "value 8" },
+  });
+
+  // 4. $id at its bare URL: its table is cached.
+  const tablesBefore = entry.requests.filter((path) => path === idTable.path).length;
+  const bare = await tab.evaluate(async () => {
+    const result = await window.activeProof.router.navigateByUrl("/group-root/7");
+    const page = window.groupPages["group-root/$id"];
+
+    return { result, is: page.active().is(page.own) };
+  });
+
+  assert.deepEqual(bare, { result: true, is: true });
+  assert.equal(entry.requests.filter((path) => path === idTable.path).length, tablesBefore);
+
+  // 5. A typed link out, then a denied id.
+  const out = await tab.evaluate(async () => {
+    const detail = window.groupPages["group-root/$id"];
+    const { router } = window.activeProof;
+    const result = await router.navigateByUrl(
+      detail.handle.link({ to: window.groupPages.outside.own }),
+    );
+    const outside = window.groupPages.outside;
+    const active = outside.active();
+    const denied = await router.navigateByUrl("/group-root/13/detail");
+
+    return {
+      result,
+      is: active.is(outside.own),
+      containsRoot: active.contains(window.groupPages["group-root"].own),
+      denied,
+      url: router.url,
+    };
+  });
+
+  assert.deepEqual(out, {
+    result: true,
+    is: true,
+    containsRoot: false,
+    denied: false,
+    url: "/outside",
+  });
+
+  // 6. Prototype-2 Q1's recorded no-group results.
+  const q1 = {};
+
+  for (const [url, leaf] of [
+    ["/group-q1a/area", "group-q1a/$rest[]"],
+    ["/group-q1a2/area", "outside"],
+    ["/group-q1b", "group-q1b/$rest[]"],
+    ["/group-q1c", "group-q1c/$rest[]"],
+    ["/group-q1d", "group-q1d/fallback"],
+  ]) {
+    q1[url] = await visit(tab, url, leaf);
+  }
+
+  await tab.evaluate(() => delete window.groupProof.calls["q1e canActivateChild"]);
+  q1["/group-q1e/group"] = await visit(tab, "/group-q1e/group", "group-q1e/group");
+  q1["/group-q1e/group calls"] = (await calls(tab))["q1e canActivateChild"];
+  await tab.evaluate(() => delete window.groupProof.calls["q1e canActivateChild"]);
+  q1["/group-q1e/group/child"] = await visit(
+    tab,
+    "/group-q1e/group/child",
+    "group-q1e/group/child",
+  );
+  q1["/group-q1e/group/child calls"] = (await calls(tab))["q1e canActivateChild"];
+
+  assert.deepEqual(q1, {
+    "/group-q1a/area": {
+      result: true,
+      url: "/group-q1a/area",
+      rendered: ["group-q1a/$rest[]"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1a2/area": {
+      result: true,
+      url: "/outside",
+      rendered: ["outside"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1b": {
+      result: true,
+      url: "/group-q1b",
+      rendered: ["group-q1b", "group-q1b/$rest[]"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1c": {
+      result: true,
+      url: "/group-q1c",
+      rendered: ["group-q1c/$rest[]"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1d": {
+      result: true,
+      url: "/group-q1d",
+      rendered: ["group-q1d", "group-q1d/fallback"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1e/group": {
+      result: true,
+      url: "/group-q1e/group",
+      rendered: ["group-q1e", "group-q1e/group"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1e/group calls": ["group"],
+    "/group-q1e/group/child": {
+      result: true,
+      url: "/group-q1e/group/child",
+      rendered: ["group-q1e", "group-q1e/group", "group-q1e/group/child"],
+      navigationErrors: 0,
+      active: true,
+    },
+    "/group-q1e/group/child calls": ["group", "child"],
+  });
+
+  // 7. F7: a route with children has loadChildren and no children in its native config.
+  const config = {
+    match: await visit(tab, "/group-config/match/child"),
+    activation: await visit(tab, "/group-config/activation/child"),
+    structure: await visit(tab, "/group-config/structure/child"),
+    calls: await calls(tab),
+  };
+
+  assert.deepEqual(config.match, {
+    result: true,
+    url: "/group-config/match/child",
+    rendered: ["group-config/$rest[]"],
+    navigationErrors: 0,
+  });
+  assert.deepEqual(config.activation, {
+    result: false,
+    url: "/outside",
+    rendered: ["outside"],
+    navigationErrors: 0,
+  });
+  assert.deepEqual(config.structure, {
+    result: true,
+    url: "/group-config/structure/child",
+    rendered: ["group-config/structure", "group-config/structure/child"],
+    navigationErrors: 0,
+  });
+  assert.deepEqual(config.calls["config match"], [{ children: true, loader: "function" }]);
+  assert.deepEqual(config.calls["config activation"], [{ children: true, loader: "function" }]);
+
+  // 8. D6, shallow: the source copy loads on first use; a codec failure fails the navigation.
+  const sourceChunk = chunkOf(copy("group-root/old/item/$id"));
+
+  assert.equal(entry.requests.includes(sourceChunk), false, "The source copy hasn't loaded yet");
+
+  const shallow = await visit(tab, "/group-root/old/item/7");
+
+  assert.deepEqual(shallow, {
+    result: true,
+    url: "/group-root/7",
+    rendered: ["group-root", "group-root/$id"],
+    navigationErrors: 0,
+  });
+  assert.equal(entry.requests.filter((path) => path === sourceChunk).length, 1);
+
+  const codec = await visit(tab, "/group-root/old/item/abc");
+
+  assert.match(String(codec.result), /^rejected: /);
+  assert.deepEqual(
+    { ...codec, result: undefined },
+    {
+      result: undefined,
+      url: "/outside",
+      rendered: ["outside"],
+      navigationErrors: 1,
+    },
+  );
+
+  // 10. Ordering: an ordinary redirect beats an ordinary catchall page, which matches its
+  // control URL; the ordinary tree beats a hoisted catchall redirect, which wins only unmatched.
+  const ordering = {
+    control: await visit(tab, "/group-order/zzz"),
+    redirect: await visit(tab, "/group-order/old/5"),
+    tree: await visit(tab, "/group-order2/page"),
+    unmatched: await visit(tab, "/group-order2/zzz"),
+  };
+
+  assert.deepEqual(ordering, {
+    control: {
+      result: true,
+      url: "/group-order/zzz",
+      rendered: ["group-order/$rest[]"],
+      navigationErrors: 0,
+    },
+    redirect: {
+      result: true,
+      url: "/deep-target/5",
+      rendered: ["deep-target"],
+      navigationErrors: 0,
+    },
+    tree: {
+      result: true,
+      url: "/group-order2/page",
+      rendered: ["group-order2/page"],
+      navigationErrors: 0,
+    },
+    unmatched: { result: true, url: "/outside", rendered: ["outside"], navigationErrors: 0 },
+  });
+  assert.deepEqual(entry.errors, []);
+  groupObservations.entry = {
+    timeline,
+    entered,
+    navigated,
+    bare,
+    out,
+    q1,
+    config,
+    shallow,
+    codec,
+    ordering,
+    requests: entry.requests.slice(entryBoot),
+  };
+  await entry.instance.close();
+
+  // 8. D6, shallow: a rejected loader fails the navigation once, in a fresh context.
+  const failing = await context("failing-loader");
+
+  await failing.tab.route(`**/${sourceChunk}`, (route) => route.abort());
+
+  const rejected = await visit(failing.tab, "/group-root/old/item/7");
+
+  assert.match(String(rejected.result), /^rejected: /);
+  assert.equal(rejected.url, "/outside");
+  assert.equal(rejected.navigationErrors, 1);
+  groupObservations.rejectedLoader = rejected;
+  await failing.instance.close();
+
+  // 9. D6, deep, in a fresh context: the redirect loads its copy chain and no table.
+  const deep = await context("deep");
+  const deepBoot = deep.requests.length;
+
+  assert.deepEqual(
+    (await marks(deep.tab)).filter((name) => name.startsWith("eval:group-deep")),
+    [],
+    "No group-deep copy is evaluated at startup",
+  );
+
+  const redirected = await visit(deep.tab, "/group-deep/users/7/old");
+  const deepTarget = await deep.tab.evaluate(() =>
+    window.groupPages["deep-target"].active().is(window.groupPages["deep-target"].own),
+  );
+  const deepMarks = (await marks(deep.tab)).filter((name) => name.startsWith("eval:group-deep"));
+  const deepTables = [table("group-deep"), table("group-deep/users")].map(chunkOf);
+
+  assert.deepEqual(redirected, {
+    result: true,
+    url: "/deep-target/7",
+    rendered: ["deep-target"],
+    navigationErrors: 0,
+  });
+  assert.equal(deepTarget, true);
+  // Each copy's modules evaluate before the copy that imports it: users', then $id's, then old's.
+  assert.deepEqual(deepMarks.slice(-2), [
+    "eval:group-deep/users/$id/callback-helper.ts",
+    "eval:group-deep/users/$id/old/old-helper.ts",
+  ]);
+  assert.deepEqual(deepMarks.slice(0, -2).sort(), [
+    "eval:group-deep/users/data.ts",
+    "eval:group-deep/users/guard-helper.ts",
+    "eval:group-deep/users/provider.ts",
+    "eval:group-deep/users/resolver-helper.ts",
+    "eval:group-deep/users/token.ts",
+  ]);
+  assert.deepEqual(
+    deep.requests.slice(deepBoot).filter((path) => deepTables.includes(path)),
+    [],
+    "The redirect fetches no children table",
+  );
+  assert.deepEqual(await calls(deep.tab), {}, "No ancestor guard runs during the redirect");
+
+  const tablesAt = deep.requests.length;
+  const users = await visit(deep.tab, "/group-deep/users/7");
+  const scoped = await deep.tab.evaluate(() => {
+    const usersPage = window.groupPages["group-deep/users"];
+    const idPage = window.groupPages["group-deep/users/$id"];
+
+    return {
+      data: usersPage.handle.data(),
+      token: usersPage.token,
+      idToken: idPage.proof.token,
+      parentData: idPage.proof.parentData,
+      calls: structuredClone(window.groupProof.calls),
+    };
+  });
+
+  assert.deepEqual(users, {
+    result: true,
+    url: "/group-deep/users/7",
+    rendered: ["group-deep", "group-deep/users", "group-deep/users/$id"],
+    navigationErrors: 0,
+  });
+  assert.deepEqual(
+    deep.requests.slice(tablesAt).filter((path) => deepTables.includes(path)),
+    deepTables,
+    "group-deep's table, then users'",
+  );
+  assert.deepEqual(scoped, {
+    // The handle reads resolver values; static data shows in the native snapshot below.
+    data: { resolved: "users resolved" },
+    token: "users provided",
+    idToken: "users provided",
+    parentData: { kind: "users static", resolved: "users resolved" },
+    // users' guard reads its own inputs; only $id has the id.
+    calls: { "users guard": [{}], "users/$id guard": [{ id: 7 }] },
+  });
+  assert.deepEqual(deep.errors, []);
+  groupObservations.deep = {
+    redirected,
+    deepMarks,
+    users,
+    scoped,
+    requests: deep.requests.slice(deepBoot),
+  };
+  await deep.instance.close();
+} finally {
+  await groupBrowser.close();
+  staticServer.close();
+  await writeFile(
+    join(evidence, "groups-observations.json"),
+    JSON.stringify(groupObservations, null, 2),
+  );
+}
+
+// A4: an eager record's ".." winner inside a group. A separate small app: a top-level empty-path
+// parent whose terminal empty-path child is the canonical "/", and a top-level item whose ".." is
+// that grouped child. The shell imports none of that chain.
+const catalog = join(evidence, "catalog");
+
+await cp(join(repository, "examples/angular-router"), catalog, {
+  recursive: true,
+  filter: (path) =>
+    !/(?:^|\/)(?:node_modules|dist|\.angular|generated|\+home)(?:\/|$)/.test(path) &&
+    !path.endsWith("route.generated.ts") &&
+    !path.endsWith("destination.generated.ts"),
+});
+await writeFile(join(catalog, "angular.json"), JSON.stringify(configuration));
+await symlink(join(fixture, "node_modules"), join(catalog, "node_modules"), "dir");
+
+for (const [directory, expression, parent] of [
+  ["+layout", "defineRoute('', {})", undefined],
+  ["+layout/default", "defineRoute('', { parent })", "../definition.js"],
+  ["item", "defineRoute('item', {})", undefined],
+]) {
+  await mkdir(join(catalog, "src/routes", directory), { recursive: true });
+  await writeFile(
+    join(catalog, "src/routes", directory, "definition.ts"),
+    `import { defineRoute } from '@loozo/angular-router';\n${parent ? `import parent from '${parent}';\n` : ""}export default ${expression};\n`,
+  );
+  await writeFile(join(catalog, "src/routes", directory, "page.ts"), page);
+}
+
+await build({ statsJson: true }, catalog);
+
+const catalogBundle = await measureBundle(catalog);
+const catalogInputs = catalogBundle.initial.inputs.map((input) => input.replace(/^\.\//, ""));
+
+await writeFile(join(evidence, "catalog-bundle.json"), JSON.stringify(catalogBundle, null, 2));
+assert.match(
+  await readFile(join(catalog, "generated/routes.generated.ts"), "utf8"),
+  /path: "item",\n\.\.\.record\(destination_item_definition, destination__layout_default_definition\),/,
+);
+assert.deepEqual(
+  catalogInputs.filter((input) => input.startsWith("src/routes/")).sort(),
+  [
+    // The winner and its parent destination chain; item's own destination and the layout root's.
+    "src/routes/+layout/default/destination.generated.ts",
+    "src/routes/+layout/destination.generated.ts",
+    "src/routes/item/destination.generated.ts",
+  ].sort(),
+);
+
 console.log(
-  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges and per-route stability proof passed",
+  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges, per-route stability and route children proof passed",
 );

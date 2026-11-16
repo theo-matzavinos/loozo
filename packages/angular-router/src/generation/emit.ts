@@ -113,15 +113,6 @@ export function emit(
     return desired;
   }
 
-  const routes: string[] = [
-    markers["routes.generated.ts"],
-    "import type { Signal } from '@angular/core';",
-    "import type { Routes } from '@angular/router';",
-  ];
-  let needsNative = false;
-  let needsCallbacks = false;
-  let needsRedirect = false;
-
   // Options Angular takes as they are, read from the route copy itself.
   function usesNative(declaration: Declaration): boolean {
     return ["providers", "data", "canDeactivate", "runGuardsAndResolvers"].some((key) =>
@@ -151,84 +142,34 @@ export function emit(
     );
   }
 
-  for (const declaration of records) {
-    if (usesNative(declaration)) {
-      needsNative = true;
-    }
-
-    if (usesCallbacks(declaration)) {
-      needsCallbacks = true;
-    }
-
-    if (declaration.target) {
-      needsRedirect = true;
-    }
+  // A redirect source with a parent reads its copy only when it first redirects, through an
+  // import(), so its copy and its ancestors' copies stay out of the eager table.
+  function lazyRedirect(declaration: Declaration): boolean {
+    return !!declaration.target && !!declaration.parent;
   }
 
-  const helpers = ["record"];
-
-  if (needsNative) {
-    helpers.push("nativeOptions");
-  }
-
-  if (needsCallbacks) {
-    helpers.push("callbacks");
-  }
-
-  if (needsRedirect) {
-    helpers.push("redirect");
-  }
-
-  helpers.push(
-    "injectGeneratedActiveRoute",
-    "type RouteSchema",
-    "type ActiveRoute as GeneratedActiveRoute",
-    "type ActiveHandle as GeneratedActiveHandle",
-  );
-  routes.push(`import { ${helpers.join(", ")} } from '@loozo/angular-router/_generated';`);
-
-  // A copy is imported at runtime only where a record reads it; RouteTypes reads the other
-  // retained copies' types alone.
+  // A copy is imported at runtime only where a record reads it at evaluation; RouteTypes
+  // reads the other retained copies' types alone.
   function readsCopy(declaration: Declaration): boolean {
+    if (lazyRedirect(declaration)) {
+      return false;
+    }
+
     return usesNative(declaration) || usesCallbacks(declaration) || !!declaration.target;
   }
 
-  const retained = byId.filter((declaration) => declaration.retained);
-
-  for (const declaration of records) {
-    if (readsCopy(declaration)) {
-      routes.push(
-        `import { route as route_${names.get(declaration)} } from ${JSON.stringify(specifier(routesFile, routeFile(declaration)))};`,
-      );
+  // Every route with a retained child loads their records lazily from its colocated
+  // children.generated.ts. A retained child's parent is always retained (sources retain()).
+  function retainedChildren(declaration: Declaration): Declaration[] {
+    if (declaration.target) {
+      return [];
     }
+
+    return declaration.children.filter((child) => child.retained).sort(order);
   }
 
-  for (const declaration of retained) {
-    if (!readsCopy(declaration)) {
-      routes.push(
-        `import type { route as route_${names.get(declaration)} } from ${JSON.stringify(specifier(routesFile, routeFile(declaration)))};`,
-      );
-    }
-  }
-
-  // Each record's own destination and each distinct ".." winner's, once, in id order. A
-  // winner pruned from the records still has its destination file.
-  const imported = new Set<Declaration>(records);
-
-  for (const declaration of retained) {
-    const winner = winners.get(declaration);
-
-    if (winner) {
-      imported.add(winner);
-    }
-  }
-
-  for (const declaration of byId) {
-    if (imported.has(declaration)) {
-      routes.push(
-        `import { destination as destination_${names.get(declaration)} } from ${JSON.stringify(specifier(routesFile, destinationFile(declaration)))};`,
-      );
-    }
+  function childrenFile(declaration: Declaration): string {
+    return resolve(dirname(declaration.file), "children.generated.ts");
   }
 
   function nativePath(declaration: Declaration, effective: boolean): string {
@@ -252,11 +193,27 @@ export function emit(
     return parts.join("/");
   }
 
-  function record(declaration: Declaration): string {
+  function order(a: Declaration, b: Declaration): number {
+    const catchA = a.segments.at(-1)?.kind === "catchall";
+    const catchB = b.segments.at(-1)?.kind === "catchall";
+
+    if (catchA !== catchB) {
+      if (catchA) {
+        return 1;
+      }
+
+      return -1;
+    }
+
+    return authoredPath(a).localeCompare(authoredPath(b), "en") || a.id.localeCompare(b.id, "en");
+  }
+
+  // One record as written into `file`, the table that holds it.
+  function record(declaration: Declaration, file: string): string {
     const parts: string[] = [];
     const name = `route_${names.get(declaration)!}`;
 
-    if (usesNative(declaration)) {
+    if (usesNative(declaration) && !lazyRedirect(declaration)) {
       parts.push(`...nativeOptions(${name})`);
     }
 
@@ -275,7 +232,11 @@ export function emit(
 
     parts.push(`...record(${facts.join(", ")})`);
 
-    if (declaration.target) {
+    if (lazyRedirect(declaration)) {
+      parts.push(
+        `redirectTo: lazyRedirect(() => import(${JSON.stringify(specifier(file, routeFile(declaration)))}))`,
+      );
+    } else if (declaration.target) {
       parts.push(`redirectTo: redirect(${name})`);
     } else {
       if (usesCallbacks(declaration)) {
@@ -286,35 +247,122 @@ export function emit(
         // Keep route-array subtype reduction from comparing page classes and their handles.
         // The annotation still checks each imported module against Angular's loader contract.
         parts.push(
-          `loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import(${JSON.stringify(lazySpecifier(routesFile, declaration.page, sources.parsed.options))})`,
+          `loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import(${JSON.stringify(lazySpecifier(file, declaration.page, sources.parsed.options))})`,
         );
       }
 
-      const children = declaration.children.filter((child) => child.retained);
-
-      children.sort(order);
-
-      if (children.length > 0) {
-        parts.push(`children: [${children.map(record).join(",\n")}]`);
+      if (retainedChildren(declaration).length > 0) {
+        parts.push(
+          `loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import(${JSON.stringify(specifier(file, childrenFile(declaration)))}).then((m) => m.routes)`,
+        );
       }
     }
 
     return `{ ${parts.join(",\n")} }`;
   }
 
-  function order(a: Declaration, b: Declaration): number {
-    const catchA = a.segments.at(-1)?.kind === "catchall";
-    const catchB = b.segments.at(-1)?.kind === "catchall";
+  // The helper import and the value imports a table's own records read, in today's order:
+  // copies in declaration order, then destinations (each record's own and its `..` winner's)
+  // in id order.
+  function imports(list: readonly Declaration[]) {
+    const members = new Set(list);
+    const helpers = ["record"];
 
-    if (catchA !== catchB) {
-      if (catchA) {
-        return 1;
-      }
-
-      return -1;
+    if (list.some((declaration) => usesNative(declaration) && !lazyRedirect(declaration))) {
+      helpers.push("nativeOptions");
     }
 
-    return authoredPath(a).localeCompare(authoredPath(b), "en") || a.id.localeCompare(b.id, "en");
+    if (list.some(usesCallbacks)) {
+      helpers.push("callbacks");
+    }
+
+    if (list.some((declaration) => declaration.target && !lazyRedirect(declaration))) {
+      helpers.push("redirect");
+    }
+
+    if (list.some(lazyRedirect)) {
+      helpers.push("lazyRedirect");
+    }
+
+    const read: Declaration[] = [];
+
+    for (const declaration of records) {
+      if (members.has(declaration) && readsCopy(declaration)) {
+        read.push(declaration);
+      }
+    }
+
+    const destinations = new Set<Declaration>(list);
+
+    for (const declaration of list) {
+      const winner = winners.get(declaration);
+
+      if (winner) {
+        destinations.add(winner);
+      }
+    }
+
+    return { helpers, read, destinations };
+  }
+
+  function copyImport(file: string, declaration: Declaration, type: boolean): string {
+    let keyword = "import";
+
+    if (type) {
+      keyword = "import type";
+    }
+
+    return `${keyword} { route as route_${names.get(declaration)} } from ${JSON.stringify(specifier(file, routeFile(declaration)))};`;
+  }
+
+  function destinationImport(file: string, declaration: Declaration, type: boolean): string {
+    let keyword = "import";
+
+    if (type) {
+      keyword = "import type";
+    }
+
+    return `${keyword} { destination as destination_${names.get(declaration)} } from ${JSON.stringify(specifier(file, destinationFile(declaration)))};`;
+  }
+
+  // Each children table, outermost first; a nested root's record sits in its parent's table.
+  const pending = records.filter((declaration) => !declaration.parent && !declaration.target);
+
+  while (pending.length > 0) {
+    const root = pending.shift()!;
+    const children = retainedChildren(root);
+
+    if (children.length === 0) {
+      continue;
+    }
+
+    const file = childrenFile(root);
+    const { helpers, read, destinations } = imports(children);
+    const lines: string[] = [
+      markers["children.generated.ts"],
+      "import type { Routes } from '@angular/router';",
+      `import { ${helpers.join(", ")} } from '@loozo/angular-router/_generated';`,
+    ];
+
+    for (const declaration of read) {
+      lines.push(copyImport(file, declaration, false));
+    }
+
+    for (const declaration of byId) {
+      if (destinations.has(declaration)) {
+        lines.push(destinationImport(file, declaration, false));
+      }
+    }
+
+    lines.push(`
+/**
+ * The generated records of the children of ${root.id}, loaded lazily by its record.
+ * Regenerate through the router's Architect companions instead of editing this file.
+ */
+export const routes: Routes = [${children.map((child) => record(child, file)).join(",\n")}];
+`);
+    desired.set(file, lines.join("\n"));
+    pending.push(...children);
   }
 
   const before: Declaration[] = [];
@@ -337,13 +385,62 @@ export function emit(
     group.sort(order);
   }
 
+  const top = [...before, ...ordinary, ...after];
+  const { helpers, read, destinations } = imports(top);
+  const retained = byId.filter((declaration) => declaration.retained);
+  const routes: string[] = [
+    markers["routes.generated.ts"],
+    "import type { Signal } from '@angular/core';",
+    "import type { Routes } from '@angular/router';",
+  ];
+
+  helpers.push(
+    "injectGeneratedActiveRoute",
+    "type RouteSchema",
+    "type ActiveRoute as GeneratedActiveRoute",
+    "type ActiveHandle as GeneratedActiveHandle",
+  );
+  routes.push(`import { ${helpers.join(", ")} } from '@loozo/angular-router/_generated';`);
+
+  for (const declaration of read) {
+    routes.push(copyImport(routesFile, declaration, false));
+  }
+
+  const valueCopies = new Set(read);
+
+  for (const declaration of retained) {
+    if (!valueCopies.has(declaration)) {
+      routes.push(copyImport(routesFile, declaration, true));
+    }
+  }
+
+  // A `..` winner that only RouteTypes names, because its origin's record lives in a children
+  // table, is a type import here.
+  const named = new Set<Declaration>();
+
+  for (const declaration of retained) {
+    const winner = winners.get(declaration);
+
+    if (winner && !destinations.has(winner)) {
+      named.add(winner);
+    }
+  }
+
+  for (const declaration of byId) {
+    if (destinations.has(declaration)) {
+      routes.push(destinationImport(routesFile, declaration, false));
+    } else if (named.has(declaration)) {
+      routes.push(destinationImport(routesFile, declaration, true));
+    }
+  }
+
   routes.push(
     `
 /**
  * Generated native Angular route configuration; install with provideRouter(routes).
  * Regenerate through the router's Architect companions instead of editing this file.
  */
-export const routes: Routes = [${[...before, ...ordinary, ...after].map(record).join(",\n")}];\n`,
+export const routes: Routes = [${top.map((declaration) => record(declaration, routesFile)).join(",\n")}];\n`,
   );
   routes.push(
     "/** Each generated route's types by id: its schema and, when it has one, its `..` destination. */",

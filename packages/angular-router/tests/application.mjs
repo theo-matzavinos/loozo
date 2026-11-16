@@ -1226,10 +1226,12 @@ for (const entry of entries) {
 }
 
 // The leaf copy reads its parent copy while it evaluates. With a downward edge, every order that
-// enters the layout copy before the leaf copy reads the layout's binding uninitialized; the orders
-// that enter the leaf copy first happen to pass (routes.generated.js imports the copies before the
-// destinations, the leaf's first).
+// enters the layout copy before the leaf copy reads the layout's binding uninitialized; only
+// entering the leaf copy first happens to pass. routes.generated.js is such an order too: the
+// leaf's record is in the layout's children table, so the global table imports only the layout
+// copy.
 for (const entry of [
+  "generated/routes.generated.js",
   "src/routes/layout/items/$id/destination.generated.js",
   "src/routes/layout/route.js",
 ]) {
@@ -1237,12 +1239,11 @@ for (const entry of [
   assert.match(nativeResults.childCopy[entry].stderr, /ReferenceError: Cannot access 'layout'/);
 }
 
-for (const entry of [
-  "generated/routes.generated.js",
-  "src/routes/layout/items/$id/route.generated.js",
-]) {
-  assert.equal(nativeResults.childCopy[entry].status, 0, `child copy edge, ${entry} first`);
-}
+assert.equal(
+  nativeResults.childCopy["src/routes/layout/items/$id/route.generated.js"].status,
+  0,
+  "child copy edge, the leaf copy first",
+);
 
 console.log(
   "Public Architect generation/check/ownership/watch/repair/stop, real Angular collision browser proof and cycle safety by execution passed",

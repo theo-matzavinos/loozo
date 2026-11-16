@@ -44,11 +44,37 @@ await writeFile(
 export default class Missing {}
 `,
 );
+// Prototype-2 Q3's first ordering competition inside a group: an ordinary redirect beats an
+// ordinary catchall page. (The second, a hoisted catchall redirect, would compete with this
+// fixture's root not-found catchall, which the generator rejects; tests/navigation.mjs runs it.)
+for (const [path, text] of [
+  [
+    "order/route.ts",
+    'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("order", {});\n',
+  ],
+  [
+    "order/old/$id/route.ts",
+    'import { defineRoute, numberParam } from "@loozo/angular-router";\nimport parent from "../../route.js";\nimport { destination as target } from "../../../handle-only/$id/destination.generated.js";\n\nexport default defineRoute("old/$id", { parent, params: { "id": numberParam } }).redirect({ to: target, params: { id: "id" }, search: { mode: "drop" }, fragment: { mode: "drop" } });\n',
+  ],
+  [
+    "order/$rest[]/route.ts",
+    'import { defineRoute, stringParam } from "@loozo/angular-router";\nimport parent from "../route.js";\n\nexport default defineRoute("$rest[]", { parent, params: { "rest": stringParam } });\n',
+  ],
+  [
+    "order/$rest[]/page.ts",
+    'import { Component } from "@angular/core";\n\n@Component({ template: \'<p id="order-rest">order rest</p>\' })\nexport default class OrderRest {}\n',
+  ],
+]) {
+  await mkdir(dirname(join(fixture, "src/routes", path)), { recursive: true });
+  await writeFile(join(fixture, "src/routes", path), text);
+}
+
 // The shell reads the active route, server-side and through hydration.
 await writeFile(
   join(fixture, "src/app.ts"),
-  `import { ApplicationRef, Component, afterNextRender, computed, inject } from "@angular/core";
-import { RouterOutlet } from "@angular/router";
+  `import { ApplicationRef, Component, PLATFORM_ID, afterNextRender, computed, inject } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { ActivationEnd, RouteConfigLoadEnd, Router, RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
 import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
@@ -84,8 +110,24 @@ export default class App {
   });
 
   constructor() {
+    // The client's initial navigation: when each children table resolves, each route
+    // activates and the app is stable, on one clock.
+    const timeline: { event: string; path?: string; at: number }[] = [];
+
+    if (isPlatformBrowser(inject(PLATFORM_ID))) {
+      (window as any).proofTimeline = timeline;
+      inject(Router).events.subscribe((event) => {
+        if (event instanceof RouteConfigLoadEnd) {
+          timeline.push({ event: "config", path: event.route.path, at: performance.now() });
+        } else if (event instanceof ActivationEnd) {
+          timeline.push({ event: "activation", path: event.snapshot.routeConfig?.path, at: performance.now() });
+        }
+      });
+    }
+
     afterNextRender(() => {
       void this.application.whenStable().then(() => {
+        timeline.push({ event: "stable", at: performance.now() });
         document.documentElement.dataset.proofStable = "true";
       });
     });
@@ -400,6 +442,9 @@ for (let index = 0; index < eagerPaths.length; index += 1) {
       false,
       "page must remain genuinely lazy",
     );
+    // teams/$teamId's children load with its children table, outside the initial closure.
+    assert.doesNotMatch(input, /src\/routes\/teams\/\$teamId\/items\/.*route\.generated\.ts$/);
+    assert.doesNotMatch(input, /children\.generated\.ts$/);
   }
 
   for (const imported of output.imports) {
@@ -471,6 +516,15 @@ for (let index = 0; index < reachablePaths.length; index += 1) {
 }
 
 assert.equal(dynamicallyReachableItem, true, "item chunk must be dynamically reachable from main");
+
+const teamTable = Object.entries(stats.outputs).find(
+  ([file, output]) =>
+    !file.includes("/server/") &&
+    output.entryPoint?.endsWith("src/routes/teams/$teamId/children.generated.ts"),
+)?.[0];
+
+assert.ok(teamTable, "teams/$teamId's children table is its own lazy output");
+assert.ok(reachableWithDynamic.has(teamTable), "and dynamically reachable from main");
 await save("browser-closure.json", {
   mainPath,
   browserOutputs,
@@ -483,6 +537,19 @@ await save("browser-closure.json", {
   dynamicallyReachableItem,
 });
 await cp(join(fixture, "dist/proof/browser-stats.json"), join(evidence, "production-stats.json"));
+
+// A document's base URL and its modulepreload hints resolved against it, as the browser does.
+function documentBase(html, documentUrl) {
+  return new URL(html.match(/<base href="([^"]*)"/)?.[1] ?? "", documentUrl);
+}
+
+function preloadHints(html, documentUrl) {
+  const base = documentBase(html, documentUrl);
+
+  return [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(
+    (match) => new URL(match[1], base).href,
+  );
+}
 
 function requestSsr(url, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
@@ -622,6 +689,39 @@ try {
   await save("http-alias.json", alias);
   assert.equal(alias.status, 302);
   assert.equal(location.pathname + location.search + location.hash, "/teams/7/items/7");
+
+  // A redirect two declarations below the group root, hoisted with a lazy copy.
+  const legacy = await requestSsr(origin + "/teams/7/items/7/legacy?score=1");
+
+  await save("http-legacy.json", legacy);
+  assert.equal(legacy.status, 302);
+  assert.equal(legacy.headers.location, "/handle-only/7");
+
+  // The ordinary redirect beats the ordinary catchall page, which matches its control URL.
+  const ordering = {
+    redirect: await requestSsr(origin + "/order/old/5"),
+    control: await requestSsr(origin + "/order/zzz"),
+  };
+
+  await save("http-ordering.json", ordering);
+  assert.equal(ordering.redirect.status, 302);
+  assert.equal(ordering.redirect.headers.location, "/handle-only/5");
+  assert.equal(ordering.control.status, 200);
+  assert.match(ordering.control.body, /<p id="order-rest">order rest<\/p>/);
+
+  // The server renders through the group and hints teams/$teamId's children table.
+  const groupedUrl = origin + "/teams/7/items/7?score=42";
+  const grouped = await requestSsr(groupedUrl);
+
+  assert.equal(grouped.status, 200);
+  assert.equal(inspectHtml(grouped.body).resolved, "team=7;item=7;score=42");
+
+  const hints = preloadHints(grouped.body, groupedUrl);
+  // Its stats path is relative to the browser output, which the server serves at the base.
+  const tableHint = new URL(teamTable, documentBase(grouped.body, groupedUrl)).href;
+
+  await save("http-preload-hints.json", { teamTable, tableHint, hints });
+  assert.ok(hints.includes(tableHint), "The server hints teams/$teamId's children table");
 
   const urls = ["/teams/7/items/7;teamId=999;id=888?score=42", "/teams/8/items/8?score=43"];
   const requests = [];
@@ -962,6 +1062,44 @@ try {
   assert.equal(activeBefore, "team 7 item 7");
   allowScripts();
   await page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+
+  // Hydration depth: the client's initial navigation resolves teams/$teamId's children table,
+  // fetched once (a preloaded output is reused), before activation and stability.
+  const devHints = preloadHints(before.html, page.url());
+  const scriptUrls = [
+    ...new Set(
+      requests.filter((entry) => entry.resourceType === "script").map((entry) => entry.url),
+    ),
+  ];
+  const tableUrls = [];
+
+  for (const url of scriptUrls) {
+    if ((await (await fetch(url)).text()).includes('path: "items/:id"')) {
+      tableUrls.push(url);
+    }
+  }
+
+  const timeline = await page.evaluate(() => window.proofTimeline);
+  const configs = timeline.filter((entry) => entry.event === "config");
+  const activations = timeline.filter((entry) => entry.event === "activation");
+  const stable = timeline.find((entry) => entry.event === "stable");
+
+  await save("browser-hydration-depth.json", { devHints, scriptUrls, tableUrls, timeline });
+  assert.equal(tableUrls.length, 1, "One served output holds the children table");
+  assert.ok(devHints.includes(tableUrls[0]), "The server hints the children table");
+  assert.equal(
+    requests.filter((entry) => entry.url === tableUrls[0]).length,
+    1,
+    "The children table is fetched exactly once",
+  );
+  // Angular reports a loaded component the same way; teams/$teamId has no page, so its event is
+  // its children table's. No order between the table and the page is asserted.
+  const table = configs.filter((entry) => entry.path === "teams/:teamId");
+
+  assert.equal(table.length, 1, "teams/$teamId's children load once");
+  assert.ok(activations.length > 0 && stable);
+  assert.ok(table[0].at < activations[0].at, "Configuration resolves before activation");
+  assert.ok(activations.at(-1).at <= stable.at, "and activation before stability");
 
   const activeHydrated = await page.evaluate(() => {
     const node = document.querySelector("#active-route");

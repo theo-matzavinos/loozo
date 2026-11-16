@@ -11,7 +11,7 @@ import {
   workspacePaths,
   markers,
   ownedBy,
-  routeFiles,
+  colocatedFiles,
 } from "./files.js";
 import { overlayDirectory, overlayHost } from "./overlay.js";
 import type { CompilerState } from "./compiler.js";
@@ -800,7 +800,7 @@ export async function discover(
       throw new Error(`Cannot read admitted TypeScript source: ${file}`);
     }
 
-    if (routeFiles.has(basename(file)) && ownedBy(basename(file), bytes, markers)) {
+    if (colocatedFiles.has(basename(file)) && ownedBy(basename(file), bytes, markers)) {
       continue;
     }
 

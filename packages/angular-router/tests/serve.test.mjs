@@ -343,7 +343,7 @@ test("an edit during a pass causes exactly one more pass, however many edits arr
 // bookkeeping finishes, covering the window between the last dirty check and finalization.
 // Generation's own writes of the per-route copies need no further pass; their marker is the last
 // line, also when Git checks them out with CRLF. A lookalike without it is an edit.
-test("marked writes of route.generated.ts and destination.generated.ts are not edits", async () => {
+test("marked writes of route.generated.ts, destination.generated.ts and children.generated.ts are not edits", async () => {
   const { run, scenario: state } = await started();
   const directory = resolve(packageDirectory, "../../.scratch/router-serve", String(process.pid));
   const marker = (name) => `// @loozo/angular-router routegen: owned ${name}`;
@@ -363,7 +363,12 @@ test("marked writes of route.generated.ts and destination.generated.ts are not e
     "destination.generated.ts",
     `const destination = 1;\r\n${marker("destination.generated.ts")}\r\n`,
   );
-  assert.equal(state.passes.length, 1, "Owned copies are not edits");
+  // A children table carries its marker on its first line.
+  await written(
+    "children.generated.ts",
+    `${marker("children.generated.ts")}\nexport const routes = [];\n`,
+  );
+  assert.equal(state.passes.length, 1, "Owned copies and children tables are not edits");
 
   // The old facade carried the marker on its first line; it isn't owned output anymore.
   await written("route.generated.ts", `${marker("route.generated.ts")}\nconst route = 1;\n`);
@@ -373,6 +378,10 @@ test("marked writes of route.generated.ts and destination.generated.ts are not e
   await written("destination.generated.ts", "export const destination = {};\n");
   await until(() => state.passes.length === 3, "the pass for an unmarked destination.generated.ts");
   state.passes[2].resolve();
+  await settle();
+  await written("children.generated.ts", "export const routes = [];\n");
+  await until(() => state.passes.length === 4, "the pass for an unmarked children.generated.ts");
+  state.passes[3].resolve();
 
   await run.stop();
 });
