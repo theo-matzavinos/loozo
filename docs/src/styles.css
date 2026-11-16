@@ -66,6 +66,10 @@ a {
   color: var(--link);
 }
 
+::selection {
+  background: var(--accent);
+}
+
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -303,6 +307,7 @@ h2,
 h3,
 h4 {
   line-height: 1.25;
+  text-wrap: balance;
 }
 
 .skip-link {
@@ -414,6 +419,28 @@ h4 {
   font-size: 0.875rem;
 }
 
+.breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumb li + li::before {
+  margin-right: 0.5rem;
+  content: "/" / "";
+}
+
+.breadcrumb a {
+  color: inherit;
+}
+
+.breadcrumb a:hover {
+  color: var(--link);
+}
+
 .package-list {
   display: grid;
   gap: 1rem;
@@ -462,16 +489,14 @@ h4 {
   padding: 1.5rem 1rem 2rem 1.5rem;
   border-right: 1px solid var(--border);
   font-size: 0.9375rem;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
 }
 
 .sidebar ul {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.sidebar li ul {
-  margin-bottom: 0.5rem;
 }
 
 .sidebar a {
@@ -492,21 +517,14 @@ h4 {
   font-weight: 600;
 }
 
-.sidebar a code {
-  padding: 0;
-  background: none;
-}
-
-.sidebar-package {
+/* The package being read, on any of its pages. */
+.sidebar-packages a[aria-current] {
+  color: var(--link);
   font-weight: 600;
 }
 
-.sidebar-packages > li + li {
-  margin-top: 0.5rem;
-}
-
 .sidebar-heading {
-  margin: 1rem 0 0.25rem 0.5rem;
+  margin: 1.25rem 0 0.25rem 0.5rem;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 600;
@@ -514,9 +532,8 @@ h4 {
   text-transform: uppercase;
 }
 
-.sidebar-heading code {
-  text-transform: none;
-  letter-spacing: 0;
+.sidebar-heading:first-child {
+  margin-top: 0;
 }
 
 .menu-button {
@@ -564,6 +581,20 @@ h4 {
   margin-top: 2.5rem;
   padding-bottom: 0.3rem;
   border-bottom: 1px solid var(--border);
+}
+
+/* More space above a heading than below it, so it reads as the start of what follows. */
+.prose h3 {
+  margin: 2rem 0 0.5rem;
+}
+
+.prose h4 {
+  margin: 1.5rem 0 0.5rem;
+}
+
+/* Avoids a lone word on a paragraph's last line. */
+.prose :is(p, li, dd) {
+  text-wrap: pretty;
 }
 
 .kind,
@@ -632,8 +663,8 @@ h4 {
 .callout {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
-  border-left: 4px solid var(--warning-border);
-  border-radius: 4px;
+  border: 1px solid var(--warning-border);
+  border-radius: 6px;
   background: var(--warning-surface);
 }
 
@@ -643,6 +674,11 @@ h4 {
 
 .member {
   margin-top: 1.5rem;
+}
+
+/* The member's section already spaces it from the one before. */
+.prose .member h3 {
+  margin-top: 0;
 }
 
 .member h3 {
@@ -677,28 +713,118 @@ h4 {
   font-size: 1.125rem;
 }
 
+/* The article's table of contents: a disclosure under the header, and from 75rem a sticky column. */
 .toc {
-  margin: 1.5rem 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  margin: 1.25rem 0;
+  font-size: 0.875rem;
+  /* Entry text wraps at word boundaries; long API names still break rather than overflow. */
+  overflow-wrap: anywhere;
 }
 
-.prose .toc h2 {
-  margin: 0 0 0.25rem;
+.prose .toc-heading {
+  display: none;
+  margin: 0 0 0.5rem;
   padding: 0;
   border: none;
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.toc ul {
-  margin: 0;
-  padding-left: 1rem;
+.toc-button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
 }
 
-.toc li.nested {
-  margin-left: 1rem;
+.toc-button[aria-expanded="true"] {
+  background: var(--accent-surface);
+  border-color: var(--link);
+}
+
+.toc-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+
+.toc-list a {
+  display: block;
+  margin-left: -1px;
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  border-left: 1px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.toc-list a:hover {
+  color: var(--text);
+}
+
+/* Weight, not only color, marks it: forced colors replace both colors with the same one. */
+.toc-list a[aria-current] {
+  border-left-color: var(--link);
+  color: var(--link);
+  font-weight: 600;
+}
+
+.toc-list .nested a {
+  padding-left: 1.5rem;
+}
+
+@media (min-width: 75rem) {
+  .article {
+    display: grid;
+    grid-template-areas:
+      "header header"
+      "body toc";
+    grid-template-columns: minmax(0, 46rem) 12rem;
+    column-gap: 2.5rem;
+    align-items: start;
+    max-width: none;
+  }
+
+  .article > header {
+    grid-area: header;
+  }
+
+  .article-body {
+    grid-area: body;
+    min-width: 0;
+  }
+
+  .toc {
+    grid-area: toc;
+    position: sticky;
+    top: calc(var(--header-height) + 1.5rem);
+    max-height: calc(100vh - var(--header-height) - 3rem);
+    margin: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: var(--border) transparent;
+    scrollbar-width: thin;
+  }
+
+  .prose .toc-heading {
+    display: block;
+  }
+
+  .toc-button {
+    display: none;
+  }
+
+  /* Overrides the collapsed disclosure's hidden attribute; only narrow screens hide the list. */
+  .toc-list {
+    display: block;
+    margin: 0;
+  }
 }
 
 .pager {

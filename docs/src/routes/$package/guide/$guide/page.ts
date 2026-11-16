@@ -1,6 +1,7 @@
 import { Component, computed, inject } from "@angular/core";
 import { NgComponentOutlet } from "@angular/common";
 import { RouterLink } from "@angular/router";
+import { Article, type ContentsEntry } from "../../../../article.js";
 import { ContentHtml } from "../../../../content-html.js";
 import { DemoPlayground } from "../../../../demo-playground.js";
 import { CurrentPackage, findGuide } from "../../../../package-content.js";
@@ -8,26 +9,14 @@ import { pageTitle } from "../../../../page-title.js";
 import { injectRoute } from "./route.generated.js";
 
 @Component({
-  imports: [RouterLink, ContentHtml, NgComponentOutlet, DemoPlayground],
+  imports: [RouterLink, Article, ContentHtml, NgComponentOutlet, DemoPlayground],
   template: `
     @if (page(); as page) {
-      <article class="prose">
-        <p class="meta">{{ page.packageName }}</p>
-        <h1>{{ page.guide.title }}</h1>
-
-        @if (page.guide.headings.length > 0) {
-          <nav class="toc" aria-labelledby="toc-heading">
-            <h2 id="toc-heading">On this page</h2>
-            <ul>
-              @for (heading of page.guide.headings; track heading.id) {
-                <li [class.nested]="heading.level > page.topLevel">
-                  <!-- Same-page anchors to content headings aren't route destinations, so not typed links. -->
-                  <a [routerLink]="[]" [fragment]="heading.id">{{ heading.text }}</a>
-                </li>
-              }
-            </ul>
-          </nav>
-        }
+      <docs-article [contents]="page.contents">
+        <header>
+          <p class="meta">{{ page.packageName }}</p>
+          <h1>{{ page.guide.title }}</h1>
+        </header>
 
         <!-- Tracked by identity, so another page's blocks create their demos afresh. -->
         @for (block of page.blocks; track block) {
@@ -59,7 +48,7 @@ import { injectRoute } from "./route.generated.js";
             </a>
           }
         </nav>
-      </article>
+      </docs-article>
     }
   `,
 })
@@ -103,6 +92,12 @@ export default class Guide {
       topLevel = Math.min(topLevel, heading.level);
     }
 
+    const contents: ContentsEntry[] = [];
+
+    for (const heading of guide.headings) {
+      contents.push({ id: heading.id, text: heading.text, nested: heading.level > topLevel });
+    }
+
     const demos = this.route.data().demos;
     const blocks = [];
 
@@ -114,7 +109,7 @@ export default class Guide {
       }
     }
 
-    return { packageName: content.name, guide, blocks, topLevel, previous, next };
+    return { packageName: content.name, guide, contents, blocks, previous, next };
   });
 
   constructor() {

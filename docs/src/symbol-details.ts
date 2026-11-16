@@ -1,4 +1,5 @@
 import { Component, computed, input } from "@angular/core";
+import type { ContentsEntry } from "./article.js";
 import { ContentHtml } from "./content-html.js";
 import type {
   ApiSignature,
@@ -89,7 +90,8 @@ export class Signatures {
 
 /**
  * Everything documented about one symbol below its name. `headingLevel` places the section
- * headings under the page's own heading for the symbol.
+ * headings under the page's own heading for the symbol. Its section and member headings get IDs
+ * from `symbolContents`, prefixed with `idPrefix` to keep them unique on a page of several symbols.
  */
 @Component({
   selector: "docs-symbol-details",
@@ -137,7 +139,9 @@ export class Signatures {
     }
 
     @if (item.typeParams.length > 0) {
-      <h2 [attr.aria-level]="headingLevel()">Type parameters</h2>
+      <h2 [id]="idPrefix() + 'type-parameters'" [attr.aria-level]="headingLevel()">
+        Type parameters
+      </h2>
       <dl class="params">
         @for (typeParam of item.typeParams; track typeParam.name) {
           <dt>
@@ -151,10 +155,10 @@ export class Signatures {
     <docs-signatures [signatures]="item.signatures" [headingLevel]="headingLevel()" />
 
     @if (item.members.length > 0) {
-      <h2 [attr.aria-level]="headingLevel()">Members</h2>
+      <h2 [id]="idPrefix() + 'members'" [attr.aria-level]="headingLevel()">Members</h2>
       @for (member of item.members; track member.name) {
         <section class="member">
-          <h3 [attr.aria-level]="headingLevel() + 1">
+          <h3 [id]="idPrefix() + 'member-' + member.name" [attr.aria-level]="headingLevel() + 1">
             <code>{{ member.name }}</code>
             @if (member.input !== null) {
               <span class="badge input"
@@ -180,7 +184,7 @@ export class Signatures {
     }
 
     @if (item.examplesHtml.length > 0) {
-      <h2 [attr.aria-level]="headingLevel()">Examples</h2>
+      <h2 [id]="idPrefix() + 'examples'" [attr.aria-level]="headingLevel()">Examples</h2>
       @for (example of item.examplesHtml; track $index) {
         <div [docsContentHtml]="example"></div>
       }
@@ -192,6 +196,30 @@ export class SymbolDetails {
   /** Generated-API symbols are not importable entry points, so they get no import line. */
   readonly importable = input.required<boolean>();
   readonly headingLevel = input<2 | 3>(2);
+  readonly idPrefix = input("");
 
   readonly kindLabels = kindLabels;
+}
+
+/** The table of contents for `SymbolDetails` of `symbol`: its sections, with its members nested. */
+export function symbolContents(symbol: ApiSymbol, idPrefix = ""): ContentsEntry[] {
+  const contents: ContentsEntry[] = [];
+
+  if (symbol.typeParams.length > 0) {
+    contents.push({ id: `${idPrefix}type-parameters`, text: "Type parameters", nested: false });
+  }
+
+  if (symbol.members.length > 0) {
+    contents.push({ id: `${idPrefix}members`, text: "Members", nested: false });
+
+    for (const member of symbol.members) {
+      contents.push({ id: `${idPrefix}member-${member.name}`, text: member.name, nested: true });
+    }
+  }
+
+  if (symbol.examplesHtml.length > 0) {
+    contents.push({ id: `${idPrefix}examples`, text: "Examples", nested: false });
+  }
+
+  return contents;
 }

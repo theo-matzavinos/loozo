@@ -9,7 +9,7 @@ import { packages } from "../../../generated/content/index.generated.js";
 import { CurrentPackage } from "../../package-content.js";
 import { injectRoute } from "./route.generated.js";
 import { destination as guide } from "./guide/$guide/destination.generated.js";
-import { destination as api } from "./api/$symbol/destination.generated.js";
+import { destination as overview } from "./+overview/destination.generated.js";
 import { destination as generatedApi } from "./generated-api/destination.generated.js";
 
 /** Layout for every page of one package: the documentation sidebar beside the page. */
@@ -28,80 +28,63 @@ import { destination as generatedApi } from "./generated-api/destination.generat
       <button ogCollapsibleTrigger class="menu-button">Contents</button>
       <!-- Collapsed hides the sidebar only under 52rem; styles.css keeps it visible on wider screens. -->
       <nav ogCollapsiblePanel id="sidebar" class="sidebar" (click)="closeMenuAfterLink($event)">
+        <h2 class="sidebar-heading">Packages</h2>
         <ul class="sidebar-packages">
           @for (item of packages; track item.slug) {
             <li>
+              <!-- Marks the package being read on all its pages; the page itself gets "active". -->
               <a
-                class="sidebar-package"
                 [routerLink]="item.link"
-                routerLinkActive="active"
-                [routerLinkActiveOptions]="{ exact: true }"
-                ariaCurrentWhenActive="page"
+                [attr.aria-current]="item.slug === route.params().package ? 'true' : null"
+                >{{ item.name }}</a
               >
-                {{ item.name }}
-              </a>
-              @if (item.slug === route.params().package) {
-                @if (sections(); as sections) {
-                  @if (sections.guides.length > 0) {
-                    <h2 class="sidebar-heading">Guides</h2>
-                    <ul>
-                      @for (entry of sections.guides; track entry.slug) {
-                        <li>
-                          <a
-                            [routerLink]="entry.link"
-                            routerLinkActive="active"
-                            ariaCurrentWhenActive="page"
-                            >{{ entry.title }}</a
-                          >
-                        </li>
-                      }
-                    </ul>
-                  }
-                  @for (entryPoint of sections.entryPoints; track entryPoint.importPath) {
-                    <h2 class="sidebar-heading">
-                      API <code>{{ entryPoint.importPath }}</code>
-                    </h2>
-                    <ul>
-                      @if (entryPoint.guide; as entry) {
-                        <li>
-                          <a
-                            [routerLink]="entry.link"
-                            routerLinkActive="active"
-                            ariaCurrentWhenActive="page"
-                            >{{ entry.title }}</a
-                          >
-                        </li>
-                      }
-                      @for (entry of entryPoint.symbols; track entry.slug) {
-                        <li>
-                          <a
-                            [routerLink]="entry.link"
-                            routerLinkActive="active"
-                            ariaCurrentWhenActive="page"
-                            ><code>{{ entry.name }}</code></a
-                          >
-                        </li>
-                      }
-                    </ul>
-                  }
-                  @if (sections.generatedApi; as link) {
-                    <h2 class="sidebar-heading">Generated code</h2>
-                    <ul>
-                      <li>
-                        <a
-                          [routerLink]="link"
-                          routerLinkActive="active"
-                          ariaCurrentWhenActive="page"
-                          >Generated API</a
-                        >
-                      </li>
-                    </ul>
-                  }
-                }
-              }
             </li>
           }
         </ul>
+        @if (sections(); as sections) {
+          @if (sections.guides.length > 0) {
+            <h2 class="sidebar-heading">Guides</h2>
+            <ul>
+              @for (entry of sections.guides; track entry.slug) {
+                <li>
+                  <a
+                    [routerLink]="entry.link"
+                    routerLinkActive="active"
+                    ariaCurrentWhenActive="page"
+                    >{{ entry.title }}</a
+                  >
+                </li>
+              }
+            </ul>
+          }
+          @if (sections.apiIndex; as index) {
+            <h2 class="sidebar-heading">API</h2>
+            <ul>
+              <!-- No active state: it's the overview page, which shares its URL with the package link. -->
+              <li><a [routerLink]="index">Index</a></li>
+              @for (entry of sections.entryGuides; track entry.slug) {
+                <li>
+                  <a
+                    [routerLink]="entry.link"
+                    routerLinkActive="active"
+                    ariaCurrentWhenActive="page"
+                    >{{ entry.title }}</a
+                  >
+                </li>
+              }
+            </ul>
+          }
+          @if (sections.generatedApi; as link) {
+            <h2 class="sidebar-heading">Generated code</h2>
+            <ul>
+              <li>
+                <a [routerLink]="link" routerLinkActive="active" ariaCurrentWhenActive="page"
+                  >Generated API</a
+                >
+              </li>
+            </ul>
+          }
+        }
       </nav>
       <main id="main" tabindex="-1" class="content">
         <router-outlet />
@@ -132,32 +115,28 @@ export default class Package {
       guides.push({ slug: page.slug, title: page.title, link });
     }
 
-    const entryPoints = [];
+    // Symbols are listed in the overview's API index, not here.
+    let apiIndex = null;
+
+    if (content.entryPoints.length > 0) {
+      apiIndex = this.route.link({
+        to: overview,
+        params: { package: params.package },
+        fragment: "api",
+      });
+    }
+
+    const entryGuides = [];
 
     for (const entryPoint of content.entryPoints) {
-      const symbols = [];
-
-      for (const symbol of entryPoint.symbols) {
-        const link = this.route.link({
-          to: api,
-          params: { package: params.package, symbol: symbol.slug },
-        });
-
-        symbols.push({ slug: symbol.slug, name: symbol.name, link });
-      }
-
-      let entryGuide = null;
-
       if (entryPoint.guide !== null) {
         const link = this.route.link({
           to: guide,
           params: { package: params.package, guide: entryPoint.guide.slug },
         });
 
-        entryGuide = { title: entryPoint.guide.title, link };
+        entryGuides.push({ slug: entryPoint.guide.slug, title: entryPoint.guide.title, link });
       }
-
-      entryPoints.push({ importPath: entryPoint.importPath, guide: entryGuide, symbols });
     }
 
     let generatedApiLink = null;
@@ -166,7 +145,7 @@ export default class Package {
       generatedApiLink = this.route.link({ to: generatedApi, params: { package: params.package } });
     }
 
-    return { guides, entryPoints, generatedApi: generatedApiLink };
+    return { guides, apiIndex, entryGuides, generatedApi: generatedApiLink };
   });
 
   packageLinks() {
