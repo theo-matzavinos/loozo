@@ -321,6 +321,12 @@ export function provideLaunchServer(
  * errors, so a call made in one isn't checked and the page is still written; don't make
  * Launch calls there.
  *
+ * During Angular's route discovery, which boots the app without its root component, it
+ * returns the application at once, without waiting or checking: discovery releases a
+ * blocking initial navigation (`withEnabledBlockingInitialNavigation`) only after the
+ * bootstrap returns, and waits for stability itself. Calls made then run with the anonymous
+ * context, and Angular only logs their failures.
+ *
  * @example
  * ```ts
  * export default async function bootstrap(context: BootstrapContext) {
@@ -331,11 +337,18 @@ export function provideLaunchServer(
  * ```
  *
  * @param app - The bootstrapped server application.
- * @returns The same application once it is stable.
+ * @returns The same application once it is stable, or at once during route discovery.
  * @throws The first recorded fault, naming the call and its reply, the cookie or the
  * context factory's error; the application is destroyed first.
  */
 export async function finishLaunchRendering(app: ApplicationRef): Promise<ApplicationRef> {
+  // Only route discovery bootstraps without a root component.
+  const discoveringRoutes = app.components.length === 0;
+
+  if (discoveringRoutes) {
+    return app;
+  }
+
   await app.whenStable();
 
   const fault = app.injector.get(renderFaults).fault;

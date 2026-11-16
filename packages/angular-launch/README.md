@@ -858,7 +858,7 @@ The results reach the browser inside the page, as during server rendering: throu
 - `ng serve` renders prerendered routes on every request the same way, with the anonymous context whatever cookies the browser sends.
 - Angular's prerender timeout doesn't reach handlers: their `signal` aborts when the render's application is destroyed, or when `HttpClient` unsubscribes from the call.
 
-Blocking initial navigation (`withEnabledBlockingInitialNavigation`) isn't supported yet. With `finishLaunchRendering` in your server bootstrap, Angular's route extraction waits on it until Angular's 30-second timeout, and the build fails with "Routes extraction was aborted", whether or not a resolver calls an RPC. A fix is planned before 1.0. Angular documents blocking initial navigation for server rendering without hydration, and Launch apps hydrate: hydration is what enables the HTTP transfer cache.
+Blocking initial navigation (`withEnabledBlockingInitialNavigation`) works with `finishLaunchRendering`. With it, Angular also runs the initial navigation to `/` while it discovers your routes at build time, so resolvers on the routes that match `/`, such as the root route's, make their calls then, once, with the anonymous context. A call refused there, such as one that needs a signed-in user, doesn't fail the build: Angular logs the error and still finds every route. Pages you prerender still fail the build for it, as above, and server-rendered pages make the call again with each visitor's context. Angular documents blocking initial navigation for server rendering without hydration, and Launch apps hydrate: hydration is what enables the HTTP transfer cache.
 
 ## Testing
 
@@ -1215,7 +1215,6 @@ The options are fixed when the session is created. Edits inside the app, includi
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
 - Redirects are root-relative only: an external destination, such as an OAuth provider, is data your page acts on. Outcomes act only in navigation, through `rpcNavigationErrors`, and nothing maps `FORBIDDEN` to a page: middleware that guards a page's reads throws `redirect()` or `notFound()` instead.
 - One RPC group per route, and one context per application. A redesign planned before 1.0 moves the context, middleware and RPC groups into each route's own declaration.
-- Blocking initial navigation isn't supported yet; see [Prerendering](#prerendering).
 
 ## Further reading
 
