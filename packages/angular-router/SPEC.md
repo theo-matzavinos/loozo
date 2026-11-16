@@ -40,7 +40,7 @@ Generated code necessarily executes at runtime. Small shared helpers may perform
 
 Node-side source analysis/generation is private implementation used by the application/serve builders. It needs separation from browser code, not a public secondary entry point. Its internal graph/model, functions, return shapes, immutability, and module layout are not product contracts.
 
-The package is published to npm under the MIT license; its version is the one in `package.json`. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. Releases are tested against Angular **22.2.2**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not every version a peer range admits.
+The package is published to npm under the MIT license; its version is the one in `package.json`. Angular core/router peer declarations retain `^22.0.0`. The `@angular/build` peer is `~22.2.0`: the application builder schema embeds that minor's application schema. Releases are tested against Angular **22.2.6**, RxJS **7.8.2**, and generator TypeScript **6.0.3**, not every version a peer range admits.
 
 The root, generated application modules, and any helpers they import must remain browser-safe. Node, filesystem, compiler, watcher, and Architect dependencies must not enter their browser dependency closures. The builders own Node-side generation. No `loozo-routegen` bin, separate CLI flags/exit protocol, or public generator API is supported. Generate through Angular build/serve; check committed output through an application-builder CI configuration.
 
@@ -820,7 +820,7 @@ An authored file may temporarily trigger Angular's rebuild before generation pub
 
 ## 14. Required real application proof [V]
 
-Use one self-contained Angular 22.2.2 application with generated configuration, standalone primary-outlet pages, official application build/dev-server, provideRouter, provideClientHydration, and official Angular SSR server rendering. Do not introduce a custom renderer or add blocking initial navigation to the shared hydration configuration.
+Use one self-contained Angular 22.2.6 application with generated configuration, standalone primary-outlet pages, official application build/dev-server, provideRouter, provideClientHydration, and official Angular SSR server rendering. Do not introduce a custom renderer or add blocking initial navigation to the shared hydration configuration.
 
 The application has:
 

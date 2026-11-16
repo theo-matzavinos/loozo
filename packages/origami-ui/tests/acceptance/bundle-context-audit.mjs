@@ -9,19 +9,19 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const identitySpecifier = (name) =>
   name.startsWith("@angular/") || /^@loozo\/origami-ui(?:\/|$)/.test(name);
 
-// Reviewed Angular 22.2.2 boundary, not a permission for two arbitrary framework copies.
+// Reviewed Angular 22.2.6 boundary, not a permission for two arbitrary framework copies.
 // SDK/provider/host-source changes require a new concrete boundary review.
 const boundaryPins = {
   ".scratch/consumer/node_modules/@angular/ssr/fesm2022/ssr.mjs":
-    "69c47a8dee89e5a11f2252220d1e76bbbecee14bf599ecc047498c04a7763386",
+    "1e8f24d1b1439a7cde91e87041c46aa3eeada8572e92a5d0d569f4401ea26927",
   ".scratch/consumer/node_modules/@angular/ssr/fesm2022/node.mjs":
     "d3047f595cdf87fa173a736946c468875abb75b6c5c6fa6fa26cd59a5bce5d66",
   ".scratch/consumer/node_modules/@angular/ssr/fesm2022/_validation-chunk.mjs":
     "6e9d833805bdfc47434df243744e9c48af0d8a4dda9dab86f45396fcf82a3bbe",
   ".scratch/consumer/node_modules/@angular/core/fesm2022/core.mjs":
-    "be80a677d167899173078632f3e76f27856e6245a9b6b93f6aa4f9b94350e62b",
+    "cd341dba6a712421e0cf304f54c46c19ec513511fde48e4380127fca9da354ac",
   "node_modules/@angular/build/src/tools/esbuild/application-code-bundle.js":
-    "5c8506c8f093768a0f1827ae6b7d855f672432c043f7a919a0c3f8d0dbed1807",
+    "83b8d845e55ebfb40d308021d573d2dee0d0ab25103078a4cf5ad84cd7446497",
   ".scratch/consumer/node_modules/xhr2/lib/xhr2.js":
     "8d996d56ba2cba15e31f298e4691cdb1b695d3927077235bdbd69ed5e4ee5d38",
   ".scratch/consumer/src/server.ts":

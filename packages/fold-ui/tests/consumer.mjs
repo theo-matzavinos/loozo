@@ -14,7 +14,7 @@ const repository = resolve(packageDirectory, "../..");
 const scratch = join(packageDirectory, ".scratch");
 const app = join(scratch, "consumer");
 const gateLock = join(repository, "packages/origami-ui/tests/acceptance/gate-lock.sh");
-const angularVersion = "22.2.2";
+const angularVersion = "22.2.6";
 const environment = { ...process.env, NG_CLI_ANALYTICS: "false", CI: "1" };
 
 function run(command, args, cwd) {

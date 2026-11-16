@@ -8,7 +8,7 @@ Each fold part is a directive that adds classes, usually composing an Origami di
 
 ## Requirements
 
-- An Angular 22 application with Tailwind CSS v4 set up, such as one made by `ng new --style=tailwind`, or after `ng add tailwindcss`. Tested with Angular 22.2.2 and Tailwind CSS 4.3.3.
+- An Angular 22 application with Tailwind CSS v4 set up, such as one made by `ng new --style=tailwind`, or after `ng add tailwindcss`. Tested with Angular 22.2.6 and Tailwind CSS 4.3.3.
 - Tailwind without a `prefix(...)`: fold's classes are unprefixed.
 
 ## Set up

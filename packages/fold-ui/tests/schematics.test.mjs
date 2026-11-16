@@ -29,7 +29,7 @@ function createRunner() {
 async function createWorkspace(runner, { style = "tailwind", name = "shop", newProjectRoot } = {}) {
   let tree = await runner.runExternalSchematic("@schematics/angular", "workspace", {
     name: "workspace",
-    version: "22.2.2",
+    version: "22.2.6",
     newProjectRoot: newProjectRoot ?? "projects",
   });
 
