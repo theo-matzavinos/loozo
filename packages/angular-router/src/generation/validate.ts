@@ -568,10 +568,7 @@ export async function validateRoutes(
     }
   }
 
-  const globalTargets = new Set([
-    resolve(sources.output, "routes.generated.ts"),
-    resolve(sources.output, "destinations.generated.ts"),
-  ]);
+  const globalTargets = new Set([resolve(sources.output, "routes.generated.ts")]);
 
   if (sources.launch) {
     globalTargets.add(resolve(sources.output, "context.generated.d.ts"));

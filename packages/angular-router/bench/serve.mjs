@@ -38,7 +38,8 @@ function sameGenerated(left, right) {
 const { tsconfig, scanDirectories, outDirectory } = (await readWorkspace(consumer)).projects.proof
   .architect.build.options;
 const withoutTitle = await readGenerated();
-const anchor = `data: { __loozoAngularRouterRouteId: ${JSON.stringify(routeId)} },\nloadComponent:`;
+const anchor =
+  "...record(destination_g0000_static_l0_route, destination_g0000_route),\nloadComponent:";
 
 if (withoutTitle.routes.split(anchor).length !== 2) {
   throw new Error(`Expected exactly one title-less record for ${routeId} in ${generatedPath}`);
@@ -60,12 +61,11 @@ if (withTitle.routes.includes(anchor) || !withTitle.copy.includes(".title(")) {
   throw new Error(`The title edit did not reach ${routeId}'s record and copy`);
 }
 
-// Served code may lower the object spread to __spreadValues/__spreadProps, so the probe takes the
-// record's text from its id to the next loadComponent and looks for a callbacks call in it.
-const escapedId = routeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const servedRecord = new RegExp(
-  `__loozoAngularRouterRouteId:\\s*["']${escapedId}["']\\s*\\}([\\s\\S]*?)loadComponent:`,
-);
+// Served code may lower the object spread to __spreadValues/__spreadProps and rename bindings, so
+// the probe takes the record's text from its group's path and its own path to the next
+// loadComponent and looks for a callbacks call in it.
+const servedRecord =
+  /path:\s*["']g0000["'][\s\S]*?path:\s*["']static\/l0["']([\s\S]*?)loadComponent:/;
 
 const require = createRequire(join(packageDirectory, "package.json"));
 const { Architect } = require("@angular-devkit/architect");

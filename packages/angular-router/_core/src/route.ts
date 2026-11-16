@@ -90,8 +90,6 @@ const policies = new Set([
   "paramsOrQueryParamsChange",
   "always",
 ]);
-const identityKey = "__loozoAngularRouterRouteId";
-
 /** The metadata of a genuine route from this package instance, or undefined. */
 export function findRoute(value: unknown): RouteMetadata | undefined {
   if (value === null || typeof value !== "object") {
@@ -378,7 +376,7 @@ const stepValues: Record<RouterStep, (value: unknown, route: RouteMetadata) => u
     const copied: Record<PropertyKey, unknown> = Object.create(null);
 
     for (const key of Reflect.ownKeys(resolve)) {
-      if (key === identityKey || typeof resolve[key] !== "function") {
+      if (typeof resolve[key] !== "function") {
         throw new TypeError(`Invalid resolver: ${String(key)}`);
       }
 
@@ -403,10 +401,6 @@ const stepValues: Record<RouterStep, (value: unknown, route: RouteMetadata) => u
   },
   data(value) {
     const data = ownRecord(value, "Static data", true);
-
-    if (has(data, identityKey)) {
-      throw new TypeError("Static data cannot set generated identity");
-    }
 
     return Object.freeze({ ...data });
   },

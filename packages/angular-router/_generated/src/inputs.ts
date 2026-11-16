@@ -7,6 +7,7 @@ import {
   type AnyRoute,
   type Destination,
 } from "@loozo/angular-router/_core";
+import { recordFacts } from "./record.js";
 
 export interface Parsed {
   readonly params: Readonly<Record<string, unknown>>;
@@ -19,30 +20,28 @@ export interface Job {
   readonly codec: { parse(raw: string): unknown };
 }
 
-/** The generated declaration identity carried as the record's own route data, if any. */
-export function routeIdentity(snapshot: Pick<ActivatedRouteSnapshot, "routeConfig">): unknown {
-  const data = snapshot.routeConfig?.data;
-
-  if (!data || !Object.hasOwn(data, "__loozoAngularRouterRouteId")) {
-    return undefined;
-  }
-
-  return data.__loozoAngularRouterRouteId;
+/** The destination a generated record carries as its own property, if any. */
+export function routeIdentity(
+  snapshot: Pick<ActivatedRouteSnapshot, "routeConfig">,
+): Destination<AnyRoute> | undefined {
+  return recordFacts(snapshot.routeConfig)?.destination;
 }
 
 export function hasIdentity(
   snapshot: Pick<ActivatedRouteSnapshot, "routeConfig">,
-  id: string,
+  destination: Destination<AnyRoute>,
 ): boolean {
-  return routeIdentity(snapshot) === id;
+  return routeIdentity(snapshot) === destination;
 }
 
 export function assertIdentity(
   snapshot: Pick<ActivatedRouteSnapshot, "routeConfig">,
-  id: string,
+  destination: Destination<AnyRoute>,
 ): void {
-  if (!hasIdentity(snapshot, id)) {
-    throw new Error(`Generated route wiring identity mismatch: ${id}`);
+  if (!hasIdentity(snapshot, destination)) {
+    throw new Error(
+      `Generated route wiring identity mismatch: ${destinationRecord(destination).id}`,
+    );
   }
 }
 
@@ -57,29 +56,28 @@ export function destinationOf(route: AnyRoute): Destination<AnyRoute> {
   return destination;
 }
 
-/** The generated declaration identity of a route copy. */
-export function routeId(route: AnyRoute): string {
-  return destinationRecord(destinationOf(route)).id;
-}
-
 export interface Owner {
-  readonly route: AnyRoute;
+  readonly destination: Destination<AnyRoute>;
   readonly snapshot: ActivatedRouteSnapshot;
 }
 
 /**
- * The route's chain, root first, each route copy paired with its own record of the
- * snapshot. The route's own record must carry its id. Each parent copy pairs with the
- * nearest proper ancestor record that carries any generated identity: ancestry comes
- * from parent links, not from comparing ids.
+ * The destination's chain, root first, each declaration's destination paired with its own
+ * record of the snapshot. The destination's own record must carry it. Each parent
+ * destination pairs with the nearest proper ancestor record that carries any generated
+ * destination, so native wrappers are skipped: ancestry comes from parent links, not from
+ * comparing destinations.
  */
-export function owners(route: AnyRoute, snapshot: ActivatedRouteSnapshot): readonly Owner[] {
-  assertIdentity(snapshot, routeId(route));
+export function destinationOwners(
+  destination: Destination<AnyRoute>,
+  snapshot: ActivatedRouteSnapshot,
+): readonly Owner[] {
+  assertIdentity(snapshot, destination);
 
-  const chain: Owner[] = [{ route, snapshot }];
+  const chain: Owner[] = [{ destination, snapshot }];
   const records = snapshot.pathFromRoot;
   let index = records.length - 1;
-  let parent = routeMetadata(route).parent;
+  let parent = destinationRecord(destination).url.parent;
 
   while (parent) {
     index -= 1;
@@ -89,11 +87,11 @@ export function owners(route: AnyRoute, snapshot: ActivatedRouteSnapshot): reado
     }
 
     if (index < 0) {
-      throw new Error(`Generated route ancestor missing: ${routeId(parent)}`);
+      throw new Error(`Generated route ancestor missing: ${destinationRecord(parent).id}`);
     }
 
-    chain.unshift({ route: parent, snapshot: records[index] });
-    parent = routeMetadata(parent).parent;
+    chain.unshift({ destination: parent, snapshot: records[index] });
+    parent = destinationRecord(parent).url.parent;
   }
 
   return chain;
@@ -157,8 +155,11 @@ function parse(codec: Job["codec"], raw: string): { value: unknown } | { cause: 
   return { value };
 }
 
-export function pathJobs(route: AnyRoute, url: readonly { path: string }[]): Job[] {
-  const metadata = routeMetadata(route);
+export function pathJobs(
+  destination: Destination<AnyRoute>,
+  url: readonly { path: string }[],
+): Job[] {
+  const metadata = destinationRecord(destination).url;
   const local = new Map<string, Job>();
 
   for (let index = 0; index < metadata.localSegments.length; index += 1) {
@@ -223,10 +224,10 @@ export function runPathJobs(jobs: readonly Job[]): Readonly<Record<string, unkno
  * An array key reads every value, or `[]` when it is missing or any value is invalid.
  */
 export function parseSearch(
-  route: AnyRoute,
+  destination: Destination<AnyRoute>,
   snapshot: Pick<ActivatedRouteSnapshot, "queryParamMap">,
 ): Readonly<Record<string, unknown>> {
-  const metadata = routeMetadata(route);
+  const metadata = destinationRecord(destination).url;
   const search: Record<string, unknown> = Object.create(null);
 
   for (const key of Object.keys(metadata.search)) {
@@ -287,15 +288,14 @@ const full: Cache<Parsed> = new WeakMap();
 const paths: Cache<Readonly<Record<string, unknown>>> = new WeakMap();
 const matching: Cache<Parsed | undefined> = new WeakMap();
 
-// One result or failure per route and snapshot, shared by every reader. Keyed by the
-// route's destination, so every stage of a copy shares it.
+// One result or failure per destination and snapshot, shared by every reader: every stage
+// of a route copy, and every handle of its record, has the same destination.
 function memo<Value>(
   cache: Cache<Value>,
-  route: AnyRoute,
+  destination: Destination<AnyRoute>,
   snapshot: object,
   run: () => Value,
 ): Value {
-  const destination = destinationOf(route);
   let snapshots = cache.get(destination);
 
   if (!snapshots) {
@@ -323,25 +323,30 @@ function memo<Value>(
 }
 
 /** The effective inputs of a complete snapshot, shared by guards, resolvers and handles. */
-export function parseInputs(route: AnyRoute, snapshot: ActivatedRouteSnapshot): Parsed {
-  assertIdentity(snapshot, routeId(route));
+export function parseInputs(
+  destination: Destination<AnyRoute>,
+  snapshot: ActivatedRouteSnapshot,
+): Parsed {
+  assertIdentity(snapshot, destination);
 
-  return memo(full, route, snapshot, () => {
+  return memo(full, destination, snapshot, () => {
     const jobs: Job[] = [];
 
-    for (const owner of owners(route, snapshot)) {
+    for (const owner of destinationOwners(destination, snapshot)) {
+      const local = destinationRecord(owner.destination).url.localSegments;
+
       // Pathless/static owners contribute no positional input. Effective search belongs
       // to this complete future record; inherited data is never positional authority.
-      if (!routeMetadata(owner.route).localSegments.some((segment) => segment.kind !== "static")) {
+      if (!local.some((segment) => segment.kind !== "static")) {
         continue;
       }
 
-      jobs.push(...pathJobs(owner.route, owner.snapshot.url));
+      jobs.push(...pathJobs(owner.destination, owner.snapshot.url));
     }
 
     const params = runPathJobs(jobs);
 
-    return Object.freeze({ params, search: parseSearch(route, snapshot) });
+    return Object.freeze({ params, search: parseSearch(destination, snapshot) });
   });
 }
 
@@ -355,11 +360,15 @@ export function pathInputs(
   route: AnyRoute,
   snapshot: PartialMatchRouteSnapshot,
 ): { params: Readonly<Record<string, unknown>> } | { error: Error } {
-  assertIdentity(snapshot, routeId(route));
+  const destination = destinationOf(route);
+
+  assertIdentity(snapshot, destination);
 
   try {
     return {
-      params: memo(paths, route, snapshot, () => runPathJobs(pathJobs(route, snapshot.url))),
+      params: memo(paths, destination, snapshot, () =>
+        runPathJobs(pathJobs(destination, snapshot.url)),
+      ),
     };
   } catch (error) {
     if (error instanceof InputError) {
@@ -379,7 +388,9 @@ export function matchingInputs(
   route: AnyRoute,
   snapshot: PartialMatchRouteSnapshot,
 ): Parsed | undefined {
-  return memo(matching, route, snapshot, () => {
+  const destination = destinationOf(route);
+
+  return memo(matching, destination, snapshot, () => {
     const path = pathInputs(route, snapshot);
 
     // Search parses only once the path matches: a candidate the path rules out runs no
@@ -388,7 +399,7 @@ export function matchingInputs(
       return undefined;
     }
 
-    return Object.freeze({ params: path.params, search: parseSearch(route, snapshot) });
+    return Object.freeze({ params: path.params, search: parseSearch(destination, snapshot) });
   });
 }
 
@@ -408,7 +419,7 @@ function enrich(cache: Cache<Enriched>, route: AnyRoute, snapshot: object, base:
     return base as Enriched;
   }
 
-  return memo(cache, route, snapshot, () => {
+  return memo(cache, destinationOf(route), snapshot, () => {
     const members = extension.runtime.input(extension.chain);
 
     if (Object.hasOwn(members, "params") || Object.hasOwn(members, "search")) {
@@ -421,7 +432,7 @@ function enrich(cache: Cache<Enriched>, route: AnyRoute, snapshot: object, base:
 
 /** Activation-phase inputs for authored canActivate, canActivateChild, resolver and title callbacks. */
 export function callbackInputs(route: AnyRoute, snapshot: ActivatedRouteSnapshot): Enriched {
-  const base = parseInputs(route, snapshot);
+  const base = parseInputs(destinationOf(route), snapshot);
 
   return enrich(activationCallbacks, route, snapshot, base);
 }

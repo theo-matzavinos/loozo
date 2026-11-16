@@ -9,9 +9,11 @@ import { join } from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { readWorkspace } from "./consumer.mjs";
 
-// Generated route code: the shared tables and every route's destination and route copy.
+// Generated route code: the route table and every route's destination and route copy.
 const routeTables =
-  /(?:^|\/)generated\/(?:routes|destinations)\.generated\.ts$|(?:^|\/)(?:destination|route)\.generated\.ts$/;
+  /(?:^|\/)generated\/routes\.generated\.ts$|(?:^|\/)(?:destination|route)\.generated\.ts$/;
+// One route's browser copy.
+const routeCopy = /(?:^|\/)route\.generated\.ts$/;
 
 function total(files) {
   const sum = { files: 0, raw: 0, gzip: 0, brotli: 0 };
@@ -82,10 +84,20 @@ export async function measureBundle(consumer) {
   }
 
   const files = [];
+  // The route copies with bytes in the initial files, each counted once across them.
+  const initialCopies = new Set();
 
   for (const [path, value] of Object.entries(stats.outputs)) {
     if (!/\.(?:js|css)$/.test(path)) {
       continue;
+    }
+
+    if (initial.has(path)) {
+      for (const [input, contribution] of Object.entries(value.inputs)) {
+        if (contribution.bytesInOutput > 0 && routeCopy.test(input)) {
+          initialCopies.add(input);
+        }
+      }
     }
 
     const bytes = await readFile(join(output, "browser", path));
@@ -119,7 +131,7 @@ export async function measureBundle(consumer) {
 
   return {
     entry,
-    initial: total(initialFiles),
+    initial: { ...total(initialFiles), routeCopies: initialCopies.size },
     lazy: total(lazyFiles),
     files,
   };

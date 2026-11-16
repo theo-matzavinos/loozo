@@ -48,12 +48,7 @@ function validateRouterOptions(value: JsonObject): asserts value is JsonObject &
         typeof filename !== "string" ||
         !/^[A-Za-z0-9_$][A-Za-z0-9_$.-]*\.ts$/.test(filename) ||
         filename.endsWith(".d.ts") ||
-        [
-          "route.generated.ts",
-          "destination.generated.ts",
-          "routes.generated.ts",
-          "destinations.generated.ts",
-        ].includes(filename)
+        ["route.generated.ts", "destination.generated.ts", "routes.generated.ts"].includes(filename)
       ) {
         throw new Error(
           "autoDefineRoutes.filename must be a simple implementation .ts basename, not a generated artifact",

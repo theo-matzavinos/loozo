@@ -493,6 +493,8 @@ async function measure(result, options, directory, save) {
       }
     }
 
+    record("bundle.initial.routeCopies", [bundle.initial.routeCopies]);
+
     result.bundle = bundle;
   });
 }

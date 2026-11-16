@@ -1,8 +1,9 @@
 import { computed, signal, type Signal } from "@angular/core";
 import type { ActivatedRoute, ActivatedRouteSnapshot, Router } from "@angular/router";
-import { routeMetadata, type AnyRoute } from "@loozo/angular-router/_core";
+import type { AnyRoute, Destination } from "@loozo/angular-router/_core";
 import { merge } from "rxjs";
-import { assertIdentity, owners, parseInputs, routeId } from "./inputs.js";
+import { assertIdentity, destinationOwners, parseInputs } from "./inputs.js";
+import { resolverKeys } from "./record.js";
 
 export interface RouteView {
   readonly params: Signal<Readonly<Record<string, unknown>>>;
@@ -12,19 +13,20 @@ export interface RouteView {
 }
 
 /**
- * Signals of the route's committed snapshot. Angular replaces ActivatedRoute.snapshot
- * only when a navigation activates, so a pending, cancelled or failed navigation
- * leaves the values alone; params, search, data and title change together, from one snapshot.
- * The caller owns the lifetime: `teardown` receives the function that stops following
- * the route, after which the signals keep their last values.
+ * Signals of the committed snapshot of the generated record that carries `destination`.
+ * Angular replaces ActivatedRoute.snapshot only when a navigation activates, so a pending,
+ * cancelled or failed navigation leaves the values alone; params, search, data and title
+ * change together, from one snapshot. Every value comes from the snapshot's generated
+ * records alone. The caller owns the lifetime: `teardown` receives the function that stops
+ * following the route, after which the signals keep their last values.
  */
-export function observeRoute(
-  route: AnyRoute,
+export function observeRecord(
+  destination: Destination<AnyRoute>,
   activated: ActivatedRoute,
   router: Router,
   teardown: (release: () => void) => void,
 ): RouteView {
-  assertIdentity(activated.snapshot, routeId(route));
+  assertIdentity(activated.snapshot, destination);
 
   const snapshot = signal<ActivatedRouteSnapshot>(activated.snapshot);
   // Activation replaces the snapshot, then emits the route's changed observables, then
@@ -45,35 +47,31 @@ export function observeRoute(
 
   // Shares the parse of guards and resolvers for the same snapshot. An error here
   // means a codec rejected a value it accepted while matching, and reading rethrows it.
-  const inputs = computed(() => parseInputs(route, snapshot()));
+  const inputs = computed(() => parseInputs(destination, snapshot()));
 
   return {
     params: computed(() => inputs().params),
     search: computed(() => inputs().search),
-    data: computed(() => effectiveData(route, snapshot())),
-    title: computed(() => effectiveTitle(route, snapshot())),
+    data: computed(() => effectiveData(destination, snapshot())),
+    title: computed(() => effectiveTitle(destination, snapshot())),
   };
 }
 
 /**
- * The resolver results of the route's whole chain. Each owner's keys come from its
- * own record of the snapshot, so the result doesn't depend on Angular's
- * paramsInheritanceStrategy; nearer owners overwrite outer ones.
+ * The resolver results of the destination's whole chain. Each owner's keys are the
+ * authored ones its generated record carries, never Angular's resolve map, which Angular
+ * extends during resolution; their values come from the owner's own record of the
+ * snapshot, so the result doesn't depend on Angular's paramsInheritanceStrategy. Nearer
+ * owners overwrite outer ones.
  */
 function effectiveData(
-  route: AnyRoute,
+  destination: Destination<AnyRoute>,
   snapshot: ActivatedRouteSnapshot,
 ): Readonly<Record<PropertyKey, unknown>> {
   const data: Record<PropertyKey, unknown> = Object.create(null);
 
-  for (const owner of owners(route, snapshot)) {
-    const resolvers = routeMetadata(owner.route).config.resolve;
-
-    if (!resolvers) {
-      continue;
-    }
-
-    for (const key of Reflect.ownKeys(resolvers)) {
+  for (const owner of destinationOwners(destination, snapshot)) {
+    for (const key of resolverKeys(owner.snapshot.routeConfig)) {
       if (Object.hasOwn(owner.snapshot.data, key)) {
         data[key] = owner.snapshot.data[key];
       }
@@ -84,17 +82,21 @@ function effectiveData(
 }
 
 /**
- * The resolved title of the nearest declaration in the route's chain that declares one,
- * read from that declaration's own record of the snapshot, so the result doesn't depend
- * on Angular's paramsInheritanceStrategy.
+ * The resolved title of the nearest declaration in the chain that declares one, read from
+ * that declaration's own record of the snapshot, so the result doesn't depend on Angular's
+ * paramsInheritanceStrategy. Only generated callbacks set a record's title, so its
+ * presence is the declaration's.
  */
-function effectiveTitle(route: AnyRoute, snapshot: ActivatedRouteSnapshot): string | undefined {
-  const chain = owners(route, snapshot);
+function effectiveTitle(
+  destination: Destination<AnyRoute>,
+  snapshot: ActivatedRouteSnapshot,
+): string | undefined {
+  const chain = destinationOwners(destination, snapshot);
 
   for (let index = chain.length - 1; index >= 0; index -= 1) {
     const owner = chain[index];
 
-    if (routeMetadata(owner.route).config.title === undefined) {
+    if (owner.snapshot.routeConfig?.title === undefined) {
       continue;
     }
 

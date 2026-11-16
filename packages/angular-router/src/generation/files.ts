@@ -4,7 +4,6 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 export const markers = {
   "routes.generated.ts": "// @loozo/angular-router routegen: owned routes.generated.ts",
-  "destinations.generated.ts": "// @loozo/angular-router routegen: owned destinations.generated.ts",
   "route.generated.ts": "// @loozo/angular-router routegen: owned route.generated.ts",
   "destination.generated.ts": "// @loozo/angular-router routegen: owned destination.generated.ts",
 } as const;

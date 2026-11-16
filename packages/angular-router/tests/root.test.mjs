@@ -235,6 +235,22 @@ test("native symbol resolver/data keys retain callback and opaque identities", (
   assert.equal(createUrl(route, {}), "/symbol");
 });
 
+test("the old generated identity key name is ordinary native data", async () => {
+  await import("@angular/compiler");
+
+  const { nativeOptions } = await import("@loozo/angular-router/_generated");
+  const data = { __loozoAngularRouterRouteId: "mine", other: 1 };
+  const route = defineRoute("named", {}).data(data);
+  const { config } = routeMetadata(route);
+  const resolved = defineRoute("resolved", {}).resolve({ __loozoAngularRouterRouteId: () => 1 });
+
+  assert.deepEqual(Reflect.ownKeys(config.data), ["__loozoAngularRouterRouteId", "other"]);
+  assert.equal(config.data.__loozoAngularRouterRouteId, "mine");
+  // Generated records forward the stored data object itself, with no key added.
+  assert.equal(nativeOptions(route).data, config.data);
+  assert.equal(routeMetadata(resolved).config.resolve.__loozoAngularRouterRouteId(), 1);
+});
+
 test("withFallback delegates present values and validates its arguments", () => {
   const value = { label: "opaque" };
   const failure = new Error("identity");
@@ -1014,7 +1030,7 @@ test("callback inputs reject extension members that shadow params or search", as
   // The generated runtime needs Angular's compiler for its injectables outside a build.
   await import("@angular/compiler");
 
-  const { callbacks } = await import("@loozo/angular-router/_generated");
+  const { callbacks, record } = await import("@loozo/angular-router/_generated");
   const shadowing = createRouteFactory({
     steps: [],
     input: () => ({ params: { forged: true } }),
@@ -1022,7 +1038,7 @@ test("callback inputs reject extension members that shadow params or search", as
   const destination = defineDestination("shadow", {}, "shadow");
   const route = routeOf(shadowing, destination).resolve({ value: () => 1 });
   const snapshot = {
-    routeConfig: { data: { __loozoAngularRouterRouteId: "shadow" } },
+    routeConfig: { ...record(destination) },
     queryParamMap: { getAll: () => [] },
     url: [],
   };
@@ -1453,7 +1469,11 @@ test("a destination redirect snapshots its policies and its adapter reads the de
 test("generated callbacks and handles run on route copies without a route set", async () => {
   await import("@angular/compiler");
 
-  const { callbacks, createHandle } = await import("@loozo/angular-router/_generated");
+  const {
+    callbacks,
+    createDestinationHandle,
+    record: facts,
+  } = await import("@loozo/angular-router/_generated");
   const counts = { orgId: 0, itemId: 0 };
   const counted = (key) => ({
     parse: (raw) => {
@@ -1481,11 +1501,11 @@ test("generated callbacks and handles run on route copies without a route set", 
   });
   const itemCopy = itemResolved.canActivate([(inputs) => seen.push(["item", inputs])]);
 
-  // Angular's root record, a hand-written native wrapper without a stamp, then the
-  // generated records.
-  function record(id, paths, parent) {
+  // Angular's root record, a hand-written native wrapper without facts, then the
+  // generated records, each carrying its own destination.
+  function record(destination, paths, parent) {
     const snapshot = {
-      routeConfig: id === undefined ? null : { data: { __loozoAngularRouterRouteId: id } },
+      routeConfig: destination === undefined ? null : { ...facts(destination) },
       url: paths.map((path) => ({ path })),
       queryParamMap: { getAll: () => [] },
     };
@@ -1497,9 +1517,9 @@ test("generated callbacks and handles run on route copies without a route set", 
 
   const root = record(undefined, []);
   const wrapper = record(undefined, [], root);
-  const orgRecord = record("org", ["orgs", "4"], wrapper);
-  const layoutRecord = record("layout", [], orgRecord);
-  const itemRecord = record("item", ["items", "8"], layoutRecord);
+  const orgRecord = record(org, ["orgs", "4"], wrapper);
+  const layoutRecord = record(layout, [], orgRecord);
+  const itemRecord = record(item, ["items", "8"], layoutRecord);
 
   callbacks(itemCopy).canActivate[0](itemRecord, {});
   // An earlier stage of the same copy shares the parse: it's keyed by the destination.
@@ -1518,10 +1538,10 @@ test("generated callbacks and handles run on route copies without a route set", 
   // One parse per route and snapshot: item's full parse, then org's own.
   assert.deepEqual(counts, { orgId: 2, itemId: 1 });
 
-  // Ancestry comes from parent links: each parent copy pairs with the nearest stamped
-  // ancestor record, and a missing one fails with that ancestor's id.
-  const orphanLayout = record("layout", [], wrapper);
-  const orphan = record("item", ["items", "9"], orphanLayout);
+  // Ancestry comes from parent links: each parent destination pairs with the nearest
+  // generated ancestor record, and a missing one fails with that ancestor's id.
+  const orphanLayout = record(layout, [], wrapper);
+  const orphan = record(item, ["items", "9"], orphanLayout);
 
   assert.throws(
     () => callbacks(itemCopy).canActivate[0](orphan, {}),
@@ -1536,13 +1556,14 @@ test("generated callbacks and handles run on route copies without a route set", 
     /^TypeError: Expected a generated route copy$/,
   );
 
-  // Handles resolve `to` against the copy, its `..` destination and genuine destinations.
+  // Handles resolve `to` against their own destination, its `..` destination and genuine
+  // destinations.
   const router = {
     parseUrl: (url) => ({ url }),
     navigateByUrl: (url, options) => Promise.resolve({ url, options }),
   };
   const view = { params: null, search: null, data: null, title: null };
-  const handle = createHandle(itemCopy, layout, router, view);
+  const handle = createDestinationHandle(item, layout, router, view);
 
   assert.deepEqual(handle.link({ params: { orgId: 4, itemId: 8 }, fragment: "detail" }), {
     url: "/orgs/4/items/8#detail",
@@ -1558,7 +1579,7 @@ test("generated callbacks and handles run on route copies without a route set", 
     /^TypeError: Unknown generated selector: \/orgs\/\$orgId$/,
   );
   assert.throws(
-    () => createHandle(orgCopy, undefined, router, view).link({ to: "..", params: {} }),
+    () => createDestinationHandle(org, undefined, router, view).link({ to: "..", params: {} }),
     /^TypeError: Unknown generated selector: \.\.$/,
   );
 

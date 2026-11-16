@@ -25,7 +25,7 @@ import type {
   TitleOf,
   UrlValues,
 } from "@loozo/angular-router/_core";
-import type { Handle } from "@loozo/angular-router/_generated";
+import type { ActiveRoute, Handle } from "@loozo/angular-router/_generated";
 import type { Signal } from "@angular/core";
 import type {
   ActivatedRouteSnapshot,
@@ -1221,6 +1221,44 @@ leafHandle.link({ to: "/orgs/$orgId", params: { orgId: 1 } });
 orgHandle.link({ to: ".." });
 // @ts-expect-error A union of two destinations is ambiguous, even with identical schemas.
 orgHandle.link({ to: either, params: { orgId: 1 } });
+
+// The active route over RouteTypes, written by hand exactly as routes.generated.ts declares it.
+type RouteTypes = {
+  "src/routes/org/route.ts": { schema: RouteSchema<typeof orgCopy> };
+  "src/routes/org/pathless/leaf/route.ts": {
+    schema: RouteSchema<typeof leafCopy>;
+    up: typeof pathlessDestination;
+  };
+};
+declare const active: ActiveRoute<RouteTypes>;
+
+if (active.is(leafDestination)) {
+  exact<Equal<ReturnType<typeof active.data>["answer"], number>>();
+  exact<Equal<ReturnType<typeof active.data>["orgData"], string>>();
+  exact<Equal<ReturnType<typeof active.title>, string>>();
+  active.link({ to: "..", params: { orgId: 1 } });
+  void active.navigate({ params: { orgId: 1, itemId: 2 }, replaceUrl: true });
+  // @ts-expect-error Data keys are the route's resolver keys.
+  void active.data().unknown;
+}
+
+exact<
+  Equal<ReturnType<NonNullable<ReturnType<typeof active.chain.find>>["params"]>["orgId"], number>
+>();
+exact<
+  Equal<
+    ReturnType<NonNullable<ReturnType<typeof findOrg>>["params"]>,
+    Readonly<ParamsOf<typeof authoredOrg>>
+  >
+>();
+function findOrg() {
+  return active.chain.find((route) => route.is(orgDestination));
+}
+exact<Equal<ReturnType<typeof active.contains>, boolean>>();
+// @ts-expect-error link needs is() first.
+active.link({ params: { orgId: 1 } });
+// @ts-expect-error A destination outside RouteTypes is not one of this tree's routes.
+active.is(docsDestination);
 
 // `.redirect` takes a destination and is typed from it.
 const oldDestination = defineDestination(

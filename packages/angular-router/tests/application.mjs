@@ -238,7 +238,7 @@ await expectBuild(true);
 
 const initial = await snapshot();
 
-assert.equal(Object.keys(initial).length, 4);
+assert.equal(Object.keys(initial).length, 3);
 assert.match(
   initial["generated/routes.generated.ts"].bytes,
   /import\("\.\.\/src\/routes\/\+home\/page"\)/,
@@ -273,7 +273,7 @@ await write(
   "generated/routes.generated.ts",
   `${initial["generated/routes.generated.ts"].bytes}\n// hand edit\n`,
 );
-await rm(join(fixture, "generated/destinations.generated.ts"));
+await rm(join(fixture, "src/routes/+home/destination.generated.ts"));
 await write(
   "src/routes/stale/route.generated.ts",
   "// stale\n// @loozo/angular-router routegen: owned route.generated.ts\n",
@@ -288,8 +288,8 @@ await write("generated/routes.generated.ts", initial["generated/routes.generated
 await expectBuild(false, { check: true });
 assert.match(generationError(), /artifacts missing/);
 await write(
-  "generated/destinations.generated.ts",
-  initial["generated/destinations.generated.ts"].bytes,
+  "src/routes/+home/destination.generated.ts",
+  initial["src/routes/+home/destination.generated.ts"].bytes,
 );
 await expectBuild(false, { check: true });
 assert.match(generationError(), /artifacts stale/);
@@ -297,7 +297,7 @@ await expectBuild(true);
 
 const repaired = await snapshot();
 
-assert.equal(Object.keys(repaired).length, 4);
+assert.equal(Object.keys(repaired).length, 3);
 
 const definition = await readFile(join(fixture, "src/routes/+home/route.ts"), "utf8");
 
@@ -522,9 +522,9 @@ for (const directory of ["redirect-source", "pruned", "pruned/alias"]) {
   }
 }
 
-// A pruned declaration gets no record and no place in the active route union.
+// A pruned declaration gets no record and no place in RouteTypes.
 assert.doesNotMatch(
-  redirectPairs["generated/destinations.generated.ts"].bytes,
+  redirectPairs["generated/routes.generated.ts"].bytes,
   /"src\/routes\/pruned\/definition\.ts"/,
 );
 await expectBuild(true, { check: true });
@@ -1164,7 +1164,6 @@ assert.equal(routeMetadata(itemCopy.route).parent, layout.route);
 
 const entries = [
   "generated/routes.generated.js",
-  "generated/destinations.generated.js",
   "src/routes/layout/items/$id/route.generated.js",
   "src/routes/layout/items/$id/destination.generated.js",
   "src/routes/layout/route.js",
@@ -1227,11 +1226,10 @@ for (const entry of entries) {
 }
 
 // The leaf copy reads its parent copy while it evaluates. With a downward edge, every order that
-// enters the layout copy before the leaf copy (destinations.generated.js imports home's copy
-// first, whose parent is the layout) reads the layout's binding uninitialized; the orders that
-// enter the leaf copy first happen to pass.
+// enters the layout copy before the leaf copy reads the layout's binding uninitialized; the orders
+// that enter the leaf copy first happen to pass (routes.generated.js imports the copies before the
+// destinations, the leaf's first).
 for (const entry of [
-  "generated/destinations.generated.js",
   "src/routes/layout/items/$id/destination.generated.js",
   "src/routes/layout/route.js",
 ]) {

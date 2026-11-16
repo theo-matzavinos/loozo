@@ -24,25 +24,35 @@ import {
 import {
   hasIdentity,
   callbackInputs,
+  destinationOf,
   matchingCallbackInputs,
   matchingInputs,
   pathInputs,
-  routeId,
   runPathJobs,
   validateRaw,
   type Job,
 } from "./inputs.js";
+import { resolverStamp } from "./record.js";
 
-// Parsing is synchronous, so every adapter calls its callback in the same call Angular
-// made: Angular's injection context is still active and inject() works at entry.
-export function callbacks(
-  route: AnyRoute,
-): Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> {
-  const id = routeId(route);
+type Callbacks = Pick<
+  Route,
+  "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"
+> &
+  Partial<ReturnType<typeof resolverStamp>>;
+
+/**
+ * The native callbacks of a generated record, adapted from its route copy. A copy that
+ * declares resolvers also stamps their authored keys onto the record, for handles to read:
+ * Angular adds its own entries to the native resolve map.
+ *
+ * Parsing is synchronous, so every adapter calls its callback in the same call Angular
+ * made: Angular's injection context is still active and inject() works at entry.
+ */
+export function callbacks(route: AnyRoute): Callbacks {
+  const own = destinationOf(route);
   const metadata = routeMetadata(route);
   const config = metadata.config;
-  const result: Pick<Route, "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"> =
-    {};
+  const result: Callbacks = {};
   const activate = config.canActivate as readonly ((...args: any[]) => any)[] | undefined;
 
   if (activate) {
@@ -65,7 +75,7 @@ export function callbacks(
           for (let index = child.pathFromRoot.length - 2; index >= 0; index -= 1) {
             const ancestor = child.pathFromRoot[index];
 
-            if (hasIdentity(ancestor, id)) {
+            if (hasIdentity(ancestor, own)) {
               parent = ancestor;
 
               break;
@@ -73,7 +83,7 @@ export function callbacks(
           }
 
           if (!parent) {
-            throw new Error(`Generated guard ancestor missing: ${id}`);
+            throw new Error(`Generated guard ancestor missing: ${destinationRecord(own).id}`);
           }
 
           return callback(callbackInputs(route, parent), child, state);
@@ -145,13 +155,16 @@ export function callbacks(
 
   if (resolvers) {
     const resolve: Record<PropertyKey, ResolveFn<unknown>> = Object.create(null);
+    const keys = Reflect.ownKeys(resolvers);
 
-    for (const key of Reflect.ownKeys(resolvers)) {
+    for (const key of keys) {
       resolve[key] = (snapshot, state) =>
         resolvers[key](callbackInputs(route, snapshot), snapshot, state);
     }
 
     result.resolve = resolve;
+    // Beside the native map, never on it: Angular runs every own key of that map, symbols too.
+    Object.assign(result, resolverStamp(keys));
   }
 
   const title = config.title as

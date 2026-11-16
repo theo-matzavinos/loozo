@@ -480,7 +480,6 @@ test("combined semantic preflight is strict and prevents all router and Launch w
     "generated/routes.generated.ts",
     "// @loozo/angular-router routegen: owned routes.generated.ts\n// obsolete",
   );
-  await rm(resolve(stale, "generated/destinations.generated.ts"));
   await put(
     stale,
     "src/routes/left/rpc.ts",

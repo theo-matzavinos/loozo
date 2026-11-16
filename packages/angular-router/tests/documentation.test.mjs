@@ -190,5 +190,16 @@ await test("checked-in generated application exports carry documentation", async
     }
 
     declaration(copy, exportedLocal(copy, "injectRoute"));
+
+    // The active route's wrapper and the types callers name.
+    for (const name of ["RouteTypes", "ActiveRoute", "ActiveHandle", "injectActiveRoute"]) {
+      const node = routes.statements.find(
+        (statement) =>
+          (ts.isTypeAliasDeclaration(statement) || ts.isFunctionDeclaration(statement)) &&
+          statement.name?.text === name,
+      );
+
+      assert.ok(node && documented(node), `Missing documentation for ${name}`);
+    }
   }
 });

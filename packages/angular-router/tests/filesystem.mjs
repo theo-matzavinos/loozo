@@ -813,7 +813,6 @@ for (const autoDefineRoutes of [
   { filename: "../route.ts" },
   { filename: "route.generated.ts" },
   { filename: "routes.generated.ts" },
-  { filename: "destinations.generated.ts" },
   { filename: "types.d.ts" },
 ]) {
   const before = await snapshot();
@@ -1179,7 +1178,7 @@ await rm(join(fixture, "src/routes/items"), { recursive: true });
 await expectBuild();
 
 // Missing/changed generated drift is read-only, then repair converges without source rewrites.
-await rm(join(fixture, "generated/destinations.generated.ts"));
+await rm(join(fixture, "generated/routes.generated.ts"));
 // The ownership marker stays the last line, so the copy is still owned, just changed.
 await write(
   "src/routes/home/route.generated.ts",

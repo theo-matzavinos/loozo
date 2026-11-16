@@ -258,7 +258,7 @@ export interface RouteSteps<
       Record<
         PropertyKey,
         Enrich<Resolver<Eff<P, Params, Parent>, Srch<Search, Parent>>, X<E, Parent, Own>>
-      > & { __loozoAngularRouterRouteId?: never },
+      >,
   ): RouteBuilder<P, Parent, Params, Search, New, F, T, Used | "resolve", E, Own, Remaining>;
   /** A static title, or a parsed-input callback; not a snapshot-first native ResolveFn. */
   title(
@@ -270,9 +270,9 @@ export interface RouteSteps<
   providers(
     providers: NonNullable<NativeRoute["providers"]>,
   ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "providers", E, Own, Remaining>;
-  /** Native static data; cannot set the reserved __loozoAngularRouterRouteId key. */
+  /** Native static data, forwarded as authored. */
   data(
-    data: NonNullable<NativeRoute["data"]> & { __loozoAngularRouterRouteId?: never },
+    data: NonNullable<NativeRoute["data"]>,
   ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "data", E, Own, Remaining>;
   /** Native rerun policy. Use paramsOrQueryParamsChange for query-dependent data. */
   runGuardsAndResolvers(

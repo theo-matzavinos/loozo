@@ -50,10 +50,7 @@ export async function generate(
   );
   const selected = selections(sources);
   const desired = emit(sources, selected);
-  const globalFiles = [
-    resolve(sources.output, "routes.generated.ts"),
-    resolve(sources.output, "destinations.generated.ts"),
-  ];
+  const globalFiles = [resolve(sources.output, "routes.generated.ts")];
 
   await walk(sources.output);
 
