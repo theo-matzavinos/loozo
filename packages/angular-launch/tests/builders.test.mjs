@@ -5,8 +5,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer, get } from "node:http";
 import { test } from "node:test";
-import chokidar from "chokidar";
-import { mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { dirname, relative, resolve } from "node:path";
 
@@ -25,15 +24,18 @@ const calls = [];
 
 globalThis.launchBuilderTestCalls = calls;
 
-const rpc = `import { defineRpc } from "@loozo/angular-launch/server";
+const rpc = `import { defineRoute } from "@loozo/angular-launch";
+import parent from "../route";
 
-export default defineRpc("todos", ({ query }) => ({
+export default defineRoute("todos", { parent }).remote(({ query }) => ({
+  todos: {
   list: query({ handler: ({ context }) => [context.user] }),
+  },
 }));
 `;
-const context = `import { defineContext } from "@loozo/angular-launch/server";
+const context = `import { defineRoute } from "@loozo/angular-launch";
 
-export default defineContext((request: Request) => ({ request, user: "alice" }));
+export default defineRoute("", {}).context(({ request }) => ({ request, user: "alice" }));
 `;
 const launch = {
   tsconfig: "tsconfig.json",
@@ -91,10 +93,6 @@ async function waitFor(predicate, message) {
   }
 
   throw new Error(message);
-}
-
-function appId(server) {
-  return /appBinding = \{ id: "([0-9a-f]+)"/.exec(server)[1];
 }
 
 async function setUp() {
@@ -157,20 +155,13 @@ async function setUp() {
         },
       }),
     ),
-    put("src/context.ts", context),
-    put(
-      "src/routes/route.ts",
-      'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("", {});\n',
-    ),
-    put(
-      "src/routes/todos/route.ts",
-      'import { defineRoute } from "@loozo/angular-router";\nimport parent from "../route";\n\nexport default defineRoute("todos", { parent });\n',
-    ),
+    put("src/routes/route.ts", context),
+    put("src/helper.ts", "export const helper = 1;\n"),
     put(
       "src/routes/todos/page.ts",
       'import { Component } from "@angular/core";\n\n@Component({ selector: "todos-page", template: "todos" })\nexport default class Todos {}\n',
     ),
-    put("src/routes/todos/rpc.ts", rpc),
+    put("src/routes/todos/route.ts", rpc),
     put(
       `${stub}/package.json`,
       JSON.stringify({ name: "@angular/build", type: "module", builders: "builders.json" }),
@@ -367,7 +358,7 @@ await test("application generates, then runs Angular's builder with every other 
 
   const files = await snapshot();
 
-  assert.match(files["src/routes/todos/rpc.generated.ts"].bytes, /\blist\b/);
+  assert.match(files["src/routes/todos/route.generated.ts"].bytes, /\blist\b/);
   assert.ok(files["generated/server.generated.ts"]);
 });
 
@@ -380,7 +371,7 @@ await test("check: true passes on fresh output and fails on stale output, writin
   assert.equal(callsOf("application").length, 2);
 
   await put(
-    "src/routes/todos/rpc.ts",
+    "src/routes/todos/route.ts",
     rpc.replace("list:", "ping: query({ handler: () => 1 }),\n  list:"),
   );
 
@@ -390,7 +381,7 @@ await test("check: true passes on fresh output and fails on stale output, writin
   assert.notEqual(failed.errors, "");
   assert.deepEqual(await snapshot(), fresh);
   assert.equal(callsOf("application").length, 2, "Angular's builder doesn't run");
-  await put("src/routes/todos/rpc.ts", rpc);
+  await put("src/routes/todos/route.ts", rpc);
 });
 
 await test("application rejects watch: true before generating", async () => {
@@ -417,82 +408,23 @@ await test("serve rejects a build target that isn't Launch's or that resolves ch
 });
 
 await test("serve reports a failed initial generation without starting the dev server", async () => {
-  await rm(resolve(fixture, "src/context.ts"));
+  await put("src/routes/todos/route.ts", rpc.replace("({ query }) => ({", "build, ({"));
 
   const { output, errors } = await run("serve");
 
   assert.equal(output.success, false);
-  assert.match(errors, /exactly one default defineContext/);
+  assert.match(errors, /Route step remote takes 1…1 arguments/);
   assert.equal(callsOf("dev-server").length, 0);
-  await put("src/context.ts", context);
+  await put("src/routes/todos/route.ts", rpc);
 });
 
-await test("serve regenerates for a context edit made after the initial generation read it", async () => {
-  const contextFile = resolve(fixture, "src/context.ts");
-  const before = appId(await read("generated/server.generated.ts"));
-  const fs = require("node:fs");
-  const readFileSync = fs.readFileSync;
-  let edited = false;
-
-  // TypeScript reads sources through fs.readFileSync in this process. The first read returns the
-  // original text to the pass and saves an edit straight after, before the pass can watch the file.
-  fs.readFileSync = function (path, ...rest) {
-    const bytes = readFileSync.call(this, path, ...rest);
-
-    if (!edited && typeof path === "string" && resolve(path) === contextFile) {
-      edited = true;
-      fs.writeFileSync(contextFile, context.replace('"alice"', '"bob"'));
-    }
-
-    return bytes;
-  };
-
-  try {
-    const served = await start("serve");
-
-    try {
-      await waitFor(
-        () => served.outputs.some((output) => output.success),
-        "dev server never started",
-      );
-      assert.ok(edited, "the initial generation read the context file");
-      await waitFor(
-        async () => appId(await read("generated/server.generated.ts")) !== before,
-        "the edit during the initial generation didn't regenerate",
-      );
-    } finally {
-      fs.readFileSync = readFileSync;
-      await served.stop();
-    }
-
-    // The output matches the edited context: nothing is left stale.
-    const checked = await run("build", "check");
-
-    assert.equal(checked.output.success, true, checked.errors);
-  } finally {
-    fs.readFileSync = readFileSync;
-    await put("src/context.ts", context);
-  }
-});
-
-await test("serve reads a newly followed context only once its watch is live", async () => {
+await test("serve regenerates after route edits, not for files outside the scan directory, and survives failures", async () => {
   const fsPromises = require("node:fs/promises");
   const readManifest = fsPromises.readFile;
   const manifest = resolve(packageDirectory, "dist/package.json");
-  const contextFile = resolve(fixture, "src/context.ts");
-  // Always called with an explicit receiver below.
-  // oxlint-disable-next-line unbound-method
-  const add = chokidar.FSWatcher.prototype.add;
-  let release;
-  const installed = new Promise((done) => {
-    release = done;
-  });
   let passes = 0;
-  let passesWhenHeld;
 
-  // Generation reads the built package's manifest before its first await, so this counts each
-  // pass synchronously when the builder starts it, not when the pass gets around to reading
-  // sources.
+  // Counts each pass when the builder starts it: every pass reads Launch's manifest first.
   fsPromises.readFile = function (path, ...rest) {
     if (typeof path === "string" && resolve(path) === manifest) {
       passes += 1;
@@ -501,72 +433,7 @@ await test("serve reads a newly followed context only once its watch is live", a
     return readManifest.call(this, path, ...rest);
   };
   syncBuiltinESMExports();
-
-  // Holds the context file's watch installation until released, as a slow filesystem would. The
-  // builder's own chokidar resolves to this same module.
-  chokidar.FSWatcher.prototype.add = function (paths, ...rest) {
-    const watchesContext = [paths].flat().some((path) => resolve(path) === contextFile);
-
-    if (!watchesContext) {
-      return add.call(this, paths, ...rest);
-    }
-
-    passesWhenHeld ??= passes;
-    void installed.then(() => {
-      if (!this.closed) {
-        add.call(this, paths, ...rest);
-      }
-    });
-
-    return this;
-  };
-
-  try {
-    const served = await start("serve");
-
-    try {
-      await waitFor(
-        () => served.outputs.some((output) => output.success),
-        "dev server never started",
-      );
-      assert.equal(passesWhenHeld, 1, "the initial generation asked to watch the context file");
-
-      // Any pass started before the dev server, while the watch was pending, has been counted by
-      // now; with nothing edited since, nothing else can start one before the release below.
-      assert.equal(passes, passesWhenHeld, "no pass started while the context watch was pending");
-
-      // Saved while the watch is pending, so only the pass its readiness runs can see it.
-      const held = appId(await read("generated/server.generated.ts"));
-
-      await put("src/context.ts", context.replace('"alice"', '"bob"'));
-      release();
-      await waitFor(
-        async () => appId(await read("generated/server.generated.ts")) !== held,
-        "the context edit saved before its watch was live didn't regenerate",
-      );
-      assert.equal(passes, passesWhenHeld + 1, "exactly one pass ran once the watch was live");
-    } finally {
-      fsPromises.readFile = readManifest;
-      syncBuiltinESMExports();
-      chokidar.FSWatcher.prototype.add = add;
-      await served.stop();
-    }
-
-    // The output matches the edited context: nothing is left stale.
-    const checked = await run("build", "check");
-
-    assert.equal(checked.output.success, true, checked.errors);
-  } finally {
-    fsPromises.readFile = readManifest;
-    syncBuiltinESMExports();
-    chokidar.FSWatcher.prototype.add = add;
-    release();
-    await put("src/context.ts", context);
-  }
-});
-
-await test("serve regenerates after rpc.ts and context edits, follows a moved context and survives failures", async () => {
-  await put("src/routes/todos/rpc.ts", rpc);
+  await put("src/routes/todos/route.ts", rpc);
 
   const served = await start("serve");
 
@@ -583,61 +450,45 @@ await test("serve regenerates after rpc.ts and context edits, follows a moved co
     assert.equal(call.options.poll, 1000);
 
     await put(
-      "src/routes/todos/rpc.ts",
+      "src/routes/todos/route.ts",
       rpc.replace("list:", "ping: query({ handler: () => 1 }),\n  list:"),
     );
     await waitFor(
-      async () => /\bping\b/.test(await read("src/routes/todos/rpc.generated.ts")),
-      "rpc.ts edit didn't regenerate",
+      async () => /\bping\b/.test(await read("src/routes/todos/route.generated.ts")),
+      "route edit didn't regenerate",
     );
 
-    const original = appId(await read("generated/server.generated.ts"));
+    // A server helper outside the scan directory needs no pass: copies name its types
+    // through their route's declaration, not as text.
+    const before = passes;
 
-    await put("src/context.ts", context.replace('"alice"', '"bob"'));
-    await waitFor(
-      async () => appId(await read("generated/server.generated.ts")) !== original,
-      "context edit didn't regenerate",
-    );
-
-    // Moving the context to another directory outside the scan directory changes the identity
-    // again; then edits at its new path regenerate.
-    const edited = appId(await read("generated/server.generated.ts"));
-
-    await mkdir(resolve(fixture, "src/app"));
-    await rename(resolve(fixture, "src/context.ts"), resolve(fixture, "src/app/context.ts"));
-    await waitFor(
-      async () => appId(await read("generated/server.generated.ts")) !== edited,
-      "moving the context file didn't regenerate",
-    );
-
-    const moved = appId(await read("generated/server.generated.ts"));
-
-    await put("src/app/context.ts", context);
-    await waitFor(
-      async () => appId(await read("generated/server.generated.ts")) !== moved,
-      "editing the moved context file didn't regenerate",
-    );
+    await put("src/helper.ts", "export const helper = 2;\n");
+    await new Promise((done) => setTimeout(done, 1500));
+    assert.equal(passes, before, "no pass for an edit outside the scan directory");
 
     // A failed pass is logged and the dev server keeps running; the next edit retries.
     const errors = served.logs.length;
 
-    await put("src/routes/todos/rpc.ts", 'export default "not an rpc group";\n');
+    await put("src/routes/todos/route.ts", 'export default "not a route";\n');
     await waitFor(
       () => served.logs.slice(errors).some((entry) => entry.level === "error"),
       "failed regeneration wasn't logged",
     );
     await put(
-      "src/routes/todos/rpc.ts",
+      "src/routes/todos/route.ts",
       rpc.replace("list:", "pong: query({ handler: () => 1 }),\n  list:"),
     );
     await waitFor(
-      async () => /\bpong\b/.test(await read("src/routes/todos/rpc.generated.ts")),
+      async () => /\bpong\b/.test(await read("src/routes/todos/route.generated.ts")),
       "the edit after a failure didn't regenerate",
     );
     assert.equal(served.error, undefined);
     assert.equal(callsOf("dev-server").length, starts);
   } finally {
+    fsPromises.readFile = readManifest;
+    syncBuiltinESMExports();
     await served.stop();
+    await put("src/helper.ts", "export const helper = 1;\n");
   }
 });
 
@@ -650,7 +501,7 @@ await test("serve runs one pass for a burst of watcher events", async () => {
   const page = await read("src/routes/todos/page.ts");
   let passes = 0;
 
-  // Counts each pass when the builder starts it, as in the context watch test above.
+  // Counts each pass when the builder starts it, as in the route edit test above.
   fsPromises.readFile = function (path, ...rest) {
     if (typeof path === "string" && resolve(path) === manifest) {
       passes += 1;
@@ -682,7 +533,7 @@ await test("serve runs one pass for a burst of watcher events", async () => {
   }
 
   try {
-    await put("src/routes/todos/rpc.ts", rpc);
+    await put("src/routes/todos/route.ts", rpc);
 
     const served = await start("serve");
 
@@ -691,7 +542,6 @@ await test("serve runs one pass for a burst of watcher events", async () => {
         () => served.outputs.some((output) => output.success),
         "dev server never started",
       );
-      // The followed context's readiness pass can still be running.
       await quiet();
 
       // Two files saved together reach the watcher as two events on different paths.
@@ -699,12 +549,12 @@ await test("serve runs one pass for a burst of watcher events", async () => {
         () =>
           Promise.all([
             put(
-              "src/routes/todos/rpc.ts",
+              "src/routes/todos/route.ts",
               rpc.replace("list:", "ping: query({ handler: () => 1 }),\n  list:"),
             ),
             put("src/routes/todos/page.ts", page.replace('template: "todos"', 'template: "all"')),
           ]),
-        async () => /\bping\b/.test(await read("src/routes/todos/rpc.generated.ts")),
+        async () => /\bping\b/.test(await read("src/routes/todos/route.generated.ts")),
         "saving two files",
       );
 
@@ -734,7 +584,7 @@ await test("serve runs one pass for a burst of watcher events", async () => {
       await rename(tasks, todos);
     }
 
-    await put("src/routes/todos/rpc.ts", rpc);
+    await put("src/routes/todos/route.ts", rpc);
     await put("src/routes/todos/page.ts", page);
   }
 });
@@ -746,12 +596,11 @@ await test("serve runs no pass for its own outputs checked out with CRLF line en
   const outputs = [
     "src/routes/todos/destination.generated.ts",
     "src/routes/todos/route.generated.ts",
-    "src/routes/todos/rpc.generated.ts",
   ];
   const originals = {};
   let passes = 0;
 
-  // Counts each pass when the builder starts it, as in the context watch test above.
+  // Counts each pass when the builder starts it, as in the route edit test above.
   fsPromises.readFile = function (path, ...rest) {
     if (typeof path === "string" && resolve(path) === manifest) {
       passes += 1;
@@ -773,7 +622,7 @@ await test("serve runs no pass for its own outputs checked out with CRLF line en
   }
 
   try {
-    await put("src/routes/todos/rpc.ts", rpc);
+    await put("src/routes/todos/route.ts", rpc);
 
     const served = await start("serve");
 
@@ -782,7 +631,6 @@ await test("serve runs no pass for its own outputs checked out with CRLF line en
         () => served.outputs.some((output) => output.success),
         "dev server never started",
       );
-      // The followed context's readiness pass can still be running.
       await quiet();
 
       const before = passes;

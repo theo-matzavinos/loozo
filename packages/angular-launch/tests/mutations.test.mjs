@@ -19,23 +19,28 @@ import {
   withInterceptors,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import { defineContext, defineRpc, middleware } from "../dist/server/index.js";
-import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
-import { dispatch } from "../dist/server/dispatch.js";
-import { injectClient } from "../dist/generated.js";
+import { middleware } from "../dist/server/index.js";
+import { builder } from "../dist/server/definitions.js";
+import {
+  createRequestScope,
+  handleRpc,
+  provideLaunchServer,
+  runProcedure,
+} from "../dist/server/generated.js";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcError, frameworkFailures } from "../dist/client.js";
+import { application } from "./fixtures/application.mjs";
 
 const id = "todos";
 const path = `/_rpc/${id}/write`;
-const application = { id: "mutation-contracts", context: defineContext(() => ({})) };
-let mutation;
+// The builder `.remote()` passes to its callback, for procedures swapped into a namespace.
+const { mutation } = builder;
 
-// The builder defineRpc passes to its callback, for procedures swapped into a registry.
-defineRpc("builders", (builders) => {
-  mutation = builders.mutation;
-
-  return {};
-});
+// Binds `namespaces` as a fresh application, so a procedure swapped into a namespace's
+// procedures object is the one the next call runs.
+function bind(namespaces) {
+  return application("mutation-contracts", { namespaces });
+}
 const declaration = { status: 404, message: "Todo does not exist" };
 
 const transformed = {
@@ -52,27 +57,20 @@ const transformed = {
   },
 };
 
-async function reply(registry, name = "write", input = null, mode = "http") {
-  const scope = await createRequestScope(application, new Request("http://test/document"));
+async function reply(namespaces, name = "write", input = null, mode = "http") {
+  const app = bind(namespaces);
+  const scope = createRequestScope(app, new Request("http://test/document"));
 
-  return dispatch(
-    registry,
-    `/_rpc/${id}/${name}`,
-    { input },
-    scope,
-    application,
-    scope.request,
-    mode,
-  );
+  return runProcedure(`/_rpc/${id}/${name}`, { input }, scope, app, scope.request, mode);
 }
 
-async function httpReply(registry, name = "write", input = null) {
+async function httpReply(namespaces, name = "write", input = null) {
   const request = new Request(`http://test/_rpc/${id}/${name}`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: "http://test" },
     body: JSON.stringify({ input }),
   });
-  const response = await handleRpc(registry, application, request, { allowedHosts: ["test"] });
+  const response = await handleRpc(bind(namespaces), request, { allowedHosts: ["test"] });
 
   return { status: response.status, body: await response.json() };
 }
@@ -90,22 +88,24 @@ test("declared factories are synchronous throwables; async schema output crosses
     },
   };
   let saved;
-  const registry = {
-    [id]: defineRpc("todos", ({ mutation }) => ({
-      write: mutation({
-        errors: { NOT_FOUND: { ...declaration, data } },
-        handler: ({ errors }) => {
-          const before = validations;
+  const namespaces = {
+    [id]: {
+      build: ({ mutation }) => ({
+        write: mutation({
+          errors: { NOT_FOUND: { ...declaration, data } },
+          handler: ({ errors }) => {
+            const before = validations;
 
-          saved = errors.NOT_FOUND("  todo-1  ");
-          assert.ok(saved instanceof Error);
-          assert.equal(validations, before);
-          assert.equal(Object.hasOwn(saved, "data"), false);
+            saved = errors.NOT_FOUND("  todo-1  ");
+            assert.ok(saved instanceof Error);
+            assert.equal(validations, before);
+            assert.equal(Object.hasOwn(saved, "data"), false);
 
-          throw saved;
-        },
+            throw saved;
+          },
+        }),
       }),
-    })),
+    },
   };
   const expected = {
     status: 404,
@@ -115,53 +115,56 @@ test("declared factories are synchronous throwables; async schema output crosses
   };
 
   assert.equal(validations, 0);
-  assert.deepEqual(await reply(registry), expected);
+  assert.deepEqual(await reply(namespaces), expected);
   assert.equal(validations, 1);
-  assert.deepEqual(await httpReply(registry), expected);
+  assert.deepEqual(await httpReply(namespaces), expected);
   assert.equal(validations, 2);
 
   // A second dispatcher module instance must read the actual procedure's map.
   const duplicate = await import(`../dist/server/dispatch.js?duplicate=${Date.now()}`);
-  const scope = await createRequestScope(application, new Request("http://test/document"));
+  const app = bind(namespaces);
+  const scope = createRequestScope(app, new Request("http://test/document"));
 
   assert.deepEqual(
-    await duplicate.dispatch(registry, path, { input: null }, scope, application, scope.request),
+    await duplicate.runProcedure(path, { input: null }, scope, app, scope.request),
     expected,
   );
   assert.equal(validations, 3);
-  assert.equal((await reply(registry, "absent")).body.error.code, "RPC_NOT_FOUND");
+  assert.equal((await reply(namespaces, "absent")).body.error.code, "RPC_NOT_FOUND");
 
   // Factory data is server-local schema input, not a wire value yet. A real
   // Standard Schema may accept Date internally while publishing JSON output.
   const timestamp = new Date("2026-01-01T00:00:00.000Z");
   const dates = {
-    [id]: defineRpc("todos", ({ mutation }) => ({
-      write: mutation({
-        errors: {
-          NOT_FOUND: {
-            ...declaration,
-            data: {
-              "~standard": {
-                version: 1,
-                vendor: "contracts",
-                async validate(value) {
-                  assert.equal(value, timestamp);
+    [id]: {
+      build: ({ mutation }) => ({
+        write: mutation({
+          errors: {
+            NOT_FOUND: {
+              ...declaration,
+              data: {
+                "~standard": {
+                  version: 1,
+                  vendor: "contracts",
+                  async validate(value) {
+                    assert.equal(value, timestamp);
 
-                  if (!(value instanceof Date)) {
-                    return { issues: [{ message: "Date required" }] };
-                  }
+                    if (!(value instanceof Date)) {
+                      return { issues: [{ message: "Date required" }] };
+                    }
 
-                  return { value: { id: value.toISOString() } };
+                    return { value: { id: value.toISOString() } };
+                  },
                 },
               },
             },
           },
-        },
-        handler: ({ errors }) => {
-          throw errors.NOT_FOUND(timestamp);
-        },
+          handler: ({ errors }) => {
+            throw errors.NOT_FOUND(timestamp);
+          },
+        }),
       }),
-    })),
+    },
   };
   const dated = {
     status: 404,
@@ -194,9 +197,10 @@ test("current procedure identity, not code/class/lookalike, controls declared fa
         throw foreign;
       },
     });
-    const registry = { [id]: defineRpc("todos", () => ({ source })) };
+    const procedures = { source };
+    const namespaces = { [id]: { build: () => procedures } };
 
-    assert.equal((await reply(registry, "source")).status, 404);
+    assert.equal((await reply(namespaces, "source")).status, 404);
 
     for (const thrown of [
       foreign,
@@ -204,14 +208,14 @@ test("current procedure identity, not code/class/lookalike, controls declared fa
       new RpcError("FORBIDDEN", 403),
       { code: "NOT_FOUND", status: 404, message: declaration.message, data: "private-lookalike" },
     ]) {
-      registry[id].procedures.write = mutation({
+      procedures.write = mutation({
         errors: { NOT_FOUND: { ...declaration, data: transformed } },
         handler: () => {
           throw thrown;
         },
       });
 
-      for (const result of [await reply(registry), await httpReply(registry)]) {
+      for (const result of [await reply(namespaces), await httpReply(namespaces)]) {
         assert.deepEqual(result, {
           status: 500,
           body: { error: { code: "INTERNAL", message: "Internal server error", data: null } },
@@ -229,7 +233,7 @@ test("current procedure identity, not code/class/lookalike, controls declared fa
       async () => ({ value: { optional: undefined } }),
       async () => ({ value: NaN }),
     ]) {
-      registry[id].procedures.write = mutation({
+      procedures.write = mutation({
         errors: {
           NOT_FOUND: {
             ...declaration,
@@ -241,8 +245,8 @@ test("current procedure identity, not code/class/lookalike, controls declared fa
         },
       });
 
-      assert.equal((await reply(registry)).body.error.code, "INTERNAL");
-      assert.equal((await httpReply(registry)).body.error.code, "INTERNAL");
+      assert.equal((await reply(namespaces)).body.error.code, "INTERNAL");
+      assert.equal((await httpReply(namespaces)).body.error.code, "INTERNAL");
     }
 
     assert.equal(logged.length, 18);
@@ -371,7 +375,7 @@ test("client mutation kind/cache, legitimate framework errors and declared trans
   }
 });
 
-test("native SSR denies admitted registry mutations before middleware/schema/handler/writes for generated and unmarked calls, even with forced cache", async () => {
+test("native SSR denies admitted mutations before middleware/schema/handler/writes for generated and unmarked calls, even with forced cache", async () => {
   const require = createRequire(
     new URL("../../../examples/angular-launch/package.json", import.meta.url),
   );
@@ -380,18 +384,16 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
     require.resolve("@angular/platform-server")
   );
   const counts = { contexts: 0, schemas: 0, middleware: 0, handlers: 0, writes: 0, fallback: 0 };
-  const binding = {
-    id: "native-mutation-denial",
-    context: defineContext(() => {
-      counts.contexts += 1;
+  const namespaces = {
+    [id]: {
+      use: [
+        middleware(async ({ next }) => {
+          counts.middleware += 1;
 
-      return counts;
-    }),
-  };
-  const registry = {
-    [id]: defineRpc(
-      "todos",
-      ({ query, mutation }) => ({
+          return next();
+        }),
+      ],
+      build: ({ query, mutation }) => ({
         write: mutation({
           input: {
             "~standard": {
@@ -420,18 +422,17 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
         }),
         read: query({ handler: () => "read works" }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            counts.middleware += 1;
-
-            return next();
-          }),
-        ],
-      },
-    ),
+    },
   };
-  const scope = await createRequestScope(binding, new Request("http://test/document"));
+  const binding = application("native-mutation-denial", {
+    context: () => {
+      counts.contexts += 1;
+
+      return counts;
+    },
+    namespaces,
+  });
+  const scope = createRequestScope(binding, new Request("http://test/document"));
   const observed = [];
 
   class MutationProbe {}
@@ -472,7 +473,7 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
                 },
               },
             },
-            provideLaunchServer(registry, binding),
+            provideLaunchServer(binding),
           ],
         },
         context,
@@ -493,7 +494,7 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
         return true;
       });
 
-      // A caller can spoof helper metadata, but actual registry kind still wins.
+      // A caller can spoof helper metadata, but the procedure's actual kind still wins.
       const spoofed = runInInjectionContext(app.injector, () =>
         injectClient({
           todos: { methods: [{ name: "write", input: false, kind: "query", errors: [] }] },
@@ -520,17 +521,8 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
         },
       );
       assert.equal(
-        (
-          await dispatch(
-            registry,
-            path,
-            { input: "input" },
-            scope,
-            binding,
-            scope.request,
-            "rendering",
-          )
-        ).status,
+        (await runProcedure(path, { input: "input" }, scope, binding, scope.request, "rendering"))
+          .status,
         403,
       );
 
@@ -546,7 +538,7 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
   assert.ok(html.includes("Rendering did not write"));
   assert.deepEqual(observed, [false, true, true]);
   assert.deepEqual(counts, {
-    contexts: 1,
+    contexts: 0,
     schemas: 0,
     middleware: 0,
     handlers: 0,
@@ -554,10 +546,9 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
     fallback: 0,
   });
 
-  // The very same genuine registry procedure is admitted through HTTP, not a
+  // The very same genuine procedure is admitted through HTTP, not a
   // zero-write assertion caused by an unknown endpoint or an invalid method.
   const response = await handleRpc(
-    registry,
     binding,
     new Request(`http://test${path}`, {
       method: "POST",
@@ -570,7 +561,7 @@ test("native SSR denies admitted registry mutations before middleware/schema/han
   assert.equal(response.status, 200);
   assert.equal(await response.json(), "written");
   assert.deepEqual(counts, {
-    contexts: 2,
+    contexts: 1,
     schemas: 1,
     middleware: 2,
     handlers: 1,

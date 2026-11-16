@@ -260,3 +260,301 @@ await test("a type alias exported through an export list counts as exported", ()
     "Status (definitions.d.ts) referenced by Definition at definitions.d.ts:4",
   ]);
 });
+
+// A consumer module type-checked against the built package and the real router, as an app's
+// route.ts files are: the package resolves itself by name through its exports map.
+const consumerDirectory = new URL("./.types/", import.meta.url).pathname;
+
+function program(files, options = {}) {
+  const compilerOptions = {
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    target: ts.ScriptTarget.ES2022,
+    lib: ["lib.es2024.d.ts", "lib.dom.d.ts"],
+    types: [],
+    strict: true,
+    skipLibCheck: false,
+    noEmit: true,
+    ...options,
+  };
+  const host = ts.createCompilerHost(compilerOptions);
+  const readFile = host.readFile.bind(host);
+  const fileExists = host.fileExists.bind(host);
+  const paths = new Map();
+
+  for (const [name, text] of Object.entries(files)) {
+    paths.set(`${consumerDirectory}${name}`, text);
+  }
+
+  host.readFile = (name) => paths.get(name) ?? readFile(name);
+  host.fileExists = (name) => paths.has(name) || fileExists(name);
+  // The consumer's files exist only in memory, so their directory does too.
+  host.directoryExists = (name) =>
+    `${name.replace(/\/$/, "")}/` === consumerDirectory || ts.sys.directoryExists(name);
+
+  const emitted = {};
+
+  host.writeFile = (name, text) => {
+    emitted[relative(consumerDirectory, name)] = text;
+  };
+
+  const built = ts.createProgram([...paths.keys()], compilerOptions, host);
+  const messages = [];
+  const diagnostics = [...ts.getPreEmitDiagnostics(built)];
+
+  // Declaration emit reports a type it can't name (TS4082 and the like) only while emitting.
+  if (!compilerOptions.noEmit) {
+    diagnostics.push(...built.emit().diagnostics);
+  }
+
+  for (const diagnostic of diagnostics) {
+    const where = diagnostic.file
+      ? `${relative(consumerDirectory, diagnostic.file.fileName)}:${
+          ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start).line + 1
+        } `
+      : "";
+
+    messages.push(
+      `${where}TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`,
+    );
+  }
+
+  return { built, messages, emitted };
+}
+
+const routeProof = `
+import { defineRoute, type ContextOf, type RemoteOf } from "@loozo/angular-launch";
+import {
+  middleware,
+  redirect,
+  type MiddlewareArgs,
+  type Schema,
+  type StageArgs,
+} from "@loozo/angular-launch/server";
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+function expect<T extends true>(): T | void {}
+
+export interface User { id: string }
+
+export const root = defineRoute("", {}).context(({ request }) => ({ request, user: null as User | null, depth: 0 }));
+
+// A standalone stage takes and returns the whole context, and middleware declares what it
+// needs.
+export function signedIn({ context }: StageArgs<ContextOf<typeof root>>) {
+  if (context.user === null) {
+    throw redirect("/sign-in");
+  }
+
+  return { ...context, user: context.user };
+}
+export const audit = middleware<{ user: User }>(async ({ context, next }) => {
+  void context.user.id;
+
+  return next();
+});
+export const needsTeam = middleware<{ team: string }>(async ({ next }) => next());
+export const needsInput = middleware(async ({ next }: MiddlewareArgs<{}, { id: string }>) => next());
+export declare const titleSchema: Schema<string, { title: string }>;
+
+export const auth = defineRoute("", { parent: root })
+  .context(signedIn)
+  // .use() is checked against the context including the route's own stage. A bare arrow
+  // receives that context; middleware() names the keys it reads, or needs nothing and sees {}.
+  .use(
+    async ({ context, input, next }) => {
+      expect<Equal<typeof context, Readonly<{ request: Request; depth: number; user: User }>>>();
+      expect<Equal<typeof input, unknown>>();
+
+      return next();
+    },
+    middleware<{ user: User }>(async ({ context, next }) => {
+      const user: User = context.user;
+
+      void user;
+
+      return next();
+    }),
+    middleware(async ({ context, next }) => {
+      expect<Equal<typeof context, Readonly<{}>>>();
+
+      return next();
+    }),
+    audit,
+  )
+  .remote(({ query }) => ({
+    session: { current: query({ handler: ({ context }) => ({ user: context.user.id }) }) },
+  }));
+
+expect<Equal<ContextOf<typeof auth>, { request: Request; depth: number; user: User }>>();
+
+// @ts-expect-error audit needs a non-null user, which the root's context doesn't have
+defineRoute("x", { parent: root }).use(audit);
+// @ts-expect-error no stage adds a team
+defineRoute("y", { parent: auth }).use(needsTeam);
+// @ts-expect-error a route's middleware runs before validation and gets no input
+defineRoute("z", { parent: auth }).use(needsInput);
+// @ts-expect-error a bare arrow's context is the route's, which has no team
+defineRoute("w", { parent: auth }).use(async ({ next }: MiddlewareArgs<{ team: string }>) => next());
+
+// A procedure's bare arrow receives the route's context and the validated input.
+export const titled = defineRoute("titled", { parent: auth }).remote(({ query, mutation }) => ({
+  titled: {
+    add: mutation({
+      input: titleSchema,
+      use: [
+        async ({ context, input, next }) => {
+          expect<Equal<typeof context, Readonly<{ request: Request; depth: number; user: User }>>>();
+          expect<Equal<typeof input, { title: string }>>();
+
+          return next();
+        },
+        audit,
+      ],
+      handler: ({ input }) => input.title,
+    }),
+    // @ts-expect-error the validated input has no id
+    get: query({ input: titleSchema, use: [async ({ next }: MiddlewareArgs<{}, { id: string }>) => next()], handler: () => 1 }),
+  },
+}));
+
+export const todos = defineRoute("todos", { parent: auth })
+  .remote(({ query, mutation }) => ({
+    todos: {
+      list: query({ handler: ({ context }): { owner: string }[] => [{ owner: context.user.id }] }),
+      add: mutation({
+        input: undefined,
+        handler: () => null,
+      }),
+    },
+  }))
+  .resolve({
+    // Own and inherited namespaces, exactly typed, in a kept router callback.
+    list: ({ remote }) => remote.todos.list(),
+    session: ({ remote }) => {
+      const current: Promise<{ user: string }> = remote.session.current();
+
+      // @ts-expect-error no such namespace
+      remote.missing;
+      // @ts-expect-error a query without input takes options only
+      remote.todos.list("input");
+
+      return current;
+    },
+  });
+
+expect<Equal<Awaited<ReturnType<RemoteOf<typeof todos>["todos"]["list"]>>, { owner: string }[]>>();
+expect<Equal<Awaited<ReturnType<RemoteOf<typeof todos>["session"]["current"]>>, { user: string }>>();
+expect<Equal<keyof RemoteOf<typeof auth>, "session">>();
+
+// Seven stages deep, each spreading the context it receives, replacing depth and adding a key.
+export const d1 = defineRoute("d1", { parent: auth }).context(({ context }) => ({ ...context, depth: 1 as const, l1: true as const }));
+export const d2 = defineRoute("d2", { parent: d1 }).context(({ context }) => ({ ...context, depth: 2 as const, l2: context.l1 }));
+export const d3 = defineRoute("d3", { parent: d2 }).context(({ context }) => ({ ...context, depth: 3 as const, l3: context.l2 }));
+export const d4 = defineRoute("d4", { parent: d3 }).context(({ context }) => ({ ...context, depth: 4 as const, l4: context.l3 }));
+export const d5 = defineRoute("d5", { parent: d4 }).context(({ context }) => ({ ...context, depth: 5 as const, l5: context.l4 }));
+export const d6 = defineRoute("d6", { parent: d5 }).context(({ context }) => ({ ...context, depth: 6 as const, l6: context.l5 }));
+export const d7 = defineRoute("d7", { parent: d6 })
+  .context(async ({ context }) => ({ ...context, depth: 7 as const, l7: context.l6, user: { id: context.user.id, admin: true } }))
+  .remote(({ query }) => ({ deep: { depth: query({ handler: ({ context }) => context.depth }) } }));
+
+expect<
+  Equal<
+    ContextOf<typeof d7>,
+    {
+      request: Request;
+      depth: 7;
+      user: { id: string; admin: boolean };
+      l1: true;
+      l2: true;
+      l3: true;
+      l4: true;
+      l5: true;
+      l6: true;
+      l7: true;
+    }
+  >
+>();
+expect<Equal<Awaited<ReturnType<RemoteOf<typeof d7>["deep"]["depth"]>>, 7>>();
+
+// A stage's value is the context as it is: a class instance keeps its methods.
+export class Session {
+  user = "alice";
+
+  signedIn(): boolean {
+    return true;
+  }
+}
+export const sessioned = defineRoute("sessioned", {})
+  .context(() => new Session())
+  .remote(({ query }) => ({ sessioned: { current: query({ handler: ({ context }) => context.signedIn() }) } }));
+
+expect<Equal<ContextOf<typeof sessioned>, Session>>();
+expect<Equal<Awaited<ReturnType<RemoteOf<typeof sessioned>["sessioned"]["current"]>>, boolean>>();
+
+// A key the stage doesn't return is gone below it.
+export const dropped = defineRoute("dropped", { parent: root })
+  .context(({ context }) => ({ user: context.user }))
+  .remote(({ query }) => ({
+    dropped: {
+      // @ts-expect-error the stage returned no depth
+      depth: query({ handler: ({ context }) => context.depth }),
+    },
+  }));
+
+expect<Equal<ContextOf<typeof dropped>, { user: User | null }>>();
+
+// An index signature is the context as it is.
+export const flagged = defineRoute("flagged", { parent: root }).context((): Record<string, string> => ({ locale: "en" }));
+
+expect<Equal<ContextOf<typeof flagged>, Record<string, string>>>();
+
+// A union context spreads per member, so it keeps its correlation under a later stage.
+export const modes = defineRoute("modes", {}).context(
+  (): { mode: "a"; a: number } | { mode: "b"; b: string } =>
+    Math.random() > 0.5 ? { mode: "a", a: 1 } : { mode: "b", b: "b" },
+);
+export const moded = defineRoute("moded", { parent: modes }).context(({ context }) => ({ ...context, extra: true }));
+
+expect<
+  Equal<ContextOf<typeof moded>, { mode: "a"; a: number; extra: boolean } | { mode: "b"; b: string; extra: boolean }>
+>();
+
+// @ts-expect-error steps come in order: no .context() after .remote()
+defineRoute("late", {}).remote(() => ({})).context(() => ({}));
+// @ts-expect-error each step at most once
+defineRoute("twice", {}).context(() => ({})).context(() => ({}));
+`;
+
+await test("Launch routes type their stages, middleware and remote callbacks exactly, on the real router", () => {
+  const { messages } = program({ "proof.ts": routeProof });
+
+  assert.deepEqual(messages, []);
+});
+
+await test("a Launch route chain's declarations emit and recheck with skipLibCheck: false", () => {
+  const { messages, emitted } = program(
+    { "proof.ts": routeProof },
+    {
+      noEmit: false,
+      declaration: true,
+      emitDeclarationOnly: true,
+      rootDir: consumerDirectory,
+      outDir: consumerDirectory,
+    },
+  );
+
+  assert.deepEqual(messages, []);
+  assert.ok(emitted["proof.d.ts"]?.includes("export declare const d7"), "proof.d.ts was emitted");
+
+  const recheck = program({
+    "emitted.d.ts": emitted["proof.d.ts"],
+    "use.ts": `import { todos } from "./emitted.js";
+import type { RemoteOf } from "@loozo/angular-launch";
+const list: RemoteOf<typeof todos>["todos"]["list"] = null!;
+const result: Promise<{ owner: string }[]> = list();
+void result;`,
+  });
+
+  assert.deepEqual(recheck.messages, []);
+});

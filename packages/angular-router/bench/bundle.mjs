@@ -32,7 +32,7 @@ function total(files) {
 
 export async function measureBundle(consumer) {
   const workspace = await readWorkspace(consumer);
-  const { outputPath, browser } = workspace.projects.proof.architect.build.options;
+  const { outputPath, browser, server } = workspace.projects.proof.architect.build.options;
   const output = join(consumer, outputPath);
   const stats = JSON.parse(await readFile(join(output, "browser-stats.json"), "utf8"));
   const queue = [];
@@ -78,11 +78,18 @@ export async function measureBundle(consumer) {
     }
   }
 
-  // Cross-check the traversal's root against the built HTML's module script.
-  const html = await readFile(join(output, "browser/index.html"), "utf8");
+  // Cross-check the traversal's root against the built HTML's module script. A server build
+  // writes the browser's index as index.csr.html.
+  let index = "index.html";
+
+  if (server) {
+    index = "index.csr.html";
+  }
+
+  const html = await readFile(join(output, "browser", index), "utf8");
 
   if (!html.includes(`src="${entry}"`)) {
-    throw new Error(`index.html doesn't load the browser entry's output ${entry}`);
+    throw new Error(`${index} doesn't load the browser entry's output ${entry}`);
   }
 
   const files = [];

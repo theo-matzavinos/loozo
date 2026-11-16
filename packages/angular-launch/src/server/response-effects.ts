@@ -42,7 +42,7 @@ export interface CookieOptions {
  *
  * The effects are sent once the call settled, or, for a stream, once its handler returned
  * its iterable. After that, setting a cookie throws, and header changes are ignored. So a
- * stream sets its cookies in middleware before `next()`, or in a handler that isn't a
+ * stream sets its cookies in a stage, in middleware before `next()`, or in a handler that isn't a
  * generator, before it returns its iterable: an `async function*` handler's body runs
  * after its response started.
  *
@@ -89,7 +89,7 @@ export interface ResponseControl {
  * The response effects one call collects. Internal.
  *
  * @remarks
- * The transport that created them passes `control` to `dispatch`, calls `commit` when it
+ * The transport that created them passes `control` to `runProcedure`, calls `commit` when it
  * produces the response, and reads `cookies` and `headers` then.
  */
 export interface ResponseEffects {

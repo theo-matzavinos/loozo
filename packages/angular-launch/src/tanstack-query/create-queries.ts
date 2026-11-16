@@ -3,28 +3,16 @@ import { QueryClient, skipToken } from "@tanstack/angular-query";
 import type { DefaultError, Query, QueryFunctionContext } from "@tanstack/angular-query";
 import { RpcError } from "../client.js";
 import { RpcNotFound, RpcRedirect } from "../outcomes.js";
-import { hydrationWindow } from "./hydration.js";
-
-export interface QueriesMethod {
-  readonly kind: "query" | "mutation";
-  readonly input: boolean;
-}
+import type { CreateQueries } from "../launch-queries.js";
+import { hydrationWindow } from "./hydration-window.js";
 
 type Callable = (...args: unknown[]) => Promise<unknown>;
 
-// Builds the TanStack factories of a generated injectQueries() over its injectRpc() client.
-export function createQueries(
-  rpc: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
-  groups: Readonly<Record<string, Readonly<Record<string, QueriesMethod>>>>,
-): unknown {
-  const hydration = inject(hydrationWindow, { optional: true });
-
-  if (hydration === null) {
-    throw new Error(
-      "injectQueries() requires provideLaunchQueries() from @loozo/angular-launch/tanstack-query in the application providers",
-    );
-  }
-
+// Builds a route's `queries` over its `remote` client. `route.queries` calls it in the
+// handle creator's injection context, once it checked that `provideLaunchQueries()`, which
+// provides both tokens, is there.
+export const createQueries: CreateQueries = (rpc, namespaces) => {
+  const hydration = inject(hydrationWindow);
   const client = inject(QueryClient);
 
   // An arrow function keeps the null check's narrowing; a function declaration is hoisted.
@@ -86,7 +74,7 @@ export function createQueries(
 
   const result: Record<string, Record<string, unknown>> = Object.create(null);
 
-  for (const [namespace, methods] of Object.entries(groups)) {
+  for (const [namespace, methods] of Object.entries(namespaces)) {
     const group: Record<string, unknown> = Object.create(null);
 
     group["$key"] = () => ["launch", namespace];
@@ -175,4 +163,4 @@ export function createQueries(
   }
 
   return result;
-}
+};

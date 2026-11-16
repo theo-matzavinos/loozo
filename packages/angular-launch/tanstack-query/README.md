@@ -1,6 +1,6 @@
 # TanStack Query
 
-`@loozo/angular-launch/tanstack-query` connects Launch procedures to [TanStack Query for Angular](https://tanstack.com/query/latest/docs/framework/angular/overview) (`@tanstack/angular-query`). Generation writes typed query and mutation options and keys for your groups, and server-rendered query data reaches the browser through TanStack's own hydration, with no request on load even with `staleTime: 0`.
+`@loozo/angular-launch/tanstack-query` connects Launch procedures to [TanStack Query for Angular](https://tanstack.com/query/latest/docs/framework/angular/overview) (`@tanstack/angular-query`). Generation adds typed query and mutation options and keys to your routes' handles, and server-rendered query data reaches the browser through TanStack's own hydration, with no request on load even with `staleTime: 0`.
 
 It's optional. Without it, Launch never imports TanStack.
 
@@ -23,7 +23,7 @@ Turn on the `tanstackQuery` generation option in your `@loozo/angular-launch:app
 }
 ```
 
-Each `rpc.generated.ts` then also exports `injectQueries()` and its type `Queries`, for the same groups as its `injectRpc()`. With the option off, generated files are exactly as without this entry point.
+Each route's handle then also has `queries`, and its `route.generated.ts` exports its type `Queries`, for the same namespaces as `remote`. With the option off, route copies have neither and don't import this entry point.
 
 Add TanStack's provider and `provideLaunchQueries()` to the application's providers, which the server config inherits:
 
@@ -48,27 +48,27 @@ export const config: ApplicationConfig = {
 };
 ```
 
-Pass `provideTanStackQuery` a factory, as above, not a shared client: the factory runs once per application, so every server render gets its own cache and one user's data never reaches another's page. `provideLaunchQueries()` belongs in the application's providers, not a route's or component's. `injectQueries()` throws without it.
+Pass `provideTanStackQuery` a factory, as above, not a shared client: the factory runs once per application, so every server render gets its own cache and one user's data never reaches another's page. `provideLaunchQueries()` belongs in the application's providers, not a route's or component's. Reading `route.queries` throws without it; `route.remote` doesn't need it.
 
 ## Queries and mutations
 
-Call `injectQueries()` in an injection context, like `injectRpc()`, and pass its options to TanStack:
+Read `queries` from the route's handle and pass its options to TanStack. Like `remote`, it's built on first read with the handle's injector, so reading it later, outside an injection context, is fine:
 
 ```ts
 // src/routes/+authenticated/todos/page.ts
 import { Component, inject } from "@angular/core";
 import { injectMutation, injectQuery, QueryClient } from "@tanstack/angular-query";
-import { injectQueries, injectRpc } from "./rpc.generated";
+import { injectRoute } from "./route.generated";
 
 @Component({/* … */})
 export default class Todos {
-  readonly #rpc = injectRpc();
-  readonly #queries = injectQueries();
+  readonly #route = injectRoute();
   readonly #client = inject(QueryClient);
-  readonly todos = injectQuery(() => this.#queries.todos.list.queryOptions());
+  readonly todos = injectQuery(() => this.#route.queries.todos.list.queryOptions());
   readonly #complete = injectMutation(() =>
-    this.#queries.todos.complete.mutationOptions({
-      onSuccess: () => this.#client.invalidateQueries({ queryKey: this.#queries.todos.$key() }),
+    this.#route.queries.todos.complete.mutationOptions({
+      onSuccess: () =>
+        this.#client.invalidateQueries({ queryKey: this.#route.queries.todos.$key() }),
     }),
   );
 
@@ -76,7 +76,7 @@ export default class Todos {
     try {
       await this.#complete.mutateAsync({ id });
     } catch (error) {
-      if (this.#rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+      if (this.#route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
         const missingId: string = error.data.id;
       }
     }
@@ -116,7 +116,7 @@ Full query keys are tagged with the procedure's output type, so `client.getQuery
 
 ## Invalidation
 
-Launch invalidates nothing itself; TanStack does, with the keys above. Invalidate in a mutation's `onSuccess`, by group, procedure or input:
+Launch invalidates nothing itself; TanStack does, with the keys above. Invalidate in a mutation's `onSuccess`, by namespace, procedure or input:
 
 ```ts
 onSuccess: () => client.invalidateQueries({ queryKey: queries.todos.$key() }),
@@ -163,7 +163,7 @@ provideTanStackQuery(() => {
 }),
 ```
 
-- Every Launch key starts with `"launch"`, so this matches every Launch query and mutation, of every group, and nothing else in the cache. Only active queries, ones a component observes, refetch; the others are marked stale and refetch when they next mount.
+- Every Launch key starts with `"launch"`, so this matches every Launch query and mutation, of every namespace, and nothing else in the cache. Only active queries, ones a component observes, refetch; the others are marked stale and refetch when they next mount.
 - `onSettled` also runs after a failed write, which can still mean the data changed: a declared `NOT_FOUND` for a todo deleted elsewhere does.
 - TanStack awaits the cache's callbacks, before the mutation's own, so the mutation stays pending until the read finishes.
 - Skipping while another write is still on its way keeps an earlier write's read from replacing a later write's optimistic data, and the last write reads once for all. Count only writes that haven't reached `onSettled`: a mutation stays pending until its callbacks finish, so with `isMutating() > 1` two writes that settle together, in different scopes, each see the other and both skip the read.
@@ -248,9 +248,9 @@ Everything else is TanStack's or your `QueryClient`'s. Overrides replace either 
 ## Limitations
 
 - No infinite queries, mutation cancellation or persistence. Optimistic updates and invalidation are TanStack's, as [above](#invalidation): Launch adds no helpers for them.
-- No options for [streams](../README.md#calling-streams): `injectQueries()` leaves them out. TanStack's `streamedQuery` keeps a query fetching until its stream ends, and the Angular adapter keeps the app from becoming stable while a query is fetching, which would hold hydration open as long as the stream runs. It's also still `experimental_streamedQuery` in query-core 5.104. Follow the stream with [`connect()`](../README.md#following-streams-and-channels-with-connect) instead.
+- No options for [streams](../README.md#calling-streams): `route.queries` leaves them out. TanStack's `streamedQuery` keeps a query fetching until its stream ends, and the Angular adapter keeps the app from becoming stable while a query is fetching, which would hold hydration open as long as the stream runs. It's also still `experimental_streamedQuery` in query-core 5.104. Follow the stream with [`connect()`](../README.md#following-streams-and-channels-with-connect) instead.
 - No options for [channels](../README.md#calling-channels) either, for the same reasons; use `connect()`.
+- A narrowed active-route handle's `queries` uses the `QueryClient` of the `injectActiveRoute()` caller, not one a route provides: a route-level `QueryClient` reaches only that route's own `injectRoute()`.
 - Errors aren't dehydrated: a failed server query runs again in the browser.
 - Only `@tanstack/angular-query`, not `@tanstack/angular-query-experimental`.
 - No special handling for `@defer`: queries in a deferred block follow the same window, so ones that mount after the app is stable refetch when stale.
-- TanStack also exports an `injectQueries` (for running several queries); import one of the two under another name if you need both in a file.

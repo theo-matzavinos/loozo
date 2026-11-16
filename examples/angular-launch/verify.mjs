@@ -271,6 +271,22 @@ try {
     "concurrent HTML with a slow list handler: one context per document, the resolver and injectQuery reuse it, isolated users, each user's todos in the rendered list markup, TanStack hydration state without a duplicate HTTP transfer entry, zero loopback",
   );
 
+  // Stages run only when a call needs them: a page that makes no RPC runs none, even with a
+  // user who'd pass them.
+  const beforeQuiet = await stats();
+  const quiet = await fetch(`${base}/sign-in`, { headers: { cookie: "proof-user=alice" } });
+
+  assert.equal(quiet.status, 200);
+  assert.match(await quiet.text(), /<h1 id="sign-in-title">Sign in<\/h1>/);
+
+  const afterQuiet = await stats();
+
+  assert.equal(afterQuiet.contexts - beforeQuiet.contexts, 0);
+  assert.equal(afterQuiet.signedInChecks - beforeQuiet.signedInChecks, 0);
+  checks.push(
+    "a server-rendered page without RPCs runs no context stage: /sign-in with a user leaves the root and +authenticated stage counters unchanged",
+  );
+
   // Response control: cookies and headers on the RPC response; during server rendering
   // cookies go on the page response and headers are dropped.
   const sessionCall = await fetch(`${base}/_rpc/session/current`, {
@@ -287,7 +303,8 @@ try {
   assert.match(sessionCall.headers.get("server-timing") ?? "", /^rpc;dur=\d+\.\d$/);
   assert.equal(sessionCall.headers.get("cache-control"), "private, no-store");
 
-  // Signed out, signInFirst redirects before the handler sets the cookie.
+  // Signed out, +authenticated's stage redirects before the handler sets the cookie, and
+  // before the route's timing middleware runs.
   const refused = await fetch(`${base}/_rpc/session/current`, {
     method: "POST",
     headers: { "content-type": "application/json", origin },
@@ -297,7 +314,7 @@ try {
   assert.equal(refused.status, 303);
   assert.equal(refused.headers.get("location"), null);
   assert.deepEqual(refused.headers.getSetCookie(), []);
-  assert.match(refused.headers.get("server-timing") ?? "", /^rpc;dur=/);
+  assert.equal(refused.headers.get("server-timing"), null);
 
   const renderedPage = await fetch(`${base}/todos`, { headers: { cookie: "proof-user=alice" } });
   const pageCookies = renderedPage.headers.getSetCookie();
@@ -308,18 +325,18 @@ try {
   assert.match(pageCookies[0], /^proof-seen=\d+; Path=\/; HttpOnly; Secure; SameSite=Lax$/);
   assert.equal(renderedPage.headers.get("server-timing"), null);
   checks.push(
-    "response control: an RPC carries its cookie and server-timing header, also when redirected (header only), and a rendered page carries the cookie its resolver's query set but not the header",
+    "response control: an RPC carries its cookie and server-timing header, a call its stage redirects carries neither, and a rendered page carries the cookie its resolver's query set but not the header",
   );
 
   const beforeDenial = await stats();
 
-  // The group's signedIn middleware runs before validation, so a caller without a user
-  // gets FORBIDDEN even for invalid input; a malformed envelope fails before it runs.
+  // +authenticated's stage runs before validation, so a caller without a user is sent to
+  // sign in even for invalid input; a malformed envelope fails before it runs.
   for (const [body, cookie, status] of [
     [{ input: 7 }, "alice", 400],
     [{}, "alice", 400],
-    [{ input: null }, undefined, 403],
-    [{ input: 7 }, undefined, 403],
+    [{ input: null }, undefined, 303],
+    [{ input: 7 }, undefined, 303],
   ]) {
     const headers = { "content-type": "application/json", origin };
 
@@ -338,7 +355,7 @@ try {
 
   assert.equal((await stats()).signedInChecks - beforeDenial.signedInChecks, 3);
   checks.push(
-    "genuine HTTP no-input validation and group middleware denial, before validation for callers without a user",
+    "genuine HTTP no-input validation, and the +authenticated stage's redirect before validation for callers without a user",
   );
 
   // Outcomes over HTTP are frames, never followed: a 303 without Location, or a 404.
@@ -579,13 +596,24 @@ try {
   checks.push(
     "a server-rendered 404 page hydrates at its URL with one /_rpc/todo/get call; client navigation renders not-found at the requested URL and follows the sign-in redirect",
   );
-  await context.addCookies([{ name: "proof-user", value: "nobody", url: base }]);
-  assert.equal(
-    await page.evaluate(() => globalThis.__launchFrameworkError()),
-    "RpcError:FORBIDDEN:403:null",
+
+  // identity declares nothing of its own: the active route's narrowed handle, read with the
+  // injector the reader was created with, calls its ancestor's procedure.
+  await page.evaluate(() => globalThis.__launchNavigate("/identity"));
+  await page.waitForFunction(
+    () => document.getElementById("query-identity")?.textContent === "alice",
   );
-  checks.push("generated browser callable recognizes genuine HTTP framework failure as RpcError");
-  await context.addCookies([{ name: "proof-user", value: "alice", url: base }]);
+  assert.deepEqual(await page.evaluate(() => globalThis.__launchIdentity()), {
+    user: "alice",
+    own: "/identity",
+  });
+  checks.push(
+    "a bare leaf's narrowed active handle, built outside the reader's injection context, calls its ancestor's session.current over HTTP and links to itself",
+  );
+
+  // The todos helpers below need /todos active.
+  await page.evaluate(() => globalThis.__launchNavigate("/todos"));
+  await page.waitForSelector("#todo-list li");
   await context.addCookies([{ name: "proof-delay", value: "1", url: base }]);
   await page.waitForFunction(() => typeof globalThis.__launchBeginCancellation === "function");
 
@@ -928,15 +956,24 @@ try {
       400,
       { issues: [{ path: ["id"], message: "Todo id required" }] },
     ],
-    ["add", { title: "Denied" }, undefined, "FORBIDDEN", 403, null],
-    ["complete", { id: addedId }, undefined, "FORBIDDEN", 403, null],
-    ["remove", { id: addedId }, undefined, "FORBIDDEN", 403, null],
   ]) {
     const result = await rpcRequest(method, input, user);
 
     assert.equal(result.body.error.code, code);
     assert.equal(result.status, status);
     assert.deepEqual(result.body.error.data, data);
+  }
+
+  // Signed out, +authenticated's stage sends a write to sign in before validation.
+  for (const [method, input] of [
+    ["add", { title: "Denied" }],
+    ["complete", { id: addedId }],
+    ["remove", { id: addedId }],
+  ]) {
+    const result = await rpcRequest(method, input);
+
+    assert.equal(result.status, 303, method);
+    assert.deepEqual(result.body, { redirect: { to: "/sign-in" } }, method);
   }
 
   const afterRejected = await stats();
@@ -948,7 +985,7 @@ try {
   assert.equal((await rpcRequest("complete", { id: addedId }, "alice")).status, 200);
   assert.equal((await stats()).writes, beforeRejected.writes);
   checks.push(
-    "real HTTP invalid input (with path-indexed issues)/group denial never reaches mutation store; completion is idempotent",
+    "real HTTP invalid input (with path-indexed issues) and a signed-out write, redirected to sign in, never reach the mutation store; completion is idempotent",
   );
 
   await page.locator("#todo-title").fill("   ");
@@ -1051,6 +1088,31 @@ try {
   await failedContext.close();
   checks.push(
     "a query that fails during server rendering isn't dehydrated and loads over HTTP in the browser",
+  );
+
+  // Angular bundles the server entry, which answers RPCs, apart from the server application,
+  // which renders, and both import the database module. A page's calls run in the server
+  // entry's copy, so a todo added over /_rpc is in the next server-rendered /todos.
+  const sharedTitle = `Shared ${crypto.randomUUID()}`;
+  const sharedAdd = await fetch(`${base}/_rpc/todos/add`, {
+    method: "POST",
+    headers: { origin, "content-type": "application/json", cookie: "proof-user=alice" },
+    body: JSON.stringify({ input: { title: sharedTitle } }),
+  });
+
+  assert.equal(sharedAdd.status, 200);
+
+  const sharedHtml = await (
+    await fetch(`${base}/todos`, { headers: { cookie: "proof-user=alice" } })
+  ).text();
+
+  await writeFile(join(evidence, "alice-todos-after-rpc-add.html"), sharedHtml);
+  assert.ok(
+    todoList(sharedHtml).includes(sharedTitle),
+    "the SSR list shows the todo added over RPC",
+  );
+  checks.push(
+    "pages and RPCs share the server's module state: a todo added over /_rpc is in the next server-rendered /todos list",
   );
 
   // Streams: /live renders from a query on the server, then follows a stream in the browser.
@@ -1223,9 +1285,37 @@ try {
 
   assert.equal(afterBreak.streamsAborted - beforeBreak.streamsAborted, 1);
   assert.equal(afterBreak.streamsReturned - beforeBreak.streamsReturned, 1);
-  await livePage.close();
   checks.push(
     "the browser stream client yields typed values, ends cleanly, rejects with the procedure's declared error, and break closes the request so the handler sees its signal abort and returns",
+  );
+
+  // The server refuses input the ticks schema rejects with INVALID_INPUT, before the
+  // stream starts.
+  assert.deepEqual(
+    await livePage.evaluate(() =>
+      globalThis.__launchTicks({ count: "three", everyMs: 10, fail: false }),
+    ),
+    { values: [], outcome: "RpcError:INVALID_INPUT:400:Invalid RPC input" },
+  );
+
+  // +authenticated's stage covers live's channel too: a caller without a user is accepted,
+  // then sent to sign in over the socket, and the handler never runs.
+  const beforeSignedOutChannel = await stats();
+
+  await context.addCookies([{ name: "proof-user", value: "nobody", url: base }]);
+  assert.deepEqual(await livePage.evaluate(() => globalThis.__launchChannel(["Unseen"])), {
+    lists: [],
+    outcome: "RpcRedirect:/sign-in",
+  });
+  await context.addCookies([{ name: "proof-user", value: "alice", url: base }]);
+
+  const afterSignedOutChannel = await stats();
+
+  assert.equal(afterSignedOutChannel.signedInChecks - beforeSignedOutChannel.signedInChecks, 1);
+  assert.equal(afterSignedOutChannel.channelsStarted, beforeSignedOutChannel.channelsStarted);
+  await livePage.close();
+  checks.push(
+    "generated browser callable, read through the narrowed active handle, recognizes genuine HTTP framework failure as RpcError: live.ticks refuses input its schema rejects with INVALID_INPUT; a signed-out live channel is sent to sign in by +authenticated's stage over the socket, as RpcRedirect, without running its handler",
   );
 
   // A client leaving is expected: the break above, closing /live while it follows its stream,
@@ -1325,10 +1415,8 @@ try {
 
     for (const input of Object.keys(info.inputs)) {
       if (
-        /context\.ts|\.server\.|\/server\/|server\.generated|\/generation\/|typescript\/|node:/.test(
-          input,
-        ) ||
-        /routes\/.+\/rpc\.ts/.test(input)
+        /\.server\.|\/server\/|server\.generated|\/generation\/|typescript\/|node:/.test(input) ||
+        /(^|\/)routes\/(.+\/)?route\.ts$/.test(input)
       ) {
         forbidden.push({ output, input });
       }
@@ -1354,7 +1442,7 @@ try {
 
   assert.equal(serverSentinel, true, "sentinel really exists in server output");
   checks.push(
-    "actual browser graph excludes server/context/handler/database/generation/Node; sentinel exists only server-side",
+    "actual browser graph excludes authored route.ts files (stages, middleware, handlers), server.generated, server/database/generation/Node; sentinel exists only server-side",
   );
 
   // A public page prerenders from the anonymous build context; the RPC-free one still does.

@@ -22,16 +22,17 @@ import {
 } from "@angular/common/http";
 import { firstValueFrom, Observable } from "rxjs";
 import { QueryClient } from "@tanstack/angular-query";
-import { defineContext, defineRpc, middleware, notFound, redirect } from "../dist/server/index.js";
+import { middleware, notFound, redirect } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
-import { injectClient } from "../dist/generated.js";
+import { bound } from "./fixtures/application.mjs";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcNotFound, RpcRedirect, rpcNavigationErrors } from "../dist/index.js";
-import { createQueries } from "../dist/tanstack-query/generated.js";
+import { createQueries } from "../dist/tanstack-query/create-queries.js";
 import { provideLaunchQueries } from "../dist/tanstack-query/index.js";
 
 const application = {
   id: "launch-outcomes-test-app",
-  context: defineContext((request) => ({ user: request.headers.get("cookie") })),
+  context: ({ request }) => ({ user: request.headers.get("cookie") }),
 };
 const idSchema = {
   "~standard": {
@@ -64,10 +65,10 @@ const logging = middleware(async ({ next }) => {
     throw error;
   }
 });
-const registry = {
-  todos: defineRpc(
-    "todos",
-    ({ query, stream }) => ({
+const namespaces = {
+  todos: {
+    use: [signedIn],
+    build: ({ query, stream }) => ({
       get: query({
         input: idSchema,
         use: [logging],
@@ -98,8 +99,7 @@ const registry = {
         },
       }),
     }),
-    { use: [signedIn] },
-  ),
+  },
 };
 const methods = [
   { name: "get", input: true, kind: "query", errors: [] },
@@ -123,7 +123,7 @@ function post(path, input, { cookie = "alice" } = {}) {
 }
 
 function handle(request) {
-  return handleRpc(registry, application, request, { allowedHosts: ["test"] });
+  return handleRpc(bound(application, namespaces), request, { allowedHosts: ["test"] });
 }
 
 test("redirect() takes only root-relative URLs, and outcomes never reach JSON", () => {
@@ -177,10 +177,12 @@ test("outcomes become 303 and 404 frames over HTTP, from middleware before valid
 });
 
 function serverInjector(cookie = "alice") {
-  return createRequestScope(
-    application,
+  const scope = createRequestScope(
+    bound(application, namespaces),
     new Request("http://test/todos/1", cookie === null ? {} : { headers: { cookie } }),
-  ).then((scope) => {
+  );
+
+  return Promise.resolve().then(() => {
     const parent = createEnvironmentInjector([]);
     const injector = createEnvironmentInjector(
       [
@@ -190,7 +192,7 @@ function serverInjector(cookie = "alice") {
         { provide: PLATFORM_ID, useValue: "server" },
         { provide: FetchBackend, useValue: { handle: () => assert.fail("left the server") } },
         { provide: HttpClient, useFactory: () => new HttpClient(injectBackend()) },
-        provideLaunchServer(registry, application),
+        provideLaunchServer(bound(application, namespaces)),
       ],
       parent,
     );
@@ -313,7 +315,7 @@ async function serve() {
       headers: incoming.headers,
       body: Buffer.concat(chunks),
     });
-    const response = await handleRpc(registry, application, request, {
+    const response = await handleRpc(bound(application, namespaces), request, {
       allowedHosts: ["127.0.0.1"],
     });
 
@@ -456,8 +458,8 @@ async function render(url, cookie = "alice") {
   const { provideRouter, RouterOutlet, withNavigationErrorHandler } = await import(
     require.resolve("@angular/router")
   );
-  const scope = await createRequestScope(
-    application,
+  const scope = createRequestScope(
+    bound(application, namespaces),
     new Request(`http://test${url}`, cookie === null ? {} : { headers: { cookie } }),
   );
   const response = { status: 200 };
@@ -485,7 +487,7 @@ async function render(url, cookie = "alice") {
           providers: [
             provideServerRendering(),
             provideHttpClient(),
-            provideLaunchServer(registry, application),
+            provideLaunchServer(bound(application, namespaces)),
             provideRouter(
               [
                 {

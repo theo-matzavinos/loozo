@@ -87,45 +87,41 @@ await run(
 );
 await mkdir(join(consumer, "src/routes"), { recursive: true });
 await writeFile(
-  join(consumer, "src/context.ts"),
-  `import {defineContext} from '@loozo/angular-launch/server'; export default defineContext(async (request:Request)=>({request,value:7}));`,
+  join(consumer, "src/stage.ts"),
+  `export const stage = async ({ request }: { request: Request }) => ({ request, value: 7, label: 'packed' });`,
 );
 await writeFile(
   join(consumer, "src/routes/route.ts"),
-  `import {defineRoute} from '@loozo/angular-router'; export default defineRoute('',{});`,
-);
-await writeFile(
-  join(consumer, "src/routes/page.ts"),
-  `import {Component} from '@angular/core'; @Component({selector:'packed-page',template:'ok'}) export default class Page {}`,
-);
-await writeFile(
-  join(consumer, "src/routes/rpc.ts"),
-  `import { defineRpc, middleware } from '@loozo/angular-launch/server';
+  `import { defineRoute } from '@loozo/angular-launch';
+import { middleware } from '@loozo/angular-launch/server';
 import type { Schema } from '@loozo/angular-launch/server';
+import { stage } from '../stage.js';
 const schema: Schema<string, { id: string }> = {
   '~standard': { version: 1, vendor: 'packed', async validate(value) {
     if (typeof value !== 'string') { return { issues: [{ message: 'string required' }] }; }
     return { value: { id: value.trim() } };
   } },
 };
-const labelled = middleware(async ({ next }) => next({ label: 'packed' }));
-export default defineRpc('packed', ({ query, mutation }) => ({
+const timed = middleware(async ({ next }) => next());
+export default defineRoute('', {}).context(stage).use(timed).remote(({ query, mutation }) => ({ packed: {
   read: query({ handler: ({ context }) => context.value }),
   label: query({ handler: ({ context, signal }) => ({ label: context.label, aborted: signal.aborted }) }),
   write: mutation({
     errors: { NOT_FOUND: { status: 404, message: 'Missing packed todo', data: schema } },
     handler: ({ errors }): { id: string } => { throw errors.NOT_FOUND(' packed-id '); },
   }),
-}), { use: [labelled] });`,
+} }));`,
+);
+await writeFile(
+  join(consumer, "src/routes/page.ts"),
+  `import {Component} from '@angular/core'; @Component({selector:'packed-page',template:'ok'}) export default class Page {}`,
 );
 await writeFile(
   join(consumer, "src/consumer.ts"),
-  `import { injectRpc } from './routes/rpc.generated.js';
-import type group from './routes/rpc.js';
-import type { ClientRpcError } from '@loozo/angular-launch';
+  `import { injectRoute, type Remote } from './routes/route.generated.js';
 import { generate, createGenerationSession, type GenerationSession } from '@loozo/angular-launch/generation';
-import { prepareLaunchRoutes } from '@loozo/angular-router/_generation';
-const rpc = injectRpc();
+import { discoverLaunchRoutes, emitLaunchRoutes } from '@loozo/angular-router/_generation';
+const rpc: Remote = injectRoute().remote;
 const promise: Promise<number> = rpc.packed.read();
 const label: Promise<{ label: string; aborted: boolean }> = rpc.packed.label();
 const kind: 'query' = rpc.packed.read.kind;
@@ -134,8 +130,7 @@ const mutationKind: 'mutation' = rpc.packed.write.kind;
 declare const error: unknown;
 if (rpc.packed.write.isError(error) && error.code === 'NOT_FOUND') {
   const id: string = error.data.id;
-  const typed: ClientRpcError<typeof group.procedures.write> = error;
-  void id; void typed;
+  void id;
 }
 // @ts-expect-error mutations cannot opt into transfer cache
 rpc.packed.write({ transferCache: true });
@@ -143,7 +138,7 @@ const session: GenerationSession = createGenerationSession('.', {tsconfig:'tscon
 const update: Promise<void> = session.generate({check:true});
 const disposal: Promise<void> = session.dispose();
 void update; void disposal;
-void promise; void label; void kind; void write; void mutationKind; void generate; void prepareLaunchRoutes;`,
+void promise; void label; void kind; void write; void mutationKind; void generate; void discoverLaunchRoutes; void emitLaunchRoutes;`,
 );
 await writeFile(
   join(consumer, "tsconfig.json"),
@@ -168,49 +163,54 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir,readFile,readdir,stat,writeFile} from 'node:fs/promises';
 import {generate,createGenerationSession} from '@loozo/angular-launch/generation';
-import { defineContext, defineRpc, forbidden, middleware } from '@loozo/angular-launch/server';
-import {RpcError} from '@loozo/angular-launch';
+import { forbidden, middleware } from '@loozo/angular-launch/server';
+import {RpcError, defineRoute} from '@loozo/angular-launch';
 import * as client from '@loozo/angular-launch';
 import * as server from '@loozo/angular-launch/server';
 import * as generatedServer from '@loozo/angular-launch/_server';
-import {createRequestScope, handleRpc} from '@loozo/angular-launch/_server';
-import {injectClient} from '@loozo/angular-launch/_generated';
-import {prepareLaunchRoutes,createValidationProgram} from '@loozo/angular-router/_generation';
+import {bindApplication, createRequestScope, handleRpc} from '@loozo/angular-launch/_server';
+import {discoverLaunchRoutes,createValidationProgram} from '@loozo/angular-router/_generation';
 const require=createRequire(import.meta.url);
-for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-launch/_generated','@loozo/angular-launch/generation','@loozo/angular-router/_generation']) {
+for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-launch/generation','@loozo/angular-router/_generation']) {
  assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
+}
+// Nothing generated imports Launch internals besides the server binding's entry.
+for (const name of ['@loozo/angular-launch/_generated','@loozo/angular-launch/_tanstack-query']) {
+ assert.throws(()=>require.resolve(name),/not exported|ERR_PACKAGE_PATH_NOT_EXPORTED/);
 }
 const router=JSON.parse(await readFile(require.resolve('@loozo/angular-router/package.json'),'utf8'));
 const entry=new URL(router.exports['./_generation'].types,'file://'+require.resolve('@loozo/angular-router/package.json'));
-assert.ok((await readFile(entry,'utf8')).includes('prepareLaunchRoutes'));
-assert.equal(typeof prepareLaunchRoutes,'function');assert.equal(typeof createValidationProgram,'function');assert.equal(typeof injectClient,'function');assert.equal(new RpcError('FORBIDDEN',403).code,'FORBIDDEN');
-assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedirect','frameworkFailures','rpcNavigationErrors']);
-// The optional peer isn't installed here: the root and generated entries must not need it.
+assert.ok((await readFile(entry,'utf8')).includes('discoverLaunchRoutes'));
+assert.equal(typeof discoverLaunchRoutes,'function');assert.equal(typeof createValidationProgram,'function');assert.equal(new RpcError('FORBIDDEN',403).code,'FORBIDDEN');
+assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedirect','defineRoute','frameworkFailures','rpcNavigationErrors']);
+// The optional peer isn't installed here: the root and server entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
-assert.deepEqual(Object.keys(server).sort(),['defineContext','defineRpc','finishLaunchRendering','forbidden','middleware','notFound','redirect']);
-assert.deepEqual(Object.keys(generatedServer).sort(),['createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer']);
-const binding={id:'packed-test-app',context:defineContext(()=>({value:1}))};
+assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','redirect']);
+assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer','runProcedure']);
 const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
   if (typeof value !== 'string') { return { issues: [{ message: 'private string detail' }] }; }
   return { value: { id: value.trim() } };
 } } };
 const refuse = middleware(async () => { throw forbidden(); });
-const registry = { [id]: defineRpc('packed', ({ query, mutation }) => ({ write: mutation({
+let stages = 0;
+const route = defineRoute('', {}).context(() => { stages += 1; return { value: 1 }; }).remote(({ query, mutation }) => ({ [id]: { write: mutation({
   errors: { NOT_FOUND: { status: 404, message: 'Missing packed todo', data: schema } },
   handler: ({ errors }) => { throw errors.NOT_FOUND(' packed-id '); },
-}), refused: query({ use: [refuse], handler: () => 1 }) })) };
+}), refused: query({ use: [refuse], handler: () => 1 }) } }));
+const application = bindApplication('packed-test-app', [[route, 'src/routes/route.ts']]);
 const expected = { error: { code: 'NOT_FOUND', message: 'Missing packed todo', data: { id: 'packed-id' } } };
-const response = await handleRpc(registry, binding, new Request('http://test/_rpc/'+id+'/write', {
+const response = await handleRpc(application, new Request('http://test/_rpc/'+id+'/write', {
   method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://test' }, body: JSON.stringify({ input: null }),
 }), { allowedHosts: ['test'] });
 assert.equal(response.status, 404); assert.deepEqual(await response.json(), expected);
-const refused = await handleRpc(registry, binding, new Request('http://test/_rpc/'+id+'/refused', {
+const refused = await handleRpc(application, new Request('http://test/_rpc/'+id+'/refused', {
   method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://test' }, body: JSON.stringify({ input: null }),
 }), { allowedHosts: ['test'] });
 assert.equal(refused.status, 403); assert.equal((await refused.json()).error.code, 'FORBIDDEN');
-const scope = await createRequestScope(binding, new Request('http://test'));
-assert.equal(scope.appId, binding.id); assert.equal(scope.value.value, 1);
+assert.equal(stages, 2);
+const scope = createRequestScope(application, new Request('http://test'));
+assert.equal(scope.appId, application.id); assert.equal(stages, 2, 'a scope runs no stage');
 const launch=JSON.parse(await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8'));
 for(const entry of [router.exports['./_generation'],launch.exports['./generation']]) {
 assert.equal(typeof entry.types,'string');assert.equal(typeof entry.node,'string');assert.equal(entry.default,undefined);
@@ -238,17 +238,15 @@ try {
   await session.generate();
   await session.generate({check:true});
   assert.deepEqual(await snapshot(),cold);
-  const contextFile=import.meta.dirname+'/src/context.ts';
-  const contextText=await readFile(contextFile,'utf8');
-  await writeFile(contextFile,contextText+'\\nexport const invalid:string=123;\\n');
+  const routeFile=import.meta.dirname+'/src/routes/route.ts';
+  const routeText=await readFile(routeFile,'utf8');
+  await writeFile(routeFile,routeText+'\\nconst invalid:string=123;\\nvoid invalid;\\n');
   await assert.rejects(session.generate(),/TS2322/);
   assert.deepEqual(await snapshot(),cold);
-  await writeFile(contextFile,contextText);
+  await writeFile(routeFile,routeText);
   await session.generate({check:true});
   assert.deepEqual(await snapshot(),cold);
-  const rpcFile=import.meta.dirname+'/src/routes/rpc.ts';
-  const rpcText=await readFile(rpcFile,'utf8');
-  await writeFile(rpcFile,rpcText.replace('Missing packed todo','Missing updated packed todo'));
+  await writeFile(routeFile,routeText.replace('Missing packed todo','Missing updated packed todo'));
   await session.generate();
   const updated=await snapshot();
   assert.notDeepEqual(updated,cold);
@@ -256,6 +254,8 @@ try {
   assert.deepEqual(await snapshot(),updated);
 
   const dependency=import.meta.dirname+'/node_modules/dependency';
+  const stageFile=import.meta.dirname+'/src/stage.ts';
+  const stageText=await readFile(stageFile,'utf8');
   await mkdir(dependency);
   const original=JSON.stringify({name:'dependency',version:'1.0.0',exports:{'./first':'./number.d.ts','./second':'./string.d.ts'}});
   const swapped=JSON.stringify({name:'dependency',version:'1.0.0',exports:{'./first':'./string.d.ts','./second':'./number.d.ts'}});
@@ -263,8 +263,8 @@ try {
     writeFile(dependency+'/package.json',original),
     writeFile(dependency+'/number.d.ts','export declare const value:number;'),
     writeFile(dependency+'/string.d.ts','export declare const value:string;'),
-    writeFile(contextFile,"import {defineContext} from '@loozo/angular-launch/server';import {value as first} from 'dependency/first';import {value as second} from 'dependency/second';export default defineContext((request:Request)=>({request,value:first,second}));"),
-    writeFile(rpcFile,rpcText.replace('handler: ({ context }) => context.value','handler: ({ context }): number => context.value')),
+    writeFile(stageFile,"import {value as first} from 'dependency/first';import {value as second} from 'dependency/second';export const stage = ({request}:{request:Request})=>({request,value:first,second,label:'packed'});"),
+    writeFile(routeFile,routeText.replace('handler: ({ context }) => context.value','handler: ({ context }): number => context.value')),
   ]);
   await session.generate();
   const beforeSwap=await snapshot();
@@ -291,7 +291,7 @@ try {
   assert.deepEqual(await snapshot(),repaired);
   // Restore the authored consumer before pnpm exec revalidates its install;
   // that may prune this deliberately uninstalled dependency-metadata fixture.
-  await Promise.all([writeFile(contextFile,contextText),writeFile(rpcFile,rpcText)]);
+  await Promise.all([writeFile(stageFile,stageText),writeFile(routeFile,routeText)]);
   await session.generate();
 } finally {
   await session.dispose();
@@ -312,8 +312,10 @@ await assert.rejects(disposing.generate(),/disposed/);
 await generate(import.meta.dirname,options);
 assert.notEqual((await snapshot())['generated/server.generated.ts'].bytes,beforeDispose['generated/server.generated.ts'].bytes);
 const generated=await readFile(import.meta.dirname+'/generated/server.generated.ts','utf8');
-assert.ok(generated.includes("from '@loozo/angular-launch/_server';"));assert.ok(generated.includes('createRequestScope(appBinding, request)'));assert.ok(generated.includes('provideLaunchServer(registry, appBinding)'));
-console.log('Packed exports, generation, mutation/error payloads and bound request scope: PASS');`,
+assert.ok(generated.includes("from '@loozo/angular-launch/_server';"));assert.ok(generated.includes('scopeFor(application, request)'));assert.ok(generated.includes('provideLaunchServer(application)'));
+const copy=await readFile(import.meta.dirname+'/src/routes/route.generated.ts','utf8');
+assert.ok(copy.includes('from "@loozo/angular-launch";'));assert.ok(!copy.includes('angular-launch/_generated'));assert.ok(!copy.includes('angular-launch/server'));
+console.log('Packed exports, generation, mutation/error payloads and lazy request scope: PASS');`,
 );
 await run("node", ["verify.mjs"], consumer, "exports-and-generation");
 
@@ -356,7 +358,7 @@ await writeFile(
       skipLibCheck: false,
       noEmit: true,
     },
-    files: ["src/consumer.ts", "generated/context.generated.d.ts"],
+    files: ["src/consumer.ts"],
   }),
 );
 await run("pnpm", ["exec", "tsc", "-p", "tsconfig.nodenext.json"], consumer, "types-nodenext");
@@ -366,12 +368,14 @@ await run("pnpm", ["exec", "tsc", "-p", "tsconfig.nodenext.json"], consumer, "ty
 // shows this; a workspace source path would be written as a relative import instead.
 await writeFile(
   join(consumer, "src/declarations.ts"),
-  `import {defineRpc, middleware, type MiddlewareArgs, type ProcedureBuilder} from '@loozo/angular-launch/server';
-export const labelled = middleware(async ({ next }) => next({ label: 'declared' }));
-export const counted = middleware(async ({ context, next }: MiddlewareArgs<{ label: string }, { id: string }>) => next({ length: context.label.length }));
-export const group = defineRpc('declared', ({ query }) => ({ list: query({ handler: ({ context }) => context.label }) }), { use: [labelled] });
+  `import {defineRoute} from '@loozo/angular-launch';
+import {middleware, type MiddlewareArgs, type ProcedureBuilder, type StageArgs} from '@loozo/angular-launch/server';
+export const labelled = middleware(async ({ next }) => next());
+export const counted = middleware(async ({ context, next }: MiddlewareArgs<{ label: string }, { id: string }>) => { void context.label; return next(); });
+export function labelStage({ context }: StageArgs<{ value: number }>) { return { ...context, label: String(context.value) }; }
+export const route = defineRoute('declared', {}).context(() => ({ value: 1 })).use(labelled).remote(({ query }) => ({ declared: { list: query({ handler: ({ context }) => context.value }) } })).resolve({ list: ({ remote }) => remote.declared.list() });
+export const child = defineRoute('child', { parent: route }).context(labelStage).remote(({ query }) => ({ child: { label: query({ handler: ({ context }) => context.label }) } }));
 export function errorsOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors; }
-export function proceduresOf(group: ReturnType<typeof defineRpc>) { return group.procedures; }
 export function statusOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors.NOT_FOUND.status; }`,
 );
 await writeFile(
@@ -389,7 +393,7 @@ await writeFile(
       rootDir: ".",
       outDir: "declarations",
     },
-    files: ["src/declarations.ts", "generated/context.generated.d.ts"],
+    files: ["src/declarations.ts"],
   }),
 );
 await run(
@@ -416,10 +420,9 @@ for (const file of [
   "pnpm-workspace.yaml",
   "tsconfig.json",
   "tsconfig.nodenext.json",
-  "src/context.ts",
+  "src/stage.ts",
   "src/routes/route.ts",
   "src/routes/page.ts",
-  "src/routes/rpc.ts",
 ]) {
   await writeFile(join(queriesConsumer, file), await readFile(join(consumer, file), "utf8"));
 }
@@ -442,13 +445,12 @@ await run(
 await writeFile(
   join(queriesConsumer, "src/consumer.ts"),
   `import { injectMutation, injectQuery, QueryClient } from '@tanstack/angular-query';
-import { provideLaunchQueries, type RpcQueries } from '@loozo/angular-launch/tanstack-query';
+import { provideLaunchQueries, type QueriesOf } from '@loozo/angular-launch/tanstack-query';
 import type { EnvironmentProviders } from '@angular/core';
-import { injectQueries, type Queries } from './routes/rpc.generated.js';
-import type group from './routes/rpc.js';
+import { injectRoute, route, type Queries } from './routes/route.generated.js';
 const providers: EnvironmentProviders = provideLaunchQueries();
-const queries: Queries = injectQueries();
-const typed: RpcQueries<typeof group> = queries.packed;
+const queries: Queries = injectRoute().queries;
+const same: QueriesOf<typeof route> = queries;
 const key: readonly ['launch', 'packed', 'read'] = queries.packed.read.key();
 const data = new QueryClient().getQueryData(queries.packed.read.queryOptions().queryKey);
 const value: number | undefined = data;
@@ -460,7 +462,7 @@ export function page() {
   write.mutate();
   return read.data();
 }
-void providers; void typed; void key; void value;`,
+void providers; void same; void key; void value;`,
 );
 await writeFile(
   join(queriesConsumer, "verify.mjs"),
@@ -472,13 +474,11 @@ import {readFile} from 'node:fs/promises';
 import {dirname,join,relative,resolve} from 'node:path';
 import {generate} from '@loozo/angular-launch/generation';
 import * as queries from '@loozo/angular-launch/tanstack-query';
-import * as generatedQueries from '@loozo/angular-launch/_tanstack-query';
 const require=createRequire(import.meta.url);
-for (const name of ['@loozo/angular-launch/tanstack-query','@loozo/angular-launch/_tanstack-query','@tanstack/angular-query']) {
+for (const name of ['@loozo/angular-launch/tanstack-query','@tanstack/angular-query']) {
   assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
 }
 assert.deepEqual(Object.keys(queries).sort(),['provideLaunchQueries']);
-assert.deepEqual(Object.keys(generatedQueries).sort(),['createQueries']);
 const launchManifest=await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8');
 const launch=JSON.parse(launchManifest);
 assert.equal(launch.peerDependencies['@tanstack/angular-query'],'^5.0.0-rc.5');
@@ -508,9 +508,10 @@ for (const match of guide.matchAll(/\\]\\(([^)\\s]+)\\)/g)) {
 }
 assert.ok(guideLinks.length>0);
 await generate(import.meta.dirname,{tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated',tanstackQuery:true});
-const generated=await readFile(import.meta.dirname+'/src/routes/rpc.generated.ts','utf8');
-assert.ok(generated.includes("from '@loozo/angular-launch/_tanstack-query';"));
-assert.ok(generated.includes('export function injectQueries(): Queries'));
+const generated=await readFile(import.meta.dirname+'/src/routes/route.generated.ts','utf8');
+assert.ok(generated.includes('from "@loozo/angular-launch/tanstack-query";'));
+assert.ok(generated.includes('export type Queries = '));
+assert.ok(generated.includes('readonly queries: Queries'));
 console.log('Packed TanStack Query subpaths and generation: PASS');`,
 );
 await run("node", ["verify.mjs"], queriesConsumer, "tanstack-query-exports-and-generation");
@@ -548,7 +549,7 @@ await writeFile(
         "metadata-only export swap rejects warm/cold generate/check, blocks identity publication and repairs on the same session",
         "reentrant stop-predicate disposal suppresses changed publication and settles generation/disposal promises",
         "public and internal entry export lists",
-        "HTTP transformed declared-error payloads and bound request scope",
+        "HTTP transformed declared-error payloads and a lazy bound request scope",
         "strict Bundler native routes and strict NodeNext exports/generated mutation/error consumer",
         "root and generated entries without the optional TanStack peer",
         "TanStack Query subpaths, generation and generated factory types with the peer installed",

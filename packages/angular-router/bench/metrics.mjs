@@ -59,19 +59,31 @@ export function table(results) {
   const sizes = Object.keys(results.sizes);
   const { machine } = results;
   let dirty = "";
+  let launch = "";
 
   if (machine.git.dirty) {
     dirty = " (dirty)";
   }
 
+  if (results.options.workload === "launch") {
+    launch = `, Launch ${machine.launch}`;
+  }
+
   const lines = [
-    `${machine.cpu.model} (${machine.cpu.logicalCores} logical cores), ${Math.round(machine.memoryBytes / 2 ** 30)} GiB RAM, ${machine.os.type} ${machine.os.release}; Node ${machine.node}, pnpm ${machine.pnpm}, Angular ${machine.angular.core}, TypeScript ${machine.typescript}, router ${machine.router} at ${machine.git.commit.slice(0, 7)}${dirty}.`,
+    `${machine.cpu.model} (${machine.cpu.logicalCores} logical cores), ${Math.round(machine.memoryBytes / 2 ** 30)} GiB RAM, ${machine.os.type} ${machine.os.release}; Node ${machine.node}, pnpm ${machine.pnpm}, Angular ${machine.angular.core}, TypeScript ${machine.typescript}, router ${machine.router}${launch} at ${machine.git.commit.slice(0, 7)}${dirty}.`,
     "",
     `| Metric (median) | ${sizes.map((size) => `${size} routes`).join(" | ")} |`,
     `| --- | ${sizes.map(() => "---:").join(" | ")} |`,
   ];
 
   for (const metric of metrics) {
+    // A workload without a phase, such as the Launch workload's serve, leaves its rows out.
+    const measured = sizes.some((size) => Object.hasOwn(results.sizes[size].metrics, metric.key));
+
+    if (!measured) {
+      continue;
+    }
+
     const cells = [];
 
     for (const size of sizes) {
@@ -137,7 +149,8 @@ export async function readBudgets(path) {
   return budgets;
 }
 
-// Every exceeded budget, plus the budgeted sizes this run didn't measure.
+// Every exceeded budget, plus the budgeted sizes this run didn't measure. A budgeted metric the
+// run didn't record counts as exceeded, so a budget can't pass by not being measured.
 export function checkBudgets(results, budgets) {
   const exceeded = [];
   const skipped = [];
@@ -152,6 +165,11 @@ export function checkBudgets(results, budgets) {
 
     for (const [key, max] of Object.entries(limits)) {
       const value = measured.metrics[key];
+
+      if (value === undefined) {
+        exceeded.push(`${size} routes: ${key} wasn't measured`);
+        continue;
+      }
 
       if (value > max) {
         exceeded.push(`${size} routes: ${key} = ${Math.round(value)} exceeds ${max}`);

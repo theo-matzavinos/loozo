@@ -5,13 +5,16 @@ import { emit } from "./emit.js";
 import type { CompilerState } from "./compiler.js";
 import type { LaunchCopies } from "./copies.js";
 
-export async function prepareLaunchRoutes(
+/**
+ * Discovers an application's routes in Launch mode: the router's own discovery, with
+ * Launch's server aggregate admitted by the import rule and validated as a generated file.
+ */
+export function discoverLaunchRoutes(
   workspace: string,
   options: { tsconfig: string; scanDirectories: string[]; outDirectory: string },
-  typeEntry: string,
   compiler?: CompilerState,
-) {
-  const sources = await discover(
+): Promise<Sources> {
+  return discover(
     workspace,
     options.tsconfig,
     options.scanDirectories,
@@ -19,12 +22,9 @@ export async function prepareLaunchRoutes(
     undefined,
     new Map(),
     false,
-    { typeEntry },
+    true,
     compiler,
   );
-  const desired = emitLaunchRoutes(sources);
-
-  return { sources, desired };
 }
 
 /**
@@ -39,6 +39,6 @@ export { CompilerState } from "./compiler.js";
 export { AnchorState } from "./anchor.js";
 export { createValidationProgram, validateRoutes } from "./validate.js";
 export { planOutputs, publish, walk, auditPath, launchMarkers, specifier } from "./files.js";
-export { fail, properties, namedImport, genuineImport } from "./sources.js";
-export type { Sources, Declaration, LaunchDeclaration } from "./sources.js";
+export { fail, properties } from "./sources.js";
+export type { Sources, Declaration } from "./sources.js";
 export type { Json, JsonRecord, LaunchCopies } from "./copies.js";

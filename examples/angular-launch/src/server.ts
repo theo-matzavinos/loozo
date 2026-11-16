@@ -10,7 +10,7 @@ import {
   writeResponseToNodeResponse,
 } from "@angular/ssr/node";
 import { createUpgradeHandler } from "@loozo/angular-launch/node";
-import { createContext, handleRequest, handleUpgrade } from "../generated/server.generated";
+import { createRequestScope, handleRequest, handleUpgrade } from "../generated/server.generated";
 import { stats } from "./database.server";
 
 // Loopback-only proof server. One list for pages and RPCs; angular.json's
@@ -76,7 +76,7 @@ export const reqHandler = createNodeRequestHandler(async (request, response) => 
       return;
     }
 
-    const scope = await createContext(web);
+    const scope = createRequestScope(web);
     const result = await angular.handle(scope.request, scope);
 
     if (!result) {

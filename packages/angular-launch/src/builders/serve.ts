@@ -4,15 +4,13 @@ import {
   type BuilderContext,
   type BuilderOutput,
 } from "@angular-devkit/architect";
-import chokidar, { type FSWatcher } from "chokidar";
+import chokidar from "chokidar";
 import { Observable } from "rxjs";
 import { createRequire } from "node:module";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { readFile, realpath } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { launchMarkers } from "@loozo/angular-router/_generation";
 import { createGenerationSession, type GenerationSession } from "../generation/index.js";
-import { contextFiles } from "../generation/context-file.js";
 import { forwardChannels, type DevServerMiddleware } from "./channel-forwarding.js";
 import { buildTargetOptions, message, type JsonObject } from "./options.js";
 
@@ -29,7 +27,7 @@ const settleDelay = 150;
 // output directory can't overlap the scan directory, so its files never reach the watcher. The
 // router's markers aren't part of its generation seam; if this copy drifts, a write only causes one
 // redundant pass, which writes nothing. The router's per-route copies are line-aligned with their
-// declaration, so they carry the marker on their last line; Launch's files on their first.
+// declaration, so they carry the marker on their last line; other router outputs on their first.
 const generatedMarkers: Record<string, { marker: string; line: "first" | "last" }> = {
   "route.generated.ts": {
     marker: "// @loozo/angular-router routegen: owned route.generated.ts",
@@ -43,16 +41,7 @@ const generatedMarkers: Record<string, { marker: string; line: "first" | "last" 
     marker: "// @loozo/angular-router routegen: owned children.generated.ts",
     line: "first",
   },
-  "rpc.generated.ts": { marker: launchMarkers["rpc.generated.ts"], line: "first" },
 };
-
-function contains(directory: string, file: string): boolean {
-  const suffix = relative(directory, file);
-
-  return (
-    suffix === "" || (!isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith(`..${sep}`))
-  );
-}
 
 type ServeOptions = JsonObject & { buildTarget: string; poll?: number | false };
 
@@ -89,61 +78,13 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       let regeneration: "pending" | "idle" | "running" | "rerun" = "pending";
       // The latest pass, settled once idle; stopping waits for it.
       let pass: Promise<unknown> = Promise.resolve();
-      // What start() acquired, released last-acquired first; the scan watcher's release also closes
-      // whichever context watcher is current. Each release runs as stop() is called; the promises
-      // they return settle together, with the latest pass.
+      // What start() acquired, released last-acquired first. Each release runs as stop() is called;
+      // the promises they return settle together, with the latest pass.
       const releases: (() => Promise<unknown>)[] = [];
       let cleanup: Promise<void> | undefined;
       let settling: NodeJS.Timeout | undefined;
       // Resolved before the watcher starts.
       let session: GenerationSession;
-      let scanRoot: string;
-      // Where the last pass found the context file, and its own watcher if it's outside scanRoot.
-      let contextWatcher: FSWatcher | undefined;
-      let watchedContext: string | undefined;
-
-      // The context file can live anywhere in the app's sources, and its path and contents are part
-      // of the generated app identity, so a watcher of its own follows wherever the last pass found
-      // it. A file inside the scan directory is already watched.
-      function followContext(): void {
-        const contextFile = contextFiles.get(session);
-
-        if (stopped || contextFile === undefined || contextFile === watchedContext) {
-          return;
-        }
-
-        const previous = contextWatcher;
-
-        contextWatcher = undefined;
-        watchedContext = contextFile;
-        void previous?.close().catch((error) => context.logger.error(String(error)));
-
-        if (contains(scanRoot, contextFile)) {
-          return;
-        }
-
-        const followed = chokidar.watch(contextFile, {
-          ignoreInitial: true,
-          followSymlinks: false,
-        });
-
-        contextWatcher = followed;
-        followed.on("error", (error) => context.logger.error(String(error)));
-        followed.on("all", (_event, path) => {
-          void changed(path).catch((error) => context.logger.error(String(error)));
-        });
-
-        // The pass that found this path read the context before its watch existed, so an edit since
-        // went unseen. Once the watch is live, one more pass reads the current text; the watch
-        // covers the rest.
-        followed.once("ready", () => {
-          if (stopped || contextWatcher !== followed) {
-            return;
-          }
-
-          edited();
-        });
-      }
 
       async function changed(path: string): Promise<void> {
         if (stopped) {
@@ -186,12 +127,8 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       }
 
       // A failed or stopped pass leaves the session clean; the next pass starts fresh.
-      async function regenerate(): Promise<void> {
-        try {
-          await session.generate(undefined, () => stopped);
-        } finally {
-          followContext();
-        }
+      function regenerate(): Promise<void> {
+        return session.generate(undefined, () => stopped);
       }
 
       function stop(): Promise<void> {
@@ -262,7 +199,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        scanRoot = resolve(
+        const scanRoot = resolve(
           dirname(resolve(application, launch.tsconfig)),
           launch.scanDirectories[0],
         );
@@ -272,11 +209,10 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         const watcher = chokidar.watch([scanRoot], { ignoreInitial: true, followSymlinks: false });
         const ready = Promise.withResolvers<boolean>();
 
-        // Closes the context file's watcher too, whichever one is current.
         releases.push(() => {
           ready.resolve(false);
 
-          return Promise.all([watcher.close(), contextWatcher?.close()]);
+          return watcher.close();
         });
         // A watcher error fails startup until the watcher is ready. From then on, including during
         // the initial generation, it's logged and serve carries on.

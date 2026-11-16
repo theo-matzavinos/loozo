@@ -23,6 +23,8 @@ export const colocatedFiles: ReadonlySet<string> = new Set([
   "children.generated.ts",
 ]);
 
+// Launch generation emits only server.generated.ts. The other two entries are retired
+// outputs, kept so a marked file left by an earlier generation is found and deleted.
 export const launchMarkers = {
   "rpc.generated.ts": "// @loozo/angular-launch: owned rpc.generated.ts",
   "context.generated.d.ts": "// @loozo/angular-launch: owned context.generated.d.ts",

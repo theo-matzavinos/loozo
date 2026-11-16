@@ -1,15 +1,7 @@
 import { frameworkFailures, type FrameworkCode } from "../client.js";
 import { parseJson, serializeJson } from "../json.js";
 import { inputIssues, type InputIssue } from "../input-issues.js";
-import type {
-  ContextDefinition,
-  ContextOf,
-  Group,
-  ProcedureDefinition,
-  ErrorDefinitions,
-  Schema,
-} from "./definitions.js";
-
+import type { ApplicationBinding, ChainMiddleware, RuntimeProcedure } from "./application.js";
 import { channelMessages, MessageRefused, type ChannelInbox } from "./channel-messages.js";
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
@@ -20,61 +12,83 @@ import {
   type ResponseControl,
   type ResponseEffects,
 } from "./response-effects.js";
-import { createStageRunner, type Stage } from "./stages.js";
+import { createStageRunner, type Stage, type StageRunner } from "./stages.js";
 
-/**
- * The application's RPC groups, keyed by namespace.
- *
- * @remarks
- * Internal; not exported from a public entry point. Generation writes it as
- * `registry` in `server.generated.ts`.
- */
-export type Registry = Readonly<Record<string, Group<string, Record<string, ProcedureDefinition>>>>;
-
-const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v1");
-
-/**
- * The application identity and context definition that requests are bound to.
- *
- * @remarks
- * Internal; not exported from a public entry point. Generation writes it as
- * `appBinding` in `server.generated.ts`.
- *
- * @typeParam Definition - The application's context definition.
- */
-export interface ApplicationBinding<
-  Definition extends ContextDefinition<unknown> = ContextDefinition<unknown>,
-> {
-  /** The generated application identity. */
-  readonly id: string;
-  /** The application's context definition. */
-  readonly context: Definition;
-}
+// Shared by every copy of the package, so a scope one copy created runs its stages when
+// another copy dispatches with it. The value holds the scope's stage runner and its
+// rendering-call function.
+const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v3");
 
 const bindingHeader = "x-loozo-launch-scope";
 
 /**
- * A live server request bound to the context created for it.
+ * A live server request bound to its application, holding the request's lazy context.
  *
  * @remarks
- * Created by the generated `createContext` in `server.generated.ts`.
- * Render a page by passing `scope.request` together with `scope` as Angular's request
- * context; RPC calls during that render fail with `INTERNAL` if the two don't belong
- * together.
- *
- * @typeParam Value - The context value.
+ * Created by the generated `createRequestScope` in `server.generated.ts`, which runs no
+ * stage: each route's `.context()` stage runs at most once per scope, the first time an
+ * RPC call needs it. Render a page by passing `scope.request` together with `scope` as
+ * Angular's request context; RPC calls during that render fail with `INTERNAL` if the two
+ * don't belong together.
  */
-export interface RequestScope<Value = unknown> {
+export interface RequestScope {
   /** The identity of the application the scope was created for. */
   readonly appId: string;
   /** A random identifier tying `request` to this scope. */
   readonly binding: string;
   /** A clone of the original request that carries the scope binding. */
   readonly request: Request;
-  /** The awaited context value created for `request`. */
-  readonly value: Value;
-  /** Internal brand of genuine request scopes; not public API. */
-  readonly [scopeMarker]: true;
+  /** Internal: holds the scope's stage runner and rendering calls; not public API. */
+  readonly [scopeMarker]: object;
+}
+
+// The brand's value, which `isRequestScope` checks has `run` and `render` functions.
+interface ScopeState {
+  readonly run: StageRunner;
+  readonly render: RenderingCall;
+}
+
+// One `"rendering"` call, run by the copy of the package that created the scope, with that
+// copy's application binding.
+type RenderingCall = (
+  path: string,
+  envelope: unknown,
+  request: Request,
+  signal: AbortSignal,
+  effects: ResponseEffects,
+) => Promise<Reply>;
+
+/**
+ * Runs one call made while rendering a page in the copy of the package that created
+ * `scope`, with that copy's application binding.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point. Angular bundles the server entry, which
+ * creates the scope and answers RPCs, apart from the server application, which renders, so
+ * modules both import exist once in each bundle. Running the call in the creating copy
+ * runs the stages, middleware and handlers of the bundle that answers RPCs, so a page and
+ * an RPC of one server share their module state. The call otherwise runs as
+ * {@link runProcedure} in `"rendering"` mode, which checks the scope again.
+ *
+ * @param scope - A scope that passed {@link assertBoundScope} for the rendering application.
+ * @param path - The request path.
+ * @param envelope - The parsed request body.
+ * @param request - The page request the scope is bound to.
+ * @param signal - The call's abort signal.
+ * @param effects - Collects the call's cookies and headers.
+ * @returns The reply to deliver.
+ */
+export function runRenderingCall(
+  scope: RequestScope,
+  path: string,
+  envelope: unknown,
+  request: Request,
+  signal: AbortSignal,
+  effects: ResponseEffects,
+): Promise<Reply> {
+  const state = scope[scopeMarker] as ScopeState;
+
+  return state.render(path, envelope, request, signal, effects);
 }
 
 /**
@@ -88,43 +102,48 @@ export interface RequestScope<Value = unknown> {
  * @returns `true` for values carrying the request scope brand and fields.
  */
 export function isRequestScope(value: unknown): value is RequestScope {
+  if (typeof value !== "object" || value === null || !(scopeMarker in value)) {
+    return false;
+  }
+
+  const runner: unknown = value[scopeMarker];
+
   return (
-    typeof value === "object" &&
-    value !== null &&
-    scopeMarker in value &&
-    value[scopeMarker] === true &&
+    typeof runner === "object" &&
+    runner !== null &&
+    "run" in runner &&
+    typeof runner.run === "function" &&
+    "render" in runner &&
+    typeof runner.render === "function" &&
     "request" in value &&
     value.request instanceof Request &&
     "appId" in value &&
     typeof value.appId === "string" &&
     "binding" in value &&
-    typeof value.binding === "string" &&
-    "value" in value
+    typeof value.binding === "string"
   );
 }
 
 /**
- * Creates the context for a live server request and binds them into a
- * {@link RequestScope}.
+ * Binds a live server request into a {@link RequestScope}, running nothing.
  *
  * @remarks
  * Internal: exported only from `@loozo/angular-launch/_server` for the generated
- * `createContext` in `server.generated.ts`; call that instead.
+ * `createRequestScope` in `server.generated.ts`; call that instead.
  * The scope's `request` is a clone of `request` with an added
- * `x-loozo-launch-scope` header, so the original stays usable. The context factory
- * receives that clone.
+ * `x-loozo-launch-scope` header, so the original stays usable. Stages receive that clone
+ * and its signal. Calls made while rendering with the scope run with `application`, in
+ * this copy of the package: see {@link runRenderingCall}.
  *
- * @typeParam Definition - The application's context definition.
  * @param application - The application binding.
  * @param request - The live server request.
  * @returns The request scope.
- * @throws Rejects with whatever the context factory throws or rejects with, or with a
- * `TypeError` when `request`'s body was already read and can't be cloned.
+ * @throws TypeError when `request`'s body was already read and can't be cloned.
  */
-export async function createRequestScope<Definition extends ContextDefinition<unknown>>(
-  application: ApplicationBinding<Definition>,
+export function createRequestScope(
+  application: ApplicationBinding,
   request: Request,
-): Promise<RequestScope<ContextOf<Definition>>> {
+): RequestScope {
   const binding = crypto.randomUUID();
   const headers = new Headers(request.headers);
 
@@ -132,23 +151,19 @@ export async function createRequestScope<Definition extends ContextDefinition<un
 
   // Keep the caller's body usable and its signal linked via native Request clones.
   const boundRequest = new Request(request.clone(), { headers });
-  // Today's context definition is the first and only stage, run now as it always was. Its
-  // value is boxed, so the stage spread copies the box and the value keeps its identity.
-  const root: Stage = {
-    run: async (args) => ({ value: await application.context.create(args.request) }),
-  };
-  const runStages = createStageRunner({ request: boundRequest, signal: boundRequest.signal });
-  // No call exists yet: nothing commits or reads these effects, and the root ignores them.
-  const context = await runStages([root], createResponseEffects().control);
-  const { value } = context as { value: unknown };
-
-  return {
+  const run = createStageRunner({ request: boundRequest, signal: boundRequest.signal });
+  const scope: RequestScope = {
     appId: application.id,
     binding,
     request: boundRequest,
-    value: value as ContextOf<Definition>,
-    [scopeMarker]: true,
+    [scopeMarker]: {
+      run,
+      render: (path, envelope, pageRequest, signal, effects) =>
+        runProcedure(path, envelope, scope, application, pageRequest, "rendering", signal, effects),
+    } satisfies ScopeState,
   };
+
+  return scope;
 }
 
 export function assertBoundScope(
@@ -168,10 +183,10 @@ export function assertBoundScope(
 }
 
 /**
- * The HTTP status and JSON body {@link dispatch} produces for one call. Internal.
+ * The HTTP status and JSON body {@link runProcedure} produces for one call. Internal.
  *
  * @remarks
- * Only status 200 is a result; every other status carries a frame dispatch built itself,
+ * Only status 200 is a result; every other status carries a frame `runProcedure` built itself,
  * so a result shaped like a frame stays data.
  */
 export interface Reply {
@@ -182,6 +197,16 @@ export interface Reply {
    * `{ notFound: null }`.
    */
   readonly body: unknown;
+  /**
+   * The stage that failed the call with an unexpected error, for diagnostics such as a
+   * prerender fault. Never sent: only `body` reaches the wire.
+   */
+  readonly failedStage?: {
+    /** The failing stage's route file. */
+    readonly route: string;
+    /** What the stage threw. */
+    readonly error: unknown;
+  };
 }
 
 function outcomeReply(outcome: Outcome): Reply {
@@ -218,20 +243,6 @@ export function isJsonMediaType(contentType: string | null): boolean {
   return contentType?.split(";", 1)[0].trim().toLowerCase() === "application/json";
 }
 
-interface RuntimeProcedure extends ProcedureDefinition {
-  readonly input: Schema | undefined;
-  readonly message: Schema | undefined;
-  readonly errors: ErrorDefinitions;
-  readonly use: readonly ChainMiddleware[];
-  readonly [declaredFailures]?: WeakMap<object, DeclaredFailure>;
-  readonly handler: (args: object) => unknown;
-}
-
-// The runtime view of a middleware; `runChain` checks what `run` returns.
-interface ChainMiddleware {
-  readonly run: (args: never) => Promise<unknown>;
-}
-
 interface ChainArgs {
   readonly input: unknown;
   readonly request: Request;
@@ -240,8 +251,7 @@ interface ChainArgs {
 }
 
 /**
- * Runs `chain` in order around `last`, passing each middleware the context the previous
- * one continued with.
+ * Runs `chain` in order around `last`, passing each middleware the call's context.
  *
  * @remarks
  * Rejects when a middleware throws, calls `next` twice (whether it then returns or
@@ -253,13 +263,13 @@ interface ChainArgs {
  */
 async function runChain(
   chain: readonly ChainMiddleware[],
-  context: unknown,
+  context: object,
   args: ChainArgs,
-  last: (context: unknown) => Promise<void>,
+  last: () => Promise<void>,
 ): Promise<void> {
-  async function step(index: number, current: unknown): Promise<void> {
+  async function step(index: number): Promise<void> {
     if (index === chain.length) {
-      await last(current);
+      await last();
 
       return;
     }
@@ -268,7 +278,7 @@ async function runChain(
     let calls = 0;
     let rest: Promise<object> | undefined;
 
-    function next(added?: object): Promise<object> {
+    function next(): Promise<object> {
       calls += 1;
 
       let continued: Promise<object>;
@@ -276,13 +286,7 @@ async function runChain(
       if (calls > 1) {
         continued = Promise.reject(new Error("Launch middleware called next() more than once"));
       } else {
-        let merged = current;
-
-        if (added !== undefined) {
-          merged = { ...(current as object), ...added };
-        }
-
-        continued = step(index + 1, merged).then(() => token);
+        continued = step(index + 1).then(() => token);
         rest = continued;
       }
 
@@ -293,12 +297,21 @@ async function runChain(
       return continued;
     }
 
-    const run = chain[index].run as (args: object) => Promise<unknown>;
+    const entry = chain[index];
+    let run: (args: object) => Promise<unknown>;
+
+    // A bare function is the middleware's `run`.
+    if (typeof entry === "function") {
+      run = entry as (args: object) => Promise<unknown>;
+    } else {
+      run = entry.run as (args: object) => Promise<unknown>;
+    }
+
     let returned: unknown;
     let thrown: { readonly error: unknown } | undefined;
 
     try {
-      returned = await run({ ...args, context: current, next });
+      returned = await run({ ...args, context, next });
     } catch (error) {
       thrown = { error };
     }
@@ -326,7 +339,7 @@ async function runChain(
     }
   }
 
-  await step(0, context);
+  await step(0);
 }
 
 async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promise<Reply> {
@@ -376,7 +389,10 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * `RPC_NOT_FOUND`; the
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
  * a cycle or an accessor), and exactly `{ input }` (`INVALID_INPUT` with no issues);
- * the group's middleware runs with no input; the input must pass the schema
+ * the owning route's stages run, root first, each at most once per scope (a stage that
+ * throws `forbidden()`, `notFound()` or `redirect(to)` answers with that outcome, and any
+ * other failure gives `INTERNAL` with the reply's `failedStage` naming it); the owning
+ * route's `.use()` middleware runs with no input; the input must pass the schema
  * (`INVALID_INPUT` with the schema's issues), or be `null` without one (`INVALID_INPUT`
  * with no issues); the procedure's middleware runs with the validated input; then the
  * handler. The handler's strict JSON result is returned with status 200, and its
@@ -394,13 +410,12 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * `inbox` and validated with its message schema. A message that fails validation, or a
  * protocol violation the inbox reports, ends the call with `INVALID_INPUT`.
  *
- * Middleware and handlers set cookies and headers through `effects.control`; the caller
- * commits and applies them.
+ * Stages, middleware and handlers set cookies and headers through `effects.control`; the
+ * caller commits and applies them. A stage writes to the call that first ran it.
  *
- * @param registry - The application's RPC groups.
  * @param path - The request path.
  * @param envelope - The parsed request body.
- * @param scope - The request scope whose context the call receives.
+ * @param scope - The request scope whose stages the call runs.
  * @param application - The application binding the scope must belong to.
  * @param request - The request the scope must be bound to.
  * @param mode - `"http"` for browser requests (the default), `"socket"` for websocket
@@ -412,8 +427,7 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * @param inbox - A channel's incoming messages.
  * @returns The reply to send.
  */
-export async function dispatch(
-  registry: Registry,
+export async function runProcedure(
   path: string,
   envelope: unknown,
   scope: RequestScope,
@@ -430,17 +444,17 @@ export async function dispatch(
 
     const parts = /^\/_rpc\/([A-Za-z_][A-Za-z0-9_]*)\/([A-Za-z_][A-Za-z0-9_]*)$/.exec(path);
 
-    if (!parts || !Object.hasOwn(registry, parts[1])) {
+    if (!parts || !Object.hasOwn(application.namespaces, parts[1])) {
       return failure("RPC_NOT_FOUND");
     }
 
-    const group = registry[parts[1]];
+    const namespace = application.namespaces[parts[1]];
 
-    if (!Object.hasOwn(group.procedures, parts[2])) {
+    if (!Object.hasOwn(namespace.procedures, parts[2])) {
       return failure("RPC_NOT_FOUND");
     }
 
-    const procedure = group.procedures[parts[2]] as RuntimeProcedure;
+    const procedure = namespace.procedures[parts[2]];
 
     if (
       procedure.kind !== "query" &&
@@ -448,7 +462,7 @@ export async function dispatch(
       procedure.kind !== "stream" &&
       procedure.kind !== "channel"
     ) {
-      throw new Error("Launch registry contains an unsupported procedure");
+      throw new Error("Launch application contains an unsupported procedure");
     }
 
     // Rendering never performs writes, even for unmarked HttpClient calls or
@@ -480,14 +494,38 @@ export async function dispatch(
 
     let reply: Reply | undefined;
     const response = effects.control;
+    let context: object = {};
+
+    if (namespace.stages.length > 0) {
+      const stages = namespace.stages as readonly [Stage, ...Stage[]];
+      const state = scope[scopeMarker] as ScopeState;
+      const staged = await state.run(stages, response);
+
+      if ("failed" in staged) {
+        const outcome = outcomeOf(staged.error);
+
+        if (outcome !== undefined) {
+          return outcomeReply(outcome);
+        }
+
+        console.error("Launch context stage failed", staged.error);
+
+        return {
+          ...failure("INTERNAL"),
+          failedStage: { route: staged.failed.route, error: staged.error },
+        };
+      }
+
+      context = staged.context;
+    }
 
     try {
-      // Group middleware runs before validation, so it never sees the raw input.
+      // The route's middleware runs before validation, so it never sees the raw input.
       await runChain(
-        group.use,
-        scope.value,
+        namespace.use,
+        context,
         { input: undefined, request, signal, response },
-        async (groupContext) => {
+        async () => {
           let input: unknown;
 
           if (procedure.input) {
@@ -506,49 +544,44 @@ export async function dispatch(
             return;
           }
 
-          await runChain(
-            procedure.use,
-            groupContext,
-            { input, request, signal, response },
-            async (context) => {
-              const args: Record<string, unknown> = { context, input, request, signal, response };
+          await runChain(procedure.use, context, { input, request, signal, response }, async () => {
+            const args: Record<string, unknown> = { context, input, request, signal, response };
 
-              if (isChannel) {
-                // The caller left while the pipeline ran: the handler doesn't run, and the
-                // middleware's `next()` resolves.
-                if (signal.aborted) {
-                  reply = { status: 200, body: null };
-
-                  return;
-                }
-
-                if (!inbox || !procedure.message) {
-                  throw new Error("Launch channels need a websocket and a message schema");
-                }
-
-                args.messages = channelMessages(inbox, procedure.message);
-              }
-
-              const output = await procedure.handler(args);
-
-              if (procedure.kind !== "stream" && !isChannel) {
-                reply = { status: 200, body: JSON.parse(serializeJson(output)) };
+            if (isChannel) {
+              // The caller left while the pipeline ran: the handler doesn't run, and the
+              // middleware's `next()` resolves.
+              if (signal.aborted) {
+                reply = { status: 200, body: null };
 
                 return;
               }
 
-              if (!start) {
-                throw new Error("Launch streams need an HTTP response to run in");
+              if (!inbox || !procedure.message) {
+                throw new Error("Launch channels need a websocket and a message schema");
               }
 
-              const iterator = (output as AsyncIterable<unknown>)[Symbol.asyncIterator]();
-              const finished = Promise.withResolvers<void>();
+              args.messages = channelMessages(inbox, procedure.message);
+            }
 
-              start({ iterator, finished });
-              await finished.promise;
-              reply = { status: 200, body: null };
-            },
-          );
+            const output = await procedure.handler(args);
+
+            if (procedure.kind !== "stream" && !isChannel) {
+              reply = { status: 200, body: JSON.parse(serializeJson(output)) };
+
+              return;
+            }
+
+            if (!start) {
+              throw new Error("Launch streams need an HTTP response to run in");
+            }
+
+            const iterator = (output as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+            const finished = Promise.withResolvers<void>();
+
+            start({ iterator, finished });
+            await finished.promise;
+            reply = { status: 200, body: null };
+          });
         },
       );
     } catch (error) {
@@ -663,14 +696,13 @@ export function crossSiteReason(request: Request, origins: readonly string[]): s
  * app's own origin, otherwise the reply is `FORBIDDEN`: an `Origin` listed in `origins`
  * passes; otherwise `Sec-Fetch-Site`, when sent, must be `same-origin`; otherwise
  * `Origin`, when sent, must equal the request URL's origin; a request with neither
- * header is refused. No context is created for any of these refusals. A fresh context
- * is then created before the body is parsed; if that fails the reply is `INTERNAL`, even
- * when the body isn't JSON. Otherwise a body that isn't JSON gives `INVALID_INPUT` with
- * no issues.
+ * header is refused. No stage runs for any of these refusals. A fresh request scope is
+ * then created, which runs nothing, and a body that isn't JSON gives `INVALID_INPUT` with
+ * no issues before any stage runs.
  * JSON responses carry `Cache-Control: private, no-store`, `Vary: Cookie` and
  * `X-Content-Type-Options: nosniff`.
  *
- * Once the call reached `dispatch`, its response carries the headers and cookies the
+ * Once the call reached {@link runProcedure}, its response carries the headers and cookies the
  * call set, whatever its outcome. Launch's own headers replace the call's headers of the
  * same name, and each cookie adds a `Set-Cookie` header.
  *
@@ -682,16 +714,13 @@ export function crossSiteReason(request: Request, origins: readonly string[]): s
  * ones set when the handler returned its iterable: setting a cookie later throws, and
  * later header changes are ignored.
  *
- * @typeParam Definition - The application's context definition.
- * @param registry - The application's RPC groups.
  * @param application - The application binding.
  * @param request - The incoming server request.
  * @param options - The allowed hosts and further allowed origins.
  * @returns The RPC response, or `null` when the path doesn't start with `/_rpc/`.
  */
-export async function handleRpc<Definition extends ContextDefinition<unknown>>(
-  registry: Registry,
-  application: ApplicationBinding<Definition>,
+export async function handleRpc(
+  application: ApplicationBinding,
   request: Request,
   { allowedHosts, origins = [] }: HandleOptions,
 ): Promise<Response | null> {
@@ -725,7 +754,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
   let reply: Reply;
 
   try {
-    const scope = await createRequestScope(application, request);
+    const scope = createRequestScope(application, request);
     let envelope: unknown;
 
     try {
@@ -738,8 +767,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
     const cancel = new AbortController();
     const signal = AbortSignal.any([scope.request.signal, cancel.signal]);
     const started = Promise.withResolvers<StreamStart>();
-    const outcome = dispatch(
-      registry,
+    const outcome = runProcedure(
       url.pathname,
       envelope,
       scope,
@@ -762,7 +790,7 @@ export async function handleRpc<Definition extends ContextDefinition<unknown>>(
 
     reply = first;
   } catch (error) {
-    console.error("Launch context failed", error);
+    console.error("Launch request scope failed", error);
     reply = failure("INTERNAL");
   }
 

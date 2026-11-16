@@ -1,6 +1,5 @@
 import { Component, computed } from "@angular/core";
 import { injectRoute } from "./route.generated";
-import { injectRpc } from "./rpc.generated";
 
 @Component({
   selector: "launch-live",
@@ -25,14 +24,13 @@ import { injectRpc } from "./rpc.generated";
   `,
 })
 export default class Live {
-  readonly #rpc = injectRpc();
   readonly #route = injectRoute();
   // The server renders the resolver's list; after hydration the stream follows it.
-  protected readonly todos = this.#rpc.live.watch.connect({
+  protected readonly todos = this.#route.remote.live.watch.connect({
     initial: () => this.#route.data().todos,
   });
   // A channel: the list first, then again after each title it adds.
-  protected readonly adding = this.#rpc.live.add.connect({ initial: () => null });
+  protected readonly adding = this.#route.remote.live.add.connect({ initial: () => null });
   protected readonly status = computed(() => {
     const status = this.todos.status();
 

@@ -1,23 +1,24 @@
 import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defineContext, defineRpc } from "../dist/server/index.js";
+
 import { handleRpc } from "../dist/server/generated.js";
+import { bound } from "./fixtures/application.mjs";
 
 const id = "checks";
-const registry = {
-  [id]: defineRpc(id, ({ query }) => ({ read: query({ handler: () => "read" }) })),
+const namespaces = {
+  [id]: { build: ({ query }) => ({ read: query({ handler: () => "read" }) }) },
 };
 
 let contexts = 0;
 
 const application = {
   id: "launch-http-checks-test-app",
-  context: defineContext(() => {
+  context: () => {
     contexts += 1;
 
     return {};
-  }),
+  },
 };
 
 const forbidden = {
@@ -49,8 +50,7 @@ async function call(
   try {
     const before = contexts;
     const response = await handleRpc(
-      registry,
-      application,
+      bound(application, namespaces),
       new Request(`${url}${path}`, init),
       options,
     );
@@ -152,7 +152,7 @@ test("only requests proven same-origin pass: Sec-Fetch-Site first, then Origin, 
   assert.equal(response.status, 403, "origins defaults to none");
 });
 
-test("checks run in order: path, host, method/media/query, origin, then context", async () => {
+test("checks run in order: path, host, method/media/query, origin, then the stages", async () => {
   const options = { allowedHosts: ["app.example.com"] };
   const crossSite = { "sec-fetch-site": "cross-site" };
 

@@ -1,2 +1,2 @@
 export { provideLaunchQueries } from "./hydration.js";
-export type { RpcQueries } from "./queries.js";
+export type { NamespaceQueries, QueriesOf } from "./queries.js";

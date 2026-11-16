@@ -1,12 +1,12 @@
 import ts from "typescript";
 import { frameworkFailures } from "../client.js";
-import type { ErrorMetadata } from "../client.js";
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  prepareLaunchRoutes,
+  discoverLaunchRoutes,
+  emitLaunchRoutes,
   createValidationProgram,
   validateRoutes,
   planOutputs,
@@ -16,14 +16,26 @@ import {
   launchMarkers,
   fail,
   properties,
-  namedImport,
-  genuineImport,
   specifier,
   CompilerState,
   AnchorState,
 } from "@loozo/angular-router/_generation";
-import type { Declaration, Sources, LaunchDeclaration } from "@loozo/angular-router/_generation";
-import { contextFiles } from "./context-file.js";
+import type {
+  Declaration,
+  JsonRecord,
+  LaunchCopies,
+  Sources,
+} from "@loozo/angular-router/_generation";
+import type { ClientMethod } from "../remote-client.js";
+
+// One procedure's browser metadata, as JSON in its route's copy data.
+type MethodData = {
+  readonly name: string;
+  readonly input: boolean;
+  readonly kind: ClientMethod["kind"];
+  readonly errors: readonly ErrorData[];
+};
+type ErrorData = { readonly code: string; readonly status: number; readonly message: string };
 
 /** Options for {@link generate} and {@link createGenerationSession}. */
 export interface GenerationOptions {
@@ -34,10 +46,10 @@ export interface GenerationOptions {
   /** Where the application-wide generated files go, relative to the workspace. */
   outDirectory: string;
   /**
-   * Also writes `injectQueries()` and `type Queries` into each `rpc.generated.ts`: TanStack
-   * Query options and keys for the same groups as `injectRpc()`. Requires
-   * `@tanstack/angular-query` in the application and `provideLaunchQueries()` from
-   * `@loozo/angular-launch/tanstack-query` in its providers. Defaults to `false`.
+   * Adds `route.queries` and `type Queries` to each route copy: TanStack Query options and
+   * keys for the same namespaces as `route.remote`. Requires `@tanstack/angular-query` in
+   * the application and `provideLaunchQueries()` from `@loozo/angular-launch/tanstack-query`
+   * in its providers. Defaults to `false`.
    */
   tanstackQuery?: boolean;
   /**
@@ -80,19 +92,21 @@ interface GenerationCompilerState {
   discovery: CompilerState;
   overlay: CompilerState;
   routerAnchor: AnchorState;
-  launchAnchor: AnchorState;
 }
 
-interface RpcGroup {
-  declaration: LaunchDeclaration;
-  owner: Declaration;
-  namespace: string;
-  methods: {
-    name: string;
-    input: boolean;
-    kind: "query" | "mutation" | "stream" | "channel";
-    errors: ErrorMetadata[];
-  }[];
+// A node of an authored route, found again in the validation program by its position.
+interface Located {
+  readonly file: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+// What generation reads from the routes' Launch steps.
+interface Analysis {
+  // Each route's own copy data: `{ remote: { [namespace]: { methods } } }`.
+  readonly data: Map<Declaration, JsonRecord>;
+  // Schemas whose type must be concrete, with the message for one that isn't.
+  readonly schemas: { readonly node: Located; readonly message: string }[];
 }
 
 function directCall(node: ts.Expression, label: string): ts.CallExpression {
@@ -104,13 +118,13 @@ function directCall(node: ts.Expression, label: string): ts.CallExpression {
 }
 
 const builderShape =
-  "defineRpc requires an arrow function destructuring query, mutation, stream and/or channel, returning a parenthesized object of procedures";
+  ".remote() requires an arrow function destructuring query, mutation, stream and/or channel, returning a parenthesized object of namespaces";
 const builders = ["query", "mutation", "stream", "channel"];
 
-// `({ query, mutation }) => ({ ... })`: the builder names it binds and its procedures.
+// `({ query, mutation }) => ({ ... })`: the builder names it binds and its namespaces.
 function builderCallback(node: ts.Expression): {
   bound: Set<string>;
-  procedures: Map<string, ts.Expression>;
+  namespaces: Map<string, ts.Expression>;
 } {
   if (
     !ts.isArrowFunction(node) ||
@@ -146,7 +160,7 @@ function builderCallback(node: ts.Expression): {
     ) {
       fail(
         element,
-        "defineRpc's callback may only destructure query, mutation, stream and channel, without renaming",
+        ".remote()'s callback may only destructure query, mutation, stream and channel, without renaming",
       );
     }
 
@@ -157,7 +171,7 @@ function builderCallback(node: ts.Expression): {
     fail(node.body, builderShape);
   }
 
-  return { bound, procedures: properties(node.body.expression, "RPC procedures") };
+  return { bound, namespaces: properties(node.body.expression, "RPC namespaces") };
 }
 
 function onlyKeys(fields: Map<string, ts.Expression>, allowed: string[], node: ts.Node): void {
@@ -168,8 +182,8 @@ function onlyKeys(fields: Map<string, ts.Expression>, allowed: string[], node: t
   }
 }
 
-function errorMetadata(node: ts.Expression | undefined): ErrorMetadata[] {
-  const result: ErrorMetadata[] = [];
+function errorMetadata(node: ts.Expression | undefined): ErrorData[] {
+  const result: ErrorData[] = [];
 
   if (!node) {
     return result;
@@ -234,141 +248,166 @@ function add(desired: Map<string, string>, path: string, text: string): void {
   desired.set(path, text);
 }
 
-async function groupsOf(
-  sources: Sources,
-): Promise<{ context: LaunchDeclaration; groups: RpcGroup[] }> {
-  const launch = sources.launch!;
-  const contexts = launch.declarations.filter((value) => value.kind === "defineContext");
+function located(node: ts.Node): Located {
+  const source = node.getSourceFile();
 
-  if (contexts.length !== 1) {
-    throw new Error(
-      `Launch requires exactly one default defineContext per application; found ${contexts.length}`,
-    );
+  return { file: source.fileName, start: node.getStart(source), end: node.getEnd() };
+}
+
+// The same node in another program's copy of its file.
+function nodeAt(program: ts.Program, at: Located): ts.Expression {
+  const source = program.getSourceFile(at.file)!;
+  let found: ts.Node | undefined;
+
+  function visit(node: ts.Node): void {
+    if (found || node.getStart(source) > at.start || node.getEnd() < at.end) {
+      return;
+    }
+
+    if (node.getStart(source) === at.start && node.getEnd() === at.end && ts.isExpression(node)) {
+      found = node;
+
+      return;
+    }
+
+    ts.forEachChild(node, visit);
   }
 
-  const context = contexts[0];
+  visit(source);
 
-  if (context.call.arguments.length !== 1 || context.call.typeArguments?.length) {
-    fail(context.call, "defineContext requires exactly one factory");
-  }
+  return found as ts.Expression;
+}
 
-  const groups: RpcGroup[] = [];
-  const owners = new Set<Declaration>();
-  const namespaces = new Map<string, LaunchDeclaration>();
+function label(workspace: string, file: string): string {
+  return relative(workspace, file).split(sep).join("/");
+}
 
-  for (const declaration of launch.declarations) {
-    if (declaration.kind !== "defineRpc") {
+// Reads every route's Launch steps: the procedure metadata its copy carries, and the nodes
+// the validation program checks once it exists.
+async function analyze(sources: Sources, launchEntry: string): Promise<Analysis> {
+  const analysis: Analysis = { data: new Map(), schemas: [] };
+  const namespaces = new Map<string, Declaration>();
+
+  for (const declaration of sources.declarations) {
+    if (!declaration.extension) {
       continue;
     }
 
-    const owner = sources.declarations.find(
-      (route) => dirname(route.file) === dirname(declaration.file),
-    );
-
-    if (!owner || !owner.retained || owner.target) {
-      fail(declaration.call, "RPC requires a colocated retained ordinary route owner");
+    if ((await realpath(declaration.extension.entry)) !== launchEntry) {
+      fail(declaration.root, "Route uses a route extension that isn't Launch's defineRoute");
     }
 
-    if (owners.has(owner)) {
-      fail(declaration.call, "Only one RPC group per route owner is supported");
-    }
-
-    owners.add(owner);
-
-    const call = directCall(declaration.call, "defineRpc");
-    const [namespace, build, options] = call.arguments;
-
-    if (
-      call.arguments.length < 2 ||
-      call.arguments.length > 3 ||
-      !namespace ||
-      !ts.isStringLiteral(namespace) ||
-      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(namespace.text) ||
-      !build
-    ) {
-      fail(
-        call,
-        "defineRpc requires a literal identifier namespace, a procedure callback and optional inline options",
-      );
-    }
-
-    if (namespace.text === "__proto__") {
-      fail(namespace, "RPC namespace '__proto__' is reserved");
-    }
-
-    const previous = namespaces.get(namespace.text);
-
-    if (previous) {
-      fail(
-        namespace,
-        `Duplicate RPC namespace: ${namespace.text}; also defined in ${previous.file}`,
-      );
-    }
-
-    namespaces.set(namespace.text, declaration);
-
-    if (options) {
-      const fields = properties(options, "RPC group options");
-
-      onlyKeys(fields, ["use"], options);
-    }
-
-    const { bound, procedures } = builderCallback(build);
-    const methods: RpcGroup["methods"] = [];
-
-    for (const [name, value] of procedures) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-        fail(value, "RPC methods must be identifier names");
+    for (const step of declaration.steps) {
+      if (step.name !== "remote") {
+        continue;
       }
 
-      if (name === "__proto__") {
-        fail(value, "RPC procedure '__proto__' is reserved");
-      }
+      const own: Record<string, { readonly methods: readonly MethodData[] }> = {};
+      const { bound, namespaces: declared } = builderCallback(step.args[0]);
 
-      const procedure = directCall(value, "query/mutation/stream/channel");
-
-      // The callback's own binding: its body is an object literal, so nothing can shadow it.
-      if (!ts.isIdentifier(procedure.expression) || !bound.has(procedure.expression.text)) {
-        fail(
-          procedure,
-          "Procedure must directly call the callback's query, mutation, stream or channel",
-        );
-      }
-
-      const kind = procedure.expression.text as RpcGroup["methods"][number]["kind"];
-
-      if (procedure.arguments.length !== 1) {
-        fail(procedure, `${kind} requires one inline options object`);
-      }
-
-      const fields = properties(procedure.arguments[0], "Procedure options");
-
-      if (kind === "channel") {
-        onlyKeys(fields, ["handler", "input", "message", "use", "errors"], procedure);
-
-        if (!fields.has("message")) {
-          fail(procedure, "channel requires message");
+      for (const [namespace, value] of declared) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(namespace)) {
+          fail(value, "RPC namespaces must be identifier names");
         }
-      } else {
-        onlyKeys(fields, ["handler", "input", "use", "errors"], procedure);
+
+        if (namespace === "__proto__") {
+          fail(value, "RPC namespace '__proto__' is reserved");
+        }
+
+        const previous = namespaces.get(namespace);
+
+        if (previous) {
+          fail(value, `Duplicate RPC namespace: ${namespace}; also declared in ${previous.file}`);
+        }
+
+        namespaces.set(namespace, declaration);
+
+        const methods: MethodData[] = [];
+
+        for (const [name, entry] of properties(value, "RPC procedures")) {
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+            fail(entry, "RPC methods must be identifier names");
+          }
+
+          if (name === "__proto__") {
+            fail(entry, "RPC procedure '__proto__' is reserved");
+          }
+
+          const procedure = directCall(entry, "query/mutation/stream/channel");
+
+          // The callback's own binding: its body is an object literal, so nothing can shadow it.
+          if (!ts.isIdentifier(procedure.expression) || !bound.has(procedure.expression.text)) {
+            fail(
+              procedure,
+              "Procedure must directly call the callback's query, mutation, stream or channel",
+            );
+          }
+
+          const kind = procedure.expression.text as ClientMethod["kind"];
+
+          if (procedure.arguments.length !== 1) {
+            fail(procedure, `${kind} requires one inline options object`);
+          }
+
+          const fields = properties(procedure.arguments[0], "Procedure options");
+
+          if (kind === "channel") {
+            onlyKeys(fields, ["handler", "input", "message", "use", "errors"], procedure);
+
+            if (!fields.has("message")) {
+              fail(procedure, "channel requires message");
+            }
+          } else {
+            onlyKeys(fields, ["handler", "input", "use", "errors"], procedure);
+          }
+
+          if (!fields.has("handler")) {
+            fail(procedure, `${kind} requires handler`);
+          }
+
+          const input = fields.get("input");
+          const message = fields.get("message");
+          const errors = fields.get("errors");
+
+          if (input) {
+            analysis.schemas.push({
+              node: located(input),
+              message:
+                "Explicit query input must have a concrete Standard Schema type (also required for mutations)",
+            });
+          }
+
+          if (message) {
+            analysis.schemas.push({
+              node: located(message),
+              message: "A channel's message must have a concrete Standard Schema type",
+            });
+          }
+
+          if (errors) {
+            for (const error of properties(errors, "Declared RPC errors").values()) {
+              const data = properties(error, "Declared RPC error").get("data");
+
+              if (data) {
+                analysis.schemas.push({
+                  node: located(data),
+                  message: "Declared error data must have a concrete Standard Schema type",
+                });
+              }
+            }
+          }
+
+          methods.push({ name, input: input !== undefined, kind, errors: errorMetadata(errors) });
+        }
+
+        own[namespace] = { methods };
       }
 
-      if (!fields.has("handler")) {
-        fail(procedure, `${kind} requires handler`);
-      }
-
-      methods.push({
-        name,
-        input: fields.has("input"),
-        kind,
-        errors: errorMetadata(fields.get("errors")),
-      });
+      analysis.data.set(declaration, { remote: own });
     }
-
-    groups.push({ declaration, owner, namespace: namespace.text, methods });
   }
 
-  return { context, groups };
+  return analysis;
 }
 
 interface PayloadImport {
@@ -377,133 +416,51 @@ interface PayloadImport {
   local: string;
 }
 
-function emitLaunch(
+// server.generated.ts: every authored route with a server step, bound into the application.
+function emitServer(
   sources: Sources,
   desired: Map<string, string>,
-  context: LaunchDeclaration,
-  groups: RpcGroup[],
+  workspace: string,
   appId: string,
-  tanstackQuery: boolean,
 ): PayloadImport[] {
   const payloads: PayloadImport[] = [];
-
-  function payloadImport(from: string, target: string, local: string, typeOnly = false): string {
-    payloads.push({ from, target, local });
-
-    let keyword = "import";
-
-    if (typeOnly) {
-      keyword += " type";
+  const file = resolve(sources.output, "server.generated.ts");
+  const lines = [
+    launchMarkers["server.generated.ts"],
+    `import type { HandleOptions } from '@loozo/angular-launch/server';`,
+    `import { bindApplication, createRequestScope as scopeFor, handleChannelUpgrade, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
+  ];
+  const routes: string[] = [];
+  // By code unit, so the order doesn't depend on the machine's locale.
+  const declarations = [...sources.declarations].sort((a, b) => {
+    if (a.id < b.id) {
+      return -1;
     }
 
-    return `${keyword} ${local} from ${JSON.stringify(specifier(from, target))};`;
-  }
+    return Number(a.id > b.id);
+  });
 
-  const registration = resolve(sources.output, "context.generated.d.ts");
-
-  add(
-    desired,
-    registration,
-    `${launchMarkers["context.generated.d.ts"]}\nimport type { ContextOf } from '@loozo/angular-launch/server';\n${payloadImport(registration, context.file, "context", true)}\ndeclare module '@loozo/angular-launch/server' { interface Register { context: ContextOf<typeof context>; } }\n`,
-  );
-
-  const registry = resolve(sources.output, "server.generated.ts");
-  const server = [
-    launchMarkers["server.generated.ts"],
-    payloadImport(registry, context.file, "context"),
-    `import type { HandleOptions } from '@loozo/angular-launch/server';`,
-    `import { createRequestScope, handleChannelUpgrade, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
-  ];
-
-  for (let index = 0; index < groups.length; index += 1) {
-    server.push(payloadImport(registry, groups[index].declaration.file, `group${index}`));
-  }
-
-  server.push(
-    `export const registry = { ${groups.map((group, index) => `${JSON.stringify(group.namespace)}: group${index}`).join(", ")} };`,
-    `export const appBinding = { id: ${JSON.stringify(appId)}, context };`,
-    `export const createContext = (request: Request) => createRequestScope(appBinding, request);`,
-    `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(registry, appBinding, request, options);`,
-    `export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(registry, appBinding, request, options);`,
-    `export const provideServer = () => provideLaunchServer(registry, appBinding);`,
-    "",
-  );
-  add(desired, registry, server.join("\n"));
-
-  const byOwner = new Map(groups.map((group) => [group.owner, group]));
-
-  for (const owner of sources.declarations) {
-    if (!owner.retained) {
+  for (const declaration of declarations) {
+    if (!declaration.steps.some((step) => step.serverOnly)) {
       continue;
     }
 
-    const available: RpcGroup[] = [];
-    let current: Declaration | undefined = owner;
+    const local = `route${routes.length}`;
 
-    while (current) {
-      const group = byOwner.get(current);
-
-      if (group) {
-        available.unshift(group);
-      }
-
-      current = current.parent;
-    }
-
-    const file = resolve(dirname(owner.file), "rpc.generated.ts");
-    const lines = [
-      launchMarkers["rpc.generated.ts"],
-      `import { injectClient } from '@loozo/angular-launch/_generated';`,
-      `import type { Client } from '@loozo/angular-launch';`,
-    ];
-
-    if (tanstackQuery) {
-      lines.push(
-        `import { createQueries } from '@loozo/angular-launch/_tanstack-query';`,
-        `import type { RpcQueries } from '@loozo/angular-launch/tanstack-query';`,
-      );
-    }
-
-    const metadata: Record<string, unknown> = Object.create(null);
-    const queriesMetadata: Record<string, Record<string, unknown>> = Object.create(null);
-
-    for (let index = 0; index < available.length; index += 1) {
-      const group = available[index];
-
-      lines.push(payloadImport(file, group.declaration.file, `group${index}`, true));
-      metadata[group.namespace] = {
-        methods: group.methods.map(({ name, input, kind, errors }) => ({
-          name,
-          input,
-          kind,
-          errors,
-        })),
-      };
-      queriesMetadata[group.namespace] = Object.create(null);
-
-      for (const { name, kind, input } of group.methods) {
-        // Streams and channels have no TanStack options.
-        if (kind !== "stream" && kind !== "channel") {
-          queriesMetadata[group.namespace][name] = { kind, input };
-        }
-      }
-    }
-
-    lines.push(
-      `export type Rpc = { ${available.map((group, index) => `readonly ${JSON.stringify(group.namespace)}: Client<typeof group${index}>`).join("; ")} };`,
-      `export function injectRpc(): Rpc { return injectClient(${JSON.stringify(metadata)} as const) as Rpc; }`,
-    );
-
-    if (tanstackQuery) {
-      lines.push(
-        `export type Queries = { ${available.map((group, index) => `readonly ${JSON.stringify(group.namespace)}: RpcQueries<typeof group${index}>`).join("; ")} };`,
-        `export function injectQueries(): Queries { return createQueries(injectRpc(), ${JSON.stringify(queriesMetadata)} as const) as Queries; }`,
-      );
-    }
-
-    lines.push("");
-    add(desired, file, lines.join("\n"));
+    payloads.push({ from: file, target: declaration.file, local });
+    lines.push(`import ${local} from ${JSON.stringify(specifier(file, declaration.file))};`);
+    routes.push(`[${local}, ${JSON.stringify(label(workspace, declaration.file))}]`);
   }
+
+  lines.push(
+    `const application = bindApplication(${JSON.stringify(appId)}, [${routes.join(", ")}]);`,
+    `export const createRequestScope = (request: Request) => scopeFor(application, request);`,
+    `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(application, request, options);`,
+    `export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(application, request, options);`,
+    `export const provideServer = () => provideLaunchServer(application);`,
+    "",
+  );
+  add(desired, file, lines.join("\n"));
 
   return payloads;
 }
@@ -568,157 +525,19 @@ async function validatePayloadImports(
   }
 }
 
-async function validateBindings(
-  sources: Sources,
+// What only the validation program's checker can tell: schema concreteness.
+function checkLaunchTypes(
   validation: ReturnType<typeof createValidationProgram>,
-  context: LaunchDeclaration,
-  groups: RpcGroup[],
-  compiler?: GenerationCompilerState,
-): Promise<void> {
-  const { program, host } = validation;
+  analysis: Analysis,
+): void {
+  const { program } = validation;
   const checker = program.getTypeChecker();
-  const entryFile = sources.launch!.typeEntry;
-  const canonicalOptions = {
-    ...sources.parsed.options,
-    paths: undefined,
-    baseUrl: undefined,
-    skipLibCheck: false,
-  };
-  const anchor = await (compiler?.launchAnchor ?? new AnchorState()).anchor(
-    entryFile,
-    ["defineContext", "defineRpc"],
-    canonicalOptions,
-  );
-  const actualEntry = program.getSourceFile(entryFile)!;
-  const actualModule = checker.getSymbolAtLocation(actualEntry)!;
-  const expectedCalls = new Map<string, string>();
 
-  function key(node: ts.Node): string {
-    return `${node.getSourceFile().fileName}:${node.pos}`;
-  }
+  for (const { node, message } of analysis.schemas) {
+    const expression = nodeAt(program, node);
 
-  expectedCalls.set(key(context.call), "defineContext");
-
-  for (const group of groups) {
-    expectedCalls.set(key(group.declaration.call), "defineRpc");
-  }
-
-  const promises: Promise<void>[] = [];
-
-  for (const source of program.getSourceFiles()) {
-    if (!sources.parsed.fileNames.includes(source.fileName)) {
-      continue;
-    }
-
-    function visit(node: ts.Node): void {
-      if (ts.isCallExpression(node)) {
-        const expected = expectedCalls.get(key(node));
-        let spelling: string | undefined;
-        const invoked = unalias(checker, checker.getSymbolAtLocation(node.expression));
-
-        for (const name of ["defineContext", "defineRpc"]) {
-          const exported = unalias(
-            checker,
-            checker.getExportsOfModule(actualModule).find((symbol) => symbol.name === name),
-          );
-
-          if (invoked && invoked === exported) {
-            spelling = name;
-          }
-
-          if (expected && namedImport(source, node.expression, name)) {
-            spelling = name;
-          }
-        }
-
-        if (expected || spelling) {
-          if (!expected || spelling !== expected) {
-            fail(node, "defineContext and defineRpc calls must be default declarations");
-          }
-
-          const imported = namedImport(source, node.expression, expected)!;
-
-          promises.push(
-            (async () => {
-              if (!(await genuineImport(imported, entryFile, sources.parsed.options, host))) {
-                fail(node, "Launch factory import provenance is not concrete");
-              }
-
-              const actual = unalias(checker, checker.getSymbolAtLocation(node.expression));
-              const exported = unalias(
-                checker,
-                checker.getExportsOfModule(actualModule).find((symbol) => symbol.name === expected),
-              );
-              const anchored = anchor.get(expected);
-
-              if (
-                !actual?.declarations?.length ||
-                actual !== exported ||
-                actual.declarations.length !== anchored?.length
-              ) {
-                fail(node, "Launch factory binding is not the concrete canonical export");
-              }
-
-              for (let index = 0; index < actual.declarations.length; index += 1) {
-                const a = actual.declarations[index];
-                const b = anchored[index];
-
-                if (
-                  (await realpath(a.getSourceFile().fileName)) !== b.file ||
-                  a.pos !== b.pos ||
-                  a.end !== b.end ||
-                  a.kind !== b.kind
-                ) {
-                  fail(node, "Launch factory underlying declaration was redirected");
-                }
-              }
-            })(),
-          );
-        }
-      }
-
-      ts.forEachChild(node, visit);
-    }
-
-    visit(source);
-  }
-
-  await Promise.all(promises);
-
-  for (const group of groups) {
-    const source = program.getSourceFile(group.declaration.file)!;
-    const assignment = source.statements.find(ts.isExportAssignment)!;
-    const call = assignment.expression as ts.CallExpression;
-
-    for (const expression of builderCallback(call.arguments[1]).procedures.values()) {
-      const procedure = expression as ts.CallExpression;
-      const fields = properties(procedure.arguments[0], "Procedure options");
-      const input = fields.get("input");
-
-      if (input && hasNonConcreteSchemaBranch(checker.getTypeAtLocation(input))) {
-        fail(
-          input,
-          "Explicit query input must have a concrete Standard Schema type (also required for mutations)",
-        );
-      }
-
-      const message = fields.get("message");
-
-      if (message && hasNonConcreteSchemaBranch(checker.getTypeAtLocation(message))) {
-        fail(message, "A channel's message must have a concrete Standard Schema type");
-      }
-
-      const errors = fields.get("errors");
-
-      if (errors) {
-        for (const value of properties(errors, "Declared RPC errors").values()) {
-          const data = properties(value, "Declared RPC error").get("data")!;
-
-          if (hasNonConcreteSchemaBranch(checker.getTypeAtLocation(data))) {
-            fail(data, "Declared error data must have a concrete Standard Schema type");
-          }
-        }
-      }
+    if (hasNonConcreteSchemaBranch(checker.getTypeAtLocation(expression))) {
+      fail(expression, message);
     }
   }
 }
@@ -768,10 +587,6 @@ function checkGeneratedDomain(
   const selected = new Set(generated.keys());
 
   for (const declaration of sources.declarations) {
-    selected.add(declaration.file);
-  }
-
-  for (const declaration of sources.launch!.declarations) {
     selected.add(declaration.file);
   }
 
@@ -849,12 +664,11 @@ async function runGeneration(
   options: GenerationOptions,
   stopped: () => boolean,
   compiler?: GenerationCompilerState,
-  discovered: (contextFile: string) => void = () => undefined,
 ): Promise<void> {
   // The built package root (dist/ in the workspace, the tarball root when installed).
   const root = fileURLToPath(new URL("../", import.meta.url));
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-  const typeEntry = await realpath(resolve(root, manifest.exports["./server"].types));
+  const launchEntry = await realpath(resolve(root, manifest.exports["."].types));
   const application = await realpath(workspace);
 
   function requireInside(file: string): void {
@@ -874,12 +688,7 @@ async function runGeneration(
     requireInside(resolve(dirname(config), directory));
   }
 
-  const { sources, desired } = await prepareLaunchRoutes(
-    application,
-    options,
-    typeEntry,
-    compiler?.discovery,
-  );
+  const sources = await discoverLaunchRoutes(application, options, compiler?.discovery);
 
   for (const file of sources.parsed.fileNames) {
     requireInside(file);
@@ -912,43 +721,49 @@ async function runGeneration(
     );
   }
 
-  const { context, groups } = await groupsOf(sources);
-
-  discovered(context.file);
-
+  const analysis = await analyze(sources, launchEntry);
+  const tanstackQuery = options.tanstackQuery === true;
+  const copies: LaunchCopies = {
+    data: analysis.data,
+    types: [
+      { name: "Remote", type: "RemoteOf", from: "@loozo/angular-launch" },
+      { name: "Context", type: "ContextOf", from: "@loozo/angular-launch" },
+      ...(tanstackQuery
+        ? [{ name: "Queries", type: "QueriesOf", from: "@loozo/angular-launch/tanstack-query" }]
+        : []),
+    ],
+    members: [
+      { member: "remote", type: "Remote" },
+      ...(tanstackQuery ? [{ member: "queries", type: "Queries" }] : []),
+    ],
+  };
+  const desired = emitLaunchRoutes(sources, copies);
   const appManifest = JSON.parse(await readFile(resolve(application, "package.json"), "utf8"));
 
   if (typeof appManifest.name !== "string" || appManifest.name.length === 0) {
     throw new Error("Launch application package.json requires a name for generated app identity");
   }
 
+  // Stable across route edits: the application is its package, tsconfig and output.
   const appId = createHash("sha256")
-    .update("launch-app-v1\0")
+    .update("launch-app-v2\0")
     .update(appManifest.name)
     .update("\0")
-    .update(relative(application, sources.configFile).split(sep).join("/"))
+    .update(label(application, sources.configFile))
     .update("\0")
-    .update(relative(application, context.file).split(sep).join("/"))
-    .update("\0")
-    .update(context.call.getSourceFile().text)
+    .update(label(application, sources.output))
     .digest("hex");
-  const payloads = emitLaunch(
-    sources,
-    desired,
-    context,
-    groups,
-    appId,
-    options.tanstackQuery === true,
-  );
+  const payloads = emitServer(sources, desired, application, appId);
 
   await auditPath(sources.output);
 
   const outputInventory = await walk(sources.output);
-  const globals = [
-    "routes.generated.ts",
-    "context.generated.d.ts",
-    "server.generated.ts",
-  ].map((name) => resolve(sources.output, name));
+  // context.generated.d.ts is a retired output. The router's retired marker for it is what
+  // finds a marked leftover in the output directory and deletes it; listing it here keeps its
+  // location in the plan's set of owned outputs.
+  const globals = ["routes.generated.ts", "server.generated.ts", "context.generated.d.ts"].map(
+    (name) => resolve(sources.output, name),
+  );
   const plan = await planOutputs(
     desired,
     [...sources.encountered, ...outputInventory],
@@ -959,7 +774,7 @@ async function runGeneration(
 
   await validateRoutes(sources, desired, validation, compiler?.routerAnchor);
   await validatePayloadImports(validation, payloads);
-  await validateBindings(sources, validation, context, groups, compiler);
+  checkLaunchTypes(validation, analysis);
   checkGeneratedDomain(sources, validation, desired);
   publish(plan, options.check === true, stopped, new Map(), new Set());
 }
@@ -968,10 +783,12 @@ async function runGeneration(
  * Generates the router's and Launch's files for an application, or checks them.
  *
  * @remarks
- * Node-only. Generation reads your sources without running them. Besides the router's
- * files, it writes an `rpc.generated.ts` beside each route that gets a
- * `route.generated.ts`, and `context.generated.d.ts` and `server.generated.ts` in the
- * output directory. Run it before the Angular build.
+ * Node-only. Generation reads your sources without running them. It writes the router's
+ * files, with each route copy carrying its route's `.remote()` metadata and the `Remote`,
+ * `Context` and, with `tanstackQuery`, `Queries` types, and `server.generated.ts` in the
+ * output directory, which binds every route with a server step. It deletes a marked
+ * `rpc.generated.ts` or `context.generated.d.ts` an earlier version wrote. Run it before
+ * the Angular build.
  *
  * Everything is validated, including a type check of the generated files with
  * `skipLibCheck: false`, before anything is written, so a failed run changes nothing.
@@ -1053,7 +870,6 @@ export function createGenerationSession(
     discovery: new CompilerState(),
     overlay: new CompilerState(),
     routerAnchor: new AnchorState(),
-    launchAnchor: new AnchorState(),
   };
   let closed = false;
   let active: Promise<void> | undefined;
@@ -1094,9 +910,7 @@ export function createGenerationSession(
         return false;
       }
 
-      const work = runGeneration(application, { ...fixed, check }, isStopped, compiler, (file) => {
-        contextFiles.set(session, file);
-      });
+      const work = runGeneration(application, { ...fixed, check }, isStopped, compiler);
 
       active = work;
 

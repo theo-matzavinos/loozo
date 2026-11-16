@@ -32,10 +32,6 @@
       "types": "./dist/node/index.d.ts",
       "default": "./dist/node/index.js"
     },
-    "./_generated": {
-      "types": "./dist/generated.d.ts",
-      "default": "./dist/generated.js"
-    },
     "./generation": {
       "types": "./dist/generation/index.d.ts",
       "node": "./dist/generation/index.js"
@@ -43,10 +39,6 @@
     "./tanstack-query": {
       "types": "./dist/tanstack-query/index.d.ts",
       "default": "./dist/tanstack-query/index.js"
-    },
-    "./_tanstack-query": {
-      "types": "./dist/tanstack-query/generated.d.ts",
-      "default": "./dist/tanstack-query/generated.js"
     },
     "./package.json": "./package.json"
   },

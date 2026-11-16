@@ -17,16 +17,21 @@ import {
   HttpResponse,
 } from "@angular/common/http";
 import { Observable, firstValueFrom } from "rxjs";
-import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
-import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
-import { dispatch } from "../dist/server/dispatch.js";
-import { injectClient } from "../dist/generated.js";
+import { forbidden, middleware } from "../dist/server/index.js";
+import {
+  createRequestScope,
+  handleRpc,
+  provideLaunchServer,
+  runProcedure,
+} from "../dist/server/generated.js";
+import { bound } from "./fixtures/application.mjs";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcError, frameworkFailures } from "../dist/client.js";
 
 const path = "/_rpc/commitments/save";
 const application = {
   id: "input-issues-test-app",
-  context: defineContext(() => ({})),
+  context: () => ({}),
 };
 const request = new Request("http://127.0.0.1/commitments");
 
@@ -74,42 +79,43 @@ const emptyFrame = {
 
 function routes(calls) {
   return {
-    commitments: defineRpc("commitments", ({ query }) => ({
-      save: query({
-        input: {
-          "~standard": {
-            version: 1,
-            vendor: "test",
-            async validate(value) {
-              if (value === "valid") {
-                return { value };
-              }
+    commitments: {
+      build: ({ query }) => ({
+        save: query({
+          input: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              async validate(value) {
+                if (value === "valid") {
+                  return { value };
+                }
 
-              return { issues: schemaIssues };
+                return { issues: schemaIssues };
+              },
             },
           },
-        },
-        use: [
-          middleware(async ({ next }) => {
-            calls.push("middleware");
+          use: [
+            middleware(async ({ next }) => {
+              calls.push("middleware");
 
-            return next();
-          }),
-        ],
-        handler: () => {
-          calls.push("handler");
+              return next();
+            }),
+          ],
+          handler: () => {
+            calls.push("handler");
 
-          return "saved";
-        },
+            return "saved";
+          },
+        }),
       }),
-    })),
+    },
   };
 }
 
-async function http(registry, body) {
+async function http(namespaces, body) {
   const response = await handleRpc(
-    registry,
-    application,
+    bound(application, namespaces),
     new Request(`http://127.0.0.1${path}`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
@@ -121,8 +127,9 @@ async function http(registry, body) {
   return { status: response.status, body: await response.json() };
 }
 
-async function rendering(registry, callback) {
-  const scope = await createRequestScope(application, request);
+async function rendering(namespaces, callback) {
+  const app = bound(application, namespaces);
+  const scope = createRequestScope(app, request);
   const parent = createEnvironmentInjector([]);
   const injector = createEnvironmentInjector(
     [
@@ -137,7 +144,7 @@ async function rendering(registry, callback) {
           },
         },
       },
-      provideLaunchServer(registry, application),
+      provideLaunchServer(app),
     ],
     parent,
   );
@@ -164,16 +171,15 @@ async function renderingReply(backend, httpRequest) {
 
 test("schema failures send normalized path-indexed issues before procedure middleware, identically over HTTP, rendering and direct dispatch", async () => {
   const calls = [];
-  const registry = routes(calls);
+  const namespaces = routes(calls);
   const expected = { status: 400, body: invalidFrame };
 
-  await rendering(registry, async (backend, scope) => {
-    const direct = await dispatch(
-      registry,
+  await rendering(namespaces, async (backend, scope) => {
+    const direct = await runProcedure(
       path,
       { input: "invalid" },
       scope,
-      application,
+      bound(application, namespaces),
       scope.request,
     );
     const rendered = await renderingReply(backend, new HttpRequest("POST", path, { input: "x" }));
@@ -182,21 +188,21 @@ test("schema failures send normalized path-indexed issues before procedure middl
     assert.deepEqual(rendered, expected);
   });
 
-  assert.deepEqual(await http(registry, '{"input":"invalid"}'), expected);
+  assert.deepEqual(await http(namespaces, '{"input":"invalid"}'), expected);
   assert.deepEqual(calls, []);
-  assert.deepEqual(await http(registry, '{"input":"valid"}'), { status: 200, body: "saved" });
+  assert.deepEqual(await http(namespaces, '{"input":"valid"}'), { status: 200, body: "saved" });
   assert.deepEqual(calls, ["middleware", "handler"]);
 });
 
 test("malformed envelopes and requests send INVALID_INPUT with no issues on every transport", async () => {
   const calls = [];
-  const registry = routes(calls);
+  const namespaces = routes(calls);
   const expected = { status: 400, body: emptyFrame };
 
-  await rendering(registry, async (backend, scope) => {
+  await rendering(namespaces, async (backend, scope) => {
     for (const envelope of [{}, [], null, { input: "x", extra: true }]) {
       assert.deepEqual(
-        await dispatch(registry, path, envelope, scope, application, scope.request),
+        await runProcedure(path, envelope, scope, bound(application, namespaces), scope.request),
         expected,
       );
     }
@@ -225,12 +231,11 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
     '{"input":1e400}',
     '{"input":{"nested":[-1e400]}}',
   ]) {
-    assert.deepEqual(await http(registry, body), expected);
+    assert.deepEqual(await http(namespaces, body), expected);
   }
 
   const wrongType = await handleRpc(
-    registry,
-    application,
+    bound(application, namespaces),
     new Request(`http://127.0.0.1${path}`, {
       method: "POST",
       headers: { "content-type": "text/plain", origin: "http://127.0.0.1" },
@@ -242,9 +247,11 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
   assert.deepEqual({ status: wrongType.status, body: await wrongType.json() }, expected);
 
   const noInput = {
-    commitments: defineRpc("commitments", ({ query }) => ({
-      save: query({ handler: () => "saved" }),
-    })),
+    commitments: {
+      build: ({ query }) => ({
+        save: query({ handler: () => "saved" }),
+      }),
+    },
   };
 
   assert.deepEqual(await http(noInput, '{"input":"unexpected"}'), expected);
@@ -252,37 +259,38 @@ test("malformed envelopes and requests send INVALID_INPUT with no issues on ever
 });
 
 test("other framework failures keep null data", async () => {
-  const registry = {
-    commitments: defineRpc("commitments", ({ query }) => ({
-      save: query({
-        use: [
-          middleware(async () => {
-            throw forbidden();
-          }),
-        ],
-        handler: () => "saved",
+  const namespaces = {
+    commitments: {
+      build: ({ query }) => ({
+        save: query({
+          use: [
+            middleware(async () => {
+              throw forbidden();
+            }),
+          ],
+          handler: () => "saved",
+        }),
+        fail: query({
+          handler: () => {
+            throw new Error("private failure");
+          },
+        }),
       }),
-      fail: query({
-        handler: () => {
-          throw new Error("private failure");
-        },
-      }),
-    })),
+    },
   };
   const previous = console.error;
 
   console.error = () => {};
 
   try {
-    assert.deepEqual((await http(registry, '{"input":null}')).body.error.data, null);
+    assert.deepEqual((await http(namespaces, '{"input":null}')).body.error.data, null);
 
     for (const [target, code] of [
       ["/_rpc/commitments/absent", "RPC_NOT_FOUND"],
       ["/_rpc/commitments/fail", "INTERNAL"],
     ]) {
       const response = await handleRpc(
-        registry,
-        application,
+        bound(application, namespaces),
         new Request(`http://127.0.0.1${target}`, {
           method: "POST",
           headers: { "content-type": "application/json", origin: "http://127.0.0.1" },
@@ -301,12 +309,12 @@ test("other framework failures keep null data", async () => {
 });
 
 test("clients decode INVALID_INPUT issues from HTTP and rendering transports as owned RpcErrors", async () => {
-  const registry = routes([]);
+  const namespaces = routes([]);
   const methods = [{ name: "save", input: true, kind: "query", errors: [] }];
   const httpTransport = new HttpClient({
     handle: (httpRequest) =>
       new Observable((subscriber) => {
-        void http(registry, httpRequest.serializeBody()).then((reply) => {
+        void http(namespaces, httpRequest.serializeBody()).then((reply) => {
           if (reply.status >= 400) {
             subscriber.error(new HttpErrorResponse({ status: reply.status, error: reply.body }));
 
@@ -319,7 +327,7 @@ test("clients decode INVALID_INPUT issues from HTTP and rendering transports as 
       }),
   });
 
-  await rendering(registry, async (backend) => {
+  await rendering(namespaces, async (backend) => {
     for (const transport of [httpTransport, new HttpClient(backend)]) {
       const parent = createEnvironmentInjector([]);
       const injector = createEnvironmentInjector(

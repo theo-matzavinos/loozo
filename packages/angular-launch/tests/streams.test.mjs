@@ -5,15 +5,15 @@ import { createServer } from "node:http";
 import { mock, test } from "node:test";
 import { createEnvironmentInjector, PLATFORM_ID, runInInjectionContext } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
-import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
-import { createRequestScope, handleRpc } from "../dist/server/generated.js";
-import { dispatch } from "../dist/server/dispatch.js";
-import { injectClient } from "../dist/generated.js";
+import { forbidden, middleware } from "../dist/server/index.js";
+import { createRequestScope, handleRpc, runProcedure } from "../dist/server/generated.js";
+import { bound } from "./fixtures/application.mjs";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcError } from "../dist/index.js";
 
 const application = {
   id: "launch-stream-test-app",
-  context: defineContext((request) => ({ user: request.headers.get("cookie") })),
+  context: ({ request }) => ({ user: request.headers.get("cookie") }),
 };
 const nullSchema = {
   "~standard": {
@@ -63,8 +63,8 @@ function post(path, input, { cookie = "alice" } = {}) {
   });
 }
 
-function handle(registry, request) {
-  return handleRpc(registry, application, request, { allowedHosts: ["test"] });
+function handle(namespaces, request) {
+  return handleRpc(bound(application, namespaces), request, { allowedHosts: ["test"] });
 }
 
 async function events(response) {
@@ -90,19 +90,21 @@ async function logged(run) {
 }
 
 test("a stream answers with one value event per yield, then end, as an uncached event stream", async () => {
-  const registry = {
-    live: defineRpc("live", ({ stream }) => ({
-      count: stream({
-        input: countSchema,
-        handler: async function* ({ input, context }) {
-          for (let index = 0; index < input; index += 1) {
-            yield { index, user: context.user };
-          }
-        },
+  const namespaces = {
+    live: {
+      build: ({ stream }) => ({
+        count: stream({
+          input: countSchema,
+          handler: async function* ({ input, context }) {
+            for (let index = 0; index < input; index += 1) {
+              yield { index, user: context.user };
+            }
+          },
+        }),
       }),
-    })),
+    },
   };
-  const response = await handle(registry, post("/_rpc/live/count", 2));
+  const response = await handle(namespaces, post("/_rpc/live/count", 2));
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "text/event-stream");
@@ -119,10 +121,10 @@ test("a stream answers with one value event per yield, then end, as an uncached 
 
 test("failures before the handler returns are ordinary replies; later ones end the stream with an error event", async () => {
   let returned = 0;
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [signedIn],
+      build: ({ stream }) => ({
         fail: stream({
           input: countSchema,
           errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
@@ -149,11 +151,10 @@ test("failures before the handler returns are ordinary replies; later ones end t
           },
         }),
       }),
-      { use: [signedIn] },
-    ),
+    },
   };
 
-  const refused = await handle(registry, post("/_rpc/live/fail", 0, { cookie: null }));
+  const refused = await handle(namespaces, post("/_rpc/live/fail", 0, { cookie: null }));
 
   assert.equal(refused.status, 403);
   assert.equal(refused.headers.get("content-type"), "application/json");
@@ -161,14 +162,14 @@ test("failures before the handler returns are ordinary replies; later ones end t
     error: { code: "FORBIDDEN", message: "RPC forbidden", data: null },
   });
 
-  const invalid = await handle(registry, post("/_rpc/live/fail", "zero"));
+  const invalid = await handle(namespaces, post("/_rpc/live/fail", "zero"));
 
   assert.equal(invalid.status, 400);
   assert.deepEqual((await invalid.json()).error.data, {
     issues: [{ path: [], message: "Expected a count" }],
   });
 
-  const declared = await handle(registry, post("/_rpc/live/fail", 0));
+  const declared = await handle(namespaces, post("/_rpc/live/fail", 0));
 
   assert.equal(declared.status, 200);
   assert.deepEqual(await events(declared), [
@@ -176,7 +177,7 @@ test("failures before the handler returns are ordinary replies; later ones end t
     'event: error\ndata: {"status":410,"error":{"code":"GONE","message":"Gone","data":null}}',
   ]);
 
-  const refusedLater = await handle(registry, post("/_rpc/live/fail", 1));
+  const refusedLater = await handle(namespaces, post("/_rpc/live/fail", 1));
 
   assert.deepEqual(
     (await events(refusedLater))[1],
@@ -187,7 +188,7 @@ test("failures before the handler returns are ordinary replies; later ones end t
     'event: error\ndata: {"status":500,"error":{"code":"INTERNAL","message":"Internal server error","data":null}}';
   let thrown;
   const thrownLog = await logged(async () => {
-    thrown = await events(await handle(registry, post("/_rpc/live/fail", 2)));
+    thrown = await events(await handle(namespaces, post("/_rpc/live/fail", 2)));
   });
 
   assert.deepEqual(thrown, ["event: value\ndata: 1", internal]);
@@ -198,7 +199,7 @@ test("failures before the handler returns are ordinary replies; later ones end t
   let notJson;
 
   await logged(async () => {
-    notJson = await events(await handle(registry, post("/_rpc/live/fail", 3)));
+    notJson = await events(await handle(namespaces, post("/_rpc/live/fail", 3)));
   });
   assert.deepEqual(notJson, ["event: value\ndata: 1", internal]);
   await new Promise((resolve) => setImmediate(resolve));
@@ -207,10 +208,26 @@ test("failures before the handler returns are ordinary replies; later ones end t
 
 test("middleware wraps the whole stream: next() settles when the stream ends", async () => {
   const seen = [];
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [
+        middleware(async ({ next }) => {
+          seen.push("before");
+
+          try {
+            const result = await next();
+
+            seen.push("resolved");
+
+            return result;
+          } catch (error) {
+            seen.push(`rejected: ${error.message}`);
+
+            throw error;
+          }
+        }),
+      ],
+      build: ({ stream }) => ({
         count: stream({
           input: countSchema,
           handler: async function* ({ input }) {
@@ -224,33 +241,14 @@ test("middleware wraps the whole stream: next() settles when the stream ends", a
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            seen.push("before");
-
-            try {
-              const result = await next();
-
-              seen.push("resolved");
-
-              return result;
-            } catch (error) {
-              seen.push(`rejected: ${error.message}`);
-
-              throw error;
-            }
-          }),
-        ],
-      },
-    ),
+    },
   };
 
-  await events(await handle(registry, post("/_rpc/live/count", 0)));
+  await events(await handle(namespaces, post("/_rpc/live/count", 0)));
   assert.deepEqual(seen, ["before", "handler", "after yield", "resolved"]);
   seen.length = 0;
   await logged(async () => {
-    await events(await handle(registry, post("/_rpc/live/count", 1)));
+    await events(await handle(namespaces, post("/_rpc/live/count", 1)));
   });
   assert.deepEqual(seen, ["before", "handler", "after yield", "rejected: Private failure"]);
 });
@@ -259,10 +257,18 @@ test("cancelling the body aborts the call's signal, and next() resolves once the
   const seen = [];
   const gate = Promise.withResolvers();
   let signal;
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [
+        middleware(async ({ next }) => {
+          const result = await next();
+
+          seen.push("next resolved");
+
+          return result;
+        }),
+      ],
+      build: ({ stream }) => ({
         forever: stream({
           handler: async function* (args) {
             signal = args.signal;
@@ -279,20 +285,9 @@ test("cancelling the body aborts the call's signal, and next() resolves once the
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            const result = await next();
-
-            seen.push("next resolved");
-
-            return result;
-          }),
-        ],
-      },
-    ),
+    },
   };
-  const response = await handle(registry, post("/_rpc/live/forever", null));
+  const response = await handle(namespaces, post("/_rpc/live/forever", null));
   const reader = response.body.getReader();
 
   await reader.read();
@@ -312,10 +307,20 @@ test("cancelling the body aborts the call's signal, and next() resolves once the
 test("a failure in the handler's pending step reaches middleware even when the body is cancelled meanwhile", async () => {
   const seen = [];
   const gate = Promise.withResolvers();
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [
+        middleware(async ({ next }) => {
+          try {
+            return await next();
+          } catch (error) {
+            seen.push(`next rejected: ${error.message}`);
+
+            throw error;
+          }
+        }),
+      ],
+      build: ({ stream }) => ({
         failing: stream({
           handler: async function* () {
             try {
@@ -328,22 +333,9 @@ test("a failure in the handler's pending step reaches middleware even when the b
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            try {
-              return await next();
-            } catch (error) {
-              seen.push(`next rejected: ${error.message}`);
-
-              throw error;
-            }
-          }),
-        ],
-      },
-    ),
+    },
   };
-  const response = await handle(registry, post("/_rpc/live/failing", null));
+  const response = await handle(namespaces, post("/_rpc/live/failing", null));
   const reader = response.body.getReader();
 
   await reader.read();
@@ -372,10 +364,10 @@ test("custom iterators: a next() that throws fails the stream, and a cancelled s
   });
   const step = Promise.withResolvers();
   const cleanup = Promise.withResolvers();
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [wrapping],
+      build: ({ stream }) => ({
         throwing: stream({
           handler: () => ({
             [Symbol.asyncIterator]: () => ({
@@ -412,13 +404,12 @@ test("custom iterators: a next() that throws fails the stream, and a cancelled s
           },
         }),
       }),
-      { use: [wrapping] },
-    ),
+    },
   };
 
   let thrown;
   const log = await logged(async () => {
-    thrown = await events(await handle(registry, post("/_rpc/live/throwing", null)));
+    thrown = await events(await handle(namespaces, post("/_rpc/live/throwing", null)));
   });
 
   assert.deepEqual(thrown, [
@@ -429,7 +420,7 @@ test("custom iterators: a next() that throws fails the stream, and a cancelled s
 
   seen.length = 0;
 
-  const response = await handle(registry, post("/_rpc/live/cleaning", null));
+  const response = await handle(namespaces, post("/_rpc/live/cleaning", null));
   const reader = response.body.getReader();
 
   await reader.read();
@@ -449,10 +440,20 @@ test("a request aborted before its stream is read stops the stream, also before 
   const seen = [];
   const gate = Promise.withResolvers();
   let signal;
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [
+        middleware(async ({ next }) => {
+          await gate.promise;
+
+          const result = await next();
+
+          seen.push("next resolved");
+
+          return result;
+        }),
+      ],
+      build: ({ stream }) => ({
         waiting: stream({
           handler: async function* (args) {
             signal = args.signal;
@@ -468,20 +469,7 @@ test("a request aborted before its stream is read stops the stream, also before 
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            await gate.promise;
-
-            const result = await next();
-
-            seen.push("next resolved");
-
-            return result;
-          }),
-        ],
-      },
-    ),
+    },
   };
 
   // The client leaves after the stream started but before anything read its body.
@@ -491,7 +479,7 @@ test("a request aborted before its stream is read stops the stream, also before 
 
     gate.resolve();
 
-    const response = await handle(registry, request);
+    const response = await handle(namespaces, request);
 
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(seen, ["handler started"]);
@@ -510,7 +498,7 @@ test("a request aborted before its stream is read stops the stream, also before 
     const request = new Request(post("/_rpc/live/waiting", null), { signal: client.signal });
     const later = Promise.withResolvers();
     const pausing = {
-      live: defineRpc("live", () => ({ waiting: registry.live.procedures.waiting }), {
+      live: {
         use: [
           middleware(async ({ next }) => {
             await later.promise;
@@ -522,7 +510,10 @@ test("a request aborted before its stream is read stops the stream, also before 
             return result;
           }),
         ],
-      }),
+        build: () => ({
+          waiting: bound(application, namespaces).namespaces.live.procedures.waiting,
+        }),
+      },
     };
     const pending = handle(pausing, request);
 
@@ -544,17 +535,19 @@ test("an idle stream sends a keep-alive comment every 15 s", async () => {
 
   try {
     const gate = Promise.withResolvers();
-    const registry = {
-      live: defineRpc("live", ({ stream }) => ({
-        idle: stream({
-          handler: async function* () {
-            await gate.promise;
-            yield 1;
-          },
+    const namespaces = {
+      live: {
+        build: ({ stream }) => ({
+          idle: stream({
+            handler: async function* () {
+              await gate.promise;
+              yield 1;
+            },
+          }),
         }),
-      })),
+      },
     };
-    const response = await handle(registry, post("/_rpc/live/idle", null));
+    const response = await handle(namespaces, post("/_rpc/live/idle", null));
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     const first = reader.read();
 
@@ -569,35 +562,31 @@ test("an idle stream sends a keep-alive comment every 15 s", async () => {
 
 test("streams are refused during server rendering before any middleware runs", async () => {
   let ran = false;
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [
+        middleware(async ({ next }) => {
+          ran = true;
+
+          return next();
+        }),
+      ],
+      build: ({ stream }) => ({
         watch: stream({
           handler: async function* () {
             yield 1;
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            ran = true;
-
-            return next();
-          }),
-        ],
-      },
-    ),
+    },
   };
   const page = new Request("http://test/live", { headers: { cookie: "alice" } });
-  const scope = await createRequestScope(application, page);
-  const reply = await dispatch(
-    registry,
+  const scope = createRequestScope(application, page);
+  const reply = await runProcedure(
     "/_rpc/live/watch",
     { input: null },
     scope,
-    application,
+    bound(application, namespaces),
     scope.request,
     "rendering",
   );
@@ -619,7 +608,7 @@ const rawBodies = {
 
 // The browser client over a real HTTP server whose host cancels the body when the
 // connection closes, as Angular's writeResponseToNodeResponse does.
-async function serve(registry) {
+async function serve(namespaces) {
   const server = createServer(async (incoming, outgoing) => {
     // A refusal whose body never finishes arriving.
     if (incoming.url === "/_rpc/raw/slowRefusal") {
@@ -640,7 +629,7 @@ async function serve(registry) {
       headers: incoming.headers,
       body: Buffer.concat(chunks),
     });
-    const response = await handleRpc(registry, application, request, {
+    const response = await handleRpc(bound(application, namespaces), request, {
       allowedHosts: ["127.0.0.1"],
     });
 
@@ -760,40 +749,42 @@ async function collect(iterable, stopAfter) {
 
 test("the browser client yields values, ends, reconnects by iterating again and owns its errors", async () => {
   const seen = [];
-  const registry = {
-    live: defineRpc("live", ({ stream }) => ({
-      count: stream({
-        input: countSchema,
-        handler: async function* ({ input }) {
-          for (let index = 0; index < input; index += 1) {
-            yield index;
-          }
-        },
-      }),
-      fail: stream({
-        errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
-        handler: async function* ({ errors }) {
-          yield "first";
-          throw errors.GONE(null);
-        },
-      }),
-      forever: stream({
-        handler: async function* ({ signal }) {
-          signal.addEventListener("abort", () => seen.push("aborted"));
-
-          try {
-            for (let index = 0; ; index += 1) {
-              await new Promise((resolve) => setTimeout(resolve, 5));
+  const namespaces = {
+    live: {
+      build: ({ stream }) => ({
+        count: stream({
+          input: countSchema,
+          handler: async function* ({ input }) {
+            for (let index = 0; index < input; index += 1) {
               yield index;
             }
-          } finally {
-            seen.push("returned");
-          }
-        },
+          },
+        }),
+        fail: stream({
+          errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
+          handler: async function* ({ errors }) {
+            yield "first";
+            throw errors.GONE(null);
+          },
+        }),
+        forever: stream({
+          handler: async function* ({ signal }) {
+            signal.addEventListener("abort", () => seen.push("aborted"));
+
+            try {
+              for (let index = 0; ; index += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                yield index;
+              }
+            } finally {
+              seen.push("returned");
+            }
+          },
+        }),
       }),
-    })),
+    },
   };
-  const server = await serve(registry);
+  const server = await serve(namespaces);
   const { rpc, destroy } = client();
 
   try {
@@ -888,17 +879,19 @@ test("the browser client yields values, ends, reconnects by iterating again and 
 });
 
 test("the client rejects a refused stream with its own RpcError, and every stream during server rendering", async () => {
-  const registry = {
-    live: defineRpc("live", ({ stream }) => ({
-      count: stream({
-        input: countSchema,
-        handler: async function* () {
-          yield 1;
-        },
+  const namespaces = {
+    live: {
+      build: ({ stream }) => ({
+        count: stream({
+          input: countSchema,
+          handler: async function* () {
+            yield 1;
+          },
+        }),
       }),
-    })),
+    },
   };
-  const server = await serve(registry);
+  const server = await serve(namespaces);
   const browser = client();
   const rendering = client("server");
 

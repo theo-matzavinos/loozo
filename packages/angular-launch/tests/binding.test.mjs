@@ -14,15 +14,22 @@ import {
 } from "@angular/common/http";
 import { firstValueFrom, of } from "rxjs";
 import {
-  defineContext,
-  defineRpc,
   finishLaunchRendering,
   forbidden,
   middleware,
+  notFound,
+  redirect,
 } from "../dist/server/index.js";
-import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
-import { dispatch } from "../dist/server/dispatch.js";
-import { RPC_CALL } from "../dist/generated.js";
+import {
+  bindApplication,
+  createRequestScope,
+  handleRpc,
+  provideLaunchServer,
+  runProcedure,
+} from "../dist/server/generated.js";
+import { RPC_CALL } from "../dist/remote-client.js";
+import { defineRoute } from "../dist/index.js";
+import { application as bind } from "./fixtures/application.mjs";
 
 const require = createRequire(
   new URL("../../../examples/angular-launch/package.json", import.meta.url),
@@ -35,7 +42,7 @@ const path = `/_rpc/${id}/read`;
 
 const prerenderedPage = "http://localhost:4200/about";
 
-function backend(registry, application, scope, nativeRequest, fallback) {
+function backend(application, scope, nativeRequest, fallback) {
   const parent = createEnvironmentInjector([]);
   const injector = createEnvironmentInjector(
     [
@@ -43,7 +50,7 @@ function backend(registry, application, scope, nativeRequest, fallback) {
       { provide: REQUEST, useValue: nativeRequest },
       { provide: DOCUMENT, useValue: { location: { href: prerenderedPage } } },
       { provide: FetchBackend, useValue: { handle: fallback } },
-      provideLaunchServer(registry, application),
+      provideLaunchServer(application),
     ],
     parent,
   );
@@ -73,63 +80,63 @@ function renderedApp(rendering) {
   return app;
 }
 
-function prerenderFixture() {
+// `stage` replaces the counting root stage.
+function prerenderFixture(stage) {
   const seen = { factories: 0, middlewareRuns: 0, handlers: 0 };
-  const application = {
-    id: "prerendering",
-    context: defineContext((request) => {
-      seen.factories += 1;
+  const counting = ({ request }) => {
+    seen.factories += 1;
 
-      return { number: seen.factories, request };
-    }),
+    return { number: seen.factories, request };
   };
   const counted = middleware(async ({ next }) => {
     seen.middlewareRuns += 1;
 
     return next();
   });
-  const registry = {
-    [id]: defineRpc(
-      "test",
-      ({ query, mutation }) => ({
-        read: query({
-          handler: ({ context, request }) => {
-            seen.handlers += 1;
+  const application = bind("prerendering", {
+    context: stage ?? counting,
+    namespaces: {
+      test: {
+        use: [counted],
+        build: ({ query, mutation }) => ({
+          read: query({
+            handler: ({ context, request }) => {
+              seen.handlers += 1;
 
-            return {
-              context: context.number,
-              sameRequest: context.request === request,
-              method: request.method,
-              url: request.url,
-              cookie: request.headers.get("cookie"),
-            };
-          },
-        }),
-        refuse: query({
-          handler: () => {
-            throw forbidden();
-          },
-        }),
-        remember: query({
-          handler: ({ response }) => {
-            response.setCookie("seen", "1");
+              return {
+                context: context.number,
+                sameRequest: context.request === request,
+                method: request.method,
+                url: request.url,
+                cookie: request.headers.get("cookie"),
+              };
+            },
+          }),
+          refuse: query({
+            handler: () => {
+              throw forbidden();
+            },
+          }),
+          remember: query({
+            handler: ({ response }) => {
+              response.setCookie("seen", "1");
 
-            return null;
-          },
+              return null;
+            },
+          }),
+          waitForAbort: query({
+            handler: ({ signal }) =>
+              new Promise((resolve) => {
+                signal.addEventListener("abort", () => resolve(null));
+              }),
+          }),
+          write: mutation({ handler: () => null }),
         }),
-        waitForAbort: query({
-          handler: ({ signal }) =>
-            new Promise((resolve) => {
-              signal.addEventListener("abort", () => resolve(null));
-            }),
-        }),
-        write: mutation({ handler: () => null }),
-      }),
-      { use: [counted] },
-    ),
-  };
+      },
+    },
+  });
 
-  return { seen, application, registry };
+  return { seen, application };
 }
 
 function call(rendering, url, marked = false) {
@@ -146,7 +153,7 @@ function call(rendering, url, marked = false) {
 }
 
 test("prerendering delegates foreign and non-RPC requests and runs own-origin calls with one cookie-less page context", async () => {
-  const { seen, application, registry } = prerenderFixture();
+  const { seen, application } = prerenderFixture();
   const forwarded = [];
   const response = new HttpResponse({ status: 206, body: "ordinary external service" });
   const fallback = (request) => {
@@ -154,7 +161,7 @@ test("prerendering delegates foreign and non-RPC requests and runs own-origin ca
 
     return of(response);
   };
-  const rendering = backend(registry, application, null, null, fallback);
+  const rendering = backend(application, null, null, fallback);
   const app = renderedApp(rendering);
 
   try {
@@ -206,7 +213,7 @@ test("prerendering delegates foreign and non-RPC requests and runs own-origin ca
   }
 });
 
-test("prerendering fails the render for a call that doesn't answer 200, sets a cookie or has no context", async () => {
+test("prerendering fails the render for a call that doesn't answer 200 or sets a cookie", async () => {
   const cases = [
     {
       url: "/_rpc/test/refuse",
@@ -229,8 +236,8 @@ test("prerendering fails the render for a call that doesn't answer 200, sets a c
   ];
 
   for (const { url, marked, reply, fault } of cases) {
-    const { application, registry } = prerenderFixture();
-    const rendering = backend(registry, application, null, null, () => {
+    const { application } = prerenderFixture();
+    const rendering = backend(application, null, null, () => {
       throw new Error("Unexpected fallback");
     });
     const app = renderedApp(rendering);
@@ -258,29 +265,171 @@ test("prerendering fails the render for a call that doesn't answer 200, sets a c
       rendering.destroy();
     }
   }
+});
 
-  const broken = new Error("database unreachable");
-  const { registry } = prerenderFixture();
-  const throwing = {
-    id: "prerendering",
-    context: defineContext(() => {
-      throw broken;
-    }),
-  };
-  const rendering = backend(registry, throwing, null, null, () => {
+// root → +authenticated (pathless) → todos, each with a stage. +authenticated declares
+// `session`, todos declares `todos`. `failing` makes a stage throw (`sync`) or reject.
+function provenanceFixture(failing = {}) {
+  const runs = { root: 0, auth: 0, own: 0 };
+
+  function stage(name, value) {
+    return (args) => {
+      runs[name] += 1;
+
+      const failure = failing[name];
+
+      if (failure?.sync) {
+        throw failure.error;
+      }
+
+      if (failure) {
+        return Promise.reject(failure.error);
+      }
+
+      return value(args);
+    };
+  }
+
+  const root = defineRoute("", {}).context(stage("root", () => ({ user: "alice" })));
+  const auth = defineRoute("", { parent: root })
+    .context(stage("auth", ({ context }) => ({ ...context, user: context.user.toUpperCase() })))
+    .remote(({ query }) => ({
+      session: { current: query({ handler: ({ context }) => context.user }) },
+    }));
+  const own = defineRoute("todos", { parent: auth })
+    .context(stage("own", ({ context }) => ({ ...context, list: ["milk"] })))
+    .remote(({ query }) => ({
+      todos: { list: query({ handler: ({ context }) => context.list }) },
+    }));
+  const application = bindApplication("provenance", [
+    [root, "src/routes/route.ts"],
+    [auth, "src/routes/+authenticated/route.ts"],
+    [own, "src/routes/+authenticated/todos/route.ts"],
+  ]);
+
+  return { runs, application };
+}
+
+function quietly(run) {
+  const previous = console.error;
+
+  console.error = () => {};
+
+  return run().finally(() => {
+    console.error = previous;
+  });
+}
+
+function procedureCall(application, scope, procedure) {
+  return runProcedure(`/_rpc/${procedure}`, { input: null }, scope, application, scope.request);
+}
+
+test("a failing stage is reported with its own route, sync or async, at the root, in between or last", async () => {
+  for (const [name, route, sync] of [
+    ["root", "src/routes/route.ts", true],
+    ["auth", "src/routes/+authenticated/route.ts", false],
+    ["own", "src/routes/+authenticated/todos/route.ts", false],
+  ]) {
+    const thrown = new Error(`${name} unreachable`);
+    const { application } = provenanceFixture({ [name]: { error: thrown, sync } });
+    const scope = createRequestScope(application, new Request("http://localhost/todos"));
+    const reply = await quietly(() => procedureCall(application, scope, "todos/list"));
+
+    assert.equal(reply.status, 500, name);
+    assert.deepEqual(reply.body, {
+      error: { code: "INTERNAL", message: "Internal server error", data: null },
+    });
+    assert.equal(reply.failedStage.route, route, name);
+    assert.equal(reply.failedStage.error, thrown, name);
+  }
+});
+
+test("a memoized stage failure keeps naming its stage for every later chain that reuses it", async () => {
+  const thrown = new Error("auth unreachable");
+  const { runs, application } = provenanceFixture({ auth: { error: thrown } });
+  const scope = createRequestScope(application, new Request("http://localhost/todos"));
+
+  await quietly(async () => {
+    const first = await procedureCall(application, scope, "todos/list");
+    const other = await procedureCall(application, scope, "session/current");
+    const again = await procedureCall(application, scope, "todos/list");
+
+    for (const reply of [first, other, again]) {
+      assert.equal(reply.status, 500);
+      assert.equal(reply.failedStage.route, "src/routes/+authenticated/route.ts");
+      assert.equal(reply.failedStage.error, thrown);
+    }
+  });
+
+  assert.deepEqual(runs, { root: 1, auth: 1, own: 0 });
+});
+
+test("a stage's outcome answers as it would from middleware, without a failed stage", async () => {
+  for (const [outcome, status, body] of [
+    [() => redirect("/sign-in"), 303, { redirect: { to: "/sign-in" } }],
+    [() => notFound(), 404, { notFound: null }],
+    [
+      () => forbidden(),
+      403,
+      { error: { code: "FORBIDDEN", message: "RPC forbidden", data: null } },
+    ],
+  ]) {
+    const { application } = provenanceFixture({ auth: { error: outcome(), sync: true } });
+    const scope = createRequestScope(application, new Request("http://localhost/todos"));
+    const reply = await procedureCall(application, scope, "todos/list");
+
+    assert.equal(reply.status, status);
+    assert.deepEqual(reply.body, body);
+    assert.equal(reply.failedStage, undefined);
+  }
+});
+
+test("a failing stage's route and error stay off the wire", async () => {
+  const { application } = provenanceFixture({ auth: { error: new Error("secret detail") } });
+  const response = await quietly(() =>
+    handleRpc(
+      application,
+      new Request("http://localhost/_rpc/todos/list", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: '{"input":null}',
+      }),
+      { allowedHosts: ["localhost"] },
+    ),
+  );
+  const text = await response.text();
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(JSON.parse(text), {
+    error: { code: "INTERNAL", message: "Internal server error", data: null },
+  });
+  assert.doesNotMatch(text, /secret|authenticated/);
+});
+
+test("prerendering fails with the failing stage's route, and its error as the cause", async () => {
+  const thrown = new Error("database unreachable");
+  const { application } = provenanceFixture({ auth: { error: thrown } });
+  const rendering = backend(application, null, null, () => {
     throw new Error("Unexpected fallback");
   });
   const app = renderedApp(rendering);
 
   try {
-    await assert.rejects(
-      call(rendering, path),
-      (error) => error instanceof HttpErrorResponse && error.status === 500,
+    await quietly(() =>
+      assert.rejects(
+        call(rendering, "/_rpc/todos/list"),
+        (error) => error instanceof HttpErrorResponse && error.status === 500,
+      ),
     );
-    await assert.rejects(
-      finishLaunchRendering(app),
-      (error) => /its context factory threw/.test(error.message) && error.cause === broken,
-    );
+    await assert.rejects(finishLaunchRendering(app), (error) => {
+      assert.equal(
+        error.message,
+        "Launch can't prerender this page: the context stage of src/routes/+authenticated/route.ts threw",
+      );
+      assert.equal(error.cause, thrown);
+
+      return true;
+    });
   } finally {
     rendering.destroy();
   }
@@ -312,7 +461,7 @@ test("native prerendering fails for calls before the page is first stable, not o
   }
 
   function prerender(resolved, serialized) {
-    const { application, registry } = prerenderFixture();
+    const { application } = prerenderFixture();
 
     return renderApplication(
       async (context) => {
@@ -322,7 +471,7 @@ test("native prerendering fails for calls before the page is first stable, not o
             providers: [
               provideServerRendering(),
               provideHttpClient(),
-              provideLaunchServer(registry, application),
+              provideLaunchServer(application),
               provideRouter([
                 { path: "about", component: Page, resolve: { result: () => post(resolved) } },
               ]),
@@ -391,7 +540,7 @@ test("native route discovery with blocking initial navigation completes, running
   );
 
   async function discover(resolved) {
-    const { seen, application, registry } = prerenderFixture();
+    const { seen, application } = prerenderFixture();
     const results = [];
     const root = { path: "", children: [{ path: "about", component: Page }] };
 
@@ -421,7 +570,7 @@ test("native route discovery with blocking initial navigation completes, running
               providers: [
                 provideServerRendering(),
                 provideHttpClient(),
-                provideLaunchServer(registry, application),
+                provideLaunchServer(application),
                 provideRouter([root], withEnabledBlockingInitialNavigation()),
               ],
             },
@@ -479,8 +628,8 @@ test("native route discovery with blocking initial navigation completes, running
 });
 
 test("a prerendering call's signal aborts when the render's application is destroyed", async () => {
-  const { application, registry } = prerenderFixture();
-  const rendering = backend(registry, application, null, null, () => {
+  const { application } = prerenderFixture();
+  const rendering = backend(application, null, null, () => {
     throw new Error("Unexpected fallback");
   });
   const pending = call(rendering, "/_rpc/test/waitForAbort");
@@ -494,12 +643,35 @@ test("a prerendering call's signal aborts when the render's application is destr
 test("scope matches native request and generated application across Angular sanitization clones; mismatches reject before middleware/handlers", async () => {
   let factories = 0;
   const calls = [];
-  const context = defineContext((request) => {
+  const context = ({ request }) => {
     factories += 1;
 
     return { user: request.headers.get("cookie") };
+  };
+  const app = bind("app-a-context-v1", {
+    context,
+    namespaces: {
+      test: {
+        use: [
+          middleware(async ({ request, next }) => {
+            calls.push("middleware");
+            assert.equal(request, native);
+
+            return next();
+          }),
+        ],
+        build: ({ query }) => ({
+          read: query({
+            handler: ({ context }) => {
+              calls.push("handler");
+
+              return context.user;
+            },
+          }),
+        }),
+      },
+    },
   });
-  const app = { id: "app-a-context-v1", context };
   const controller = new AbortController();
   const incoming = new Request("http://127.0.0.1/todos", {
     signal: controller.signal,
@@ -510,9 +682,9 @@ test("scope matches native request and generated application across Angular sani
       "x-forwarded-host": "untrusted.example",
     },
   });
-  const scope = await createRequestScope(app, incoming);
+  const scope = createRequestScope(app, incoming);
 
-  assert.equal(factories, 1);
+  assert.equal(factories, 0, "creating a scope runs no stage");
   assert.equal(incoming.headers.has("x-loozo-launch-scope"), false);
 
   const previousWarn = console.warn;
@@ -535,37 +707,13 @@ test("scope matches native request and generated application across Angular sani
   assert.equal(native.headers.get("x-loozo-launch-scope"), scope.binding);
   assert.equal(warnings.length, 3);
 
-  const registry = {
-    [id]: defineRpc(
-      "test",
-      ({ query }) => ({
-        read: query({
-          handler: ({ context }) => {
-            calls.push("handler");
-
-            return context.user;
-          },
-        }),
-      }),
-      {
-        use: [
-          middleware(async ({ request, next }) => {
-            calls.push("middleware");
-            assert.equal(request, native);
-
-            return next();
-          }),
-        ],
-      },
-    ),
-  };
   let fallbackCalls = 0;
   const fallback = () => {
     fallbackCalls += 1;
 
     throw new Error("RPC must not fall back");
   };
-  const valid = backend(registry, app, scope, native, fallback);
+  const valid = backend(app, scope, native, fallback);
 
   assert.equal(
     (await firstValueFrom(valid.value.handle(new HttpRequest("POST", path, { input: null })))).body,
@@ -573,20 +721,14 @@ test("scope matches native request and generated application across Angular sani
   );
   valid.destroy();
   assert.deepEqual(calls, ["middleware", "handler"]);
-  assert.equal(factories, 1, "backend never creates another context");
+  assert.equal(factories, 1, "the call ran the stage, and backend never creates another scope");
   controller.abort();
   assert.equal(scope.request.signal.aborted, true);
   assert.equal(native.signal.aborted, true);
 
-  const bob = await createRequestScope(
-    app,
-    new Request(incoming.url, { headers: { cookie: "bob" } }),
-  );
-  const otherApp = {
-    id: "app-b-context-v1",
-    context: defineContext(() => ({ user: "other-app" })),
-  };
-  const other = await createRequestScope(otherApp, new Request(incoming.url));
+  const bob = createRequestScope(app, new Request(incoming.url, { headers: { cookie: "bob" } }));
+  const otherApp = bind("app-b-context-v1", { context: () => ({ user: "other-app" }) });
+  const other = createRequestScope(otherApp, new Request(incoming.url));
   const previousError = console.error;
   const logs = [];
 
@@ -598,7 +740,7 @@ test("scope matches native request and generated application across Angular sani
       [scope, incoming],
       [other, other.request],
     ]) {
-      const mismatch = backend(registry, app, candidate, nativeRequest, fallback);
+      const mismatch = backend(app, candidate, nativeRequest, fallback);
 
       for (const marked of [false, true]) {
         const request = new HttpRequest(
@@ -624,7 +766,7 @@ test("scope matches native request and generated application across Angular sani
     }
 
     assert.equal(
-      (await dispatch(registry, path, { input: null }, other, app, other.request)).status,
+      (await runProcedure(path, { input: null }, other, app, other.request)).status,
       500,
     );
   } finally {
@@ -636,42 +778,82 @@ test("scope matches native request and generated application across Angular sani
   assert.equal(logs.length, 7);
 });
 
-test("binding clone preserves original body and signal, and HTTP dispatcher creates exactly one context", async () => {
+// Angular bundles the server entry, which creates scopes and answers RPCs, apart from the
+// server application, which renders: each bundle binds its own copy of the same app.
+test("a rendering call runs the stage and handler of the copy that created its scope, not the rendering copy's", async () => {
+  const ran = [];
+
+  function copy(name) {
+    return bind("one-app-two-bundles", {
+      context: () => {
+        ran.push(`${name} stage`);
+
+        return { copy: name };
+      },
+      namespaces: {
+        test: {
+          build: ({ query }) => ({
+            read: query({
+              handler: ({ context }) => {
+                ran.push(`${name} handler`);
+
+                return context.copy;
+              },
+            }),
+          }),
+        },
+      },
+    });
+  }
+
+  const entry = copy("entry");
+  const rendering = copy("rendering");
+  const scope = createRequestScope(entry, new Request("http://127.0.0.1/todos"));
+  const page = backend(rendering, scope, scope.request, () => {
+    throw new Error("RPC must not fall back");
+  });
+  const reply = await firstValueFrom(
+    page.value.handle(new HttpRequest("POST", path, { input: null })),
+  );
+
+  page.destroy();
+  assert.equal(reply.body, "entry");
+  assert.deepEqual(ran, ["entry stage", "entry handler"]);
+});
+
+test("binding clone preserves original body and signal, and an HTTP request runs its stage once", async () => {
   let factories = 0;
-  const app = {
-    id: "body-app",
-    context: defineContext(async (request) => {
+  const app = bind("body-app", {
+    context: async ({ request }) => {
       factories += 1;
 
       const body = await request.clone().text();
 
       return { body };
-    }),
-  };
+    },
+    namespaces: {
+      test: { build: ({ query }) => ({ read: query({ handler: ({ context }) => context.body }) }) },
+    },
+  });
   const controller = new AbortController();
   const request = new Request("http://127.0.0.1/input", {
     method: "POST",
     body: '{"input":"one"}',
     signal: controller.signal,
   });
-  const scope = await createRequestScope(app, request);
+  const scope = createRequestScope(app, request);
+  const staged = await runProcedure(path, { input: null }, scope, app, scope.request);
 
   assert.equal(request.bodyUsed, false);
   assert.equal(scope.request.bodyUsed, false);
-  assert.equal(scope.value.body, '{"input":"one"}');
+  assert.equal(staged.body, '{"input":"one"}');
   assert.equal(await request.text(), '{"input":"one"}');
-  assert.equal(await scope.request.text(), scope.value.body);
+  assert.equal(await scope.request.text(), staged.body);
   controller.abort();
   assert.equal(scope.request.signal.aborted, true);
   assert.equal(factories, 1);
 
-  const registry = {
-    [id]: defineRpc("test", ({ query }) => ({
-      read: query({ handler: ({ context }) => context.body }),
-    })),
-  };
   const reply = await handleRpc(
-    registry,
     app,
     new Request(`http://127.0.0.1${path}`, {
       method: "POST",
@@ -683,7 +865,7 @@ test("binding clone preserves original body and signal, and HTTP dispatcher crea
 
   assert.equal(reply.status, 200);
   assert.equal(await reply.json(), '{"input":null}');
-  assert.equal(factories, 2, "exactly one additional factory for the HTTP request");
+  assert.equal(factories, 2, "exactly one more stage run for the HTTP request");
 });
 
 test("native params/setParams marked/unmarked targets use effective URLs and match real HTTP rejection without fallback", async () => {
@@ -691,28 +873,14 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
   let middlewareRuns = 0;
   let handlers = 0;
   let fallbackCalls = 0;
-  const app = {
-    id: "params-app",
-    context: defineContext(() => {
+  const app = bind("params-app", {
+    context: () => {
       factories += 1;
 
       return {};
-    }),
-  };
-  const scope = await createRequestScope(app, new Request("http://127.0.0.1/todos"));
-  const registry = {
-    [id]: defineRpc(
-      "test",
-      ({ query }) => ({
-        read: query({
-          handler: () => {
-            handlers += 1;
-
-            return "ok";
-          },
-        }),
-      }),
-      {
+    },
+    namespaces: {
+      test: {
         use: [
           middleware(async ({ next }) => {
             middlewareRuns += 1;
@@ -720,10 +888,20 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
             return next();
           }),
         ],
+        build: ({ query }) => ({
+          read: query({
+            handler: () => {
+              handlers += 1;
+
+              return "ok";
+            },
+          }),
+        }),
       },
-    ),
-  };
-  const direct = backend(registry, app, scope, scope.request, () => {
+    },
+  });
+  const scope = createRequestScope(app, new Request("http://127.0.0.1/todos"));
+  const direct = backend(app, scope, scope.request, () => {
     fallbackCalls += 1;
 
     throw new Error("Unexpected fallback");
@@ -755,7 +933,6 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
       );
 
       const http = await handleRpc(
-        registry,
         app,
         new Request(`http://127.0.0.1${request.urlWithParams}`, {
           method: "POST",
@@ -769,13 +946,13 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
     }
   }
 
-  assert.equal(factories, 1);
+  assert.equal(factories, 0);
   assert.equal(middlewareRuns, 0);
   assert.equal(handlers, 0);
   assert.equal(fallbackCalls, 0);
   direct.destroy();
 
-  const absent = backend(registry, app, null, null, () => {
+  const absent = backend(app, null, null, () => {
     fallbackCalls += 1;
 
     throw new Error("Unexpected prerender fallback");
@@ -795,7 +972,7 @@ test("native params/setParams marked/unmarked targets use effective URLs and mat
     (error) => error instanceof HttpErrorResponse && error.status === 400,
   );
   assert.equal(fallbackCalls, 0);
-  // The refusal comes before a prerender context is created.
-  assert.equal(factories, 1);
+  // The refusal comes before any stage runs.
+  assert.equal(factories, 0);
   absent.destroy();
 });

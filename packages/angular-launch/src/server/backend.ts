@@ -12,18 +12,17 @@ import type { ApplicationRef, EnvironmentProviders } from "@angular/core";
 import { FetchBackend, HttpBackend, HttpErrorResponse, HttpResponse } from "@angular/common/http";
 import type { HttpEvent, HttpRequest } from "@angular/common/http";
 import { Observable } from "rxjs";
-import { RPC_CALL } from "../generated.js";
+import { RPC_CALL } from "../remote-client.js";
 import { parseJson } from "../json.js";
+import type { ApplicationBinding } from "./application.js";
 import {
-  dispatch,
+  runRenderingCall,
   failure,
   invalidInput,
   isJsonMediaType,
   assertBoundScope,
   createRequestScope,
-  type ApplicationBinding,
   type RequestScope,
-  type Registry,
   type Reply,
 } from "./dispatch.js";
 import { createResponseEffects } from "./response-effects.js";
@@ -31,8 +30,8 @@ import { createResponseEffects } from "./response-effects.js";
 const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults");
 
 /**
- * Provides the server-rendering transport that runs RPC calls in-process with the
- * current request's context.
+ * Provides the server-rendering transport that runs RPC calls in-process in the current
+ * request's scope.
  *
  * @remarks
  * Internal: exported only from `@loozo/angular-launch/_server` for the generated
@@ -47,6 +46,10 @@ const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults
  *
  * For intercepted calls during server rendering, Angular's `REQUEST_CONTEXT` must be the
  * {@link RequestScope} created for Angular's `REQUEST`, or the calls fail with `INTERNAL`.
+ * They run in the copy of the package that created the scope, with the application binding
+ * it was created for, usually the server entry's: Angular bundles the server entry apart
+ * from the server application, and running there gives a page the same stages, handlers
+ * and module state as the server's RPCs.
  * A generated-client call outside `/_rpc/` on the page's origin fails with
  * `INVALID_INPUT` with no issues, as does any intercepted call with a query string,
  * fragment, URL credentials, a method other than `POST`, a non-JSON content type, its own
@@ -61,20 +64,18 @@ const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults
  * fails with `INTERNAL`.
  *
  * Without `REQUEST`, as when Angular prerenders a page, the first intercepted call creates
- * the render's context from a cookie-less `GET` of the page's URL, and every call in the
- * render shares it. Its signal aborts when the application is destroyed. A call that
- * doesn't answer 200, or sets a cookie, records a fault for
- * {@link finishLaunchRendering}, as does a context factory that throws. Only faults
- * recorded before the app is first stable fail the build.
+ * the render's request scope from a cookie-less `GET` of the page's URL, and every call in
+ * the render shares it and runs in this copy, with `application`. Its signal aborts when
+ * the application is destroyed. A call that doesn't answer 200, or sets a cookie, records a
+ * fault for {@link finishLaunchRendering}, as does a context stage that throws, named by
+ * its route.
+ * Only faults recorded before the app is first stable fail the build.
  *
- * @param registry - The application's RPC groups.
- * @param application - The application binding.
+ * @param application - The application binding: a live scope must belong to it, and
+ * prerendering runs its calls with it.
  * @returns The environment providers for the server application.
  */
-export function provideLaunchServer(
-  registry: Registry,
-  application: ApplicationBinding,
-): EnvironmentProviders {
+export function provideLaunchServer(application: ApplicationBinding): EnvironmentProviders {
   return makeEnvironmentProviders([
     { provide: renderFaults, useFactory: () => ({}) },
     {
@@ -87,7 +88,7 @@ export function provideLaunchServer(
         const faults = inject(renderFaults);
         const document = inject(DOCUMENT);
         const destroyed = new AbortController();
-        let prerenderScope: Promise<RequestScope> | undefined;
+        let prerenderScope: RequestScope | undefined;
 
         inject(DestroyRef).onDestroy(() => destroyed.abort());
 
@@ -220,34 +221,31 @@ export function provideLaunchServer(
                     application,
                     new Request(page, { signal: destroyed.signal }),
                   );
-
-                  try {
-                    scope = await prerenderScope;
-                  } catch (error) {
-                    recordFault("its context factory threw", error);
-                    console.error("Launch prerender context creation failed", error);
-                    deliver(failure("INTERNAL"));
-
-                    return;
-                  }
-
+                  scope = prerenderScope;
                   pageRequest = scope.request;
                 }
 
-                const reply = await dispatch(
-                  registry,
+                // Runs in the copy of the package that created the scope: for a live page, the
+                // server entry's, whose stages and handlers answer this server's RPCs.
+                const reply = await runRenderingCall(
+                  scope,
                   target.pathname,
                   envelope,
-                  scope,
-                  application,
                   pageRequest,
-                  "rendering",
                   AbortSignal.any([pageRequest.signal, call.signal]),
                   effects,
                 );
 
                 settled = true;
                 effects.commit();
+
+                // Recorded first, so the build reports the stage rather than the 500.
+                if (prerendering && reply.failedStage) {
+                  recordFault(
+                    `the context stage of ${reply.failedStage.route} threw`,
+                    reply.failedStage.error,
+                  );
+                }
 
                 if (effects.cookies.length === 0) {
                   deliver(reply);
@@ -339,7 +337,8 @@ export function provideLaunchServer(
  * @param app - The bootstrapped server application.
  * @returns The same application once it is stable, or at once during route discovery.
  * @throws The first recorded fault, naming the call and its reply, the cookie or the
- * context factory's error; the application is destroyed first.
+ * context stage that threw, with its error as the cause; the application is destroyed
+ * first.
  */
 export async function finishLaunchRendering(app: ApplicationRef): Promise<ApplicationRef> {
   // Only route discovery bootstraps without a root component.

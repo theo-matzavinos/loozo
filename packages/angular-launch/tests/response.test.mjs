@@ -9,12 +9,18 @@ import {
   RESPONSE_INIT,
 } from "@angular/core";
 import { FetchBackend, HttpBackend, HttpRequest } from "@angular/common/http";
-import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
-import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
+import { forbidden, middleware } from "../dist/server/index.js";
+import {
+  createRequestScope,
+  handleChannelUpgrade,
+  handleRpc,
+  provideLaunchServer,
+} from "../dist/server/generated.js";
+import { application as bind, bound } from "./fixtures/application.mjs";
 
 const application = {
   id: "launch-response-test-app",
-  context: defineContext((request) => ({ user: request.headers.get("cookie") })),
+  context: ({ request }) => ({ user: request.headers.get("cookie") }),
 };
 const nullSchema = {
   "~standard": {
@@ -38,8 +44,8 @@ function post(path, input = null) {
   });
 }
 
-function handle(registry, path, input) {
-  return handleRpc(registry, application, post(path, input), { allowedHosts: ["test"] });
+function handle(namespaces, path, input) {
+  return handleRpc(bound(application, namespaces), post(path, input), { allowedHosts: ["test"] });
 }
 
 async function events(response) {
@@ -73,10 +79,10 @@ const timing = middleware(async ({ next, response }) => {
 });
 
 test("over HTTP, cookies and headers from middleware and the handler go on the RPC response", async () => {
-  const registry = {
-    session: defineRpc(
-      "session",
-      ({ mutation }) => ({
+  const namespaces = {
+    session: {
+      use: [timing],
+      build: ({ mutation }) => ({
         login: mutation({
           // Destructuring is safe: the members are function properties.
           handler: ({ response: { setCookie, deleteCookie, headers } }) => {
@@ -99,10 +105,9 @@ test("over HTTP, cookies and headers from middleware and the handler go on the R
           },
         }),
       }),
-      { use: [timing] },
-    ),
+    },
   };
-  const response = await handle(registry, "/_rpc/session/login");
+  const response = await handle(namespaces, "/_rpc/session/login");
 
   assert.equal(response.status, 200);
   assert.deepEqual(response.headers.getSetCookie(), [
@@ -126,10 +131,10 @@ test("cookies and headers apply for every outcome: declared errors, FORBIDDEN, I
 
     return next();
   });
-  const registry = {
-    calls: defineRpc(
-      "calls",
-      ({ query }) => ({
+  const namespaces = {
+    calls: {
+      use: [marked],
+      build: ({ query }) => ({
         declared: query({
           errors: { BUSY: { status: 409, message: "Busy", data: nullSchema } },
           handler: ({ errors }) => {
@@ -148,8 +153,7 @@ test("cookies and headers apply for every outcome: declared errors, FORBIDDEN, I
           },
         }),
       }),
-      { use: [marked] },
-    ),
+    },
   };
   const cases = [
     ["declared", null, 409],
@@ -160,7 +164,7 @@ test("cookies and headers apply for every outcome: declared errors, FORBIDDEN, I
 
   await logged(async () => {
     for (const [name, input, status] of cases) {
-      const response = await handle(registry, `/_rpc/calls/${name}`, input);
+      const response = await handle(namespaces, `/_rpc/calls/${name}`, input);
 
       assert.equal(response.status, status, name);
       assert.deepEqual(
@@ -184,29 +188,31 @@ test("an invalid cookie fails the call with INTERNAL, and a cookie set after the
     ["name", "v", { sameSite: "none", secure: false }],
   ];
   let kept;
-  const registry = {
-    cookies: defineRpc("cookies", ({ query }) => ({
-      set: query({
-        input: { "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) } },
-        handler: ({ input, response }) => {
-          kept = response;
+  const namespaces = {
+    cookies: {
+      build: ({ query }) => ({
+        set: query({
+          input: { "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) } },
+          handler: ({ input, response }) => {
+            kept = response;
 
-          if (input !== null) {
-            const [name, value, options] = invalid[input];
+            if (input !== null) {
+              const [name, value, options] = invalid[input];
 
-            response.setCookie(name, value, options);
-          }
+              response.setCookie(name, value, options);
+            }
 
-          return null;
-        },
+            return null;
+          },
+        }),
       }),
-    })),
+    },
   };
 
   for (let index = 0; index < invalid.length; index += 1) {
     let response;
     const entries = await logged(async () => {
-      response = await handle(registry, "/_rpc/cookies/set", index);
+      response = await handle(namespaces, "/_rpc/cookies/set", index);
     });
 
     assert.equal(response.status, 500, JSON.stringify(invalid[index]));
@@ -214,7 +220,7 @@ test("an invalid cookie fails the call with INTERNAL, and a cookie set after the
     assert.deepEqual(response.headers.getSetCookie(), []);
   }
 
-  const settled = await handle(registry, "/_rpc/cookies/set", null);
+  const settled = await handle(namespaces, "/_rpc/cookies/set", null);
 
   assert.equal(settled.status, 200);
   assert.throws(() => kept.setCookie("late", "1"), /already sent this call's response/);
@@ -227,10 +233,10 @@ test("a stream's cookies and headers are the ones set when its handler returned 
 
     return next();
   });
-  const registry = {
-    live: defineRpc(
-      "live",
-      ({ stream }) => ({
+  const namespaces = {
+    live: {
+      use: [early, timing],
+      build: ({ stream }) => ({
         plain: stream({
           handler: async ({ response }) => {
             response.setCookie("plain", "1");
@@ -250,10 +256,9 @@ test("a stream's cookies and headers are the ones set when its handler returned 
           },
         }),
       }),
-      { use: [early, timing] },
-    ),
+    },
   };
-  const plain = await handle(registry, "/_rpc/live/plain");
+  const plain = await handle(namespaces, "/_rpc/live/plain");
 
   assert.equal(plain.headers.get("content-type"), "text/event-stream");
   assert.deepEqual(plain.headers.getSetCookie(), [
@@ -268,7 +273,7 @@ test("a stream's cookies and headers are the ones set when its handler returned 
 
   let generator;
   const entries = await logged(async () => {
-    generator = await handle(registry, "/_rpc/live/generator");
+    generator = await handle(namespaces, "/_rpc/live/generator");
 
     assert.deepEqual(generator.headers.getSetCookie(), [
       "early=1; Path=/; HttpOnly; Secure; SameSite=Lax",
@@ -282,7 +287,7 @@ test("a stream's cookies and headers are the ones set when its handler returned 
   assert.match(entries[0][1].message, /already sent this call's response/);
 });
 
-function render(registry, scope, responseInit) {
+function render(namespaces, scope, responseInit) {
   const parent = createEnvironmentInjector([]);
   const providers = [
     { provide: REQUEST_CONTEXT, useValue: scope },
@@ -296,7 +301,7 @@ function render(registry, scope, responseInit) {
         },
       },
     },
-    provideLaunchServer(registry, application),
+    provideLaunchServer(bound(application, namespaces)),
   ];
 
   if (responseInit !== undefined) {
@@ -322,29 +327,31 @@ function render(registry, scope, responseInit) {
 }
 
 test("during server rendering, cookies go on RESPONSE_INIT's headers for every outcome, and headers are dropped", async () => {
-  const registry = {
-    page: defineRpc("page", ({ query }) => ({
-      read: query({
-        handler: ({ response }) => {
-          response.setCookie("seen", "1");
-          response.headers.set("x-dropped", "1");
+  const namespaces = {
+    page: {
+      build: ({ query }) => ({
+        read: query({
+          handler: ({ response }) => {
+            response.setCookie("seen", "1");
+            response.headers.set("x-dropped", "1");
 
-          return "ok";
-        },
-      }),
-      refused: query({
-        handler: ({ response }) => {
-          response.setCookie("refused", "1");
+            return "ok";
+          },
+        }),
+        refused: query({
+          handler: ({ response }) => {
+            response.setCookie("refused", "1");
 
-          throw forbidden();
-        },
+            throw forbidden();
+          },
+        }),
       }),
-    })),
+    },
   };
-  const scope = await createRequestScope(application, new Request("http://test/page"));
+  const scope = createRequestScope(bound(application, namespaces), new Request("http://test/page"));
   const headers = new Headers({ "content-type": "text/html" });
   const responseInit = { status: 200, headers };
-  const page = render(registry, scope, responseInit);
+  const page = render(namespaces, scope, responseInit);
 
   try {
     const read = await page.call("/_rpc/page/read");
@@ -367,7 +374,7 @@ test("during server rendering, cookies go on RESPONSE_INIT's headers for every o
 
   // Headers given as a plain object are replaced by Headers carrying them.
   const plainInit = { headers: { "x-page": "1" } };
-  const plainPage = render(registry, scope, plainInit);
+  const plainPage = render(namespaces, scope, plainInit);
 
   try {
     await plainPage.call("/_rpc/page/read");
@@ -381,7 +388,7 @@ test("during server rendering, cookies go on RESPONSE_INIT's headers for every o
   }
 
   // Without RESPONSE_INIT the cookies have nowhere to go.
-  const bare = render(registry, scope, undefined);
+  const bare = render(namespaces, scope, undefined);
 
   try {
     let failed;
@@ -394,5 +401,94 @@ test("during server rendering, cookies go on RESPONSE_INIT's headers for every o
     assert.match(entries[0][0], /without RESPONSE_INIT/);
   } finally {
     bare.destroy();
+  }
+});
+
+test("a stage's cookies go on the response of the call that first ran it, once per scope", async () => {
+  let stages = 0;
+  const app = bind("launch-stage-cookie-test-app", {
+    context: ({ response }) => {
+      stages += 1;
+      response.setCookie("session", "refreshed");
+
+      return {};
+    },
+    namespaces: {
+      page: {
+        build: ({ query, stream, channel }) => ({
+          read: query({ handler: () => "read" }),
+          again: query({ handler: () => "again" }),
+          live: stream({
+            handler: async function* () {
+              yield "tick";
+            },
+          }),
+          talk: channel({
+            message: nullSchema,
+            handler: async function* () {
+              yield "hello";
+            },
+          }),
+        }),
+      },
+    },
+  });
+  const cookie = "session=refreshed; Path=/; HttpOnly; Secure; SameSite=Lax";
+  const options = { allowedHosts: ["test"] };
+
+  const reply = await handleRpc(app, post("/_rpc/page/read"), options);
+
+  assert.equal(reply.status, 200);
+  assert.deepEqual(reply.headers.getSetCookie(), [cookie]);
+
+  const streamed = await handleRpc(app, post("/_rpc/page/live"), options);
+
+  assert.equal(streamed.headers.get("content-type"), "text/event-stream");
+  assert.deepEqual(streamed.headers.getSetCookie(), [cookie]);
+  await streamed.body.cancel();
+
+  const upgrade = await handleChannelUpgrade(
+    app,
+    new Request("http://test/_rpc/page/talk?input=null", {
+      headers: { origin: "http://test", upgrade: "websocket", connection: "Upgrade" },
+    }),
+    options,
+  );
+
+  assert.deepEqual(upgrade.headers.getSetCookie(), [cookie]);
+  assert.equal(stages, 3, "one stage run per request");
+
+  const headers = new Headers();
+  const parent = createEnvironmentInjector([]);
+  const scope = createRequestScope(app, new Request("http://test/page"));
+  const injector = createEnvironmentInjector(
+    [
+      { provide: REQUEST_CONTEXT, useValue: scope },
+      { provide: REQUEST, useValue: scope.request },
+      { provide: RESPONSE_INIT, useValue: { headers } },
+      { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
+      { provide: FetchBackend, useValue: { handle: () => assert.fail("Unexpected fallback") } },
+      provideLaunchServer(app),
+    ],
+    parent,
+  );
+
+  function call(path) {
+    return new Promise((resolve) => {
+      injector
+        .get(HttpBackend)
+        .handle(new HttpRequest("POST", path, { input: null }))
+        .subscribe({ next: resolve, error: resolve });
+    });
+  }
+
+  try {
+    assert.equal((await call("/_rpc/page/read")).body, "read");
+    assert.equal((await call("/_rpc/page/again")).body, "again");
+    assert.deepEqual(headers.getSetCookie(), [cookie]);
+    assert.equal(stages, 4, "the render's scope ran its stage once");
+  } finally {
+    injector.destroy();
+    parent.destroy();
   }
 });

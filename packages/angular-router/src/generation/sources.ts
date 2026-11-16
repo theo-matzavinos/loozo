@@ -68,16 +68,6 @@ export interface RouteExtension {
   readonly steps: readonly ManifestStep[];
 }
 
-export interface LaunchDeclaration {
-  file: string;
-  kind: "defineContext" | "defineRpc";
-  call: ts.CallExpression;
-}
-
-export interface LaunchMode {
-  typeEntry: string;
-}
-
 export interface Sources {
   configFile: string;
   parsed: ts.ParsedCommandLine;
@@ -93,7 +83,8 @@ export interface Sources {
   coreEntry: string;
   authored: ReadonlyMap<string, string>;
   filesystem: boolean;
-  launch?: { typeEntry: string; declarations: LaunchDeclaration[] };
+  // Launch mode: generation adds Launch's server aggregate and copy data.
+  launch: boolean;
 }
 
 export function fail(node: ts.Node, message: string): never {
@@ -682,7 +673,7 @@ export async function discover(
   auto?: AutoDefineRoutes,
   authored: ReadonlyMap<string, string> = new Map(),
   filesystem = auto !== undefined,
-  launch?: LaunchMode,
+  launch = false,
   compiler?: CompilerState,
 ): Promise<Sources> {
   if (scans.length !== 1) {
@@ -757,7 +748,7 @@ export async function discover(
 
     await auditPath(normalized);
 
-    if (launch || contains(root, normalized)) {
+    if (contains(root, normalized)) {
       candidates.push(normalized);
     }
   }
@@ -770,8 +761,6 @@ export async function discover(
   const factoryEntry = await realpath(resolve(packageRoot, manifest.exports["."].types));
   const coreEntry = await realpath(resolve(packageRoot, manifest.exports["./_core"].types));
   const declarations: Declaration[] = [];
-  const launchDeclarations: LaunchDeclaration[] = [];
-  const launchEntry = launch && (await realpath(launch.typeEntry));
   const pages = new Map<string, string>();
   const syntaxHost = overlayHost(parsed.options, authored);
   let syntaxProgram: ts.Program;
@@ -842,39 +831,6 @@ export async function discover(
     }
 
     const node = defaults[0];
-    const inRoutes = contains(root, file);
-
-    if (launchEntry && ts.isExportAssignment(node) && ts.isCallExpression(node.expression)) {
-      const call = node.expression;
-      let kind: "defineContext" | "defineRpc" | undefined;
-      let imported = namedImport(source, call.expression, "defineContext");
-
-      if (imported) {
-        kind = "defineContext";
-      } else if (inRoutes) {
-        imported = namedImport(source, call.expression, "defineRpc");
-
-        if (imported) {
-          kind = "defineRpc";
-        }
-      }
-
-      if (kind && imported) {
-        if (!(await genuineImport(imported, launchEntry, parsed.options, syntaxHost))) {
-          fail(imported, `${kind} must resolve to Launch's concrete server entry`);
-        }
-
-        launchDeclarations.push({ file, kind, call });
-
-        continue;
-      }
-    }
-
-    // Context is audited over all application roots; unrelated bootstrap defaults
-    // outside route scans are not route declarations.
-    if (!inRoutes) {
-      continue;
-    }
 
     if (ts.isClassDeclaration(node)) {
       await component(source, node, parsed.options);
@@ -1316,12 +1272,6 @@ export async function discover(
     }
   }
 
-  let launchSources: Sources["launch"];
-
-  if (launchEntry) {
-    launchSources = { typeEntry: launchEntry, declarations: launchDeclarations };
-  }
-
   return {
     configFile,
     parsed,
@@ -1334,6 +1284,6 @@ export async function discover(
     coreEntry,
     authored,
     filesystem,
-    launch: launchSources,
+    launch,
   };
 }

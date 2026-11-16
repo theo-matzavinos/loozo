@@ -6,6 +6,7 @@ import { join } from "node:path";
 import os from "node:os";
 import { promisify } from "node:util";
 import { packageDirectory } from "./consumer.mjs";
+import { launchDirectory } from "./launch-consumer.mjs";
 
 const run = promisify(execFile);
 const require = createRequire(join(packageDirectory, "package.json"));
@@ -29,6 +30,7 @@ export function load() {
 export async function machine() {
   const cpus = os.cpus();
   const router = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
+  const launch = JSON.parse(await readFile(join(launchDirectory, "package.json"), "utf8"));
   const [pnpm, commit, status, core, build, cli, compilerCli, typescript] = await Promise.all([
     output("pnpm", ["--version"]),
     output("git", ["rev-parse", "HEAD"]),
@@ -53,6 +55,7 @@ export async function machine() {
     angular: { core, build, cli, compilerCli },
     typescript,
     router: router.version,
+    launch: launch.version,
     git: { commit, dirty: status.length > 0 },
     // Inherited settings that change Angular's builds (workers, type checking, mangling, …) or Node.
     environment: Object.fromEntries(

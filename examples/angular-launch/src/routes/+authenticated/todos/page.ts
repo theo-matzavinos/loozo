@@ -1,10 +1,8 @@
 import { Component, computed, signal } from "@angular/core";
 import { injectMutation, injectQuery, type QueryClient } from "@tanstack/angular-query";
-import type { Client } from "@loozo/angular-launch";
-import type todos from "./rpc";
-import { injectQueries, injectRpc } from "./rpc.generated";
+import { injectRoute, type Remote } from "./route.generated";
 
-type Todo = Awaited<ReturnType<Client<typeof todos>["list"]>>["todos"][number];
+type Todo = Awaited<ReturnType<Remote["todos"]["list"]>>["todos"][number];
 
 @Component({
   selector: "launch-todos",
@@ -74,11 +72,10 @@ type Todo = Awaited<ReturnType<Client<typeof todos>["list"]>>["todos"][number];
   `,
 })
 export default class Todos {
-  readonly #rpc = injectRpc();
-  readonly #queries = injectQueries();
-  readonly todos = injectQuery(() => this.#queries.todos.list.queryOptions());
+  readonly #route = injectRoute();
+  readonly todos = injectQuery(() => this.#route.queries.todos.list.queryOptions());
   readonly #add = injectMutation(() =>
-    this.#queries.todos.add.mutationOptions({
+    this.#route.queries.todos.add.mutationOptions({
       onSuccess: () => {
         this.title.set("");
       },
@@ -88,10 +85,10 @@ export default class Todos {
   // fails. config.ts reads the list again after the last pending write. The shared scope sends
   // the writes to the server one at a time, in order.
   readonly #complete = injectMutation(() =>
-    this.#queries.todos.complete.mutationOptions({
+    this.#route.queries.todos.complete.mutationOptions({
       scope: { id: "todos" },
       onMutate: async ({ id }, { client }) => {
-        const key = this.#queries.todos.list.key();
+        const key = this.#route.queries.todos.list.key();
 
         await client.cancelQueries({ queryKey: key });
 
@@ -105,7 +102,7 @@ export default class Todos {
       },
       onError: (error, { id }, result, { client }) => {
         // The server says it's gone: show that instead of the row as it was.
-        if (this.#rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+        if (this.#route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
           this.#updateTodos(client, (todos) => todos.filter((todo) => todo.id !== id));
 
           return;
@@ -120,10 +117,10 @@ export default class Todos {
     }),
   );
   readonly #remove = injectMutation(() =>
-    this.#queries.todos.remove.mutationOptions({
+    this.#route.queries.todos.remove.mutationOptions({
       scope: { id: "todos" },
       onMutate: async ({ id }, { client }) => {
-        const key = this.#queries.todos.list.key();
+        const key = this.#route.queries.todos.list.key();
 
         await client.cancelQueries({ queryKey: key });
 
@@ -140,7 +137,7 @@ export default class Todos {
       },
       onError: (error, _input, result, { client }) => {
         // Already gone: nothing to put back.
-        if (this.#rpc.todos.remove.isError(error) && error.code === "NOT_FOUND") {
+        if (this.#route.remote.todos.remove.isError(error) && error.code === "NOT_FOUND") {
           return;
         }
 
@@ -185,7 +182,7 @@ export default class Todos {
       await this.#add.mutateAsync({ title: this.title() });
       this.status.set("Todo added");
     } catch (error) {
-      if (this.#rpc.todos.add.isError(error) && error.code === "INVALID_INPUT") {
+      if (this.#route.remote.todos.add.isError(error) && error.code === "INVALID_INPUT") {
         this.status.set("Enter a title with 1–200 characters.");
       } else {
         this.status.set("Could not add todo. Refresh to check before retrying.");
@@ -200,7 +197,7 @@ export default class Todos {
       await this.#complete.mutateAsync({ id });
       this.status.set("Todo completed");
     } catch (error) {
-      if (this.#rpc.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+      if (this.#route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
         this.status.set("This todo no longer exists.");
       } else {
         this.status.set("Could not complete todo. Try again.");
@@ -217,7 +214,7 @@ export default class Todos {
       await this.#remove.mutateAsync({ id });
       this.status.set("Todo deleted");
     } catch (error) {
-      if (this.#rpc.todos.remove.isError(error) && error.code === "NOT_FOUND") {
+      if (this.#route.remote.todos.remove.isError(error) && error.code === "NOT_FOUND") {
         this.status.set("This todo no longer exists.");
       } else {
         this.status.set("Could not delete todo. Try again.");
@@ -243,7 +240,7 @@ export default class Todos {
 
   // Changes the cached list's todos; does nothing while the list hasn't loaded.
   #updateTodos(client: QueryClient, update: (todos: readonly Todo[]) => Todo[]): void {
-    client.setQueryData(this.#queries.todos.list.key(), (list) => {
+    client.setQueryData(this.#route.queries.todos.list.key(), (list) => {
       if (list === undefined) {
         return list;
       }

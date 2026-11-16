@@ -36,7 +36,7 @@ export interface ChannelSocket {
    * Takes over the started channel: from now on, the caller leaving before `accept` ends it.
    *
    * @param stream - The handler's iterator and the settler of its part of the call.
-   * @param outcome - The whole call's reply, from `dispatch`.
+   * @param outcome - The whole call's reply, from `runProcedure`.
    */
   start(stream: StreamStart, outcome: Promise<Reply>): void;
   /**

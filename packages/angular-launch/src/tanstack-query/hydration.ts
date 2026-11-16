@@ -3,29 +3,23 @@ import {
   APP_BOOTSTRAP_LISTENER,
   ApplicationRef,
   inject,
-  InjectionToken,
   makeEnvironmentProviders,
   PLATFORM_ID,
 } from "@angular/core";
 import type { EnvironmentProviders } from "@angular/core";
+import { launchQueries } from "../launch-queries.js";
+import { createQueries } from "./create-queries.js";
+import { hydrationWindow } from "./hydration-window.js";
 
 /**
- * Whether the app is still hydrating: open in the browser from bootstrap until the app is
- * first stable, never open on the server.
- *
- * @remarks
- * Internal; provided by {@link provideLaunchQueries} and read by generated query options.
- */
-export const hydrationWindow = new InjectionToken<{ open: boolean }>("Launch hydration window");
-
-/**
- * Provides what generated `injectQueries()` functions need: the app's hydration window.
+ * Provides what route handles' `queries` need: the TanStack factories and the app's
+ * hydration window.
  *
  * @remarks
  * Add it to the application's providers next to TanStack's `provideTanStackQuery(...)`,
- * not to a route or component. `injectQueries()` throws without it.
+ * not to a route or component. Reading `route.queries` throws without it.
  *
- * In the browser, generated query options don't refetch on mount while the app hydrates,
+ * In the browser, query options don't refetch on mount while the app hydrates,
  * from bootstrap until the app is first stable, so data dehydrated during server rendering
  * is used as is even with `staleTime: 0`. After that, `refetchOnMount` follows your
  * `QueryClient` defaults. This is the same window Angular's HTTP transfer cache uses.
@@ -53,6 +47,7 @@ export const hydrationWindow = new InjectionToken<{ open: boolean }>("Launch hyd
  */
 export function provideLaunchQueries(): EnvironmentProviders {
   return makeEnvironmentProviders([
+    { provide: launchQueries, useValue: createQueries },
     {
       provide: hydrationWindow,
       useFactory: () => ({ open: isPlatformBrowser(inject(PLATFORM_ID)) }),

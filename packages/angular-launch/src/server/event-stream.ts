@@ -8,7 +8,7 @@ export const keepAliveMs = 15_000;
  * A stream whose handler returned its iterable: the response can start.
  *
  * @remarks
- * Internal. `dispatch` hands it over and waits for `finished`: resolving it ends the
+ * Internal. `runProcedure` hands it over and waits for `finished`: resolving it ends the
  * handler's part of the call, rejecting it fails the call with that error.
  */
 export interface StreamStart {
@@ -96,7 +96,7 @@ export function failureFrame(reply: Reply): string {
  * threw, so middleware that wraps the stream never cleans up under a running handler.
  *
  * @param start - The started stream.
- * @param outcome - The whole call's reply, from `dispatch`.
+ * @param outcome - The whole call's reply, from `runProcedure`.
  * @param cancel - Aborted when the body is cancelled.
  * @param signal - The call's signal: it follows `cancel` and the request's signal.
  * @returns The response body.

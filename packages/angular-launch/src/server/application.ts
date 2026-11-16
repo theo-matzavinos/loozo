@@ -1,0 +1,155 @@
+import {
+  routeContributions,
+  type AnyRoute,
+  type ExtensionSpec,
+  type RouteFactory,
+} from "@loozo/angular-router/_core";
+import { defineRoute } from "../route.js";
+import { builder, type ErrorDefinitions, type ProcedureKind, type Schema } from "./definitions.js";
+import { declaredFailures, type DeclaredFailure } from "./errors.js";
+import type { Stage } from "./stages.js";
+
+/**
+ * A registered procedure, as the server dispatches it.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point.
+ */
+export interface RuntimeProcedure {
+  readonly kind: ProcedureKind;
+  readonly input: Schema | undefined;
+  readonly message: Schema | undefined;
+  readonly errors: ErrorDefinitions;
+  readonly use: readonly ChainMiddleware[];
+  readonly [declaredFailures]?: WeakMap<object, DeclaredFailure>;
+  readonly handler: (args: object) => unknown;
+}
+
+/**
+ * The runtime view of a middleware, a `middleware()` definition or a bare function; the
+ * dispatcher checks what it returns.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point.
+ */
+export type ChainMiddleware =
+  | { readonly run: (args: never) => Promise<unknown> }
+  | ((args: never) => Promise<unknown>);
+
+/**
+ * One namespace of a route's `.remote()`, bound to the route that declared it.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point.
+ */
+export interface BoundNamespace {
+  /** The namespace's procedures, keyed by name. */
+  readonly procedures: Readonly<Record<string, RuntimeProcedure>>;
+  /** The declaring route's `.use()` middleware. */
+  readonly use: readonly ChainMiddleware[];
+  /** The stages from the root to the declaring route, root first. */
+  readonly stages: readonly Stage[];
+}
+
+/**
+ * The application requests are bound to: its identity and its namespaces.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point. Generation writes it as `application`
+ * in `server.generated.ts`.
+ */
+export interface ApplicationBinding {
+  /** The generated application identity. */
+  readonly id: string;
+  /** Every route's `.remote()` namespaces, keyed by namespace. */
+  readonly namespaces: Readonly<Record<string, BoundNamespace>>;
+}
+
+/**
+ * Binds an application's authored routes into the {@link ApplicationBinding} the server
+ * dispatches with.
+ *
+ * @remarks
+ * Internal: exported only from `@loozo/angular-launch/_server` for the generated
+ * `server.generated.ts`. Each namespace's owner is fixed here, from the route that declared
+ * it: a call runs that route's stages and `.use()` middleware, whichever page called it.
+ * Every route with a stage that a listed route's chain holds must be listed too, so the
+ * stage carries its route's file. Generation lists every route with a server-only step and
+ * enforces namespace uniqueness.
+ *
+ * @param id - The generated application identity.
+ * @param routes - Each authored route with a server-only step, with its workspace-relative file.
+ * @returns The application binding.
+ * @throws TypeError for a route Launch's `defineRoute` didn't make, or a stage whose route
+ * isn't listed.
+ */
+export function bindApplication(
+  id: string,
+  routes: readonly (readonly [route: AnyRoute, file: string])[],
+): ApplicationBinding {
+  const chains: (readonly Readonly<Record<string, unknown>>[])[] = [];
+  // Keyed by each route's own record, which its descendants' chains share.
+  const labels = new Map<object, string>();
+  const stages = new Map<object, Stage>();
+  const namespaces: Record<string, BoundNamespace> = Object.create(null);
+  // `routeContributions` takes any extension's factory; a spec's step tuple isn't
+  // assignable to the general one, so name Launch's factory by the general type.
+  const factory = defineRoute as unknown as RouteFactory<ExtensionSpec>;
+
+  for (const [route, file] of routes) {
+    const chain = routeContributions(factory, route);
+
+    if (!chain || chain.length === 0) {
+      throw new TypeError(`Launch route has no server steps: ${file}`);
+    }
+
+    chains.push(chain);
+    labels.set(chain[chain.length - 1], file);
+  }
+
+  function stageOf(record: Readonly<Record<string, unknown>>): Stage {
+    let stage = stages.get(record);
+
+    if (!stage) {
+      const route = labels.get(record);
+
+      if (route === undefined) {
+        throw new TypeError("Launch stage belongs to a route the application doesn't list");
+      }
+
+      stage = { run: record.context as Stage["run"], route };
+      stages.set(record, stage);
+    }
+
+    return stage;
+  }
+
+  for (const chain of chains) {
+    const own = chain[chain.length - 1];
+
+    if (typeof own.remote !== "function") {
+      continue;
+    }
+
+    const owned: Stage[] = [];
+
+    for (const record of chain) {
+      if (typeof record.context === "function") {
+        owned.push(stageOf(record));
+      }
+    }
+
+    const build = own.remote as (procedures: typeof builder) => Record<string, object>;
+    const use = (own.use ?? []) as readonly ChainMiddleware[];
+
+    for (const [namespace, procedures] of Object.entries(build(builder))) {
+      namespaces[namespace] = {
+        procedures: procedures as Record<string, RuntimeProcedure>,
+        use,
+        stages: owned,
+      };
+    }
+  }
+
+  return { id, namespaces };
+}
