@@ -130,6 +130,7 @@ import { OrigamiComboboxOptions, OrigamiComboboxInputOptions, OrigamiComboboxTri
 import { OrigamiToaster, OrigamiToastRegionOptions, OrigamiToastOptions, OrigamiToastCloseOptions, type OrigamiToastRegionState, type OrigamiToastState, type OrigamiToastRecord } from '@loozo/origami-ui/toast';
 import { OrigamiSliderOptions, type OrigamiSliderState } from '@loozo/origami-ui/slider';
 import { OrigamiNumberFieldOptions, type OrigamiNumberFieldState } from '@loozo/origami-ui/number-field';
+import { OrigamiOtpFieldOptions, type OrigamiOtpFieldState, type OrigamiOtpFieldCell } from '@loozo/origami-ui/otp-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -573,6 +574,26 @@ const numberFieldValue: number | null = numberFieldState.value();
 const numberFieldErrorKind: string | undefined = numberFieldState.parseErrors()[0]?.kind;
 void numberFieldValue;
 void numberFieldErrorKind;
+// Positive: a whole OTP field factory, with ordinary signals.
+OrigamiOtpFieldOptions.provideFactory(() => ({value: signal(''), length: computed(() => 6), mask: signal(false), disabled: computed(() => false), readonly: signal(false)}));
+// @ts-expect-error OTP field value must be writable
+OrigamiOtpFieldOptions.provideFactory(() => ({value: computed(() => ''), length: signal(6), mask: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error OTP field value is a digit string, never a number
+OrigamiOtpFieldOptions.provideFactory(() => ({value: signal(123456), length: signal(6), mask: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error OTP field value is a string, empty when nothing is typed, never null
+OrigamiOtpFieldOptions.provideFactory(() => ({value: signal<string | null>(null), length: signal(6), mask: signal(false), disabled: signal(false), readonly: signal(false)}));
+// @ts-expect-error an OTP field factory must supply mask
+OrigamiOtpFieldOptions.provideFactory(() => ({value: signal(''), length: signal(6), disabled: signal(false), readonly: signal(false)}));
+declare const otpFieldState: OrigamiOtpFieldState;
+// @ts-expect-error OTP field State value is readonly
+otpFieldState.value.set('123456');
+const otpFieldComplete: boolean = otpFieldState.complete();
+const otpFieldCell: OrigamiOtpFieldCell | undefined = otpFieldState.cells()[0];
+const otpFieldChar: string | null = otpFieldCell!.char;
+// @ts-expect-error OTP field cell records are readonly
+otpFieldCell!.selected = true;
+void otpFieldComplete;
+void otpFieldChar;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
 OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
@@ -930,6 +951,13 @@ abstract class AbstractSlider {
   abstract readonly step: Signal<number>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractOtpField {
+  abstract readonly value: WritableSignal<string>;
+  abstract readonly length: Signal<number>;
+  abstract readonly mask: Signal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly readonly: Signal<boolean>;
+}
 abstract class AbstractNumberField {
   abstract readonly value: WritableSignal<number | null>;
   abstract readonly locale: Signal<string>;
@@ -1041,6 +1069,8 @@ export const providers: Provider[] = [
   OrigamiSliderOptions.provideExisting(() => AbstractSlider),
   OrigamiNumberFieldOptions.provideFactory(() => ({value: signal<number | null>(12.5), locale: signal('el-GR'), min: signal<number | undefined>(0), max: signal<number | undefined>(1000), step: signal(1), minimumFractionDigits: signal<number | null>(2), maximumFractionDigits: signal<number | null>(2), useGrouping: signal(true), disabled: signal(false), readonly: signal(false)})),
   OrigamiNumberFieldOptions.provideExisting(() => AbstractNumberField),
+  OrigamiOtpFieldOptions.provideFactory(() => ({value: signal('123'), length: signal(6), mask: signal(true), disabled: signal(false), readonly: signal(false)})),
+  OrigamiOtpFieldOptions.provideExisting(() => AbstractOtpField),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1327,6 +1357,21 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   countOutput(value: number | null): void { void value; }
   labelOutput(value: string | null): void { void value; }
   observeState(state: OrigamiNumberFieldState): void { void state; }`,
+  },
+  "otp-field": {
+    imports: `import { FormField, form, pattern, required } from "@angular/forms/signals";
+import { OrigamiOtpField, OrigamiOtpFieldInput, OrigamiOtpFieldState, type OrigamiOtpFieldCell } from "@loozo/origami-ui/otp-field";
+import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
+    directives: "FormField, OrigamiOtpField, OrigamiOtpFieldInput, OrigamiField, OrigamiFieldLabel",
+    members: `
+  readonly code = signal("");
+  readonly model = signal<{ code: string; amount: number | null }>({ code: "", amount: null });
+  readonly form = form(this.model, (path) => { required(path.code); pattern(path.code, /^[0-9]{6}$/); });
+  touched(): void {}
+  codeOutput(value: string): void { void value; }
+  countOutput(value: number): void { void value; }
+  observeCell(cell: OrigamiOtpFieldCell): void { void cell; }
+  observeState(state: OrigamiOtpFieldState): void { void state; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -2233,6 +2278,41 @@ const templates = [
       span: 'min="0"',
       message:
         /Setting the 'min' attribute is not allowed on nodes using the '\[formField\]' directive/,
+    },
+  },
+  {
+    name: "otp-field-positive",
+    family: "otp-field",
+    template: `<div ogField><label ogFieldLabel>Code</label><div ogOtpField #otp="ogOtpField" [formField]="form.code" (touch)="touched()" (valueChange)="codeOutput($event)" (click)="otp.focus({ preventScroll: true }); codeOutput(otp.state.value()); observeState(otp.state)"><input ogOtpFieldInput autocomplete="new-password" />@for (cell of otp.state.cells(); track cell.index) {<span (click)="observeCell(cell)">{{ cell.char }}</span>}</div></div><div ogOtpField [(value)]="code" (valueChange)="codeOutput($event)" length="4" mask disabled readonly><input ogOtpFieldInput aria-label="PIN" [attr.autocomplete]="'current-password'" /></div>`,
+  },
+  {
+    name: "otp-field-form-number",
+    family: "otp-field",
+    template: `<div ogOtpField [formField]="form.amount"><input ogOtpFieldInput /></div>`,
+    expected: {
+      code: 2322,
+      span: "formField",
+      message: /number \| null.*string/s,
+    },
+  },
+  {
+    name: "otp-field-output",
+    family: "otp-field",
+    template: `<div ogOtpField [(value)]="code" (valueChange)="countOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /string.*not assignable to parameter of type 'number'/s,
+    },
+  },
+  {
+    name: "otp-field-input-state",
+    family: "otp-field",
+    template: `<div ogOtpField><input ogOtpFieldInput #input="ogOtpFieldInput" /></div>`,
+    expected: {
+      code: -998003,
+      span: "ogOtpFieldInput",
+      message: /No directive found with exportAs 'ogOtpFieldInput'/,
     },
   },
   {

@@ -39,6 +39,7 @@
       "@loozo/origami-ui/toast": ["./toast/src/public-api.ts"],
       "@loozo/origami-ui/slider": ["./slider/src/public-api.ts"],
       "@loozo/origami-ui/number-field": ["./number-field/src/public-api.ts"],
+      "@loozo/origami-ui/otp-field": ["./otp-field/src/public-api.ts"],
       "@loozo/origami-ui/combobox": ["./combobox/src/public-api.ts"]
     }
   },
@@ -74,6 +75,7 @@
     "toast/src/**/*.ts",
     "slider/src/**/*.ts",
     "number-field/src/**/*.ts",
+    "otp-field/src/**/*.ts",
     "combobox/src/**/*.ts"
   ]
 }

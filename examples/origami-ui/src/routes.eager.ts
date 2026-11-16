@@ -120,6 +120,15 @@ export const routes: Routes = [
       import("./fixtures/number-field.js").then((module) => module.NumberFieldFixture),
   },
   {
+    path: "otp-field",
+    loadComponent: () => import("./fixtures/otp-field.js").then((module) => module.OtpFieldFixture),
+  },
+  {
+    path: "otp-field-pin-pad",
+    loadComponent: () =>
+      import("./fixtures/otp-field-pin-pad.js").then((module) => module.OtpFieldPinPadFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

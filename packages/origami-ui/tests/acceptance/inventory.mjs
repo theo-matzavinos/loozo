@@ -290,6 +290,13 @@ export const inventory = {
     "OrigamiNumberFieldIncrement",
     "OrigamiNumberFieldDecrement",
   ],
+  "otp-field": [
+    "OrigamiOtpField",
+    "OrigamiOtpFieldOptions",
+    "OrigamiOtpFieldState",
+    "OrigamiOtpFieldCell",
+    "OrigamiOtpFieldInput",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -314,4 +321,5 @@ export const typeOnly = new Set([
   "OrigamiDateFieldSegmentType",
   "OrigamiToastAddOptions",
   "OrigamiToastRecord",
+  "OrigamiOtpFieldCell",
 ]);
