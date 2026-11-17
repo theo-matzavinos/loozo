@@ -426,14 +426,17 @@ describe("add", () => {
     }
   });
 
-  test("copies the form controls, Dialog and Sheet with only what they import", async () => {
+  test("copies the form controls, the lists, Dialog and Sheet with only what they import", async () => {
     const cases = {
       checkbox: ["checkbox", "cn"],
+      combobox: ["cn", "combobox", "input", "popup"],
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
       "number-field": ["cn", "number-field"],
+      popup: ["popup"],
       "radio-group": ["cn", "radio-group"],
+      select: ["cn", "popup", "select"],
       sheet: ["button", "cn", "sheet"],
       slider: ["cn", "slider"],
       switch: ["cn", "switch"],
@@ -493,6 +496,25 @@ describe("add", () => {
       /selector: "button\[zzNumberFieldIncrement\]"/,
     );
     assert.match(readText(tree, "src/ui/slider/slider.ts"), /exportAs: "zzSlider"/);
+  });
+
+  test("renames Select's and Combobox's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["select", "combobox"] },
+      await setUp(runner),
+    );
+
+    assert.match(
+      readText(tree, "src/ui/select/select-trigger.ts"),
+      /selector: "button\[zzSelectTrigger\]"/,
+    );
+    assert.match(readText(tree, "src/ui/combobox/combobox.ts"), /exportAs: "zzCombobox"/);
+    assert.match(
+      readText(tree, "src/ui/combobox/combobox-empty.ts"),
+      /selector: "\[zzComboboxEmpty\]"/,
+    );
   });
 
   test("skips an existing named component by default, with a warning", async () => {

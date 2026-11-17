@@ -40,7 +40,7 @@ describe("cn", () => {
     assert.deepEqual(themeNames(css, "text"), []);
   });
 
-  test("lists exactly theme.css's text sizes, radii and shadows", async () => {
+  test("lists exactly theme.css's text sizes, radii, shadows and animations", async () => {
     const theme = await readFile(new URL("components/theme.css", dist), "utf8");
 
     for (const [namespace, names] of Object.entries(twMergeConfig.extend.theme)) {
@@ -48,6 +48,7 @@ describe("cn", () => {
     }
 
     assert.deepEqual(Object.keys(twMergeConfig.extend.theme).sort(byName), [
+      "animate",
       "radius",
       "shadow",
       "text",
@@ -66,6 +67,14 @@ describe("cn", () => {
     assert.equal(cn("rounded-dialog rounded-lg"), "rounded-lg");
     assert.equal(cn("shadow-edge shadow-pressed"), "shadow-pressed");
     assert.equal(cn("shadow-dialog shadow-none"), "shadow-none");
+  });
+
+  test("lets the last animation win, under the same variant too", () => {
+    assert.equal(cn("animate-popup-in animate-none"), "animate-none");
+    assert.equal(
+      cn("data-entering:animate-popup-in data-entering:animate-popup-out"),
+      "data-entering:animate-popup-out",
+    );
   });
 
   test("tv merges variants and a class with theme.css's names", () => {
