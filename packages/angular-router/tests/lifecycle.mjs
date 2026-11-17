@@ -3472,10 +3472,17 @@ publish(launchPlan, false, () => false, launchSources.authored, new Set());
 
 const launchRoutes = await readFile(join(launchApp, "generated/routes.generated.ts"), "utf8");
 
+// The bare leaf's record sits in its parent's children table, and reads its copy there for
+// the stamp; its page doesn't.
+const launchAreaChildren = await readFile(
+  join(launchApp, "src/routes/shell/area/children.generated.ts"),
+  "utf8",
+);
+
 await writeFile(join(evidence, "launch-routes.generated.ts"), launchRoutes);
-// The bare leaf's record reads its copy for the stamp; its page doesn't.
-assert.match(launchRoutes, /\nimport \{ route as route_shell_area_bare_route \} from /);
-assert.match(launchRoutes, /\.\.\.extension\(route_shell_area_bare_route\)/);
+await writeFile(join(evidence, "launch-area-children.generated.ts"), launchAreaChildren);
+assert.match(launchAreaChildren, /\nimport \{ route as route_shell_area_bare_route \} from /);
+assert.match(launchAreaChildren, /\.\.\.extension\(route_shell_area_bare_route\)/);
 
 const launchTypes = spawnSync(
   process.execPath,
