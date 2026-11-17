@@ -510,8 +510,8 @@ assert.ok(guideLinks.length>0);
 await generate(import.meta.dirname,{tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated',tanstackQuery:true});
 const generated=await readFile(import.meta.dirname+'/src/routes/route.generated.ts','utf8');
 assert.ok(generated.includes('from "@loozo/angular-launch/tanstack-query";'));
-assert.ok(generated.includes('export type Queries = '));
-assert.ok(generated.includes('readonly queries: Queries'));
+assert.ok(generated.includes('export type { routegen$type_Queries as Queries };'));
+assert.ok(generated.includes('readonly queries: routegen$type_Queries'));
 console.log('Packed TanStack Query subpaths and generation: PASS');`,
 );
 await run("node", ["verify.mjs"], queriesConsumer, "tanstack-query-exports-and-generation");

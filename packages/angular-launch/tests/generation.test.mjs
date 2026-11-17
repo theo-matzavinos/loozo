@@ -224,9 +224,15 @@ void result; void session; void resolved; void length; void context; void remote
   assert.equal(ownData(first["src/routes/route.generated.ts"].bytes), null);
   assert.match(left, /routegen\$authoredRouteOf<typeof routegen\$Authored>\(\)\(defineRoute, /);
   assert.match(left, /import type routegen\$Authored from "\.\/route\.js";/);
-  assert.match(left, /export type Remote = routegen\$t0<typeof routegen\$route>;/);
-  assert.match(left, /export type Context = routegen\$t1<typeof routegen\$route>;/);
-  assert.match(left, /type routegen\$Members = \{ readonly remote: Remote \};/);
+  assert.match(
+    left,
+    /type routegen\$type_Remote = routegen\$t0<typeof routegen\$route>;\nexport type \{ routegen\$type_Remote as Remote \};/,
+  );
+  assert.match(
+    left,
+    /type routegen\$type_Context = routegen\$t1<typeof routegen\$route>;\nexport type \{ routegen\$type_Context as Context \};/,
+  );
+  assert.match(left, /type routegen\$Members = \{ readonly remote: routegen\$type_Remote \};/);
   assert.doesNotMatch(left, /\.remote\(|middleware|schema|Queries/);
   // The copy keeps only the router steps: the server's imports are gone with their steps.
   assert.doesNotMatch(left, /@loozo\/angular-launch\/server|\.\.\/\.\.\/schema/);
@@ -1574,10 +1580,13 @@ clear: mutation({handler: () => null}),
     copy,
     /import type \{ QueriesOf as routegen\$t2 \} from "@loozo\/angular-launch\/tanstack-query";/,
   );
-  assert.match(copy, /export type Queries = routegen\$t2<typeof routegen\$route>;/);
   assert.match(
     copy,
-    /type routegen\$Members = \{ readonly remote: Remote; readonly queries: Queries \};/,
+    /type routegen\$type_Queries = routegen\$t2<typeof routegen\$route>;\nexport type \{ routegen\$type_Queries as Queries \};/,
+  );
+  assert.match(
+    copy,
+    /type routegen\$Members = \{ readonly remote: routegen\$type_Remote; readonly queries: routegen\$type_Queries \};/,
   );
   assert.deepEqual(ownData(copy), ownData(left));
   assert.match(
