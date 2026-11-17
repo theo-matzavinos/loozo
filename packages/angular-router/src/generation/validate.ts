@@ -1310,7 +1310,12 @@ function validateCopies(
       ];
 
       for (const diagnostic of diagnostics) {
-        const text = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+        let text = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+
+        // Translated segments are $localize messages; their types come from @angular/localize.
+        if (diagnostic.code === 2304 && text.includes("'$localize'")) {
+          text += "; add @angular/localize to compilerOptions.types";
+        }
 
         messages.push(
           `${location(declaration, copy, diagnostic.start ?? 0)}: TS${diagnostic.code}: ${text} (in its generated ${kind})`,

@@ -42,6 +42,8 @@ export type {
   UrlFacts,
 } from "./fluent.js";
 export { createUrl } from "./url.js";
+export { angularPath } from "./path.js";
+export { serverRoutePath } from "./server-route-path.js";
 export type {
   Route,
   AnyRoute,

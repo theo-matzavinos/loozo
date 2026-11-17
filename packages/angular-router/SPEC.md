@@ -20,7 +20,7 @@ The concrete consumer is an Angular application that:
 
 | Surface                                | Contract                                                                                                                                                                                                 |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@loozo/angular-router`                | `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`, `arrayParam`; exported types `Route`, `ParamCodec`, `Destination`, `ParamsOf`, `SearchOf`, `TargetOf` |
+| `@loozo/angular-router`                | `defineRoute`, `createUrl`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`, `arrayParam`; exported types `Route`, `ParamCodec`, `Destination`, `ParamsOf`, `SearchOf`, `TargetOf` |
 | `@loozo/angular-router/package.json`   | Package metadata subpath                                                                                                                                                                                 |
 | `@loozo/angular-router:application`    | Angular Architect application companion                                                                                                                                                                  |
 | `@loozo/angular-router:serve`          | Angular Architect dev-server companion                                                                                                                                                                   |
@@ -122,7 +122,7 @@ A parent must be the actual route created by this package instance. Structural f
 
 Route values are frozen and nominal, not structurally constructible. Codec records are copied; later caller map edits cannot replace the retained declarations. Caller-owned codec objects are retained and not frozen: changing their methods can affect later behavior.
 
-The exact local `path` is the value's only enumerable own property. The steps it still offers are non-enumerable own functions. Parent links, effective paths, codec maps and behavior values (resolver maps, policies, guards and the rest) are not public properties. Each step returns a new frozen route and leaves the one it was called on unchanged, so earlier values in a chain stay valid and one value can start several chains; the declaration is the chain's last value, the one the module default-exports. A declaration module exports nothing else (§10).
+The exact local `path` is the value's only enumerable own property. It is always the authored text: with translated segments (§11) a route copy's `path` stays canonical, and only URLs and Angular paths use the build's words. The steps it still offers are non-enumerable own functions. Parent links, effective paths, codec maps and behavior values (resolver maps, policies, guards and the rest) are not public properties. Each step returns a new frozen route and leaves the one it was called on unchanged, so earlier values in a chain stay valid and one value can start several chains; the declaration is the chain's last value, the one the module default-exports. A declaration module exports nothing else (§10).
 
 `Route<Path, Params, Search, Resolvers>` remains an exported nominal type: the first three parameters retain their meaning and are required; the fourth is a local resolver callback map and defaults to an empty map. Additional defaulted type parameters may support new inference, but callers need no generic arguments. `Route` has no step members: a chain value's type is its `Route` plus the steps it still offers, so it stays assignable to `Route`. Generated code reads the step-free `Route` through a private type-only member. The search values URL creation accepts derive from `Search`: every key optional, `undefined` allowed. Readonly optional `__params`, `__search`, `__data`, and `__title` type witnesses preserve inferred inputs, unwrapped effective resolver data, and whether the declaration or an ancestor declares a title (§8); an optional `__contribution` witness carries a route extension's contribution chain. They do not promise populated runtime fields. `__data` excludes redirect commands. The branding mechanism itself is private.
 
@@ -211,6 +211,10 @@ Runtime definitions, literal-path types, and generator validation share the stru
 
 A path codec's **stringified output** must be nonempty and neither `.` nor `..`. These restrictions apply only to path serialization, at every segment position. Search and fragment may contain those strings. Native URL normalization makes dot values unrepresentable even when percent-encoded.
 
+### Translated static segments
+
+With `translateSegments` (§12), each static segment's text is a message (§11), and a build's translation of it must itself be one static segment: nonempty, not exactly `.`, `..`, `*` or `**`, not beginning `:` or `$`, without `/`, with well-formed Unicode, and without placeholders. Translation therefore keeps every declaration's segment count, parameter names and positions, and catchall. Generation rejects any other translation (§10). A destination that receives one anyway, in a build run without generation after a catalog edit, throws a TypeError naming the declaration and the segment when it evaluates.
+
 ## 4. Codecs [C]
 
 ```ts
@@ -270,7 +274,9 @@ createUrl(product, {
 // /products/42?tab=reviews#summary
 ```
 
-`createUrl(target, values)` synchronously returns a root-relative string, typed `` `/${string}` ``, and never calls parsers. `target` is a genuine destination (§6) or a genuine route of this package instance: an inline or authored declaration, or a route copy. A declaration, its route copy and its destination give the same bytes. The values are typed from the destination's referenced schema, as from the route's.
+`createUrl(target, values)` synchronously returns a root-relative string, typed `` `/${string}` ``, and never calls parsers. `target` is a genuine destination (§6) or a genuine route of this package instance: an inline or authored declaration, or a route copy. A declaration, its route copy and its destination give the same bytes, except with translated segments (§11): a destination and its route copy then serialize the running build's words, while a declaration evaluated directly serializes its canonical ones. Generated and application code never evaluate a declaration (§10). The values are typed from the destination's referenced schema, as from the route's.
+
+The string is relative to the router root. In an Angular localize build, the locale's `subPath` or base href is outside it: the German build's `createUrl(product, …)` is `/produkte/42`, which `RouterLink` and router navigation prefix with `/de/`, and a raw `href` doesn't.
 
 ### Input typing and runtime boundary
 
@@ -376,7 +382,7 @@ route.link({
 
 Every admitted declaration's `destination.generated.ts` exports an inert `destination`, usable without an injection context or target activation and without loading the declaration's route copy. Its type, `Destination<Target, Id>`, carries the referenced declaration's URL schema (effective params and search, own fragment names, catchall shape) and its generated id in a type-only brand. `navigate({ to: destination, ... })` and `link({ to: destination, ... })` use the same serialization/native behavior as their other forms, as do `createUrl` (§5), `.redirect` (§9) and the active route's `is`/`contains` (below). A destination is genuine when this physical package instance's generated code defined it; any genuine destination is a target, whatever generated tree it came from. Structural copies, spreads and fakes, destinations of another package instance, routes (authored, inline or route copies) and handles are not destinations. Registration/branding representation is private.
 
-A destination selects its own declaration, like that declaration's own call without `to`; it does not silently substitute a canonical pathless winner. A redirect source's destination addresses the source URL with source inputs. Destinations are not a public graph/model API.
+With translated segments (§11), a destination serializes, links, navigates and redirects with the words of the build that evaluated it; its type, id and canonical path don't change. A destination selects its own declaration, like that declaration's own call without `to`; it does not silently substitute a canonical pathless winner. A redirect source's destination addresses the source URL with source inputs. Destinations are not a public graph/model API.
 
 A destination is not a route: it offers no steps, can't be a `parent`, and the route type extractors don't read it, so `ParamsOf<typeof destination>` is `{}`. `TargetOf<D>` is the URL schema a destination references (`undefined` for anything else), so `ParamsOf<TargetOf<typeof destination>>` and `SearchOf<TargetOf<typeof destination>>` name its values.
 
@@ -762,6 +768,8 @@ Equal unrelated ordinary effective shapes fail, including nonleaf declarations a
 
 Builder diagnostics identify the failure and the relevant input/source location when available. Collision/overlap diagnostics identify both participants; missing files must not invent a source span. Invalid input, configuration/I/O/syntax errors, provenance/authoring failures, unsafe paths, ancestry/ownership errors, and redirect/matching conflicts must be distinguishable enough to fix the source.
 
+**Per locale.** With `translateSegments` (§12), every locale in the project's `i18n` configuration, the source locale and each entry of `locales`, whatever `localize` selects, gets the same matching, catchall and redirect-target rules on its translated tree, before any write. A word a locale's catalogs don't translate stands as its source text, the text Angular's inliner ships for it. A translation that breaks §3's rule names the locale, the message id, the text and the catalog file it came from; a tree failure carries the canonical diagnostic prefixed `Locale <code>: `, with the translated paths. Missing and duplicate translations are Angular's: its `i18nMissingTranslation` and `i18nDuplicateTranslation` options apply in the Angular build, and generation reports neither. Check mode and every serve regeneration validate the same way, so a catalog edit changes only whether generation passes, never its output.
+
 There is no public diagnostic union, serialized target/reference object, graph-result shape, or deep-freezing guarantee. Exact message wording, numeric-code vocabulary, intermediate severity representation, and universal multi-error accumulation/order policy are not compatibility requirements. Retain TypeScript diagnostic numbers where reporting TypeScript configuration/syntax failures; keep diagnostics deterministic across equivalent inputs/root order.
 
 ## 11. Generation, artifacts, and CI checking [F]
@@ -799,6 +807,16 @@ Both per-route files are copies of the declaration's final text (after filesyste
 - **Extension descriptors.** Launch's generation (`emitLaunchRoutes` in the `_generation` seam) supplies, per declaration, the copy's `own` data, written as a JSON literal its root reads; type descriptors `{ name, type, from }`, each emitted on every extension route copy as an exported type `<name>` = `<type><typeof route>`, with `type` imported type-only from `from` and the alias declared under a `routegen$` local name, so `<name>` can match a binding the declaration keeps; and member descriptors `{ member, type }`, each a `readonly <member>: <type>` that the copy's `injectRoute()` handle type and its `RouteTypes` entry (§6) add. A redirect copy gets the type exports but no `injectRoute`. The router emits what it's told and doesn't know the names.
 
 A route copy is a genuine route whose canonical identity is its destination; its parent must be the parent declaration's route copy, whose destination is the destination's parent. Generated bytes beyond this shape are unspecified (§1).
+
+### Translated segments
+
+With `translateSegments` (§12), each destination copy passes, after its id and on the root call's line, one `$localize` message per local static segment of its declaration. A message's id is `route.segment.` followed by the segment's canonical text, percent-encoded with `encodeURIComponent`; its meaning is `URL path segment` and its description `One segment of page URLs, without "/". Changing it changes links and bookmarks.` So a word has one message, translated once for the whole tree, and its id survives file moves. Angular's inliner replaces the messages per locale in browser and server bundles, lazy chunks included, so each build's destinations hold that build's words (§3, §5, §6).
+
+Every record whose Angular `path` holds a static segment reads it from its destination: its local segments, or a hoisted redirect's effective ones. Records whose path has only parameters, catchalls or nothing keep their literal `path`. The route copy, `RouteTypes`, ids, `..` winners and selectors stay canonical.
+
+Generated bytes depend only on the authored sources and the option, never on a translation catalog, so check mode stays deterministic. Without the option the output is byte for byte what it is without this feature.
+
+`@angular/build:extract-i18n` finds the route messages in the generated destination copies on disk, which the browser build reaches, lazy children tables included. After adding a route with a new word: run `ng build` (or keep `ng serve` running), which writes the new copies, and, under `i18nMissingTranslation: "error"`, fails in Angular naming the new `route.segment.*` id; run `ng extract-i18n`; translate the unit; build again.
 
 ### Ownership and filesystem effects
 
@@ -847,6 +865,7 @@ Options are the router options below plus `@angular/build:application` options, 
 - Required `scanDirectories: string[]` containing exactly one nonempty string, in both modes.
 - Required nonempty `outDirectory: string`.
 - Optional `check: boolean`, default false.
+- Optional `translateSegments: boolean`, default false. Every static segment becomes a `$localize` message (§11), translated per Angular localize build. It needs `@angular/localize` (an optional peer) and `@angular/localize/init` in the build's `polyfills`; generation fails naming the missing piece. The route and application tsconfigs need `"types": ["@angular/localize"]`; a copy's `TS2304` for `$localize` says so. Launch's builders don't offer the option.
 - Optional `autoDefineRoutes: false | { filename?: string }`. Omitted or an object selects editable filesystem definitions (filesystem mode), seeding `filename`, default `route.ts`; `false` selects explicit mode: no seeding or synchronization, and authored paths and parents alone determine the tree. No additional nested keys. Filename must be a simple implementation `.ts` basename, not `.d.ts`, traversal or any generated artifact filename. It affects only new seeds, not discovery or renaming.
 
 ### Editable filesystem definitions
@@ -861,6 +880,8 @@ Plan all source edits/seeds in memory, then discover/resolve/compile the combine
 
 Resolve config/out relative to the Angular workspace root or as absolute paths. Resolve scans against the route config directory. Architect validates router and Angular options against the combined schema before the builder runs, so invalid options fail before outputs are touched. Reject resolved `watch: true`.
 
+With `translateSegments`, the builder reads the project's `i18n` configuration through Architect's project metadata, as Angular's application builder does: `sourceLocale` is a string or `{ code }` (`en-US` when omitted), each `locales` entry a file, a list of files or `{ translation }`, and file paths are joined to the workspace root. It passes them, with the resolved `polyfills`, to generation. Generation loads each locale's catalogs with the public parsers of `@angular/localize/tools` in Angular's order (ARB, JSON, XLIFF 1.2, XLIFF 2, XTB): the first parser whose analysis accepts a file parses it, diagnostics a parser returns are ignored as Angular's loader ignores them, a later file wins on a duplicate id, and a file no parser accepts, or a parser that throws, fails generation.
+
 Run generation/check before scheduling `@angular/build:application` by name (Architect `scheduleBuilder`) with the passthrough options and the current target. Generation/check/validation failure prevents the official build: the builder logs the failure, with every diagnostic the generator collected, through the Architect logger and returns `{ success: false }` rather than throwing. Forward the first native BuilderOutput unchanged, including failure fields; propagate official exceptions. Stop the official run after the first output, including one that otherwise remains alive. This is one-shot, not watch mode. Consumer supplies Angular's normal application build dependencies. No experimental `@angular/build` API or `@angular/build/private` is used.
 
 ## 13. Companion serve builder [S]
@@ -873,13 +894,14 @@ Options are `@angular/build:dev-server` options, from the workspace configuratio
 - Optional `poll: number | false`. Omitted, serve passes `poll: 1000` to the dev server; `false` passes none, so the router adds no default and Angular's own configuration applies (native file events unless the build target sets `poll`). Other values must be positive milliseconds. The CLI flag accepts milliseconds only; `false` is workspace configuration. `0` is rejected: Angular 22.2.2 turns any numeric `poll`, zero included, into chokidar polling with that interval, so it can't mean native events.
 
 1. Architect validates the options against the builder schema before the builder runs. Validate the build target before watching or generating.
-2. Start watching configured route roots **before initial generation** so initial edits are not missed.
+2. Start watching configured route roots, and with `translateSegments` the build target's translation files, **before initial generation** so initial edits are not missed.
 3. Initial generation must succeed before scheduling `@angular/build:dev-server` by name with the passthrough options and the current target. A failed initial generation is logged, emitted as `{ success: false }`, and completes the builder without starting the dev server.
 4. Forward continuous native success/failure outputs unchanged.
 5. Add/change/remove implementation files in route roots trigger serialized, coalesced regeneration; output safety/ownership rules remain. A write of an owned per-route file (`destination.generated.ts` or `route.generated.ts` whose last non-empty line is its marker, LF or CRLF) triggers none; an unmarked file with either name does.
 6. Later generation errors are logged but leave the server running for the next repair. Angular may serve the prior successful build or display a build error after removed inputs.
 7. Changed consumed generated files permit Angular rebuilding without server restart. Byte-identical outputs are not touched and do not guarantee an Angular rebuild.
 8. Stop closes both watcher and the official run. Edits after stop cause no generation writes.
+9. A translation file edit runs the same regeneration. Generated bytes don't depend on catalogs (§11), so only the per-locale check (§10) runs, and its error is logged at once. Angular's dev server reloads catalogs on every rebuild but doesn't watch them as catalogs: a catalog edit reaches the served app at the next Angular rebuild, which is the next source save or restart unless Angular watches that file for another reason (imported, an asset, or under an `NG_BUILD_WATCH_ROOT` root), in which case the edit itself triggers it. Until that rebuild the previous catalog is served. After a rebuild with a bad catalog, a collision lets the earlier record win, and a translation that breaks §3's rule throws when its destination evaluates, so server rendering fails and the app doesn't boot; repairing the catalog clears the log at once and the app at the next rebuild. A multi-locale `localize: true` dev server serves unlocalized source, so serve a single locale (`localize: ["de"]`).
 
 An authored file may temporarily trigger Angular's rebuild before generation publishes updated output. No whole-build transaction, automatic restart, watch guarantee for arbitrary imported helper/config changes, or custom application build pipeline is added.
 
@@ -927,6 +949,22 @@ Use server-safe resolver imports/providers and deterministic server/browser valu
 
 This is development-server Chromium proof, not production serving, cross-engine certification, nondeterministic hydration support, or a complete SSR framework.
 
+### Translated segments proof
+
+`examples/angular-router/localize-proof` is a filesystem-mode app built `en` + `de` with `translateSegments`, `localize: true`, `outputMode: "server"` and `i18nMissingTranslation: "error"`: `products` (`produkte`), `products/$productId`, a componentless `teams/$teamId` whose lazy children table holds a pathless overview and `members` (`mitglieder`), a parented redirect `old-products/$productId` (`alte-produkte`) to the product, and a root `$segments[]` catchall. Its server routes name the product with `serverRoutePath` as `Prerender` for id 1, and `**` as `Server`. `tests/localize.mjs` observes:
+
+| Action                                                  | Expected result                                                                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ng build --configuration ci`                           | Committed outputs are current; the build passes                                                                     |
+| Inspect the build                                       | Only `/en/products/1` and `/de/produkte/1` prerendered; each locale's browser and server bundles pass that locale's words to the product and members destinations, members' only in its lazy chunk; no `$localize` message left |
+| One fresh server: en product 1, de product 1, en members | 200, English hrefs on the lazy English page after German rendered                                                  |
+| Live SSR `/en/products/2`, `/de/produkte/2`             | 200, product 2, hrefs `/en/products/…` and `/de/produkte/…`, `createUrl` without the locale prefix                  |
+| SSR `/de/products/2`, `/de/alte-produkte/1`             | The catchall's not-found page with no product; 302 to `/de/produkte/1`                                              |
+| Hydrate `/de/produkte/2` in Chromium, click team, members | Server node retained, no errors, one document, the children table fetched once, URL `/de/teams/7/mitglieder`       |
+| `ng extract-i18n`                                       | `route.segment.*` units, the lazy-only `members` included, with their meaning and description                       |
+| Add an `offers` page, build, extract, translate, build  | Angular fails naming `route.segment.offers` after generation wrote it; extraction lists it; the translated build serves `/de/angebote` |
+| `ng serve` (de) through bad catalog edits and a repair  | Errors logged at once with no rebuild; after a source save, the collided route loses and the invalid one fails server rendering; after the repair and a save, both routes render |
+
 ## 15. Deliberate exclusions and unspecified edges [E]
 
 Excluded: replacing Angular Router; route extensions as an application API, more than one extension in one route ancestry, and authentication of an extension's runtime beyond its declared type (§2 "Route extensions", §10: installed extensions are trusted provenance); a separate runtime routing framework; public source-graph/library-generation APIs and their exported model types; required `/tooling` or `/generated-runtime` entry points; standalone generation CLI; general-purpose scaffolding or authored rewrites beyond the structural filesystem fields in §12; `.mts`, `.cts`, or `.tsx` authored route/page support (below), generated routes from other packages (below), or a general authoring-format/interoperability guarantee beyond `.ts` Angular consumers; loader/data/transfer caches (the active-route hydration seed is display state dropped at the first navigation outcome, not a cache); server functions/RPC; custom SSR renderer; rich built-in codecs/schema adapters; unnamed/nonterminal/multiple wildcard forms, custom matchers and other native structural overrides; string navigation targets other than `..` (authored paths and other relative selectors), arbitrary URL/query-merge APIs beyond §6; server-module checks beyond a route's copies' own imports, and a type-only import of a declaration from generated code (§10); an active-route lookup by destination, public route ids, pending-navigation state on the active route, active-route identity shared across readers, and atomic chain values (§6, §7); stable private helper APIs or generated bytes across releases (§1).
@@ -935,10 +973,11 @@ Authored route/page files stay `.ts`-only (§10), for 1.0 and after. Angular tem
 
 Generation reads one scan root (§10) and doesn't generate routes declared in other packages, such as a monorepo library. A library contributes native Angular `Routes`, composed by hand next to the generated array (for example through a hand-written `loadChildren` record); generation doesn't validate them, and typed destinations can't reach them. Mounting library routes with typed links needs app-owned copies per mount, source-only library resolution and builder changes against duplicate library code, which costs more than it gives.
 
+Translated static segments (§11) leave out: a link to the same page in another locale, since each build holds only its own words (a language switcher links to a locale's root with a plain `href`); SEO alternate links; locale detection and language redirects; switching locale inside one build; per-declaration opt-in, opt-out or message ids; translating parameter values, search keys or fragments; and Launch applications, whose server host code isn't localized. A locale can also be an ordinary `$locale` parameter in the route tree instead of an Angular localize build; using both gives a doubled prefix such as `/de/de/products`.
+
 Not yet supported, planned for 1.0. Each gets its contract in this spec when it lands; until then the rules above are the contract:
 
 - Named outlets: routes declared into a named outlet, and typed navigation that opens, replaces and closes outlet branches next to the primary route. Today generation emits primary-outlet records only (§11) and rejects `outlet` (§2). Hand-written outlet routes can sit next to the generated `routes` array, but they're untyped, and the URL that typed `link`/`navigate` build carries only the primary branch: navigating with it drops any auxiliary branch in the current URL. A native empty-path outlet route can still activate without one.
-- Translated static segments: a generated route tree per locale, selected by each Angular localize build variant. Today every locale shares the authored segments. Angular's per-locale `subPath` or base href prefixes deployment URLs outside `createUrl` (§5), which returns router-root-relative URLs. A locale inside the route tree is an ordinary `$locale` parameter (`[locale]` is a static segment) that every typed link into that subtree supplies. Using both gives a doubled prefix such as `/de/de/products`. Route paths are string literals (§2), so `$localize` can't translate them, and extract-i18n doesn't treat paths as messages.
 
 Unspecified rather than new requirements: exotic Proxy/property-descriptor behavior; every malformed untyped codec invocation; enum duplicate/empty-list mutation policies; every wrapper-of-wrapper combination beyond §4; arbitrary any/unknown/thenable type tricks; exhaustive custom serializers/LocationStrategies/detached-route reuse; module cycles through files or reference forms §10 doesn't scan; total diagnostic accumulation policy; byte-level BOM/line-ending/trivia stability of generated output; crash-durable or concurrent-writer filesystem publication.
 

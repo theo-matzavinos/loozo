@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, writeFile, readFile, rename, rm, realpath, stat, symlink } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -4866,4 +4866,617 @@ test("the import rule admits an extension copy's erased own import and Launch's 
       name,
     );
   }
+});
+
+// Translated static segments (5d9b5661): emission, setup, per-locale validation and the loader.
+
+const localizeInit = "@angular/localize/init";
+
+function xliff1(units, locale = "de") {
+  const lines = [];
+
+  for (const [id, target] of units) {
+    lines.push(
+      `      <trans-unit id="${id}" datatype="html"><source>x</source><target>${target}</target></trans-unit>`,
+    );
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" ?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="${locale}" datatype="plaintext" original="ng2.template">
+    <body>
+${lines.join("\n")}
+    </body>
+  </file>
+</xliff>
+`;
+}
+
+// A filesystem project with translated segments: `@angular/localize` types, a de catalog and
+// the build's localization.
+async function localizedProject({ catalog = xliff1([]), extra = {} } = {}) {
+  const project = await filesystemProject();
+
+  await project.write(
+    "tsconfig.json",
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES2022",
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        strict: true,
+        skipLibCheck: true,
+        experimentalDecorators: true,
+        lib: ["ES2022", "DOM"],
+        types: ["@angular/localize"],
+      },
+      include: ["src/**/*.ts"],
+    }),
+  );
+  await project.write("src/locale/messages.de.xlf", catalog);
+
+  const localization = {
+    sourceLocale: "en",
+    locales: [{ code: "de", files: [resolve(project.root, "src/locale/messages.de.xlf")] }],
+    polyfills: [localizeInit],
+  };
+
+  return {
+    ...project,
+    localization,
+    catalog: (text) => project.write("src/locale/messages.de.xlf", text),
+    translate: (options = {}) =>
+      project.generate({ translateSegments: true, localization, ...extra, ...options }),
+  };
+}
+
+// What each `$localize` message in a destination copy's fourth argument parses to.
+async function segmentMessages(copy) {
+  const { ɵparseMessage } = await import("@angular/localize");
+  const line = copy.split("\n").find((text) => text.includes("routegen$defineDestination("));
+  const start = line.lastIndexOf(", [$localize");
+
+  if (start === -1) {
+    return undefined;
+  }
+
+  const array = line.slice(start + 2, line.lastIndexOf(")"));
+  const messages = new Function("$localize", `return ${array};`)((strings) =>
+    ɵparseMessage(strings, []),
+  );
+  const result = [];
+
+  for (const message of messages) {
+    result.push({
+      id: message.customId,
+      text: message.text,
+      meaning: message.meaning,
+      description: message.description,
+    });
+  }
+
+  return result;
+}
+
+async function outputSnapshot(project) {
+  const result = new Map();
+
+  async function visit(directory) {
+    const { readdir } = await import("node:fs/promises");
+
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+
+      if (entry.isDirectory()) {
+        await visit(path);
+      } else if (entry.name.endsWith(".generated.ts") || entry.name === "route.ts") {
+        const info = await stat(path, { bigint: true });
+
+        result.set(path, { bytes: await readFile(path, "utf8"), mtimeNs: info.mtimeNs });
+      }
+    }
+  }
+
+  await visit(resolve(project.root, "src"));
+  await visit(resolve(project.root, "generated"));
+
+  return result;
+}
+
+test("translated segments: one $localize message per static word, escaped, in the destination copy", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute, numberParam, stringParam } from "@loozo/angular-router";\n';
+  const words = [
+    "a`b",
+    "c\\d",
+    "e${f}",
+    "g:h",
+    "i@@j",
+    "k|l",
+    "über",
+    "cr\rx",
+    "lf\nx",
+    "crlf\r\nx",
+    "ls\u2028x",
+    "x",
+  ];
+  const routes = {
+    tricky: `${header}export default defineRoute(${JSON.stringify(`${words.join("/")}/$id`)}, { params: { id: numberParam } });\n`,
+    "tricky/child": `${header}import parent from "../route.js";\nexport default defineRoute("x/$rest[]", { parent, params: { rest: stringParam } });\n`,
+    "only-param": `${header}export default defineRoute("$slug", { params: { slug: stringParam } });\n`,
+    pathless: `${header}export default defineRoute("", {});\n`,
+  };
+
+  await project.author(routes);
+  await project.write(
+    "tsconfig.json",
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES2022",
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        strict: true,
+        skipLibCheck: true,
+        experimentalDecorators: true,
+        lib: ["ES2022", "DOM"],
+        types: ["@angular/localize"],
+      },
+      include: ["src/**/*.ts"],
+    }),
+  );
+  await project.generate({
+    translateSegments: true,
+    localization: { sourceLocale: "en", locales: [], polyfills: [localizeInit] },
+  });
+
+  const tricky = await project.read("src/routes/tricky/destination.generated.ts");
+  const messages = await segmentMessages(tricky);
+  const expected = [];
+
+  for (const word of words) {
+    expected.push({
+      id: `route.segment.${encodeURIComponent(word)}`,
+      text: word,
+      meaning: "URL path segment",
+      description:
+        'One segment of page URLs, without "/". Changing it changes links and bookmarks.',
+    });
+  }
+
+  assert.deepEqual(messages, expected);
+  // The child's own static word only; the parent's come from its destination.
+  assert.deepEqual(
+    (
+      await segmentMessages(await project.read("src/routes/tricky/child/destination.generated.ts"))
+    ).map((message) => message.text),
+    ["x"],
+  );
+  // Param-only and pathless declarations carry no messages.
+  assert.equal(
+    await segmentMessages(await project.read("src/routes/only-param/destination.generated.ts")),
+    undefined,
+  );
+  assert.equal(
+    await segmentMessages(await project.read("src/routes/pathless/destination.generated.ts")),
+    undefined,
+  );
+
+  // The messages sit on the root's line, so the copy keeps the declaration's lines.
+  assert.equal(
+    tricky.split("\n").findIndex((line) => line.includes("routegen$defineDestination(")),
+    1,
+  );
+
+  // Only records with static text read their path from the destination.
+  const routesFile = await project.read("generated/routes.generated.ts");
+  const table = await project.read("src/routes/tricky/children.generated.ts");
+
+  assert.match(routesFile, /path: nativePath\(destination_tricky_route\)/);
+  assert.match(routesFile, /path: ":slug"/);
+  assert.match(routesFile, /path: ""/);
+  assert.match(routesFile, /import \{ record, nativePath, /);
+  assert.match(table, /path: nativePath\(destination_tricky_child_route\)/);
+  assert.doesNotMatch(routesFile, /effectivePath/);
+});
+
+test("translated segments: a hoisted redirect reads its effective path; seeded errors keep their line", async () => {
+  const project = await localizedProject();
+
+  await project.page("products/$productId");
+  await project.page("teams/$teamId");
+  await project.write(
+    "src/routes/teams/$teamId/old/$id/route.ts",
+    `import { defineRoute, stringParam } from "@loozo/angular-router";
+import parent from "../../route.js";
+import { destination as product } from "../../../../products/$productId/destination.generated.js";
+
+export default defineRoute("old/$id", { parent, params: { id: stringParam } }).redirect({
+  to: product,
+  params: { productId: "id" },
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
+});
+`,
+  );
+  await project.generate();
+  await project.translate();
+
+  const routes = await project.routes();
+
+  assert.match(routes, /path: effectivePath\(destination_teams_\$teamId_old_\$id_route\)/);
+  assert.match(routes, /path: nativePath\(destination_products_\$productId_route\)/);
+  assert.match(routes, /import \{ record, nativePath, effectivePath, /);
+
+  // A type error in a declaration still names its own line, through its translated copy.
+  await project.write(
+    "src/routes/products/$productId/route.ts",
+    `import { defineRoute, numberParam } from "@loozo/angular-router";
+
+const wrong: number = "x";
+
+export default defineRoute("products/$productId", { params: { productId: numberParam } });
+`,
+  );
+  await assert.rejects(
+    project.translate(),
+    /src\/routes\/products\/\$productId\/route\.ts\(3,7\): error TS2322/,
+  );
+});
+
+test("translated segments: explicit and filesystem mode emit the same messages; catalogs change no byte", async () => {
+  const filesystem = await localizedProject();
+
+  await filesystem.page("products/$productId");
+  await filesystem.translate();
+
+  const explicit = await localizedProject({ extra: { autoDefineRoutes: false } });
+
+  await explicit.page("products/$productId");
+  await explicit.write(
+    "src/routes/products/$productId/route.ts",
+    await filesystem.read("src/routes/products/$productId/route.ts"),
+  );
+  await explicit.translate();
+
+  const destination = "src/routes/products/$productId/destination.generated.ts";
+
+  assert.deepEqual(
+    await segmentMessages(await filesystem.read(destination)),
+    await segmentMessages(await explicit.read(destination)),
+  );
+
+  const before = await outputSnapshot(filesystem);
+
+  await filesystem.catalog(xliff1([["route.segment.products", "produkte"]]));
+  await filesystem.translate();
+  await filesystem.translate({ check: true });
+  assert.deepEqual(await outputSnapshot(filesystem), before);
+});
+
+test("translated segments: the copy diagnostic for a missing $localize type names the fix", async () => {
+  const project = await localizedProject();
+
+  await project.page("products");
+  await project.write(
+    "tsconfig.json",
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES2022",
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        strict: true,
+        skipLibCheck: true,
+        experimentalDecorators: true,
+        lib: ["ES2022", "DOM"],
+        types: [],
+      },
+      include: ["src/**/*.ts"],
+    }),
+  );
+  await assert.rejects(
+    project.translate(),
+    /TS2304: Cannot find name '\$localize'\.; add @angular\/localize to compilerOptions\.types \(in its generated destination copy\)/,
+  );
+});
+
+test("translated segments: setup needs the init polyfill; the option off never loads @angular/localize", async () => {
+  const project = await localizedProject();
+
+  await project.page("products");
+  await assert.rejects(
+    project.translate({ localization: { ...project.localization, polyfills: ["zone.js"] } }),
+    /translateSegments needs the @angular\/localize\/init polyfill/,
+  );
+  await project.translate();
+
+  // A child process where @angular/localize can't be resolved.
+  const hooks = resolve(project.root, "hide-localize.mjs");
+  const runner = resolve(project.root, "run.mjs");
+
+  await writeFile(
+    hooks,
+    `export async function resolve(specifier, context, next) {
+  if (specifier.startsWith("@angular/localize")) {
+    throw new Error("hidden: " + specifier);
+  }
+
+  return next(specifier, context);
+}
+`,
+  );
+  await writeFile(
+    runner,
+    `import { register } from "node:module";
+register(${JSON.stringify(pathToFileURL(hooks).href)});
+const { generate } = await import(${JSON.stringify(pathToFileURL(resolve(import.meta.dirname, "../node/src/generation/generate.js")).href)});
+const options = { tsconfig: "tsconfig.json", scanDirectories: ["src/routes"], outDirectory: "generated" };
+const translate = process.argv[2] === "on";
+
+try {
+  await generate(${JSON.stringify(project.root)}, { ...options, translateSegments: translate, localization: ${JSON.stringify(project.localization)} }, () => false);
+  console.log("ok");
+} catch (error) {
+  console.log(error.message);
+}
+`,
+  );
+
+  const off = await run(process.execPath, [runner, "off"]);
+
+  assert.equal(off.stdout.trim(), "ok");
+
+  const on = await run(process.execPath, [runner, "on"]);
+
+  assert.equal(
+    on.stdout.trim(),
+    "translateSegments needs @angular/localize: run ng add @angular/localize",
+  );
+});
+
+test("translated segments: each locale's tree is checked before any write, with source text for missing words", async () => {
+  const project = await localizedProject();
+
+  for (const directory of [
+    "products/$productId",
+    "news",
+    "new",
+    "docs/$rest[]",
+    "help/$rest[]",
+    "offers",
+    "deals",
+    "about",
+  ]) {
+    await project.page(directory);
+  }
+
+  await project.write(
+    "src/routes/legacy/route.ts",
+    `import { defineRoute } from "@loozo/angular-router";
+import { destination as about } from "../about/destination.generated.js";
+
+export default defineRoute("legacy", {}).redirect({
+  to: about,
+  search: { mode: "drop" },
+  fragment: { mode: "drop" },
+});
+`,
+  );
+  await project.generate();
+  await project.translate();
+
+  const catalogFile = resolve(project.root, "src/locale/messages.de.xlf");
+
+  // A word Angular can't stand as one static segment, or a placeholder.
+  for (const [target, reason] of [
+    ["produkte/alle", 'a route segment can\'t contain "/"'],
+    ["", "a route segment can't be empty"],
+    ["$x", 'a route segment can\'t start with "$" or ":"'],
+    [":x", 'a route segment can\'t start with "$" or ":"'],
+    ["..", 'a route segment can\'t be ".", "..", "*" or "**"'],
+    ["**", 'a route segment can\'t be ".", "..", "*" or "**"'],
+    ['pro<x id="PH" equiv-text="x"/>dukte', "a route segment can't hold placeholders"],
+  ]) {
+    const before = await outputSnapshot(project);
+
+    await project.catalog(xliff1([["route.segment.products", target]]));
+    await assert.rejects(project.translate(), (error) => {
+      assert.ok(
+        error.message.startsWith("Locale de: route.segment.products translates to "),
+        error.message,
+      );
+      assert.ok(error.message.endsWith(`(${catalogFile}): ${reason}`), error.message);
+
+      return true;
+    });
+    await assert.rejects(project.translate({ check: true }), /^Error: Locale de: /);
+    assert.deepEqual(await outputSnapshot(project), before);
+  }
+
+  // Translation can only merge paths, and a merge is a collision in that locale alone.
+  for (const [units, pattern] of [
+    [
+      [
+        ["route.segment.news", "neu"],
+        ["route.segment.new", "neu"],
+      ],
+      /^Error: Locale de: .*Ordinary route collision\/overlap: .*\(\/neu\); .*\(\/neu\)$/,
+    ],
+    [
+      [
+        ["route.segment.docs", "hilfe"],
+        ["route.segment.help", "hilfe"],
+      ],
+      /^Error: Locale de: .*Competing sibling catchalls: /,
+    ],
+    [
+      [
+        ["route.segment.legacy", "ueber"],
+        ["route.segment.about", "ueber"],
+      ],
+      /^Error: Locale de: .*Ordinary route collision\/overlap: .*\(\/ueber\)/,
+    ],
+    // An untranslated word stands as its source text, which can collide too.
+    [
+      [["route.segment.deals", "offers"]],
+      /^Error: Locale de: .*Ordinary route collision\/overlap: .*\(\/offers\)/,
+    ],
+  ]) {
+    const before = await outputSnapshot(project);
+
+    await project.catalog(xliff1(units));
+    await assert.rejects(project.translate(), pattern);
+    assert.deepEqual(await outputSnapshot(project), before);
+    // The canonical tree is unaffected: the same sources generate without translation.
+    await project.generate();
+  }
+
+  // Missing words aren't the generator's to report.
+  await project.catalog(xliff1([["route.segment.products", "produkte"]]));
+  await project.translate();
+});
+
+async function loaderParity(project, files) {
+  const { createTranslationLoader, loadTranslations } = await import("@angular/build/private");
+  const { loadCatalogs } = await import("../node/src/generation/localization.js");
+  const paths = [];
+
+  for (const [name, text] of files) {
+    await project.write(`src/locale/${name}`, text);
+    paths.push(resolve(project.root, "src/locale", name));
+  }
+
+  let ours;
+  let angular;
+
+  try {
+    const catalogs = await loadCatalogs({
+      sourceLocale: "en",
+      locales: [{ code: "de", files: paths }],
+      polyfills: [localizeInit],
+    });
+    const { format, entries } = catalogs.get("de");
+    const translations = {};
+
+    for (const [id, entry] of entries) {
+      translations[id] = entry.translation.text;
+    }
+
+    ours = { ok: true, format, translations };
+  } catch {
+    ours = { ok: false };
+  }
+
+  try {
+    const loader = await createTranslationLoader();
+    // Angular joins each path to the workspace root, so give it workspace-relative paths: an
+    // absolute Windows path joined to "/" isn't a file.
+    const desc = { files: paths.map((path) => ({ path: relative(project.root, path) })) };
+    const quiet = { warn() {}, error() {} };
+
+    loadTranslations("de", desc, project.root, loader, quiet, undefined, "ignore");
+
+    const translations = {};
+
+    for (const [id, translation] of Object.entries(desc.translation)) {
+      translations[id] = translation.text;
+    }
+
+    angular = { ok: true, format: desc.files.map((file) => file.format), translations };
+  } catch {
+    angular = { ok: false };
+  }
+
+  assert.deepEqual(ours, angular);
+
+  return ours;
+}
+
+test("translated segments: catalogs load as Angular's loader loads them", async () => {
+  const project = await localizedProject();
+  const products = "route.segment.products";
+
+  const formats = [
+    ["messages.de.xlf", xliff1([[products, "produkte"]])],
+    [
+      "messages.de.xlf2",
+      `<?xml version="1.0" encoding="UTF-8" ?>
+<xliff version="2.0" xmlns="urn:oasis:names:tc:xliff:document:2.0" srcLang="en" trgLang="de">
+  <file id="ngi18n" original="ng.template">
+    <unit id="${products}"><segment><source>products</source><target>produkte</target></segment></unit>
+  </file>
+</xliff>
+`,
+    ],
+    [
+      "messages.de.json",
+      JSON.stringify({ locale: "de", translations: { [products]: "produkte" } }),
+    ],
+    ["messages.de.arb", JSON.stringify({ "@@locale": "de", [products]: "produkte" })],
+    [
+      "messages.de.xtb",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<translationbundle lang="de">
+  <translation id="${products}">produkte</translation>
+</translationbundle>
+`,
+    ],
+  ];
+
+  for (const file of formats) {
+    const loaded = await loaderParity(project, [file]);
+
+    assert.equal(loaded.ok, true, file[0]);
+    assert.equal(loaded.translations[products], "produkte", file[0]);
+  }
+
+  // ARB comes first, so a JSON file mentioning XLIFF 2 is still ARB.
+  const ambiguous = await loaderParity(project, [
+    [
+      "ambiguous.json",
+      JSON.stringify({
+        "@@locale": "de",
+        [products]: "produkte",
+        example: "<xliff version='2.0'/>",
+      }),
+    ],
+  ]);
+
+  assert.deepEqual(ambiguous.format, ["arb"]);
+  assert.equal(ambiguous.translations[products], "produkte");
+
+  // A later file wins on a duplicate id.
+  const merged = await loaderParity(project, [
+    [
+      "first.xlf",
+      xliff1([
+        [products, "erste"],
+        ["route.segment.about", "ueber"],
+      ]),
+    ],
+    ["second.xlf", xliff1([[products, "zweite"]])],
+  ]);
+
+  assert.equal(merged.translations[products], "zweite");
+  assert.equal(merged.translations["route.segment.about"], "ueber");
+
+  // A duplicate unit inside one file is the parser's diagnostic, which Angular's loader ignores.
+  const duplicate = xliff1([
+    ["page.title", "Titel"],
+    ["page.title", "Titel 2"],
+    [products, "produkte"],
+  ]);
+  const within = await loaderParity(project, [["duplicate.xlf", duplicate]]);
+
+  assert.equal(within.ok, true);
+  assert.equal(within.translations[products], "produkte");
+
+  // A file no parser accepts fails both.
+  const unsupported = await loaderParity(project, [["messages.de.txt", "products=produkte"]]);
+
+  assert.equal(unsupported.ok, false);
+
+  // And generation resolves the route word through such a catalog.
+  await project.page("products");
+  await project.catalog(duplicate);
+  await project.translate();
 });

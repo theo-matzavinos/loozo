@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Translated route segments</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px 16px;
+        background: #16181c;
+        color: #e8e8ea;
+        font:
+          17px/1.6 system-ui,
+          sans-serif;
+      }
+
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+
+      a {
+        color: #9cc8ff;
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      section {
+        margin-top: 24px;
+        padding: 16px 20px;
+        border: 1px solid #3c4049;
+        border-radius: 8px;
+      }
+
+      code {
+        color: #f2c97d;
+      }
+    </style>
+  </head>
+  <body>
+    <proof-app></proof-app>
+    <script>
+      // Proof probes: the server-rendered product node and a token for this document, read
+      // after hydration and client navigation.
+      window.proofErrors = [];
+      window.addEventListener("error", (event) => window.proofErrors.push(event.message));
+      window.addEventListener("unhandledrejection", (event) =>
+        window.proofErrors.push(String(event.reason)),
+      );
+      window.proofServerProduct = document.getElementById("product");
+      window.proofDocument = crypto.randomUUID();
+    </script>
+  </body>
+</html>

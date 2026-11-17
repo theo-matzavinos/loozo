@@ -60,6 +60,11 @@
       "type": "boolean",
       "default": false
     },
+    "translateSegments": {
+      "$comment": "Every static route segment becomes a $localize message, translated per Angular localize build.",
+      "type": "boolean",
+      "default": false
+    },
     "assets": {
       "type": "array",
       "description": "Define the assets to be copied to the output directory. These assets are copied as-is without any further processing or hashing.",

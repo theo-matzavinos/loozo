@@ -6,6 +6,7 @@ import { auditPath, metadata, planOutputs, publish, walk } from "./files.js";
 import type { AutoDefineRoutes } from "./filesystem.js";
 import type { CompilerState } from "./compiler.js";
 import type { AnchorState } from "./anchor.js";
+import { validateLocales, type Localization } from "./localization.js";
 
 export interface GenerationOptions {
   tsconfig: string;
@@ -14,6 +15,10 @@ export interface GenerationOptions {
   check?: boolean;
   // Omitted enables filesystem route definitions with route.ts; false selects explicit authoring.
   autoDefineRoutes?: AutoDefineRoutes | false;
+  // Every static segment becomes a $localize message in its destination copy.
+  translateSegments?: boolean;
+  // The build's i18n configuration and polyfills; read only when translateSegments is true.
+  localization?: Localization;
 }
 
 // Compiler state reused across one owner's sequential passes. The owner clears
@@ -30,7 +35,7 @@ export async function generate(
   stopped: () => boolean,
   state?: GenerationState,
 ): Promise<void> {
-  const { autoDefineRoutes = {} } = options;
+  const { autoDefineRoutes = {}, translateSegments = false } = options;
   let auto: AutoDefineRoutes | undefined;
 
   if (autoDefineRoutes !== false) {
@@ -49,7 +54,16 @@ export async function generate(
     state?.discovery,
   );
   const selected = selections(sources);
-  const desired = emit(sources, selected);
+
+  if (translateSegments) {
+    if (!options.localization) {
+      throw new Error("translateSegments needs the build's localization");
+    }
+
+    await validateLocales(sources, options.localization);
+  }
+
+  const desired = emit(sources, selected, undefined, { translateSegments });
   const globalFiles = [resolve(sources.output, "routes.generated.ts")];
 
   await walk(sources.output);

@@ -346,6 +346,39 @@ defineRoute("$parts[]", { params: { parts: stringParam } })
   // @ts-expect-error A guard step rules a redirect out.
   .redirect({ to: destination, search: { mode: "drop" }, fragment: { mode: "drop" } });
 
+// A translated destination, as a generated copy writes it: its text is a runtime value, while
+// its id, path and params keep their canonical literal types.
+declare const translatedText: string;
+const translated = defineDestination(
+  "products/$productId",
+  { params: { productId: numberParam } },
+  "src/routes/products/$productId/route.ts",
+  [translatedText],
+);
+const translatedChild = defineDestination(
+  "reviews",
+  { parent: translated },
+  "src/routes/products/$productId/reviews/route.ts",
+  [translatedText],
+);
+
+const canonical = defineDestination(
+  "products/$productId",
+  { params: { productId: numberParam } },
+  "src/routes/products/$productId/route.ts",
+);
+const canonicalChild = defineDestination(
+  "reviews",
+  { parent: canonical },
+  "src/routes/products/$productId/reviews/route.ts",
+);
+
+exact<Equal<typeof translated, typeof canonical>>();
+exact<Equal<typeof translatedChild, typeof canonicalChild>>();
+createUrl(translatedChild, { params: { productId: 1 } });
+// @ts-expect-error The canonical params stay required.
+createUrl(translatedChild, {});
+
 const root = defineDestination("", {}, "root");
 const unknownReplacement = { extra: "x" };
 

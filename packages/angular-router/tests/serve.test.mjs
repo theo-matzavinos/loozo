@@ -198,6 +198,8 @@ async function serve({
   devServerGate,
   devServerEndGate,
   holdTeardown = false,
+  build = {},
+  metadata = {},
 } = {}) {
   scenario = createScenario();
   scenario.workspaceGate = workspaceGate;
@@ -218,7 +220,9 @@ async function serve({
     tsconfig: "tsconfig.json",
     scanDirectories: ["src/routes"],
     outDirectory: "src/generated",
+    ...build,
   });
+  host.getProjectMetadata = async () => metadata;
   host.addTarget({ project: "proof", target: "serve" }, "@loozo/angular-router:serve", {
     buildTarget: "proof:build",
     port: 0,
@@ -748,3 +752,70 @@ for (const last of ["pass", "watcher", "dev server"]) {
     assert.equal(state.passes.length, 2);
   });
 }
+
+test("with translated segments, serve watches the catalogs and checks them on every edit", async () => {
+  const { run, scenario: state } = await started({
+    build: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+    metadata: {
+      i18n: {
+        sourceLocale: { code: "en" },
+        locales: {
+          de: "src/locale/messages.de.xlf",
+          fr: { translation: ["src/locale/a.fr.json", "src/locale/b.fr.json"] },
+        },
+      },
+    },
+  });
+  const watcher = watcherOf(state);
+
+  assert.deepEqual(watcher.roots, [
+    resolve(packageDirectory, "src/routes"),
+    resolve(packageDirectory, "src/locale/messages.de.xlf"),
+    resolve(packageDirectory, "src/locale/a.fr.json"),
+    resolve(packageDirectory, "src/locale/b.fr.json"),
+  ]);
+  assert.equal(state.passes[0].router.translateSegments, true);
+  assert.deepEqual(state.passes[0].router.localization, {
+    sourceLocale: "en",
+    locales: [
+      { code: "de", files: [resolve(packageDirectory, "src/locale/messages.de.xlf")] },
+      {
+        code: "fr",
+        files: [
+          resolve(packageDirectory, "src/locale/a.fr.json"),
+          resolve(packageDirectory, "src/locale/b.fr.json"),
+        ],
+      },
+    ],
+    polyfills: ["@angular/localize/init"],
+  });
+
+  // A catalog edit is one more pass; a bad one is logged and serving continues.
+  change(state, "src/locale/messages.de.xlf");
+  await until(() => state.passes.length === 2, "the catalog pass");
+  state.passes[1].reject(new Error('Locale de: route.segment.teams translates to "a/b"'));
+  await until(() => errors(state).length === 1, "the logged failure");
+  await settle();
+  assert.equal(state.passes.length, 2);
+  assert.equal(state.servers[0].stopped, false);
+
+  // The repair clears it on the next pass.
+  change(state, "src/locale/messages.de.xlf");
+  await until(() => state.passes.length === 3, "the repair pass");
+  state.passes[2].resolve();
+  await settle();
+  assert.equal(errors(state).length, 1);
+
+  await run.stop();
+});
+
+test("without translated segments, serve watches no catalog and passes no localization", async () => {
+  const { run, scenario: state } = await started({
+    metadata: { i18n: { locales: { de: "src/locale/messages.de.xlf" } } },
+  });
+
+  assert.deepEqual(watcherOf(state).roots, [resolve(packageDirectory, "src/routes")]);
+  assert.equal(state.passes[0].router.localization, undefined);
+
+  await run.stop();
+});

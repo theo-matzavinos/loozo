@@ -55,6 +55,11 @@
     "check": {
       "type": "boolean",
       "default": false
+    },
+    "translateSegments": {
+      "$comment": "Every static route segment becomes a $localize message, translated per Angular localize build.",
+      "type": "boolean",
+      "default": false
     }
   },
   "required": ["tsconfig", "scanDirectories", "outDirectory"]

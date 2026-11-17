@@ -5,7 +5,7 @@ import {
   type ParamCodec,
   type PathCodec,
 } from "./codecs.js";
-import { parsePath, type ValidPath } from "./path.js";
+import { isStaticSegment, parsePath, type Segment, type ValidPath } from "./path.js";
 import { checkKeys, has, ownRecord } from "./records.js";
 import {
   destinationRecord,
@@ -729,8 +729,12 @@ export function defineRoute(path: unknown, facts: unknown): AnyRoute {
  * @param path - The literal local path, relative to the parent destination.
  * @param facts - Local codecs, parent destination and fragments.
  * @param id - The exact generated declaration identity.
+ * @param segments - This build's text for each local static segment, in order, when the
+ * application translates static segments. Types and `path` stay canonical; only the URL
+ * metadata (and so URLs and Angular paths) reads this text.
  * @returns A frozen empty object registered as a genuine destination.
- * @throws TypeError for invalid paths or URL facts, or a parent that isn't a genuine destination.
+ * @throws TypeError for invalid paths or URL facts, a parent that isn't a genuine destination,
+ * or translated segments of the wrong count or that aren't valid static segments.
  *
  * @internal
  */
@@ -745,14 +749,67 @@ export function defineDestination<
   path: P & ValidPath<P>,
   facts: UrlFacts<P, TargetOf<ParentDestination>, Params, Search, F, ParentDestination>,
   id: Id,
+  segments?: readonly string[],
 ): Destination<UrlTarget<P, TargetOf<ParentDestination>, Params, Search, F>, Id>;
 
-export function defineDestination(path: unknown, value: unknown, id: string): unknown {
+export function defineDestination(
+  path: unknown,
+  value: unknown,
+  id: string,
+  segments?: unknown,
+): unknown {
   const { config: _config, ...url } = facts<Destination<AnyRoute>>(
     path,
     value,
     (parent) => destinationRecord(parent).url,
   );
 
-  return registerDestination({ id, path: path as string, url: Object.freeze(url) });
+  if (segments === undefined) {
+    return registerDestination({ id, path: path as string, url: Object.freeze(url) });
+  }
+
+  const statics = url.localSegments.filter((segment) => segment.kind === "static").length;
+
+  if (!Array.isArray(segments) || segments.length !== statics) {
+    throw new TypeError(`Translated segments of ${id} must list ${statics} static segments`);
+  }
+
+  // Each translation replaces its static segment's text; the parent's part is already its own
+  // destination's translated text.
+  const localSegments: Segment[] = [];
+  let index = 0;
+
+  for (const segment of url.localSegments) {
+    if (segment.kind !== "static") {
+      localSegments.push(segment);
+
+      continue;
+    }
+
+    const text: unknown = segments[index];
+
+    index += 1;
+
+    if (typeof text !== "string" || !isStaticSegment(text)) {
+      throw new TypeError(
+        `Translated segment ${index} of ${id} is not a valid static segment: ${JSON.stringify(text)}`,
+      );
+    }
+
+    localSegments.push(Object.freeze({ kind: "static", text }));
+  }
+
+  let inherited: readonly Segment[] = [];
+
+  if (url.parent) {
+    inherited = destinationRecord(url.parent).url.segments;
+  }
+
+  const translated: UrlMetadata = {
+    ...url,
+    localSegments: Object.freeze(localSegments),
+    segments: Object.freeze([...inherited, ...localSegments]),
+  };
+
+  return registerDestination({ id, path: path as string, url: Object.freeze(translated) });
 }
