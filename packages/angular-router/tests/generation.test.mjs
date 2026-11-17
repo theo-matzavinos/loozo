@@ -4385,7 +4385,8 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
   const page = (name) =>
     `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport default class Page {}\n`;
   const files = {
-    "src/user.ts": "export interface User { id: string; name: string }\n",
+    "src/user.ts":
+      "export interface User { id: string; name: string }\nexport interface Context { id: string }\n",
     "src/routes/app/route.ts": `${header}import { createUrl } from "@loozo/angular-router";
 import type { User } from "../../user.js";
 import { destination as todos } from "./area/todos/destination.generated.js";
@@ -4414,7 +4415,8 @@ export default defineRoute("", { parent }).context(({ context }) => {
   return { user: context.user };
 });
 `,
-    "src/routes/app/area/todos/route.ts": `${header}import type { User } from "../../../../user.js";
+    // Keeps an authored \`Context\` that the copy's \`Context\` export must not collide with.
+    "src/routes/app/area/todos/route.ts": `${header}import type { Context, User } from "../../../../user.js";
 import parent from "../route.js";
 ${asserts}
 export default defineRoute("todos", { parent })
@@ -4436,7 +4438,9 @@ export default defineRoute("todos", { parent })
       // @ts-expect-error the input is { id: string }
       remote.todos.get({ id: 1 });
 
-      return remote.todos.get({ id: "one" });
+      const authored: Context = { id: "one" };
+
+      return remote.todos.get(authored);
     },
   })
   .canActivate([({ remote }) => remote.session.current() !== null])
@@ -4603,9 +4607,11 @@ test("extension copies: typed from their declaration, with Launch's data, type e
     'import { destination as routegen$up } from "../index/destination.generated.js";',
     'function routegen$own() { return {"remote":{"todos":["get"]}}; }',
     "export { routegen$route as route };",
-    "export type Remote = routegen$t0<typeof routegen$route>;",
-    "export type Context = routegen$t1<typeof routegen$route>;",
-    "type routegen$Members = { readonly remote: Remote };",
+    "type routegen$type_Remote = routegen$t0<typeof routegen$route>;",
+    "export type { routegen$type_Remote as Remote };",
+    "type routegen$type_Context = routegen$t1<typeof routegen$route>;",
+    "export type { routegen$type_Context as Context };",
+    "type routegen$Members = { readonly remote: routegen$type_Remote };",
     ...injectLines,
     "function routegen$injectRoute(): routegen$Handle<typeof routegen$route, typeof routegen$up> & routegen$Members { return routegen$injectGeneratedRoute<typeof routegen$route, typeof routegen$up, routegen$Members>(routegen$route, routegen$up); }",
     "export { routegen$injectRoute as injectRoute };",
@@ -4617,10 +4623,12 @@ test("extension copies: typed from their declaration, with Launch's data, type e
     read("src/routes/app/area/leaf/route.generated.ts"),
     /const routegen\$route = routegen\$routeOf\(defineRoute, routegen\$destination, parent\);/,
   );
-  assert.deepEqual(tail("src/routes/app/route.generated.ts").slice(-7 - injectLines.length), [
-    "export type Remote = routegen$t0<typeof routegen$route>;",
-    "export type Context = routegen$t1<typeof routegen$route>;",
-    "type routegen$Members = { readonly remote: Remote };",
+  assert.deepEqual(tail("src/routes/app/route.generated.ts").slice(-9 - injectLines.length), [
+    "type routegen$type_Remote = routegen$t0<typeof routegen$route>;",
+    "export type { routegen$type_Remote as Remote };",
+    "type routegen$type_Context = routegen$t1<typeof routegen$route>;",
+    "export type { routegen$type_Context as Context };",
+    "type routegen$Members = { readonly remote: routegen$type_Remote };",
     ...injectLines,
     "function routegen$injectRoute(): routegen$Handle<typeof routegen$route> & routegen$Members { return routegen$injectGeneratedRoute<typeof routegen$route, never, routegen$Members>(routegen$route); }",
     "export { routegen$injectRoute as injectRoute };",
@@ -4634,8 +4642,10 @@ test("extension copies: typed from their declaration, with Launch's data, type e
     'import type { RemoteOf as routegen$t0, ContextOf as routegen$t1 } from "@fixture/route-extension";',
     'import { destination as routegen$destination } from "./destination.generated.js";',
     "export { routegen$route as route };",
-    "export type Remote = routegen$t0<typeof routegen$route>;",
-    "export type Context = routegen$t1<typeof routegen$route>;",
+    "type routegen$type_Remote = routegen$t0<typeof routegen$route>;",
+    "export type { routegen$type_Remote as Remote };",
+    "type routegen$type_Context = routegen$t1<typeof routegen$route>;",
+    "export type { routegen$type_Context as Context };",
     marker,
     "",
   ]);
@@ -4716,7 +4726,7 @@ test("extension copies: typed from their declaration, with Launch's data, type e
   );
   assert.match(
     read("src/routes/app/area/todos/route.generated.ts", fewer),
-    /\nexport type Context = routegen\$t0<typeof routegen\$route>;\n/,
+    /\ntype routegen\$type_Context = routegen\$t0<typeof routegen\$route>;\nexport type \{ routegen\$type_Context as Context \};\n/,
   );
   assert.doesNotMatch(read("generated/routes.generated.ts", fewer), /members:|routegen\$t0/);
 

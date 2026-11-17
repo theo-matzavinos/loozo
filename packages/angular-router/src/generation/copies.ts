@@ -773,9 +773,14 @@ export function copies(
   let membersArgument = "";
 
   if (launch) {
+    // Local names stay in the `routegen$` space, so an exported name such as `Context` can
+    // match a binding the declaration keeps.
     for (const descriptor of launch.types) {
+      const local = `routegen$type_${descriptor.name}`;
+
       routeTail.push(
-        `export type ${descriptor.name} = ${typeNames.get(descriptor.name)}<typeof routegen$route>;`,
+        `type ${local} = ${typeNames.get(descriptor.name)}<typeof routegen$route>;`,
+        `export type { ${local} as ${descriptor.name} };`,
       );
     }
 
@@ -785,7 +790,7 @@ export function copies(
           throw new Error(`Route copy member type is not a type export: ${member.type}`);
         }
 
-        return `readonly ${member.member}: ${member.type}`;
+        return `readonly ${member.member}: routegen$type_${member.type}`;
       });
 
       routeTail.push(`type routegen$Members = { ${entries.join("; ")} };`);
