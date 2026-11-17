@@ -326,6 +326,7 @@ const routeProof = `
 import { defineRoute, type ContextOf, type RemoteOf } from "@loozo/angular-launch";
 import {
   middleware,
+  readCookies,
   redirect,
   type MiddlewareArgs,
   type Schema,
@@ -519,6 +520,16 @@ export const moded = defineRoute("moded", { parent: modes }).context(({ context 
 expect<
   Equal<ContextOf<typeof moded>, { mode: "a"; a: number; extra: boolean } | { mode: "b"; b: string; extra: boolean }>
 >();
+
+// readCookies returns a read-only map whose get is typed for every name, Object member names
+// included.
+const cookies = readCookies(new Request("http://test/"));
+const toStringCookie = cookies.get("toString");
+
+expect<Equal<typeof cookies, ReadonlyMap<string, string>>>();
+expect<Equal<typeof toStringCookie, string | undefined>>();
+// @ts-expect-error the map is read-only to the caller
+cookies.set("session", "x");
 
 // @ts-expect-error steps come in order: no .context() after .remote()
 defineRoute("late", {}).remote(() => ({})).context(() => ({}));

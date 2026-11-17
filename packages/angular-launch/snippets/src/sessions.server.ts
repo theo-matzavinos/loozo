@@ -1,15 +1,16 @@
+import { readCookies } from "@loozo/angular-launch/server";
+
 // Stands in for your session store: the `session` cookie names a signed-in user.
 const users = new Map([["alice-session", { id: "alice" }]]);
 
 export const sessions = {
   async authenticate(request: Request): Promise<{ id: string } | null> {
-    const cookie = request.headers.get("cookie") ?? "";
-    const match = /(?:^|;\s*)session=([^;]*)/.exec(cookie);
+    const token = readCookies(request).get("session");
 
-    if (match === null) {
+    if (token === undefined) {
       return null;
     }
 
-    return users.get(match[1]) ?? null;
+    return users.get(token) ?? null;
   },
 };
