@@ -12,10 +12,12 @@ import { HttpClient, HttpErrorResponse } from "@angular/common/http";
 import { Observable } from "rxjs";
 import { QueryClient, provideTanStackQuery, skipToken } from "@tanstack/angular-query";
 import { provideLaunchQueries } from "../dist/tanstack-query/index.js";
-import { createQueries } from "../dist/tanstack-query/generated.js";
-import { hydrationWindow } from "../dist/tanstack-query/hydration.js";
-import { injectClient } from "../dist/generated.js";
+import { createQueries } from "../dist/tanstack-query/create-queries.js";
+import { hydrationWindow } from "../dist/tanstack-query/hydration-window.js";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcError } from "../dist/client.js";
+import { defineRoute } from "../dist/index.js";
+import { authoredRouteOf, defineDestination, routeMetadata } from "@loozo/angular-router/_core";
 
 const metadata = {
   todos: {
@@ -349,12 +351,102 @@ test("refetchOnMount is false while hydrating, then the client default, else tru
   }
 });
 
-test("injectQueries() requires provideLaunchQueries() on every platform", () => {
+// A route copy's handle members, as `injectRoute()` adds them: the copy carries generation's
+// data, and Launch's handle hook builds `remote` and `queries` from it on first read.
+function routeHandle(injector) {
+  const destination = defineDestination("todos", {}, "todos");
+  const copy = authoredRouteOf()(defineRoute, destination, undefined, {
+    remote: {
+      todos: {
+        methods: [
+          { name: "list", input: false, kind: "query", errors: [] },
+          { name: "add", input: true, kind: "mutation", errors: [] },
+        ],
+      },
+      live: { methods: [{ name: "ticks", input: false, kind: "stream", errors: [] }] },
+    },
+  });
+  const { runtime, chain } = routeMetadata(copy).extension;
+
+  return runtime.handle(chain, injector);
+}
+
+function routeInjector({ platform = "browser", launch = true } = {}) {
+  const parent = createEnvironmentInjector([]);
+  const providers = [
+    { provide: PLATFORM_ID, useValue: platform },
+    { provide: QueryClient, useValue: new QueryClient() },
+    { provide: HttpClient, useValue: { post: () => assert.fail("Unexpected HTTP call") } },
+  ];
+
+  if (launch) {
+    providers.push(provideLaunchQueries());
+  }
+
+  const injector = createEnvironmentInjector(providers, parent);
+
+  return {
+    injector,
+    destroy: () => {
+      injector.destroy();
+      parent.destroy();
+    },
+  };
+}
+
+test("route.queries requires provideLaunchQueries() on every platform; route.remote doesn't", () => {
   for (const platform of ["browser", "server"]) {
-    assert.throws(
-      () => setup({ platform, launch: false }),
-      /injectQueries\(\) requires provideLaunchQueries\(\)/,
-    );
+    const { injector, destroy } = routeInjector({ platform, launch: false });
+
+    try {
+      const route = routeHandle(injector);
+
+      assert.equal(route.remote.todos.list.kind, "query");
+      assert.throws(
+        () => route.queries,
+        new Error(
+          "route.queries requires provideLaunchQueries() from @loozo/angular-launch/tanstack-query in the application providers",
+        ),
+      );
+    } finally {
+      destroy();
+    }
+  }
+});
+
+test("route.queries and route.remote work when first read outside an injection context", async () => {
+  const { injector, destroy } = routeInjector({ platform: "server" });
+
+  try {
+    const route = routeHandle(injector);
+    const { options, ticks } = await new Promise((resolve, reject) => {
+      // A later macrotask: nothing here runs in an injection context.
+      setTimeout(() => {
+        try {
+          resolve({
+            options: route.queries.todos.list.queryOptions(),
+            ticks: route.remote.live.ticks()[Symbol.asyncIterator]().next(),
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    assert.deepEqual(options.queryKey, ["launch", "todos", "list"]);
+    assert.deepEqual(route.queries.todos.add.mutationOptions().mutationKey, [
+      "launch",
+      "todos",
+      "add",
+    ]);
+    assert.equal("live" in route.queries, true);
+    assert.equal("ticks" in route.queries.live, false);
+    // PLATFORM_ID was read lazily from the captured injector: streams don't run on the server.
+    await assert.rejects(ticks, (error) => error instanceof RpcError && error.code === "FORBIDDEN");
+    assert.equal(route.queries, route.queries);
+    assert.equal(route.remote, route.remote);
+  } finally {
+    destroy();
   }
 });
 

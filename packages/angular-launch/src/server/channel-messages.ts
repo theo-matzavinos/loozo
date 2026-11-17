@@ -29,7 +29,7 @@ export interface ChannelInbox {
  * the protocol. Internal.
  *
  * @remarks
- * `dispatch` answers it with `INVALID_INPUT` and its issues instead of logging it as an
+ * `runProcedure` answers it with `INVALID_INPUT` and its issues instead of logging it as an
  * unexpected failure.
  */
 export class MessageRefused extends Error {

@@ -5,9 +5,11 @@ import type {
   SkipToken,
   UndefinedInitialDataOptions,
 } from "@tanstack/angular-query";
-import type { Group, Procedure, Schema } from "../server/definitions.js";
+import type { ContributionOf } from "@loozo/angular-router/_core";
+import type { ChainNamespaces } from "../route-types.js";
+import type { Procedure, Schema } from "../server/definitions.js";
 
-type GroupKey<Namespace> = readonly ["launch", Namespace];
+type NamespaceKey<Namespace> = readonly ["launch", Namespace];
 type ProcedureKey<Namespace, Name> = readonly ["launch", Namespace, Name];
 type InputKey<Namespace, Name, Input> = readonly ["launch", Namespace, Name, Input];
 
@@ -133,50 +135,64 @@ type ProcedureQueries<Namespace, Name, Value> =
     : never;
 
 /**
- * The TanStack Query factories for an RPC group: query or mutation options and keys per
- * procedure, plus the group's key.
+ * The TanStack Query factories for one `.remote()` namespace: query or mutation options and
+ * keys per procedure, plus the namespace's key.
  *
  * @remarks
- * The type of one namespace of a generated `injectQueries()`, which generation writes
- * when its `tanstackQuery` option is on. Keys are `["launch", namespace]` for the group,
- * `["launch", namespace, procedure]` for a procedure and
- * `["launch", namespace, procedure, input]` for one input, so invalidating a shorter key
- * also invalidates the longer ones under it. Queries call the procedure with the query's
- * `signal` and `transferCache: false`, since TanStack transfers the data itself. Errors are
- * typed `unknown`: narrow them with the callable's `isError`.
+ * Keys are `["launch", namespace]` for the namespace, `["launch", namespace, procedure]`
+ * for a procedure and `["launch", namespace, procedure, input]` for one input, so
+ * invalidating a shorter key also invalidates the longer ones under it. Queries call the
+ * procedure with the query's `signal` and `transferCache: false`, since TanStack transfers
+ * the data itself. Errors are typed `unknown`: narrow them with the callable's `isError`.
+ * Streams and channels have no factories.
  *
  * Query options default `retry` to never for an `RpcError`, `RpcRedirect` or
  * `RpcNotFound` and to your `QueryClient` default, or three retries, for anything else,
  * and `refetchOnMount` to `false` while the app hydrates and to your `QueryClient`
  * default, or `true`, after. Overrides replace either default.
  *
+ * @typeParam Namespace - The namespace's name.
+ * @typeParam Procedures - Its procedures, keyed by name, as `.remote()` returns them.
+ */
+export type NamespaceQueries<Namespace, Procedures> = {
+  /**
+   * The key of every query and mutation of the namespace.
+   *
+   * @returns `["launch", namespace]`.
+   */
+  $key(): NamespaceKey<Namespace>;
+} & {
+  readonly [Name in keyof Procedures as Procedures[Name] extends {
+    readonly kind: "stream" | "channel";
+  }
+    ? never
+    : Name]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
+};
+
+/**
+ * A route's TanStack Query factories: one {@link NamespaceQueries} per namespace the route
+ * can see, its own and its ancestors'.
+ *
+ * @remarks
+ * The type of `route.queries` and of the `Queries` a route copy exports, which generation
+ * writes when its `tanstackQuery` option is on.
+ *
  * @example
  * ```ts
- * import { injectQueries } from "./rpc.generated";
+ * readonly route = injectRoute();
+ * readonly todos = injectQuery(() => this.route.queries.todos.list.queryOptions());
+ * readonly add = injectMutation(() => this.route.queries.todos.add.mutationOptions());
  *
- * const queries = injectQueries();
- *
- * injectQuery(() => queries.todos.list.queryOptions());
- * injectMutation(() => queries.todos.add.mutationOptions());
- * client.invalidateQueries({ queryKey: queries.todos.$key() });
+ * refresh() {
+ *   return this.client.invalidateQueries({ queryKey: this.route.queries.todos.$key() });
+ * }
  * ```
  *
- * @typeParam Value - A group created by `defineRpc`.
+ * @typeParam Route - A route made by Launch's `defineRoute`, or its copy.
  */
-export type RpcQueries<Value> =
-  Value extends Group<infer Namespace, infer Procedures>
-    ? {
-        /**
-         * The key of every query and mutation of the group.
-         *
-         * @returns `["launch", namespace]`.
-         */
-        $key(): GroupKey<Namespace>;
-      } & {
-        readonly [Name in keyof Procedures as Procedures[Name] extends {
-          readonly kind: "stream" | "channel";
-        }
-          ? never
-          : Name]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
-      }
-    : never;
+export type QueriesOf<Route> = {
+  readonly [Namespace in keyof ChainNamespaces<ContributionOf<Route>>]: NamespaceQueries<
+    Namespace,
+    ChainNamespaces<ContributionOf<Route>>[Namespace]
+  >;
+};

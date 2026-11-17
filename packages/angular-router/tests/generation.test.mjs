@@ -4823,11 +4823,7 @@ test("the import rule admits an extension copy's erased own import and Launch's 
 
   // Launch mode: the server aggregate value-imports routes with a server-only step.
   const aggregate = resolve(root, "generated/server.generated.ts");
-  const entry = resolve(root, "launch-types.d.ts");
-
-  await writeFile(entry, "export {};\n");
-
-  const launchMode = { typeEntry: entry, declarations: [] };
+  const launchMode = true;
   const server = (imports) => {
     const map = new Map(desired);
 

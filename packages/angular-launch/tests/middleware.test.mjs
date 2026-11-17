@@ -3,26 +3,31 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DOCUMENT, createEnvironmentInjector, REQUEST, REQUEST_CONTEXT } from "@angular/core";
 import { FetchBackend, HttpBackend, HttpRequest } from "@angular/common/http";
-import { defineContext, defineRpc, forbidden, middleware } from "../dist/server/index.js";
-import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
-import { dispatch } from "../dist/server/dispatch.js";
+import { forbidden, middleware } from "../dist/server/index.js";
+import {
+  createRequestScope,
+  handleRpc,
+  provideLaunchServer,
+  runProcedure,
+} from "../dist/server/generated.js";
+import { application } from "./fixtures/application.mjs";
 
 const id = "todos";
 const path = `/_rpc/${id}/read`;
-const application = {
-  id: "launch-middleware-test-app",
-  context: defineContext((request) => ({ user: request.headers.get("cookie"), value: 1 })),
-};
 const page = new Request("http://test/todos", { headers: { cookie: "alice" } });
 
+// An application whose root stage reads the user, and whose `todos` route runs `use`.
 function group(build, use = []) {
-  return { [id]: defineRpc(id, build, { use }) };
+  return application("launch-middleware-test-app", {
+    context: ({ request }) => ({ user: request.headers.get("cookie"), value: 1 }),
+    namespaces: { [id]: { use, build } },
+  });
 }
 
-async function call(registry, { input = null, mode = "http", scope } = {}) {
-  const bound = scope ?? (await createRequestScope(application, page));
+async function call(app, { input = null, mode = "http", scope } = {}) {
+  const bound = scope ?? createRequestScope(app, page);
 
-  return dispatch(registry, path, { input }, bound, application, bound.request, mode);
+  return runProcedure(path, { input }, bound, app, bound.request, mode);
 }
 
 // Runs `run` with console.error captured, returning what it logged.
@@ -55,10 +60,9 @@ const lengthSchema = {
   },
 };
 
-test("next(added) merges into the context for later middleware and the handler; next() keeps it", async () => {
-  const scope = await createRequestScope(application, page);
-  let groupContext;
-  const registry = group(
+test("route and procedure middleware see the stages' context, passed on as the same object", async () => {
+  const seen = [];
+  const app = group(
     ({ query }) => ({
       read: query({
         input: lengthSchema,
@@ -66,35 +70,143 @@ test("next(added) merges into the context for later middleware and the handler; 
           middleware(async ({ context, input, next }) => {
             // Procedure middleware gets the schema's transformed output.
             assert.deepEqual(input, { text: "abc", length: 3 });
-            assert.equal(context.user, "ALICE");
+            seen.push(context);
 
-            return next({ todo: input.length, value: 2 });
+            return next();
           }),
         ],
-        handler: ({ context }) => context,
+        handler: ({ context }) => {
+          seen.push(context);
+
+          return context;
+        },
       }),
     }),
     [
-      middleware(async ({ context, next }) => {
-        groupContext = context;
+      middleware(async ({ context, input, next }) => {
+        // The route's middleware runs before validation.
+        assert.equal(input, undefined);
+        seen.push(context);
 
         return next();
-      }),
-      middleware(async ({ context, next }) => {
-        // next() without values passes the very same context on.
-        assert.equal(context, groupContext);
-
-        return next({ user: context.user.toUpperCase() });
       }),
     ],
   );
 
-  assert.deepEqual(await call(registry, { input: "abc", scope }), {
+  assert.deepEqual(await call(app, { input: "abc" }), {
     status: 200,
-    body: { user: "ALICE", value: 2, todo: 3 },
+    body: { user: "alice", value: 1 },
   });
-  assert.equal(groupContext, scope.value);
-  assert.deepEqual(scope.value, { user: "alice", value: 1 });
+  assert.equal(seen.length, 3);
+  assert.equal(seen[1], seen[0]);
+  assert.equal(seen[2], seen[0]);
+});
+
+test("a bare function runs as middleware, in a route's .use() and a procedure's use, beside middleware()", async () => {
+  const order = [];
+  const app = group(
+    ({ query }) => ({
+      read: query({
+        input: lengthSchema,
+        use: [
+          async ({ context, input, next }) => {
+            order.push(["procedure arrow", context.user, input]);
+
+            return next();
+          },
+          middleware(async ({ next }) => {
+            order.push(["procedure middleware()"]);
+
+            return next();
+          }),
+        ],
+        handler: () => {
+          order.push(["handler"]);
+
+          return null;
+        },
+      }),
+    }),
+    [
+      async ({ context, input, next }) => {
+        order.push(["route arrow", context.user, input]);
+
+        return next();
+      },
+    ],
+  );
+
+  assert.deepEqual(await call(app, { input: "abc" }), { status: 200, body: null });
+  assert.deepEqual(order, [
+    ["route arrow", "alice", undefined],
+    ["procedure arrow", "alice", { text: "abc", length: 3 }],
+    ["procedure middleware()"],
+    ["handler"],
+  ]);
+});
+
+test("a call runs the stages, the route's middleware, validation, the procedure's middleware, then the handler; a malformed envelope runs none", async () => {
+  const order = [];
+
+  function step(name) {
+    return middleware(async ({ next }) => {
+      order.push(name);
+
+      return next();
+    });
+  }
+
+  const app = application("launch-pipeline-test-app", {
+    context: () => {
+      order.push("stage");
+
+      return {};
+    },
+    namespaces: {
+      [id]: {
+        use: [step("route middleware")],
+        build: ({ query }) => ({
+          read: query({
+            input: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: (value) => {
+                  order.push("validation");
+
+                  return { value };
+                },
+              },
+            },
+            use: [step("procedure middleware")],
+            handler: () => {
+              order.push("handler");
+
+              return null;
+            },
+          }),
+        }),
+      },
+    },
+  });
+  const scope = createRequestScope(app, page);
+
+  assert.equal((await runProcedure(path, { input: 1 }, scope, app, scope.request)).status, 200);
+  assert.deepEqual(order, [
+    "stage",
+    "route middleware",
+    "validation",
+    "procedure middleware",
+    "handler",
+  ]);
+
+  order.length = 0;
+
+  const fresh = createRequestScope(app, page);
+  const malformed = await runProcedure(path, { input: 1, extra: 2 }, fresh, app, fresh.request);
+
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(order, []);
 });
 
 test("next() rejects with what the rest of the call threw, so a wrapper sees it and the reply stays the same", async () => {
@@ -115,7 +227,7 @@ test("next() rejects with what the rest of the call threw, so a wrapper sees it 
   const nullSchema = {
     "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) },
   };
-  const registry = group(
+  const app = group(
     ({ query }) => ({
       read: query({
         errors: { BUSY: { status: 409, message: "Busy", data: nullSchema } },
@@ -127,7 +239,7 @@ test("next() rejects with what the rest of the call threw, so a wrapper sees it 
     [wrapper],
   );
 
-  assert.deepEqual(await call(registry), {
+  assert.deepEqual(await call(app), {
     status: 409,
     body: { error: { code: "BUSY", message: "Busy", data: null } },
   });
@@ -168,7 +280,7 @@ test("next() rejects with what the rest of the call threw, so a wrapper sees it 
 
   assert.deepEqual(await call(succeeding), { status: 200, body: 1 });
 
-  // Invalid input is a reply, not a throw, so a group wrapper's next() resolves.
+  // Invalid input is a reply, not a throw, so a route wrapper's next() resolves.
   const invalid = group(
     ({ query }) => ({ read: query({ input: lengthSchema, handler: () => 1 }) }),
     [wrapper],
@@ -229,7 +341,7 @@ test("calling next() twice or not returning its result fails the call with INTER
   };
 
   for (const [name, misuse] of Object.entries(misuses)) {
-    const registry = group(({ query }) => ({
+    const app = group(({ query }) => ({
       read: query({
         use: [misuse],
         handler: () => {
@@ -241,7 +353,7 @@ test("calling next() twice or not returning its result fails the call with INTER
     }));
     let reply;
     const logs = await logged(async () => {
-      reply = await call(registry);
+      reply = await call(app);
     });
 
     assert.deepEqual(
@@ -352,7 +464,7 @@ test("a next() left unawaited never causes an unhandled rejection, and a failure
     };
 
     for (const [name, refusal] of Object.entries(refusals)) {
-      const registry = group(({ query }) => ({
+      const app = group(({ query }) => ({
         read: query({
           use: [refusal],
           handler: () => {
@@ -361,7 +473,7 @@ test("a next() left unawaited never causes an unhandled rejection, and a failure
         }),
       }));
       const logs = await logged(async () => {
-        reply = await call(registry);
+        reply = await call(app);
         await drained();
       });
 
@@ -376,7 +488,7 @@ test("a next() left unawaited never causes an unhandled rejection, and a failure
   }
 });
 
-test("forbidden() from group middleware, procedure middleware or the handler is FORBIDDEN; other throws are INTERNAL", async () => {
+test("forbidden() from route middleware, procedure middleware or the handler is FORBIDDEN; other throws are INTERNAL", async () => {
   const refuse = middleware(async () => {
     throw forbidden();
   });
@@ -385,7 +497,7 @@ test("forbidden() from group middleware, procedure middleware or the handler is 
     body: { error: { code: "FORBIDDEN", message: "RPC forbidden", data: null } },
   };
 
-  for (const registry of [
+  for (const app of [
     group(({ query }) => ({ read: query({ handler: () => 1 }) }), [refuse]),
     group(({ query }) => ({ read: query({ use: [refuse], handler: () => 1 }) })),
     group(({ query }) => ({
@@ -397,7 +509,7 @@ test("forbidden() from group middleware, procedure middleware or the handler is 
     })),
   ]) {
     const logs = await logged(async () => {
-      assert.deepEqual(await call(registry), forbiddenReply);
+      assert.deepEqual(await call(app), forbiddenReply);
     });
 
     assert.deepEqual(logs, []);
@@ -429,7 +541,7 @@ test("forbidden() from group middleware, procedure middleware or the handler is 
     Object.assign(new Error("RPC forbidden"), { kind: "forbidden" }),
     { [Symbol("@loozo/angular-launch/outcome/v1")]: { kind: "forbidden" } },
   ]) {
-    const registry = group(
+    const app = group(
       ({ query }) => ({ read: query({ handler: () => 1 }) }),
       [
         middleware(async () => {
@@ -439,7 +551,7 @@ test("forbidden() from group middleware, procedure middleware or the handler is 
     );
     let reply;
     const logs = await logged(async () => {
-      reply = await call(registry);
+      reply = await call(app);
     });
 
     assert.equal(reply.status, 500);
@@ -455,30 +567,26 @@ test("rendering refuses a mutation before any middleware runs", async () => {
 
     return next();
   });
-  const registry = {
-    [id]: defineRpc(
-      id,
-      ({ query, mutation }) => ({
-        read: query({ use: [counting], handler: () => "read" }),
-        write: mutation({ use: [counting], handler: () => "written" }),
-      }),
-      { use: [counting] },
-    ),
-  };
-  const scope = await createRequestScope(application, page);
-  const write = await dispatch(
-    registry,
+  const app = group(
+    ({ query, mutation }) => ({
+      read: query({ use: [counting], handler: () => "read" }),
+      write: mutation({ use: [counting], handler: () => "written" }),
+    }),
+    [counting],
+  );
+  const scope = createRequestScope(app, page);
+  const write = await runProcedure(
     `/_rpc/${id}/write`,
     { input: null },
     scope,
-    application,
+    app,
     scope.request,
     "rendering",
   );
 
   assert.equal(write.status, 403);
   assert.equal(runs, 0);
-  assert.deepEqual(await call(registry, { mode: "rendering", scope }), {
+  assert.deepEqual(await call(app, { mode: "rendering", scope }), {
     status: 200,
     body: "read",
   });
@@ -511,7 +619,7 @@ function abortable() {
     started = resolve;
   });
   const seen = [];
-  const registry = group(
+  const app = group(
     ({ query }) => ({
       read: query({
         handler: ({ signal }) => {
@@ -535,15 +643,14 @@ function abortable() {
     ],
   );
 
-  return { registry, running, seen };
+  return { app, running, seen };
 }
 
 test("over HTTP, middleware and handlers get a signal that aborts with the incoming request", async () => {
-  const { registry, running, seen } = abortable();
+  const { app, running, seen } = abortable();
   const controller = new AbortController();
   const pending = handleRpc(
-    registry,
-    application,
+    app,
     new Request(`http://test${path}`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: "http://test" },
@@ -570,10 +677,10 @@ test("over HTTP, middleware and handlers get a signal that aborts with the incom
 
 test("during server rendering, the signal aborts when HttpClient unsubscribes or the page request aborts", async () => {
   for (const cause of ["unsubscribe", "page"]) {
-    const { registry, running, seen } = abortable();
+    const { app, running, seen } = abortable();
     const controller = new AbortController();
-    const scope = await createRequestScope(
-      application,
+    const scope = createRequestScope(
+      app,
       new Request("http://test/todos", { signal: controller.signal }),
     );
     const parent = createEnvironmentInjector([]);
@@ -590,7 +697,7 @@ test("during server rendering, the signal aborts when HttpClient unsubscribes or
             },
           },
         },
-        provideLaunchServer(registry, application),
+        provideLaunchServer(app),
       ],
       parent,
     );

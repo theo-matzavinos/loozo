@@ -228,7 +228,7 @@ export function createValidationProgram(
   ];
 
   if (sources.launch) {
-    rootNames.push(sources.launch.typeEntry, ...generated.keys());
+    rootNames.push(...generated.keys());
   } else {
     // Every copy is validated, whether or not anything imports it yet. Children tables are
     // validated like routes.generated.ts, through the app's import of it.
@@ -591,7 +591,6 @@ export async function validateRoutes(
   const globalTargets = new Set([resolve(sources.output, "routes.generated.ts")]);
 
   if (sources.launch) {
-    globalTargets.add(resolve(sources.output, "context.generated.d.ts"));
     globalTargets.add(resolve(sources.output, "server.generated.ts"));
   }
 
@@ -768,8 +767,7 @@ export async function validateRoutes(
 
       for (const candidate of candidates) {
         const facadeTarget =
-          (colocatedFiles.has(basename(candidate)) ||
-            (sources.launch && basename(candidate) === "rpc.generated.ts")) &&
+          colocatedFiles.has(basename(candidate)) &&
           !candidate.split(sep).includes("node_modules") &&
           sources.roots.some((root) => contains(root, candidate));
 

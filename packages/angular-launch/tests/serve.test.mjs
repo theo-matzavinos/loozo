@@ -65,8 +65,6 @@ mock.module("chokidar", {
   },
 });
 
-const { contextFiles } = await import("../dist/generation/context-file.js");
-
 mock.module(new URL("../dist/generation/index.js", import.meta.url).href, {
   exports: {
     createGenerationSession(workspace, options) {
@@ -78,16 +76,11 @@ mock.module(new URL("../dist/generation/index.js", import.meta.url).href, {
         disposal: teardownPromise(current.holdTeardown),
         generate(generateOptions, isStopped) {
           const { promise, resolve, reject } = Promise.withResolvers();
-          // The real pass records the context file it discovers before it settles.
-          const discovered = (settle) => (value) => {
-            contextFiles.set(session, current.contextFile);
-            settle(value);
-          };
           const pass = {
             options: generateOptions,
             isStopped,
-            resolve: discovered(resolve),
-            reject: discovered(reject),
+            resolve,
+            reject,
             settled: false,
           };
 
@@ -222,7 +215,6 @@ function createScenario() {
     done: false,
     overlaps: 0,
     executions: 0,
-    contextFile: resolve(scanRoot, "context.ts"),
   };
 }
 
@@ -815,94 +807,19 @@ test("stopping cancels an edit that's still settling", async () => {
   assert.equal(state.passes.length, 1);
 });
 
-test("a context file outside the scan directory gets its own watch, which follows it", async () => {
-  const outside = resolve(packageDirectory, "src/context.ts");
-  const session = await serve();
-  const { run, scenario: state } = session;
+test("serve watches only the scan directory: there's no other watch to follow", async () => {
+  const { run, scenario: state } = await started();
 
-  state.contextFile = outside;
-  await until(() => state.watchers.length === 1, "the watcher");
-  watcherOf(state).emit("ready");
-  await until(() => state.passes.length === 1, "the initial generation");
-  state.passes[0].resolve();
-  await until(() => state.servers.length === 1, "the dev server");
-  await until(() => state.watchers.length === 2, "the context watcher");
-
-  const followed = state.watchers[1];
-
-  assert.equal(followed.paths, outside);
-  assert.deepEqual(followed.options, { ignoreInitial: true, followSymlinks: false });
-  await settle();
-  assert.equal(state.passes.length, 1, "No pass until the context watch is live");
-
-  // A move to another outside path replaces the watch before it's live; the replaced one's
-  // readiness does nothing.
-  const moved = resolve(packageDirectory, "src/app/context.ts");
-
-  state.contextFile = moved;
+  assert.equal(state.watchers.length, 1);
+  assert.equal(watcherOf(state).paths[0], scanRoot);
   change(state);
-  await until(() => state.passes.length === 2, "the pass that finds the move");
+  await until(() => state.passes.length === 2, "the route edit's pass");
   state.passes[1].resolve();
-  await until(() => state.watchers.length === 3, "the moved context's watcher");
-  assert.equal(followed.closed, true);
-  assert.equal(state.watchers[2].paths, moved);
-  followed.emit("ready");
   await settle();
-  assert.equal(state.passes.length, 2, "The replaced watch's readiness runs no pass");
-
-  // The live watch's readiness reads the context once more, with no settle delay.
-  state.watchers[2].emit("ready");
-  await until(() => state.passes.length === 3, "the moved context's readiness pass");
-  state.passes[2].resolve();
-  await settle();
-
-  touch(state, "src/app/context.ts", state.watchers[2]);
-  mock.timers.tick(settleDelay);
-  await until(() => state.passes.length === 4, "the context edit's pass");
-  state.passes[3].resolve();
-
-  // Moving it back inside the scan directory drops its own watch.
-  state.contextFile = resolve(scanRoot, "context.ts");
-  change(state);
-  await until(() => state.passes.length === 5, "the pass that finds it inside");
-  state.passes[4].resolve();
-  await until(() => state.watchers[2].closed, "the dropped watch");
-  await settle();
-  assert.equal(state.watchers.length, 3);
+  assert.equal(state.watchers.length, 1);
 
   await run.stop();
   released(state);
-});
-
-test("stopping closes the followed context's watch and waits for it", async () => {
-  const session = await serve({ holdTeardown: true });
-  const { run, scenario: state } = session;
-
-  state.contextFile = resolve(packageDirectory, "src/context.ts");
-  await until(() => state.watchers.length === 1, "the watcher");
-  watcherOf(state).emit("ready");
-  await until(() => state.passes.length === 1, "the initial generation");
-  state.passes[0].resolve();
-  await until(() => state.watchers.length === 2, "the context watcher");
-  await until(() => state.servers.length === 1, "the dev server");
-
-  let stopped = false;
-
-  void run.stop().then(() => (stopped = true));
-  await until(() => state.watchers[1].closed, "the context watcher's close");
-  watcherOf(state).closure.resolve();
-  state.sessions[0].disposal.resolve();
-  state.servers[0].teardown.resolve();
-  await settle();
-  assert.equal(stopped, false, "Stopping waits for the context watcher");
-
-  state.watchers[1].closure.resolve();
-  await until(() => stopped, "the stop");
-  released(state);
-
-  state.watchers[1].emit("ready");
-  await settle();
-  assert.equal(state.passes.length, 1);
 });
 
 // The pass, the watchers' close, the dev server's teardown and the session's disposal settle in

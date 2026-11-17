@@ -7,25 +7,23 @@ import { test } from "node:test";
 import { WebSocketServer } from "ws";
 import { createEnvironmentInjector, PLATFORM_ID, runInInjectionContext } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
+import { forbidden, middleware, notFound, redirect } from "../dist/server/index.js";
 import {
-  defineContext,
-  defineRpc,
-  forbidden,
-  middleware,
-  notFound,
-  redirect,
-} from "../dist/server/index.js";
-import { createRequestScope, handleChannelUpgrade, handleRpc } from "../dist/server/generated.js";
-import { dispatch } from "../dist/server/dispatch.js";
+  createRequestScope,
+  handleChannelUpgrade,
+  handleRpc,
+  runProcedure,
+} from "../dist/server/generated.js";
+import { bound } from "./fixtures/application.mjs";
 import { createUpgradeHandler } from "../dist/node/index.js";
-import { injectClient } from "../dist/generated.js";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcError, RpcNotFound, RpcRedirect } from "../dist/index.js";
 
 let contexts = 0;
 let failingContext = false;
 const application = {
   id: "launch-channel-test-app",
-  context: defineContext((request) => {
+  context: ({ request }) => {
     contexts += 1;
 
     if (failingContext) {
@@ -33,7 +31,7 @@ const application = {
     }
 
     return { user: request.headers.get("cookie") };
-  }),
+  },
 };
 
 function schema(check, message) {
@@ -148,12 +146,12 @@ function upgradeRequest(
   return new Request(`http://${host}${path}${search}`, { method, headers, signal });
 }
 
-function handle(registry, request) {
-  return handleChannelUpgrade(registry, application, request, { allowedHosts: ["test"] });
+function handle(namespaces, request) {
+  return handleChannelUpgrade(bound(application, namespaces), request, { allowedHosts: ["test"] });
 }
 
-async function accepted(registry, request) {
-  const upgrade = await handle(registry, request);
+async function accepted(namespaces, request) {
+  const upgrade = await handle(namespaces, request);
 
   assert.ok(upgrade !== null && !(upgrade instanceof Response), "Expected an upgrade");
 
@@ -205,10 +203,17 @@ const malformed = {
 };
 
 test("a channel sends its values, reads validated messages in order, puts the call's cookies on the 101 and ends", async () => {
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ response, next }) => {
+          response.setCookie("seen", "1");
+          response.headers.set("x-call", "yes");
+
+          return next();
+        }),
+      ],
+      build: ({ channel }) => ({
         talk: channel({
           input: roomSchema,
           message: textSchema,
@@ -231,20 +236,10 @@ test("a channel sends its values, reads validated messages in order, puts the ca
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ response, next }) => {
-            response.setCookie("seen", "1");
-            response.headers.set("x-call", "yes");
-
-            return next();
-          }),
-        ],
-      },
-    ),
+    },
   };
   const { upgrade, socket } = await accepted(
-    registry,
+    namespaces,
     upgradeRequest("/_rpc/chat/talk", { room: "a" }),
   );
 
@@ -267,25 +262,27 @@ test("a channel sends its values, reads validated messages in order, puts the ca
 
 test("pre-context refusals are HTTP responses, in order: host, then shape, then origin", async () => {
   let ran = false;
-  const registry = {
-    chat: defineRpc("chat", ({ channel }) => ({
-      talk: channel({
-        message: anySchema,
-        handler: async function* () {
-          ran = true;
-          yield 1;
-        },
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        talk: channel({
+          message: anySchema,
+          handler: async function* () {
+            ran = true;
+            yield 1;
+          },
+        }),
       }),
-    })),
+    },
   };
   const before = contexts;
 
-  assert.equal(await handle(registry, upgradeRequest("/page")), null);
+  assert.equal(await handle(namespaces, upgradeRequest("/page")), null);
 
   // A foreign host wins over everything else.
   const host = await logged(async () => {
     const response = await handle(
-      registry,
+      namespaces,
       upgradeRequest("/_rpc/chat/talk", null, { host: "evil", method: "POST", origin: null }),
     );
 
@@ -312,7 +309,7 @@ test("pre-context refusals are HTTP responses, in order: host, then shape, then 
   ];
 
   for (const shape of shapes) {
-    const response = await handle(registry, upgradeRequest("/_rpc/chat/talk", null, shape));
+    const response = await handle(namespaces, upgradeRequest("/_rpc/chat/talk", null, shape));
 
     assert.equal(response.status, 400, JSON.stringify(shape));
     assert.deepEqual(await response.json(), {
@@ -322,7 +319,10 @@ test("pre-context refusals are HTTP responses, in order: host, then shape, then 
 
   for (const origin of ["http://evil", null]) {
     const log = await logged(async () => {
-      const response = await handle(registry, upgradeRequest("/_rpc/chat/talk", null, { origin }));
+      const response = await handle(
+        namespaces,
+        upgradeRequest("/_rpc/chat/talk", null, { origin }),
+      );
 
       assert.equal(response.status, 403);
       assert.equal(response.headers.get("cache-control"), "private, no-store");
@@ -340,10 +340,16 @@ test("pre-context refusals are HTTP responses, in order: host, then shape, then 
 
 test("RPC_NOT_FOUND for a non-channel over handleUpgrade and a channel over handleRequest; FORBIDDEN while rendering", async () => {
   let ran = false;
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ query, channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ next }) => {
+          ran = true;
+
+          return next();
+        }),
+      ],
+      build: ({ query, channel }) => ({
         read: query({ handler: () => 1 }),
         talk: channel({
           message: anySchema,
@@ -352,16 +358,7 @@ test("RPC_NOT_FOUND for a non-channel over handleUpgrade and a channel over hand
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            ran = true;
-
-            return next();
-          }),
-        ],
-      },
-    ),
+    },
   };
   const notFoundFrame = {
     status: 404,
@@ -369,15 +366,14 @@ test("RPC_NOT_FOUND for a non-channel over handleUpgrade and a channel over hand
   };
 
   for (const path of ["/_rpc/chat/read", "/_rpc/chat/missing", "/_rpc/other/talk"]) {
-    const { socket } = await accepted(registry, upgradeRequest(path));
+    const { socket } = await accepted(namespaces, upgradeRequest(path));
 
     assert.deepEqual(socket.frames(), [notFoundFrame], path);
     assert.equal(socket.closedWith, 1000);
   }
 
   const overHttp = await handleRpc(
-    registry,
-    application,
+    bound(application, namespaces),
     new Request("http://test/_rpc/chat/talk", {
       method: "POST",
       headers: { origin: "http://test", "content-type": "application/json" },
@@ -390,13 +386,12 @@ test("RPC_NOT_FOUND for a non-channel over handleUpgrade and a channel over hand
   assert.deepEqual((await overHttp.json()).error.code, "RPC_NOT_FOUND");
 
   const page = new Request("http://test/chat", { headers: { cookie: "alice" } });
-  const scope = await createRequestScope(application, page);
-  const rendering = await dispatch(
-    registry,
+  const scope = createRequestScope(application, page);
+  const rendering = await runProcedure(
     "/_rpc/chat/talk",
     { input: null },
     scope,
-    application,
+    bound(application, namespaces),
     scope.request,
     "rendering",
   );
@@ -409,10 +404,17 @@ test("RPC_NOT_FOUND for a non-channel over handleUpgrade and a channel over hand
 });
 
 test("failures before the handler returns are frames on the accepted socket, with the call's cookies", async () => {
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ response, next }) => {
+          response.setCookie("tried", "1");
+
+          return next();
+        }),
+        signedIn,
+      ],
+      build: ({ channel }) => ({
         talk: channel({
           input: roomSchema,
           message: anySchema,
@@ -434,21 +436,11 @@ test("failures before the handler returns are frames on the accepted socket, wit
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ response, next }) => {
-            response.setCookie("tried", "1");
-
-            return next();
-          }),
-          signedIn,
-        ],
-      },
-    ),
+    },
   };
 
   const refused = await accepted(
-    registry,
+    namespaces,
     upgradeRequest("/_rpc/chat/talk", { room: "a" }, { cookie: null }),
   );
 
@@ -461,7 +453,7 @@ test("failures before the handler returns are frames on the accepted socket, wit
   ]);
   assert.equal(refused.socket.closedWith, 1000);
 
-  const invalid = await accepted(registry, upgradeRequest("/_rpc/chat/talk", { room: 1 }));
+  const invalid = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk", { room: 1 }));
 
   assert.deepEqual(invalid.socket.frames(), [
     {
@@ -481,7 +473,7 @@ test("failures before the handler returns are frames on the accepted socket, wit
   ];
 
   for (const [room, frame] of cases) {
-    const { socket } = await accepted(registry, upgradeRequest("/_rpc/chat/talk", { room }));
+    const { socket } = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk", { room }));
 
     await until(() => socket.closedWith !== undefined, room);
     assert.deepEqual(socket.frames(), [{ value: "first" }, frame]);
@@ -492,7 +484,7 @@ test("failures before the handler returns are frames on the accepted socket, wit
   try {
     let socket;
     const log = await logged(async () => {
-      ({ socket } = await accepted(registry, upgradeRequest("/_rpc/chat/talk", { room: "a" })));
+      ({ socket } = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk", { room: "a" })));
     });
 
     assert.deepEqual(socket.frames(), [internal]);
@@ -504,43 +496,45 @@ test("failures before the handler returns are frames on the accepted socket, wit
 
 test("a message that fails validation, and every protocol violation, end the call with INVALID_INPUT", async () => {
   const seen = [];
-  const registry = {
-    chat: defineRpc("chat", ({ channel }) => ({
-      talk: channel({
-        message: textSchema,
-        handler: async function* ({ messages, signal }) {
-          signal.addEventListener("abort", () => seen.push("aborted"));
-          yield "ready";
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        talk: channel({
+          message: textSchema,
+          handler: async function* ({ messages, signal }) {
+            signal.addEventListener("abort", () => seen.push("aborted"));
+            yield "ready";
 
-          try {
-            for await (const message of messages) {
-              yield message.text;
-            }
-          } catch (error) {
-            seen.push(error.name);
+            try {
+              for await (const message of messages) {
+                yield message.text;
+              }
+            } catch (error) {
+              seen.push(error.name);
 
-            throw error;
-          }
-        },
-      }),
-      // A handler that swallows the refusal still ends with INVALID_INPUT.
-      swallow: channel({
-        message: textSchema,
-        handler: async function* ({ messages }) {
-          try {
-            for await (const message of messages) {
-              yield message.text;
+              throw error;
             }
-          } catch {
-            yield "swallowed";
-            await new Promise((resolve) => setTimeout(resolve, 10));
-          }
-        },
+          },
+        }),
+        // A handler that swallows the refusal still ends with INVALID_INPUT.
+        swallow: channel({
+          message: textSchema,
+          handler: async function* ({ messages }) {
+            try {
+              for await (const message of messages) {
+                yield message.text;
+              }
+            } catch {
+              yield "swallowed";
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+          },
+        }),
       }),
-    })),
+    },
   };
 
-  const invalid = await accepted(registry, upgradeRequest("/_rpc/chat/talk"));
+  const invalid = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk"));
 
   invalid.socket.receive({ message: { text: "ok" } });
   invalid.socket.receive({ message: { text: 1 } });
@@ -559,7 +553,7 @@ test("a message that fails validation, and every protocol violation, end the cal
   ]);
   assert.deepEqual(seen, ["aborted", "MessageRefused"]);
 
-  const swallowed = await accepted(registry, upgradeRequest("/_rpc/chat/swallow"));
+  const swallowed = await accepted(namespaces, upgradeRequest("/_rpc/chat/swallow"));
 
   swallowed.socket.receive({ message: {} });
   await until(() => swallowed.socket.closedWith !== undefined, "the swallowed refusal");
@@ -585,7 +579,7 @@ test("a message that fails validation, and every protocol violation, end the cal
   for (const violation of violations) {
     seen.length = 0;
 
-    const { socket } = await accepted(registry, upgradeRequest("/_rpc/chat/talk"));
+    const { socket } = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk"));
 
     await until(() => socket.sent.length === 1, "the first value");
 
@@ -604,23 +598,25 @@ test("a message that fails validation, and every protocol violation, end the cal
 test("credit windows: the server holds at most 32 unread messages and grants 16 at a time", async () => {
   const gate = Promise.withResolvers();
   const read = [];
-  const registry = {
-    chat: defineRpc("chat", ({ channel }) => ({
-      talk: channel({
-        message: anySchema,
-        handler: async function* ({ messages }) {
-          yield "ready";
-          await gate.promise;
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        talk: channel({
+          message: anySchema,
+          handler: async function* ({ messages }) {
+            yield "ready";
+            await gate.promise;
 
-          for await (const message of messages) {
-            read.push(message);
-          }
-        },
+            for await (const message of messages) {
+              read.push(message);
+            }
+          },
+        }),
       }),
-    })),
+    },
   };
 
-  const { socket } = await accepted(registry, upgradeRequest("/_rpc/chat/talk"));
+  const { socket } = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk"));
 
   for (let index = 0; index < 32; index += 1) {
     socket.receive({ message: index });
@@ -643,7 +639,7 @@ test("credit windows: the server holds at most 32 unread messages and grants 16 
   assert.equal(socket.closedWith, undefined);
 
   // One message beyond the credit breaks the protocol.
-  const over = await accepted(registry, upgradeRequest("/_rpc/chat/talk"));
+  const over = await accepted(namespaces, upgradeRequest("/_rpc/chat/talk"));
 
   for (let index = 0; index < 33; index += 1) {
     over.socket.receive({ message: index });
@@ -655,29 +651,31 @@ test("credit windows: the server holds at most 32 unread messages and grants 16 
 
 test("credit windows: the server sends at most 256 unread values and pauses at the buffered mark", async () => {
   let pulled = 0;
-  const registry = {
-    chat: defineRpc("chat", ({ channel }) => ({
-      flood: channel({
-        message: anySchema,
-        handler: async function* () {
-          while (true) {
-            pulled += 1;
-            yield pulled;
-          }
-        },
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        flood: channel({
+          message: anySchema,
+          handler: async function* () {
+            while (true) {
+              pulled += 1;
+              yield pulled;
+            }
+          },
+        }),
+        three: channel({
+          message: anySchema,
+          handler: async function* () {
+            yield 1;
+            yield 2;
+            yield 3;
+          },
+        }),
       }),
-      three: channel({
-        message: anySchema,
-        handler: async function* () {
-          yield 1;
-          yield 2;
-          yield 3;
-        },
-      }),
-    })),
+    },
   };
 
-  const flood = await accepted(registry, upgradeRequest("/_rpc/chat/flood"));
+  const flood = await accepted(namespaces, upgradeRequest("/_rpc/chat/flood"));
 
   await until(() => flood.socket.sent.length === 256, "the window");
   await settle();
@@ -696,7 +694,7 @@ test("credit windows: the server sends at most 256 unread values and pauses at t
   assert.deepEqual(flood.socket.frames().at(-1), malformed);
 
   // A full socket buffer pauses pulling until it drains.
-  const upgrade = await handle(registry, upgradeRequest("/_rpc/chat/three"));
+  const upgrade = await handle(namespaces, upgradeRequest("/_rpc/chat/three"));
   const socket = new FakeSocket();
 
   socket.bufferedAmount = 2 * 1024 * 1024;
@@ -710,10 +708,18 @@ test("credit windows: the server sends at most 256 unread values and pauses at t
 
 test("closing ends messages and aborts the signal; a handler waiting for credit returns at once", async () => {
   const seen = [];
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ next }) => {
+          const result = await next();
+
+          seen.push("next resolved");
+
+          return result;
+        }),
+      ],
+      build: ({ channel }) => ({
         listen: channel({
           message: anySchema,
           handler: async function* ({ messages, signal }) {
@@ -740,21 +746,10 @@ test("closing ends messages and aborts the signal; a handler waiting for credit 
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            const result = await next();
-
-            seen.push("next resolved");
-
-            return result;
-          }),
-        ],
-      },
-    ),
+    },
   };
 
-  const listening = await accepted(registry, upgradeRequest("/_rpc/chat/listen"));
+  const listening = await accepted(namespaces, upgradeRequest("/_rpc/chat/listen"));
 
   await until(() => listening.socket.sent.length === 1, "the first value");
   listening.socket.receive({ message: 1 });
@@ -765,7 +760,7 @@ test("closing ends messages and aborts the signal; a handler waiting for credit 
 
   seen.length = 0;
 
-  const flooding = await accepted(registry, upgradeRequest("/_rpc/chat/flood"));
+  const flooding = await accepted(namespaces, upgradeRequest("/_rpc/chat/flood"));
 
   await until(() => flooding.socket.sent.length === 256, "the window");
   flooding.socket.leave();
@@ -776,10 +771,21 @@ test("closing ends messages and aborts the signal; a handler waiting for credit 
 
 test("closing after the handler ended, while middleware still settles, aborts the call's signal", async () => {
   const seen = [];
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ next, signal }) => {
+          const result = await next();
+
+          seen.push("handler done");
+          // Abort-aware cleanup: only cancellation settles it.
+          await new Promise((resolve) => signal.addEventListener("abort", resolve));
+          seen.push("cleanup cancelled");
+
+          return result;
+        }),
+      ],
+      build: ({ channel }) => ({
         once: channel({
           message: anySchema,
           handler: async function* () {
@@ -787,24 +793,10 @@ test("closing after the handler ended, while middleware still settles, aborts th
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next, signal }) => {
-            const result = await next();
-
-            seen.push("handler done");
-            // Abort-aware cleanup: only cancellation settles it.
-            await new Promise((resolve) => signal.addEventListener("abort", resolve));
-            seen.push("cleanup cancelled");
-
-            return result;
-          }),
-        ],
-      },
-    ),
+    },
   };
 
-  const call = await accepted(registry, upgradeRequest("/_rpc/chat/once"));
+  const call = await accepted(namespaces, upgradeRequest("/_rpc/chat/once"));
 
   await until(() => seen.includes("handler done"), "the handler to end");
   call.socket.leave();
@@ -836,10 +828,10 @@ test("a client that leaves before accept: the handler doesn't run and next() res
       },
     },
   };
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [delay],
+      build: ({ channel }) => ({
         talk: channel({
           message: anySchema,
           handler: async function* () {
@@ -859,21 +851,22 @@ test("a client that leaves before accept: the handler doesn't run and next() res
           },
         }),
       }),
-      { use: [delay] },
-    ),
-    slow: defineRpc("slow", ({ channel }) => ({
-      plain: channel({
-        input: slowRoom,
-        message: anySchema,
-        handler: () => {
-          seen.push("handler ran");
+    },
+    slow: {
+      build: ({ channel }) => ({
+        plain: channel({
+          input: slowRoom,
+          message: anySchema,
+          handler: () => {
+            seen.push("handler ran");
 
-          return (async function* () {
-            yield 1;
-          })();
-        },
+            return (async function* () {
+              yield 1;
+            })();
+          },
+        }),
       }),
-    })),
+    },
   };
 
   for (const [path, expected] of [
@@ -886,7 +879,7 @@ test("a client that leaves before accept: the handler doesn't run and next() res
     gate = Promise.withResolvers();
 
     const client = new AbortController();
-    const pending = handle(registry, upgradeRequest(path, null, { signal: client.signal }));
+    const pending = handle(namespaces, upgradeRequest(path, null, { signal: client.signal }));
 
     await settle();
     client.abort();
@@ -922,7 +915,7 @@ test("a client that leaves before accept: the handler doesn't run and next() res
       gate.resolve();
 
       const upgrade = await handle(
-        registry,
+        namespaces,
         upgradeRequest(path, null, { signal: AbortSignal.abort() }),
       );
 
@@ -957,10 +950,18 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
     };
   }
 
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ next }) => {
+          try {
+            return await next();
+          } finally {
+            seen.push("next settled");
+          }
+        }),
+      ],
+      build: ({ channel }) => ({
         generator: channel({
           message: anySchema,
           handler: async function* () {
@@ -990,18 +991,7 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
             }),
         }),
       }),
-      {
-        use: [
-          middleware(async ({ next }) => {
-            try {
-              return await next();
-            } finally {
-              seen.push("next settled");
-            }
-          }),
-        ],
-      },
-    ),
+    },
   };
   const rejections = [];
   const rejected = (reason) => rejections.push(reason);
@@ -1013,7 +1003,7 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
       seen.length = 0;
 
       await logged(async () => {
-        const { socket } = await accepted(registry, upgradeRequest(`/_rpc/chat/${name}`));
+        const { socket } = await accepted(namespaces, upgradeRequest(`/_rpc/chat/${name}`));
 
         await until(() => socket.closedWith !== undefined, `the ${name} failure`);
         assert.equal(socket.closedWith, 1000, name);
@@ -1032,7 +1022,7 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
 // A real Node server with the upgrade handler, and Node's WebSocket standing in for the
 // browser's: it resolves the client's relative URL against the server and sends what a
 // browser sends by itself.
-async function serve(registry, { maxPayload, origin } = {}) {
+async function serve(namespaces, { maxPayload, origin } = {}) {
   const server = createServer(async (incoming, outgoing) => {
     const chunks = [];
 
@@ -1041,8 +1031,7 @@ async function serve(registry, { maxPayload, origin } = {}) {
     }
 
     const response = await handleRpc(
-      registry,
-      application,
+      bound(application, namespaces),
       new Request(`http://${incoming.headers.host}${incoming.url}`, {
         method: incoming.method,
         headers: incoming.headers,
@@ -1057,7 +1046,9 @@ async function serve(registry, { maxPayload, origin } = {}) {
   const upgrades = [];
   const listener = createUpgradeHandler(
     (request) =>
-      handleChannelUpgrade(registry, application, request, { allowedHosts: ["127.0.0.1"] }),
+      handleChannelUpgrade(bound(application, namespaces), request, {
+        allowedHosts: ["127.0.0.1"],
+      }),
     { maxPayload },
   );
 
@@ -1127,10 +1118,16 @@ function rawUpgrade(base, path, headers = {}) {
 }
 
 test("the Node upgrade handler writes refusals as HTTP, puts cookies on the 101 and leaves other paths alone", async () => {
-  const registry = {
-    chat: defineRpc(
-      "chat",
-      ({ channel }) => ({
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ response, next }) => {
+          response.setCookie("seen", "1");
+
+          return next();
+        }),
+      ],
+      build: ({ channel }) => ({
         talk: channel({
           message: anySchema,
           handler: async function* () {
@@ -1138,18 +1135,9 @@ test("the Node upgrade handler writes refusals as HTTP, puts cookies on the 101 
           },
         }),
       }),
-      {
-        use: [
-          middleware(async ({ response, next }) => {
-            response.setCookie("seen", "1");
-
-            return next();
-          }),
-        ],
-      },
-    ),
+    },
   };
-  const server = await serve(registry);
+  const server = await serve(namespaces);
 
   try {
     const query = `?input=${encodeURIComponent("null")}`;
@@ -1324,67 +1312,69 @@ function client(platform = "browser") {
 }
 
 const clientRegistry = (seen) => ({
-  chat: defineRpc("chat", ({ channel }) => ({
-    talk: channel({
-      input: roomSchema,
-      message: textSchema,
-      handler: async function* ({ input, messages }) {
-        yield { room: input.room };
-
-        for await (const message of messages) {
-          if (message.text === "bye") {
-            return;
-          }
-
-          yield { echo: message.text };
-        }
-      },
-    }),
-    fail: channel({
-      input: roomSchema,
-      message: anySchema,
-      errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
-      handler: async function* ({ input, errors }) {
-        yield "first";
-
-        if (input.room === "gone") {
-          throw errors.GONE(null);
-        }
-
-        if (input.room === "moved") {
-          throw redirect("/elsewhere");
-        }
-
-        throw notFound();
-      },
-    }),
-    // Never reads its messages, and ends once told to.
-    deaf: channel({
-      message: anySchema,
-      handler: async function* () {
-        yield "ready";
-        await seen.deaf.promise;
-      },
-    }),
-    forever: channel({
-      message: anySchema,
-      handler: async function* ({ signal, messages }) {
-        signal.addEventListener("abort", () => seen.log.push("aborted"));
-
-        try {
-          yield "ready";
+  chat: {
+    build: ({ channel }) => ({
+      talk: channel({
+        input: roomSchema,
+        message: textSchema,
+        handler: async function* ({ input, messages }) {
+          yield { room: input.room };
 
           for await (const message of messages) {
-            void message;
+            if (message.text === "bye") {
+              return;
+            }
+
+            yield { echo: message.text };
+          }
+        },
+      }),
+      fail: channel({
+        input: roomSchema,
+        message: anySchema,
+        errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
+        handler: async function* ({ input, errors }) {
+          yield "first";
+
+          if (input.room === "gone") {
+            throw errors.GONE(null);
           }
 
-          seen.log.push("messages ended");
-        } finally {
-          seen.log.push("returned");
-        }
-      },
+          if (input.room === "moved") {
+            throw redirect("/elsewhere");
+          }
+
+          throw notFound();
+        },
+      }),
+      // Never reads its messages, and ends once told to.
+      deaf: channel({
+        message: anySchema,
+        handler: async function* () {
+          yield "ready";
+          await seen.deaf.promise;
+        },
+      }),
+      forever: channel({
+        message: anySchema,
+        handler: async function* ({ signal, messages }) {
+          signal.addEventListener("abort", () => seen.log.push("aborted"));
+
+          try {
+            yield "ready";
+
+            for await (const message of messages) {
+              void message;
+            }
+
+            seen.log.push("messages ended");
+          } finally {
+            seen.log.push("returned");
+          }
+        },
+      }),
     }),
-  })),
+  },
 });
 
 test("the browser channel sends typed messages, queues them before open, reads values and ends", async () => {
@@ -1563,53 +1553,55 @@ test("a refused handshake, a dropped connection and an oversized message are Typ
 
 // Channels for the client's own flow control and iteration.
 const iterationRegistry = (seen) => ({
-  chat: defineRpc("chat", ({ channel }) => ({
-    // 600 values, then one echo per message once the test opens its gate, until 149.
-    bulk: channel({
-      message: anySchema,
-      handler: async function* ({ messages }) {
-        for (let index = 0; index < 600; index += 1) {
-          yield index;
-        }
-
-        await seen.gate.promise;
-
-        for await (const message of messages) {
-          yield { echo: message };
-
-          if (message === 149) {
-            return;
+  chat: {
+    build: ({ channel }) => ({
+      // 600 values, then one echo per message once the test opens its gate, until 149.
+      bulk: channel({
+        message: anySchema,
+        handler: async function* ({ messages }) {
+          for (let index = 0; index < 600; index += 1) {
+            yield index;
           }
-        }
-      },
-    }),
-    // Three values, then the end or, for room "gone", an error.
-    finite: channel({
-      input: roomSchema,
-      message: anySchema,
-      errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
-      handler: async function* ({ input, errors }) {
-        try {
-          yield "a";
-          yield "b";
-          yield "c";
 
-          if (input.room === "gone") {
-            throw errors.GONE(null);
+          await seen.gate.promise;
+
+          for await (const message of messages) {
+            yield { echo: message };
+
+            if (message === 149) {
+              return;
+            }
           }
-        } finally {
-          seen.log.push(`done ${input.room}`);
-        }
-      },
+        },
+      }),
+      // Three values, then the end or, for room "gone", an error.
+      finite: channel({
+        input: roomSchema,
+        message: anySchema,
+        errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
+        handler: async function* ({ input, errors }) {
+          try {
+            yield "a";
+            yield "b";
+            yield "c";
+
+            if (input.room === "gone") {
+              throw errors.GONE(null);
+            }
+          } finally {
+            seen.log.push(`done ${input.room}`);
+          }
+        },
+      }),
+      quiet: channel({
+        message: anySchema,
+        handler: async function* ({ signal }) {
+          yield "ready";
+          await new Promise((resolve) => signal.addEventListener("abort", resolve));
+        },
+      }),
     }),
-    quiet: channel({
-      message: anySchema,
-      handler: async function* ({ signal }) {
-        yield "ready";
-        await new Promise((resolve) => signal.addEventListener("abort", resolve));
-      },
-    }),
-  })),
+  },
 });
 
 // A flow-control or read regression stalls instead of failing: fail it after a while.

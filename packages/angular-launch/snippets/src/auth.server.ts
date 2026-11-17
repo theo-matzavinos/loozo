@@ -1,9 +1,10 @@
-import { forbidden, middleware } from "@loozo/angular-launch/server";
+import { forbidden, type StageArgs } from "@loozo/angular-launch/server";
+import type { Context } from "./routes/route.generated.js";
 
-export const signedIn = middleware(async ({ context, next }) => {
+export function signedIn({ context }: StageArgs<Context>) {
   if (context.user === null) {
     throw forbidden();
   }
 
-  return next({ user: context.user });
-});
+  return { ...context, user: context.user };
+}

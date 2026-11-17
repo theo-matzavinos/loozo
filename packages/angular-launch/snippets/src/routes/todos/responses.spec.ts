@@ -2,21 +2,37 @@
 import { HttpErrorResponse, provideHttpClient } from "@angular/common/http";
 import { HttpTestingController, provideHttpClientTesting } from "@angular/common/http/testing";
 import { TestBed } from "@angular/core/testing";
+import { provideRouter } from "@angular/router";
+import { RouterTestingHarness } from "@angular/router/testing";
 import { RpcNotFound, RpcRedirect } from "@loozo/angular-launch";
-import { beforeEach, describe, expect, it } from "vitest";
-import { injectRpc } from "./rpc.generated.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { routes } from "../../../generated/routes.generated.js";
+import TodosPage from "./page.js";
+
+// The page's route handle: its `remote` is the todos client the README's table is about.
+async function todos() {
+  const http = TestBed.inject(HttpTestingController);
+  const harness = await RouterTestingHarness.create();
+  const navigation = harness.navigateByUrl("/todos", TodosPage);
+
+  await vi.waitFor(() => http.expectOne("/_rpc/todos/list").flush([]));
+
+  const page = await navigation;
+
+  return page.route.remote.todos;
+}
 
 async function answer(body: object, status: number) {
-  const rpc = TestBed.runInInjectionContext(() => injectRpc());
+  const { complete } = await todos();
   const http = TestBed.inject(HttpTestingController);
-  const calling = rpc.todos.complete({ id: "1" });
+  const calling = complete({ id: "1" });
 
   http.expectOne("/_rpc/todos/complete").flush(body, { status, statusText: "Error" });
 
   try {
     await calling;
   } catch (error) {
-    return { error, own: rpc.todos.complete.isError(error) };
+    return { error, own: complete.isError(error) };
   }
 
   throw new Error("The call didn't reject");
@@ -25,7 +41,7 @@ async function answer(body: object, status: number) {
 describe("responses from the README's table", () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
     });
   });
 

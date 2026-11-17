@@ -84,12 +84,10 @@ async function setUp() {
       },
     }),
     "src/main.ts": 'import { branch } from "conditional-dependency";\n\nconsole.log(branch);\n',
-    "src/context.ts": `import { defineContext } from "@loozo/angular-launch/server";
+    "src/routes/route.ts": `import { defineRoute } from "@loozo/angular-launch";
 
-export default defineContext((request: Request) => ({ request }));
+export default defineRoute("", {}).context(({ request }) => ({ request }));
 `,
-    "src/routes/route.ts":
-      'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("", {});\n',
     "src/routes/page.ts":
       'import { Component } from "@angular/core";\n\n@Component({ selector: "home-page", template: "home" })\nexport default class Home {}\n',
     "node_modules/conditional-dependency/package.json": JSON.stringify({

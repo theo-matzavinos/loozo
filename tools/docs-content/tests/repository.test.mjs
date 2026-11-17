@@ -254,17 +254,24 @@ test("launch's RpcError documents code/status/data and frameworkFailures is not 
   assert.match(failures, /Internal server error/);
 });
 
-test("launch's ./server entry point extracts", () => {
+test("launch's ./server entry point extracts, and its root entry has defineRoute", () => {
   const server = entryPoint(launch, "@loozo/angular-launch/server");
   const names = new Set();
+  const root = new Set();
 
   for (const apiSymbol of server.symbols) {
     names.add(apiSymbol.name);
   }
 
+  for (const apiSymbol of entryPoint(launch, "@loozo/angular-launch").symbols) {
+    root.add(apiSymbol.name);
+  }
+
+  assert.equal(root.has("defineRoute"), true, "defineRoute is extracted from the root entry");
+
   for (const name of [
-    "defineRpc",
-    "defineContext",
+    "StageArgs",
+    "ProcedureBuilder",
     "middleware",
     "forbidden",
     "MiddlewareArgs",

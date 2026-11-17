@@ -6,10 +6,11 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 import { Component, PLATFORM_ID, signal } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
-import { defineContext, defineRpc } from "../dist/server/index.js";
+
 import { handleChannelUpgrade, handleRpc } from "../dist/server/generated.js";
+import { bound } from "./fixtures/application.mjs";
 import { createUpgradeHandler } from "../dist/node/index.js";
-import { injectClient } from "../dist/generated.js";
+import { injectClient } from "../dist/remote-client.js";
 import { RpcError } from "../dist/index.js";
 
 // A browser application on Node: platform-browser over a DOM-emulated document, so render
@@ -24,7 +25,7 @@ globalThis.ngServerMode = false;
 
 const application = {
   id: "launch-connect-test-app",
-  context: defineContext((request) => ({ user: request.headers.get("cookie") })),
+  context: ({ request }) => ({ user: request.headers.get("cookie") }),
 };
 
 function schema(check, message) {
@@ -57,69 +58,71 @@ const countSchema = schema(
 const log = [];
 let stallGate = Promise.withResolvers();
 let foldGate = Promise.withResolvers();
-const registry = {
-  live: defineRpc("live", ({ channel, stream }) => ({
-    talk: channel({
-      input: roomSchema,
-      message: schema((value) => typeof value?.text === "string", "Expected a text"),
-      errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
-      handler: async function* ({ input, messages, signal, errors }) {
-        log.push(`open ${input.room}`);
-        signal.addEventListener("abort", () => log.push(`aborted ${input.room}`));
-        yield { kind: "history", room: input.room };
+const namespaces = {
+  live: {
+    build: ({ channel, stream }) => ({
+      talk: channel({
+        input: roomSchema,
+        message: schema((value) => typeof value?.text === "string", "Expected a text"),
+        errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
+        handler: async function* ({ input, messages, signal, errors }) {
+          log.push(`open ${input.room}`);
+          signal.addEventListener("abort", () => log.push(`aborted ${input.room}`));
+          yield { kind: "history", room: input.room };
 
-        for await (const message of messages) {
-          if (message.text === "fail") {
-            throw errors.GONE(null);
+          for await (const message of messages) {
+            if (message.text === "fail") {
+              throw errors.GONE(null);
+            }
+
+            yield { kind: "echo", text: message.text };
           }
-
-          yield { kind: "echo", text: message.text };
-        }
-      },
+        },
+      }),
+      // Never reads its messages; fails once the test opens its gate.
+      stall: channel({
+        message: anySchema,
+        errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
+        handler: async function* ({ errors }) {
+          yield "ready";
+          await stallGate.promise;
+          throw errors.GONE(null);
+        },
+      }),
+      // Never reads its messages; yields "boom" once the test opens its gate.
+      fold: channel({
+        message: anySchema,
+        handler: async function* ({ signal }) {
+          yield "ready";
+          await foldGate.promise;
+          yield "boom";
+          await new Promise((resolve) => signal.addEventListener("abort", resolve));
+        },
+      }),
+      // Never reads its messages, and runs until closed.
+      deaf: channel({
+        input: roomSchema,
+        message: anySchema,
+        handler: async function* ({ input, signal }) {
+          yield `ready ${input.room}`;
+          await new Promise((resolve) => signal.addEventListener("abort", resolve));
+        },
+      }),
+      ticks: stream({
+        input: countSchema,
+        handler: async function* ({ input }) {
+          for (let tick = 0; tick < input.count; tick += 1) {
+            yield tick;
+          }
+        },
+      }),
+      hello: stream({
+        handler: async function* () {
+          yield "hello";
+        },
+      }),
     }),
-    // Never reads its messages; fails once the test opens its gate.
-    stall: channel({
-      message: anySchema,
-      errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
-      handler: async function* ({ errors }) {
-        yield "ready";
-        await stallGate.promise;
-        throw errors.GONE(null);
-      },
-    }),
-    // Never reads its messages; yields "boom" once the test opens its gate.
-    fold: channel({
-      message: anySchema,
-      handler: async function* ({ signal }) {
-        yield "ready";
-        await foldGate.promise;
-        yield "boom";
-        await new Promise((resolve) => signal.addEventListener("abort", resolve));
-      },
-    }),
-    // Never reads its messages, and runs until closed.
-    deaf: channel({
-      input: roomSchema,
-      message: anySchema,
-      handler: async function* ({ input, signal }) {
-        yield `ready ${input.room}`;
-        await new Promise((resolve) => signal.addEventListener("abort", resolve));
-      },
-    }),
-    ticks: stream({
-      input: countSchema,
-      handler: async function* ({ input }) {
-        for (let tick = 0; tick < input.count; tick += 1) {
-          yield tick;
-        }
-      },
-    }),
-    hello: stream({
-      handler: async function* () {
-        yield "hello";
-      },
-    }),
-  })),
+  },
 };
 const metadata = {
   live: {
@@ -155,8 +158,7 @@ async function serve() {
     }
 
     const response = await handleRpc(
-      registry,
-      application,
+      bound(application, namespaces),
       new Request(`http://${incoming.headers.host}${incoming.url}`, {
         method: incoming.method,
         headers: incoming.headers,
@@ -177,7 +179,9 @@ async function serve() {
   server.on(
     "upgrade",
     createUpgradeHandler((request) =>
-      handleChannelUpgrade(registry, application, request, { allowedHosts: ["127.0.0.1"] }),
+      handleChannelUpgrade(bound(application, namespaces), request, {
+        allowedHosts: ["127.0.0.1"],
+      }),
     ),
   );
   server.listen(0, "127.0.0.1");

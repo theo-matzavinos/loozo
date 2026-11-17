@@ -1,7 +1,30 @@
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute } from "@loozo/angular-launch";
+import { signedIn } from "../../auth.server.js";
+import { idSchema } from "../../todo-input.js";
 import parent from "../route.js";
-import { injectRpc } from "./rpc.generated.js";
 
-export default defineRoute("todos", { parent }).resolve({
-  todos: () => injectRpc().todos.list(),
-});
+export default defineRoute("todos", { parent })
+  .context(signedIn)
+  .remote(({ query, mutation }) => ({
+    todos: {
+      list: query({
+        handler: ({ context }) => context.todos.listForUser(context.user.id),
+      }),
+      complete: mutation({
+        input: idSchema,
+        errors: {
+          NOT_FOUND: { status: 404, message: "Todo does not exist", data: idSchema },
+        },
+        handler: async ({ input, context, errors }) => {
+          const todo = await context.todos.completeForUser(context.user.id, input.id);
+
+          if (todo === null) {
+            throw errors.NOT_FOUND({ id: input.id });
+          }
+
+          return todo;
+        },
+      }),
+    },
+  }))
+  .resolve({ todos: ({ remote }) => remote.todos.list() });

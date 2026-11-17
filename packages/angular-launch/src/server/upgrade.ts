@@ -1,19 +1,17 @@
 import { parseJson } from "../json.js";
 import { createChannelSocket } from "./channel-socket.js";
-import type { ContextDefinition } from "./definitions.js";
+import type { ApplicationBinding } from "./application.js";
 import {
   createRequestScope,
   crossSiteReason,
-  dispatch,
+  runProcedure,
   failure,
   hostAllowed,
   hostRefusal,
   invalidInput,
   response,
   responseHeaders,
-  type ApplicationBinding,
   type HandleOptions,
-  type Registry,
   type Reply,
 } from "./dispatch.js";
 import { failureFrame, type StreamStart } from "./event-stream.js";
@@ -86,35 +84,33 @@ function refusedUpgrade(effects: ResponseEffects, reply: Reply): Upgrade {
  * Internal: exported only from `@loozo/angular-launch/_server` for the generated
  * `handleUpgrade` in `server.generated.ts`; call that instead.
  *
- * Any path starting with `/_rpc/` is a channel request. Before any context exists, the
+ * Any path starting with `/_rpc/` is a channel request. Before any stage runs, the
  * request is refused with an HTTP response, as `handleRequest` refuses RPCs: a plain-text 400
  * `Host not allowed` when its hostname isn't in `allowedHosts`; `INVALID_INPUT` with no issues
  * unless it's a `GET` with `Upgrade: websocket` and a query of exactly `input` holding JSON;
  * and `FORBIDDEN` unless it's proven same-origin by `handleRequest`'s rules.
  *
- * A fresh context is then created and the call dispatched: `RPC_NOT_FOUND` for a path that
- * isn't a channel, then group middleware, input validation, procedure middleware and the
- * handler, which returns its iterable. From then on the result is an {@link Upgrade} carrying
- * the call's headers and cookies; setting a cookie later throws. A failure before that,
- * including a context factory that throws (`INTERNAL`), is an `Upgrade` too, whose socket
- * receives the failure frame and closes with 1000.
+ * A fresh request scope is then created and the call run: `RPC_NOT_FOUND` for a path that
+ * isn't a channel, then the owning route's stages and `.use()` middleware, input
+ * validation, procedure middleware and the handler, which returns its iterable. From then
+ * on the result is an {@link Upgrade} carrying the call's headers and cookies, including
+ * the stages'; setting a cookie later throws. A failure before that, including a stage
+ * that throws (`INTERNAL`), is an `Upgrade` too, whose socket receives the failure frame
+ * and closes with 1000.
  *
  * Until the socket is accepted the call's signal follows `request.signal`; a request that
  * aborts before the handler is reached skips the handler, and one that aborts after it
  * returned its iterable returns that iterator before its body ran. Either way the socket,
  * if accepted, closes without a frame. Afterwards the signal follows the socket closing.
  *
- * @typeParam Definition - The application's context definition.
- * @param registry - The application's RPC groups.
  * @param application - The application binding.
  * @param request - The upgrade request, as a web `Request`.
  * @param options - The allowed hosts and further allowed origins.
  * @returns A refusal response, the upgrade, or `null` when the path doesn't start with
  * `/_rpc/`.
  */
-export async function handleChannelUpgrade<Definition extends ContextDefinition<unknown>>(
-  registry: Registry,
-  application: ApplicationBinding<Definition>,
+export async function handleChannelUpgrade(
+  application: ApplicationBinding,
   request: Request,
   { allowedHosts, origins = [] }: HandleOptions,
 ): Promise<Response | Upgrade | null> {
@@ -151,10 +147,9 @@ export async function handleChannelUpgrade<Definition extends ContextDefinition<
   let reply: Reply;
 
   try {
-    const scope = await createRequestScope(application, request);
+    const scope = createRequestScope(application, request);
     const started = Promise.withResolvers<StreamStart>();
-    const outcome = dispatch(
-      registry,
+    const outcome = runProcedure(
       url.pathname,
       envelope,
       scope,
@@ -186,7 +181,7 @@ export async function handleChannelUpgrade<Definition extends ContextDefinition<
 
     reply = first;
   } catch (error) {
-    console.error("Launch context failed", error);
+    console.error("Launch request scope failed", error);
     reply = failure("INTERNAL");
   }
 

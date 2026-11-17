@@ -1,6 +1,6 @@
 # Scale benchmark
 
-Measures how `@loozo/angular-router` scales with the number of routes: first generation, regeneration while serving, `ng build`, type-checking and bundle size, each on a generated fixture of 100, 300 and 1,000 routes by default.
+Measures how `@loozo/angular-router` scales with the number of routes: first generation, regeneration while serving, `ng build`, type-checking and bundle size, each on a generated fixture of 100, 300 and 1,000 routes by default. A second workload measures the same routes declared through `@loozo/angular-launch`'s route extension; see [Launch workload](#launch-workload).
 
 It runs on demand only, not in CI. Timings depend on the machine and on whatever else it's running, so compare numbers from one machine under similar load, and read them next to the machine and load averages recorded with them.
 
@@ -11,6 +11,7 @@ Prerequisites, once per checkout and again after changing the package's source:
 ```sh
 pnpm install --frozen-lockfile                # at the repo root
 pnpm --dir packages/angular-router build      # the benchmark runs the built package
+pnpm --dir packages/angular-launch build      # the Launch workload also runs built Launch
 ```
 
 The benchmark checks that the package is built but not that the build is current. From `packages/angular-router`:
@@ -19,15 +20,17 @@ The benchmark checks that the package is built but not that the build is current
 pnpm run bench                                # 100, 300 and 1,000 routes
 pnpm run bench --sizes 10,100 --out /tmp/new-directory
 pnpm run bench --check                        # also compare against bench/budgets.json
+pnpm run bench --workload launch --check      # the Launch workload, against bench/launch-budgets.json
 ```
 
 | Option                | Default                                  | Meaning                                                                                                                                                                                                                                    |
 | --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--workload <name>`   | `router`                                 | `router` or `launch` (see [Launch workload](#launch-workload)).                                                                                                                                                                            |
 | `--sizes <list>`      | `100,300,1000`                           | Comma-separated route counts, each a positive multiple of 10. Each size gets its own fresh consumer.                                                                                                                                       |
 | `--out <dir>`         | a new directory under the OS temp dir    | Where consumers, logs and `results.json` go. It must not exist yet or be empty.                                                                                                                                                            |
 | `--samples <list>`    | `generate=3,edits=3,build=1,ngc=3,tsc=1` | Samples per measurement; give only the ones to change, such as `--samples build=3`. Metrics are medians.                                                                                                                                   |
 | `--timeout <seconds>` | `1200`                                   | Limit for each command and each wait. Exceeding one fails the run. A wait checks its limit between polls, so a long synchronous generation pass can overrun it; the serve process as a whole is killed at the limit times (3 + 2 × edits). |
-| `--check [file]`      | `bench/budgets.json`                     | After the run, compare every metric against its budget and exit nonzero, listing each one exceeded.                                                                                                                                        |
+| `--check [file]`      | the workload's budgets file              | After the run, compare every budgeted metric against its budget and exit nonzero, listing each one exceeded. The router workload reads `bench/budgets.json`, the Launch workload `bench/launch-budgets.json`.                              |
 
 Sizes run one after another and every heavy step runs alone; don't start two runs at once on one machine. The 1,000-route size dominates: expect it to take tens of minutes. Progress goes to stderr; the results table goes to stdout at the end, ready to paste below.
 
@@ -82,14 +85,14 @@ Boundaries worth keeping in mind:
 
 ## results.json
 
-- `options` and `conditions`: sizes, samples, timeout, poll interval, and each phase's setup, including the serve and build cache policies.
-- `machine`: CPU model, logical cores and available parallelism, RAM, OS, Node, pnpm, Angular, TypeScript and router versions, and the git commit with whether the checkout had changes.
+- `options` and `conditions`: workload, sizes, samples, timeout, poll interval, and each phase's setup, including the serve and build cache policies.
+- `machine`: CPU model, logical cores and available parallelism, RAM, OS, Node, pnpm, Angular, TypeScript, router and Launch versions, and the git commit with whether the checkout had changes.
 - `machine.environment`: inherited `NG_*` variables and `NODE_OPTIONS`, which can change Angular's workers, type checking or output; run without them for comparable numbers.
 - `sizes["<routes>"]`: `metrics` (each key's median), `samples` (each key's raw values), `load` (load averages and free memory before and after each phase), `fixture` (declaration counts), `generated` (hash of first generation's files), `serve` (each edit's timings and before/after hashes), `tscDiagnostics`, and `bundle` (totals plus a per-file manifest: path, initial or lazy, whether it holds the generated route tables, raw, gzip and Brotli bytes).
 
 ## Budgets
 
-`--check` reads a JSON file of maximums by route count, using the metric keys above in their `results.json` units, and fails on any value above its maximum. Sizes the run didn't measure are skipped, and the file is validated before anything runs:
+`--check` reads a JSON file of maximums by route count, using the metric keys above in their `results.json` units, and fails on any value above its maximum and on a budgeted metric the run didn't record, such as a serve budget in a Launch run. Sizes the run didn't measure are skipped, and the file is validated before anything runs:
 
 ```text
 { "<routes>": { "<metric key>": <maximum>, … }, … }
@@ -207,3 +210,82 @@ The same machine on 2026-11-14, at `0292b5c` before and after the change:
 | One-minute load average              |          2.5 – 3.4 |         5.9 – 6.9 |          3.3 – 11.4 |          3.1 – 5.2 |
 
 Generated files are byte-identical before and after at every size. At 100 routes the scan was small enough that load differences dominate the comparison.
+
+## Launch workload
+
+`--workload launch` measures the same block of routes declared through `@loozo/angular-launch`'s route extension: the type cost of the extension's members on every handle, Launch generation, the SSR build and what Launch's record stamps keep in the startup bundle. From `packages/angular-router`, after building both packages:
+
+```sh
+pnpm run bench --workload launch                # 100, 300 and 1,000 routes
+pnpm run bench --workload launch --check        # also compare against bench/launch-budgets.json
+```
+
+The consumer is the repository's `examples/angular-launch` app: its `@loozo/angular-launch:application` build target (generation with `tanstackQuery`, SSR with `outputMode: "server"`), server entry, server config and rendering config, under the project name `proof`, with the router workload's production build options. Its proof routes, verification entry and prerender configurations are left out, and its `config.ts` drops the navigation error handler that names the example's not-found route. The example's installed dependencies are linked in, with `@loozo/angular-router` and `@loozo/angular-launch` linked to the built packages, so the router has no package dependency on Launch.
+
+The fixture repeats the router fixture's block of ten declarations (see [Fixture](#fixture)), each `route.ts` importing `defineRoute` from `@loozo/angular-launch`:
+
+```text
+src/routes/gNNNN/            context stage that refuses a call without a user header and narrows the
+                             user to a string, .use(timing), and the gNNNN namespace (one query, one
+                             mutation); then the router fixture's canMatch, resolve and title
+  static/l0 … static/l6      no server steps; l1 has a title, as in the router fixture
+  $id/                       the gNNNNItem namespace (one query, one mutation), and a canActivate,
+                             resolve and title that call its query through remote
+    detail/                  no server steps
+src/bench.server.ts          the timing middleware and two hand-written Standard Schemas
+```
+
+The block root is the top-level route, as in the router fixture, so its stage is the first of its chain. Every page reads its block's query through `injectRoute().queries` with `injectQuery` and calls its block's mutation through `remote`; the pages under `$id` do the same with the item namespace. The shell narrows `injectActiveRoute()` to `g0000/$id` with `is()` and calls that route's mutation through `remote`.
+
+It records every metric above except serve's: the serve phase drives the router's serve builder, and Launch's serve builder isn't in the harness. Otherwise the keys mean the same, except that `generate.ms` times Launch's public `generate()`, which writes the router's files with Launch's additions and `server.generated.ts`; `build.ms` builds the browser and the server, including Angular's route extraction; and the bundle metrics read the browser build, whose index is `index.csr.html`. `bench/launch-budgets.json` follows the same rules as `bench/budgets.json`.
+
+### Launch results
+
+Recorded 2026-11-17 on top of `08ad644` (L1's unified routes, with the working tree's bench changes): 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, pnpm 12.9.1, Angular 22.2.6, TypeScript 6.0.3, router 0.0.9, Launch 0.0.6; default samples (generate 3, build 1, ngc 3, tsc 1). The one-minute load average stayed between 0.8 and 2.6. An earlier run the same day under an unrelated desktop workload (load average 3.3 to 11.4) measured identical sizes, instantiations and counts. The instantiations were re-recorded later that day, after context stages became whole-context (a route's context is its last stage's value): 170, 510 and 1,700 fewer, with identical sizes and counts. That run's load average was 6.0 to 11.2, so the timings and memory are the earlier run's.
+
+| Metric (median)                      | 100 routes | 300 routes | 1000 routes |
+| ------------------------------------ | ---------: | ---------: | ----------: |
+| First generation: generate()         |     4.12 s |     9.11 s |     25.59 s |
+| First generation: fresh process      |     4.34 s |     9.38 s |     25.92 s |
+| ng build (incl. generator preflight) |    10.20 s |    20.36 s |     52.92 s |
+| Type-check: ngc --noEmit             |     3.38 s |     6.92 s |     19.14 s |
+| Type-check: tsc --noEmit             |     1.88 s |     3.54 s |     11.32 s |
+| Type-check: tsc check time           |     1.09 s |     2.64 s |      9.87 s |
+| Type-check: tsc instantiations       |    222,093 |    621,773 |   2,045,853 |
+| Type-check: tsc memory used          | 255,699 KB | 458,477 KB |  880,459 KB |
+| Initial bundle: raw                  |  342,601 B |  355,983 B |   402,803 B |
+| Initial bundle: gzip                 |  105,984 B |  108,126 B |   115,627 B |
+| Initial bundle: brotli               |   93,568 B |   94,501 B |    97,394 B |
+| Initial bundle: JS/CSS files         |          2 |          2 |           2 |
+| Initial bundle: route copies         |         10 |         30 |         100 |
+| Lazy chunks: raw                     |  135,929 B |  407,867 B | 1,359,757 B |
+| Lazy chunks: gzip                    |   74,910 B |  224,621 B |   748,666 B |
+| Lazy chunks: brotli                  |   66,741 B |  199,935 B |   666,144 B |
+
+Next to the router workload's [recorded run](#results), which has no server steps, no TanStack Query and no SSR:
+
+| Metric                         | 100 routes          | 300 routes          | 1000 routes                    |
+| ------------------------------ | ------------------- | ------------------- | ------------------------------ |
+| First generation: generate()   | 2.30 → 4.12 s       | 4.66 → 9.11 s       | 11.61 → 25.59 s (×2.20)        |
+| ng build                       | 5.78 → 10.20 s      | 9.88 → 20.36 s      | 23.86 → 52.92 s (×2.22)        |
+| Type-check: ngc --noEmit       | 2.10 → 3.38 s       | 3.51 → 6.92 s       | 7.86 → 19.14 s (×2.44)         |
+| Type-check: tsc instantiations | 152,157 → 222,093   | 329,197 → 621,773   | 948,837 → 2,045,853 (×2.16)    |
+| Initial bundle: raw            | 230,831 → 342,601 B | 240,655 → 355,983 B | 275,095 → 402,803 B            |
+| Initial bundle: brotli         | 62,447 → 93,568 B   | 63,364 → 94,501 B   | 66,050 → 97,394 B              |
+| Initial bundle: JS/CSS files   | 2 → 2               | 2 → 2               | 2 → 2                          |
+| Initial bundle: route copies   | 10 → 10             | 30 → 30             | 100 → 100                      |
+| Lazy chunks: raw               | 100,355 → 135,929 B | 301,855 → 407,867 B | 1,007,450 → 1,359,757 B (+35%) |
+
+What it shows:
+
+- Instantiations are 1.46×, 1.89× and 2.16× the router workload's, and the gap widens with the routes: 3.3× the routes from 300 to 1,000 take 3.29× the instantiations, against the router workload's 2.88×. The extra is the Launch types: stages, procedures, the `remote` and `queries` members on every handle in `RouteTypes`, and the pages' and shell's reads of them. The run doesn't break it down further.
+- The initial bundle carries about 31 KB of Brotli more at every size: the app's providers (`HttpClient`, hydration, TanStack Query and Launch's client), not the routes. From 100 to 1,000 routes it grows by 3,826 B of Brotli against the router workload's 3,603 B.
+- Both runs were taken under similar load (one-minute load average up to 2.5 and 2.6), a day apart on different commits. Generation takes 1.8× to 2.2× as long: Launch generation writes the router's files with Launch's additions, its procedure metadata and `server.generated.ts`, and checks them. The build also builds the server and runs Angular's route extraction, so it isn't the router build's like for like.
+
+### Record stamps
+
+Generation stamps every non-redirect Launch record with `...extension(route_x)`, which value-imports that route's copy into the table holding the record. Since route groups, nested records live in their parent's lazily loaded `children.generated.ts`, so only top-level records' stamps reach `routes.generated.ts` and the startup bundle. The stamps don't make every copy initial:
+
+- Initial route copies are 10, 30 and 100: the top-level block roots' only, as in the router workload, where the roots' callbacks already keep them in `main`. In this fixture the stamps add no initial copy. A top-level Launch route without callbacks, which the fixture doesn't have, would add its copy to `main` through its stamp.
+- Each root copy in `main` is larger: 333 B minified at 100 routes and above (with Launch's procedure names, kinds and namespaces), against 130 B for the router workload's root copy in a 10-route run.
+- All 900 nested copies at 1,000 routes are in lazy chunks that also hold a children table: the stamp loads each copy with its parent's children, before its page. In the router workload, only the copies whose records read them do; at 10 routes, 3 of its 9 nested copies were in a children table's chunk and 6 only in their pages' chunks. That moves bytes into the lazy children chunks, not into `main`.

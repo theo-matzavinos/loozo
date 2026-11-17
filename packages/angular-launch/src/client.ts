@@ -1,6 +1,5 @@
 import type {
   ErrorDefinitions,
-  Group,
   InputOf,
   OutputOf,
   Procedure,
@@ -83,7 +82,7 @@ export interface ChannelCallOptions {
  *
  * @remarks
  * Internal; not exported from a public entry point. Generation writes these entries
- * into each `rpc.generated.ts` so the client can recognize the procedure's declared
+ * into each route copy's data so the client can recognize the procedure's declared
  * error responses without the server's schemas.
  */
 export interface ErrorMetadata {
@@ -348,16 +347,8 @@ type DeclaredError<Errors extends ErrorDefinitions> = {
  * @remarks
  * A union discriminated by `code`: one member per framework failure, with
  * {@link InvalidInputData} for `INVALID_INPUT` and `null` data for the others, and one
- * per declared error with its data schema's output type. Import the group
- * with `import type` so server code stays out of the browser bundle.
- *
- * @example
- * ```ts
- * import type { ClientRpcError } from "@loozo/angular-launch";
- * import type todos from "./rpc";
- *
- * type CompleteError = ClientRpcError<typeof todos.procedures.complete>;
- * ```
+ * per declared error with its data schema's output type. Narrow a caught error with the
+ * callable's `isError` to get it.
  *
  * @typeParam Value - A procedure created by `query` or `mutation`.
  */
@@ -401,7 +392,7 @@ type Connectable<Input, Output, Kind extends ProcedureKind, Message> = Kind exte
  * The generated client callable for a procedure.
  *
  * @remarks
- * The type of `Client<typeof group>["name"]`. A procedure with an input schema is called as
+ * The type of `route.remote.<namespace>.<name>`. A procedure with an input schema is called as
  * `(input, options?)`, where `input` is the schema's input type; one without input is
  * called as `(options?)`. A query or mutation call returns a promise of the handler's
  * awaited result, a stream call an async iterable of its values, and a channel call an open
@@ -429,25 +420,22 @@ export type ClientProcedure<Value> =
         }
     : never;
 /**
- * The generated client for an RPC group: one callable per procedure.
+ * The client for one `.remote()` namespace: one callable per procedure.
  *
  * @remarks
- * Generated `injectRpc()` functions return an object of these, keyed by namespace.
- * Call `injectRpc()` in an Angular injection context where `HttpClient` is provided;
- * the clients it returns can be called later, outside an injection context. Import the
- * group with `import type` so server code stays out of the browser bundle.
+ * A route handle's `remote` holds one of these per namespace the route can see, its own and
+ * its ancestors'. Read `injectRoute().remote` and call the procedures later, outside an
+ * injection context if you like. A route copy exports the whole shape as `Remote`.
  *
  * @example
  * ```ts
- * import type { Client } from "@loozo/angular-launch";
- * import type todos from "./rpc";
+ * import type { Remote } from "./route.generated";
  *
- * type Todos = Awaited<ReturnType<Client<typeof todos>["list"]>>;
+ * type Todos = Awaited<ReturnType<Remote["todos"]["list"]>>;
  * ```
  *
- * @typeParam Value - A group created by `defineRpc`.
+ * @typeParam Procedures - A namespace's procedures, keyed by name, as `.remote()` returns them.
  */
-export type Client<Value> =
-  Value extends Group<string, infer Procedures>
-    ? { readonly [Key in keyof Procedures]: ClientProcedure<Procedures[Key]> }
-    : never;
+export type Client<Procedures> = {
+  readonly [Key in keyof Procedures]: ClientProcedure<Procedures[Key]>;
+};

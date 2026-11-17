@@ -1,5 +1,6 @@
-// The scale benchmark: node bench/run.mjs [--sizes 100,300,1000] [--out <dir>]
-// [--samples generate=3,edits=3,build=1,ngc=3,tsc=1] [--timeout <seconds>] [--check [file]]
+// The scale benchmark: node bench/run.mjs [--workload router|launch] [--sizes 100,300,1000]
+// [--out <dir>] [--samples generate=3,edits=3,build=1,ngc=3,tsc=1] [--timeout <seconds>]
+// [--check [file]]
 // See bench/README.md for what each number means.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -11,6 +12,8 @@ import { fileURLToPath } from "node:url";
 import { measureBundle } from "./bundle.mjs";
 import { cachePolicy, createConsumer, packageDirectory, setCache } from "./consumer.mjs";
 import { blockSize, editedRoute, writeFixture } from "./fixture.mjs";
+import { createLaunchConsumer, launchDirectory } from "./launch-consumer.mjs";
+import { writeLaunchFixture } from "./launch-fixture.mjs";
 import { load, machine } from "./machine.mjs";
 import { checkBudgets, median, readBudgets, table } from "./metrics.mjs";
 
@@ -19,16 +22,63 @@ const require = createRequire(join(packageDirectory, "package.json"));
 const pollMs = 20;
 const settleMs = 1500;
 
+// What each workload measures with. The router workload is the default; the Launch workload
+// measures Launch's route extension on the same block of routes, without the serve phase.
+const workloads = {
+  router: {
+    createConsumer,
+    writeFixture,
+    generator: "generate.mjs",
+    budgets: "budgets.json",
+    serve: true,
+    built: [
+      join(packageDirectory, "node/src/generation/generate.js"),
+      join(packageDirectory, "node/src/builders/serve.js"),
+      join(packageDirectory, "dist/fesm2022/loozo-angular-router.mjs"),
+    ],
+    conditions: {
+      firstGeneration:
+        "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited internal generate() without persistent compiler state.",
+      serve:
+        "The router serve target in-process through Architect, development configuration (optimization off, outputHashing none); title toggles on src/routes/g0000/static/l0/route.ts.",
+      serveCache: cachePolicy.serve,
+      build:
+        "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
+    },
+  },
+  launch: {
+    createConsumer: createLaunchConsumer,
+    writeFixture: writeLaunchFixture,
+    generator: "launch-generate.mjs",
+    budgets: "launch-budgets.json",
+    serve: false,
+    built: [
+      join(packageDirectory, "node/src/generation/generate.js"),
+      join(packageDirectory, "dist/fesm2022/loozo-angular-router.mjs"),
+      join(launchDirectory, "dist/generation/index.js"),
+      join(launchDirectory, "dist/builders/application.js"),
+      join(launchDirectory, "dist/index.js"),
+    ],
+    conditions: {
+      firstGeneration:
+        "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited public Launch generate() (tanstackQuery on) without persistent compiler state.",
+      build:
+        "ng build through the Launch application target (generation preflight included): browser and server builds with SSR (outputMode server), scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
+    },
+  },
+};
+
 function usage(message) {
   console.error(`${message}
 
-Usage: node bench/run.mjs [--sizes 100,300,1000] [--out <dir>]
+Usage: node bench/run.mjs [--workload router|launch] [--sizes 100,300,1000] [--out <dir>]
          [--samples generate=3,edits=3,build=1,ngc=3,tsc=1] [--timeout <seconds>] [--check [file]]`);
   process.exit(2);
 }
 
 function parseArguments(argv) {
   const options = {
+    workload: "router",
     sizes: [100, 300, 1000],
     out: undefined,
     samples: { generate: 3, edits: 3, build: 1, ngc: 3, tsc: 1 },
@@ -44,8 +94,9 @@ function parseArguments(argv) {
       continue;
     }
 
+    // The workload's own budgets file unless one is given; resolved once the workload is known.
     if (argument === "--check") {
-      options.check = join(bench, "budgets.json");
+      options.check = true;
 
       const next = argv[index + 1];
 
@@ -65,7 +116,13 @@ function parseArguments(argv) {
 
     index++;
 
-    if (argument === "--sizes") {
+    if (argument === "--workload") {
+      if (!Object.hasOwn(workloads, value)) {
+        usage(`--workload takes ${Object.keys(workloads).join(" or ")}, got "${value}"`);
+      }
+
+      options.workload = value;
+    } else if (argument === "--sizes") {
       options.sizes = [];
 
       for (const part of value.split(",")) {
@@ -109,6 +166,10 @@ function parseArguments(argv) {
     }
   }
 
+  if (options.check === true) {
+    options.check = join(bench, workloads[options.workload].budgets);
+  }
+
   return options;
 }
 
@@ -122,7 +183,7 @@ async function exists(path) {
   }
 }
 
-async function prerequisites() {
+async function prerequisites(workload) {
   const installed = await exists(join(packageDirectory, "node_modules/@angular/cli/package.json"));
 
   if (!installed) {
@@ -131,16 +192,12 @@ async function prerequisites() {
     );
   }
 
-  for (const file of [
-    "node/src/generation/generate.js",
-    "node/src/builders/serve.js",
-    "dist/fesm2022/loozo-angular-router.mjs",
-  ]) {
-    const built = await exists(join(packageDirectory, file));
+  for (const file of workload.built) {
+    const built = await exists(file);
 
     if (!built) {
       throw new Error(
-        `The package isn't built (${file} is missing): run pnpm --dir packages/angular-router build.`,
+        `A package isn't built (${file} is missing): run pnpm --dir packages/angular-router build, and pnpm --dir packages/angular-launch build for the Launch workload.`,
       );
     }
   }
@@ -313,6 +370,7 @@ async function measure(result, options, directory, save) {
   const consumer = join(directory, "consumer");
   const logs = join(directory, "logs");
   const { samples, timeoutMs } = options;
+  const workload = workloads[options.workload];
 
   result.consumer = consumer;
 
@@ -331,8 +389,8 @@ async function measure(result, options, directory, save) {
   }
 
   await mkdir(logs, { recursive: true });
-  await createConsumer(consumer);
-  result.fixture = await writeFixture(consumer, routes);
+  await workload.createConsumer(consumer);
+  result.fixture = await workload.writeFixture(consumer, routes);
 
   const authored = await digest(consumer, isAuthored);
 
@@ -344,7 +402,7 @@ async function measure(result, options, directory, save) {
     for (let sample = 1; sample <= samples.generate; sample++) {
       await removeGenerated(consumer);
 
-      const { wallMs, output } = await node([join(bench, "generate.mjs"), consumer], {
+      const { wallMs, output } = await node([join(bench, workload.generator), consumer], {
         cwd: consumer,
         log: join(logs, `generate-${sample}.log`),
         timeoutMs,
@@ -372,42 +430,45 @@ async function measure(result, options, directory, save) {
     result.generated = first;
   });
 
-  await phase("serve", async () => {
-    const resultPath = join(logs, "serve.json");
+  // The serve phase drives the router's serve builder, so only the router workload has it.
+  if (workload.serve) {
+    await phase("serve", async () => {
+      const resultPath = join(logs, "serve.json");
 
-    await setCache(consumer, cachePolicy.serve);
-    await node(
-      [
-        join(bench, "serve.mjs"),
-        consumer,
-        resultPath,
-        join(logs, "serve-architect.json"),
-        JSON.stringify({ edits: samples.edits, timeoutMs, pollMs, settleMs }),
-      ],
-      {
-        cwd: consumer,
-        log: join(logs, "serve.log"),
-        timeoutMs: timeoutMs * (3 + 2 * samples.edits),
-      },
-    );
+      await setCache(consumer, cachePolicy.serve);
+      await node(
+        [
+          join(bench, "serve.mjs"),
+          consumer,
+          resultPath,
+          join(logs, "serve-architect.json"),
+          JSON.stringify({ edits: samples.edits, timeoutMs, pollMs, settleMs }),
+        ],
+        {
+          cwd: consumer,
+          log: join(logs, "serve.log"),
+          timeoutMs: timeoutMs * (3 + 2 * samples.edits),
+        },
+      );
 
-    const serve = JSON.parse(await readFile(resultPath, "utf8"));
-    const generatedMs = [];
-    const servedMs = [];
+      const serve = JSON.parse(await readFile(resultPath, "utf8"));
+      const generatedMs = [];
+      const servedMs = [];
 
-    for (const edit of serve.edits) {
-      generatedMs.push(edit.generatedMs);
-      servedMs.push(edit.servedMs);
-    }
+      for (const edit of serve.edits) {
+        generatedMs.push(edit.generatedMs);
+        servedMs.push(edit.servedMs);
+      }
 
-    record("serve.startupMs", [serve.startupMs]);
-    record("serve.generatedMs", generatedMs);
-    record("serve.servedMs", servedMs);
-    result.serve = serve;
-    progress(`  edit → generated ${seconds(result.metrics["serve.generatedMs"])} (median)`);
-    // Later phases measure the first-generation fixture again; the build's preflight republishes.
-    await writeFile(join(consumer, editedRoute.path), editedRoute.source(false));
-  });
+      record("serve.startupMs", [serve.startupMs]);
+      record("serve.generatedMs", generatedMs);
+      record("serve.servedMs", servedMs);
+      result.serve = serve;
+      progress(`  edit → generated ${seconds(result.metrics["serve.generatedMs"])} (median)`);
+      // Later phases measure the first-generation fixture again; the build's preflight republishes.
+      await writeFile(join(consumer, editedRoute.path), editedRoute.source(false));
+    });
+  }
 
   await phase("build", async () => {
     const ng = await bin("@angular/cli", "ng");
@@ -509,7 +570,9 @@ async function main() {
     budgets = await readBudgets(options.check);
   }
 
-  await prerequisites();
+  const workload = workloads[options.workload];
+
+  await prerequisites(workload);
 
   const out = await outputDirectory(options.out);
   const resultsPath = join(out, "results.json");
@@ -518,6 +581,7 @@ async function main() {
     finishedAt: undefined,
     out,
     options: {
+      workload: options.workload,
       sizes: options.sizes,
       samples: options.samples,
       timeoutMs: options.timeoutMs,
@@ -525,13 +589,7 @@ async function main() {
       settleMs,
     },
     conditions: {
-      firstGeneration:
-        "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited internal generate() without persistent compiler state.",
-      serve:
-        "The router serve target in-process through Architect, development configuration (optimization off, outputHashing none); title toggles on src/routes/g0000/static/l0/route.ts.",
-      serveCache: cachePolicy.serve,
-      build:
-        "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
+      ...workload.conditions,
       buildCache: cachePolicy.build,
       typecheck:
         "ngc -p tsconfig.app.json --noEmit, and tsc -p tsconfig.app.json --noEmit --extendedDiagnostics --incremental false; no untyped baseline.",

@@ -1,17 +1,12 @@
-export { defineContext, defineRpc, middleware } from "./definitions.js";
+export { middleware } from "./definitions.js";
 export { forbidden, notFound, redirect } from "./outcomes.js";
 export type {
-  Register,
   CallArgs,
   ChannelOptions,
-  Context,
-  ContextOf,
-  ContextDefinition,
   ErrorDefinition,
   ErrorDefinitions,
   ErrorFactories,
   ErrorStatus,
-  Group,
   InputOf,
   MiddlewareDefinition,
   MiddlewareArgs,
@@ -22,6 +17,7 @@ export type {
   ProcedureDefinition,
   ProcedureKind,
   ProcedureOptions,
+  StageArgs,
   StreamOptions,
   Schema,
 } from "./definitions.js";

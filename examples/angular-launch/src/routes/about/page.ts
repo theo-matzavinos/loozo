@@ -1,7 +1,6 @@
 import { Component } from "@angular/core";
 import { injectQuery } from "@tanstack/angular-query";
 import { injectRoute } from "./route.generated";
-import { injectQueries } from "./rpc.generated";
 
 // Reads through a resolver and through injectQuery, so prerendering it covers both
 // ways results reach the browser.
@@ -20,6 +19,5 @@ import { injectQueries } from "./rpc.generated";
 })
 export default class About {
   readonly route = injectRoute();
-  readonly #queries = injectQueries();
-  readonly limits = injectQuery(() => this.#queries.about.limits.queryOptions());
+  readonly limits = injectQuery(() => this.route.queries.about.limits.queryOptions());
 }

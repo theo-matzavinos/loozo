@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { mkdir, readFile, readdir, writeFile, stat, rm, rename } from "node:fs/promises";
 import { dirname, resolve, relative } from "node:path";
 import { generate, createGenerationSession } from "../dist/generation/index.js";
-import { generate as generateRouter } from "../../angular-router/node/src/generation/generate.js";
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
 const options = {
@@ -18,6 +17,17 @@ async function put(root, name, text) {
 
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, text);
+}
+
+// A route under the root whose `.remote()` declares `namespace`, or none without one.
+function leaf(name, namespace) {
+  const head = `import {defineRoute} from '@loozo/angular-launch';import {schema} from '../../schema';import parent from '../route';void schema;export default defineRoute('${name}',{parent})`;
+
+  if (namespace === undefined) {
+    return `${head};`;
+  }
+
+  return `${head}.remote(({query}) => ({'${namespace}': {read:query({input:schema,handler:({input,context})=>({length:input.length,value:context.value})})}}));`;
 }
 
 async function fixture() {
@@ -49,7 +59,7 @@ async function fixture() {
     put(
       root,
       "src/context.ts",
-      "import {defineContext} from '@loozo/angular-launch/server'; import {value} from './value'; export default defineContext((request:Request)=>({request,value}));",
+      "import {value} from './value'; export const stage = ({request}:{request:Request})=>({request,value});",
     ),
     put(root, "src/schema-type.ts", "export interface Output {length:number}"),
     put(
@@ -60,12 +70,12 @@ async function fixture() {
     put(
       root,
       "src/routes/route.ts",
-      "import {defineRoute} from '@loozo/angular-router';export default defineRoute('',{});",
+      "import {defineRoute} from '@loozo/angular-launch';import {stage} from '../context';export default defineRoute('',{}).context(stage);",
     ),
     put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';const result:Promise<{length:number;value:number}>=injectRpc().todos.read('hello');void result;",
+      "import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:number}>=injectRoute().remote.todos.read('hello');void result;",
     ),
   ];
 
@@ -74,20 +84,11 @@ async function fixture() {
     ["right", "items"],
   ]) {
     writes.push(
-      put(
-        root,
-        `src/routes/${name}/route.ts`,
-        `import {defineRoute} from '@loozo/angular-router';import parent from '../route';export default defineRoute('${name}',{parent});`,
-      ),
+      put(root, `src/routes/${name}/route.ts`, leaf(name, namespace)),
       put(
         root,
         `src/routes/${name}/page.ts`,
         "import {Component} from '@angular/core';@Component({selector:'session-page',template:'ok'}) export default class Page {}",
-      ),
-      put(
-        root,
-        `src/routes/${name}/rpc.ts`,
-        `import {defineRpc} from '@loozo/angular-launch/server';import {schema} from '../../schema';export default defineRpc('${namespace}',({query}) => ({read:query({input:schema,handler:({input,context})=>({length:input.length,value:context.value})})}));`,
       ),
     );
   }
@@ -157,56 +158,56 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
     await session.generate();
     assert.deepEqual(await snapshot(root), first);
 
-    const rpc = await readFile(resolve(root, "src/routes/left/rpc.ts"), "utf8");
+    const rpc = await readFile(resolve(root, "src/routes/left/route.ts"), "utf8");
 
-    await put(root, "src/routes/left/rpc.ts", rpc.replace("'todos'", "'changed'"));
+    await put(root, "src/routes/left/route.ts", rpc.replace("'todos'", "'changed'"));
     await put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';const result:Promise<{length:number;value:number}>=injectRpc().changed.read('hello');void result;",
+      "import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:number}>=injectRoute().remote.changed.read('hello');void result;",
     );
     await session.generate();
     assert.notEqual(
-      (await snapshot(root))["src/routes/left/rpc.generated.ts"].bytes,
-      first["src/routes/left/rpc.generated.ts"].bytes,
+      (await snapshot(root))["src/routes/left/route.generated.ts"].bytes,
+      first["src/routes/left/route.generated.ts"].bytes,
     );
 
     await rename(resolve(root, "src/routes/left"), resolve(root, "src/routes/moved"));
     await put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/moved/rpc.generated';injectRpc().changed.read('hello');",
+      "import {injectRoute} from './routes/moved/route.generated';injectRoute().remote.changed.read('hello');",
     );
     await session.generate();
-    assert.equal((await snapshot(root))["src/routes/left/rpc.generated.ts"], undefined);
+    assert.equal((await snapshot(root))["src/routes/left/route.generated.ts"], undefined);
     await rename(resolve(root, "src/routes/moved"), resolve(root, "src/routes/left"));
     await put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';injectRpc().changed.read('hello');",
+      "import {injectRoute} from './routes/left/route.generated';injectRoute().remote.changed.read('hello');",
     );
     await session.generate();
-    await put(root, "src/routes/left/rpc.ts", rpc.replace("'todos'", "'returned'"));
+    await put(root, "src/routes/left/route.ts", rpc.replace("'todos'", "'returned'"));
     await put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';injectRpc().returned.read('hello');",
+      "import {injectRoute} from './routes/left/route.generated';injectRoute().remote.returned.read('hello');",
     );
     await session.generate();
-    assert.match((await snapshot(root))["src/routes/left/rpc.generated.ts"].bytes, /returned/);
+    assert.match((await snapshot(root))["src/routes/left/route.generated.ts"].bytes, /returned/);
 
-    await rm(resolve(root, "src/routes/right/rpc.ts"));
-    await session.generate();
-    assert.doesNotMatch((await snapshot(root))["src/routes/right/rpc.generated.ts"].bytes, /items/);
-    await put(root, "src/routes/right/rpc.ts", rpc.replace("'todos'", "'added'"));
-    await session.generate();
-    assert.match((await snapshot(root))["src/routes/right/rpc.generated.ts"].bytes, /added/);
-    await rm(resolve(root, "src/routes/right"), { recursive: true });
+    await put(root, "src/routes/right/route.ts", leaf("right"));
     await session.generate();
     assert.doesNotMatch(
-      (await snapshot(root))["generated/routes.generated.ts"].bytes,
-      /right/,
+      (await snapshot(root))["src/routes/right/route.generated.ts"].bytes,
+      /items/,
     );
+    await put(root, "src/routes/right/route.ts", leaf("right", "added"));
+    await session.generate();
+    assert.match((await snapshot(root))["src/routes/right/route.generated.ts"].bytes, /added/);
+    await rm(resolve(root, "src/routes/right"), { recursive: true });
+    await session.generate();
+    assert.doesNotMatch((await snapshot(root))["generated/routes.generated.ts"].bytes, /right/);
 
     const final = await snapshot(root);
 
@@ -214,7 +215,7 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
     await session.generate({ check: true });
     assert.deepEqual(await snapshot(root), final);
 
-    await rm(resolve(root, "generated/context.generated.d.ts"));
+    await rm(resolve(root, "generated/server.generated.ts"));
 
     const missing = await snapshot(root);
 
@@ -222,8 +223,8 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
     assert.deepEqual(await snapshot(root), missing);
     await session.generate();
     assert.equal(
-      (await snapshot(root))["generated/context.generated.d.ts"].bytes,
-      final["generated/context.generated.d.ts"].bytes,
+      (await snapshot(root))["generated/server.generated.ts"].bytes,
+      final["generated/server.generated.ts"].bytes,
     );
     await put(
       root,
@@ -261,7 +262,7 @@ test("warm transitive schema/context/import edits, invalid diagnostics and decla
     await put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';const result:Promise<{length:number;value:string}>=injectRpc().todos.read('hello');void result;",
+      "import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:string}>=injectRoute().remote.todos.read('hello');void result;",
     );
     await session.generate();
 
@@ -292,9 +293,12 @@ test("warm transitive schema/context/import edits, invalid diagnostics and decla
     await session.generate({ check: true });
     await rm(resolve(root, "src/broken.d.ts"));
     await session.generate({ check: true });
-    await put(root, "src/value.ts", "export const value = ;");
-    await rejectsUnchanged(root, session, /Expression expected/);
-    await put(root, "src/value.ts", "export const value = 'repaired';");
+    // Generation scans the route directory, like the router: a syntax error there fails it.
+    const left = await readFile(resolve(root, "src/routes/left/route.ts"), "utf8");
+
+    await put(root, "src/routes/left/route.ts", left.replace("({query})", "({query}) =>"));
+    await rejectsUnchanged(root, session, /Expression expected|expected/);
+    await put(root, "src/routes/left/route.ts", left);
     await session.generate({ check: true });
   } finally {
     await session.dispose();
@@ -372,7 +376,7 @@ test("warm config strict/noCheck/inherited flags and declaration diagnostics pre
     await put(
       root,
       "src/callable.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';export const read = injectRpc().todos.read;",
+      "import {injectRoute} from './routes/left/route.generated';export const read = injectRoute().remote.todos.read;",
     );
     await session.generate();
     await rm(resolve(root, "src/callable.ts"));
@@ -431,7 +435,6 @@ test("direct-dependency, isolated and verbatim modes still reject errors through
 test("warm genuine aliases, lookalike/ambient factories, underlying router redirection and fresh suffix resolution", async () => {
   const root = await fixture();
   const session = createGenerationSession(root, options);
-  const rpc = await readFile(resolve(root, "src/routes/left/rpc.ts"), "utf8");
   const route = await readFile(resolve(root, "src/routes/left/route.ts"), "utf8");
   const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
 
@@ -444,30 +447,25 @@ test("warm genuine aliases, lookalike/ambient factories, underlying router redir
         .replace("{defineRoute}", "{defineRoute as declareRoute}")
         .replace("default defineRoute", "default declareRoute"),
     );
-    await put(
-      root,
-      "src/routes/left/rpc.ts",
-      rpc.replace("{defineRpc}", "{defineRpc as rpc}").replace("default defineRpc", "default rpc"),
-    );
     await session.generate();
     await generate(root, options);
     await put(root, "src/fake.ts", "export const query=(value:unknown)=>value;");
     await put(
       root,
-      "src/routes/left/rpc.ts",
-      rpc
+      "src/routes/left/route.ts",
+      route
         .replace("read:query(", "read:fake(")
         .replace("import {schema}", "import {query as fake} from '../../fake';import {schema}"),
     );
     await rejectsUnchanged(root, session, /callback's query, mutation, stream or channel/);
-    await put(root, "src/routes/left/rpc.ts", rpc);
+    await put(root, "src/routes/left/route.ts", route);
     await session.generate();
     await put(
       root,
       "src/ambient.d.ts",
-      "declare module '@loozo/angular-launch/server' {export function defineContext(...args:any[]):any;export function defineRpc(...args:any[]):any;}",
+      "declare module '@loozo/angular-launch' {export const defineRoute:any;}",
     );
-    await rejectsUnchanged(root, session, /canonical|concrete/);
+    await rejectsUnchanged(root, session, /[Ff]actory|anchored|canonical|concrete/);
     await rm(resolve(root, "src/ambient.d.ts"));
     await session.generate();
     await put(
@@ -486,7 +484,7 @@ test("warm genuine aliases, lookalike/ambient factories, underlying router redir
         },
       }),
     );
-    await rejectsUnchanged(root, session, /Factory binding.*concrete/);
+    await rejectsUnchanged(root, session, /[Ff]actory|anchored|canonical|concrete|_core/);
     await put(
       root,
       "tsconfig.json",
@@ -500,19 +498,11 @@ test("warm genuine aliases, lookalike/ambient factories, underlying router redir
     // Config and authored imports stay identical while a higher-priority target appears.
     await put(
       root,
-      "src/context.fake.ts",
-      "export default {create:(request:Request)=>({request,value:999})};",
+      "src/routes/left/route.fake.ts",
+      "import {defineRoute} from '@loozo/angular-launch';export default defineRoute('fake',{}).remote(({query}) => ({fake: {read: query({handler: () => 999})}}));",
     );
     await rejectsUnchanged(root, session, /Generated payload import must resolve/);
-    await rm(resolve(root, "src/context.fake.ts"));
-    await session.generate();
-    await put(
-      root,
-      "src/routes/left/rpc.fake.ts",
-      "const kind:'query'='query';export default {name:'todos',use:[],procedures:{read:{kind,input:undefined,use:[],handler:()=>({length:1,value:999})}}};",
-    );
-    await rejectsUnchanged(root, session, /Generated payload import must resolve/);
-    await rm(resolve(root, "src/routes/left/rpc.fake.ts"));
+    await rm(resolve(root, "src/routes/left/route.fake.ts"));
     await session.generate({ check: true });
   } finally {
     await session.dispose();
@@ -541,17 +531,17 @@ test("metadata-only export swaps block warm/cold generate/check and app-identity
     put(
       root,
       "src/context.ts",
-      "import {defineContext} from '@loozo/angular-launch/server';import {value as first} from 'dependency/first';import {value as second} from 'dependency/second';export default defineContext((request:Request)=>({request,value:first,second}));",
+      "import {value as first} from 'dependency/first';import {value as second} from 'dependency/second';export const stage = ({request}:{request:Request})=>({request,value:first,second});",
     ),
     put(
       root,
-      "src/routes/left/rpc.ts",
-      "import {defineRpc} from '@loozo/angular-launch/server';export default defineRpc('todos',({query}) => ({read:query({handler:({context}):number=>context.value})}));",
+      "src/routes/left/route.ts",
+      "import {defineRoute} from '@loozo/angular-launch';import parent from '../route';export default defineRoute('left',{parent}).remote(({query}) => ({todos: {read:query({handler:({context}):number=>context.value})}}));",
     ),
     put(
       root,
       "src/checks.ts",
-      "import {injectRpc} from './routes/left/rpc.generated';const result:Promise<number>=injectRpc().todos.read();void result;",
+      "import {injectRoute} from './routes/left/route.generated';const result:Promise<number>=injectRoute().remote.todos.read();void result;",
     ),
   ]);
 
@@ -664,7 +654,7 @@ test("session stop/overlap/dispose and independent application registrations do 
   await put(
     secondRoot,
     "src/checks.ts",
-    "import {injectRpc} from './routes/left/rpc.generated';const result:Promise<{length:number;value:string}>=injectRpc().todos.read('hello');void result;",
+    "import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:string}>=injectRoute().remote.todos.read('hello');void result;",
   );
 
   const second = createGenerationSession(secondRoot, options);
@@ -713,24 +703,6 @@ test("session stop/overlap/dispose and independent application registrations do 
     await closed;
     await assert.rejects(invalid.generate(), /disposed/);
     assert.deepEqual(await snapshot(root), repaired);
-
-    // Standalone router remains cold and cannot clean retained Launch products.
-    for (const name of ["left", "right"]) {
-      await rm(resolve(secondRoot, `src/routes/${name}/rpc.ts`));
-    }
-
-    const config = JSON.parse(await readFile(resolve(secondRoot, "tsconfig.json"), "utf8"));
-
-    config.exclude = ["**/rpc.generated.ts", "generated/server.generated.ts", "src/checks.ts"];
-    await put(secondRoot, "tsconfig.json", JSON.stringify(config));
-
-    const launchBefore = (await snapshot(secondRoot))["src/routes/left/rpc.generated.ts"];
-
-    await generateRouter(secondRoot, { ...options, autoDefineRoutes: false }, () => false);
-    assert.deepEqual(
-      (await snapshot(secondRoot))["src/routes/left/rpc.generated.ts"],
-      launchBefore,
-    );
   } finally {
     await Promise.all([first.dispose(), second.dispose()]);
   }

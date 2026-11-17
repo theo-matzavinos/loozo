@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequestScope } from "../dist/server/dispatch.js";
+import { application } from "./fixtures/application.mjs";
 import { createResponseEffects } from "../dist/server/response-effects.js";
 import { createStageRunner } from "../dist/server/stages.js";
 
@@ -10,9 +11,10 @@ function scope() {
   return { request: new Request("http://127.0.0.1/todos"), signal: controller.signal };
 }
 
-function counted(run) {
+function counted(run, route = "src/routes/route.ts") {
   const stage = {
     runs: 0,
+    route,
     run(args) {
       stage.runs += 1;
 
@@ -27,7 +29,7 @@ test("a stage shared by two runs runs once, and both runs resolve to its context
   for (const withRoot of [false, true]) {
     const runStages = createStageRunner(scope());
     const root = { run: () => ({ team: "core" }) };
-    const shared = counted(() => ({ user: "alice" }));
+    const shared = counted(({ context }) => ({ ...context, user: "alice" }));
     const chain = withRoot ? [root, shared] : [shared];
 
     const [first, second] = await Promise.all([
@@ -36,12 +38,14 @@ test("a stage shared by two runs runs once, and both runs resolve to its context
     ]);
 
     assert.equal(shared.runs, 1);
-    assert.deepEqual(first, withRoot ? { team: "core", user: "alice" } : { user: "alice" });
+    assert.deepEqual(first, {
+      context: withRoot ? { team: "core", user: "alice" } : { user: "alice" },
+    });
     assert.equal(second, first);
   }
 });
 
-test("a rejecting or throwing stage runs once, and later runs reject with the same error", async () => {
+test("a rejecting or throwing stage runs once, and later runs settle to the same failure naming it", async () => {
   const rejected = new Error("rejected");
   const thrown = new Error("thrown");
   const rejecting = counted(async () => {
@@ -62,18 +66,19 @@ test("a rejecting or throwing stage runs once, and later runs reject with the sa
       const chain = withRoot ? [root, stage] : [stage];
 
       stage.runs = 0;
-      await assert.rejects(runStages(chain, createResponseEffects().control), (reason) => {
-        return reason === error;
-      });
-      await assert.rejects(runStages(chain, createResponseEffects().control), (reason) => {
-        return reason === error;
-      });
+
+      const first = await runStages(chain, createResponseEffects().control);
+      const second = await runStages(chain, createResponseEffects().control);
+
+      assert.equal(first.failed, stage);
+      assert.equal(first.error, error);
+      assert.equal(second, first);
       assert.equal(stage.runs, 1);
     }
   }
 });
 
-test("a stage's value is spread over its parent's context, replacing the same key", async () => {
+test("a stage's value is the context: a key it doesn't return is gone below it", async () => {
   const runStages = createStageRunner(scope());
   const seen = [];
   const parent = { run: () => ({ user: "alice", role: "reader" }) };
@@ -85,13 +90,14 @@ test("a stage's value is spread over its parent's context, replacing the same ke
     },
   };
 
-  const context = await runStages([parent, child], createResponseEffects().control);
+  const { context } = await runStages([parent, child], createResponseEffects().control);
 
   assert.deepEqual(seen, [{ user: "alice", role: "reader" }]);
-  assert.deepEqual(context, { user: "alice", role: "admin", team: "core" });
+  assert.deepEqual(context, { role: "admin", team: "core" });
+  assert.equal("user" in context, false);
 });
 
-test("the first stage's value is spread over an empty context too", async () => {
+test("a stage's value is kept as it is: a class instance keeps its methods, at any stage", async () => {
   class Session {
     user = "alice";
 
@@ -102,12 +108,16 @@ test("the first stage's value is spread over an empty context too", async () => 
 
   const runStages = createStageRunner(scope());
   const session = new Session();
+  const root = { run: () => session };
+  const child = { run: ({ context }) => context };
 
-  const context = await runStages([{ run: () => session }], createResponseEffects().control);
+  const first = await runStages([root], createResponseEffects().control);
+  const second = await runStages([root, child], createResponseEffects().control);
 
-  assert.notEqual(context, session);
-  assert.equal(Object.getPrototypeOf(context), Object.prototype);
-  assert.deepEqual(context, { user: "alice" });
+  assert.equal(first.context, session);
+  assert.ok(first.context instanceof Session);
+  assert.equal(first.context.signedIn(), true);
+  assert.equal(second.context, session);
 });
 
 test("the first stage is called synchronously with the scope's request and signal, the run's response and an empty context", () => {
@@ -141,10 +151,10 @@ test("the first stage is called synchronously with the scope's request and signa
 test("a longer chain reuses the memoized result of a stage it shares with an earlier run", async () => {
   const runStages = createStageRunner(scope());
   const root = counted(() => ({ user: "alice" }));
-  const child = counted(({ context }) => ({ greeting: `hello ${context.user}` }));
+  const child = counted(({ context }) => ({ ...context, greeting: `hello ${context.user}` }));
 
   await runStages([root], createResponseEffects().control);
-  const context = await runStages([root, child], createResponseEffects().control);
+  const { context } = await runStages([root, child], createResponseEffects().control);
 
   assert.equal(root.runs, 1);
   assert.equal(child.runs, 1);
@@ -164,28 +174,31 @@ test("each stage gets the response of the call that first reaches it, with overl
     },
   };
   const left = {
-    run: ({ response }) => {
+    run: ({ context, response }) => {
       seen.left.push(response);
 
-      return { side: "left" };
+      return { ...context, side: "left" };
     },
   };
   const right = {
-    run: ({ response }) => {
+    run: ({ context, response }) => {
       seen.right.push(response);
 
-      return { side: "right" };
+      return { ...context, side: "right" };
     },
   };
 
   const leftRun = runStages([root, left], first);
   const rightRun = runStages([root, right], second);
-  const contexts = await Promise.all([leftRun, rightRun]);
+  const results = await Promise.all([leftRun, rightRun]);
 
-  assert.deepEqual(contexts, [
-    { user: "alice", side: "left" },
-    { user: "alice", side: "right" },
-  ]);
+  assert.deepEqual(
+    results.map(({ context }) => context),
+    [
+      { user: "alice", side: "left" },
+      { user: "alice", side: "right" },
+    ],
+  );
   assert.equal(seen.root.length, 1);
   assert.equal(seen.root[0], first);
   assert.equal(seen.left.length, 1);
@@ -194,41 +207,36 @@ test("each stage gets the response of the call that first reaches it, with overl
   assert.equal(seen.right[0], second);
 });
 
-test("a request scope keeps the context factory's value by identity and its errors as is", async () => {
-  class Session {
-    user = "alice";
-  }
+test("a failure passes down unrelabelled: descendants settle to the failing stage's own result", async () => {
+  const runStages = createStageRunner(scope());
+  const thrown = new Error("root unreachable");
+  const root = counted(() => {
+    throw thrown;
+  }, "src/routes/route.ts");
+  const auth = counted(() => ({ user: "alice" }), "src/routes/+authenticated/route.ts");
+  const own = counted(() => ({ list: [] }), "src/routes/+authenticated/todos/route.ts");
 
-  const request = new Request("http://127.0.0.1/todos");
-  const values = [new Session(), Object.freeze({ user: "alice" }), undefined, 42];
+  const deep = await runStages([root, auth, own], createResponseEffects().control);
+  const shallow = await runStages([root, auth], createResponseEffects().control);
 
-  for (const value of values) {
-    const application = { id: "stages", context: { create: () => value } };
+  assert.equal(deep.failed, root);
+  assert.equal(deep.error, thrown);
+  assert.equal(shallow, deep);
+  assert.deepEqual([root.runs, auth.runs, own.runs], [1, 0, 0]);
+});
 
-    const scope = await createRequestScope(application, request);
+test("creating a request scope runs no stage", () => {
+  let runs = 0;
+  const app = application("stages", {
+    context: () => {
+      runs += 1;
 
-    assert.equal(scope.value, value);
-  }
-
-  const thrown = new Error("thrown");
-  const rejected = new Error("rejected");
-  const throwing = {
-    id: "stages",
-    context: {
-      create: () => {
-        throw thrown;
-      },
+      return {};
     },
-  };
-  const rejecting = {
-    id: "stages",
-    context: {
-      create: async () => {
-        throw rejected;
-      },
-    },
-  };
+    namespaces: { todos: { build: ({ query }) => ({ list: query({ handler: () => [] }) }) } },
+  });
 
-  await assert.rejects(createRequestScope(throwing, request), (reason) => reason === thrown);
-  await assert.rejects(createRequestScope(rejecting, request), (reason) => reason === rejected);
+  createRequestScope(app, new Request("http://127.0.0.1/todos"));
+
+  assert.equal(runs, 0);
 });
