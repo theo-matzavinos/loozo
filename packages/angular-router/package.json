@@ -56,6 +56,7 @@
     "test:navigation": "node tests/navigation.mjs",
     "test:lifecycle": "node tests/lifecycle.mjs",
     "test:ssr": "node tests/ssr.mjs",
+    "test:localize": "node tests/localize.mjs",
     "test:tooling": "node tests/tooling.mjs",
     "typecheck:consumers": "tsc -p tests/tsconfig.nodenext.json && tsc -p tests/tsconfig.bundler.json",
     "bench": "node bench/run.mjs"
@@ -91,7 +92,13 @@
     "@angular/build": "~22.2.0",
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0",
+    "@angular/localize": "^22.0.0",
     "@angular/router": "^22.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/localize": {
+      "optional": true
+    }
   },
   "builders": "./builders.json"
 }

@@ -405,6 +405,82 @@ What it costs:
 - List the provider before any environment initializer that navigates.
 - An app that never navigates (`withDisabledInitialNavigation()`) keeps showing the server's route.
 
+## Translated URLs
+
+With `translateSegments`, each Angular localize build matches, links, redirects, server-renders and prerenders URLs in its own words: the German build serves `/de/produkte/42` and the English one `/en/products/42`, from the same `route.ts` files. Ids, types, `route.path` and generated imports stay in your source words.
+
+```jsonc
+// angular.json (excerpt)
+"i18n": { "sourceLocale": "en", "locales": { "de": "src/locale/messages.de.xlf" } },
+"build": {
+  "builder": "@loozo/angular-router:application",
+  "options": {
+    // …router and Angular options…
+    "translateSegments": true,
+    "localize": true,
+    "polyfills": ["@angular/localize/init"],
+    "i18nMissingTranslation": "error"
+  }
+}
+```
+
+Setup is what `ng add @angular/localize` does: install `@angular/localize`, add `@angular/localize/init` to `polyfills`, and add `"@angular/localize"` to `compilerOptions.types` in both the application tsconfig and the router's `tsconfig`. Generation fails with the fix when the package or the polyfill is missing.
+
+**The catalog.** Every static segment becomes a message, one per distinct word, whose id is `route.segment.<word>` (percent-encoded beyond ASCII letters and `-_.!~*'()`). `ng extract-i18n` lists them with a note for translators:
+
+```xml
+<trans-unit id="route.segment.products" datatype="html">
+  <source>products</source>
+  <note priority="1" from="description">One segment of page URLs, without "/". Changing it changes links and bookmarks.</note>
+  <note priority="1" from="meaning">URL path segment</note>
+</trans-unit>
+```
+
+A translation must be one segment: not empty, `.`, `..`, `*` or `**`, without `/` or placeholders, and not starting with `:` or `$`. Before writing anything, generation checks each configured locale's tree, with a word a catalog doesn't translate standing as its source text, for those rules and for the same collisions as your source tree. Translating `news` and `new` both to `neu` fails in `de` alone:
+
+```text
+Locale de: …/src/routes/new/route.ts:1:1: Ordinary route collision/overlap: src/routes/new/route.ts (/neu); src/routes/news/route.ts (/neu)
+```
+
+Every static word is translatable, including ones an outside system depends on, such as `api`, `.well-known` or an OAuth callback path. Give those a translation equal to their source text.
+
+Missing translations are Angular's to report. Its default, `i18nMissingTranslation: "warning"`, ships the source word, so a German URL can mix translated and untranslated words. Use `"error"` when every URL must be translated. Adding a route with a new word then works like this:
+
+1. Add the route.
+2. Run `ng build` (or keep `ng serve` running). Generation writes the new files; Angular then fails, naming `route.segment.<word>`.
+3. Run `ng extract-i18n` and translate the new unit.
+4. Run `ng build` again.
+
+**URLs and links.** `createUrl` returns the build's words relative to the router root, `/produkte/42`, without the locale's `subPath`; `RouterLink` and router navigation add it, and a raw `href` doesn't. A language switcher is a plain link to the other locale's root, such as `<a href="/en/">English</a>`: each build only knows its own words, so a link to the same page in another locale isn't supported.
+
+**Server routes.** `serverRoutePath(destination)` gives a route's Angular path in the running build's words, so one server route covers every locale:
+
+```ts
+import { LOCALE_ID, inject } from "@angular/core";
+import { RenderMode, type ServerRoute } from "@angular/ssr";
+import { serverRoutePath } from "@loozo/angular-router";
+import { destination as product } from "./routes/products/$productId/destination.generated.js";
+
+export const serverRoutes: ServerRoute[] = [
+  {
+    path: serverRoutePath(product), // "products/:productId" in en, "produkte/:productId" in de
+    renderMode: RenderMode.Prerender,
+    async getPrerenderParams() {
+      const locale = inject(LOCALE_ID); // before any await
+      // …ids for this locale…
+      return [{ productId: "1" }];
+    },
+  },
+  { path: "**", renderMode: RenderMode.Server },
+];
+```
+
+A server route that spells out the source words fails Angular's route check in every other locale. `getPrerenderParams` runs once per locale.
+
+**Serving.** A multi-locale `localize: true` dev server serves untranslated source, so serve one locale, for example with `"localize": ["de"]` in the serve target's build configuration. Serve also watches the catalogs and checks them on every edit, logging an error at once. Angular's dev server only reads catalogs when it rebuilds, though, and usually doesn't watch them, so a catalog edit reaches the app at your next source save or restart. Until then the old words are served. (A catalog Angular already watches, because it's imported, listed as an asset or under a root watched with `NG_BUILD_WATCH_ROOT=1`, reaches the app at once instead.) After a rebuild with a broken catalog, a collided route is unreachable in that locale, and a translation that isn't one segment makes server rendering fail.
+
+Launch applications can't turn this on yet. [`examples/angular-router/localize-proof`](../../examples/angular-router/localize-proof/README.md) is a working en + de app with prerendering, a lazy children table and a redirect.
+
 ## Unit tests and i18n extraction
 
 Point Angular's unit-test and extract-i18n builders at the router's application target, the same way `ng new` points them at the official one:
@@ -420,7 +496,7 @@ Point Angular's unit-test and extract-i18n builders at the router's application 
 }
 ```
 
-Neither builder runs generation; both use the generated files already on disk. After you add, move or remove routes, run `ng build` first, or keep `ng serve` running. Otherwise `ng test` can't match the new routes, and `ng extract-i18n` silently leaves out the messages of pages the stale routes don't load. In CI, committed generated files and `ng build --configuration ci` cover this.
+Neither builder runs generation; both use the generated files already on disk, including the route messages of [translated URLs](#translated-urls). After you add, move or remove routes, run `ng build` first, or keep `ng serve` running. Otherwise `ng test` can't match the new routes, and `ng extract-i18n` silently leaves out the messages of pages the stale routes don't load. In CI, committed generated files and `ng build --configuration ci` cover this.
 
 `ng test` warns that the `buildTarget` uses `@loozo/angular-router:application`, "which is not supported". The warning is expected: the unit-test builder reads the target's options, and Angular ignores the router's own ones.
 
@@ -481,13 +557,14 @@ Each message names the chain of imports that broke the rule. When the last link 
 
 All `@angular/build:application` options, plus:
 
-| Option             | Type                             | Default  | Description                                                                                                                                                        |
-| ------------------ | -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tsconfig`         | `string`                         | required | TypeScript config used to find route declarations. Relative to the workspace root.                                                                                 |
-| `scanDirectories`  | `string[]`                       | required | Exactly one directory containing your routes. Relative to the `tsconfig` file's directory.                                                                         |
-| `outDirectory`     | `string`                         | required | Where `routes.generated.ts` goes. Relative to the workspace root; must be outside the scan directory.                                                              |
-| `check`            | `boolean`                        | `false`  | Verify generated files without writing them. Fails on any drift.                                                                                                   |
-| `autoDefineRoutes` | `false \| { filename?: string }` | `{}`     | [Filesystem route definitions](#filesystem-route-definitions), seeding `filename` (default `route.ts`). `false` selects [explicit authoring](#explicit-authoring). |
+| Option              | Type                             | Default  | Description                                                                                                                                                        |
+| ------------------- | -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tsconfig`          | `string`                         | required | TypeScript config used to find route declarations. Relative to the workspace root.                                                                                 |
+| `scanDirectories`   | `string[]`                       | required | Exactly one directory containing your routes. Relative to the `tsconfig` file's directory.                                                                         |
+| `outDirectory`      | `string`                         | required | Where `routes.generated.ts` goes. Relative to the workspace root; must be outside the scan directory.                                                              |
+| `check`             | `boolean`                        | `false`  | Verify generated files without writing them. Fails on any drift.                                                                                                   |
+| `translateSegments` | `boolean`                        | `false`  | Translate static segments per Angular localize build ([Translated URLs](#translated-urls)).                                                                        |
+| `autoDefineRoutes`  | `false \| { filename?: string }` | `{}`     | [Filesystem route definitions](#filesystem-route-definitions), seeding `filename` (default `route.ts`). `false` selects [explicit authoring](#explicit-authoring). |
 
 The builder runs generation once, then the official application build. Invalid options stop the build before generation starts. Generation errors, including drift in check mode, are logged and fail the build before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
 
@@ -515,6 +592,9 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No translated path segments yet; per-locale route trees are planned for 1.0. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
+
+- [Translated URLs](#translated-urls) have no links to the same page in another locale, SEO alternate links, locale detection or redirects, or switching locale inside one build, and Launch applications can't use them yet. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
+- No data, URL or transfer caches. Resolver data lives in Angular.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 
@@ -523,6 +603,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - [`SPEC.md`](SPEC.md): the full contract, including every edge case
 - [`examples/angular-router`](../../examples/angular-router/): a minimal app using the builders
 - [`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md): SSR and hydration
+- [`examples/angular-router/localize-proof`](../../examples/angular-router/localize-proof/README.md): translated URLs
 
 ## Developing this package
 
@@ -545,6 +626,7 @@ pnpm run test:application /absolute/new-directory
 pnpm run test:navigation /absolute/new-directory
 pnpm run test:lifecycle /absolute/new-directory
 pnpm run test:ssr /absolute/new-directory
+pnpm run test:localize /absolute/new-directory  # translated segments: en + de build, SSR, prerender, extraction, serve
 pnpm run test:filesystem /absolute/new-directory
 pnpm run test:tooling /absolute/new-directory   # ng test and ng extract-i18n, no browser
 node tests/packed.mjs /absolute/new-directory   # packed-package consumer check

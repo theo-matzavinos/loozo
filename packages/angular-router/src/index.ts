@@ -14,6 +14,7 @@
 export {
   defineRoute,
   createUrl,
+  serverRoutePath,
   stringParam,
   numberParam,
   booleanParam,

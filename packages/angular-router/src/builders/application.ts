@@ -1,6 +1,6 @@
 import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-devkit/architect";
 import { generate } from "../generation/generate.js";
-import { message, split, type JsonObject } from "./options.js";
+import { localization, message, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
 
@@ -56,7 +56,21 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
       official.conditions = defaultConditions(official.optimization);
     }
 
-    generation = generate(context.workspaceRoot, router, () => stopped);
+    generation = (async () => {
+      if (router.translateSegments === true) {
+        const project = context.target?.project;
+
+        if (!project) {
+          throw new Error(
+            "translateSegments needs the application builder to run as a project target",
+          );
+        }
+
+        router.localization = await localization(context, project, official.polyfills);
+      }
+
+      await generate(context.workspaceRoot, router, () => stopped);
+    })();
 
     try {
       await generation;

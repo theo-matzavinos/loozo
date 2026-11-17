@@ -40,6 +40,7 @@ export function emit(
   sources: Sources,
   selected: ReadonlyMap<string, Declaration>,
   launch?: LaunchCopies,
+  { translateSegments = false }: { translateSegments?: boolean } = {},
 ): Map<string, string> {
   const desired = new Map<string, string>();
   // Every admitted declaration gets its pair. Ancestors pruned by redirect hoisting have no
@@ -121,6 +122,7 @@ export function emit(
       up,
       activates: declaration.retained,
       launch: extension,
+      translate: translateSegments,
     });
 
     desired.set(destinationFile(declaration), pair.destination);
@@ -224,6 +226,31 @@ export function emit(
     return parts.join("/");
   }
 
+  // With translated segments, a record whose Angular path holds static text reads that text from
+  // its destination, so matching uses the build's words: a hoisted redirect its effective path,
+  // any other record its local one.
+  function pathHelper(declaration: Declaration): "nativePath" | "effectivePath" | undefined {
+    if (!translateSegments) {
+      return undefined;
+    }
+
+    let segments = declaration.segments;
+
+    if (declaration.target) {
+      segments = declaration.effective;
+    }
+
+    if (!segments.some((segment) => segment.kind === "static")) {
+      return undefined;
+    }
+
+    if (declaration.target) {
+      return "effectivePath";
+    }
+
+    return "nativePath";
+  }
+
   function order(a: Declaration, b: Declaration): number {
     const catchA = a.segments.at(-1)?.kind === "catchall";
     const catchB = b.segments.at(-1)?.kind === "catchall";
@@ -248,7 +275,13 @@ export function emit(
       parts.push(`...nativeOptions(${name})`);
     }
 
-    parts.push(`path: ${JSON.stringify(nativePath(declaration, !!declaration.target))}`);
+    const helper = pathHelper(declaration);
+
+    if (helper) {
+      parts.push(`path: ${helper}(destination_${names.get(declaration)!})`);
+    } else {
+      parts.push(`path: ${JSON.stringify(nativePath(declaration, !!declaration.target))}`);
+    }
 
     if (declaration.full || declaration.target) {
       parts.push("pathMatch: 'full'");
@@ -302,6 +335,12 @@ export function emit(
   function imports(list: readonly Declaration[]) {
     const members = new Set(list);
     const helpers = ["record"];
+
+    for (const helper of ["nativePath", "effectivePath"] as const) {
+      if (list.some((declaration) => pathHelper(declaration) === helper)) {
+        helpers.push(helper);
+      }
+    }
 
     if (list.some((declaration) => usesNative(declaration) && !lazyRedirect(declaration))) {
       helpers.push("nativeOptions");

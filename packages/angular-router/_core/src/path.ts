@@ -52,6 +52,27 @@ export type Segment =
   | { readonly kind: "static"; readonly text: string }
   | { readonly kind: "scalar" | "catchall"; readonly name: string };
 
+/**
+ * Whether `text` can stand as one translated static segment: the static-segment rule of
+ * `parsePath`, plus no "/" and no leading "$", so translation keeps the segment count and kinds.
+ */
+export function isStaticSegment(text: string): boolean {
+  if (
+    text === "" ||
+    text === "." ||
+    text === ".." ||
+    text === "*" ||
+    text === "**" ||
+    text.startsWith(":") ||
+    text.startsWith("$") ||
+    text.includes("/")
+  ) {
+    return false;
+  }
+
+  return text.isWellFormed();
+}
+
 export function parsePath(path: unknown): readonly Segment[] {
   if (typeof path !== "string") {
     throw new TypeError("Path must be a string");
@@ -115,4 +136,21 @@ export function parsePath(path: unknown): readonly Segment[] {
   }
 
   return Object.freeze(segments);
+}
+
+/** Angular's path pattern for `segments`: static text, `:name` for a scalar, `**` for a catchall. */
+export function angularPath(segments: readonly Segment[]): string {
+  const parts: string[] = [];
+
+  for (const segment of segments) {
+    if (segment.kind === "static") {
+      parts.push(segment.text);
+    } else if (segment.kind === "catchall") {
+      parts.push("**");
+    } else {
+      parts.push(`:${segment.name}`);
+    }
+  }
+
+  return parts.join("/");
 }

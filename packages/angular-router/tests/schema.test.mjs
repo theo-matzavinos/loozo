@@ -45,11 +45,20 @@ await test("the committed builder schemas match the installed @angular/build", a
 
 await test("the application schema is Angular's with the router options and a false conditions default", async () => {
   const angular = await angularSchema("application");
-  const { tsconfig, scanDirectories, outDirectory, autoDefineRoutes, check, ...properties } =
-    application.properties;
+  const {
+    tsconfig,
+    scanDirectories,
+    outDirectory,
+    autoDefineRoutes,
+    check,
+    translateSegments,
+    ...properties
+  } = application.properties;
   const { default: conditionsDefault, ...conditions } = properties.conditions;
 
   assert.ok(tsconfig && scanDirectories && outDirectory && autoDefineRoutes && check);
+  assert.equal(translateSegments.type, "boolean");
+  assert.equal(translateSegments.default, false);
   assert.equal(conditionsDefault, false);
   assert.deepEqual({ ...properties, conditions }, angular.schema.properties);
 });

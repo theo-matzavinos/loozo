@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { markers, specifier } from "./files.js";
 import { fail, properties, type Declaration } from "./sources.js";
+import { segmentMessage } from "./localization.js";
 
 /** A JSON value, as generation writes it into a route copy. */
 export type Json = null | boolean | number | string | readonly Json[] | JsonRecord;
@@ -91,6 +92,8 @@ export interface CopyWiring {
   readonly up?: string;
   // Whether the route copy exports injectRoute: a redirect record never activates.
   readonly activates: boolean;
+  // Whether the destination copy carries a $localize message per local static segment.
+  readonly translate?: boolean;
   // An extension route's copy data, type exports and handle members.
   readonly launch?: {
     readonly data?: JsonRecord;
@@ -649,8 +652,23 @@ export function copies(
     start: exported.getStart(source),
     end: exported.expression.getStart(source),
   };
-  const id = JSON.stringify(declaration.id);
   const lastArgument = root.arguments[root.arguments.length - 1];
+  let destinationArguments = `, ${JSON.stringify(declaration.id)}`;
+
+  // On the root's line, so copy diagnostics keep the declaration's lines.
+  if (wiring.translate) {
+    const messages: string[] = [];
+
+    for (const segment of declaration.segments) {
+      if (segment.kind === "static") {
+        messages.push(segmentMessage(segment.text));
+      }
+    }
+
+    if (messages.length > 0) {
+      destinationArguments += `, [${messages.join(", ")}]`;
+    }
+  }
 
   const destinationEdits: Edit[] = [
     { ...exportPrefix, text: `${destinationDoc} const routegen$destination = ` },
@@ -659,7 +677,7 @@ export function copies(
       end: root.expression.end,
       text: "routegen$defineDestination",
     },
-    { start: lastArgument.end, end: lastArgument.end, text: `, ${id}` },
+    { start: lastArgument.end, end: lastArgument.end, text: destinationArguments },
     ...steps(() => true),
     ...removals(destinationLive),
   ];

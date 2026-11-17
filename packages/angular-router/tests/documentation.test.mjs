@@ -119,7 +119,7 @@ await test("published root declarations retain documentation for every supported
 
   const exports = checker.getExportsOfModule(root);
 
-  assert.equal(exports.length, 14);
+  assert.equal(exports.length, 15);
 
   const missing = [];
 
@@ -167,6 +167,7 @@ await test("checked-in generated application exports carry documentation", async
   for (const example of [
     "../../../examples/angular-router/",
     "../../../examples/angular-router/ssr-proof/",
+    "../../../examples/angular-router/localize-proof/",
   ]) {
     const routes = await source(`${example}generated/routes.generated.ts`);
     const destination = await source(`${example}src/routes/+home/destination.generated.ts`);

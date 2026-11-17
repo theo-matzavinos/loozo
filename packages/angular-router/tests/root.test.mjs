@@ -34,6 +34,7 @@ test("plain Node public namespace and concrete product consumer", () => {
     "defineRoute",
     "enumParam",
     "numberParam",
+    "serverRoutePath",
     "stringParam",
     "withFallback",
   ]);
@@ -1287,6 +1288,93 @@ test("a destination, its route copy and the inline declaration create the same U
       /^TypeError: Expected a genuine route or destination from this package instance$/,
     );
   }
+
+  test("a destination with translated segments serializes them; types, path and copies stay canonical", async () => {
+    const { nativePath, effectivePath } = await import("@loozo/angular-router/_generated");
+    const product = defineDestination(
+      "products/$id",
+      { params: { id: numberParam } },
+      "src/routes/products/$id/route.ts",
+      ["produkte"],
+    );
+    const copy = routeOf(defineRoute, product);
+
+    assert.equal(createUrl(product, { params: { id: 1 } }), "/produkte/1");
+    assert.equal(createUrl(copy, { params: { id: 1 } }), "/produkte/1");
+    assert.equal(destinationRecord(product).path, "products/$id");
+    assert.equal(copy.path, "products/$id");
+
+    // A child inherits the parent's translated text, then its own.
+    const reviews = defineDestination(
+      "reviews/all/$page",
+      { parent: product, params: { page: numberParam } },
+      "src/routes/products/$id/reviews/route.ts",
+      ["bewertungen", "alle"],
+    );
+
+    assert.equal(
+      createUrl(reviews, { params: { id: 1, page: 2 } }),
+      "/produkte/1/bewertungen/alle/2",
+    );
+    assert.equal(nativePath(product), "produkte/:id");
+    assert.equal(nativePath(reviews), "bewertungen/alle/:page");
+    assert.equal(effectivePath(reviews), "produkte/:id/bewertungen/alle/:page");
+
+    const docs = defineDestination("docs/$parts[]", { params: { parts: stringParam } }, "docs", [
+      "dokumente",
+    ]);
+
+    assert.equal(nativePath(docs), "dokumente/**");
+    assert.equal(root.serverRoutePath(docs), "dokumente/**");
+    assert.equal(root.serverRoutePath(reviews), "produkte/:id/bewertungen/alle/:page");
+
+    // Each translation must be one valid static segment, and there must be one per static segment.
+    for (const text of ["", ".", "..", "*", "**", ":x", "$x", "a/b", "\uD800", 7]) {
+      assert.throws(
+        () => defineDestination("products/$id", { params: { id: numberParam } }, "bad", [text]),
+        new TypeError(
+          `Translated segment 1 of bad is not a valid static segment: ${JSON.stringify(text)}`,
+        ),
+      );
+    }
+
+    for (const segments of [[], ["a", "b"], "produkte"]) {
+      assert.throws(
+        () => defineDestination("products/$id", { params: { id: numberParam } }, "bad", segments),
+        new TypeError("Translated segments of bad must list 1 static segments"),
+      );
+    }
+
+    assert.throws(
+      () => defineDestination("$id", { params: { id: numberParam } }, "bad", ["x"]),
+      new TypeError("Translated segments of bad must list 0 static segments"),
+    );
+
+    // Omitted, a destination is exactly what it was.
+    const plain = defineDestination("products/$id", { params: { id: numberParam } }, "plain");
+
+    assert.equal(createUrl(plain, { params: { id: 1 } }), "/products/1");
+    assert.equal(nativePath(plain), "products/:id");
+  });
+
+  test("serverRoutePath gives a destination's effective Angular pattern", () => {
+    const home = defineDestination("", {}, "home");
+    const team = defineDestination("teams/$teamId", { params: { teamId: numberParam } }, "team");
+    const layout = defineDestination("", { parent: team }, "layout");
+    const members = defineDestination("members", { parent: layout }, "members");
+    const missing = defineDestination("$segments[]", { params: { segments: stringParam } }, "all");
+
+    assert.equal(root.serverRoutePath(home), "");
+    assert.equal(root.serverRoutePath(team), "teams/:teamId");
+    assert.equal(root.serverRoutePath(layout), "teams/:teamId");
+    assert.equal(root.serverRoutePath(members), "teams/:teamId/members");
+    assert.equal(root.serverRoutePath(missing), "**");
+    assert.throws(
+      () => root.serverRoutePath(defineRoute("teams", {})),
+      new TypeError("Expected a genuine destination"),
+    );
+    assert.throws(() => root.serverRoutePath({}), new TypeError("Expected a genuine destination"));
+  });
 });
 
 test("routeOf builds a route copy from its destination and its parent's copy", () => {
