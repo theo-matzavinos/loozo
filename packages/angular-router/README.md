@@ -428,7 +428,7 @@ Setup is what `ng add @angular/localize` does: install `@angular/localize`, add 
 
 **The catalog.** Every static segment becomes a message, one per distinct word, whose id is `route.segment.<word>` (percent-encoded beyond ASCII letters and `-_.!~*'()`). `ng extract-i18n` lists them with a note for translators:
 
-```xml
+```html
 <trans-unit id="route.segment.products" datatype="html">
   <source>products</source>
   <note priority="1" from="description">One segment of page URLs, without "/". Changing it changes links and bookmarks.</note>

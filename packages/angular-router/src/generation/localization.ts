@@ -56,6 +56,14 @@ interface Parser {
   ): { locale?: string; translations: Record<string, Translation> };
 }
 
+interface Tools {
+  readonly ArbTranslationParser: new () => Parser;
+  readonly SimpleJsonTranslationParser: new () => Parser;
+  readonly Xliff1TranslationParser: new () => Parser;
+  readonly Xliff2TranslationParser: new () => Parser;
+  readonly XtbTranslationParser: new () => Parser;
+}
+
 /** A translation and the catalog file it came from. */
 export interface CatalogEntry {
   readonly translation: Translation;
@@ -64,10 +72,13 @@ export interface CatalogEntry {
 
 /** Angular's parsers, in the order its translation loader tries them. */
 async function parsers(): Promise<readonly (readonly [string, Parser])[]> {
-  let tools: typeof import("@angular/localize/tools");
+  // A specifier TypeScript doesn't resolve: the optional peer's types stay out of every program
+  // that compiles this file (Launch's included), and the import stays a runtime-only dependency.
+  const specifier: string = "@angular/localize/tools";
+  let tools: Tools;
 
   try {
-    tools = await import("@angular/localize/tools");
+    tools = (await import(specifier)) as Tools;
   } catch {
     throw new Error("translateSegments needs @angular/localize: run ng add @angular/localize");
   }
