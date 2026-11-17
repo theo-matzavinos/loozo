@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input, Textarea, Checkbox, Switch and RadioGroup. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField and Slider. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -42,7 +42,10 @@ ng add @loozo/fold-ui
 ng generate @loozo/fold-ui:add --names button alert-dialog dialog sheet
 ng generate @loozo/fold-ui:add --names field input textarea
 ng generate @loozo/fold-ui:add --names checkbox switch radio-group
+ng generate @loozo/fold-ui:add --names number-field slider
 ```
+
+NumberField and Slider import `@loozo/origami-ui/number-field` and `@loozo/origami-ui/slider`, so they need an Origami release that has them; an app set up with an older one needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -125,9 +128,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*` and `--shadow-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch and RadioGroupItem has its own: `checkbox-indicator`, `switch-thumb` and `radio-group-indicator`.
+Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator`, `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -465,7 +468,7 @@ Field lays out a label, a control, its descriptions and its errors, over Origami
 ```
 
 - `Field`: the root, a column with a 6px gap. Its template reference, `#email="foldField"` with your prefix, has `state`: Origami's Field state, with `errorsShown`, `errors`, `invalid`, `touched`, `disabled` and `required` signals. It takes `orientation`, `vertical` (default) or `horizontal`; see [Option rows](#option-rows).
-- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox and Switch, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
+- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox, Switch and NumberField, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), or a [Slider](#slider), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
 - `FieldDescription`: a 12px muted hint. It takes `id`.
 - `FieldError`: a 12px message in the destructive text color, after an alert icon hidden from assistive technology. It always shows while it's mounted, so put it under `@if (field.state.errorsShown())`; the text is yours. It takes `id`.
 
@@ -474,6 +477,8 @@ Origami's Field README describes the wiring, when errors show and the server ren
 Field's state needs Signal Forms' `[formField]` on the control. With reactive forms' `[formControl]`, `ngModel` or a bare native `disabled`, every state signal stays `false`: no error border, no `errorsShown` to gate errors on, and no dimmed label. Native `:disabled` and `[readonly]` still style the control.
 
 A disabled Field also dims the labels of Fields nested inside it, and a horizontal Field sets theirs at weight 400.
+
+NumberField and Slider go in a vertical Field: a NumberField under a `<label>`, a Slider under a `<span>`.
 
 The label dims only from the Field's Signal Forms disabled state: a Checkbox disabled through `[disabled]` without `[formField]` dims itself, not its label.
 
@@ -587,6 +592,105 @@ A selected item shows a dot in the foreground color, or the system button text c
 
 The item's whole content is its accessible name, so a hint inside an item is read as part of it; use `aria-describedby` for longer hints. A multi-line item centers its circle on its lines.
 
+## NumberField
+
+```ts
+import { NumberFieldParts } from "#ui/number-field";
+import { form, max, min, required } from "@angular/forms/signals";
+
+readonly deposit = form(signal({ amount: null as number | null }), (p) => {
+  required(p.amount, { message: "Enter an amount" });
+  min(p.amount, 0, { message: "It can't be negative" });
+  max(p.amount, 1000, { message: "Up to 1.000 €" });
+});
+```
+
+`NumberField` is a 32px box with Input's look over Origami's [Number field](../origami-ui/number-field/README.md), which owns the behavior: a plain text box that parses and formats numbers in the locale, and steps with ArrowUp and ArrowDown and the − and + buttons; there's no wheel or press-and-hold stepping. The box holds a borderless `NumberFieldInput`, optional `NumberFieldDecrement` and `NumberFieldIncrement` buttons, and optional `NumberFieldAdornment`s, such as `€`; its focus ring and invalid border go round all of them.
+
+<!-- prettier-ignore -->
+```html
+<div foldField #amount="foldField">
+  <label foldFieldLabel>Amount (€)</label>
+  <div
+    foldNumberField
+    [formField]="deposit.amount"
+    minimumFractionDigits="2"
+    maximumFractionDigits="2"
+  >
+    <button foldNumberFieldDecrement aria-label="Decrease amount"></button>
+    <span foldNumberFieldAdornment>€</span>
+    <input foldNumberFieldInput placeholder="0,00" />
+    <button foldNumberFieldIncrement aria-label="Increase amount"></button>
+  </div>
+  @if (amount.state.errorsShown()) {
+    @switch (amount.state.errors()[0]?.kind) {
+      @case ("numberInvalid") {
+        <p foldFieldError>That isn't an amount</p>
+      }
+      @case ("numberIncomplete") {
+        <p foldFieldError>Finish the amount</p>
+      }
+      @default {
+        <p foldFieldError>{{ amount.state.errors()[0]?.message }}</p>
+      }
+    }
+  }
+</div>
+
+<div foldNumberField [(value)]="tickets" min="1" maximumFractionDigits="0">
+  <input foldNumberFieldInput aria-label="Tickets" />
+</div>
+```
+
+- `NumberField`: the box. It takes `value` (two-way, `number | null`), `locale` (default your app's `LOCALE_ID`), `min`, `max`, `step`, `minimumFractionDigits`, `maximumFractionDigits`, `useGrouping`, `disabled`, `readonly` and `class`, and emits `valueChange` and `touch`; `[formField]` binds the value, the bounds, `disabled` and `readonly`, so set them in the schema, not as attributes beside it. Its `focus()` focuses the input, so Signal Forms' `focusBoundControl()` reaches it.
+- `NumberFieldInput`: the text, start-aligned with tabular figures; `class="text-end"` puts it at the end. Inside a Field it's the Field's control. Origami reads its `id` once, as a static attribute: write `id="…"` or let the Field generate one, not `[id]`.
+- `NumberFieldDecrement`, `NumberFieldIncrement`: square ghost buttons with a − or + icon, as tall as the box's inside. They're out of the Tab order. A mouse press keeps focus in the input, so the ring stays on the box while stepping; a touch or pen press focuses the button natively, without a ring. Give each a localized `aria-label`, or a screen reader meets an unnamed button. At a limit, or while readonly, a button is dimmed and does nothing; a disabled field dims once, as a whole.
+- `NumberFieldAdornment`: a muted sign hidden from assistive technology, so say the unit in the label, as in "Amount (€)". Before the input, it sits 8px before the number; after it, it sits at the end of the box, not after the digits.
+
+Put the parts in any order. The split layout above is the usual one; `[input][−][+]` keeps the number where a plain Input's text starts. Leading parts move the number in by their width. For a 28 or 36px box, add `class="h-7"` or `class="h-9"`; the buttons follow.
+
+Give every schema rule a `message`: a `max(p.x, 1000)` without one shows an empty FieldError in the `@default` branch. Origami's own errors, `numberInvalid` and `numberIncomplete`, have no message, so the template names them.
+
+A value typed out of range stays, and the schema reports it; the buttons and keys only step inside the bounds. In Greek and other locales whose group separator is `.`, `12.50` is reported as `numberInvalid`, and `1.500` reads as 1500. Precision is a JavaScript `number`'s, about 15 significant digits. There's no `ngModel` or reactive forms support: use `[formField]` or `[(value)]`. [Origami's README](../origami-ui/number-field/README.md) describes parsing, stepping, hydration and the rest.
+
+## Slider
+
+```ts
+import { Slider, SliderThumb } from "#ui/slider";
+```
+
+`Slider` is a single-thumb horizontal slider over Origami's [Slider](../origami-ui/slider/README.md), which owns the behavior: arrow keys, PageUp, PageDown, Home and End, presses and drags anywhere on the rail, and touch drags that leave vertical scrolling to the page. It draws a 4px rail with a foreground-colored fill up to a 16px thumb, inside a 24px-tall press area; the thumb stays inside the slider's box at both ends. Write a `SliderThumb` inside it:
+
+```html
+<div foldField>
+  <div class="flex items-baseline justify-between">
+    <span foldFieldLabel>Zoom</span>
+    <output class="tabular-nums">{{ settings.zoom().value() }}%</output>
+  </div>
+  <div foldSlider [formField]="settings.zoom" step="10">
+    <div foldSliderThumb [attr.aria-valuetext]="settings.zoom().value() + '%'"></div>
+  </div>
+  <p foldFieldDescription>Scales the org chart.</p>
+</div>
+
+<div foldSlider [(value)]="zoom" min="20" max="180" step="10" #slider="foldSlider">
+  <div foldSliderThumb aria-label="Zoom" [attr.aria-valuetext]="slider.state.value() + '%'"></div>
+</div>
+```
+
+- `Slider`: takes `value` (two-way), `min`, `max`, `step`, `disabled` and `class`, and emits `valueChange` and `touch`; `[formField]` binds the value, the bounds and `disabled`, so set the bounds with the schema's `min()` and `max()`. Its template reference, `#slider="foldSlider"` with your prefix, has `state`, with `value`, `percent`, `disabled` and `dragging` signals. Its `focus()` focuses the thumb.
+- `SliderThumb`: the focusable `role="slider"` element. Put `aria-valuetext` on it, such as `"120%"`, and `aria-label` when no Field label names it. It takes `class`.
+
+There's no value part: show the value in an `<output>` beside the label, as above. The thumb rings green on focus; an invalid thumb has a destructive border, a readonly one a dashed border, and a disabled slider 50% opacity.
+
+- **Readonly only in a Field.** Like Checkbox, the readonly look comes from Signal Forms inside a Field; there's no `readonly` input.
+- **No commit event.** `valueChange` fires on every key and every drag step; debounce it if you save on change.
+- **Before hydration.** A press on the rail of the server-rendered page is replayed once after hydration and moves the thumb there; a drag held across hydration doesn't resume, so press again to drag.
+- **Touch on the rail.** A touch that starts on the rail away from the thumb sets the value at once, even if the gesture turns into a vertical scroll: a scroll started at 75% of a slider at 100 of 20–180 left it at 140. One started on the thumb keeps the value.
+- **Forced colors.** In forced-colors mode, such as Windows High Contrast, the rail, fill and thumb keep system colors, and an invalid thumb looks like a valid one: the Field's error text carries the state.
+
+[Origami's README](../origami-ui/slider/README.md) describes the keys, pointer handling, hydration and the rest.
+
 ## Limitations
 
 - Re-running `add` can't tell untouched files from edited ones, because the CLI reformats them with your Prettier; see `--existing`.
@@ -594,6 +698,7 @@ The item's whole content is its accessible name, so a hint inside an item is rea
 - `tailwind-variants` adds about 13 kB gzipped to your bundle.
 - `ng add` adds `imports` at the top of your `package.json`.
 - Nx workspaces are untested.
+- No range, multi-thumb or vertical Slider, and no ticks or marks; no press-and-hold or wheel stepping in NumberField.
 
 ## Developing this package
 

@@ -20,15 +20,17 @@ export type {
   UrlMetadata,
   UrlTarget,
 } from "./destination.js";
-export { createRouteFactory, routeContributions, routeOf } from "./fluent.js";
+export { authoredRouteOf, createRouteFactory, routeContributions, routeOf } from "./fluent.js";
 export type {
   Apply,
+  AuthoredCopy,
   ContributionOf,
   ContributionRecord,
   ExtensionSpec,
   ExtensionStep,
   InputContribution,
   NoExtension,
+  OwnOf,
   ParentSchema,
   RouteBuilder,
   RouteEnd,

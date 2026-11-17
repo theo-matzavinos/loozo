@@ -1,5 +1,6 @@
 import {
   DestroyRef,
+  Injector,
   computed,
   inject,
   signal,
@@ -7,18 +8,22 @@ import {
   type Signal,
   type WritableSignal,
 } from "@angular/core";
-import { NavigationEnd, Router, type ActivatedRoute } from "@angular/router";
+import { NavigationEnd, Router, type ActivatedRoute, type Route } from "@angular/router";
 import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
 import { committedChain } from "./committed.js";
 import { observeRecord, seededView, type RouteView } from "./handle.js";
 import { SEED, type SeededChain } from "./hydration.js";
-import { createDestinationHandle, type Handle } from "./index.js";
-import { recordFacts, type RecordFacts } from "./record.js";
+import { addMembers, createDestinationHandle, type Handle } from "./index.js";
+import { recordExtension, recordFacts, type RecordFacts } from "./record.js";
 
-/** One generated route's types: its schema and, when it has one, its `..` destination. */
+/**
+ * One generated route's types: its schema, its `..` destination when it has one, and the
+ * members its route extension adds to its handles, when generation was told of any.
+ */
 export interface RouteTypeEntry {
   readonly schema: AnyRoute;
   readonly up?: Destination<AnyRoute>;
+  readonly members?: object;
 }
 
 /** Each generated route's types by id, as `routes.generated.ts` emits them in `RouteTypes`. */
@@ -27,6 +32,7 @@ export type RouteTypeMap = { readonly [id: string]: RouteTypeEntry };
 type UpOf<Entry> = Entry extends { readonly up: infer Up extends Destination<AnyRoute> }
   ? Up
   : never;
+type MembersOf<Entry> = Entry extends { readonly members: infer Members } ? Members : {};
 
 interface ActiveBase<Types extends RouteTypeMap> {
   /** Exactly this route, not an ancestor. Narrows to that route's handle. */
@@ -39,11 +45,12 @@ interface ActiveBase<Types extends RouteTypeMap> {
   readonly chain: readonly ActiveRoute<Types>[];
 }
 
-/** An active route narrowed by is(): that declaration's handle. */
+/** An active route narrowed by is(): that declaration's handle, with its extension's members. */
 export type ActiveHandle<Types extends RouteTypeMap, Id extends keyof Types> = Handle<
   Types[Id]["schema"],
   UpOf<Types[Id]>
 > &
+  MembersOf<Types[Id]> &
   ActiveBase<Types>;
 
 /**
@@ -85,7 +92,9 @@ interface SeededEntry {
  * @remarks
  * Each active record's own generated facts give its destination and `..` target; native
  * records, which carry none, are skipped, and nothing filters generated records by tree.
- * `is` and `contains` take a genuine destination and compare identities.
+ * `is` and `contains` take a genuine destination and compare identities. A record stamped
+ * with its route extension gives its entry that extension's members, built with this
+ * reader's injector, once per entry.
  *
  * The selection changes only after a navigation commits: the computed tracks
  * `lastSuccessfulNavigation`, and a reader first read before its tree has committed
@@ -107,12 +116,16 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
   const router = inject(Router);
   const destroyRef = inject(DestroyRef);
   const seed = inject(SEED, { optional: true });
+  // Extension members build with the reader's injector: Angular exposes no activated
+  // route's environment injector.
+  const injector = inject(Injector);
   const entries = new Map<ActivatedRoute, Entry>();
   let seeded: readonly SeededEntry[] | undefined;
   let destroyed = false;
   let selected: ActiveEntryHandle | undefined;
 
   function createEntry(
+    record: Route | null,
     view: RouteView,
     releases: readonly (() => void)[],
     { destination: own, up }: RecordFacts,
@@ -146,6 +159,14 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
       chain,
     };
 
+    // After the spread: the base holds plain values only, and the members' getters must
+    // stay unevaluated until read.
+    const stamp = recordExtension(record);
+
+    if (stamp) {
+      addMembers(handle, stamp.runtime, stamp.chain, injector);
+    }
+
     chain.push(handle);
     Object.freeze(chain);
 
@@ -177,7 +198,13 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
   ): Entry {
     const releases: (() => void)[] = [];
 
-    return createEntry(observe(activated, facts.destination, releases), releases, facts, parent);
+    return createEntry(
+      activated.routeConfig,
+      observe(activated, facts.destination, releases),
+      releases,
+      facts,
+      parent,
+    );
   }
 
   // Seeded entries hold no subscriptions until adoption.
@@ -200,7 +227,7 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
         title: computed(() => source().title()),
       };
       const releases: (() => void)[] = [];
-      const entry = createEntry(view, releases, facts, parent);
+      const entry = createEntry(record, view, releases, facts, parent);
 
       created.push({ entry, destination: facts.destination, source, releases });
       parent = entry;

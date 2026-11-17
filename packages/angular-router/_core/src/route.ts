@@ -519,15 +519,18 @@ function stage(state: Stage): AnyRoute {
   return Object.freeze(route) as unknown as AnyRoute;
 }
 
-// Starts a chain: same-extension ancestry is kept, mixed extensions are rejected.
+// Starts a chain: same-extension ancestry is kept, mixed extensions are rejected. A route
+// copy's `own` record, when given, ends the chain and closes the contributed steps.
 function start(
   runtime: RuntimeExtension<ExtensionSpec> | undefined,
   path: string,
   metadata: RouteMetadata,
+  own?: ContributionRecord,
 ): AnyRoute {
   const inherited = metadata.parent && routeMetadata(metadata.parent).extension;
   let extension: RouteMetadata["extension"];
   let ancestors: readonly ContributionRecord[] = Object.freeze([]);
+  let next = 0;
 
   if (runtime) {
     if (inherited && inherited.runtime !== runtime) {
@@ -538,7 +541,14 @@ function start(
       ancestors = inherited.chain;
     }
 
-    extension = Object.freeze({ runtime, chain: ancestors, declared: true });
+    let chain = ancestors;
+
+    if (own) {
+      chain = Object.freeze([...ancestors, own]);
+      next = runtime.steps.length;
+    }
+
+    extension = Object.freeze({ runtime, chain, declared: true });
   } else if (inherited) {
     // A router-made route forwards its parent's slot; its own callbacks get base inputs.
     extension = Object.freeze({
@@ -554,7 +564,8 @@ function start(
     used: new Set(),
     runtime,
     ancestors,
-    next: 0,
+    own,
+    next,
   });
 }
 
@@ -568,15 +579,33 @@ export function declareRoute(
 }
 
 /**
- * The fluent engine behind `routeOf`: a route copy's first stage, from a genuine
- * destination and its parent's route copy. Runs no codec or callback.
+ * The fluent engine behind `routeOf` and `authoredRouteOf`: a route copy's first stage,
+ * from a genuine destination and its parent's route copy. Runs no codec or callback.
+ * `own`, given only with an extension runtime, becomes the copy's own contribution
+ * record, frozen, and the copy offers no contributed step.
  */
 export function copyRoute(
   runtime: RuntimeExtension<ExtensionSpec> | undefined,
   destination: unknown,
   parent: unknown,
+  own?: unknown,
 ): AnyRoute {
   const record = destinationRecord(destination);
+  let ownRecord: ContributionRecord | undefined;
+
+  if (own !== undefined) {
+    if (own === null || typeof own !== "object" || Array.isArray(own)) {
+      throw new TypeError("Route copy own record must be a plain record");
+    }
+
+    const prototype = Object.getPrototypeOf(own);
+
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError("Route copy own record must be a plain record");
+    }
+
+    ownRecord = Object.freeze({ ...own });
+  }
   let parentDestination: Destination<AnyRoute> | undefined;
 
   if (parent !== undefined) {
@@ -601,12 +630,17 @@ export function copyRoute(
   config.search = record.url.localSearch;
   config.fragments = record.url.fragments;
 
-  return start(runtime, record.path, {
-    ...record.url,
-    parent: parent as AnyRoute | undefined,
-    destination: destination as Destination<AnyRoute>,
-    config: Object.freeze(config),
-  });
+  return start(
+    runtime,
+    record.path,
+    {
+      ...record.url,
+      parent: parent as AnyRoute | undefined,
+      destination: destination as Destination<AnyRoute>,
+      config: Object.freeze(config),
+    },
+    ownRecord,
+  );
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { Injector } from "@angular/core";
 import type { Route as NativeRoute, RunGuardsAndResolvers } from "@angular/router";
 import type { PathCodec, SyncCodecs } from "./codecs.js";
 import type { CatchallName, PathNames, ValidPath } from "./path.js";
@@ -415,6 +416,16 @@ export interface RuntimeExtension<E extends ExtensionSpec> {
    * route's environment injector. It may not return `params` or `search`.
    */
   readonly input: (chain: readonly ContributionRecord[]) => object;
+  /**
+   * Builds the members a route's handles add: `injectRoute()`'s and a narrowed active
+   * handle's, for a route this extension's factory made. Runs synchronously when the
+   * handle is created; the handle takes the result's own property descriptors, so
+   * getters stay lazy and nothing spreads them. Getters run later, outside any injection
+   * context: build anything that injects inside `runInInjectionContext(injector, …)`.
+   * `injector` is the handle creator's: the component's for `injectRoute()`, the
+   * `injectActiveRoute()` caller's for an active handle.
+   */
+  readonly handle: (chain: readonly ContributionRecord[], injector: Injector) => object;
 }
 
 declare const routeFactory: unique symbol;
@@ -461,6 +472,10 @@ export function createRouteFactory<const E extends ExtensionSpec>(
 
   if (typeof runtime.input !== "function") {
     throw new TypeError("Route extension input must be a function");
+  }
+
+  if (typeof runtime.handle !== "function") {
+    throw new TypeError("Route extension handle must be a function");
   }
 
   const names = new Set<string>();
@@ -511,7 +526,11 @@ export function createRouteFactory<const E extends ExtensionSpec>(
     steps.push(Object.freeze({ name, serverOnly, arity: Object.freeze({ min, max }) }));
   }
 
-  const frozen = Object.freeze({ steps: Object.freeze(steps), input: runtime.input });
+  const frozen = Object.freeze({
+    steps: Object.freeze(steps),
+    input: runtime.input,
+    handle: runtime.handle,
+  });
 
   function factory(path: unknown, facts: unknown): AnyRoute {
     return declareRoute(frozen, path, facts);
@@ -595,4 +614,92 @@ export function routeOf(factory: unknown, destination: unknown, parent?: unknown
   }
 
   return copyRoute(runtime, destination, parent);
+}
+
+/**
+ * A route's own contribution record, from its authored declaration's type: the authored
+ * chain after the parent copy's chain. Empty when the authored route added no record.
+ *
+ * @internal
+ */
+export type OwnOf<Authored, Parent> =
+  ContributionOf<Authored> extends readonly [...ContributionOf<Parent>, infer Own extends object]
+    ? Own
+    : {};
+
+/**
+ * A route copy typed from its authored declaration: the copy's URL facts and parent, with
+ * the authored route's own contribution record, so kept router callbacks see what the
+ * stripped contributed steps added. It offers no contributed step.
+ *
+ * @internal
+ */
+export type AuthoredCopy<
+  Authored,
+  D,
+  Parent extends AnyRoute | undefined,
+  E extends ExtensionSpec,
+> =
+  TargetOf<D> extends {
+    readonly __facts?: LocalFacts<
+      infer P extends string,
+      infer Params extends Record<string, PathCodec>,
+      infer Search extends CodecMap,
+      infer F extends readonly string[]
+    >;
+  }
+    ? RouteBuilder<
+        P,
+        ParentSchema<Parent>,
+        Params,
+        Search,
+        {},
+        F,
+        unknown,
+        never,
+        E,
+        OwnOf<Authored, Parent>,
+        readonly []
+      >
+    : never;
+
+/**
+ * Starts a route copy typed from its authored declaration (`Authored`, an erased type
+ * import of the declaration). Generation emits the only calls, for extension routes with
+ * a server-only step; never call it from application code.
+ *
+ * @remarks
+ * Curried, so `Authored` is explicit while the factory, destination and parent infer.
+ * The copy's runtime is `routeOf`'s, plus `own`: the extension's generation data for
+ * this route, which becomes the copy's own contribution record. Its type is the authored
+ * record's instead; only the extension reads either.
+ *
+ * @throws TypeError for the router's own `defineRoute` or an unknown factory, a
+ * non-record `own`, and everything `routeOf` rejects.
+ *
+ * @internal
+ */
+export function authoredRouteOf<Authored>(): <
+  E extends ExtensionSpec,
+  D extends Destination<AnyRoute>,
+  Parent extends AnyRoute | undefined = undefined,
+>(
+  factory: RouteFactory<E>,
+  destination: D,
+  parent?: Parent,
+  own?: ContributionRecord,
+) => AuthoredCopy<Authored, D, Parent, E> {
+  return (factory, destination, parent, own) => {
+    if ((factory as unknown) === defineRoute) {
+      throw new TypeError("An authored route copy needs a route extension factory");
+    }
+
+    const runtime = factories.get(factory);
+
+    if (!runtime) {
+      throw new TypeError("Expected a route factory");
+    }
+
+    return copyRoute(runtime, destination, parent, own) as never;
+  };
 }

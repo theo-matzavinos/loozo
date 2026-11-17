@@ -432,8 +432,10 @@ describe("add", () => {
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
+      "number-field": ["cn", "number-field"],
       "radio-group": ["cn", "radio-group"],
       sheet: ["button", "cn", "sheet"],
+      slider: ["cn", "slider"],
       switch: ["cn", "switch"],
       textarea: ["cn", "input", "textarea"],
     };
@@ -476,6 +478,21 @@ describe("add", () => {
       readText(tree, "src/ui/radio-group/radio-group-item.ts"),
       /selector: "button\[zzRadioGroupItem\]"/,
     );
+  });
+
+  test("renames NumberField's parts and Slider's exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["number-field", "slider"] },
+      await setUp(runner),
+    );
+
+    assert.match(
+      readText(tree, "src/ui/number-field/number-field-increment.ts"),
+      /selector: "button\[zzNumberFieldIncrement\]"/,
+    );
+    assert.match(readText(tree, "src/ui/slider/slider.ts"), /exportAs: "zzSlider"/);
   });
 
   test("skips an existing named component by default, with a warning", async () => {

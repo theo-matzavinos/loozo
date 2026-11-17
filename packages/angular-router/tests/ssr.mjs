@@ -431,7 +431,7 @@ import { defineRoute } from "@fixture/route-extension";
 export default defineRoute("ext-plain/$id", {
   params: { id: numberParam },
   search: { score: numberParam, page: withFallback(numberParam, 1) },
-}).procedures(({ query }) => ({ account: { me: query(() => "me") } }));
+}).remote(({ query }) => ({ account: { me: query(() => "me") } }));
 `,
 );
 await writeFile(

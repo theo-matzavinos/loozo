@@ -22,7 +22,7 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 
 const parent = defineRoute("parent", {})
   .context(() => ({ user: null as User | null }))
-  .procedures(({ query }) => ({
+  .remote(({ query }) => ({
     inherited: {
       status: query(({ context }) => {
         type ParentContext = Assert<Equal<typeof context, { user: User | null }>>;
@@ -46,36 +46,44 @@ export const child = defineRoute("child", { parent: intermediate })
     return { user: context.user };
   })
   .use(timing, needsUser)
-  .procedures(({ query }) => ({
+  .remote(({ query }) => ({
     account: {
       me: query(({ context }) => {
         type After = Assert<Equal<typeof context, { user: User }>>;
 
         return context.user.id;
       }),
+      get: query(({ input }: { input: { id: string } }) => ({ id: input.id })),
     },
   }))
   .resolve({
-    me: ({ rpc }) => {
-      type Own = Assert<Equal<ReturnType<typeof rpc.account.me>, string>>;
-      type Inherited = Assert<Equal<ReturnType<typeof rpc.inherited.status>, string | undefined>>;
+    me: ({ remote }) => {
+      type Own = Assert<Equal<ReturnType<typeof remote.account.me>, string>>;
+      type Inherited = Assert<
+        Equal<ReturnType<typeof remote.inherited.status>, string | undefined>
+      >;
 
       // @ts-expect-error a group no step declared
-      rpc.missing;
+      remote.missing;
+      // @ts-expect-error the procedure's input is { id: string }
+      remote.account.get({ id: 1 });
 
-      return rpc.account.me();
+      return remote.account.me();
     },
   })
-  .title(({ rpc }) => rpc.account.me())
-  .canActivate([({ rpc }) => Boolean(rpc.inherited.status() || rpc.account.me())])
-  .canActivateChild([({ rpc }) => Boolean(rpc.account.me())])
-  .canMatch([({ rpc, request }) => Boolean(rpc.account.me() || request)]);
+  .title(({ remote }) => remote.account.me())
+  .canActivate([({ remote }) => Boolean(remote.inherited.status() || remote.account.me())])
+  .canActivateChild([({ remote }) => Boolean(remote.account.me())])
+  .canMatch([({ remote, request }) => Boolean(remote.account.me() || request)]);
 
 type Narrowed = Assert<Equal<Context<ContributionOf<typeof child>>, { user: User }>>;
 type ExactGroups = Assert<
   Equal<
     Groups<ContributionOf<typeof child>>,
-    { inherited: { status: () => string | undefined }; account: { me: () => string } }
+    {
+      inherited: { status: () => string | undefined };
+      account: { me: () => string; get: (input: { id: string }) => { id: string } };
+    }
   >
 >;
 type Witness = Assert<Equal<(typeof child)[typeof witness], ContributionOf<typeof child>>>;
@@ -93,16 +101,21 @@ type OwnStage = ContributionOf<typeof child>[1] extends {
 type ExactAdded = Assert<Equal<OwnStage, { user: User }>>;
 type NotAny = Assert<Equal<IsAny<OwnStage>, false>>;
 type OwnGroups = ContributionOf<typeof child>[1] extends {
-  procedures: infer Fn extends (...args: never[]) => unknown;
+  remote: infer Fn extends (...args: never[]) => unknown;
 }
   ? ReturnType<Fn>
   : never;
-type ExactOwnGroups = Assert<Equal<OwnGroups, { account: { me: () => string } }>>;
+type ExactOwnGroups = Assert<
+  Equal<
+    OwnGroups,
+    { account: { me: () => string; get: (input: { id: string }) => { id: string } } }
+  >
+>;
 
 // A descendant without a context step inherits the narrowed context.
 const below = defineRoute("below", { parent: child })
   .use(needsUser)
-  .procedures(({ query }) => ({ next: { id: query(({ context }) => context.user.id) } }));
+  .remote(({ query }) => ({ next: { id: query(({ context }) => context.user.id) } }));
 type BelowContext = Assert<Equal<Context<ContributionOf<typeof below>>, { user: User }>>;
 
 // Context additions keep inherited keys.
@@ -126,18 +139,18 @@ defineRoute("context-only", {})
   .title("ok");
 defineRoute("use-only", {}).use();
 defineRoute("use-two", {}).use(timing, timing);
-defineRoute("procedures-only", {}).procedures(({ query }) => ({ x: { one: query(() => 1) } }));
-defineRoute("context-procedures", {})
+defineRoute("remote-only", {}).remote(({ query }) => ({ x: { one: query(() => 1) } }));
+defineRoute("context-remote", {})
   .context(() => ({ x: 1 }))
-  .procedures(({ query }) => ({ x: { one: query(({ context }) => context.x) } }));
-defineRoute("use-procedures", {})
+  .remote(({ query }) => ({ x: { one: query(({ context }) => context.x) } }));
+defineRoute("use-remote", {})
   .use(timing)
-  .procedures(({ query }) => ({ x: { one: query(() => 1) } }));
+  .remote(({ query }) => ({ x: { one: query(() => 1) } }));
 
 // The annotated factory types the same chain.
 const annotatedChild = annotated("annotated", { parent })
   .context(({ context }) => ({ user: context.user! }))
-  .resolve({ status: ({ rpc }) => rpc.inherited.status() });
+  .resolve({ status: ({ remote }) => remote.inherited.status() });
 type AnnotatedChain = Assert<Equal<ContributionOf<typeof annotatedChild>["length"], 2>>;
 
 // Generated consumers read the method-free projection: no steps, no extension witness.
@@ -168,15 +181,15 @@ useDone.use(timing);
 // @ts-expect-error context comes before use
 useDone.context(() => ({}));
 
-const proceduresDone = defineRoute("procedures", {}).procedures(({ query }) => ({
+const remoteDone = defineRoute("remote", {}).remote(({ query }) => ({
   x: { one: query(() => 1) },
 }));
-// @ts-expect-error procedures is used
-proceduresDone.procedures(() => ({}));
-// @ts-expect-error use comes before procedures
-proceduresDone.use(timing);
-// @ts-expect-error context comes before procedures
-proceduresDone.context(() => ({}));
+// @ts-expect-error remote is used
+remoteDone.remote(() => ({}));
+// @ts-expect-error use comes before remote
+remoteDone.use(timing);
+// @ts-expect-error context comes before remote
+remoteDone.context(() => ({}));
 
 const late = defineRoute("late", {}).title("late");
 // @ts-expect-error contributed steps come before router steps
@@ -190,29 +203,36 @@ defineRoute("arity", {}).context(stage, stage);
 const runtimeSteps = [
   { name: "context", serverOnly: true, arity: { min: 1, max: 1 } },
   { name: "use", serverOnly: true, arity: { min: 0, max: null } },
-  { name: "procedures", serverOnly: false, arity: { min: 1, max: 1 } },
+  { name: "remote", serverOnly: true, arity: { min: 1, max: 1 } },
 ] as const;
 const input = () => ({});
-const matching: RuntimeExtension<FixtureSpec> = { steps: runtimeSteps, input };
+const handle = () => ({});
+const matching: RuntimeExtension<FixtureSpec> = { steps: runtimeSteps, input, handle };
 void matching;
 const wrongFlag: RuntimeExtension<FixtureSpec> = {
   // @ts-expect-error serverOnly differs from the spec
   steps: [runtimeSteps[0], { ...runtimeSteps[1], serverOnly: false }, runtimeSteps[2]],
   input,
+  handle,
 };
 const wrongOrder: RuntimeExtension<FixtureSpec> = {
   // @ts-expect-error steps are out of the spec's order
   steps: [runtimeSteps[1], runtimeSteps[0], runtimeSteps[2]],
   input,
+  handle,
 };
 const wrongArity: RuntimeExtension<FixtureSpec> = {
   // @ts-expect-error arity differs from the spec
   steps: [{ ...runtimeSteps[0], arity: { min: 0, max: 1 } }, runtimeSteps[1], runtimeSteps[2]],
   input,
+  handle,
 };
 const missingStep: RuntimeExtension<FixtureSpec> = {
   // @ts-expect-error a step is missing
   steps: [runtimeSteps[0], runtimeSteps[1]],
   input,
+  handle,
 };
-void [wrongFlag, wrongOrder, wrongArity, missingStep];
+// @ts-expect-error handle is required
+const missingHandle: RuntimeExtension<FixtureSpec> = { steps: runtimeSteps, input };
+void [wrongFlag, wrongOrder, wrongArity, missingStep, missingHandle];

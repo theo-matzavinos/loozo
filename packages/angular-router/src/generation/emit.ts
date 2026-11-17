@@ -4,7 +4,7 @@ import { markers, specifier } from "./files.js";
 import { resolveModule, type Declaration, type Sources } from "./sources.js";
 import { authoredPath } from "./validate.js";
 import { parentTargets } from "./selectors.js";
-import { copies } from "./copies.js";
+import { copies, typeImports, type LaunchCopies } from "./copies.js";
 
 function lazySpecifier(from: string, file: string, options: ts.CompilerOptions): string {
   const emitted = specifier(from, file);
@@ -32,9 +32,14 @@ function lazySpecifier(from: string, file: string, options: ts.CompilerOptions):
   return emitted;
 }
 
+/**
+ * Every generated file's text by path. `launch`, from a route extension's generation, adds
+ * its data, type exports and handle members to its routes' copies and `RouteTypes`.
+ */
 export function emit(
   sources: Sources,
   selected: ReadonlyMap<string, Declaration>,
+  launch?: LaunchCopies,
 ): Map<string, string> {
   const desired = new Map<string, string>();
   // Every admitted declaration gets its pair. Ancestors pruned by redirect hoisting have no
@@ -101,7 +106,22 @@ export function emit(
       up = specifier(own, destinationFile(winner));
     }
 
-    const pair = copies(declaration, checker, { parent, up, activates: declaration.retained });
+    let extension: Parameters<typeof copies>[2]["launch"];
+
+    if (launch && declaration.extension) {
+      extension = {
+        data: launch.data.get(declaration),
+        types: launch.types,
+        members: launch.members,
+      };
+    }
+
+    const pair = copies(declaration, checker, {
+      parent,
+      up,
+      activates: declaration.retained,
+      launch: extension,
+    });
 
     desired.set(destinationFile(declaration), pair.destination);
     desired.set(own, pair.route);
@@ -142,6 +162,12 @@ export function emit(
     );
   }
 
+  // The extension's factory made the route, so its active handle gets the extension's
+  // members from the record; a redirect record never activates.
+  function stampsExtension(declaration: Declaration): boolean {
+    return !!declaration.extension && !declaration.target;
+  }
+
   // A redirect source with a parent reads its copy only when it first redirects, through an
   // import(), so its copy and its ancestors' copies stay out of the eager table.
   function lazyRedirect(declaration: Declaration): boolean {
@@ -155,7 +181,12 @@ export function emit(
       return false;
     }
 
-    return usesNative(declaration) || usesCallbacks(declaration) || !!declaration.target;
+    return (
+      usesNative(declaration) ||
+      usesCallbacks(declaration) ||
+      !!declaration.target ||
+      stampsExtension(declaration)
+    );
   }
 
   // Every route with a retained child loads their records lazily from its colocated
@@ -239,6 +270,10 @@ export function emit(
     } else if (declaration.target) {
       parts.push(`redirectTo: redirect(${name})`);
     } else {
+      if (stampsExtension(declaration)) {
+        parts.push(`...extension(${name})`);
+      }
+
       if (usesCallbacks(declaration)) {
         parts.push(`...callbacks(${name})`);
       }
@@ -282,6 +317,10 @@ export function emit(
 
     if (list.some(lazyRedirect)) {
       helpers.push("lazyRedirect");
+    }
+
+    if (list.some(stampsExtension)) {
+      helpers.push("extension");
     }
 
     const read: Declaration[] = [];
@@ -402,6 +441,29 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
   );
   routes.push(`import { ${helpers.join(", ")} } from '@loozo/angular-router/_generated';`);
 
+  // RouteTypes members name the extension's types over each route copy.
+  const memberTypes = new Map<string, string>();
+
+  if (
+    launch &&
+    launch.members.length > 0 &&
+    retained.some((declaration) => declaration.extension)
+  ) {
+    const types = typeImports(launch.types);
+
+    for (const member of launch.members) {
+      const local = types.locals.get(member.type);
+
+      if (!local) {
+        throw new Error(`Route copy member type is not a type export: ${member.type}`);
+      }
+
+      memberTypes.set(member.member, local);
+    }
+
+    routes.push(...types.lines);
+  }
+
   for (const declaration of read) {
     routes.push(copyImport(routesFile, declaration, false));
   }
@@ -454,6 +516,16 @@ export const routes: Routes = [${top.map((declaration) => record(declaration, ro
 
     if (winner) {
       entry.push(`up: typeof destination_${names.get(winner)}`);
+    }
+
+    if (declaration.extension && memberTypes.size > 0) {
+      const members: string[] = [];
+
+      for (const [member, local] of memberTypes) {
+        members.push(`readonly ${member}: ${local}<typeof route_${names.get(declaration)}>`);
+      }
+
+      entry.push(`members: { ${members.join("; ")} }`);
     }
 
     routes.push(`${JSON.stringify(declaration.id)}: { ${entry.join("; ")} };`);
