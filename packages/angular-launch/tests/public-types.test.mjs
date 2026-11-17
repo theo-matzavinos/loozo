@@ -558,3 +558,122 @@ void result;`,
 
   assert.deepEqual(recheck.messages, []);
 });
+
+const callProcedureProof = `
+import { defineRoute } from "@loozo/angular-launch";
+import { redirect, type Schema } from "@loozo/angular-launch/server";
+import { callProcedure } from "@loozo/angular-launch/testing";
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+function expect<T extends true>(): T | void {}
+
+interface Todo { id: string; done: boolean }
+declare const idSchema: Schema<{ id: string }>;
+declare const store: { complete(user: string, id: string): Promise<Todo | null> };
+
+export const root = defineRoute("", {})
+  .context(async ({ request }) => ({ store, user: request.headers.get("cookie") }))
+  .remote(({ query }) => ({ session: { current: query({ handler: ({ context }) => context.user }) } }));
+export const signedIn = defineRoute("", { parent: root }).context(({ context }) => {
+  if (context.user === null) {
+    throw redirect("/sign-in");
+  }
+
+  return { ...context, user: context.user };
+});
+export const todos = defineRoute("todos", { parent: signedIn }).remote(({ query, mutation, stream }) => ({
+  todos: {
+    list: query({ handler: async (): Promise<Todo[]> => [] }),
+    complete: mutation({
+      input: idSchema,
+      errors: { NOT_FOUND: { status: 404, message: "Todo does not exist", data: idSchema } },
+      handler: async ({ context, input, errors }) => {
+        const todo = await context.store.complete(context.user, input.id);
+
+        if (todo === null) {
+          throw errors.NOT_FOUND({ id: input.id });
+        }
+
+        return todo;
+      },
+    }),
+    ticks: stream({ handler: async function* () { yield 1; } }),
+  },
+}));
+const bare = defineRoute("bare", {}).remote(({ query }) => ({ bare: { ok: query({ handler: () => true }) } }));
+
+export async function calls() {
+  // The context is the root stage's value, whatever the stages below it make of it.
+  const context = { store, user: "alice" as string | null };
+  const call = await callProcedure(todos, "todos", "complete", { context, input: { id: "1" } });
+
+  if ("result" in call) {
+    expect<Equal<typeof call.result, Todo>>();
+    expect<Equal<typeof call.status, 200>>();
+  }
+
+  if ("error" in call) {
+    const status: number = call.status;
+
+    void status;
+
+    if (call.error.code === "NOT_FOUND") {
+      expect<Equal<typeof call.error.data, { id: string }>>();
+    }
+
+    if (call.error.code === "INVALID_INPUT") {
+      const issues = call.error.data.issues;
+
+      void issues;
+    }
+
+    if (call.error.code === "FORBIDDEN" || call.error.code === "INTERNAL") {
+      expect<Equal<typeof call.error.data, null>>();
+    }
+
+    // @ts-expect-error RPC_NOT_FOUND can't happen: the name is typed
+    void (call.error.code === "RPC_NOT_FOUND");
+  }
+
+  if ("redirect" in call) {
+    expect<Equal<typeof call.redirect.to, \`/\${string}\`>>();
+  }
+
+  const cookies: readonly string[] = call.cookies;
+  const headers: Headers = call.headers;
+  const listed = await callProcedure(todos, "todos", "list", { context });
+
+  if ("result" in listed) {
+    expect<Equal<typeof listed.result, Todo[]>>();
+  }
+
+  await callProcedure(todos, "todos", "list", { context, request: new Request("http://localhost/") });
+  await callProcedure(root, "session", "current", { context });
+  await callProcedure(bare, "bare", "ok", { context: {} });
+
+  // @ts-expect-error a procedure with input needs it
+  await callProcedure(todos, "todos", "complete", { context });
+  // @ts-expect-error the input is the schema's input type
+  await callProcedure(todos, "todos", "complete", { context, input: { id: 1 } });
+  // @ts-expect-error a procedure without input takes none
+  await callProcedure(todos, "todos", "list", { context, input: { id: "1" } });
+  // @ts-expect-error an ancestor's namespace is called through the ancestor's route
+  await callProcedure(todos, "session", "current", { context });
+  // @ts-expect-error no such procedure
+  await callProcedure(todos, "todos", "missing", { context });
+  // @ts-expect-error streams can't be called
+  await callProcedure(todos, "todos", "ticks", { context });
+  // @ts-expect-error the context is the root stage's value, not the context below it
+  await callProcedure(todos, "todos", "list", { context: { store, user: 1 } });
+  // @ts-expect-error the context is required
+  await callProcedure(todos, "todos", "list", {});
+
+  return [cookies, headers];
+}
+`;
+
+await test("callProcedure types its options from the route's root stage and its result from the procedure", () => {
+  const { messages } = program({ "call.ts": callProcedureProof });
+
+  assert.deepEqual(messages, []);
+});

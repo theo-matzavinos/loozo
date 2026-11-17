@@ -936,19 +936,30 @@ A resolver calls its procedure while Angular navigates. Navigate through the gen
 
 ### Testing handlers, stages and middleware
 
-To test a procedure, call the generated `handleRequest` with a web `Request`, as your server does. The call runs the whole [call order](#middleware): the stages from the root to the procedure's route, the route's middleware, input validation, the procedure's middleware and the handler. Assert on the status and body the browser would get:
+To test a procedure, call it with `callProcedure` from `@loozo/angular-launch/testing`. Pass the authored route, the default export of its `route.ts`, one of the route's own namespaces, the procedure's name and the context your root route's stage returns. The root stage doesn't run, so what it provides, such as the user or a database client, can be a fake. The rest of the [call order](#middleware) runs as on the server: the stages below the root, the route's middleware, input validation, the procedure's middleware and the handler.
 
-[src/routes/todos/rpc.spec.ts](snippets/src/routes/todos/rpc.spec.ts)
+[src/routes/todos/procedures.spec.ts](snippets/src/routes/todos/procedures.spec.ts)
+
+- The call settles to what the browser would get, the bodies in the table above with their status: `{ status: 200, result }`, `{ status, error: { code, message, data } }`, `{ status: 303, redirect: { to } }` or `{ status: 404, notFound: null }`. It also has `cookies`, the `Set-Cookie` values the call set, and `headers`, the headers it set. Narrow with `"error" in call`, then by `call.error.code`, to reach a declared error's typed data. An unexpected failure is `INTERNAL`, and Launch logs it with `console.error` as the server does.
+- `context`, `input` and the result are typed from the route: `context` as the root route's stage returns it (`{}` without one), so input the schema refuses needs a cast.
+- Stages, middleware and the handler receive a `POST` to `http://localhost/_rpc/<namespace>/<procedure>` as their `request`. Pass `request` to give them your own, with headers or an abort signal.
+- A namespace belongs to the route whose `.remote()` declares it: call an ancestor's namespace through the ancestor's route. Streams and channels can't be called this way.
+- The root route is the topmost route that uses `.context()`, `.use()` or `.remote()`, normally `src/routes/route.ts`.
+- Specs import `route.ts`, which application code mustn't. That's fine because the application tsconfig excludes them, as above.
+
+`callProcedure` skips what only an HTTP request goes through: the host, origin and method checks, and the root stage. To test those too, call the generated `handleRequest` with a web `Request`, as your server does, and assert on the status and body the browser would get:
+
+[src/routes/todos/http.spec.ts](snippets/src/routes/todos/http.spec.ts)
 
 - Run the file in Node with `// @vitest-environment node`: it's server code. Angular's unit-test builder otherwise runs specs in a DOM emulation, happy-dom when it's installed and jsdom if not. happy-dom's `Request` drops the `Origin` header, so Launch's [cross-origin check](#cross-origin-requests) would refuse every call with `FORBIDDEN`.
 - Send `Origin` with the request URL's origin, and pass a matching `allowedHosts`.
-- The call uses your real stages and what they import. Angular's unit-test builder rejects `vi.mock()` for relative imports, so you can't replace a module a stage imports, such as your database client. Keep the logic you want to test with fakes in your own modules and test those directly.
+- The call uses your real stages and what they import. Angular's unit-test builder rejects `vi.mock()` for relative imports, so you can't replace a module a stage imports, such as your database client.
 
 A standalone stage is a function of `StageArgs`, so you can test it on its own with a context you build; a middleware's `run` likewise takes the call's arguments and a `next` you watch:
 
 [src/auth.server.spec.ts](snippets/src/auth.server.spec.ts)
 
-`forbidden()`, `notFound()` and `redirect()` throw plain `Error`s, not types a test can check, so a test that calls a stage directly checks that it threw. To check which outcome it answered with, go through `handleRequest`, as the `rpc.spec.ts` above does for `FORBIDDEN`.
+`forbidden()`, `notFound()` and `redirect()` throw plain `Error`s, not types a test can check, so a test that calls a stage directly checks that it threw. To check which outcome it answered with, call a procedure behind it with `callProcedure`, as `procedures.spec.ts` above does for `FORBIDDEN`.
 
 ## Deploying
 

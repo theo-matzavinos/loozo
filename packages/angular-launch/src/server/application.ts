@@ -1,6 +1,7 @@
 import {
   routeContributions,
   type AnyRoute,
+  type ContributionRecord,
   type ExtensionSpec,
   type RouteFactory,
 } from "@loozo/angular-router/_core";
@@ -66,6 +67,55 @@ export interface ApplicationBinding {
 }
 
 /**
+ * A route's Launch contribution chain: the own records of its ancestors that used a Launch
+ * step, then its own, root first.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point.
+ *
+ * @param route - Any route.
+ * @returns The chain, or `undefined` for a route Launch's `defineRoute` didn't make and
+ * that has no Launch ancestor.
+ */
+export function launchChain(route: AnyRoute): readonly ContributionRecord[] | undefined {
+  // `routeContributions` takes any extension's factory; a spec's step tuple isn't
+  // assignable to the general one, so name Launch's factory by the general type.
+  const factory = defineRoute as unknown as RouteFactory<ExtensionSpec>;
+
+  return routeContributions(factory, route);
+}
+
+/**
+ * Binds each namespace of a route's `.remote()` to the route's `.use()` middleware and to
+ * `stages`.
+ *
+ * @remarks
+ * Internal; not exported from a public entry point.
+ *
+ * @param own - The declaring route's own record, which has a `.remote()` callback.
+ * @param stages - The stages a call to one of the namespaces runs, root first.
+ * @returns The route's namespaces, keyed by namespace.
+ */
+export function bindNamespaces(
+  own: ContributionRecord,
+  stages: readonly Stage[],
+): Record<string, BoundNamespace> {
+  const build = own.remote as (procedures: typeof builder) => Record<string, object>;
+  const use = (own.use ?? []) as readonly ChainMiddleware[];
+  const namespaces: Record<string, BoundNamespace> = Object.create(null);
+
+  for (const [namespace, procedures] of Object.entries(build(builder))) {
+    namespaces[namespace] = {
+      procedures: procedures as Record<string, RuntimeProcedure>,
+      use,
+      stages,
+    };
+  }
+
+  return namespaces;
+}
+
+/**
  * Binds an application's authored routes into the {@link ApplicationBinding} the server
  * dispatches with.
  *
@@ -92,12 +142,9 @@ export function bindApplication(
   const labels = new Map<object, string>();
   const stages = new Map<object, Stage>();
   const namespaces: Record<string, BoundNamespace> = Object.create(null);
-  // `routeContributions` takes any extension's factory; a spec's step tuple isn't
-  // assignable to the general one, so name Launch's factory by the general type.
-  const factory = defineRoute as unknown as RouteFactory<ExtensionSpec>;
 
   for (const [route, file] of routes) {
-    const chain = routeContributions(factory, route);
+    const chain = launchChain(route);
 
     if (!chain || chain.length === 0) {
       throw new TypeError(`Launch route has no server steps: ${file}`);
@@ -139,16 +186,7 @@ export function bindApplication(
       }
     }
 
-    const build = own.remote as (procedures: typeof builder) => Record<string, object>;
-    const use = (own.use ?? []) as readonly ChainMiddleware[];
-
-    for (const [namespace, procedures] of Object.entries(build(builder))) {
-      namespaces[namespace] = {
-        procedures: procedures as Record<string, RuntimeProcedure>,
-        use,
-        stages: owned,
-      };
-    }
+    Object.assign(namespaces, bindNamespaces(own, owned));
   }
 
   return { id, namespaces };

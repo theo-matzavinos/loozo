@@ -13,9 +13,10 @@ const snippets = join(packageDirectory, "snippets");
 const ng = join(packageDirectory, "node_modules/@angular/cli/bin/ng.js");
 const specs = [
   "src/auth.server.spec.ts",
+  "src/routes/todos/http.spec.ts",
+  "src/routes/todos/procedures.spec.ts",
   "src/routes/todos/responses.spec.ts",
   "src/routes/todos/route.spec.ts",
-  "src/routes/todos/rpc.spec.ts",
   "src/routes/todos/todo-item.spec.ts",
 ];
 
@@ -101,5 +102,5 @@ await test("the README's testing snippets pass under ng test", async (t) => {
   assert.equal(results.success, true);
   assert.equal(results.numFailedTests, 0);
   assert.equal(results.numPassedTests, results.numTotalTests);
-  assert.equal(results.numTotalTests, 15);
+  assert.equal(results.numTotalTests, 18);
 });
