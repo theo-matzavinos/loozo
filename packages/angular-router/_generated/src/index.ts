@@ -1,11 +1,11 @@
 export { callbacks, lazyRedirect, redirect } from "./callbacks.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 export type { ActiveHandle, ActiveRoute, RouteTypeEntry, RouteTypeMap } from "./active.js";
-export { record, recordFacts, resolverKeys } from "./record.js";
-export { defineDestination, routeOf } from "@loozo/angular-router/_core";
+export { extension, record, recordExtension, recordFacts, resolverKeys } from "./record.js";
+export { authoredRouteOf, defineDestination, routeOf } from "@loozo/angular-router/_core";
 export type { Destination, RouteSchema } from "@loozo/angular-router/_core";
 
-import { DestroyRef, inject, type Signal } from "@angular/core";
+import { DestroyRef, Injector, inject, type Signal } from "@angular/core";
 import {
   ActivatedRoute,
   Router,
@@ -17,6 +17,9 @@ import {
   destinationRecord,
   routeMetadata,
   type AnyRoute,
+  type ContributionRecord,
+  type ExtensionSpec,
+  type RuntimeExtension,
   type Destination,
   type ParamsOf,
   type SearchOf,
@@ -218,19 +221,44 @@ export function nativeOptions(route: AnyRoute): Record<string, unknown> {
 /**
  * The typed handle of a route copy's activated record. `up` is the destination of
  * the copy's `..` target, as generation resolved it; omitted when there is none.
+ * `Members` is what generation says the route's extension adds; for a route an
+ * extension's factory made, the handle gets them from the extension's `handle`.
  */
 export function injectGeneratedRoute<
   Target extends AnyRoute,
   Parent extends Destination<AnyRoute> = never,
->(route: Target, up?: Parent): Handle<Target, Parent> {
+  Members extends object = {},
+>(route: Target, up?: Parent): Handle<Target, Parent> & Members {
   const router = inject(Router);
   const destroy = inject(DestroyRef);
   const own = destinationOf(route);
   const view = observeRecord(own, inject(ActivatedRoute), router, (release) => {
     destroy.onDestroy(release);
   });
+  const handle = createDestinationHandle(own, up, router, view);
+  const slot = routeMetadata(route).extension;
 
-  return createDestinationHandle(own, up, router, view);
+  if (slot?.declared) {
+    addMembers(handle, slot.runtime, slot.chain, inject(Injector));
+  }
+
+  return handle as Handle<Target, Parent> & Members;
+}
+
+/**
+ * Defines the extension's members on a handle by their own property descriptors, so a
+ * getter runs at its first read, not here.
+ */
+export function addMembers(
+  handle: object,
+  runtime: RuntimeExtension<ExtensionSpec>,
+  chain: readonly ContributionRecord[],
+  injector: Injector,
+): void {
+  Object.defineProperties(
+    handle,
+    Object.getOwnPropertyDescriptors(runtime.handle(chain, injector)),
+  );
 }
 
 /**

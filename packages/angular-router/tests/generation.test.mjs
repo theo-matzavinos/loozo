@@ -10,6 +10,7 @@ import {
   AnchorState,
   CompilerState,
   createValidationProgram,
+  emitLaunchRoutes,
   validateRoutes,
 } from "../node/src/generation/index.js";
 import { generate } from "../node/src/generation/generate.js";
@@ -1484,13 +1485,13 @@ test("emitted extension packages: manifests, step metadata and authentication th
   const expectedManifest = [
     { name: "context", serverOnly: true, arity: { min: 1, max: 1 } },
     { name: "use", serverOnly: true, arity: { min: 0, max: null } },
-    { name: "procedures", serverOnly: false, arity: { min: 1, max: 1 } },
+    { name: "remote", serverOnly: true, arity: { min: 1, max: 1 } },
   ];
-  const chain = `defineRoute("x", {}).context(x).use(a, b).procedures(y).title("t")`;
+  const chain = `defineRoute("x", {}).context(x).use(a, b).remote(y).title("t")`;
   const fullSteps = [
     { name: "context", args: 1, contributed: true, serverOnly: true },
     { name: "use", args: 2, contributed: true, serverOnly: true },
-    { name: "procedures", args: 1, contributed: true, serverOnly: false },
+    { name: "remote", args: 1, contributed: true, serverOnly: true },
     { name: "title", args: 1, contributed: false, serverOnly: false },
   ];
   const setup = `const x = () => ({ user: { id: "u", name: "User" } });
@@ -1515,16 +1516,27 @@ const y = () => ({ account: { me: () => "u" } });`;
     { name: "zero-step extension chain", expr: `defineRoute("x", {})`, steps: [] },
     {
       name: "inline inferred Launch chain",
-      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).use(({ context }) => { const id: string = context.user.id; }, ({ context }) => { context.user.id; }).procedures(({ query }) => ({ account: { me: query(() => "u") } })).title(({ rpc }) => rpc.account.me())`,
+      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).use(({ context }) => { const id: string = context.user.id; }, ({ context }) => { context.user.id; }).remote(({ query }) => ({ account: { me: query(() => "u") } })).title(({ remote }) => remote.account.me())`,
       steps: fullSteps,
     },
-    // The route copy strips the server-only context step, so a kept step typed from it no
-    // longer type-checks there; the diagnostic points at the declaration's line.
+    // The route copy strips every contributed step, so it is typed from its declaration:
+    // a kept callback still reads what the stripped steps added.
     {
-      name: "kept step typed from a stripped step",
-      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).procedures(({ query }) => ({ account: { me: query(({ context }) => context.user.id) } }))`,
+      name: "kept step typed from stripped steps",
+      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).remote(({ query }) => ({ account: { me: query(({ context }) => context.user.id) } })).title(({ remote }) => remote.account.me())`,
+      steps: [
+        { name: "context", args: 1, contributed: true, serverOnly: true },
+        { name: "remote", args: 1, contributed: true, serverOnly: true },
+        { name: "title", args: 1, contributed: false, serverOnly: false },
+      ],
+    },
+    // A kept callback reading a member no stripped step added still fails in its copy, at
+    // the declaration's line.
+    {
+      name: "kept step reads a member no step added",
+      expr: `defineRoute("x", {}).context(() => ({ user: { id: "u" } })).title(({ remote }) => remote.account.me())`,
       reason:
-        /route\.ts:8:\d+: TS2339: Property 'user' does not exist on type '\{\}'\. \(in its generated route copy\)$/,
+        /route\.ts:8:\d+: TS2339: Property 'account' does not exist on type '[^']*'\. \(in its generated route copy\)$/,
     },
     {
       name: "router same rule",
@@ -1762,7 +1774,7 @@ const y = () => ({ account: { me: () => "u" } });`;
   ];
 
   await project.write("wrapper.ts", `export { defineRoute } from "@fixture/route-extension";\n`);
-  assert.equal(cases.length, 44);
+  assert.equal(cases.length, 45);
 
   for (const testCase of cases) {
     let pkg = testCase.pkg ?? "route-extension";
@@ -1828,7 +1840,7 @@ test("extension routes: ancestry, copies, emitted projection and a linked router
   const { desired } = await project.analyze({
     parent: `${header}export default defineRoute("parent", {}).context(() => ({ user: "u" }));\n`,
     "parent/middle": `import { defineRoute } from "@loozo/angular-router";\nimport parent from "../route.js";\nexport default defineRoute("middle", { parent }).title("middle");\n`,
-    "parent/middle/child": `${header}import parent from "../route.js";\nexport default defineRoute("child", { parent }).use().resolve({ me: ({ rpc }) => rpc }).title("child");\n`,
+    "parent/middle/child": `${header}import parent from "../route.js";\nexport default defineRoute("child", { parent }).use().resolve({ me: ({ remote }) => remote }).title("child");\n`,
   });
   const shared = desired.get(resolve(project.root, "generated/routes.generated.ts"));
 
@@ -2215,7 +2227,11 @@ function oracle(authored, copy, kind, { server = [] } = {}) {
   const rootLine = lineOf(root.getStart(source));
 
   if (kind === "route") {
-    assert.ok(lines[rootLine].includes("routegen$routeOf("));
+    // An extension route with a server-only step is typed from its declaration.
+    assert.match(
+      lines[rootLine],
+      /routegen\$(?:routeOf|authoredRouteOf<typeof routegen\$Authored>\(\))\(/,
+    );
     removedSpans.push([source.getLineStarts()[rootLine + 1] ?? root.end, root.end]);
   } else {
     assert.ok(lines[rootLine].includes("routegen$defineDestination("));
@@ -2560,7 +2576,7 @@ test("route copies: liveness keeps what the copy still reaches and strips the re
   assert.deepEqual(helpers.dropped.route, ["a", "b", "secret"]);
   assert.equal(
     helpers.route.split("\n").slice(0, 5).join("\n"),
-    `${header}\n\n\n${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination).title("ok");`,
+    `${header}\n\n\n${routeDoc} const routegen$route = routegen$authoredRouteOf<typeof routegen$Authored>()(defineRoute, routegen$destination).title("ok");`,
   );
 
   // So does a single helper.
@@ -3000,7 +3016,7 @@ export default defineRoute("", {}).context(server).title("Home");
   );
   assert.equal(
     read(first, "route").split("\n").slice(0, 3).join("\n"),
-    `import { defineRoute } from "@fixture/route-extension";\n\n${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination).title("Home");`,
+    `import { defineRoute } from "@fixture/route-extension";\n\n${routeDoc} const routegen$route = routegen$authoredRouteOf<typeof routegen$Authored>()(defineRoute, routegen$destination).title("Home");`,
   );
 
   // Editing a stripped server step on its own line leaves both copies byte-identical.
@@ -3081,7 +3097,7 @@ export default defineRoute("x", {}).context(() => ({ missing, helper }))
     'const kept: number = "kept";',
     "void absent;",
     "// @ts-ignore Its target line keeps the root call and loses a stripped step.",
-    `${routeDoc} const routegen$route = routegen$routeOf(defineRoute, routegen$destination)`,
+    `${routeDoc} const routegen$route = routegen$authoredRouteOf<typeof routegen$Authored>()(defineRoute, routegen$destination)`,
     "",
     "",
     "  // @ts-expect-error A mismatch on a kept step's own line.",
@@ -4354,4 +4370,497 @@ test("route children: a children loader must resolve to its table even when no p
   await project.generate();
   assert.equal(await exists("src/routes/p/children.generated.ts"), true);
   assert.equal(await exists("src/routes/p/q/children.generated.ts"), true);
+});
+
+// Launch's route extension shape: every contributed step is server-only, so a copy keeps
+// only router steps and is typed from its declaration; Launch's descriptors add the rest.
+async function launchProject() {
+  const project = await extensionProject();
+  const { root } = project;
+  const header = 'import { defineRoute } from "@fixture/route-extension";\n';
+  const asserts = `type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Assert<T extends true> = T;
+type IsAny<T> = 0 extends 1 & T ? true : false;
+`;
+  const page = (name) =>
+    `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport default class Page {}\n`;
+  const files = {
+    "src/user.ts":
+      "export interface User { id: string; name: string }\nexport interface Context { id: string }\n",
+    "src/routes/app/route.ts": `${header}import { createUrl } from "@loozo/angular-router";
+import type { User } from "../../user.js";
+import { destination as todos } from "./area/todos/destination.generated.js";
+
+export default defineRoute("app", {})
+  .context(() => ({ user: null as User | null }))
+  .remote(({ query }) => ({ session: { current: query(({ context }) => context.user) } }))
+  // A parent guard importing a child's destination: the back edge.
+  .canActivate([({ remote }) => createUrl(todos, {}).length > 0 && remote.session.current() !== undefined]);
+`,
+    "src/routes/app/page.ts": page("app"),
+    // The canonical terminal of /app, so "/app" is a ".." target.
+    "src/routes/app/area/index/route.ts": `${header}import parent from "../route.js";
+
+export default defineRoute("", { parent });
+`,
+    "src/routes/app/area/index/page.ts": page("index"),
+    // Pathless, so its children's ".." skips it to /app.
+    "src/routes/app/area/route.ts": `${header}import parent from "../route.js";
+
+export default defineRoute("", { parent }).context(({ context }) => {
+  if (!context.user) {
+    throw new Error("forbidden");
+  }
+
+  return { user: context.user };
+});
+`,
+    // Keeps an authored \`Context\` that the copy's \`Context\` export must not collide with.
+    "src/routes/app/area/todos/route.ts": `${header}import type { Context, User } from "../../../../user.js";
+import parent from "../route.js";
+${asserts}
+export default defineRoute("todos", { parent })
+  .remote(({ query }) => ({
+    todos: {
+      get: query(({ input, context }: { input: { id: string }; context: { user: User } }) => ({
+        id: input.id,
+        owner: context.user.id,
+      })),
+    },
+  }))
+  .resolve({
+    item: ({ remote }) => {
+      type OwnInput = Assert<Equal<Parameters<typeof remote.todos.get>[0], { id: string }>>;
+      type OwnOutput = Assert<Equal<ReturnType<typeof remote.todos.get>, { id: string; owner: string }>>;
+      type Inherited = Assert<Equal<ReturnType<typeof remote.session.current>, User | null>>;
+      type NotAny = Assert<Equal<IsAny<typeof remote>, false>>;
+
+      // @ts-expect-error the input is { id: string }
+      remote.todos.get({ id: 1 });
+
+      const authored: Context = { id: "one" };
+
+      return remote.todos.get(authored);
+    },
+  })
+  .canActivate([({ remote }) => remote.session.current() !== null])
+  .title(({ remote }) => remote.todos.get({ id: "t" }).owner);
+`,
+    "src/routes/app/area/todos/page.ts": page("todos"),
+    // A bare leaf: no step of its own, inherited members only.
+    "src/routes/app/area/leaf/route.ts": `${header}import parent from "../route.js";
+
+export default defineRoute("leaf", { parent });
+`,
+    "src/routes/app/area/leaf/page.ts": page("leaf"),
+    "src/routes/old/route.ts": `${header}import { destination as leaf } from "../app/area/leaf/destination.generated.js";
+
+export default defineRoute("old", {})
+  .context(() => ({}))
+  .redirect({ to: leaf, search: { mode: "drop" }, fragment: { mode: "drop" } });
+`,
+    "src/routes/plain/route.ts": `import { defineRoute } from "@loozo/angular-router";
+
+export default defineRoute("plain", {}).title("Plain");
+`,
+    "src/routes/plain/page.ts": page("plain"),
+    "src/proof.ts": `import type { Signal } from "@angular/core";
+import type { User } from "./user.js";
+import type { ActiveHandle } from "../generated/routes.generated.js";
+import type { Context, Remote, injectRoute as todosRoute } from "./routes/app/area/todos/route.generated.js";
+import type { injectRoute as leafRoute } from "./routes/app/area/leaf/route.generated.js";
+import type { injectRoute as appRoute } from "./routes/app/route.generated.js";
+import type { Context as OldContext } from "./routes/old/route.generated.js";
+${asserts}
+type Todos = ReturnType<typeof todosRoute>;
+type Leaf = ReturnType<typeof leafRoute>;
+type Session = { current: () => User | null };
+
+type ExactRemote = Assert<
+  Equal<Remote, { session: Session; todos: { get: (input: { id: string }) => { id: string; owner: string } } }>
+>;
+type NarrowedContext = Assert<Equal<Context, { user: User }>>;
+type RedirectContext = Assert<Equal<OldContext, {}>>;
+type TodosMember = Assert<Equal<Todos["remote"], Remote>>;
+type TodosData = Assert<Equal<Todos["data"], Signal<Readonly<{ item: { id: string; owner: string } }>>>>;
+type LeafMember = Assert<Equal<Leaf["remote"], { session: Session }>>;
+type ActiveLeaf = Assert<Equal<ActiveHandle<"src/routes/app/area/leaf/route.ts">["remote"], Leaf["remote"]>>;
+type ActiveTodos = Assert<Equal<ActiveHandle<"src/routes/app/area/todos/route.ts">["remote"], Remote>>;
+type MemberNotAny = Assert<Equal<IsAny<Leaf["remote"]>, false>>;
+
+declare const todos: Todos;
+declare const leaf: Leaf;
+declare const app: ReturnType<typeof appRoute>;
+declare const active: ActiveHandle<"src/routes/app/area/leaf/route.ts">;
+
+// ".." through the pathless area is app, on the local and the active handle.
+todos.link({ to: ".." });
+leaf.navigate({ to: "..", replaceUrl: true });
+active.link({ to: ".." });
+// @ts-expect-error app has no ".." winner
+app.link({ to: ".." });
+// @ts-expect-error a procedure no route declared
+leaf.remote.todos;
+`,
+  };
+
+  for (const [path, text] of Object.entries(files)) {
+    await project.write(path, text);
+  }
+
+  await project.write(
+    "tsconfig.json",
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES2022",
+        // Angular's resolution: page imports are extensionless.
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        verbatimModuleSyntax: true,
+        strict: true,
+        skipLibCheck: false,
+        experimentalDecorators: true,
+        lib: ["ES2022", "DOM"],
+        types: [],
+      },
+      include: ["src/**/*.ts"],
+    }),
+  );
+
+  const sources = await discover(
+    root,
+    "tsconfig.json",
+    ["src/routes"],
+    "generated",
+    undefined,
+    new Map(),
+    false,
+  );
+  const declaration = (directory) =>
+    sources.declarations.find(
+      (entry) => entry.file === resolve(root, `src/routes/${directory}/route.ts`),
+    );
+  const remote = { name: "Remote", type: "RemoteOf", from: "@fixture/route-extension" };
+  const context = { name: "Context", type: "ContextOf", from: "@fixture/route-extension" };
+  const launch = {
+    data: new Map([
+      [declaration("app"), { remote: { session: ["current"] } }],
+      [declaration("app/area/todos"), { remote: { todos: ["get"] } }],
+    ]),
+    types: [remote, context],
+    members: [{ member: "remote", type: "Remote" }],
+  };
+
+  return { project, sources, declaration, launch, context };
+}
+
+function formatted(diagnostics, root) {
+  return diagnostics.map(
+    (diagnostic) =>
+      `${diagnostic.file?.fileName.slice(root.length + 1)}: TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+  );
+}
+
+test("extension copies: typed from their declaration, with Launch's data, type exports, handle members and record stamps", async () => {
+  const { project, sources, launch, context } = await launchProject();
+  const { root } = project;
+  const desired = emitLaunchRoutes(sources, launch);
+  const validation = createValidationProgram(sources, desired, []);
+
+  // Validation type-checks every copy: the kept callbacks' assertions hold there.
+  await validateRoutes(sources, desired, validation);
+
+  const proof = validation.program.getSourceFile(resolve(root, "src/proof.ts"));
+
+  assert.deepEqual(formatted(ts.getPreEmitDiagnostics(validation.program, proof), root), []);
+
+  const read = (path, map = desired) => map.get(resolve(root, path));
+  const tail = (path, map) => {
+    const lines = read(path, map).split("\n");
+
+    return lines.slice(
+      lines.findIndex(
+        (line) =>
+          line.startsWith("import type routegen$Authored") ||
+          line.includes('from "@loozo/angular-router/_generated"'),
+      ),
+    );
+  };
+  const marker = "// @loozo/angular-router routegen: owned route.generated.ts";
+  const injectLines = injectDoc.split("\n");
+
+  // Seeded root on the declaration's own line, with its data.
+  assert.match(
+    read("src/routes/app/area/todos/route.generated.ts"),
+    /\n\/\*\* This route's browser copy[^\n]* const routegen\$route = routegen\$authoredRouteOf<typeof routegen\$Authored>\(\)\(defineRoute, routegen\$destination, parent, routegen\$own\(\)\)\n/,
+  );
+  assert.match(
+    read("src/routes/app/route.generated.ts"),
+    /const routegen\$route = routegen\$authoredRouteOf<typeof routegen\$Authored>\(\)\(defineRoute, routegen\$destination, undefined, routegen\$own\(\)\)\n/,
+  );
+  // A `..` copy keeps its up import, type and argument, with the members as a third.
+  assert.deepEqual(tail("src/routes/app/area/todos/route.generated.ts"), [
+    'import type routegen$Authored from "./route.js";',
+    'import { authoredRouteOf as routegen$authoredRouteOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";',
+    'import type { RemoteOf as routegen$t0, ContextOf as routegen$t1 } from "@fixture/route-extension";',
+    'import { destination as routegen$destination } from "./destination.generated.js";',
+    'import { destination as routegen$up } from "../index/destination.generated.js";',
+    'function routegen$own() { return {"remote":{"todos":["get"]}}; }',
+    "export { routegen$route as route };",
+    "type routegen$type_Remote = routegen$t0<typeof routegen$route>;",
+    "export type { routegen$type_Remote as Remote };",
+    "type routegen$type_Context = routegen$t1<typeof routegen$route>;",
+    "export type { routegen$type_Context as Context };",
+    "type routegen$Members = { readonly remote: routegen$type_Remote };",
+    ...injectLines,
+    "function routegen$injectRoute(): routegen$Handle<typeof routegen$route, typeof routegen$up> & routegen$Members { return routegen$injectGeneratedRoute<typeof routegen$route, typeof routegen$up, routegen$Members>(routegen$route, routegen$up); }",
+    "export { routegen$injectRoute as injectRoute };",
+    marker,
+    "",
+  ]);
+  // A bare leaf keeps routeOf, with no data, and still gets the types and members.
+  assert.match(
+    read("src/routes/app/area/leaf/route.generated.ts"),
+    /const routegen\$route = routegen\$routeOf\(defineRoute, routegen\$destination, parent\);/,
+  );
+  assert.deepEqual(tail("src/routes/app/route.generated.ts").slice(-9 - injectLines.length), [
+    "type routegen$type_Remote = routegen$t0<typeof routegen$route>;",
+    "export type { routegen$type_Remote as Remote };",
+    "type routegen$type_Context = routegen$t1<typeof routegen$route>;",
+    "export type { routegen$type_Context as Context };",
+    "type routegen$Members = { readonly remote: routegen$type_Remote };",
+    ...injectLines,
+    "function routegen$injectRoute(): routegen$Handle<typeof routegen$route> & routegen$Members { return routegen$injectGeneratedRoute<typeof routegen$route, never, routegen$Members>(routegen$route); }",
+    "export { routegen$injectRoute as injectRoute };",
+    marker,
+    "",
+  ]);
+  // A redirect copy gets the type exports, but no members and no injectRoute.
+  assert.deepEqual(tail("src/routes/old/route.generated.ts"), [
+    'import type routegen$Authored from "./route.js";',
+    'import { authoredRouteOf as routegen$authoredRouteOf } from "@loozo/angular-router/_generated";',
+    'import type { RemoteOf as routegen$t0, ContextOf as routegen$t1 } from "@fixture/route-extension";',
+    'import { destination as routegen$destination } from "./destination.generated.js";',
+    "export { routegen$route as route };",
+    "type routegen$type_Remote = routegen$t0<typeof routegen$route>;",
+    "export type { routegen$type_Remote as Remote };",
+    "type routegen$type_Context = routegen$t1<typeof routegen$route>;",
+    "export type { routegen$type_Context as Context };",
+    marker,
+    "",
+  ]);
+
+  const routes = read("generated/routes.generated.ts");
+
+  // Every non-redirect extension record is stamped and reads its copy at runtime; the
+  // redirect record and the router's own route aren't.
+  assert.match(
+    routes,
+    /import \{ record, nativeOptions\b|import \{ record, callbacks, redirect, extension, injectGeneratedActiveRoute,/,
+  );
+  assert.match(
+    routes,
+    /\nimport type \{ RemoteOf as routegen\$t0, ContextOf as routegen\$t1 \} from "@fixture\/route-extension";\n/,
+  );
+
+  // Each record is stamped in the table that holds it: nested records in their parent's
+  // children table.
+  for (const [name, table] of [
+    ["app_route", "generated/routes.generated.ts"],
+    ["app_area_route", "src/routes/app/children.generated.ts"],
+    ["app_area_index_route", "src/routes/app/area/children.generated.ts"],
+    ["app_area_todos_route", "src/routes/app/area/children.generated.ts"],
+    ["app_area_leaf_route", "src/routes/app/area/children.generated.ts"],
+  ]) {
+    const text = read(table);
+
+    assert.match(text, new RegExp(`\\nimport \\{ route as route_${name} \\} from`), name);
+    assert.match(text, new RegExp(`\\.\\.\\.extension\\(route_${name}\\)`), name);
+    assert.match(
+      text,
+      /\nimport \{ record, [^}]*\bextension\b[^}]*\} from '@loozo\/angular-router\/_generated';\n/,
+      name,
+    );
+  }
+
+  assert.match(routes, /\nimport \{ route as route_old_route \} from/);
+  assert.doesNotMatch(routes, /extension\(route_old_route\)|extension\(route_plain_route\)/);
+  assert.match(
+    routes,
+    /\n"src\/routes\/app\/area\/leaf\/route\.ts": \{ schema: RouteSchema<typeof route_app_area_leaf_route>; up: typeof destination_app_area_index_route; members: \{ readonly remote: routegen\$t0<typeof route_app_area_leaf_route> \} \};\n/,
+  );
+  assert.match(
+    routes,
+    /\n"src\/routes\/plain\/route\.ts": \{ schema: RouteSchema<typeof route_plain_route> \};\n/,
+  );
+
+  // Without descriptors, a router route's files are byte-identical; so is its record.
+  const bare = emitLaunchRoutes(sources);
+  const plainRecord = (text) => text.match(/\{ path: "plain",[^}]*\}/)[0];
+
+  for (const path of [
+    "src/routes/plain/route.generated.ts",
+    "src/routes/plain/destination.generated.ts",
+    "src/routes/app/area/todos/destination.generated.ts",
+  ]) {
+    assert.equal(read(path), read(path, bare), path);
+  }
+
+  assert.equal(plainRecord(routes), plainRecord(read("generated/routes.generated.ts", bare)));
+  // Without descriptors an extension copy is still seeded, with no exports or members.
+  assert.doesNotMatch(
+    read("src/routes/app/area/todos/route.generated.ts", bare),
+    /routegen\$own|export type|routegen\$Members/,
+  );
+  assert.match(
+    read("src/routes/app/area/todos/route.generated.ts", bare),
+    /routegen\$authoredRouteOf<typeof routegen\$Authored>\(\)\(defineRoute, routegen\$destination, parent\)/,
+  );
+
+  // Fewer descriptors (Launch without TanStack): only what they name.
+  const fewer = emitLaunchRoutes(sources, { data: launch.data, types: [context], members: [] });
+
+  assert.doesNotMatch(
+    read("src/routes/app/area/todos/route.generated.ts", fewer),
+    /Remote|routegen\$Members/,
+  );
+  assert.match(
+    read("src/routes/app/area/todos/route.generated.ts", fewer),
+    /\ntype routegen\$type_Context = routegen\$t0<typeof routegen\$route>;\nexport type \{ routegen\$type_Context as Context \};\n/,
+  );
+  assert.doesNotMatch(read("generated/routes.generated.ts", fewer), /members:|routegen\$t0/);
+
+  // A member naming no type export is a descriptor bug.
+  assert.throws(
+    () =>
+      emitLaunchRoutes(sources, { ...launch, members: [{ member: "remote", type: "Missing" }] }),
+    /Route copy member type is not a type export: Missing/,
+  );
+});
+
+test("extension copies: without the authored type the kept callbacks lose the stripped steps' types", async () => {
+  const { project, sources, launch } = await launchProject();
+  const desired = emitLaunchRoutes(sources, launch);
+  const copy = resolve(project.root, "src/routes/app/area/todos/route.generated.ts");
+  const unseeded = new Map(desired);
+
+  // The control: routeOf, as before authored types.
+  unseeded.set(
+    copy,
+    desired
+      .get(copy)
+      .replace("routegen$authoredRouteOf<typeof routegen$Authored>()(", "routegen$routeOf(")
+      .replace(", routegen$own())", ")")
+      .replace("authoredRouteOf as routegen$authoredRouteOf", "routeOf as routegen$routeOf"),
+  );
+
+  await assert.rejects(
+    validateRoutes(sources, unseeded, createValidationProgram(sources, unseeded, [])),
+    /todos[\\/]route\.ts:\d+:\d+: TS2339: Property 'todos' does not exist on type /,
+  );
+});
+
+test("the import rule admits an extension copy's erased own import and Launch's server aggregate only", async () => {
+  const { project, sources, launch } = await launchProject();
+  const { root } = project;
+  const desired = emitLaunchRoutes(sources, launch);
+  const copy = resolve(root, "src/routes/app/area/todos/route.generated.ts");
+  const own = 'import type routegen$Authored from "./route.js";';
+
+  async function check(map, launchMode = sources.launch) {
+    const variant = { ...sources, launch: launchMode };
+
+    await validateRoutes(variant, map, createValidationProgram(variant, map, []));
+  }
+
+  function replaced(path, from, to) {
+    const map = new Map(desired);
+    const text = map.get(path);
+
+    assert.ok(text.includes(from), from);
+    map.set(path, text.replace(from, to));
+
+    return map;
+  }
+
+  await check(desired);
+
+  const rejected = [
+    ["a value import", replaced(copy, own, 'import routegen$Authored from "./route.js";')],
+    [
+      "a named default import",
+      replaced(copy, own, 'import type { default as routegen$Authored } from "./route.js";'),
+    ],
+    [
+      "another route's declaration",
+      replaced(copy, own, `${own}\nimport type routegen$Other from "../../route.js";`),
+    ],
+    [
+      "a re-export",
+      replaced(copy, own, `${own}\nexport type { default as Again } from "./route.js";`),
+    ],
+    [
+      "the destination copy",
+      replaced(
+        resolve(root, "src/routes/app/area/todos/destination.generated.ts"),
+        "export { routegen$destination as destination };",
+        'import type routegen$Authored from "./route.js";\nexport { routegen$destination as destination };',
+      ),
+    ],
+    [
+      "the copy of a route without a server-only step",
+      replaced(
+        resolve(root, "src/routes/app/area/leaf/route.generated.ts"),
+        "export { routegen$route as route };",
+        'import type routegen$Authored from "./route.js";\nexport { routegen$route as route };',
+      ),
+    ],
+  ];
+
+  for (const [name, map] of rejected) {
+    await assert.rejects(check(map), /Generated file imports a route declaration: /, name);
+  }
+
+  // Launch mode: the server aggregate value-imports routes with a server-only step.
+  const aggregate = resolve(root, "generated/server.generated.ts");
+  const entry = resolve(root, "launch-types.d.ts");
+
+  await writeFile(entry, "export {};\n");
+
+  const launchMode = { typeEntry: entry, declarations: [] };
+  const server = (imports) => {
+    const map = new Map(desired);
+
+    map.set(aggregate, `// @loozo/angular-launch: owned server.generated.ts\n${imports}\n`);
+
+    return map;
+  };
+
+  await check(
+    server(
+      'import route_0 from "../src/routes/app/route.js";\nimport route_1 from "../src/routes/app/area/todos/route.js";\nexport const routes = [route_0, route_1];',
+    ),
+    launchMode,
+  );
+
+  for (const [name, imports] of [
+    [
+      "a route without a server-only step",
+      'import route_0 from "../src/routes/app/area/leaf/route.js";\nvoid route_0;',
+    ],
+    [
+      "a type import",
+      'import type route_0 from "../src/routes/app/route.js";\nexport type R = typeof route_0;',
+    ],
+    [
+      "a named import",
+      'import { default as route_0 } from "../src/routes/app/route.js";\nvoid route_0;',
+    ],
+  ]) {
+    await assert.rejects(
+      check(server(imports), launchMode),
+      /server\.generated\.ts:\d+:\d+: Generated file imports a route declaration: /,
+      name,
+    );
+  }
 });

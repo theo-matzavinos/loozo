@@ -1,6 +1,87 @@
 import ts from "typescript";
-import { markers } from "./files.js";
+import { markers, specifier } from "./files.js";
 import { fail, properties, type Declaration } from "./sources.js";
+
+/** A JSON value, as generation writes it into a route copy. */
+export type Json = null | boolean | number | string | readonly Json[] | JsonRecord;
+export interface JsonRecord {
+  readonly [key: string]: Json;
+}
+
+/**
+ * What a route extension's generation adds to its routes' copies, records and
+ * `RouteTypes`. Launch supplies it; the router emits exactly what it says.
+ */
+export interface LaunchCopies {
+  /** Each route's own generation data: its copy's runtime own contribution record. */
+  readonly data: ReadonlyMap<Declaration, JsonRecord>;
+  /** `export type <name> = <type><typeof route>` per copy, `type` imported from `from`. */
+  readonly types: readonly {
+    readonly name: string;
+    readonly type: string;
+    readonly from: string;
+  }[];
+  /** `readonly <member>: <type>` per handle, `type` naming one of `types`. */
+  readonly members: readonly { readonly member: string; readonly type: string }[];
+}
+
+/**
+ * Whether a declaration's route copy is typed from its authored declaration: an extension
+ * route whose contributed steps are all server-only, at least one used. A kept contributed
+ * step would add its record again on top of the authored one.
+ */
+export function seedsCopy(declaration: Declaration): boolean {
+  if (!declaration.extension) {
+    return false;
+  }
+
+  let stripped = false;
+
+  for (const step of declaration.steps) {
+    if (step.contributed && !step.serverOnly) {
+      return false;
+    }
+
+    if (step.serverOnly) {
+      stripped = true;
+    }
+  }
+
+  return stripped;
+}
+
+/**
+ * The type-only imports of a route extension's type descriptors, one per module in
+ * descriptor order, and each descriptor's local name by its exported name.
+ */
+export function typeImports(types: LaunchCopies["types"]): {
+  readonly lines: string[];
+  readonly locals: Map<string, string>;
+} {
+  const byModule = new Map<string, string[]>();
+  const locals = new Map<string, string>();
+
+  for (const [index, descriptor] of types.entries()) {
+    const local = `routegen$t${index}`;
+    let names = byModule.get(descriptor.from);
+
+    if (!names) {
+      names = [];
+      byModule.set(descriptor.from, names);
+    }
+
+    names.push(`${descriptor.type} as ${local}`);
+    locals.set(descriptor.name, local);
+  }
+
+  const lines: string[] = [];
+
+  for (const [from, names] of byModule) {
+    lines.push(`import type { ${names.join(", ")} } from ${JSON.stringify(from)};`);
+  }
+
+  return { lines, locals };
+}
 
 /** How a declaration's copies reach the files around them; every specifier is `.js`-suffixed. */
 export interface CopyWiring {
@@ -10,6 +91,12 @@ export interface CopyWiring {
   readonly up?: string;
   // Whether the route copy exports injectRoute: a redirect record never activates.
   readonly activates: boolean;
+  // An extension route's copy data, type exports and handle members.
+  readonly launch?: {
+    readonly data?: JsonRecord;
+    readonly types: LaunchCopies["types"];
+    readonly members: LaunchCopies["members"];
+  };
 }
 
 export interface Copies {
@@ -577,9 +664,31 @@ export function copies(
     ...removals(destinationLive),
   ];
   const routeArguments = [root.expression.getText(source), "routegen$destination"];
+  // Typed from its authored declaration, so its kept callbacks see what the stripped steps
+  // added.
+  const seeded = seedsCopy(declaration);
+  const data = wiring.launch?.data;
+
+  if (data && !seeded) {
+    throw new Error(
+      `Route copy data needs a route whose contributed steps are server-only: ${declaration.file}`,
+    );
+  }
 
   if (parentValue) {
     routeArguments.push(parentValue.getText(source));
+  } else if (data) {
+    routeArguments.push("undefined");
+  }
+
+  if (data) {
+    routeArguments.push("routegen$own()");
+  }
+
+  let routeStart = `routegen$routeOf(${routeArguments.join(", ")})`;
+
+  if (seeded) {
+    routeStart = `routegen$authoredRouteOf<typeof routegen$Authored>()(${routeArguments.join(", ")})`;
   }
 
   const routeEdits: Edit[] = [
@@ -587,7 +696,7 @@ export function copies(
     {
       start: root.getStart(source),
       end: root.end,
-      text: `routegen$routeOf(${routeArguments.join(", ")})`,
+      text: routeStart,
     },
     ...steps((step) => step.serverOnly),
     ...removals(routeLive),
@@ -613,15 +722,33 @@ export function copies(
   const routeTail: string[] = [];
   let parentType = "";
   let parentArgument = "";
+  let upType = "never";
+  let start = "routeOf as routegen$routeOf";
+
+  if (seeded) {
+    // Erased: the import rule admits exactly this form, from this copy to its own declaration.
+    routeTail.push(
+      `import type routegen$Authored from ${JSON.stringify(specifier(declaration.file, declaration.file))};`,
+    );
+    start = "authoredRouteOf as routegen$authoredRouteOf";
+  }
 
   if (wiring.activates) {
     routeTail.push(
-      'import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";',
+      `import { ${start}, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";`,
     );
   } else {
-    routeTail.push(
-      'import { routeOf as routegen$routeOf } from "@loozo/angular-router/_generated";',
-    );
+    routeTail.push(`import { ${start} } from "@loozo/angular-router/_generated";`);
+  }
+
+  const launch = wiring.launch;
+  let typeNames = new Map<string, string>();
+
+  if (launch) {
+    const imports = typeImports(launch.types);
+
+    routeTail.push(...imports.lines);
+    typeNames = imports.locals;
   }
 
   routeTail.push(
@@ -632,14 +759,50 @@ export function copies(
     routeTail.push(`import { destination as routegen$up } from ${JSON.stringify(wiring.up)};`);
     parentType = ", typeof routegen$up";
     parentArgument = ", routegen$up";
+    upType = "typeof routegen$up";
+  }
+
+  if (data) {
+    // A declaration, so the root line above can call it.
+    routeTail.push(`function routegen$own() { return ${JSON.stringify(data)}; }`);
   }
 
   routeTail.push("export { routegen$route as route };");
 
+  let members = "";
+  let membersArgument = "";
+
+  if (launch) {
+    // Local names stay in the `routegen$` space, so an exported name such as `Context` can
+    // match a binding the declaration keeps.
+    for (const descriptor of launch.types) {
+      const local = `routegen$type_${descriptor.name}`;
+
+      routeTail.push(
+        `type ${local} = ${typeNames.get(descriptor.name)}<typeof routegen$route>;`,
+        `export type { ${local} as ${descriptor.name} };`,
+      );
+    }
+
+    if (wiring.activates && launch.members.length > 0) {
+      const entries = launch.members.map((member) => {
+        if (!typeNames.has(member.type)) {
+          throw new Error(`Route copy member type is not a type export: ${member.type}`);
+        }
+
+        return `readonly ${member.member}: routegen$type_${member.type}`;
+      });
+
+      routeTail.push(`type routegen$Members = { ${entries.join("; ")} };`);
+      members = " & routegen$Members";
+      membersArgument = `<typeof routegen$route, ${upType}, routegen$Members>`;
+    }
+  }
+
   if (wiring.activates) {
     routeTail.push(
       injectDoc,
-      `function routegen$injectRoute(): routegen$Handle<typeof routegen$route${parentType}> { return routegen$injectGeneratedRoute(routegen$route${parentArgument}); }`,
+      `function routegen$injectRoute(): routegen$Handle<typeof routegen$route${parentType}>${members} { return routegen$injectGeneratedRoute${membersArgument}(routegen$route${parentArgument}); }`,
       "export { routegen$injectRoute as injectRoute };",
     );
   }

@@ -25,6 +25,7 @@ import {
 } from "./sources.js";
 import type { Segment } from "../../_core/src/path.js";
 import { overlayHost } from "./overlay.js";
+import { seedsCopy } from "./copies.js";
 import type { CompilerState } from "./compiler.js";
 import { AnchorState, type Anchor, type AnchoredDeclaration } from "./anchor.js";
 
@@ -634,8 +635,12 @@ export async function validateRoutes(
       Number(generated.has(resolve(a.fileName))) - Number(generated.has(resolve(b.fileName))),
   );
 
+  const serverAggregate = resolve(sources.output, "server.generated.ts");
+
   // The import rule: a declaration module is imported only by its child, as that child's
-  // parent default import; nothing else in the program may reference it in any form.
+  // parent default import; nothing else in the program may reference it in any form, except
+  // an extension route's own copy, by an erased default import, and, in Launch mode, the
+  // server aggregate, by a default import of a route with a server-only step.
   function importRule(source: ts.SourceFile, reference: ModuleReference, target: string): void {
     const declaration = declarations.get(target);
 
@@ -643,8 +648,33 @@ export async function validateRoutes(
       return;
     }
 
-    const importer = declarations.get(resolve(source.fileName));
+    const file = resolve(source.fileName);
+    const importer = declarations.get(file);
     const statement = reference.specifier?.parent;
+    const clause = statement && ts.isImportDeclaration(statement) && statement.importClause;
+    const defaultOnly = !!clause && !!clause.name && !clause.namedBindings;
+    const serverSteps = declaration.steps.some((step) => step.serverOnly);
+
+    if (
+      generated.has(file) &&
+      file === resolve(dirname(declaration.file), "route.generated.ts") &&
+      seedsCopy(declaration) &&
+      defaultOnly &&
+      clause.isTypeOnly
+    ) {
+      return;
+    }
+
+    if (
+      sources.launch &&
+      generated.has(file) &&
+      file === serverAggregate &&
+      serverSteps &&
+      defaultOnly &&
+      !clause.isTypeOnly
+    ) {
+      return;
+    }
 
     if (
       importer?.parent === declaration &&
