@@ -283,9 +283,13 @@ OrigamiFieldLabelOptions.provideFactory(() => ({id: signal(1)}));
 // @ts-expect-error a Field Control factory must supply id
 OrigamiFieldControlOptions.provideFactory(() => ({}));
 // @ts-expect-error Checkbox checked must be writable
-OrigamiCheckboxOptions.provideFactory(() => ({checked: computed(() => false), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('terms')}));
+OrigamiCheckboxOptions.provideFactory(() => ({checked: computed(() => false), mixed: signal(false), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('terms')}));
 // @ts-expect-error a Checkbox factory must supply id
-OrigamiCheckboxOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(false)}));
+OrigamiCheckboxOptions.provideFactory(() => ({checked: signal(false), mixed: signal(false), disabled: signal(false), focusableWhenDisabled: signal(false)}));
+// @ts-expect-error Checkbox mixed must be writable
+OrigamiCheckboxOptions.provideFactory(() => ({checked: signal(false), mixed: computed(() => false), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('terms')}));
+// @ts-expect-error a Checkbox factory must supply mixed
+OrigamiCheckboxOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('terms')}));
 // @ts-expect-error Switch checked must be a boolean signal
 OrigamiSwitchOptions.provideFactory(() => ({checked: signal('on'), disabled: signal(false), focusableWhenDisabled: signal(false), id: signal('notify')}));
 // @ts-expect-error a Switch factory must supply focusableWhenDisabled
@@ -787,6 +791,7 @@ class WrongToggleGroupItem { readonly value = signal(1); readonly disabled = sig
 class WrongButton { readonly disabled = signal(false); readonly focusableWhenDisabled = signal('no'); }
 class WrongRadioGroupItem { readonly value = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); }
 class WrongBooleanControl { readonly checked = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); readonly id = signal('terms'); }
+class WrongCheckboxControl { readonly mixed = signal(false); readonly checked = signal(1); readonly disabled = signal(false); readonly focusableWhenDisabled = signal(false); readonly id = signal('terms'); }
 class WrongTooltip { readonly open = signal(false); readonly disabled = signal(false); readonly openDelay = signal('fast'); }
 // @ts-expect-error incompatible existing Presence class
 OrigamiPresenceOptions.provideExisting(() => WrongPresent);
@@ -811,7 +816,7 @@ OrigamiRadioGroupItemOptions.provideExisting(() => WrongRadioGroupItem);
 // @ts-expect-error incompatible existing Tooltip root class
 OrigamiTooltipOptions.provideExisting(() => WrongTooltip);
 // @ts-expect-error incompatible existing Checkbox class
-OrigamiCheckboxOptions.provideExisting(() => WrongBooleanControl);
+OrigamiCheckboxOptions.provideExisting(() => WrongCheckboxControl);
 // @ts-expect-error incompatible existing Switch class
 OrigamiSwitchOptions.provideExisting(() => WrongBooleanControl);
 // @ts-expect-error incompatible existing AlertDialog class
@@ -921,6 +926,13 @@ abstract class AbstractTooltipContent {
 }
 abstract class AbstractBooleanControl {
   abstract readonly checked: WritableSignal<boolean>;
+  abstract readonly disabled: Signal<boolean>;
+  abstract readonly focusableWhenDisabled: Signal<boolean>;
+  abstract readonly id: Signal<string>;
+}
+abstract class AbstractCheckboxControl {
+  abstract readonly checked: WritableSignal<boolean>;
+  abstract readonly mixed: WritableSignal<boolean>;
   abstract readonly disabled: Signal<boolean>;
   abstract readonly focusableWhenDisabled: Signal<boolean>;
   abstract readonly id: Signal<string>;
@@ -1046,8 +1058,8 @@ export const providers: Provider[] = [
   OrigamiFieldDescriptionOptions.provideExisting(() => AbstractIdentity),
   OrigamiFieldErrorOptions.provideFactory(() => ({id: signal('email-error')})),
   OrigamiFieldErrorOptions.provideExisting(() => AbstractIdentity),
-  OrigamiCheckboxOptions.provideFactory(() => ({checked: signal(true), disabled: computed(() => false), focusableWhenDisabled: signal(false), id: signal('terms')})),
-  OrigamiCheckboxOptions.provideExisting(() => AbstractBooleanControl),
+  OrigamiCheckboxOptions.provideFactory(() => ({checked: signal(true), mixed: signal(false), disabled: computed(() => false), focusableWhenDisabled: signal(false), id: signal('terms')})),
+  OrigamiCheckboxOptions.provideExisting(() => AbstractCheckboxControl),
   OrigamiSwitchOptions.provideFactory(() => ({checked: signal(false), disabled: signal(false), focusableWhenDisabled: signal(true), id: computed(() => 'notify')})),
   OrigamiSwitchOptions.provideExisting(() => AbstractBooleanControl),
   OrigamiSelectOptions.provideFactory(() => ({value: signal<number | null>(null), open: signal(false), disabled: computed(() => false)})),
@@ -1232,7 +1244,9 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
     directives: "FormField, OrigamiCheckbox, OrigamiSwitch, OrigamiField, OrigamiFieldLabel",
     members: `
   readonly checked = signal(false);
+  readonly mixed = signal(true);
   readonly wrongChecked = signal("yes");
+  readonly wrongMixed = signal("yes");
   readonly model = signal({ terms: false, notify: true });
   readonly form = form(this.model, (path) => { required(path.terms); });
   checkedOutput(value: boolean): void { void value; }
@@ -1877,7 +1891,7 @@ const templates = [
   {
     name: "boolean-controls-positive",
     family: "boolean-controls",
-    template: `<button ogCheckbox #remember="ogCheckbox" [(checked)]="checked" disabled focusableWhenDisabled id="remember" aria-label="Remember me" (checkedChange)="checkedOutput($event)" (touch)="touched()" (click)="observeCheckbox(remember.state)"></button><div ogField><button ogCheckbox [formField]="form.terms"></button><label ogFieldLabel>Terms</label></div><div ogField><label ogFieldLabel>Notify</label><button ogSwitch #notify="ogSwitch" [formField]="form.notify" (click)="observeSwitch(notify.state)"></button></div>`,
+    template: `<button ogCheckbox #remember="ogCheckbox" [(checked)]="checked" [(mixed)]="mixed" disabled focusableWhenDisabled id="remember" aria-label="Remember me" (checkedChange)="checkedOutput($event)" (mixedChange)="checkedOutput($event)" (touch)="touched()" (click)="observeCheckbox(remember.state)"></button><div ogField><button ogCheckbox [formField]="form.terms"></button><label ogFieldLabel>Terms</label></div><div ogField><label ogFieldLabel>Notify</label><button ogSwitch #notify="ogSwitch" [formField]="form.notify" (click)="observeSwitch(notify.state)"></button></div>`,
   },
   {
     name: "checkbox-model",
@@ -1886,6 +1900,16 @@ const templates = [
     expected: {
       code: 2322,
       span: "checked",
+      message: /Type 'string' is not assignable to type 'boolean'/,
+    },
+  },
+  {
+    name: "checkbox-mixed-model",
+    family: "boolean-controls",
+    template: `<button ogCheckbox [(mixed)]="wrongMixed"></button>`,
+    expected: {
+      code: 2322,
+      span: "mixed",
       message: /Type 'string' is not assignable to type 'boolean'/,
     },
   },

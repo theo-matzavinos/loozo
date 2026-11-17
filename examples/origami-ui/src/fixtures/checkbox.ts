@@ -1,4 +1,4 @@
-import { Component, Directive, inject, signal } from "@angular/core";
+import { Component, Directive, computed, inject, signal } from "@angular/core";
 import { FormField, disabled, form, readonly, required, submit } from "@angular/forms/signals";
 import {
   OrigamiCheckbox,
@@ -17,6 +17,7 @@ import {
   selector: "[checkboxStateProbe]",
   host: {
     "[attr.data-checked-state]": "state.checked()",
+    "[attr.data-mixed-state]": "state.mixed()",
     "[attr.data-disabled-state]": "state.disabled()",
   },
 })
@@ -41,13 +42,46 @@ export class CheckboxStateProbe {
 })
 export class ConsentCheckbox {}
 
+/**
+ * A consumer component composing the Checkbox through `hostDirectives` with the mixed pair
+ * exposed beside the form-control members.
+ */
+@Component({
+  selector: "button[mixedConsentCheckbox]",
+  exportAs: "mixedConsentCheckbox",
+  hostDirectives: [
+    {
+      directive: OrigamiCheckbox,
+      inputs: ["checked", "mixed", "disabled"],
+      outputs: ["checkedChange", "mixedChange", "touch"],
+    },
+  ],
+  template: `<span class="box" aria-hidden="true"></span>`,
+})
+export class MixedConsentCheckbox {
+  readonly checkbox = inject(OrigamiCheckbox);
+}
+
 /** Replacement Options state the composed Checkboxes read; changed by the fixture's buttons. */
 @Directive({ selector: "[checkboxSettings]", exportAs: "checkboxSettings" })
 export class CheckboxSettings {
   readonly checked = signal(true);
+  readonly mixed = signal(false);
   readonly disabled = signal(false);
   readonly focusable = signal(false);
   readonly id = signal("replaced-checkbox");
+}
+
+/** J11's replacement Options state: unchecked and mixed, under its own ID. */
+@Directive({
+  selector: "[mixedCheckboxSettings]",
+  exportAs: "mixedCheckboxSettings",
+  providers: [{ provide: CheckboxSettings, useExisting: MixedCheckboxSettings }],
+})
+export class MixedCheckboxSettings extends CheckboxSettings {
+  override readonly checked = signal(false);
+  override readonly mixed = signal(true);
+  override readonly id = signal("replaced-mixed-checkbox");
 }
 
 /** A consumer Checkbox with factory Options over its exposed own inputs and model output. */
@@ -56,8 +90,8 @@ export class CheckboxSettings {
   hostDirectives: [
     {
       directive: OrigamiCheckbox,
-      inputs: ["checked", "disabled", "id"],
-      outputs: ["checkedChange"],
+      inputs: ["checked", "mixed", "disabled", "id"],
+      outputs: ["checkedChange", "mixedChange"],
     },
   ],
   providers: [
@@ -66,6 +100,7 @@ export class CheckboxSettings {
 
       return {
         checked: settings.checked,
+        mixed: settings.mixed,
         disabled: settings.disabled,
         focusableWhenDisabled: settings.focusable,
         id: settings.id,
@@ -83,6 +118,7 @@ export class FactoryCheckbox {}
 })
 export class ExistingCheckbox implements OrigamiCheckboxOptions {
   readonly checked = signal(false);
+  readonly mixed = signal(false);
   readonly disabled = signal(false);
   readonly focusableWhenDisabled = signal(false);
   readonly id = signal("existing-checkbox");
@@ -99,7 +135,9 @@ export class ExistingCheckbox implements OrigamiCheckboxOptions {
     OrigamiFieldError,
     CheckboxStateProbe,
     ConsentCheckbox,
+    MixedConsentCheckbox,
     CheckboxSettings,
+    MixedCheckboxSettings,
     FactoryCheckbox,
     ExistingCheckbox,
   ],
@@ -261,6 +299,163 @@ export class ExistingCheckbox implements OrigamiCheckboxOptions {
       </button>
       <button existingCheckbox data-testid="existing" aria-label="Existing"></button>
     </section>
+
+    <section>
+      <h2>Mixed</h2>
+      <button
+        ogCheckbox
+        #mixedStandalone="ogCheckbox"
+        data-testid="mixed-standalone"
+        aria-label="Select all files"
+        [(checked)]="mixedChecked"
+        [(mixed)]="mixedMixed"
+        (mixedChange)="mixedLog.update(append('mixed', $event))"
+        (checkedChange)="mixedLog.update(append('checked', $event))"
+      >
+        <span checkboxStateProbe data-testid="mixed-standalone-probe"></span>
+      </button>
+      <output data-testid="mixed-standalone-log">{{ mixedLog().join(" ") }}</output>
+      <output data-testid="mixed-standalone-state"
+        >{{ mixedStandalone.state.checked() }} {{ mixedStandalone.state.mixed() }}</output
+      >
+      <button type="button" data-testid="write-mixed" (click)="mixedMixed.set(true)">
+        Make the files Checkbox mixed
+      </button>
+
+      <button
+        ogCheckbox
+        data-testid="mixed-checked"
+        aria-label="Select all photos"
+        [(checked)]="mixedCheckedChecked"
+        [(mixed)]="mixedCheckedMixed"
+        (mixedChange)="mixedCheckedLog.update(append('mixed', $event))"
+        (checkedChange)="mixedCheckedLog.update(append('checked', $event))"
+      ></button>
+      <output data-testid="mixed-checked-log">{{ mixedCheckedLog().join(" ") }}</output>
+
+      <button
+        ogCheckbox
+        data-testid="mixed-disabled"
+        aria-label="Select all archived files"
+        [disabled]="true"
+        [(checked)]="mixedDisabledChecked"
+        [(mixed)]="mixedDisabledMixed"
+        (mixedChange)="mixedDisabledWrites.update(increment)"
+        (checkedChange)="mixedDisabledWrites.update(increment)"
+      ></button>
+      <button
+        ogCheckbox
+        data-testid="mixed-focusable-disabled"
+        aria-label="Select all shared files"
+        disabled
+        focusableWhenDisabled
+        [(checked)]="mixedDisabledChecked"
+        [(mixed)]="mixedDisabledMixed"
+        (mixedChange)="mixedDisabledWrites.update(increment)"
+        (checkedChange)="mixedDisabledWrites.update(increment)"
+        (click)="mixedOwnClicks.update(increment)"
+      ></button>
+      <output data-testid="mixed-disabled-writes">{{ mixedDisabledWrites() }}</output>
+      <output data-testid="mixed-own-clicks">{{ mixedOwnClicks() }}</output>
+    </section>
+
+    <section>
+      <h2>Mixed with forms</h2>
+      <div ogField #newslettersField="ogField" data-testid="newsletters-field">
+        <label ogFieldLabel>All newsletters</label>
+        <button
+          mixedConsentCheckbox
+          #newsletters="mixedConsentCheckbox"
+          data-testid="newsletters"
+          [formField]="mixedAccount.newsletters"
+          [(mixed)]="newslettersMixed"
+          (mixedChange)="newslettersLog.update(append(newslettersEntry('mixedChange', newsletters)))"
+          (checkedChange)="newslettersLog.update(append(newslettersEntry('checkedChange', newsletters)))"
+        ></button>
+        <p ogFieldDescription id="newsletters-description">Some newsletters are selected.</p>
+        @if (newslettersField.state.errorsShown()) {
+          <p ogFieldError id="newsletters-error">Subscribe to continue.</p>
+        }
+      </div>
+      <output data-testid="newsletters-value">{{ mixedModel().newsletters }}</output>
+      <output data-testid="newsletters-touched">{{ mixedAccount.newsletters().touched() }}</output>
+      <output data-testid="newsletters-log">{{ newslettersLog().join(" ") }}</output>
+      <button type="button" data-testid="submit-newsletters" (click)="submitNewsletters()">
+        Submit the newsletters
+      </button>
+      <button type="button" data-testid="reset-newsletters" (click)="resetNewsletters()">
+        Reset the newsletters to partial
+      </button>
+      <button type="button" data-testid="freeze-newsletters" (click)="newslettersFrozen.update(flip)">
+        Freeze the newsletters
+      </button>
+      <button type="button" data-testid="lock-newsletters" (click)="newslettersLocked.update(flip)">
+        Lock the newsletters
+      </button>
+
+      <div ogField>
+        <label ogFieldLabel>All reminders</label>
+        <button
+          ogCheckbox
+          data-testid="reminders"
+          [formField]="mixedAccount.reminders"
+          [mixed]="true"
+        ></button>
+      </div>
+      <output data-testid="reminders-value">{{ mixedModel().reminders }}</output>
+      <output data-testid="reminders-valid">{{ mixedAccount.reminders().valid() }}</output>
+      <button type="button" data-testid="replace-reminders" (click)="replaceReminders()">
+        Replace the reminders value
+      </button>
+
+      <div mixedCheckboxSettings #mixedSettings="mixedCheckboxSettings">
+        <button
+          factoryCheckbox
+          data-testid="mixed-replaced"
+          aria-label="Mixed replacement"
+          [checked]="false"
+          [mixed]="false"
+          (checkedChange)="mixedReplacedOutputs.update(increment)"
+          (mixedChange)="mixedReplacedOutputs.update(increment)"
+        ></button>
+        <output data-testid="mixed-replaced-value"
+          >{{ mixedSettings.checked() }} {{ mixedSettings.mixed() }}</output
+        >
+        <output data-testid="mixed-replaced-outputs">{{ mixedReplacedOutputs() }}</output>
+      </div>
+    </section>
+
+    <section>
+      <h2>Select all</h2>
+      <div ogField>
+        <button
+          ogCheckbox
+          data-testid="vehicles-parent"
+          aria-controls="vehicle-car vehicle-van vehicle-bus"
+          [checked]="allVehicles()"
+          [mixed]="someVehicles()"
+          [disabled]="selectableVehicles().length === 0"
+          (mixedChange)="vehiclesLog.update(append('mixed', $event))"
+          (checkedChange)="vehiclesLog.update(append('checked', $event)); selectAllVehicles($event)"
+        ></button>
+        <label ogFieldLabel data-testid="vehicles-label">Select all available vehicles</label>
+      </div>
+      @for (vehicle of vehicles; track vehicle.id) {
+        <div ogField>
+          <button
+            ogCheckbox
+            [id]="'vehicle-' + vehicle.id"
+            [attr.data-testid]="'vehicle-' + vehicle.id"
+            [disabled]="vehicle.disabled"
+            [checked]="selectedVehicles().has(vehicle.id)"
+            (checkedChange)="selectVehicle(vehicle.id, $event)"
+          ></button>
+          <label ogFieldLabel>{{ vehicle.label }}</label>
+        </div>
+      }
+      <output data-testid="vehicles-selected">{{ selectedVehicleList() }}</output>
+      <output data-testid="vehicles-log">{{ vehiclesLog().join(" ") }}</output>
+    </section>
   `,
 })
 export class CheckboxFixture {
@@ -276,6 +471,75 @@ export class CheckboxFixture {
   readonly composedLocked = signal(false);
   readonly submits = signal(0);
   readonly replacedOutputs = signal(0);
+  readonly mixedChecked = signal(false);
+  readonly mixedMixed = signal(true);
+  readonly mixedLog = signal<readonly string[]>([]);
+  readonly mixedCheckedChecked = signal(true);
+  readonly mixedCheckedMixed = signal(true);
+  readonly mixedCheckedLog = signal<readonly string[]>([]);
+  readonly mixedDisabledChecked = signal(false);
+  readonly mixedDisabledMixed = signal(true);
+  readonly mixedDisabledWrites = signal(0);
+  readonly mixedOwnClicks = signal(0);
+  readonly newslettersMixed = signal(true);
+  readonly newslettersLog = signal<readonly string[]>([]);
+  readonly newslettersFrozen = signal(false);
+  readonly newslettersLocked = signal(false);
+  readonly mixedReplacedOutputs = signal(0);
+  readonly mixedModel = signal({ newsletters: false, reminders: false });
+  readonly mixedAccount = form(this.mixedModel, (path) => {
+    required(path.newsletters);
+    readonly(path.newsletters, () => this.newslettersFrozen());
+    disabled(path.newsletters, () => this.newslettersLocked());
+    required(path.reminders);
+  });
+  readonly vehicles = [
+    { id: "car", label: "Car", disabled: false },
+    { id: "van", label: "Van", disabled: false },
+    { id: "bus", label: "Bus", disabled: true },
+  ];
+  readonly selectedVehicles = signal<ReadonlySet<string>>(new Set(["car"]));
+  readonly vehiclesLog = signal<readonly string[]>([]);
+  /** The children selectAllVehicles can change. */
+  readonly selectableVehicles = computed(() => {
+    const ids: string[] = [];
+
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.disabled) {
+        ids.push(vehicle.id);
+      }
+    }
+
+    return ids;
+  });
+  readonly selectedVehicleCount = computed(() => {
+    let count = 0;
+
+    for (const id of this.selectableVehicles()) {
+      if (this.selectedVehicles().has(id)) {
+        count++;
+      }
+    }
+
+    return count;
+  });
+  readonly allVehicles = computed(
+    () =>
+      this.selectableVehicles().length > 0 &&
+      this.selectedVehicleCount() === this.selectableVehicles().length,
+  );
+  readonly someVehicles = computed(() => this.selectedVehicleCount() > 0 && !this.allVehicles());
+  readonly selectedVehicleList = computed(() => {
+    const ids: string[] = [];
+
+    for (const vehicle of this.vehicles) {
+      if (this.selectedVehicles().has(vehicle.id)) {
+        ids.push(vehicle.id);
+      }
+    }
+
+    return ids.join(",");
+  });
   readonly model = signal({ consent: false, updates: true, composed: false });
   readonly account = form(this.model, (path) => {
     required(path.consent, { message: "Accept the privacy policy to continue." });
@@ -292,6 +556,63 @@ export class CheckboxFixture {
 
   increment(value: number): number {
     return value + 1;
+  }
+
+  /** An updater appending one log entry, `name:value` when a value is given. */
+  append(name: string, value?: boolean): (log: readonly string[]) => readonly string[] {
+    let entry = name;
+
+    if (value !== undefined) {
+      entry = `${name}:${value}`;
+    }
+
+    return (log) => [...log, entry];
+  }
+
+  newslettersEntry(output: string, control: MixedConsentCheckbox): string {
+    const checkbox = control.checkbox;
+
+    return `${output}(checked:${checkbox.checked()},mixed:${checkbox.mixed()},value:${this.mixedAccount.newsletters().value()})`;
+  }
+
+  resetNewsletters(): void {
+    this.mixedModel.update((model) => ({ ...model, newsletters: false }));
+    this.newslettersMixed.set(true);
+    this.newslettersLog.set([]);
+  }
+
+  async submitNewsletters(): Promise<void> {
+    await submit(this.mixedAccount, async () => {});
+  }
+
+  replaceReminders(): void {
+    this.mixedModel.update((model) => ({ ...model, reminders: false }));
+  }
+
+  selectVehicle(id: string, checked: boolean): void {
+    const next = new Set(this.selectedVehicles());
+
+    if (checked) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+
+    this.selectedVehicles.set(next);
+  }
+
+  selectAllVehicles(checked: boolean): void {
+    const next = new Set(this.selectedVehicles());
+
+    for (const id of this.selectableVehicles()) {
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+    }
+
+    this.selectedVehicles.set(next);
   }
 
   writeConsent(): void {

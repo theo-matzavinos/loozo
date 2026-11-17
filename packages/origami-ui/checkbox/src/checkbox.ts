@@ -19,8 +19,16 @@ import { Subject } from "rxjs";
 
 /** Effective Checkbox configuration, replaced as a whole rather than merged with unused defaults. */
 export abstract class OrigamiCheckboxOptions {
-  /** Writable checked intent; the direct directive model defaults to false. External writes remain authoritative. */
+  /**
+   * Writable checked intent, the underlying value also while mixed; the direct directive model
+   * defaults to false. A changed binding value or direct write applies as is.
+   */
   abstract readonly checked: WritableSignal<boolean>;
+  /**
+   * Writable mixed presentation; the direct directive model defaults to false. Only user
+   * activation clears it. A changed binding value or direct write applies as is.
+   */
+  abstract readonly mixed: WritableSignal<boolean>;
   /** Blocks user activation, not external writes; default false. */
   abstract readonly disabled: Signal<boolean>;
   /**
@@ -46,8 +54,8 @@ export abstract class OrigamiCheckboxOptions {
 
   /**
    * Replaces all Checkbox Options with a structurally compatible result.
-   * @param factory - Executes in Angular injection context; supply `checked`, `disabled`,
-   *   `focusableWhenDisabled` and `id`.
+   * @param factory - Executes in Angular injection context; supply `checked`, `mixed`,
+   *   `disabled`, `focusableWhenDisabled` and `id`.
    * @returns A local provider. Ordinary writable signals do not emit an unused directive model's
    *   output, and `[formField]` binds the model of the directive it finds, not the replacement.
    */
@@ -66,6 +74,7 @@ class CheckboxContext {
   #destroyed = false;
 
   readonly checked = computed(() => this.#options().checked());
+  readonly mixed = computed(() => this.#options().mixed());
   readonly disabled = computed(() => this.#options().disabled());
   readonly focusableWhenDisabled = computed(() => this.#options().focusableWhenDisabled());
   readonly id = computed(() => this.#options().id());
@@ -76,6 +85,10 @@ class CheckboxContext {
   readonly touches = this.#touches.asObservable();
 
   readonly checkedAria = computed(() => {
+    if (this.mixed()) {
+      return "mixed";
+    }
+
     if (this.checked()) {
       return "true";
     }
@@ -83,7 +96,14 @@ class CheckboxContext {
     return "false";
   });
   readonly checkedAttribute = computed(() => {
-    if (this.checked()) {
+    if (this.checked() && !this.mixed()) {
+      return "";
+    }
+
+    return null;
+  });
+  readonly mixedAttribute = computed(() => {
+    if (this.mixed()) {
       return "";
     }
 
@@ -100,7 +120,10 @@ class CheckboxContext {
     this.#membership.register(destroyRef);
   }
 
-  /** A user activation: dropped while disabled or while the bound field is readonly. */
+  /**
+   * A user activation: dropped while disabled or while the bound field is readonly. From mixed it
+   * writes mixed false, then checked true; otherwise it flips checked.
+   */
   toggle(): void {
     const formReadonly = this.#membership.formState()?.readonly() ?? false;
 
@@ -108,7 +131,16 @@ class CheckboxContext {
       return;
     }
 
-    this.#options().checked.set(!this.checked());
+    const options = this.#options();
+
+    if (options.mixed()) {
+      options.mixed.set(false);
+      options.checked.set(true);
+
+      return;
+    }
+
+    options.checked.set(!options.checked());
   }
 
   blurred(): void {
@@ -121,17 +153,24 @@ class CheckboxContext {
 export class OrigamiCheckboxState {
   readonly #context = inject(CheckboxContext);
 
-  /** Effective checked state. No writable mutation alias is exposed. */
+  /**
+   * Effective underlying checked state, also while mixed. No writable mutation alias is exposed.
+   */
   readonly checked: Signal<boolean> = this.#context.checked;
+  /** Effective mixed presentation; it wins over `checked` in the host attributes. */
+  readonly mixed: Signal<boolean> = this.#context.mixed;
   /** Effective disabled policy. External Options/model writes remain authoritative while disabled. */
   readonly disabled: Signal<boolean> = this.#context.disabled;
 }
 
 /**
- * A two-state checkbox on a native button: `role="checkbox"` and always-present `aria-checked`,
- * `"true"` or `"false"`, with empty `data-checked` while checked. A click or Space, through
- * native button activation, flips the effective checked state exactly once; Enter does nothing,
- * as the ARIA checkbox pattern says. User activation is dropped while disabled and while the
+ * A checkbox on a native button with an optional mixed state for select-all: `role="checkbox"`
+ * and always-present `aria-checked`, `"mixed"` while mixed, else `"true"` or `"false"`. Empty
+ * `data-mixed` marks mixed and empty `data-checked` marks checked and not mixed, so the two are
+ * never present together. A click or Space, through native button activation, flips the
+ * effective checked state exactly once; from mixed it writes `mixed` false, then `checked` true.
+ * Enter does nothing, as the ARIA checkbox pattern says. The Checkbox never writes `mixed` true;
+ * its owner does. User activation is dropped while disabled and while the
  * `[formField]` on the same element is readonly; external Options and model writes remain
  * authoritative. The composed `ogButton` binds `type="button"`, native `disabled` (absent while
  * `focusableWhenDisabled`), `aria-disabled` and `data-disabled`. It binds its effective `id`.
@@ -145,7 +184,8 @@ export class OrigamiCheckboxState {
  * only while nothing names an ID; it owns `aria-invalid` while the Field shows errors, and
  * `aria-required` and `aria-readonly` while the bound field is required or readonly. Outside a
  * Field it binds only its `id` and keeps those static ARIA attributes. It registers once Angular
- * has set its inputs. There is no mixed state, hidden `<input>` or form submission. Don't apply
+ * has set its inputs. `[formField]` binds `checked` only: `mixed` isn't form state. There is no
+ * hidden `<input>`, form submission or parent–child coordination. Don't apply
  * another button primitive to the same button.
  * @example
  * ```html
@@ -177,6 +217,7 @@ export class OrigamiCheckboxState {
     "[id]": "effectiveId()",
     "[attr.aria-checked]": "checkedAria()",
     "[attr.data-checked]": "checkedAttribute()",
+    "[attr.data-mixed]": "mixedAttribute()",
     "[attr.aria-invalid]": "ariaInvalid()",
     "[attr.aria-required]": "ariaRequired()",
     "[attr.aria-readonly]": "ariaReadonly()",
@@ -192,6 +233,12 @@ export class OrigamiCheckbox implements OrigamiCheckboxOptions, FormCheckboxCont
    * fabricate this output.
    */
   readonly checked = model(false);
+  /**
+   * Own mixed model, default false; `mixedChange` emits writes to this model, and `[formField]`
+   * doesn't bind it. Replaced Options supply effective mixed state instead and do not fabricate
+   * this output. Like `checked`, it keeps an activation's write until its binding's value changes.
+   */
+  readonly mixed = model(false);
   /**
    * Own disabled input, default false with boolean-attribute coercion; `[formField]` writes it
    * from the field's `disabled()` rules. Replaced Options supply effective policy instead.
@@ -212,10 +259,12 @@ export class OrigamiCheckbox implements OrigamiCheckboxOptions, FormCheckboxCont
 
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = this.#context.id;
-  /** @internal Effective checked ARIA observation, always `true` or `false`. */
+  /** @internal Effective checked ARIA observation: `mixed`, `true` or `false`. */
   protected readonly checkedAria = this.#context.checkedAria;
-  /** @internal Readonly checked host marker. */
+  /** @internal Readonly checked host marker, absent while mixed. */
   protected readonly checkedAttribute = this.#context.checkedAttribute;
+  /** @internal Readonly mixed host marker. */
+  protected readonly mixedAttribute = this.#context.mixedAttribute;
   /** @internal Errors-shown state. */
   protected readonly ariaInvalid = this.#context.invalid;
   /** @internal The bound field's required state. */
