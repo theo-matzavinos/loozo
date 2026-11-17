@@ -461,7 +461,23 @@ export function session({ context, response }: StageArgs<Context>) {
 
 Concurrent RPC requests from the browser each have their own scope, so each can still refresh. Your session store has to accept that, with a sliding expiry or by keeping the old token valid for a short while. That also keeps the session usable when a refreshed cookie never arrives, as after a failed render.
 
-There's no cookie reader: your root stage parses the request's `Cookie` header, as in the [example](../../examples/angular-launch/src/routes/route.ts).
+`readCookies(request)` from `@loozo/angular-launch/server` reads a request's cookies, such as the root's `token` the stage above reads:
+
+```ts
+// src/routes/route.ts
+import { defineRoute } from "@loozo/angular-launch";
+import { readCookies } from "@loozo/angular-launch/server";
+import { sessions } from "../sessions.server";
+
+export default defineRoute("", {}).context(({ request }) => ({
+  sessions,
+  token: readCookies(request).get("session") ?? null,
+}));
+```
+
+- **It returns** a read-only `Map` of cookie values by name: `get` returns `undefined` for a cookie the request doesn't carry, and `Object.fromEntries(cookies)` gives a plain object, such as for a log. Values come as the browser sent them, without decoding, as `setCookie` doesn't encode them.
+- **A repeated name** reads as its first occurrence in the header. Browsers usually send the cookie with the longer path first, such as one set for `/todos` before one set for `/`, but the header doesn't say which path or domain each came from, so don't rely on which one wins: give cookies that mustn't collide distinct names. Pairs without a name are skipped.
+- **It reads the request you pass**, so during server rendering every call sees the page request's cookies, not the ones calls set earlier in the render, and a prerendered page reads none.
 
 ### JSON values
 
@@ -1239,7 +1255,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No storage adapters; persistence is your handler's job.
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
-- No success status other than 200: a result is always 200, and other statuses come from failures and outcomes. No cookie reader yet (planned before 1.0); your root stage parses the `Cookie` header. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
+- No success status other than 200: a result is always 200, and other statuses come from failures and outcomes. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
 - Redirects are root-relative only: an external destination, such as an OAuth provider, is data your page acts on. Outcomes act only in navigation, through `rpcNavigationErrors`, and nothing maps `FORBIDDEN` to a page: a stage that guards a page's reads throws `redirect()` or `notFound()` instead.
