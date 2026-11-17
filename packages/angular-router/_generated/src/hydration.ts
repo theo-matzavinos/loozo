@@ -118,7 +118,7 @@ class SeedControl implements SeedContext {
   /** Follows navigation outcomes from now until the seed is handed over or retired. */
   observe(router: Router, destroyRef: DestroyRef): void {
     this.#events = router.events.subscribe((event) => {
-      this.#outcome(event);
+      this.#outcome(router, event);
     });
     destroyRef.onDestroy(() => {
       this.#events?.unsubscribe();
@@ -126,22 +126,7 @@ class SeedControl implements SeedContext {
   }
 
   // A redirect or a superseding navigation leaves the seed for the navigation that follows.
-  #outcome(event: Event): void {
-    if (event instanceof NavigationEnd) {
-      const current = untracked(this.#state);
-
-      if (current.kind === "published") {
-        this.settle({ kind: "handedOver", navigation: event.id });
-
-        return;
-      }
-
-      // It committed before a seed existed.
-      this.settle(retired);
-
-      return;
-    }
-
+  #outcome(router: Router, event: Event): void {
     if (event instanceof NavigationCancel) {
       if (
         event.code === NavigationCancellationCode.Redirect ||
@@ -149,15 +134,30 @@ class SeedControl implements SeedContext {
       ) {
         return;
       }
+    } else if (
+      !(
+        event instanceof NavigationEnd ||
+        event instanceof NavigationError ||
+        event instanceof NavigationSkipped
+      )
+    ) {
+      return;
+    }
 
-      this.settle(retired);
+    const success = router.lastSuccessfulNavigation();
+
+    // Publication required no success, so a success now is the commit the seed is handed over
+    // to, even when a later navigation's outcome arrives first: Angular records the success
+    // before emitting its NavigationEnd, and a listener that navigates on it delivers that
+    // navigation's synchronous outcome to later listeners before the NavigationEnd.
+    if (untracked(this.#state).kind === "published" && success !== null) {
+      this.settle({ kind: "handedOver", navigation: success.id });
 
       return;
     }
 
-    if (event instanceof NavigationError || event instanceof NavigationSkipped) {
-      this.settle(retired);
-    }
+    // Retired, or it committed before a seed existed.
+    this.settle(retired);
   }
 }
 

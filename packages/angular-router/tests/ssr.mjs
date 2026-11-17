@@ -218,7 +218,13 @@ export default class Titled {}
 // before the provider, that records router events and requests the race navigations.
 await writeFile(
   join(fixture, "src/app.config.ts"),
-  `import { PLATFORM_ID, inject, provideAppInitializer, type ApplicationConfig } from "@angular/core";
+  `import {
+  PLATFORM_ID,
+  inject,
+  provideAppInitializer,
+  provideEnvironmentInitializer,
+  type ApplicationConfig,
+} from "@angular/core";
 import { isPlatformBrowser } from "@angular/common";
 import {
   EventType,
@@ -237,6 +243,10 @@ import { provideActiveRouteHydration, routes } from "../generated/routes.generat
 
 function race(): string | null {
   return new URLSearchParams(window.location.search).get("race");
+}
+
+function marked(name: string): boolean {
+  return isPlatformBrowser(inject(PLATFORM_ID)) && new URLSearchParams(window.location.search).has(name);
 }
 
 export const config: ApplicationConfig = {
@@ -296,6 +306,23 @@ export const config: ApplicationConfig = {
       } else if (race() === "skip") {
         void router.navigateByUrl("/legacy");
       }
+    }),
+    // On reenter pages, a listener registered before the provider navigates again at the first
+    // NavigationEnd; Angular delivers the nested same-URL skip before that NavigationEnd.
+    provideEnvironmentInitializer(() => {
+      if (!marked("reenter")) {
+        return;
+      }
+
+      const router = inject(Router);
+      let reentered = false;
+
+      router.events.subscribe((event) => {
+        if (event instanceof NavigationEnd && !reentered) {
+          reentered = true;
+          void router.navigateByUrl(event.urlAfterRedirects);
+        }
+      });
     }),
     provideClientHydration(withNoHttpTransferCache()),
     provideActiveRouteHydration(),
@@ -1837,6 +1864,32 @@ try {
   assert.deepEqual(redirectIdentity, { firstIsActive: true, id: 8 });
   assert.equal(redirectCase.success, true);
   assert.deepEqual(redirectCase.errors, []);
+
+  // A NavigationEnd listener registered before the provider navigates again: the nested same-URL
+  // skip reaches the provider first, yet the seed is handed over to the commit that succeeded.
+  const reentered = await visit("reenter", "&reenter=1");
+
+  await reentered.stable();
+
+  const reenterIdentity = await reentered.page.evaluate(() => ({
+    firstIsActive: window.proofFirst === window.proofApp.active(),
+    quietFirstIsQuiet: window.proofQuietFirst === window.proofApp.quiet(),
+  }));
+  const reenterCase = await reentered.finish({ identity: reenterIdentity });
+
+  assert.deepEqual(
+    reenterCase.terminal.map(({ type, code }) => ({ type, code })),
+    [
+      { type: "NavigationSkipped", code: 0 },
+      { type: "NavigationEnd", code: undefined },
+    ],
+  );
+  assert.deepEqual(reenterCase.texts, ["team 7 item 7"]);
+  assert.equal(reenterCase.firstSeeded, true);
+  assert.equal(reenterCase.success, true);
+  assert.deepEqual(reenterIdentity, { firstIsActive: true, quietFirstIsQuiet: true });
+  assert.deepEqual(reenterCase.errors, []);
+  assert.deepEqual(reenterCase.warnings, []);
 
   // The throwing guard: Angular reports the initial navigation's error through ErrorHandler.
   const failed = await visit("fail", "&fail=1");
