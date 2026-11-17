@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, writeFile, readFile, rename, rm, realpath, stat, symlink } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -5368,10 +5368,12 @@ async function loaderParity(project, files) {
 
   try {
     const loader = await createTranslationLoader();
-    const desc = { files: paths.map((path) => ({ path })) };
+    // Angular joins each path to the workspace root, so give it workspace-relative paths: an
+    // absolute Windows path joined to "/" isn't a file.
+    const desc = { files: paths.map((path) => ({ path: relative(project.root, path) })) };
     const quiet = { warn() {}, error() {} };
 
-    loadTranslations("de", desc, "/", loader, quiet, undefined, "ignore");
+    loadTranslations("de", desc, project.root, loader, quiet, undefined, "ignore");
 
     const translations = {};
 
