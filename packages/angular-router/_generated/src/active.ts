@@ -1,13 +1,17 @@
-import { DestroyRef, computed, inject, untracked, type Signal } from "@angular/core";
 import {
-  NavigationEnd,
-  Router,
-  type ActivatedRoute,
-  type ActivatedRouteSnapshot,
-  type Navigation,
-} from "@angular/router";
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+  untracked,
+  type Signal,
+  type WritableSignal,
+} from "@angular/core";
+import { NavigationEnd, Router, type ActivatedRoute } from "@angular/router";
 import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
-import { observeRecord } from "./handle.js";
+import { committedChain } from "./committed.js";
+import { observeRecord, seededView, type RouteView } from "./handle.js";
+import { SEED, type SeededChain } from "./hydration.js";
 import { createDestinationHandle, type Handle } from "./index.js";
 import { recordFacts, type RecordFacts } from "./record.js";
 
@@ -64,6 +68,16 @@ interface Entry {
   readonly release: () => void;
 }
 
+/** A reader's entry for a seeded record, over a view that forwards to `source`. */
+interface SeededEntry {
+  readonly entry: Entry;
+  readonly destination: Destination<AnyRoute>;
+  /** The seeded values until adoption hands it the live record's. */
+  readonly source: WritableSignal<RouteView>;
+  /** The entry's release list, which adoption adds the live record's release to. */
+  readonly releases: (() => void)[];
+}
+
 /**
  * One reader of the deepest active primary-outlet generated route. `routes.generated.ts`
  * wraps it with its `RouteTypes`.
@@ -80,25 +94,30 @@ interface Entry {
  * one entry per active ActivatedRoute, reused while that record stays in the chain;
  * departed entries are released at the commit and keep their last values. Destroying
  * the injection context releases the rest; the reader then keeps its last selection.
+ *
+ * With provideActiveRouteHydration(), before the first commit and while the seed is
+ * published, the reader selects its own seeded entries instead, built once from the seed's
+ * chain. Its first live reconcile adopts them, top-level first and only while each matches
+ * the live record's destination below an adopted parent, when the seed was handed over to
+ * that same commit; otherwise, and once that reconcile is done, it drops them for good.
  */
 export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal<
   ActiveRoute<Types> | undefined
 > {
   const router = inject(Router);
   const destroyRef = inject(DestroyRef);
+  const seed = inject(SEED, { optional: true });
   const entries = new Map<ActivatedRoute, Entry>();
+  let seeded: readonly SeededEntry[] | undefined;
   let destroyed = false;
   let selected: ActiveEntryHandle | undefined;
 
   function createEntry(
-    activated: ActivatedRoute,
+    view: RouteView,
+    releases: readonly (() => void)[],
     { destination: own, up }: RecordFacts,
     parent: Entry | undefined,
   ): Entry {
-    const releases: (() => void)[] = [];
-    const view = observeRecord(own, activated, router, (release) => {
-      releases.push(release);
-    });
     // The own destination and its declaration ancestors'.
     const destinations: Destination<AnyRoute>[] = [];
 
@@ -141,10 +160,65 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
     };
   }
 
-  // Reuses each entry whose record and parent entry are unchanged, then releases the rest.
-  function reconcile(live: readonly ActivatedRoute[]): ActiveEntryHandle | undefined {
+  function observe(
+    activated: ActivatedRoute,
+    destination: Destination<AnyRoute>,
+    releases: (() => void)[],
+  ): RouteView {
+    return observeRecord(destination, activated, router, (release) => {
+      releases.push(release);
+    });
+  }
+
+  function createLiveEntry(
+    activated: ActivatedRoute,
+    facts: RecordFacts,
+    parent: Entry | undefined,
+  ): Entry {
+    const releases: (() => void)[] = [];
+
+    return createEntry(observe(activated, facts.destination, releases), releases, facts, parent);
+  }
+
+  // Seeded entries hold no subscriptions until adoption.
+  function createSeeded(chain: SeededChain): SeededEntry[] {
+    const created: SeededEntry[] = [];
+    let parent: Entry | undefined;
+
+    for (const { record, snapshot } of chain) {
+      const facts = recordFacts(record);
+
+      if (!facts) {
+        throw new Error("A seeded record carries no generated route facts");
+      }
+
+      const source = signal<RouteView>(seededView(facts.destination, snapshot));
+      const view: RouteView = {
+        params: computed(() => source().params()),
+        search: computed(() => source().search()),
+        data: computed(() => source().data()),
+        title: computed(() => source().title()),
+      };
+      const releases: (() => void)[] = [];
+      const entry = createEntry(view, releases, facts, parent);
+
+      created.push({ entry, destination: facts.destination, source, releases });
+      parent = entry;
+    }
+
+    return created;
+  }
+
+  // Reuses each entry whose record and parent entry are unchanged, then releases the rest. A
+  // new entry at generated depth k adopts seeded entry k when its parent is the entry just
+  // kept (so every seeded entry above it was adopted) and it carries the live destination.
+  function reconcile(
+    live: readonly ActivatedRoute[],
+    adoptable: readonly SeededEntry[],
+  ): ActiveEntryHandle | undefined {
     const kept = new Set<ActivatedRoute>();
     let parent: Entry | undefined;
+    let depth = 0;
 
     for (const activated of live) {
       const facts = recordFacts(activated.routeConfig);
@@ -161,12 +235,25 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
       }
 
       if (!entry) {
-        entry = createEntry(activated, facts, parent);
+        const candidate = adoptable.at(depth);
+
+        if (
+          candidate &&
+          candidate.entry.parent === parent &&
+          candidate.destination === facts.destination
+        ) {
+          candidate.source.set(observe(activated, facts.destination, candidate.releases));
+          entry = candidate.entry;
+        } else {
+          entry = createLiveEntry(activated, facts, parent);
+        }
+
         entries.set(activated, entry);
       }
 
       kept.add(activated);
       parent = entry;
+      depth += 1;
     }
 
     for (const [route, entry] of entries) {
@@ -186,18 +273,48 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
     }
 
     const success = router.lastSuccessfulNavigation();
+    const state = seed?.state();
+
+    if (success === null && state?.kind === "published") {
+      const own = seeded ?? untracked(() => createSeeded(state.chain));
+
+      seeded = own;
+      selected = own.at(-1)?.entry.handle;
+
+      return selected as ActiveRoute<Types> | undefined;
+    }
+
     const live = untracked(() => committedChain(router, success));
 
     if (!live) {
       // Wait for the running navigation to end, whether it succeeds, cancels or fails.
       router.currentNavigation();
+
+      // Retired before any commit: never adopted.
+      if (success === null) {
+        seeded = undefined;
+      }
+
       selected = undefined;
 
       return undefined;
     }
 
+    let adoptable: readonly SeededEntry[] = [];
+
+    if (
+      seeded &&
+      success !== null &&
+      (state?.kind === "published" ||
+        (state?.kind === "handedOver" && state.navigation === success.id))
+    ) {
+      adoptable = seeded;
+    }
+
+    // Unadopted seeded handles depart here and keep their seeded values.
+    seeded = undefined;
     // Subscriptions start here, outside the reactive context.
-    selected = untracked(() => reconcile(live));
+    selected = untracked(() => reconcile(live, adoptable));
 
     return selected as ActiveRoute<Types> | undefined;
   });
@@ -222,44 +339,4 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
   });
 
   return selection;
-}
-
-/**
- * The live primary chain, root first, when it is the committed tree; otherwise undefined.
- *
- * @remarks
- * Angular replaces the router state and advances each route's snapshot during
- * activation, before the navigation succeeds. The tree is committed when every live
- * route holds the state's snapshot at its depth, and either no navigation runs or the
- * state is the last successful navigation's final URL.
- */
-function committedChain(router: Router, success: Navigation | null): ActivatedRoute[] | undefined {
-  const state = router.routerState;
-  const live: ActivatedRoute[] = [];
-  let route: ActivatedRoute | null = state.root;
-  let snapshot: ActivatedRouteSnapshot | null = state.snapshot.root;
-
-  while (route) {
-    if (route.snapshot !== snapshot) {
-      return undefined;
-    }
-
-    live.push(route);
-    route = route.firstChild;
-    snapshot = snapshot.firstChild;
-  }
-
-  if (snapshot !== null) {
-    return undefined;
-  }
-
-  if (router.currentNavigation() === null) {
-    return live;
-  }
-
-  if (success?.finalUrl && router.serializeUrl(success.finalUrl) === state.snapshot.url) {
-    return live;
-  }
-
-  return undefined;
 }

@@ -69,6 +69,241 @@ for (const [path, text] of [
   await writeFile(join(fixture, "src/routes", path), text);
 }
 
+// Active-route hydration fixtures. Every guard below is browser-only and keyed on a query marker
+// of the navigation it checks, so the server always renders item 7 with a seed while the
+// client's navigation diverges.
+const browserMarker = `import { PLATFORM_ID, inject } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Router } from "@angular/router";
+`;
+
+await writeFile(
+  join(fixture, "src/routes/teams/$teamId/route.ts"),
+  `${browserMarker}import { defineRoute, numberParam } from "@loozo/angular-router";
+
+export default defineRoute("teams/$teamId", {
+  params: { teamId: numberParam },
+  search: { score: numberParam },
+}).canMatch([
+  () =>
+    !isPlatformBrowser(inject(PLATFORM_ID)) ||
+    !inject(Router).currentNavigation()?.extractedUrl.queryParamMap.has("refuse"),
+]);
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/teams/$teamId/items/$id/route.ts"),
+  `${browserMarker}import { defineRoute, numberParam } from "@loozo/angular-router";
+import team from "../../route.js";
+import { ItemCatalog } from "../../../../../catalog.js";
+
+// Runs when the route copy evaluates: in the browser, when its children table loads.
+(globalThis as { proofItemCopyEvaluated?: boolean }).proofItemCopyEvaluated = true;
+
+export default defineRoute("items/$id", { parent: team, params: { id: numberParam } })
+  .runGuardsAndResolvers("paramsOrQueryParamsChange")
+  .canActivate([
+    () => {
+      if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+        return true;
+      }
+
+      const router = inject(Router);
+      const markers = router.currentNavigation()?.extractedUrl.queryParamMap;
+
+      if (markers?.has("reject")) {
+        return false;
+      }
+
+      if (markers?.has("redirect")) {
+        return router.parseUrl("/teams/7/items/8?score=42");
+      }
+
+      if (markers?.has("fail")) {
+        throw new Error("proof-seed-guard-failure");
+      }
+
+      return true;
+    },
+  ])
+  .resolve({
+    item: ({ params, search }) => {
+      const catalog = inject(ItemCatalog);
+
+      return catalog({ teamId: params.teamId, id: params.id, score: search.score });
+    },
+  });
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/handle-only/$id/route.ts"),
+  `${browserMarker}import { defineRoute, numberParam, withFallback } from "@loozo/angular-router";
+
+export default defineRoute("handle-only/$id", {
+  params: { id: numberParam },
+  search: { score: numberParam, page: withFallback(numberParam, 1) },
+}).canActivate([
+  () =>
+    !isPlatformBrowser(inject(PLATFORM_ID)) ||
+    !inject(Router).currentNavigation()?.extractedUrl.queryParamMap.has("race"),
+]);
+`,
+);
+// Resolver values JSON can't carry unchanged give no seed; a shared reference seeds.
+await mkdir(join(fixture, "src/routes/values/$kind"), { recursive: true });
+await writeFile(
+  join(fixture, "src/routes/values/$kind/route.ts"),
+  `import { defineRoute, stringParam } from "@loozo/angular-router";
+
+export default defineRoute("values/$kind", { params: { kind: stringParam } }).resolve({
+  value: ({ params }): unknown => {
+    if (params.kind === "date") {
+      return new Date(0);
+    }
+
+    if (params.kind === "bigint") {
+      return 1n;
+    }
+
+    if (params.kind === "cycle") {
+      const cycle: Record<string, unknown> = {};
+
+      cycle["self"] = cycle;
+
+      return cycle;
+    }
+
+    if (params.kind === "array") {
+      return Object.assign([7], { total: 42 });
+    }
+
+    const shared = Object.assign(Object.create(null) as object, { x: 1 });
+
+    return { a: shared, b: shared };
+  },
+});
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/values/$kind/page.ts"),
+  `import { Component } from "@angular/core";
+import { injectRoute } from "./route.generated.js";
+
+@Component({ template: '<p id="value-kind">{{ route.params().kind }}</p>' })
+export default class Values {
+  readonly route = injectRoute();
+}
+`,
+);
+await mkdir(join(fixture, "src/routes/titled/$id"), { recursive: true });
+await writeFile(
+  join(fixture, "src/routes/titled/$id/route.ts"),
+  `import { defineRoute, numberParam } from "@loozo/angular-router";
+
+export default defineRoute("titled/$id", { params: { id: numberParam } }).title(
+  ({ params }) => \`Titled \${params.id}\`,
+);
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/titled/$id/page.ts"),
+  `import { Component } from "@angular/core";
+
+@Component({ template: '<p id="titled">titled</p>' })
+export default class Titled {}
+`,
+);
+// A native segment-consuming wrapper over the generated routes; a browser-only URL handling
+// strategy that ignores "/" and "/legacy" on race=skip pages; and an app initializer, listed
+// before the provider, that records router events and requests the race navigations.
+await writeFile(
+  join(fixture, "src/app.config.ts"),
+  `import { PLATFORM_ID, inject, provideAppInitializer, type ApplicationConfig } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import {
+  EventType,
+  NavigationCancel,
+  NavigationEnd,
+  NavigationError,
+  NavigationSkipped,
+  PRIMARY_OUTLET,
+  Router,
+  UrlHandlingStrategy,
+  provideRouter,
+  type UrlTree,
+} from "@angular/router";
+import { provideClientHydration, withNoHttpTransferCache } from "@angular/platform-browser";
+import { provideActiveRouteHydration, routes } from "../generated/routes.generated.js";
+
+function race(): string | null {
+  return new URLSearchParams(window.location.search).get("race");
+}
+
+export const config: ApplicationConfig = {
+  providers: [
+    provideRouter([{ path: "wrapped/:tenant", children: routes }, ...routes]),
+    {
+      provide: UrlHandlingStrategy,
+      useFactory: (): UrlHandlingStrategy => {
+        const skip = isPlatformBrowser(inject(PLATFORM_ID)) && race() === "skip";
+
+        return {
+          shouldProcessUrl: (url: UrlTree) => {
+            if (!skip) {
+              return true;
+            }
+
+            const primary = url.root.children[PRIMARY_OUTLET];
+
+            return primary !== undefined && primary.segments[0]?.path !== "legacy";
+          },
+          extract: (url: UrlTree) => url,
+          merge: (newUrlPart: UrlTree) => newUrlPart,
+        };
+      },
+    },
+    provideAppInitializer(() => {
+      if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+        return;
+      }
+
+      const router = inject(Router);
+      const proof = window as unknown as Record<string, unknown>;
+      const events: { type: string; id?: number; code?: number; error?: string }[] = [];
+
+      proof["proofEvents"] = events;
+      router.events.subscribe((event) => {
+        const entry: { type: string; id?: number; code?: number; error?: string } = {
+          type: EventType[event.type],
+        };
+
+        if (event instanceof NavigationEnd) {
+          entry.id = event.id;
+        } else if (event instanceof NavigationCancel || event instanceof NavigationSkipped) {
+          entry.id = event.id;
+          entry.code = event.code;
+        } else if (event instanceof NavigationError) {
+          entry.id = event.id;
+          entry.error = event.error instanceof Error ? event.error.message : String(event.error);
+        }
+
+        events.push(entry);
+      });
+      proof["proofWaiting"] = true;
+
+      if (race() === "reject") {
+        void router.navigateByUrl("/handle-only/1?race=reject");
+      } else if (race() === "skip") {
+        void router.navigateByUrl("/legacy");
+      }
+    }),
+    provideClientHydration(withNoHttpTransferCache()),
+    provideActiveRouteHydration(),
+  ],
+};
+`,
+);
+
 // The shell reads the active route, server-side and through hydration.
 await writeFile(
   join(fixture, "src/app.ts"),
@@ -92,7 +327,10 @@ import { destination as item } from "./routes/teams/$teamId/items/$id/destinatio
 })
 export default class App {
   readonly application = inject(ApplicationRef);
+  readonly router = inject(Router);
   readonly active = injectActiveRoute();
+  // Never read by the template: adopts at the handover without a live consumer.
+  readonly quiet = injectActiveRoute();
   readonly activeText = computed(() => {
     const route = this.active();
 
@@ -115,8 +353,27 @@ export default class App {
     const timeline: { event: string; path?: string; at: number }[] = [];
 
     if (isPlatformBrowser(inject(PLATFORM_ID))) {
-      (window as any).proofTimeline = timeline;
-      inject(Router).events.subscribe((event) => {
+      const proof = window as any;
+      const first = this.active();
+
+      // What the shell reads before the client's initial navigation starts.
+      proof.proofStart = {
+        navigated: this.router.navigated,
+        navigating: this.router.currentNavigation() !== null,
+      };
+      proof.proofFirst = first;
+      proof.proofQuietFirst = this.quiet();
+      proof.proofFirstData = first?.data();
+
+      if (first?.is(item)) {
+        proof.proofFirstLink = this.router.serializeUrl(
+          first.link({ params: { teamId: 7, id: 8 }, search: { score: 43 } }),
+        );
+      }
+
+      proof.proofApp = this;
+      proof.proofTimeline = timeline;
+      this.router.events.subscribe((event) => {
         if (event instanceof RouteConfigLoadEnd) {
           timeline.push({ event: "config", path: event.route.path, at: performance.now() });
         } else if (event instanceof ActivationEnd) {
@@ -649,6 +906,36 @@ function inspectHtml(
   return result;
 }
 
+const seedKey = "@loozo/angular-router:active-route";
+
+// The active-route seed in a server-rendered document's TransferState script, if any.
+function transferredSeed(body) {
+  const match = body.match(/<script id="ng-state"[^>]*>([\s\S]*?)<\/script>/);
+
+  assert.ok(match, "The document carries TransferState");
+
+  return JSON.parse(match[1])[seedKey];
+}
+
+// The seed of an item page: the team record, then the item record with its resolver data,
+// each with the primary segments it consumed, after `offset` segments of native wrappers.
+function itemSeed(url, teamId, id, score, offset = 0) {
+  return {
+    url,
+    routes: [
+      { id: "src/routes/teams/$teamId/route.ts", from: offset, to: offset + 2 },
+      {
+        id: "src/routes/teams/$teamId/items/$id/route.ts",
+        from: offset + 2,
+        to: offset + 4,
+        data: { item: { teamId, id, score, text: `team=${teamId};item=${id};score=${score}` } },
+      },
+    ],
+  };
+}
+
+const proofSeed = itemSeed("/teams/7/items/7;teamId=999?score=42", 7, 7, 42);
+
 const httpPort = await port();
 const origin = "http://127.0.0.1:" + httpPort;
 const nodeCommand = [join(fixture, "dist/proof/server/server.mjs")];
@@ -770,6 +1057,77 @@ try {
   });
   assert.doesNotMatch(responses[0].body, /team=999;|item=888;/);
   assert.notEqual(values[0].resolved, values[1].resolved);
+
+  // Each concurrent request sends its own committed chain; the URL keeps matrix params.
+  const concurrentSeeds = [];
+
+  for (const response of responses) {
+    concurrentSeeds.push(transferredSeed(response.body));
+  }
+
+  assert.deepEqual(
+    concurrentSeeds[0],
+    itemSeed("/teams/7/items/7;teamId=999;id=888?score=42", 7, 7, 42),
+  );
+  assert.deepEqual(concurrentSeeds[1], itemSeed("/teams/8/items/8?score=43", 8, 8, 43));
+
+  // N1: the browser proof's URL. N2: a native wrapper consumes two segments before the team.
+  const seeded = await requestSsr(origin + "/teams/7/items/7;teamId=999?score=42");
+  const wrapped = await requestSsr(origin + "/wrapped/acme/teams/7/items/7?score=42");
+
+  assert.equal(seeded.status, 200);
+  assert.deepEqual(transferredSeed(seeded.body), proofSeed);
+  assert.equal(wrapped.status, 200);
+  assert.equal(inspectHtml(wrapped.body)["active-route"], "team 7 item 7");
+  assert.deepEqual(
+    transferredSeed(wrapped.body),
+    itemSeed("/wrapped/acme/teams/7/items/7?score=42", 7, 7, 42, 2),
+  );
+
+  // N3: one resolver value JSON can't carry unchanged drops the page's seed, and the page
+  // still renders; a value reached twice through different paths isn't a cycle.
+  const valueSeeds = {};
+
+  for (const kind of ["date", "bigint", "cycle", "array", "shared"]) {
+    const response = await requestSsr(origin + "/values/" + kind);
+
+    await writeFile(join(evidence, `http-values-${kind}.html`), response.body);
+    assert.equal(response.status, 200, kind);
+    assert.equal(inspectHtml(response.body, ["value-kind"])["value-kind"], kind);
+    valueSeeds[kind] = transferredSeed(response.body) ?? null;
+  }
+
+  assert.equal(valueSeeds.date, null, "A Date gives no seed");
+  assert.equal(valueSeeds.bigint, null, "A BigInt gives no seed");
+  assert.equal(valueSeeds.cycle, null, "A cycle gives no seed");
+  assert.equal(valueSeeds.array, null, "An array with an extra key gives no seed");
+  assert.deepEqual(valueSeeds.shared, {
+    url: "/values/shared",
+    routes: [
+      {
+        id: "src/routes/values/$kind/route.ts",
+        from: 0,
+        to: 2,
+        data: { value: { a: { x: 1 }, b: { x: 1 } } },
+      },
+    ],
+  });
+
+  // N4: a declared title travels; a record without resolvers sends no data.
+  const titled = await requestSsr(origin + "/titled/1");
+
+  assert.equal(titled.status, 200);
+  assert.deepEqual(transferredSeed(titled.body), {
+    url: "/titled/1",
+    routes: [{ id: "src/routes/titled/$id/route.ts", from: 0, to: 2, title: "Titled 1" }],
+  });
+  await save("http-seeds.json", {
+    concurrent: concurrentSeeds,
+    seeded: transferredSeed(seeded.body),
+    wrapped: transferredSeed(wrapped.body),
+    values: valueSeeds,
+    titled: transferredSeed(titled.body),
+  });
 
   // Handle signals render server-side without any resolver, including a search fallback.
   const handleOnlyCases = {
@@ -949,7 +1307,7 @@ try {
     args: ["--no-sandbox"],
   });
 
-  const context = await browser.newContext();
+  const context = await browser.newContext({ recordVideo: { dir: join(evidence, "videos") } });
   const page = await context.newPage();
   const errors = [];
   const consoleMessages = [];
@@ -1039,9 +1397,9 @@ try {
   await writeFile(join(evidence, "browser-before-hydration.html"), before.html);
   assert.equal(before.resolved, "team=7;item=7;score=42");
 
-  // Every text the shell's active route shows from the server HTML through hydration. The
-  // client's reader reads undefined until its initial navigation commits, so the shell shows
-  // its fallback in between, in the same retained node.
+  // Every text the shell's active route shows from the server HTML through hydration. With
+  // provideActiveRouteHydration(), the client's reader reads the server's route from its first
+  // read, so the shell never shows its fallback, and keeps the same text node.
   const activeBefore = await page.evaluate(() => {
     const node = document.querySelector("#active-route");
 
@@ -1060,6 +1418,14 @@ try {
   });
 
   assert.equal(activeBefore, "team 7 item 7");
+
+  const devSeed = await page.evaluate(
+    (key) => JSON.parse(document.querySelector("script#ng-state").textContent)[key],
+    seedKey,
+  );
+
+  assert.deepEqual(devSeed, proofSeed);
+  await page.screenshot({ path: join(evidence, "seed-before-scripts.png") });
   allowScripts();
   await page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
 
@@ -1114,8 +1480,29 @@ try {
   assert.deepEqual(activeHydrated, {
     retained: true,
     text: "team 7 item 7",
-    texts: ["team 7 item 7", "none", "team 7 item 7"],
+    texts: ["team 7 item 7"],
   });
+
+  // The first read is the seeded item before any navigation started, with the full handle;
+  // the commit hands the same handles over, to the reactive and the never-read reader alike.
+  const seedHandover = await page.evaluate(() => ({
+    start: window.proofStart,
+    firstLink: window.proofFirstLink,
+    firstData: window.proofFirstData,
+    firstIsActive: window.proofFirst === window.proofApp.active(),
+    firstTeamIsActive: window.proofFirst?.chain[0] === window.proofApp.active().chain[0],
+    quietFirstIsQuiet: window.proofQuietFirst === window.proofApp.quiet(),
+  }));
+
+  assert.deepEqual(seedHandover, {
+    start: { navigated: false, navigating: false },
+    firstLink: "/teams/7/items/8?score=43",
+    firstData: proofSeed.routes[1].data,
+    firstIsActive: true,
+    firstTeamIsActive: true,
+    quietFirstIsQuiet: true,
+  });
+  await page.screenshot({ path: join(evidence, "seed-hydrated.png") });
 
   const hydrated = await page.evaluate(() => {
     const selectors = [
@@ -1184,6 +1571,11 @@ try {
   );
 
   assert.equal(await page.locator("#active-route").textContent(), "team 7 item 8");
+  assert.equal(
+    await page.evaluate(() => window.proofFirst === window.proofApp.active()),
+    true,
+    "The adopted handle stays the active route across the alias navigation",
+  );
 
   const idView = page.locator("#parsed-id");
   const scoreView = page.locator("#parsed-score");
@@ -1244,6 +1636,10 @@ try {
   assert.equal(final.retainedComponent, true);
   assert.equal(documents, 1);
   assert.deepEqual(errors, []);
+  assert.equal(
+    consoleMessages.some((message) => message.text.includes("active route not seeded")),
+    false,
+  );
   await save("browser-observations.json", {
     activeHydrated,
     hydrated,
@@ -1258,6 +1654,338 @@ try {
     requests,
   });
   await writeFile(join(evidence, "browser-after-navigation.html"), final.html);
+
+  const videos = { main: await page.video()?.path() };
+  const cases = {};
+  const proofPath = "/teams/7/items/7;teamId=999?score=42";
+
+  // One fresh page of the proof URL plus `markers`: scripts wait until the shell's history is
+  // observed and `prepare` ran; with `hold`, the children table's response waits for `release`.
+  async function visit(name, markers, { hold = false, prepare } = {}) {
+    const visitPage = await context.newPage();
+    const visitErrors = [];
+    const warnings = [];
+    const visitRequests = [];
+    let releaseScripts;
+    let releaseTable;
+    const scriptsReleased = new Promise((resolve) => {
+      releaseScripts = resolve;
+    });
+    const tableReleased = new Promise((resolve) => {
+      releaseTable = resolve;
+    });
+
+    videos[name] = await visitPage.video()?.path();
+    visitPage.on("pageerror", (error) => visitErrors.push(error.message));
+    visitPage.on("console", (message) => {
+      if (message.type() === "error") {
+        visitErrors.push(message.text());
+      } else if (message.type() === "warning" && message.text().includes("@loozo/angular-router")) {
+        warnings.push(message.text());
+      }
+    });
+    visitPage.on("request", (request) => visitRequests.push(request.url()));
+    await visitPage.route("**/*", async (route) => {
+      const request = route.request();
+
+      if (new URL(request.url()).origin !== baseUrl) {
+        await route.abort();
+
+        return;
+      }
+
+      if (request.resourceType() !== "script") {
+        await route.continue();
+
+        return;
+      }
+
+      await scriptsReleased;
+
+      if (!hold) {
+        await route.continue();
+
+        return;
+      }
+
+      const response = await route.fetch();
+      const body = await response.text();
+
+      if (body.includes('path: "items/:id"')) {
+        await tableReleased;
+      }
+
+      await route.fulfill({ response, body });
+    });
+    await visitPage.goto(baseUrl + proofPath + markers, { waitUntil: "commit" });
+    await visitPage.waitForSelector("script#ng-state", { state: "attached" });
+    await visitPage.evaluate(() => {
+      window.proofActiveTexts = [document.querySelector("#active-route").textContent];
+      new MutationObserver(() => {
+        const text = document.querySelector("#active-route")?.textContent ?? null;
+
+        if (window.proofActiveTexts.at(-1) !== text) {
+          window.proofActiveTexts.push(text);
+        }
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+
+    if (prepare) {
+      await prepare(visitPage);
+    }
+
+    releaseScripts();
+
+    const stable = () =>
+      visitPage.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+    const observe = () =>
+      visitPage.evaluate(() => {
+        const terminal = new Set([
+          "NavigationEnd",
+          "NavigationCancel",
+          "NavigationError",
+          "NavigationSkipped",
+        ]);
+
+        return {
+          texts: window.proofActiveTexts,
+          text: document.querySelector("#active-route")?.textContent ?? null,
+          firstSeeded: window.proofFirst !== undefined,
+          success: window.proofApp.router.lastSuccessfulNavigation() !== null,
+          terminal: window.proofEvents.filter((event) => terminal.has(event.type)),
+          address: location.pathname + location.search,
+        };
+      });
+    const finish = async (extra = {}) => {
+      const observed = await observe();
+
+      await visitPage.screenshot({ path: join(evidence, `seed-${name}.png`) });
+      cases[name] = { ...observed, ...extra, errors: visitErrors, warnings };
+      await visitPage.close();
+
+      return cases[name];
+    };
+
+    return {
+      page: visitPage,
+      errors: visitErrors,
+      warnings,
+      requests: visitRequests,
+      releaseTable,
+      stable,
+      finish,
+    };
+  }
+
+  const notSeeded = (reason) => `@loozo/angular-router: active route not seeded (${reason})`;
+
+  // B2: the client's item guard diverges from the server's.
+  const rejected = await visit("reject", "&reject=1");
+
+  await rejected.stable();
+
+  const rejectedBefore = await rejected.page.evaluate(() => ({
+    texts: [...window.proofActiveTexts],
+    success: window.proofApp.router.lastSuccessfulNavigation() !== null,
+  }));
+
+  assert.deepEqual(rejectedBefore, { texts: ["team 7 item 7", "none"], success: false });
+  await rejected.page.screenshot({ path: join(evidence, "seed-reject-rejected.png") });
+  // A later success at the seeded destination: neither reader, the quiet one unread since the
+  // rejection, adopts its retired seeded handles.
+  await rejected.page.evaluate(() =>
+    window.proofApp.router.navigateByUrl("/teams/7/items/7;teamId=999?score=44"),
+  );
+  await rejected.page.waitForFunction(
+    () => document.querySelector("#active-route")?.textContent === "team 7 item 7",
+  );
+
+  const rejectedLater = await rejected.page.evaluate(() => ({
+    quietReplaced: window.proofQuietFirst !== window.proofApp.quiet(),
+    quietFrozen: window.proofQuietFirst.search().score,
+    quietLive: window.proofApp.quiet().search().score,
+    activeReplaced: window.proofFirst !== window.proofApp.active(),
+    activeFrozen: window.proofFirst.search().score,
+    activeLive: window.proofApp.active().search().score,
+  }));
+
+  assert.deepEqual(rejectedLater, {
+    quietReplaced: true,
+    quietFrozen: 42,
+    quietLive: 44,
+    activeReplaced: true,
+    activeFrozen: 42,
+    activeLive: 44,
+  });
+
+  const rejectCase = await rejected.finish({ before: rejectedBefore, later: rejectedLater });
+
+  assert.deepEqual(rejectCase.errors, []);
+  assert.deepEqual(rejectCase.warnings, []);
+
+  const redirected = await visit("redirect", "&redirect=1");
+
+  await redirected.stable();
+
+  const redirectIdentity = await redirected.page.evaluate(() => ({
+    firstIsActive: window.proofFirst === window.proofApp.active(),
+    id: window.proofApp.active().params().id,
+  }));
+  const redirectCase = await redirected.finish({ identity: redirectIdentity });
+
+  assert.deepEqual(redirectCase.texts, ["team 7 item 7", "team 7 item 8"]);
+  assert.deepEqual(redirectIdentity, { firstIsActive: true, id: 8 });
+  assert.equal(redirectCase.success, true);
+  assert.deepEqual(redirectCase.errors, []);
+
+  // The throwing guard: Angular reports the initial navigation's error through ErrorHandler.
+  const failed = await visit("fail", "&fail=1");
+
+  await failed.stable();
+
+  const failCase = await failed.finish();
+
+  assert.deepEqual(failCase.texts, ["team 7 item 7", "none"]);
+  assert.equal(failCase.success, false);
+  assert.ok(
+    failCase.terminal.some(
+      (event) => event.type === "NavigationError" && event.error === "proof-seed-guard-failure",
+    ),
+    JSON.stringify(failCase.terminal),
+  );
+  assert.ok(failCase.errors.length > 0);
+
+  for (const error of failCase.errors) {
+    assert.match(error, /proof-seed-guard-failure/);
+  }
+
+  // B3: outcomes during the provider's wait for the children table.
+  const raceRejected = await visit("race-reject", "&race=reject", { hold: true });
+
+  await raceRejected.page.waitForFunction(() =>
+    window.proofEvents?.some((event) => event.type === "NavigationCancel" && event.code === 3),
+  );
+  raceRejected.releaseTable();
+  await raceRejected.stable();
+
+  const raceRejectCase = await raceRejected.finish();
+
+  assert.deepEqual(raceRejectCase.texts, ["team 7 item 7", "none"]);
+  assert.equal(raceRejectCase.firstSeeded, false);
+  assert.equal(raceRejectCase.success, false);
+  assert.deepEqual(raceRejectCase.errors, []);
+  assert.deepEqual(raceRejectCase.warnings, []);
+
+  const raceUrl = await visit("race-url", "&race=url", { hold: true });
+
+  await raceUrl.page.waitForFunction(() => window.proofWaiting === true);
+  await raceUrl.page.evaluate(() =>
+    history.replaceState(history.state, "", "/teams/7/items/7;teamId=999?score=43&race=url"),
+  );
+  raceUrl.releaseTable();
+  await raceUrl.stable();
+
+  const raceUrlScore = await raceUrl.page.evaluate(() => window.proofApp.active()?.search().score);
+  const raceUrlCase = await raceUrl.finish({ score: raceUrlScore });
+
+  assert.deepEqual(raceUrlCase.texts, ["team 7 item 7", "none", "team 7 item 7"]);
+  assert.equal(raceUrlCase.firstSeeded, false);
+  assert.equal(raceUrlScore, 43);
+  assert.deepEqual(raceUrlCase.warnings, [notSeeded("URL changed")]);
+  assert.deepEqual(raceUrlCase.errors, []);
+
+  // An app initializer listed before the provider requests a navigation Angular skips
+  // synchronously: observation started earlier, in the provider's environment initializer.
+  const raceSkipped = await visit("race-skip", "&race=skip");
+
+  await raceSkipped.stable();
+
+  const raceSkipCase = await raceSkipped.finish();
+
+  assert.deepEqual(raceSkipCase.terminal, [
+    { type: "NavigationSkipped", id: raceSkipCase.terminal[0]?.id, code: 1 },
+  ]);
+  assert.deepEqual(raceSkipCase.texts, ["team 7 item 7", "none"]);
+  assert.equal(raceSkipCase.firstSeeded, false);
+  assert.equal(raceSkipCase.success, false);
+  assert.equal(raceSkipCase.address, proofPath + "&race=skip");
+  assert.deepEqual(raceSkipCase.warnings, []);
+  assert.deepEqual(raceSkipCase.errors, []);
+
+  // B4: the client's team canMatch refuses after the seed loaded the server's tables.
+  const refused = await visit("refuse", "&refuse=1");
+
+  await refused.stable();
+
+  const refusedProbe = await refused.page.evaluate(() => ({
+    itemCopyEvaluated: globalThis.proofItemCopyEvaluated === true,
+    teamConfigs: window.proofTimeline.filter(
+      (entry) => entry.event === "config" && entry.path === "teams/:teamId",
+    ).length,
+  }));
+  const refusedTableRequests = refused.requests.filter((url) => url === tableUrls[0]).length;
+  const refuseCase = await refused.finish({ ...refusedProbe, tableRequests: refusedTableRequests });
+
+  assert.deepEqual(refuseCase.texts, ["team 7 item 7", "other"]);
+  assert.deepEqual(refusedProbe, { itemCopyEvaluated: true, teamConfigs: 0 });
+  assert.equal(refusedTableRequests, 1);
+  assert.deepEqual(refuseCase.errors, []);
+
+  // B5: seeds the browser can't use fall back to the undefined state until the commit.
+  async function editSeed(target, edit) {
+    await target.evaluate(
+      ({ key, edit }) => {
+        const script = document.querySelector("script#ng-state");
+        const state = JSON.parse(script.textContent);
+
+        if (edit === "unknown") {
+          state[key].routes[1].id = "src/routes/unknown/route.ts";
+        } else if (edit === "range") {
+          state[key].routes[1].to = 99;
+        } else {
+          delete state[key];
+        }
+
+        script.textContent = JSON.stringify(state);
+      },
+      { key: seedKey, edit },
+    );
+  }
+
+  const fallbacks = {
+    unknown: {
+      prepare: (target) => editSeed(target, "unknown"),
+      warnings: [notSeeded("unknown route src/routes/unknown/route.ts")],
+    },
+    range: {
+      prepare: (target) => editSeed(target, "range"),
+      warnings: [notSeeded("invalid segment range")],
+    },
+    missing: { prepare: (target) => editSeed(target, "missing"), warnings: [] },
+    replaced: {
+      prepare: (target) =>
+        target.evaluate(() =>
+          history.replaceState(history.state, "", "/teams/7/items/7;teamId=999?score=43"),
+        ),
+      warnings: [notSeeded("URL changed")],
+    },
+  };
+
+  for (const [name, fallback] of Object.entries(fallbacks)) {
+    const visited = await visit("fallback-" + name, "", { prepare: fallback.prepare });
+
+    await visited.stable();
+
+    const fallbackCase = await visited.finish();
+
+    assert.deepEqual(fallbackCase.texts, ["team 7 item 7", "none", "team 7 item 7"], name);
+    assert.equal(fallbackCase.firstSeeded, false, name);
+    assert.equal(fallbackCase.text, "team 7 item 7", name);
+    assert.deepEqual(fallbackCase.warnings, fallback.warnings, name);
+    assert.deepEqual(fallbackCase.errors, [], name);
+  }
+
+  await save("seed-handover.json", { main: seedHandover, devSeed, cases, videos });
   await context.close();
 } catch (error) {
   browserFailures.push(error);

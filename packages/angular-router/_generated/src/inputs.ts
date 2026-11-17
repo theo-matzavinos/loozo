@@ -1,4 +1,11 @@
-import type { ActivatedRouteSnapshot, PartialMatchRouteSnapshot } from "@angular/router";
+import type {
+  ActivatedRouteSnapshot,
+  Data,
+  ParamMap,
+  PartialMatchRouteSnapshot,
+  Route,
+  UrlSegment,
+} from "@angular/router";
 import {
   codecFallback,
   destinationRecord,
@@ -56,9 +63,22 @@ export function destinationOf(route: AnyRoute): Destination<AnyRoute> {
   return destination;
 }
 
+/**
+ * The parts of a snapshot that parsing and handle values read: an ActivatedRouteSnapshot, or
+ * the plain stand-in the active-route hydration seed builds for a record before it activates.
+ */
+export interface SnapshotLike {
+  readonly routeConfig: Route | null;
+  readonly url: readonly UrlSegment[];
+  readonly queryParamMap: ParamMap;
+  readonly data: Data;
+  readonly title: string | undefined;
+  readonly pathFromRoot: readonly SnapshotLike[];
+}
+
 export interface Owner {
   readonly destination: Destination<AnyRoute>;
-  readonly snapshot: ActivatedRouteSnapshot;
+  readonly snapshot: SnapshotLike;
 }
 
 /**
@@ -70,7 +90,7 @@ export interface Owner {
  */
 export function destinationOwners(
   destination: Destination<AnyRoute>,
-  snapshot: ActivatedRouteSnapshot,
+  snapshot: SnapshotLike,
 ): readonly Owner[] {
   assertIdentity(snapshot, destination);
 
@@ -323,10 +343,7 @@ function memo<Value>(
 }
 
 /** The effective inputs of a complete snapshot, shared by guards, resolvers and handles. */
-export function parseInputs(
-  destination: Destination<AnyRoute>,
-  snapshot: ActivatedRouteSnapshot,
-): Parsed {
+export function parseInputs(destination: Destination<AnyRoute>, snapshot: SnapshotLike): Parsed {
   assertIdentity(snapshot, destination);
 
   return memo(full, destination, snapshot, () => {

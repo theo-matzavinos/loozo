@@ -1,5 +1,6 @@
 export { callbacks, lazyRedirect, redirect } from "./callbacks.js";
 export { injectGeneratedActiveRoute } from "./active.js";
+export { provideActiveRouteHydration } from "./hydration.js";
 export type { ActiveHandle, ActiveRoute, RouteTypeEntry, RouteTypeMap } from "./active.js";
 export { record, recordFacts, resolverKeys } from "./record.js";
 export { defineDestination, routeOf } from "@loozo/angular-router/_core";

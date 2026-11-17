@@ -2108,6 +2108,8 @@ export default class Shell {
   });
   readonly active = injectActiveRoute();
   readonly initial = this.active();
+  // The native lazy loaders that ran before the root existed.
+  readonly initialLoads = [...((window as any).nativeLoads ?? [])];
   readonly crewId = computed(() => this.active()?.chain.find((route) => route.is(destinations.crew))?.params().crewId);
   readonly paramsText = computed(() => JSON.stringify(this.active()?.params() ?? null));
   // Each change of the selected handle, and every crew/params pair an effect sees.
@@ -2607,6 +2609,10 @@ async function find(records: Routes, id: string): Promise<Route | undefined> {
 // The authored generated records the lazy wrapper hands Angular. The item sits two children
 // tables below the org, so it's found on demand.
 export const lazyRecords: { org?: Route; item?: () => Promise<Route> } = {};
+// Which native lazy loaders ran, for the active-route seed's walk, which never runs them.
+export const nativeLoads: string[] = [];
+
+(window as any).nativeLoads = nativeLoads;
 
 export function nativeWrappers(routes: Routes): Routes {
   lazyRecords.org = routes.find((record) => owns(record, 'src/routes/orgs/definition.ts'))!;
@@ -2615,8 +2621,23 @@ export function nativeWrappers(routes: Routes): Routes {
   return [
     { path: 'wrapped/:tenant', component: Wrapper, children: [lazyRecords.org] },
     // Angular standardizes lazily loaded children on their own path.
-    { path: 'lazy/:tenant', component: Wrapper, loadChildren: () => Promise.resolve([lazyRecords.org!]) },
-    { path: 'orphan/:orgId', loadChildren: async () => [await lazyRecords.item!()] },
+    {
+      path: 'lazy/:tenant',
+      component: Wrapper,
+      loadChildren: () => {
+        nativeLoads.push('lazy');
+
+        return Promise.resolve([lazyRecords.org!]);
+      },
+    },
+    {
+      path: 'orphan/:orgId',
+      loadChildren: async () => {
+        nativeLoads.push('orphan');
+
+        return [await lazyRecords.item!()];
+      },
+    },
   ];
 }
 `,
@@ -2753,14 +2774,49 @@ export default class ExtensionStripped {
 `,
 );
 
+// The active-route seed's walk over hand-written payloads in the server's format: a test-only
+// environment initializer, listed before the provider, puts window.activeSeed where the
+// server would.
+await write(
+  "src/seed-proof.ts",
+  `import { TransferState, inject, makeStateKey, provideEnvironmentInitializer } from '@angular/core';
+import { destination as decided } from './routes/decided/destination.generated.js';
+import { destination as orgItem } from './routes/org-item/destination.generated.js';
+
+export const seedProofProvider = provideEnvironmentInitializer(() => {
+  const seed = (window as any).activeSeed;
+
+  if (seed === undefined) {
+    return;
+  }
+
+  inject(TransferState).set(makeStateKey<unknown>('@loozo/angular-router:active-route'), seed);
+  (window as any).seedProof = () => {
+    const shell = (window as any).shell;
+    const first = shell.initial;
+
+    return {
+      seeded: first !== undefined,
+      orgItem: first?.is(orgItem) ?? false,
+      decided: first?.is(decided) ?? false,
+      chain: first?.chain.length ?? 0,
+      params: first?.params() ?? null,
+      loadsAtStart: shell.initialLoads,
+      adopted: first !== undefined && first === shell.active(),
+    };
+  };
+});
+`,
+);
+
 const main = await readFile(join(fixture, "src/main.ts"), "utf8");
 
 // The inheritance strategy comes from the tab, so one build runs under both.
 await write(
   "src/main.ts",
-  `import { withRouterConfig } from '@angular/router';\nimport { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\nimport { copiesProofProvider } from './copies-proof.js';\nimport { nativeWrappers } from './native-wrappers.js';\n${main.replace(
+  `import { withRouterConfig } from '@angular/router';\nimport { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\nimport { copiesProofProvider } from './copies-proof.js';\nimport { nativeWrappers } from './native-wrappers.js';\nimport { seedProofProvider } from './seed-proof.js';\nimport { provideActiveRouteHydration } from '../generated/routes.generated.js';\n${main.replace(
     "provideRouter(routes)",
-    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...nativeWrappers(routes), ...routes], withRouterConfig({ paramsInheritanceStrategy: (window as any).inheritance ?? 'emptyOnly' })), proofProvider, activeProofProvider, extensionProofProvider, copiesProofProvider",
+    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...nativeWrappers(routes), ...routes], withRouterConfig({ paramsInheritanceStrategy: (window as any).inheritance ?? 'emptyOnly' })), proofProvider, activeProofProvider, extensionProofProvider, copiesProofProvider, seedProofProvider, provideActiveRouteHydration()",
   )}`,
 );
 
@@ -2931,6 +2987,107 @@ try {
     await page.waitForFunction((key) => typeof window[key] === "function", proof);
     active[name] = await page.evaluate((key) => window[key](), proof);
     await page.close();
+  }
+
+  // The seed's walk (T1–T3), each a fresh application: a segment-consuming native wrapper
+  // over the org with a generated empty-path child, a top-level route after the native lazy
+  // branches, and an item only a native lazy branch reaches.
+  const seeds = {};
+  const seedErrors = {};
+
+  for (const [name, path, seed, ready] of [
+    [
+      "wrapped",
+      "wrapped/acme/orgs/1/items/2",
+      {
+        url: "/wrapped/acme/orgs/1/items/2",
+        routes: [
+          { id: "src/routes/orgs/definition.ts", from: 2, to: 4 },
+          { id: "src/routes/org-scope/definition.ts", from: 4, to: 4 },
+          { id: "src/routes/org-item/definition.ts", from: 4, to: 6 },
+        ],
+      },
+      () => document.querySelector("#org-item")?.textContent === "1/2",
+    ],
+    [
+      "decided",
+      "decided/5",
+      { url: "/decided/5", routes: [{ id: "src/routes/decided/definition.ts", from: 0, to: 2 }] },
+      () => window.shell !== undefined,
+    ],
+    [
+      "orphan",
+      "orphan/4/items/2",
+      {
+        url: "/orphan/4/items/2",
+        routes: [{ id: "src/routes/org-item/definition.ts", from: 2, to: 4 }],
+      },
+      () => window.shell !== undefined,
+    ],
+  ]) {
+    const page = await browser.newPage();
+    const warnings = [];
+
+    seedErrors[name] = [];
+    page.on("pageerror", (error) => seedErrors[name].push(String(error)));
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        seedErrors[name].push(message.text());
+      } else if (message.type() === "warning" && message.text().includes("@loozo/angular-router")) {
+        warnings.push(message.text());
+      }
+    });
+    await page.addInitScript((value) => {
+      window.activeSeed = value;
+    }, seed);
+    await page.goto(new URL(path, output.baseUrl).href);
+    await page.waitForFunction(ready);
+    seeds[name] = { ...(await page.evaluate(() => window.seedProof())), warnings };
+    await page.close();
+  }
+
+  await writeFile(
+    join(evidence, "seed-observations.json"),
+    JSON.stringify({ seeds, seedErrors }, null, 2),
+  );
+  assert.deepEqual(seeds.wrapped, {
+    seeded: true,
+    orgItem: true,
+    decided: false,
+    chain: 3,
+    params: { orgId: 1, itemId: 2 },
+    loadsAtStart: [],
+    adopted: true,
+    warnings: [],
+  });
+  assert.deepEqual(seeds.decided, {
+    seeded: true,
+    orgItem: false,
+    decided: true,
+    chain: 1,
+    params: { id: 5 },
+    loadsAtStart: [],
+    adopted: true,
+    warnings: [],
+  });
+  assert.deepEqual(seeds.orphan, {
+    seeded: false,
+    orgItem: false,
+    decided: false,
+    chain: 0,
+    params: null,
+    loadsAtStart: [],
+    adopted: false,
+    warnings: [
+      "@loozo/angular-router: active route not seeded (unknown route src/routes/org-item/definition.ts)",
+    ],
+  });
+  assert.deepEqual(seedErrors.wrapped, []);
+  assert.deepEqual(seedErrors.decided, []);
+
+  // Angular's own initial navigation to the orphan then fails as without a seed.
+  for (const error of seedErrors.orphan) {
+    assert.match(error, /Generated route ancestor missing/);
   }
 
   await writeFile(

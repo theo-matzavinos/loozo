@@ -2,7 +2,7 @@ import { computed, signal, type Signal } from "@angular/core";
 import type { ActivatedRoute, ActivatedRouteSnapshot, Router } from "@angular/router";
 import type { AnyRoute, Destination } from "@loozo/angular-router/_core";
 import { merge } from "rxjs";
-import { assertIdentity, destinationOwners, parseInputs } from "./inputs.js";
+import { assertIdentity, destinationOwners, parseInputs, type SnapshotLike } from "./inputs.js";
 import { resolverKeys } from "./record.js";
 
 export interface RouteView {
@@ -58,6 +58,24 @@ export function observeRecord(
 }
 
 /**
+ * Constant signals of a record the active-route hydration seed stands in for before it
+ * activates: the parse of its plain snapshot, shared with every reader through the parse
+ * memo, and the server's resolver results and title it carries.
+ */
+export function seededView(destination: Destination<AnyRoute>, snapshot: SnapshotLike): RouteView {
+  const inputs = parseInputs(destination, snapshot);
+  const data = effectiveData(destination, snapshot);
+  const title = effectiveTitle(destination, snapshot);
+
+  return {
+    params: computed(() => inputs.params),
+    search: computed(() => inputs.search),
+    data: computed(() => data),
+    title: computed(() => title),
+  };
+}
+
+/**
  * The resolver results of the destination's whole chain. Each owner's keys are the
  * authored ones its generated record carries, never Angular's resolve map, which Angular
  * extends during resolution; their values come from the owner's own record of the
@@ -66,7 +84,7 @@ export function observeRecord(
  */
 function effectiveData(
   destination: Destination<AnyRoute>,
-  snapshot: ActivatedRouteSnapshot,
+  snapshot: SnapshotLike,
 ): Readonly<Record<PropertyKey, unknown>> {
   const data: Record<PropertyKey, unknown> = Object.create(null);
 
@@ -89,7 +107,7 @@ function effectiveData(
  */
 function effectiveTitle(
   destination: Destination<AnyRoute>,
-  snapshot: ActivatedRouteSnapshot,
+  snapshot: SnapshotLike,
 ): string | undefined {
   const chain = destinationOwners(destination, snapshot);
 
