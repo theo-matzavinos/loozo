@@ -65,7 +65,14 @@ await test("public entry points are the documented ones", () => {
     names.push(entry);
   }
 
-  assert.deepEqual(names, [".", "./server", "./node", "./generation", "./tanstack-query"]);
+  assert.deepEqual(names, [
+    ".",
+    "./server",
+    "./node",
+    "./generation",
+    "./tanstack-query",
+    "./testing",
+  ]);
 });
 
 await test("published declarations document every public export and member", () => {

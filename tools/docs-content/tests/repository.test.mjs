@@ -288,6 +288,7 @@ test("launch's ./server entry point extracts, and its root entry has defineRoute
       "@loozo/angular-launch/node",
       "@loozo/angular-launch/generation",
       "@loozo/angular-launch/tanstack-query",
+      "@loozo/angular-launch/testing",
     ],
   );
 });
