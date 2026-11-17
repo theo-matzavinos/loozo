@@ -2,7 +2,7 @@
 
 Independent handwritten dark-mode application; supplied `examples/angular-router/src/` and its configuration remain untouched. `teams/$teamId` owns numeric teamId and optional numeric score; child `items/$id` owns numeric id and deterministic local catalog resolution. The alias drops query/fragment. `teams/$teamId` has children, so its record loads their records from its generated `children.generated.ts`; `items/$id/legacy` redirects to `handle-only/$id` from two declarations below it, and like the alias its record stays in the global table and loads its route copy on first use. Typed links demonstrate direct, alias and query-only native navigation. `handle-only/$id` reads its parsed params and search, including a `withFallback` page, through handle signals alone, with no resolver.
 
-Ordinary generated route copies, routes and destinations live here only. Shared native hydration config has no blocking initial navigation or HTTP transfer cache. No custom renderer, router, product-state transfer, graph service or input cache.
+Ordinary generated route copies, routes and destinations live here only. Shared native hydration config has no blocking initial navigation or HTTP transfer cache; it installs `provideActiveRouteHydration()`, so the shell's active route keeps the server's value through hydration. No custom renderer, router, product-state transfer, graph service or input cache.
 
 After ordinary pinned workspace install and package build, run from repository root:
 

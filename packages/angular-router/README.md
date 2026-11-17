@@ -234,7 +234,7 @@ Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads th
 
 [src/shell.ts](snippets/src/shell.ts)
 
-`injectActiveRoute()` needs an injection context and returns a signal of the deepest active route. It's `undefined` before the first navigation, and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
+`injectActiveRoute()` needs an injection context and returns a signal of the deepest active route. It's `undefined` before the first navigation (on a server-rendered page with [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), the server's route until then), and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
 
 Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, and:
 
@@ -244,7 +244,7 @@ Until you narrow it, the active route has `params`, `search`, `data` and `title`
 
 The value changes only when a navigation completes. It stays the same while a navigation is pending, and when one is cancelled or fails. If it fails during activation, the routes above the failing one that stay active already have the new values, so `chain` can mix a parent's new params with the active route's old ones until the next navigation completes. While a route stays active it keeps its handle, so going from item 9 to item 10 changes that handle's `params`, not the active route. Each `injectActiveRoute()` call has its own handles, separate from the page's `injectRoute()` handle; their values are the same. A handle that's no longer active keeps its last values. `is` and `contains` compare destinations by identity, so a destination from another generated route tree is never active here. Every generated route record carries its own destination, and the active route reads those, so it sees every generated route installed in the router: install one generated tree per router.
 
-Use it outside the page. In the constructor of a page being activated it reads `undefined` until the navigation ends, while the page's own `injectRoute()` has its values right away. On a server-rendered page it's `undefined` from hydration until the browser's first navigation completes, so the shell shows what it shows for `undefined` in between.
+Use it outside the page. In the constructor of a page being activated it reads `undefined` until the navigation ends, while the page's own `injectRoute()` has its values right away. On a server-rendered page it's `undefined` from hydration until the browser's first navigation completes, so the shell shows what it shows for `undefined` in between, unless the app installs [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages).
 
 ## Guards, resolvers and redirects
 
@@ -295,7 +295,7 @@ There's no API for this: every route with children loads them lazily. Its own re
 What this costs:
 
 - Each level of routes with children between the root and the matched route adds one request, made in turn, before the page loads on a cold visit. Later visits to the same routes fetch nothing new. With SSR, Angular emits `modulepreload` hints for the matched route's children tables (up to 10 per page), so a server-rendered page fetches them alongside its pages, and hydration finishes once the client's initial navigation has loaded them.
-- A route that matches fetches its children even at its bare URL, before Angular tries them. A `canMatch` that refuses, a generated param check included, fetches nothing.
+- A route that matches fetches its children even at its bare URL, before Angular tries them. A `canMatch` that refuses, a generated param check included, fetches nothing. The exception is a server-rendered page with [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages): the browser imports the children tables along the server's route before Angular matches, so they and the route copies they import have run even if the browser's `canMatch` then refuses.
 - Angular's `withPreloading` can preload children tables; the router doesn't configure it.
 
 Angular's `Route` for a route with children has `loadChildren` instead of `children`, before and after they load. So a callback that reads its route's configuration (`canMatch`'s route argument, `snapshot.routeConfig` in other guards) doesn't see `children`, and neither does app code that walks `Router.config`, for menus or a sitemap. Write a has-children check as `route.children?.length || route.loadChildren`. A policy that depends on the routes below belongs in the parent's own `.data(...)`, or those routes become top-level declarations whose paths carry the prefix (`defineRoute("admin/users", {})`); that drops the params, providers and `canActivateChild` they inherited. Nothing opts a route out.
@@ -364,9 +364,46 @@ Declarations look the same, but the builder never creates or edits them, and dir
 
 ## Server rendering and hydration
 
-The generated routes work with Angular SSR and `provideClientHydration` without extra setup; there's no transfer cache or custom renderer. Parsing is synchronous and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values and resolved data.
+The generated routes work with Angular SSR and `provideClientHydration` without extra setup; [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages) is optional. There's no data transfer cache or custom renderer. Parsing is synchronous and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values and resolved data.
 
 [`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with a search fallback, a resolver, a redirect and hydration.
+
+### The active route on hydrated pages
+
+Without help, `injectActiveRoute()` reads `undefined` in the browser until the first navigation completes, so a server-rendered shell (a nav bar, breadcrumbs) briefly shows its `undefined` state after hydration. Install `provideActiveRouteHydration()` from `routes.generated.ts` next to `provideRouter` in the config the server and the browser share, and the shell keeps showing the server's route:
+
+```ts
+import type { ApplicationConfig } from "@angular/core";
+import { provideRouter } from "@angular/router";
+import { provideClientHydration } from "@angular/platform-browser";
+import { provideActiveRouteHydration, routes } from "../generated/routes.generated.js";
+
+export const config: ApplicationConfig = {
+  providers: [provideRouter(routes), provideClientHydration(), provideActiveRouteHydration()],
+};
+```
+
+The server sends its active route in Angular's TransferState. Before the root component exists, the browser loads that route's children tables and parses its params and search from the browser's own URL; `data` and `title` are the server's until the browser's resolvers replace them. The shell's code doesn't change, and the active route is a full handle: `is`, `contains`, `chain`, `link` and `navigate` work before the first navigation. When that navigation commits the same routes, the shell keeps the same handles, so `track route` keeps its nodes.
+
+If the browser's first navigation ends differently:
+
+- A guard redirect goes straight to the target, never `undefined`.
+- A rejection, an error or a skipped navigation shows `undefined` after it, matching the empty outlet.
+
+There's no seed, and the shell behaves as without the provider, when:
+
+- a resolver of the active route returns something JSON can't carry unchanged: anything but `null`, booleans, strings, finite numbers, and plain arrays and objects of those (a Date, Map, BigInt, class instance or cycle, for example);
+- the browser's URL differs from the one the server rendered, for example after a guard's `RedirectCommand` with `browserUrl`;
+- a generated route is only reachable through a hand-written `loadChildren`.
+
+Dev builds warn `active route not seeded (…)` with the reason.
+
+What it costs:
+
+- On a seeded page, bootstrap waits for the active route's children tables and the route copies they import, which `modulepreload` hints usually have fetched already. A route module (or anything it imports) must not top-level `await` something that only bootstrap, the root component or the first navigation settles: that page would never bootstrap.
+- The Router and its dependencies (`UrlHandlingStrategy`, `RouteReuseStrategy`, `Location`, the `ROUTES`) are created before app initializers run, so an app initializer can't prepare their configuration. Prepare it before `bootstrapApplication` or in an environment initializer listed before the provider, or leave the provider out.
+- List the provider before any environment initializer that navigates.
+- An app that never navigates (`withDisabledInitialNavigation()`) keeps showing the server's route.
 
 ## Unit tests and i18n extraction
 
@@ -403,12 +440,12 @@ A component that calls `injectActiveRoute()`, such as a shell, doesn't need a ro
 
 ## What gets generated
 
-| File                                                    | Contents                                                                                                           |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `<outDirectory>/routes.generated.ts`                    | `routes: Routes` for `provideRouter`, `injectActiveRoute()`, and the `RouteTypes` it's typed with                  |
-| `destination.generated.ts` beside each route            | `destination`: the route's URL facts                                                                               |
-| `route.generated.ts` beside each route                  | `route`, the declaration's browser copy, and `injectRoute()` for a route that has a page or descendants with pages |
-| `children.generated.ts` beside each route with children | `routes`: its children's records, which its own record loads with `loadChildren`; nothing else imports it          |
+| File                                                    | Contents                                                                                                                           |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `<outDirectory>/routes.generated.ts`                    | `routes: Routes` for `provideRouter`, `injectActiveRoute()`, the `RouteTypes` it's typed with, and `provideActiveRouteHydration()` |
+| `destination.generated.ts` beside each route            | `destination`: the route's URL facts                                                                                               |
+| `route.generated.ts` beside each route                  | `route`, the declaration's browser copy, and `injectRoute()` for a route that has a page or descendants with pages                 |
+| `children.generated.ts` beside each route with children | `routes`: its children's records, which its own record loads with `loadChildren`; nothing else imports it                          |
 
 The two files beside a route are copies of its declaration with the same line numbers, so a stack trace or a type error in either points at the matching line of the declaration. `destination.generated.ts` keeps only the path and URL facts, and the imports and top-level code they use. `route.generated.ts` takes its URL facts from the destination and keeps the steps, minus any that a route extension marks server-only; imports and top-level helpers that only the removed parts used go too, and other top-level code stays as you wrote it. Generation type-checks both copies and reports their errors at the declaration's line. Redirect routes get both files too, without `injectRoute()`.
 
@@ -477,7 +514,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - Primary outlet only, for now. Named outlets are planned for 1.0. Until then you can add outlet routes by hand next to the generated `routes`; they aren't typed, and typed navigation drops any outlet segment from the URL.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No translated path segments yet; per-locale route trees are planned for 1.0. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
-- No data, URL or transfer caches. Resolver data lives in Angular.
+- No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 

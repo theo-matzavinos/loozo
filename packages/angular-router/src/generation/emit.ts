@@ -541,12 +541,15 @@ export type ActiveRoute = GeneratedActiveRoute<RouteTypes>;
  *
  * @remarks
  * Call in an Angular injection context. The value changes only when a navigation
- * commits, and is undefined before the first one or when no generated route is
- * active. A route keeps its handle while it stays active; each call is its own reader.
+ * commits, and is undefined before the first one (on a server-rendered page with
+ * provideActiveRouteHydration(), it reads the server's route until then) or when no
+ * generated route is active. A route keeps its handle while it stays active; each call
+ * is its own reader.
  */
 export function injectActiveRoute(): Signal<ActiveRoute | undefined> {
   return injectGeneratedActiveRoute<RouteTypes>();
 }
+export { provideActiveRouteHydration } from '@loozo/angular-router/_generated';
 `);
   desired.set(routesFile, routes.join("\n"));
 
