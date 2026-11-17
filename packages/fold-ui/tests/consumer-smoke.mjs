@@ -1,8 +1,9 @@
 // Chromium smoke of the consumer check's production build (consumer.mjs): the prerendered HTML,
 // hydration without errors, the button geometry, colors and type, the AlertDialog's, Dialog's and
 // Sheet's focus, dismissal, placement and motion, a Signal Forms Field's wiring, errors and
-// control styling, and Checkbox's, Switch's and RadioGroup's states, keys, layout, nesting and
-// forced colors.
+// control styling, Checkbox's, Switch's and RadioGroup's states, keys, layout, nesting and forced
+// colors, and the Number field's and Slider's server state, geometry, typing, stepping, keys,
+// pointer and touch, validation, states and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -248,7 +249,7 @@ try {
   );
   await prerendered.close();
 
-  const page = await browser.newPage();
+  const page = await browser.newPage({ deviceScaleFactor: 1 });
   const errors = [];
 
   page.on("console", (message) => {
@@ -1314,6 +1315,694 @@ try {
     off.equals(await shot("#renew")),
     false,
     "an on switch looks different from an off one",
+  );
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // Number field and Slider. Exact outline and border widths are DPR-1 values: at a fractional
+  // device-pixel ratio the browser reports them snapped to device pixels.
+  //
+  // Server rendering: Origami's state attributes, fold's slots and its decorative markup.
+  const amountInput = openingTag(html, "amount-input");
+  const ticketsIncrement = openingTag(html, "tickets-inc");
+
+  assert.match(amountInput, /\btype="text"/);
+  assert.match(amountInput, /\binputmode="decimal"/);
+  assert.match(amountInput, /\bdata-slot="number-field-input"/);
+  assert.match(openingTag(html, "amount-label"), /\bfor="amount-input"/);
+  assert.match(openingTag(html, "amount"), /\bdata-slot="number-field"/);
+  assert.match(openingTag(html, "amount-sign"), /\baria-hidden="true"/);
+  assert.match(openingTag(html, "amount-sign"), /\bdata-slot="number-field-adornment"/);
+  assert.match(openingTag(html, "tickets-input"), /\binputmode="numeric"/);
+  assert.match(openingTag(html, "tickets-input"), /\bvalue="10"/);
+  assert.match(ticketsIncrement, /\bdata-disabled=""/);
+  assert.match(ticketsIncrement, /\baria-disabled="true"/);
+  assert.match(ticketsIncrement, /\btabindex="-1"/);
+  assert.match(ticketsIncrement, /\baria-controls="tickets-input"/);
+  assert.match(ticketsIncrement, /\bdata-slot="number-field-increment"/);
+  assert.doesNotMatch(ticketsIncrement, /\sdisabled[\s=>]/);
+  assert.match(openingTag(html, "locked-amount-input"), /\sdisabled[\s=>]/);
+  assert.match(openingTag(html, "locked-amount-dec"), /\sdisabled[\s=>]/);
+  assert.match(openingTag(html, "locked-amount-inc"), /\sdisabled[\s=>]/);
+  assert.match(openingTag(html, "frozen-amount-input"), /\sreadonly[\s=>]/);
+  assert.match(openingTag(html, "frozen-amount-input"), /\bvalue="1\.234,50"/);
+
+  const stepButtons = element(html, "numbers")
+    .match(/<button\b[^>]*>/g)
+    .filter((tag) => /\bdata-slot="number-field-(?:de|in)crement"/.test(tag));
+
+  assert.ok(stepButtons.length >= 10, `${stepButtons.length} step buttons`);
+
+  for (const tag of stepButtons) {
+    assert.match(tag, /\baria-label="[^"]+"/, `a step button without a name: ${tag}`);
+  }
+
+  const zoomThumb = openingTag(html, "zoom-thumb");
+  const zoomMarkup = element(html, "zoom");
+
+  assert.match(openingTag(html, "zoom"), /\bstyle="[^"]*--og-slider-percent:\s*50%/);
+  assert.match(openingTag(html, "zoom"), /\bdata-slot="slider"/);
+  assert.match(zoomMarkup, /<div\b[^>]*\bdata-slot="slider-track"/);
+  assert.match(zoomMarkup, /<span\b[^>]*\bdata-slot="slider-rail"[^>]*\baria-hidden="true"/);
+  assert.match(zoomMarkup, /<span\b[^>]*\bdata-slot="slider-fill"[^>]*\baria-hidden="true"/);
+  assert.match(zoomThumb, /\bdata-slot="slider-thumb"/);
+  assert.match(zoomThumb, /\brole="slider"/);
+  assert.match(zoomThumb, /\baria-valuenow="100"/);
+  assert.match(zoomThumb, /\baria-valuemin="20"/);
+  assert.match(zoomThumb, /\baria-valuemax="180"/);
+  assert.match(zoomThumb, /\btabindex="0"/);
+  assert.match(zoomThumb, /\baria-labelledby="zoom-label"/);
+  assert.match(openingTag(html, "zoom-locked"), /\bdata-disabled=""/);
+  assert.doesNotMatch(openingTag(html, "zoom-locked-thumb"), /\stabindex=/);
+  assert.match(openingTag(html, "zoom-frozen-thumb"), /\baria-readonly="true"/);
+
+  // Before hydration, CSS alone draws the server state: the readonly box, the step limit and each
+  // thumb's place, flush with the slider's box at both ends and mirrored in RTL.
+  const numbersPrerendered = await browser.newPage({
+    javaScriptEnabled: false,
+    deviceScaleFactor: 1,
+  });
+
+  await numbersPrerendered.goto(base);
+
+  const serverLook = await numbersPrerendered.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const track = (id) => rect(`#${id} > [data-slot=slider-track]`);
+    const thumb = (id) => rect(`#${id} [data-slot=slider-thumb]`);
+    const center = (box) => box.left + box.width / 2;
+
+    return {
+      dpr: window.devicePixelRatio,
+      frozenBorder: getComputedStyle(document.getElementById("frozen-amount")).borderTopStyle,
+      limitOpacity: getComputedStyle(document.getElementById("tickets-inc")).opacity,
+      zoomOffset: center(thumb("zoom")) - (track("zoom").left + track("zoom").width / 2),
+      minOffset: thumb("zoom-at-min").left - rect("#zoom-at-min").left,
+      maxOffset: rect("#zoom-at-max").right - thumb("zoom-at-max").right,
+      rtlOffset: track("zoom-rtl").right - track("zoom-rtl").width / 4 - center(thumb("zoom-rtl")),
+    };
+  });
+
+  await numbersPrerendered.close();
+  assert.equal(serverLook.dpr, 1);
+  assert.equal(serverLook.frozenBorder, "dashed");
+  assert.equal(serverLook.limitOpacity, "0.5");
+
+  for (const key of ["zoomOffset", "minOffset", "maxOffset", "rtlOffset"]) {
+    assert.ok(Math.abs(serverLook[key]) <= 0.5, `server ${key} ${serverLook[key]}`);
+  }
+
+  // An element's focus outline, read whole: color alone passes while nothing is drawn.
+  const outline = (selector) =>
+    page.evaluate((selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+
+      return {
+        style: style.outlineStyle,
+        width: style.outlineWidth,
+        offset: style.outlineOffset,
+        color: style.outlineColor,
+      };
+    }, selector);
+  const ringOutline = (color) => ({ style: "solid", width: "2px", offset: "2px", color });
+  const textOf = (id) => page.evaluate((id) => document.getElementById(id).textContent.trim(), id);
+  const valueOf = (id) => page.evaluate((id) => document.getElementById(id).value, id);
+  const untilText = (id, text) =>
+    page.waitForFunction(
+      ([id, text]) => document.getElementById(id).textContent.trim() === text,
+      [id, text],
+    );
+  const untilValue = (id, value) =>
+    page.waitForFunction(([id, value]) => document.getElementById(id).value === value, [id, value]);
+  const untilAbsent = (id, name) =>
+    page.waitForFunction(
+      ([id, name]) => !document.getElementById(id).hasAttribute(name),
+      [id, name],
+    );
+  const selectAll = () => page.keyboard.press("ControlOrMeta+A");
+  const darkRing = "rgb(76, 196, 111)";
+  const lightRing = "rgb(38, 128, 63)";
+  const darkOrange = "rgb(224, 144, 111)";
+
+  await fresh();
+  assert.equal(await page.evaluate(() => window.devicePixelRatio), 1);
+
+  // Geometry: the box matches a plain Input, a bare box's text lines up with the Input's, the step
+  // buttons are the box's inner height, square, and the € sits 8px before the number.
+  const numberGeometry = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const box = (selector) => {
+      const look = style(selector);
+
+      return {
+        height: look.height,
+        radius: look.borderTopLeftRadius,
+        borderWidth: look.borderTopWidth,
+        borderColor: look.borderTopColor,
+        ground: look.backgroundColor,
+      };
+    };
+    const textStart = (selector) => rect(selector).left + parseFloat(style(selector).paddingLeft);
+    const steps = {};
+
+    for (const id of ["amount", "amount-sm", "amount-lg"]) {
+      const root = style(`#${id}`);
+      const inner =
+        rect(`#${id}`).height -
+        parseFloat(root.borderTopWidth) -
+        parseFloat(root.borderBottomWidth) -
+        parseFloat(root.paddingTop) -
+        parseFloat(root.paddingBottom);
+      const buttons = [];
+
+      for (const button of [`#${id}-dec`, `#${id}-inc`]) {
+        buttons.push({ width: rect(button).width, height: rect(button).height });
+      }
+
+      steps[id] = { root: rect(`#${id}`).height, inner, buttons };
+    }
+
+    const plain = style("#plain-input");
+    const thumb = rect("#zoom-thumb");
+
+    return {
+      box: box("#amount"),
+      plainBox: box("#plain-input"),
+      bareTextStart: textStart("#amount-bare-input"),
+      plainTextStart:
+        rect("#plain-input").left +
+        parseFloat(plain.borderLeftWidth) +
+        parseFloat(plain.paddingLeft),
+      euroGap: textStart("#amount-input") - rect("#amount-sign").right,
+      steps,
+      track: rect("#zoom > [data-slot=slider-track]").height,
+      touchAction: style("#zoom > [data-slot=slider-track]").touchAction,
+      rail: {
+        height: rect("#zoom [data-slot=slider-rail]").height,
+        width: rect("#zoom [data-slot=slider-rail]").width,
+      },
+      slider: rect("#zoom").width,
+      thumb: `${thumb.width}x${thumb.height}`,
+    };
+  });
+
+  assert.deepEqual(numberGeometry.box, numberGeometry.plainBox, "the box matches a plain Input");
+  assert.equal(numberGeometry.box.height, "32px");
+  assert.equal(numberGeometry.box.radius, "10px");
+  assert.ok(
+    Math.abs(numberGeometry.bareTextStart - numberGeometry.plainTextStart) <= 1,
+    `text inset ${numberGeometry.bareTextStart} vs ${numberGeometry.plainTextStart}`,
+  );
+  assert.ok(Math.abs(numberGeometry.euroGap - 8) <= 1, `€ gap ${numberGeometry.euroGap}`);
+
+  for (const [id, height] of [
+    ["amount", 32],
+    ["amount-sm", 28],
+    ["amount-lg", 36],
+  ]) {
+    const { root, inner, buttons } = numberGeometry.steps[id];
+
+    assert.equal(root, height, `${id} height`);
+
+    for (const button of buttons) {
+      assert.ok(Math.abs(button.height - inner) <= 0.5, `${id} button height ${button.height}`);
+      assert.ok(Math.abs(button.width - button.height) <= 0.5, `${id} button ${button.width}`);
+    }
+  }
+
+  assert.equal(numberGeometry.track, 24);
+  assert.equal(numberGeometry.touchAction, "pan-y");
+  assert.equal(numberGeometry.rail.height, 4);
+  assert.ok(Math.abs(numberGeometry.rail.width - numberGeometry.slider) <= 0.5, "rail width");
+  assert.equal(numberGeometry.thumb, "16x16");
+
+  // Number field: typing commits, blurring formats; above max, stepping up is blocked and focus
+  // stays in the input; in range, ArrowUp and Increment step on the grid.
+  await page.click("#amount-input");
+  await page.keyboard.type("1234,5");
+  await untilText("amount-value", "1234.5");
+  await page.keyboard.press("Tab");
+  await untilValue("amount-input", "1.234,50");
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const increment = document.getElementById("amount-inc");
+
+      return {
+        marked: increment.hasAttribute("data-disabled"),
+        aria: increment.getAttribute("aria-disabled"),
+        native: increment.disabled,
+        opacity: getComputedStyle(increment).opacity,
+      };
+    }),
+    { marked: true, aria: "true", native: false, opacity: "0.5" },
+  );
+  await page.click("#amount-input");
+  await page.keyboard.press("ArrowUp");
+  // Playwright won't click an aria-disabled button without force.
+  await page.click("#amount-inc", { force: true });
+  await rendered();
+  assert.equal(await valueOf("amount-input"), "1.234,50");
+  assert.equal(await textOf("amount-value"), "1234.5");
+  assert.equal(await activeId(), "amount-input");
+
+  await selectAll();
+  await page.keyboard.type("12,5");
+  await untilText("amount-value", "12.5");
+  await untilAbsent("amount-inc", "data-disabled");
+  await page.keyboard.press("Tab");
+  await untilValue("amount-input", "12,50");
+  await page.click("#amount-input");
+  await page.keyboard.press("ArrowUp");
+  await untilText("amount-value", "13");
+  await untilValue("amount-input", "13,00");
+  await page.click("#amount-inc");
+  await untilText("amount-value", "14");
+  await untilValue("amount-input", "14,00");
+  assert.equal(await activeId(), "amount-input", "Increment keeps focus in the input");
+
+  // At its limit a step button does nothing; a disabled field ignores its buttons, a readonly one
+  // typing; a standalone field writes its two-way binding.
+  await page.click("#tickets-inc", { force: true });
+  await rendered();
+  assert.equal(await valueOf("tickets-input"), "10");
+  await page.click("#tickets-dec");
+  await untilValue("tickets-input", "9");
+  await untilAbsent("tickets-inc", "data-disabled");
+  await page.click("#quantity-inc");
+  await untilText("quantity-value", "4");
+  await page.click("#locked-amount-inc", { force: true });
+  await page.click("#locked-amount-dec", { force: true });
+  await page.click("#frozen-amount-input");
+  await page.keyboard.type("5");
+  await page.keyboard.press("ArrowUp");
+  await rendered();
+  assert.equal(await valueOf("locked-amount-input"), "1.234,50");
+  assert.equal(await valueOf("frozen-amount-input"), "1.234,50");
+
+  // Slider: keys, presses (including the 8px past each end of the Track), drags, RTL, and the
+  // disabled and readonly ones ignoring both.
+  const now = (id) => attribute(id, "aria-valuenow");
+  const track = async (id) => {
+    await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+
+    return page.evaluate((id) => {
+      const box = document
+        .querySelector(`#${id} > [data-slot=slider-track]`)
+        .getBoundingClientRect();
+
+      return { left: box.left, right: box.right, width: box.width, y: box.top + box.height / 2 };
+    }, id);
+  };
+
+  await page.focus("#zoom-thumb");
+  await page.keyboard.press("ArrowRight");
+  await until("zoom-thumb", "aria-valuenow", "110");
+  await untilText("zoom-value", "110%");
+  await page.keyboard.press("Home");
+  await until("zoom-thumb", "aria-valuenow", "20");
+  await page.keyboard.press("End");
+  await until("zoom-thumb", "aria-valuenow", "180");
+
+  const zoomTrack = await track("zoom");
+
+  await page.mouse.click(zoomTrack.left + zoomTrack.width * 0.75, zoomTrack.y);
+  await until("zoom-thumb", "aria-valuenow", "140");
+  await rendered();
+
+  const pressedCenter = await page.evaluate(() => {
+    const thumb = document.getElementById("zoom-thumb").getBoundingClientRect();
+
+    return thumb.left + thumb.width / 2;
+  });
+
+  assert.ok(
+    Math.abs(pressedCenter - (zoomTrack.left + zoomTrack.width * 0.75)) <= 0.5,
+    `thumb center ${pressedCenter}`,
+  );
+  await page.mouse.click(zoomTrack.left - 4, zoomTrack.y);
+  await until("zoom-thumb", "aria-valuenow", "20");
+  await page.mouse.click(zoomTrack.right + 4, zoomTrack.y);
+  await until("zoom-thumb", "aria-valuenow", "180");
+
+  await page.mouse.move(zoomTrack.right, zoomTrack.y);
+  await page.mouse.down();
+  await page.mouse.move(zoomTrack.left + zoomTrack.width / 2, zoomTrack.y, { steps: 4 });
+  await page.waitForFunction(() => document.getElementById("zoom").hasAttribute("data-dragging"));
+  await page.mouse.up();
+  await untilAbsent("zoom", "data-dragging");
+  await until("zoom-thumb", "aria-valuenow", "100");
+
+  await page.focus("#zoom-rtl-thumb");
+  await page.keyboard.press("ArrowRight");
+  await until("zoom-rtl-thumb", "aria-valuenow", "24");
+
+  const rtlTrack = await track("zoom-rtl");
+
+  await page.mouse.click(rtlTrack.right - 1, rtlTrack.y);
+  await page.waitForFunction(
+    () => Number(document.getElementById("zoom-rtl-thumb").getAttribute("aria-valuenow")) <= 2,
+  );
+
+  for (const id of ["zoom-locked", "zoom-frozen"]) {
+    const box = await track(id);
+
+    await page.mouse.click(box.left + box.width * 0.75, box.y);
+  }
+
+  // A disabled thumb can't take focus, so the key goes straight to it.
+  await page.locator("#zoom-locked-thumb").dispatchEvent("keydown", {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    bubbles: true,
+    cancelable: true,
+  });
+  await page.focus("#zoom-frozen-thumb");
+  await page.keyboard.press("ArrowRight");
+  await rendered();
+  assert.equal(await now("zoom-locked-thumb"), "50");
+  assert.equal(await now("zoom-frozen-thumb"), "50");
+
+  // Touch: a horizontal drag moves the thumb; a vertical gesture that starts on the thumb scrolls
+  // the page and keeps the value.
+  const touchContext = await browser.newContext({
+    hasTouch: true,
+    deviceScaleFactor: 1,
+    viewport: { width: 1200, height: 800 },
+  });
+  const touchPage = await touchContext.newPage();
+
+  touchPage.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      errors.push(message.text());
+    }
+  });
+  touchPage.on("pageerror", (error) => errors.push(String(error)));
+  await touchPage.goto(base, { waitUntil: "networkidle" });
+  await touchPage.waitForFunction(
+    () => document.querySelector("app-root") && !document.querySelector("[ngh]"),
+  );
+  assert.equal(await touchPage.evaluate(() => window.devicePixelRatio), 1);
+
+  const cdp = await touchContext.newCDPSession(touchPage);
+  const touchThumb = () =>
+    touchPage.evaluate(() => {
+      const thumb = document.getElementById("zoom-thumb");
+      const box = thumb.getBoundingClientRect();
+
+      return {
+        x: box.left + box.width / 2,
+        y: box.top + box.height / 2,
+        value: thumb.getAttribute("aria-valuenow"),
+        scrollY: window.scrollY,
+      };
+    });
+  const touch = (type, points) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
+
+  // The thumb in the lower part of the viewport, with page left to scroll below it.
+  await touchPage.evaluate(() => {
+    const box = document.getElementById("zoom").getBoundingClientRect();
+
+    window.scrollTo(0, window.scrollY + box.top - 600);
+  });
+
+  const dragStart = await touchThumb();
+
+  assert.equal(dragStart.value, "100");
+  await touch("touchStart", [{ x: dragStart.x, y: dragStart.y }]);
+
+  for (let step = 1; step <= 8; step += 1) {
+    await touch("touchMove", [{ x: dragStart.x + step * 10, y: dragStart.y }]);
+  }
+
+  await touch("touchEnd", []);
+  await touchPage.waitForFunction(
+    () => Number(document.getElementById("zoom-thumb").getAttribute("aria-valuenow")) > 100,
+  );
+
+  const scrollStart = await touchThumb();
+
+  await touch("touchStart", [{ x: scrollStart.x, y: scrollStart.y }]);
+
+  for (let step = 1; step <= 15; step += 1) {
+    await touch("touchMove", [{ x: scrollStart.x, y: scrollStart.y - step * 10 }]);
+  }
+
+  await touch("touchEnd", []);
+  await touchPage.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+
+  const scrollEnd = await touchThumb();
+
+  assert.ok(scrollEnd.scrollY > scrollStart.scrollY, `touch scroll ${JSON.stringify(scrollEnd)}`);
+  assert.equal(scrollEnd.value, scrollStart.value, "a scroll from the thumb keeps the value");
+  await cdp.detach();
+  await touchContext.close();
+
+  // Validation, from a fresh page: saving shows every error; an invalid box stays orange under its
+  // ring, an invalid thumb turns orange and its fill stays neutral; every rule has its message,
+  // and the parse errors theirs.
+  await fresh();
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      amount: document.getElementById("amount-input").value,
+      invalid: document.querySelectorAll("#numbers [aria-invalid]").length,
+    })),
+    { amount: "", invalid: 0 },
+  );
+  await page.click("#numbers-save");
+  await page.waitForSelector("#amount-field [data-slot=field-error]");
+
+  assert.equal(
+    await page.evaluate(() =>
+      document.querySelector("#amount-field [data-slot=field-error]").textContent.trim(),
+    ),
+    "Enter an amount",
+  );
+  assert.equal((await styleOf("#amount", ["borderTopColor"])).borderTopColor, darkOrange);
+  await page.focus("#amount-bare-input");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "amount-input");
+  assert.equal((await styleOf("#amount", ["borderTopColor"])).borderTopColor, darkOrange);
+  assert.deepEqual(await outline("#amount"), ringOutline(darkRing));
+  assert.equal(await attribute("zoom-invalid-thumb", "aria-invalid"), "true");
+  assert.deepEqual(
+    {
+      border: (await styleOf("#zoom-invalid-thumb", ["borderTopColor"])).borderTopColor,
+      fill: (await styleOf("#zoom-invalid [data-slot=slider-fill]", ["backgroundColor"]))
+        .backgroundColor,
+    },
+    { border: darkOrange, fill: foreground },
+  );
+
+  const errorText = (text) =>
+    page.waitForFunction(
+      (text) =>
+        document.querySelector("#amount-field [data-slot=field-error]")?.textContent.trim() ===
+        text,
+      text,
+    );
+
+  await page.click("#amount-input");
+  await selectAll();
+  await page.keyboard.type("1500");
+  await page.keyboard.press("Tab");
+  await errorText("Up to 1.000 €");
+  await page.click("#amount-input");
+  await selectAll();
+  await page.keyboard.type("12.50");
+  await page.keyboard.press("Tab");
+  await errorText("That isn't an amount");
+  await page.click("#focus-amount");
+  await page.waitForFunction(() => document.activeElement?.id === "amount-input");
+  await page.click("#focus-zoom");
+  await page.waitForFunction(() => document.activeElement?.id === "zoom-thumb");
+
+  // States, from a fresh page: the box's and the thumb's keyboard rings, disabled and readonly,
+  // hover, and the colors in both themes.
+  await fresh();
+  await page.focus("#amount-input");
+  assert.deepEqual(await outline("#amount"), ringOutline(darkRing));
+  await page.focus("#zoom-thumb");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await until("zoom-thumb", "aria-valuenow", "100");
+  assert.deepEqual(await outline("#zoom-thumb"), ringOutline(darkRing));
+  await page.focus("#light-zoom-thumb");
+  await page.keyboard.press("ArrowRight");
+  await until("light-zoom-thumb", "aria-valuenow", "51");
+  assert.deepEqual(await outline("#light-zoom-thumb"), ringOutline(lightRing));
+  await page.hover("#amount-bare");
+  assert.notEqual(
+    (await styleOf("#amount-bare", ["borderTopColor"])).borderTopColor,
+    "rgb(107, 107, 104)",
+    "hover changes the border",
+  );
+  await page.mouse.move(0, 0);
+
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+
+      return {
+        locked: style("#locked-amount").opacity,
+        lockedButtons: [style("#locked-amount-dec").opacity, style("#locked-amount-inc").opacity],
+        frozenButtons: [style("#frozen-amount-dec").opacity, style("#frozen-amount-inc").opacity],
+        zoomLocked: style("#zoom-locked").opacity,
+        zoomFrozen: style("#zoom-frozen-thumb").borderTopStyle,
+        dark: {
+          rail: style("#zoom [data-slot=slider-rail]").backgroundColor,
+          fill: style("#zoom [data-slot=slider-fill]").backgroundColor,
+          thumb: `${style("#zoom-thumb").backgroundColor} ${style("#zoom-thumb").borderTopColor}`,
+        },
+        light: {
+          box: `${style("#light-amount").borderTopColor} ${style("#light-amount").backgroundColor}`,
+          rail: style("#light-zoom [data-slot=slider-rail]").backgroundColor,
+          fill: style("#light-zoom [data-slot=slider-fill]").backgroundColor,
+          thumb: `${style("#light-zoom-thumb").backgroundColor} ${style("#light-zoom-thumb").borderTopColor}`,
+        },
+      };
+    }),
+    {
+      locked: "0.5",
+      lockedButtons: ["1", "1"],
+      frozenButtons: ["0.5", "0.5"],
+      zoomLocked: "0.5",
+      zoomFrozen: "dashed",
+      dark: {
+        rail: "rgb(107, 107, 104)",
+        fill: foreground,
+        thumb: `rgb(28, 28, 28) ${foreground}`,
+      },
+      light: {
+        box: "rgb(133, 133, 129) rgb(247, 247, 246)",
+        rail: "rgb(133, 133, 129)",
+        fill: "rgb(27, 27, 27)",
+        thumb: "rgb(247, 247, 246) rgb(27, 27, 27)",
+      },
+    },
+  );
+
+  // Reduced motion removes the box's, the buttons' and the thumb's transitions.
+  assert.deepEqual(
+    await page.evaluate(() =>
+      ["#amount", "#amount-inc", "#zoom-thumb"].map(
+        (selector) => getComputedStyle(document.querySelector(selector)).transitionDuration,
+      ),
+    ),
+    ["0s", "0s", "0s"],
+  );
+
+  // Forced colors, from a fresh page: the rail and fill keep system colors, the thumb is a Canvas
+  // disc with a CanvasText border in every state, invalid included, and both controls' focus rings
+  // are CanvasText.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+
+  const palette = await page.evaluate(() => {
+    const probe = document.createElement("span");
+
+    probe.style.cssText =
+      "position: fixed; forced-color-adjust: none; background: Canvas; color: CanvasText";
+    document.body.append(probe);
+
+    const style = getComputedStyle(probe);
+    const result = { canvas: style.backgroundColor, canvasText: style.color };
+
+    probe.remove();
+
+    return result;
+  });
+  const forcedSlider = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+
+    return {
+      ground: style("html").backgroundColor,
+      rail: style("#zoom [data-slot=slider-rail]").backgroundColor,
+      fill: style("#zoom [data-slot=slider-fill]").backgroundColor,
+      thumb: style("#zoom-thumb").backgroundColor,
+      borderWidth: parseFloat(style("#zoom-thumb").borderTopWidth),
+      border: style("#zoom-thumb").borderTopColor,
+    };
+  });
+
+  for (const part of ["rail", "fill"]) {
+    assert.match(forcedSlider[part], /^rgb\(/, `forced ${part} is opaque`);
+    assert.notEqual(forcedSlider[part], forcedSlider.ground, `forced ${part} vs the ground`);
+  }
+
+  assert.notEqual(forcedSlider.rail, forcedSlider.fill, "forced rail vs fill");
+  assert.equal(forcedSlider.thumb, palette.canvas, "forced thumb center");
+  assert.ok(forcedSlider.borderWidth >= 1, `forced thumb border ${forcedSlider.borderWidth}`);
+  assert.equal(forcedSlider.border, palette.canvasText, "forced thumb border");
+
+  await page.focus("#zoom-thumb");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await until("zoom-thumb", "aria-valuenow", "100");
+  assert.deepEqual(await outline("#zoom-thumb"), ringOutline(palette.canvasText));
+  assert.equal(
+    (await styleOf("#zoom-thumb", ["borderTopColor"])).borderTopColor,
+    palette.canvasText,
+  );
+
+  const fillOffset = () =>
+    page.evaluate(() => {
+      const fill = document.querySelector("#zoom [data-slot=slider-fill]").getBoundingClientRect();
+      const thumb = document.getElementById("zoom-thumb").getBoundingClientRect();
+
+      return { right: fill.right, offset: fill.right - (thumb.left + thumb.width / 2) };
+    });
+  const fillBefore = await fillOffset();
+
+  assert.ok(
+    Math.abs(fillBefore.offset) <= 0.5,
+    `at 100 the fill ends ${fillBefore.offset}px from the thumb's center`,
+  );
+
+  const beforeEnd = await page.locator("#zoom").screenshot({ animations: "disabled" });
+
+  await page.keyboard.press("End");
+  await until("zoom-thumb", "aria-valuenow", "180");
+  await rendered();
+  assert.equal(
+    beforeEnd.equals(await page.locator("#zoom").screenshot({ animations: "disabled" })),
+    false,
+    "the forced slider looks different at its end",
+  );
+
+  const fillAfter = await fillOffset();
+
+  assert.ok(
+    Math.abs(fillAfter.offset) <= 0.5,
+    `at 180 the fill ends ${fillAfter.offset}px from the thumb's center`,
+  );
+  assert.ok(fillAfter.right > fillBefore.right + 1, "the fill grows with the value");
+  await page.focus("#amount-input");
+  assert.deepEqual(await outline("#amount"), ringOutline(palette.canvasText));
+  assert.notEqual(
+    (await styleOf("#tickets-inc", ["color"])).color,
+    (await styleOf("#tickets-dec", ["color"])).color,
+    "a forced limit button looks different",
+  );
+
+  await page.click("#numbers-save");
+  await page.waitForSelector("#zoom-invalid-thumb[aria-invalid=true]");
+  await page.waitForSelector("#zoom-invalid-field [data-slot=field-error]");
+  await page.focus("#numbers-save");
+  assert.equal(
+    (await styleOf("#zoom-invalid-thumb", ["borderTopColor"])).borderTopColor,
+    palette.canvasText,
+    "a forced invalid thumb's border",
+  );
+  await page.focus("#zoom-invalid-thumb");
+  await page.keyboard.press("ArrowRight");
+  await until("zoom-invalid-thumb", "aria-valuenow", "31");
+  assert.equal(await attribute("zoom-invalid-thumb", "aria-invalid"), "true");
+  assert.deepEqual(await outline("#zoom-invalid-thumb"), ringOutline(palette.canvasText));
+  assert.equal(
+    (await styleOf("#zoom-invalid-thumb", ["borderTopColor"])).borderTopColor,
+    palette.canvasText,
   );
   await page.emulateMedia({ forcedColors: "none" });
 

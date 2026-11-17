@@ -17,8 +17,10 @@
           "dialog",
           "field",
           "input",
+          "number-field",
           "radio-group",
           "sheet",
+          "slider",
           "switch",
           "textarea"
         ]
