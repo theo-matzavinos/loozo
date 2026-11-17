@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField and Slider. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -43,9 +43,10 @@ ng generate @loozo/fold-ui:add --names button alert-dialog dialog sheet
 ng generate @loozo/fold-ui:add --names field input textarea
 ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
+ng generate @loozo/fold-ui:add --names select combobox
 ```
 
-NumberField and Slider import `@loozo/origami-ui/number-field` and `@loozo/origami-ui/slider`, so they need an Origami release that has them; an app set up with an older one needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select works with 0.0.4. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -55,6 +56,10 @@ src/ui/
 ├── cn/
 │   ├── index.ts
 │   └── cn.ts
+├── popup/
+│   ├── index.ts
+│   ├── popup.ts
+│   └── option.ts
 ├── button/
 │   ├── index.ts
 │   ├── button-style.ts
@@ -72,7 +77,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select and Combobox share the floating list's look from `popup`, so adding either adds `popup`, and Combobox's input is Input's look, so adding `combobox` adds `input` too; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -90,11 +95,12 @@ A component that's only a dependency is always kept when its folder exists. To r
 <html class="light"></html>
 ```
 
-To re-theme, change the token values in your copy; when you add a text size, radius or shadow, also add its name to `cn` (see [Class merging](#class-merging-and-slots)). Hover, pressed and tint colors are mixed from the tokens with `color-mix()`, and the radius ladder derives from `--radius`, so they follow. The theme also adds:
+To re-theme, change the token values in your copy; when you add a text size, radius, shadow or animation, also add its name to `cn` (see [Class merging](#class-merging-and-slots)). Hover, pressed and tint colors are mixed from the tokens with `color-mix()`, and the radius ladder derives from `--radius`, so they follow. The theme also adds:
 
 - utilities such as `bg-primary`, `text-muted-foreground`, `border-input`, `rounded-control`, `rounded-dialog` and `shadow-edge`.
 - a five-step type ladder: `text-display` (28px), `text-headline` (20px), `text-title` (15px), `text-body` (13px) and `text-label` (12px), each with its line height and weight. The body text is 13px, set on `<body>`, so `rem` stays 16px and Tailwind's spacing keeps its sizes.
 - `dark:` and `light:` variants that follow the classes instead of the system preference. `dark:` doesn't follow an explicit `.dark` nested inside `.light`.
+- `animate-popup-in` and `animate-popup-out`, the floating list's 120ms fade and scale from 96%; see [Floating lists](#floating-lists).
 - the Hanken Grotesk variable font, imported from `@fontsource-variable/hanken-grotesk`.
 
 Tailwind's default colors and `text-*` sizes stay available.
@@ -107,7 +113,7 @@ Every part except the AlertDialog, Dialog and Sheet roots takes a `class` input 
 <button foldButton class="px-6">Wider</button>
 ```
 
-The merging comes from `cn`, a component like the others. `cn/cn.ts` exports `tv`, `tailwind-variants`' variant builder, and `cn(...classes)`, which joins classes and keeps the last of conflicting utilities. Both are configured with the theme's text sizes, radii and shadows, which Tailwind's defaults don't have: without them, `text-title` would count as a text color and cancel `text-foreground`. Use them for your own components too:
+The merging comes from `cn`, a component like the others. `cn/cn.ts` exports `tv`, `tailwind-variants`' variant builder, and `cn(...classes)`, which joins classes and keeps the last of conflicting utilities. Both are configured with the theme's text sizes, radii, shadows and animations, which Tailwind's defaults don't have: without them, `text-title` would count as a text color and cancel `text-foreground`. Use them for your own components too:
 
 ```ts
 import { Directive, computed, input } from "@angular/core";
@@ -126,11 +132,11 @@ export class Panel {
 }
 ```
 
-`cn.ts` lists the `--text-*`, `--radius-*` and `--shadow-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
+`cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator`, `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`.
+Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator`, `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -691,6 +697,163 @@ There's no value part: show the value in an `<output>` beside the label, as abov
 
 [Origami's README](../origami-ui/slider/README.md) describes the keys, pointer handling, hydration and the rest.
 
+## Select
+
+```ts
+import { SelectParts } from "#ui/select";
+import { form, required } from "@angular/forms/signals";
+
+readonly contract = form(signal({ status: null as string | null }), (p) => {
+  required(p.status, { message: "Choose a status" });
+});
+readonly statuses = [
+  { value: "draft", label: "Draft", retired: false },
+  { value: "active", label: "Active", retired: false },
+  { value: "paused", label: "Paused", retired: true },
+];
+```
+
+`Select` picks one value from a list, over Origami's [Select](../origami-ui/select/README.md), which owns the behavior: the keys, typeahead, pointer, positioning, Field membership and server rendering. `SelectTrigger` is Input's 32px box with the soft edge and a trailing chevron; `SelectContent` floats the `SelectOption`s 4px below it, in the [floating list](#floating-lists). In a Field, the Trigger is the Field's control; name the Field with a FieldLabel on a `<span>`:
+
+<!-- prettier-ignore -->
+```html
+<div foldField #statusField="foldField">
+  <span foldFieldLabel>Status</span>
+  <div foldSelect [formField]="contract.status" #status="foldSelect">
+    <button foldSelectTrigger>{{ status.state.selectedOption()?.label ?? "Choose a status" }}</button>
+    <div foldSelectContent>
+      @for (s of statuses; track s.value) {
+        <div foldSelectOption [value]="s.value" [label]="s.label" [disabled]="s.retired">{{ s.label }}</div>
+      }
+    </div>
+  </div>
+  @if (statusField.state.errorsShown()) {
+    <p foldFieldError>{{ statusField.state.errors()[0]?.message }}</p>
+  }
+</div>
+
+<div foldSelect [(value)]="sort" #sortBy="foldSelect" class="w-44">
+  <button foldSelectTrigger aria-label="Sort by">{{ sortBy.state.selectedOption()?.label ?? "Sort by" }}</button>
+  <div foldSelectContent>
+    <div foldSelectOption value="newest" label="Newest first">Newest first</div>
+    <div foldSelectOption value="oldest" label="Oldest first">Oldest first</div>
+  </div>
+</div>
+```
+
+- `Select`: the root. It takes `value` (two-way), `open` (two-way), `disabled` and `class`, and emits `valueChange`, `openChange` and `touch`; `[formField]` binds the value and follows the field's `disabled()` and `readonly()` rules, but the readonly look keys on `aria-readonly`, which only a Field sets. Its template reference, `#status="foldSelect"` with your prefix, has `state`, with `value`, `open`, `disabled` and `selectedOption` signals. Its `focus()` focuses the Trigger, so Signal Forms' `focusBoundControl()` reaches it.
+- `SelectTrigger`: a `<button>` showing what you write in it, truncated; the placeholder look follows Origami's `data-placeholder`. Write its text from `state.selectedOption()`, as above. It takes `id`, `disabled`, `focusableWhenDisabled` and `class`. Outside a Field, give it an `aria-label`.
+- `SelectContent`: the list. It takes `id`, `side` (default `block-end`), `align` (default `start`), `gap` (default 4, in CSS pixels) and `class`.
+- `SelectOption`: a 32px row with a check at its end while selected. It takes `value` (required), `label`, `disabled`, `id` and `class`. Its content can be any markup, such as a flag before the name.
+
+Set `label` on every option: the Trigger's text and typeahead read it, and an option without one, or a value no option has, leaves the Trigger showing your fallback text in the foreground color instead of the placeholder look.
+
+- **A label click does nothing.** Like RadioGroup, a Select's FieldLabel names it but doesn't focus it.
+- **Readonly browses.** A readonly Select opens and moves its highlight, but choosing writes nothing and leaves the list open.
+- **Long lists.** Every option is mounted while the list is closed; for hundreds of options, use a [Combobox](#combobox) and render only the matches.
+- **One value.** There's no multiple selection; Origami's [`ogSelectMultiple`](../origami-ui/select/README.md) composes with fold's Trigger, Content and Option if you need it.
+- **In a Dialog.** The list opens over the dialog in the top layer; the first Escape closes the list, the next one the dialog.
+
+[Origami's README](../origami-ui/select/README.md) describes the keys, typeahead, hydration and the rest.
+
+## Combobox
+
+```ts
+import { ComboboxParts } from "#ui/combobox";
+
+readonly trip = form(signal({ planet: null as number | null }), (p) => {
+  required(p.planet, { message: "Choose a planet" });
+});
+readonly planetQuery = signal("");
+readonly planets = computed(() => {
+  const query = this.planetQuery().trim().toLocaleLowerCase();
+  const chosen = PLANETS.find((p) => p.id === this.trip.planet().value());
+
+  // The chosen label is the query after a choice: show every planet then, not only that one.
+  if (query === "" || chosen?.name.toLocaleLowerCase() === query) {
+    return PLANETS;
+  }
+
+  return PLANETS.filter((p) => p.name.toLocaleLowerCase().startsWith(query));
+});
+```
+
+`Combobox` is a text box that filters a list, over Origami's [Combobox](../origami-ui/combobox/README.md), which owns the behavior: typing writes `query` and opens the list, and you render only the options that match it. `ComboboxInput` has Input's look and is the Field's control, so name it with a FieldLabel on a `<label>`. An optional `ComboboxTrigger` chevron sits over the input's end and opens the whole list:
+
+<!-- prettier-ignore -->
+```html
+<div foldField #planetField="foldField">
+  <label foldFieldLabel>Planet</label>
+  <div foldCombobox [formField]="trip.planet" [(query)]="planetQuery">
+    <input foldComboboxInput placeholder="Search planets" />
+    <button foldComboboxTrigger aria-label="All planets"></button>
+    <div foldComboboxContent>
+      @for (p of planets(); track p.id) {
+        <div foldComboboxOption [value]="p.id" [label]="p.name" [disabled]="p.dwarf">{{ p.name }}</div>
+      } @empty {
+        <p foldComboboxEmpty>No planet matches “{{ planetQuery() }}”.</p>
+      }
+    </div>
+  </div>
+  @if (planetField.state.errorsShown()) {
+    <p foldFieldError>{{ planetField.state.errors()[0]?.message }}</p>
+  }
+</div>
+```
+
+A server search without a Trigger, with two-line rows:
+
+<!-- prettier-ignore -->
+```html
+<div foldCombobox [(value)]="customerId" [(query)]="customerQuery">
+  <input foldComboboxInput aria-label="Customer" placeholder="Name, member number or email" />
+  <div foldComboboxContent>
+    @for (c of customers.value() ?? []; track c.id) {
+      <div foldComboboxOption [value]="c.id" [label]="c.name">
+        <span class="block">{{ c.name }}</span>
+        <span class="block text-label font-normal text-muted-foreground">{{ c.email }}</span>
+      </div>
+    } @empty {
+      <p foldComboboxEmpty>{{ customers.isLoading() ? "Searching…" : "No customers found." }}</p>
+    }
+  </div>
+</div>
+```
+
+- `Combobox`: the root. It takes `value` (two-way), `query` (two-way), `open` (two-way), `disabled` and `class`, and emits `valueChange`, `queryChange`, `openChange` and `touch`; `[formField]` binds the value and follows the field's `disabled()` and `readonly()` rules, which make the input natively disabled or readonly. Its template reference, `#planet="foldCombobox"` with your prefix, has `state`, with `value`, `query`, `open` and `disabled` signals. Its `focus()` focuses the input.
+- `ComboboxInput`: the text box and the list's anchor. It takes `id` and `class`.
+- `ComboboxTrigger`: a 32px chevron button over the input's end, out of the Tab order; a click leaves focus in the input. Write it directly after the input, inside the root, so the input makes room for it, and give it an `aria-label`. It takes `id` and `class`.
+- `ComboboxContent`, `ComboboxOption`: as Select's. The list stays open with no options.
+- `ComboboxEmpty`: a muted row lined up with the options' text, for no matches or a pending search. It takes `class`.
+
+Choosing an option puts its `label` in the input. Closing without a choice puts the last chosen label back, and only emptying the input clears the value.
+
+- **Writing the value.** Writing `value` from outside doesn't change the text: write `query` too, such as the chosen record's name on an edit page, and after a form `reset()`.
+- **Filter by more than the query.** Filtering by `query` alone shows only the chosen option when the Trigger reopens the list; show everything while the query is the chosen label, as above.
+- **The empty row isn't announced.** Screen-reader users hear nothing when a search empties the list.
+- **A label click focuses the input**, unlike Select.
+
+[Origami's README](../origami-ui/combobox/README.md) describes the keys, typing, IME, hydration and the rest.
+
+## Floating lists
+
+Select and Combobox share one look from `popup`, a folder of class lists with no Angular code, which your own panels can use too:
+
+- `popupClasses`: a floating surface: 12px radius, the surface fill, a 1px border, 4px padding, the popover shadow, and the entrance and exit animations. Width and padding beyond that are yours.
+- `popupListClasses`: a list anchored to its trigger: at least as wide as it, at most the viewport's width less 16px, and at most 20rem tall or the room left less 8px, scrolling inside itself.
+- `optionClasses`: a 32px option row with a 6px radius, an 8% foreground tint while highlighted, a check (its direct `<svg>` child) shown while selected, and 50% opacity when disabled.
+
+```ts
+import { cn } from "#ui/cn";
+import { popupClasses } from "#ui/popup";
+
+protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.class()));
+```
+
+- **Motion.** The list fades in and scales from 96% over 120ms once Origami has placed it, and reverses when it closes, from its center whichever side it opens on. Under reduced motion it doesn't animate, and it's hidden when Angular renders the close.
+- **Out of the Tab order.** Select's and Combobox's Content have `tabindex="-1"`: in Chromium and Firefox a scrolling list is otherwise a Tab stop, and Tab from the open list lands on it instead of the next control. If you compose `popupListClasses` over Origami's Content yourself, add it too.
+- **Forced colors.** In forced-colors mode, such as Windows High Contrast, the highlighted option paints `Highlight` with `HighlightText`, and a disabled one `GrayText`. Text you put in an option follows its row's system color, whatever its own color class. A descendant's own background, border or fill keeps its color, so give it `forced-colors:` classes. To keep a deliberate system color on a descendant's text, write `forced-colors:text-[Mark]!`: the `!` is required, because the shared rule has the same specificity and comes later.
+
 ## Limitations
 
 - Re-running `add` can't tell untouched files from edited ones, because the CLI reformats them with your Prettier; see `--existing`.
@@ -699,6 +862,7 @@ There's no value part: show the value in an `<output>` beside the label, as abov
 - `ng add` adds `imports` at the top of your `package.json`.
 - Nx workspaces are untested.
 - No range, multi-thumb or vertical Slider, and no ticks or marks; no press-and-hold or wheel stepping in NumberField.
+- No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. A list wider than its trigger near the viewport's edge can overflow it: Origami flips a list but doesn't shift it.
 
 ## Developing this package
 

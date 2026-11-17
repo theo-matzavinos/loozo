@@ -7,13 +7,15 @@ import {
 } from "tailwind-variants";
 
 /**
- * Teaches the class merger theme.css's text sizes, radii and shadows, which Tailwind's defaults
- * don't have: without them `text-title` counts as a text color and cancels `text-foreground`.
- * Adding a `--text-*`, `--radius-*` or `--shadow-*` to theme.css means adding its name here.
+ * Teaches the class merger theme.css's text sizes, radii, shadows and animations, which Tailwind's
+ * defaults don't have: without them `text-title` counts as a text color and cancels
+ * `text-foreground`. Adding a `--text-*`, `--radius-*`, `--shadow-*` or `--animate-*` to theme.css
+ * means adding its name here.
  */
 export const twMergeConfig: TWMergeConfig = {
   extend: {
     theme: {
+      animate: ["popup-in", "popup-out"],
       text: ["display", "headline", "title", "body", "label"],
       radius: [
         "checkbox",

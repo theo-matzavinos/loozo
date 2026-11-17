@@ -1,6 +1,6 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
-import { Component, inject, signal } from "@angular/core";
+import { Component, computed, inject, signal } from "@angular/core";
 import {
   FormField,
   disabled,
@@ -17,6 +17,7 @@ import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dial
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { Button, ButtonLink } from "#ui/button";
 import { Checkbox } from "#ui/checkbox";
+import { ComboboxParts } from "#ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -29,11 +30,74 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
 import { NumberFieldParts } from "#ui/number-field";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
+import { SelectParts } from "#ui/select";
 import { SheetParts } from "#ui/sheet";
 import { Slider, SliderThumb } from "#ui/slider";
 import { Switch } from "#ui/switch";
 import { Textarea } from "#ui/textarea";
 import { LucideTriangleAlert } from "@lucide/angular";
+
+const PLANETS = [
+  { id: 1, name: "Mercury", dwarf: false },
+  { id: 2, name: "Venus", dwarf: false },
+  { id: 3, name: "Earth", dwarf: false },
+  { id: 4, name: "Mars", dwarf: false },
+  { id: 5, name: "Jupiter", dwarf: false },
+  { id: 6, name: "Saturn", dwarf: false },
+  { id: 7, name: "Uranus", dwarf: false },
+  { id: 8, name: "Neptune", dwarf: false },
+  { id: 9, name: "Pluto", dwarf: true },
+];
+
+const CUSTOMERS = [
+  { id: 1, name: "Ada Lovelace", email: "ada@example.com", archived: false },
+  { id: 2, name: "Grace Hopper", email: "grace@example.com", archived: false },
+  { id: 3, name: "Alan Turing", email: "alan@example.com", archived: true },
+];
+
+// 40 countries: enough for the list to scroll, few enough to keep the bundle near its budget.
+const COUNTRIES = [
+  { code: "AL", name: "Albania" },
+  { code: "AD", name: "Andorra" },
+  { code: "AT", name: "Austria" },
+  { code: "BE", name: "Belgium" },
+  { code: "BA", name: "Bosnia and Herzegovina" },
+  { code: "BG", name: "Bulgaria" },
+  { code: "HR", name: "Croatia" },
+  { code: "CY", name: "Cyprus" },
+  { code: "CZ", name: "Czechia" },
+  { code: "DK", name: "Denmark" },
+  { code: "EE", name: "Estonia" },
+  { code: "FI", name: "Finland" },
+  { code: "FR", name: "France" },
+  { code: "DE", name: "Germany" },
+  { code: "GR", name: "Greece" },
+  { code: "HU", name: "Hungary" },
+  { code: "IS", name: "Iceland" },
+  { code: "IE", name: "Ireland" },
+  { code: "IT", name: "Italy" },
+  { code: "LV", name: "Latvia" },
+  { code: "LI", name: "Liechtenstein" },
+  { code: "LT", name: "Lithuania" },
+  { code: "LU", name: "Luxembourg" },
+  { code: "MT", name: "Malta" },
+  { code: "MD", name: "Moldova" },
+  { code: "MC", name: "Monaco" },
+  { code: "ME", name: "Montenegro" },
+  { code: "NL", name: "Netherlands" },
+  { code: "MK", name: "North Macedonia" },
+  { code: "NO", name: "Norway" },
+  { code: "PL", name: "Poland" },
+  { code: "PT", name: "Portugal" },
+  { code: "RO", name: "Romania" },
+  { code: "SM", name: "San Marino" },
+  { code: "RS", name: "Serbia" },
+  { code: "SK", name: "Slovakia" },
+  { code: "SI", name: "Slovenia" },
+  { code: "ES", name: "Spain" },
+  { code: "SE", name: "Sweden" },
+  { code: "CH", name: "Switzerland" },
+];
 
 // A dialog opened from code: the component is the Dialog root and closes itself.
 @Component({
@@ -66,6 +130,7 @@ export class SearchDialog {
     ButtonLink,
     AlertDialogParts,
     Checkbox,
+    ComboboxParts,
     DialogParts,
     Field,
     FieldDescription,
@@ -77,6 +142,7 @@ export class SearchDialog {
     NumberFieldParts,
     RadioGroup,
     RadioGroupItem,
+    SelectParts,
     SheetParts,
     Slider,
     SliderThumb,
@@ -147,6 +213,26 @@ export class SearchDialog {
               <div zzField>
                 <label zzFieldLabel>Reference</label>
                 <input zzInput autofocus [readOnly]="editPending()" id="dialog-reference" />
+              </div>
+              <div zzField id="dialog-status-field">
+                <span zzFieldLabel>Contract status</span>
+                <div zzSelect [(value)]="dialogStatus" #dialogStatusSelect="zzSelect" id="dialog-status">
+                  <button zzSelectTrigger id="dialog-status-trigger">
+                    {{ dialogStatusSelect.state.selectedOption()?.label ?? "Choose a status" }}
+                  </button>
+                  <div zzSelectContent id="dialog-status-content">
+                    @for (option of statuses; track option.value) {
+                      <div
+                        zzSelectOption
+                        [value]="option.value"
+                        [label]="option.label"
+                        [disabled]="option.retired"
+                      >
+                        {{ option.label }}
+                      </div>
+                    }
+                  </div>
+                </div>
               </div>
             </div>
             <div zzDialogFooter>
@@ -629,6 +715,322 @@ export class SearchDialog {
       </div>
       <output id="number-saves">{{ numberSaves() }}</output>
     </form>
+
+    <!-- Select and Combobox. -->
+    <section id="lists" class="grid gap-6 p-5">
+      <form id="picks" class="grid gap-4" (submit)="savePicks($event)">
+        <!-- Gallery layout, not a Field rule: the grid reserves room for the errors, so an error
+             shown on blur doesn't move Save under a pointer press that started the blur. -->
+        <div id="picks-fields" class="grid min-h-60 grid-cols-3 items-start gap-8">
+          <div class="grid gap-4">
+            <input zzInput aria-label="Plain status" value="Draft" id="list-plain-input" />
+            <div zzField #statusField="zzField" id="status-field">
+              <span zzFieldLabel id="status-label">Status</span>
+              <div zzSelect [formField]="picks.status" #status="zzSelect" id="status">
+                <button zzSelectTrigger id="status-trigger">
+                  {{ status.state.selectedOption()?.label ?? "Choose a status" }}
+                </button>
+                <div zzSelectContent id="status-content">
+                  @for (option of statuses; track option.value) {
+                    <div
+                      zzSelectOption
+                      [value]="option.value"
+                      [label]="option.label"
+                      [disabled]="option.retired"
+                      [id]="'status-' + option.value"
+                    >
+                      {{ option.label }}
+                    </div>
+                  }
+                </div>
+              </div>
+              <p zzFieldDescription id="status-description">Where the contract stands.</p>
+              @if (statusField.state.errorsShown()) {
+                <p zzFieldError id="status-error">{{ statusField.state.errors()[0]?.message }}</p>
+              }
+            </div>
+          </div>
+
+          <div zzField #planetField="zzField" id="planet-field">
+            <label zzFieldLabel id="planet-label">Planet</label>
+            <div zzCombobox [formField]="picks.planet" [(query)]="planetQuery" id="planet">
+              <input zzComboboxInput placeholder="Search planets" id="planet-input" />
+              <button zzComboboxTrigger aria-label="All planets" id="planet-trigger"></button>
+              <div zzComboboxContent id="planet-content">
+                @for (planet of planets(); track planet.id) {
+                  <div
+                    zzComboboxOption
+                    [value]="planet.id"
+                    [label]="planet.name"
+                    [disabled]="planet.dwarf"
+                    [id]="'planet-' + planet.name.toLowerCase()"
+                  >
+                    {{ planet.name }}
+                  </div>
+                } @empty {
+                  <p zzComboboxEmpty id="planet-empty">No planet matches “{{ planetQuery() }}”.</p>
+                }
+              </div>
+            </div>
+            <p zzFieldDescription id="planet-description">Where the trip goes.</p>
+            @if (planetField.state.errorsShown()) {
+              <p zzFieldError id="planet-error">{{ planetField.state.errors()[0]?.message }}</p>
+            }
+          </div>
+
+          <div zzField id="country-field">
+            <span zzFieldLabel id="country-label">Country</span>
+            <div zzSelect [formField]="picks.country" #country="zzSelect" id="country">
+              <button zzSelectTrigger id="country-trigger">
+                {{ country.state.selectedOption()?.label ?? "Choose a country" }}
+              </button>
+              <div zzSelectContent id="country-content">
+                @for (option of countries; track option.code) {
+                  <div
+                    zzSelectOption
+                    [value]="option.code"
+                    [label]="option.name"
+                    [id]="'country-' + option.code.toLowerCase()"
+                  >
+                    {{ option.name }}
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-4">
+          <output id="status-value">{{ picks.status().value() }}</output>
+          <output id="status-touched">{{ picks.status().touched() }}</output>
+          <output id="planet-value">{{ picks.planet().value() }}</output>
+          <output id="planet-touched">{{ picks.planet().touched() }}</output>
+          <output id="country-value">{{ picks.country().value() }}</output>
+          <output id="country-touched">{{ picks.country().touched() }}</output>
+          <output id="pick-saves">{{ pickSaves() }}</output>
+        </div>
+
+        <!-- Nothing focusable between the Fields and Save, so Tab from Country reaches Save. -->
+        <div class="flex gap-2">
+          <button zzButton variant="primary" type="submit" id="picks-save">Save choices</button>
+          <button
+            zzButton
+            type="button"
+            (click)="picks.status().focusBoundControl()"
+            id="focus-status"
+          >
+            Focus status
+          </button>
+          <button
+            zzButton
+            type="button"
+            (click)="picks.planet().focusBoundControl()"
+            id="focus-planet"
+          >
+            Focus planet
+          </button>
+        </div>
+      </form>
+
+      <div class="flex items-center gap-2">
+        <div zzCombobox [(value)]="scrollingPlanet" class="w-80" id="scrolling-planet">
+          <input zzComboboxInput aria-label="Scrolling planet" id="scrolling-planet-input" />
+          <button zzComboboxTrigger aria-label="All planets"></button>
+          <!-- 120px tall, so the list scrolls. -->
+          <div zzComboboxContent class="max-h-30" id="scrolling-planet-content">
+            @for (planet of allPlanets; track planet.id) {
+              <div
+                zzComboboxOption
+                [value]="planet.id"
+                [label]="planet.name"
+                [disabled]="planet.dwarf"
+              >
+                {{ planet.name }}
+              </div>
+            }
+          </div>
+        </div>
+        <button zzButton id="after-scrolling-planet">After the planets</button>
+      </div>
+
+      <div class="grid grid-cols-3 items-start gap-8">
+        <div zzField id="locked-status-field">
+          <span zzFieldLabel>Locked status</span>
+          <div zzSelect [formField]="picks.lockedStatus" #lockedStatus="zzSelect" id="locked-status">
+            <button zzSelectTrigger id="locked-status-trigger">
+              {{ lockedStatus.state.selectedOption()?.label ?? "Choose a status" }}
+            </button>
+            <div zzSelectContent>
+              @for (option of statuses; track option.value) {
+                <div zzSelectOption [value]="option.value" [label]="option.label">
+                  {{ option.label }}
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+        <div zzField id="frozen-status-field">
+          <span zzFieldLabel>Frozen status</span>
+          <div zzSelect [formField]="picks.frozenStatus" #frozenStatus="zzSelect" id="frozen-status">
+            <button zzSelectTrigger id="frozen-status-trigger">
+              {{ frozenStatus.state.selectedOption()?.label ?? "Choose a status" }}
+            </button>
+            <div zzSelectContent id="frozen-status-content">
+              @for (option of statuses; track option.value) {
+                <div
+                  zzSelectOption
+                  [value]="option.value"
+                  [label]="option.label"
+                  [id]="'frozen-status-' + option.value"
+                >
+                  {{ option.label }}
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <div zzSelect [(value)]="sort" #sortBy="zzSelect" class="w-44" id="sort">
+            <button zzSelectTrigger aria-label="Sort by" id="sort-trigger">
+              {{ sortBy.state.selectedOption()?.label ?? "Sort by" }}
+            </button>
+            <div zzSelectContent id="sort-content">
+              <div zzSelectOption value="newest" label="Newest first" id="sort-newest">
+                Newest first
+              </div>
+              <div zzSelectOption value="oldest" label="Oldest first" id="sort-oldest">
+                Oldest first
+              </div>
+            </div>
+          </div>
+          <output id="sort-value">{{ sort() }}</output>
+        </div>
+
+        <div zzField id="locked-planet-field">
+          <label zzFieldLabel>Locked planet</label>
+          <div zzCombobox [formField]="picks.lockedPlanet" query="Mercury" id="locked-planet">
+            <input zzComboboxInput id="locked-planet-input" />
+            <button zzComboboxTrigger aria-label="All planets" id="locked-planet-trigger"></button>
+            <div zzComboboxContent>
+              <div zzComboboxOption [value]="1" label="Mercury">Mercury</div>
+            </div>
+          </div>
+        </div>
+        <div zzField id="frozen-planet-field">
+          <label zzFieldLabel>Frozen planet</label>
+          <div zzCombobox [formField]="picks.frozenPlanet" query="Mercury" id="frozen-planet">
+            <input zzComboboxInput id="frozen-planet-input" />
+            <button zzComboboxTrigger aria-label="All planets" id="frozen-planet-trigger"></button>
+            <div zzComboboxContent id="frozen-planet-content">
+              <div zzComboboxOption [value]="1" label="Mercury" id="frozen-planet-mercury">
+                Mercury
+              </div>
+              <div zzComboboxOption [value]="4" label="Mars" id="frozen-planet-mars">Mars</div>
+            </div>
+          </div>
+          <output id="frozen-planet-value">{{ picks.frozenPlanet().value() }}</output>
+        </div>
+
+        <!-- A server search without a Trigger: two-line rows, the email in muted text. -->
+        <div class="grid gap-2">
+          <div zzCombobox [(value)]="customerId" [(query)]="customerQuery" id="customer">
+            <input
+              zzComboboxInput
+              aria-label="Customer"
+              placeholder="Name or email"
+              id="customer-input"
+            />
+            <div zzComboboxContent id="customer-content">
+              @for (customer of customers(); track customer.id) {
+                <div
+                  zzComboboxOption
+                  [value]="customer.id"
+                  [label]="customer.name"
+                  [disabled]="customer.archived"
+                  [id]="'customer-' + customer.id"
+                >
+                  <span class="block">{{ customer.name }}</span>
+                  <span
+                    class="block text-label font-normal text-muted-foreground"
+                    [id]="'customer-' + customer.id + '-email'"
+                  >
+                    {{ customer.email }}
+                  </span>
+                </div>
+              } @empty {
+                <p zzComboboxEmpty id="customer-empty">No customers found.</p>
+              }
+            </div>
+          </div>
+          <output id="customer-value">{{ customerId() }}</output>
+        </div>
+      </div>
+
+      <div dir="rtl">
+        <div zzSelect value="active" #rtlStatus="zzSelect" class="w-72" id="rtl-select">
+          <button zzSelectTrigger aria-label="Right-to-left status" id="rtl-select-trigger">
+            {{ rtlStatus.state.selectedOption()?.label ?? "Choose a status" }}
+          </button>
+          <div zzSelectContent id="rtl-select-content">
+            @for (option of statuses; track option.value) {
+              <div
+                zzSelectOption
+                [value]="option.value"
+                [label]="option.label"
+                [id]="'rtl-select-' + option.value"
+              >
+                {{ option.label }}
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="light grid grid-cols-3 items-start gap-8 bg-background p-2">
+        <input zzInput aria-label="Light plain status" value="Active" id="light-plain-input" />
+        <div zzSelect value="active" #lightStatus="zzSelect" id="light-status">
+          <button zzSelectTrigger aria-label="Light status" id="light-status-trigger">
+            {{ lightStatus.state.selectedOption()?.label ?? "Choose a status" }}
+          </button>
+          <div zzSelectContent id="light-status-content">
+            @for (option of statuses; track option.value) {
+              <div
+                zzSelectOption
+                [value]="option.value"
+                [label]="option.label"
+                [disabled]="option.retired"
+                [id]="'light-status-' + option.value"
+              >
+                {{ option.label }}
+              </div>
+            }
+          </div>
+        </div>
+        <div zzCombobox [value]="1" query="Mercury" id="light-planet">
+          <input zzComboboxInput aria-label="Light planet" id="light-planet-input" />
+          <button zzComboboxTrigger aria-label="All planets"></button>
+          <div zzComboboxContent>
+            <div zzComboboxOption [value]="1" label="Mercury">Mercury</div>
+            <div zzComboboxOption [value]="4" label="Mars">Mars</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- The row spans the viewport, so the trigger's end is the viewport's. -->
+      <div class="-mx-5 flex">
+        <div zzSelect #edge="zzSelect" class="ms-auto w-32" id="edge-select">
+          <button zzSelectTrigger aria-label="Region" id="edge-select-trigger">
+            {{ edge.state.selectedOption()?.label ?? "Region" }}
+          </button>
+          <div zzSelectContent id="edge-select-content">
+            <div zzSelectOption value="emea" label="Europe, the Middle East and Africa">
+              Europe, the Middle East and Africa
+            </div>
+            <div zzSelectOption value="apac" label="Asia and the Pacific">Asia and the Pacific</div>
+          </div>
+        </div>
+      </div>
+    </section>
   `,
 })
 export class App {
@@ -654,6 +1056,21 @@ export class App {
   protected readonly quantity = signal<number | null>(3);
   protected readonly rtlZoom = signal(25);
   protected readonly numberSaves = signal(0);
+  protected readonly dialogStatus = signal<string | null>("active");
+  protected readonly planetQuery = signal("");
+  protected readonly scrollingPlanet = signal<number | null>(null);
+  protected readonly sort = signal<string | null>(null);
+  protected readonly customerId = signal<number | null>(null);
+  protected readonly customerQuery = signal("");
+  protected readonly pickSaves = signal(0);
+  protected readonly statuses = [
+    { value: "draft", label: "Draft", retired: false },
+    { value: "active", label: "Active", retired: false },
+    { value: "paused", label: "Paused", retired: true },
+    { value: "ended", label: "Ended", retired: false },
+  ];
+  protected readonly allPlanets = PLANETS;
+  protected readonly countries = COUNTRIES;
   protected readonly cycles = [
     { value: "monthly", label: "Monthly", locked: false },
     { value: "weekly", label: "Weekly", locked: true },
@@ -740,6 +1157,54 @@ export class App {
       });
     },
   );
+
+  protected readonly picks = form(
+    signal({
+      status: null as string | null,
+      planet: null as number | null,
+      country: "GR" as string | null,
+      lockedStatus: "active" as string | null,
+      frozenStatus: "active" as string | null,
+      lockedPlanet: 1 as number | null,
+      frozenPlanet: 1 as number | null,
+    }),
+    (path) => {
+      required(path.status, { message: "Choose a status" });
+      required(path.planet, { message: "Choose a planet" });
+      required(path.country, { message: "Choose a country" });
+      disabled(path.lockedStatus);
+      readonly(path.frozenStatus);
+      disabled(path.lockedPlanet);
+      readonly(path.frozenPlanet);
+    },
+  );
+
+  // The chosen planet's label is the query after a choice: every planet shows then, not only it.
+  protected readonly planets = computed(() => {
+    const query = this.planetQuery().trim().toLocaleLowerCase();
+    const chosen = PLANETS.find((planet) => planet.id === this.picks.planet().value());
+
+    if (query === "" || chosen?.name.toLocaleLowerCase() === query) {
+      return PLANETS;
+    }
+
+    return PLANETS.filter((planet) => planet.name.toLocaleLowerCase().startsWith(query));
+  });
+
+  protected readonly customers = computed(() => {
+    const query = this.customerQuery().trim().toLocaleLowerCase();
+
+    return CUSTOMERS.filter((customer) => customer.name.toLocaleLowerCase().includes(query));
+  });
+
+  protected async savePicks(event: Event): Promise<void> {
+    event.preventDefault();
+    await submit(this.picks, async () => {
+      this.pickSaves.update((count) => count + 1);
+
+      return undefined;
+    });
+  }
 
   protected async saveNumbers(event: Event): Promise<void> {
     event.preventDefault();

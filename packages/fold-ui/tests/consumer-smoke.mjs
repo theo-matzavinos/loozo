@@ -2,8 +2,10 @@
 // hydration without errors, the button geometry, colors and type, the AlertDialog's, Dialog's and
 // Sheet's focus, dismissal, placement and motion, a Signal Forms Field's wiring, errors and
 // control styling, Checkbox's, Switch's and RadioGroup's states, keys, layout, nesting and forced
-// colors, and the Number field's and Slider's server state, geometry, typing, stepping, keys,
-// pointer and touch, validation, states and forced colors.
+// colors, the Number field's and Slider's server state, geometry, typing, stepping, keys,
+// pointer and touch, validation, states and forced colors, and Select's and Combobox's server
+// state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
+// values, states, themes and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -2004,6 +2006,942 @@ try {
     (await styleOf("#zoom-invalid-thumb", ["borderTopColor"])).borderTopColor,
     palette.canvasText,
   );
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // Select and Combobox. Exact geometry and outline widths are DPR-1 values.
+  //
+  // Server rendering: the Trigger and the Input carry their roles, names, Field wiring and state,
+  // with decorative markup hidden; every list is closed, inert and out of the Tab order.
+  const tagsIn = (markup, name) => markup.match(new RegExp(`<${name}\\b[^>]*>`, "g")) ?? [];
+  const textIn = (markup) =>
+    markup
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  // Tailwind's shadow-none computes to transparent layers rather than none.
+  const shadowless = (value) =>
+    value === "none" ||
+    value.split(/,\s*(?![^()]*\))/).every((layer) => layer.startsWith("rgba(0, 0, 0, 0)"));
+  // A computed background that paints nothing: transparent, or any colour at zero alpha.
+  const transparent = (value) =>
+    value === "transparent" || /^rgba\(.*,\s*0\)$/.test(value) || /\/\s*0\)$/.test(value);
+  const statusTrigger = openingTag(html, "status-trigger");
+  const statusContent = openingTag(html, "status-content");
+
+  assert.match(statusTrigger, /\brole="combobox"/);
+  assert.match(statusTrigger, /\btype="button"/);
+  assert.match(statusTrigger, /\baria-expanded="false"/);
+  assert.match(statusTrigger, /\baria-controls="status-content"/);
+  assert.match(statusTrigger, /\bdata-placeholder=""/);
+  assert.match(statusTrigger, /\baria-labelledby="status-label"/);
+  assert.match(statusTrigger, /\bdata-slot="select-trigger"/);
+  assert.equal(textIn(element(html, "status-trigger")), "Choose a status");
+  assert.ok(
+    tagsIn(element(html, "status-trigger"), "svg").some(
+      (tag) => tag.includes('aria-hidden="true"') && tag.includes('data-slot="select-icon"'),
+    ),
+    "the trigger's chevron is hidden",
+  );
+  assert.match(statusContent, /\brole="listbox"/);
+  assert.match(statusContent, /\bpopover="manual"/);
+  assert.match(statusContent, /\sinert[\s=>]/);
+  assert.match(statusContent, /\baria-labelledby="[^"]+"/);
+  assert.match(statusContent, /\btabindex="-1"/);
+  assert.match(statusContent, /\bdata-slot="select-content"/);
+  assert.match(openingTag(html, "planet-content"), /\btabindex="-1"/);
+  assert.match(openingTag(html, "planet-content"), /\bdata-slot="combobox-content"/);
+  assert.match(openingTag(html, "scrolling-planet-content"), /\btabindex="-1"/);
+  assert.equal(textIn(element(html, "country-trigger")), "Greece");
+  assert.doesNotMatch(openingTag(html, "country-trigger"), /\sdata-placeholder[\s=>]/);
+  assert.match(openingTag(html, "country-gr"), /\baria-selected="true"/);
+  assert.match(openingTag(html, "status-paused"), /\baria-disabled="true"/);
+  assert.match(openingTag(html, "status-paused"), /\bdata-disabled=""/);
+  assert.match(openingTag(html, "status-draft"), /\bdata-slot="select-option"/);
+  assert.ok(
+    tagsIn(element(html, "status-draft"), "svg").some(
+      (tag) =>
+        tag.includes('aria-hidden="true"') && tag.includes('data-slot="select-option-indicator"'),
+    ),
+    "the option's check is hidden",
+  );
+  assert.match(openingTag(html, "locked-status-trigger"), /\sdisabled[\s=>]/);
+  assert.match(openingTag(html, "locked-status-trigger"), /\bdata-disabled=""/);
+  assert.match(openingTag(html, "frozen-status-trigger"), /\baria-readonly="true"/);
+
+  const planetInput = openingTag(html, "planet-input");
+  const planetTrigger = openingTag(html, "planet-trigger");
+
+  assert.match(planetInput, /\brole="combobox"/);
+  assert.match(planetInput, /\baria-autocomplete="list"/);
+  assert.match(planetInput, /\bautocomplete="off"/);
+  assert.match(planetInput, /\bdata-slot="combobox-input"/);
+  assert.match(openingTag(html, "planet-label"), /\bfor="planet-input"/);
+  assert.match(planetTrigger, /\btabindex="-1"/);
+  assert.match(planetTrigger, /\baria-label="All planets"/);
+  assert.match(planetTrigger, /\bdata-slot="combobox-trigger"/);
+  assert.match(openingTag(html, "frozen-planet-input"), /\sreadonly[\s=>]/);
+  assert.match(openingTag(html, "frozen-planet-input"), /\bvalue="Mercury"/);
+  assert.equal(textIn(element(html, "status-touched")), "false");
+  assert.equal(textIn(element(html, "planet-touched")), "false");
+  assert.doesNotMatch(element(html, "lists"), /\bdata-slot="field-error"/);
+
+  // Before hydration, CSS alone draws the server state: the lists are hidden, the placeholder is
+  // muted, and the readonly and disabled triggers look it.
+  const listsPrerendered = await browser.newPage({
+    javaScriptEnabled: false,
+    deviceScaleFactor: 1,
+  });
+
+  await listsPrerendered.goto(base);
+  const { frozenShadow, ...listsServerLook } = await listsPrerendered.evaluate(() => {
+    const style = (id) => getComputedStyle(document.getElementById(id));
+    const frozen = style("frozen-status-trigger");
+
+    return {
+      statusList: document.getElementById("status-content").checkVisibility(),
+      planetList: document.getElementById("planet-content").checkVisibility(),
+      placeholder: style("status-trigger").color,
+      filled: style("country-trigger").color,
+      frozen: `${frozen.borderTopStyle} ${frozen.backgroundColor}`,
+      frozenShadow: frozen.boxShadow,
+      locked: style("locked-status-trigger").opacity,
+    };
+  });
+
+  await listsPrerendered.close();
+  assert.deepEqual(listsServerLook, {
+    statusList: false,
+    planetList: false,
+    placeholder: "rgb(163, 163, 160)",
+    filled: foreground,
+    frozen: "dashed rgba(0, 0, 0, 0)",
+    locked: "0.5",
+  });
+  assert.ok(shadowless(frozenShadow), `the readonly trigger's shadow: ${frozenShadow}`);
+
+  // A list is shown once it's in the top layer, placed and fully opaque (Origami holds it
+  // transparent while it measures); it's hidden once it leaves the top layer.
+  const shown = (id) =>
+    page.waitForFunction((id) => {
+      const list = document.getElementById(id);
+
+      return (
+        list.matches(":popover-open") &&
+        list.hasAttribute("data-present") &&
+        getComputedStyle(list).opacity === "1"
+      );
+    }, id);
+  const hidden = (id) =>
+    page.waitForFunction((id) => !document.getElementById(id).matches(":popover-open"), id);
+  const rectOf = (selector) =>
+    page.evaluate((selector) => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+
+      return {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      };
+    }, selector);
+  const near = (actual, expected, tolerance, label) =>
+    assert.ok(
+      Math.abs(actual - expected) <= tolerance,
+      `${label}: ${actual} isn't within ${tolerance} of ${expected}`,
+    );
+  const hasAttribute = (id, name) =>
+    page.evaluate(([id, name]) => document.getElementById(id).hasAttribute(name), [id, name]);
+  const scrolls = (id) =>
+    page.evaluate((id) => {
+      const list = document.getElementById(id);
+
+      return list.scrollHeight > list.clientHeight;
+    }, id);
+  const optionIds = (id) =>
+    page.evaluate((id) => {
+      const ids = [];
+
+      for (const option of document.querySelectorAll(`#${id} [role=option]`)) {
+        ids.push(option.id);
+      }
+
+      return ids;
+    }, id);
+  const activeOptions = (id) =>
+    page.evaluate((id) => {
+      const ids = [];
+
+      for (const option of document.querySelectorAll(`#${id} [data-active]`)) {
+        ids.push(option.id);
+      }
+
+      return ids;
+    }, id);
+  const darkInput = "rgb(107, 107, 104)";
+  const darkSurface = "rgb(28, 28, 28)";
+  const darkBorder = "rgb(46, 46, 46)";
+
+  await fresh();
+  assert.equal(await page.evaluate(() => window.devicePixelRatio), 1);
+
+  // Geometry: the Select Trigger is Input's box plus the soft edge, its text starts where the
+  // Input's does, and the chevron sits 11px inside its end; the Combobox input is 32px tall with
+  // room for its Trigger, which covers its end.
+  const listGeometry = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const box = (selector) => {
+      const look = style(selector);
+
+      return {
+        height: look.height,
+        radius: look.borderTopLeftRadius,
+        borderWidth: look.borderTopWidth,
+        borderColor: look.borderTopColor,
+        ground: look.backgroundColor,
+      };
+    };
+    const input = style("#list-plain-input");
+
+    return {
+      trigger: box("#status-trigger"),
+      input: box("#list-plain-input"),
+      triggerShadow: style("#status-trigger").boxShadow,
+      inputShadow: input.boxShadow,
+      triggerTextInset: rect("#status-trigger > span").left - rect("#status-trigger").left,
+      inputTextInset: parseFloat(input.borderLeftWidth) + parseFloat(input.paddingLeft),
+      chevron: {
+        width: rect("#status-trigger > svg").width,
+        height: rect("#status-trigger > svg").height,
+        endInset: rect("#status-trigger").right - rect("#status-trigger > svg").right,
+      },
+      planetHeight: style("#planet-input").height,
+      planetEndPadding: style("#planet-input").paddingInlineEnd,
+      customerEndPadding: style("#customer-input").paddingInlineEnd,
+      planetTrigger: {
+        width: rect("#planet-trigger").width,
+        height: rect("#planet-trigger").height,
+        endOffset: rect("#planet-input").right - rect("#planet-trigger").right,
+      },
+    };
+  });
+
+  assert.deepEqual(listGeometry.trigger, listGeometry.input, "the trigger's box is Input's");
+  assert.equal(listGeometry.trigger.height, "32px");
+  assert.equal(listGeometry.trigger.radius, "10px");
+  assert.equal(shadowless(listGeometry.triggerShadow), false, "the trigger's soft edge");
+  assert.ok(shadowless(listGeometry.inputShadow), "the Input has no edge");
+  near(listGeometry.triggerTextInset, listGeometry.inputTextInset, 1, "trigger text start");
+  assert.equal(listGeometry.chevron.width, 16);
+  assert.equal(listGeometry.chevron.height, 16);
+  near(listGeometry.chevron.endInset, 11, 1, "chevron end inset");
+  assert.equal(listGeometry.planetHeight, "32px");
+  assert.equal(listGeometry.planetEndPadding, "32px");
+  assert.equal(listGeometry.customerEndPadding, "10px");
+  assert.deepEqual(listGeometry.planetTrigger, { width: 32, height: 32, endOffset: 0 });
+
+  // Select by mouse: the list opens 4px below the Trigger, at least as wide, as Appliance's menu
+  // surface; hover highlights enabled options; a click chooses, closes, keeps focus on the Trigger
+  // and writes the bound value; the chosen option shows its check.
+  await page.click("#status-trigger");
+  await until("status-trigger", "aria-expanded", "true");
+  await shown("status-content");
+
+  const statusTriggerRect = await rectOf("#status-trigger");
+  const statusListRect = await rectOf("#status-content");
+
+  near(statusListRect.top, statusTriggerRect.bottom + 4, 0.5, "list top");
+  near(statusListRect.left, statusTriggerRect.left, 0.5, "list start");
+  assert.ok(statusListRect.width >= statusTriggerRect.width, "the list is at least as wide");
+  assert.deepEqual(
+    await styleOf("#status-content", [
+      "borderTopLeftRadius",
+      "paddingTop",
+      "borderTopWidth",
+      "borderTopColor",
+      "backgroundColor",
+    ]),
+    {
+      borderTopLeftRadius: "12px",
+      paddingTop: "4px",
+      borderTopWidth: "1px",
+      borderTopColor: darkBorder,
+      backgroundColor: darkSurface,
+    },
+  );
+  assert.equal(shadowless((await styleOf("#status-content", ["boxShadow"])).boxShadow), false);
+  assert.deepEqual(await styleOf("#status-draft", ["height", "borderTopLeftRadius"]), {
+    height: "32px",
+    borderTopLeftRadius: "6px",
+  });
+
+  const restingGround = (await styleOf("#status-active", ["backgroundColor"])).backgroundColor;
+  await page.hover("#status-active");
+  await page.waitForSelector("#status-active[data-active]");
+  const activeGround = (await styleOf("#status-active", ["backgroundColor"])).backgroundColor;
+  assert.notEqual(activeGround, restingGround, "a highlighted option's ground changes");
+  assert.ok(
+    !transparent(activeGround),
+    `a highlighted option's ground is painted: ${activeGround}`,
+  );
+  assert.notEqual(activeGround, darkSurface, "a highlighted option's ground");
+  await page.hover("#status-paused");
+  await rendered();
+  assert.equal(await hasAttribute("status-paused", "data-active"), false);
+  assert.equal((await styleOf("#status-paused", ["opacity"])).opacity, "0.5");
+
+  await page.click("#status-active");
+  await until("status-trigger", "aria-expanded", "false");
+  await hidden("status-content");
+  await untilText("status-trigger", "Active");
+  assert.equal(await hasAttribute("status-trigger", "data-placeholder"), false);
+  assert.equal((await styleOf("#status-trigger", ["color"])).color, foreground);
+  assert.equal(await activeId(), "status-trigger");
+  await untilText("status-value", "active");
+
+  await page.click("#status-trigger");
+  await shown("status-content");
+  assert.equal(await hasAttribute("status-active", "data-selected"), true);
+  assert.deepEqual(
+    await page.evaluate(() => [
+      getComputedStyle(document.querySelector("#status-active > svg")).opacity,
+      getComputedStyle(document.querySelector("#status-draft > svg")).opacity,
+    ]),
+    ["1", "0"],
+  );
+  await page.keyboard.press("Escape");
+  await hidden("status-content");
+
+  // Select by keyboard: Tab rings the Trigger; ArrowDown opens on the first enabled option, named
+  // by aria-activedescendant; Enter chooses. Arrows skip a disabled option, Escape closes without
+  // writing, and typing opens on the match.
+  await page.focus("#frozen-status-trigger");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "sort-trigger");
+  assert.deepEqual(await outline("#sort-trigger"), ringOutline(darkRing));
+  await page.keyboard.press("ArrowDown");
+  await shown("sort-content");
+  await page.waitForSelector("#sort-newest[data-active]");
+  assert.equal(await attribute("sort-trigger", "aria-activedescendant"), "sort-newest");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#sort-oldest[data-active]");
+  await page.keyboard.press("Enter");
+  await hidden("sort-content");
+  await untilText("sort-value", "oldest");
+
+  await page.focus("#status-trigger");
+  await page.keyboard.press("ArrowDown");
+  await shown("status-content");
+  await page.waitForSelector("#status-active[data-active]");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#status-ended[data-active]");
+  await page.keyboard.press("Escape");
+  await hidden("status-content");
+  assert.equal(await textOf("status-value"), "active");
+  await page.keyboard.press("d");
+  await shown("status-content");
+  await page.waitForSelector("#status-draft[data-active]");
+  await page.keyboard.press("Escape");
+  await hidden("status-content");
+  assert.equal(await textOf("status-value"), "active");
+
+  // Readonly and disabled: a readonly Select opens and browses but doesn't choose; a readonly
+  // Combobox opens but neither types nor chooses; disabled ones don't open and are dimmed.
+  await page.click("#frozen-status-trigger");
+  await shown("frozen-status-content");
+  await page.hover("#frozen-status-draft");
+  await page.waitForSelector("#frozen-status-draft[data-active]");
+  await page.click("#frozen-status-draft");
+  await rendered();
+  assert.equal(await attribute("frozen-status-trigger", "aria-expanded"), "true");
+  assert.equal(await textOf("frozen-status-trigger"), "Active");
+  await page.keyboard.press("Escape");
+  await hidden("frozen-status-content");
+
+  await page.click("#frozen-planet-input");
+  await page.keyboard.type("x");
+  await rendered();
+  assert.equal(await valueOf("frozen-planet-input"), "Mercury", "typing into a readonly Combobox");
+  await page.keyboard.press("ArrowDown");
+  await shown("frozen-planet-content");
+  await page.waitForSelector("#frozen-planet-mercury[data-active]");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#frozen-planet-mars[data-active]");
+  await page.keyboard.press("Enter");
+  await rendered();
+  assert.equal(
+    await attribute("frozen-planet-input", "aria-expanded"),
+    "true",
+    "Enter keeps it open",
+  );
+  assert.equal(await hasAttribute("frozen-planet-mars", "data-active"), true);
+  assert.equal(await valueOf("frozen-planet-input"), "Mercury");
+  assert.equal(await textOf("frozen-planet-value"), "1", "a readonly Combobox writes no value");
+  await page.keyboard.press("Escape");
+  await hidden("frozen-planet-content");
+  assert.equal(await valueOf("frozen-planet-input"), "Mercury");
+  assert.equal(await textOf("frozen-planet-value"), "1");
+
+  await page.click("#locked-status-trigger", { force: true });
+  await rendered();
+  assert.equal(await attribute("locked-status-trigger", "aria-expanded"), "false");
+  const locked = await styleOf("#locked-status-trigger", ["opacity", "boxShadow", "cursor"]);
+
+  assert.equal(locked.opacity, "0.5");
+  assert.equal(locked.cursor, "not-allowed");
+  assert.ok(shadowless(locked.boxShadow), `the disabled trigger's shadow: ${locked.boxShadow}`);
+  assert.equal((await styleOf("#locked-planet-input", ["opacity"])).opacity, "0.5");
+  assert.equal((await styleOf("#locked-planet-trigger", ["opacity"])).opacity, "0.5");
+
+  // A two-line option grows; choosing it puts its label, not the email, in the input and writes
+  // the bound value.
+  await page.click("#customer-input");
+  await page.keyboard.type("a");
+  await shown("customer-content");
+  assert.ok((await rectOf("#customer-1")).height > 32, "a two-line row grows");
+  assert.equal(await hasAttribute("customer-3", "data-disabled"), true);
+  await page.click("#customer-1");
+  await hidden("customer-content");
+  await untilValue("customer-input", "Ada Lovelace");
+  await untilText("customer-value", "1");
+
+  // Inside a Dialog: the list paints over it, the first Escape closes only the list, the second
+  // the Dialog.
+  await page.click("#dialog-trigger");
+  await settled("dialog-content");
+  await page.click("#dialog-status-trigger");
+  await shown("dialog-status-content");
+  assert.ok(
+    await page.evaluate(() => {
+      const list = document.getElementById("dialog-status-content");
+      const rect = list.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+
+      return list.contains(hit);
+    }),
+    "the list paints over the Dialog",
+  );
+  await page.keyboard.press("Escape");
+  await hidden("dialog-status-content");
+  assert.ok(await page.evaluate(() => document.querySelector("#dialog-content").matches(":modal")));
+  await page.keyboard.press("Escape");
+  await closed("dialog-content");
+
+  // Light theme: inside a light subtree, the trigger and the list use the light tokens.
+  assert.deepEqual(
+    await styleOf("#light-status-trigger", ["borderTopColor", "backgroundColor", "color"]),
+    {
+      borderTopColor: "rgb(133, 133, 129)",
+      backgroundColor: "rgb(247, 247, 246)",
+      color: "rgb(27, 27, 27)",
+    },
+  );
+  await page.click("#light-status-trigger");
+  await shown("light-status-content");
+  assert.deepEqual(
+    await styleOf("#light-status-content", ["borderTopColor", "backgroundColor", "color"]),
+    {
+      borderTopColor: "rgb(211, 211, 208)",
+      backgroundColor: "rgb(247, 247, 246)",
+      color: "rgb(27, 27, 27)",
+    },
+  );
+  const lightResting = (await styleOf("#light-status-draft", ["backgroundColor"])).backgroundColor;
+  await page.hover("#light-status-draft");
+  await page.waitForSelector("#light-status-draft[data-active]");
+  const lightActive = (await styleOf("#light-status-draft", ["backgroundColor"])).backgroundColor;
+  assert.notEqual(lightActive, lightResting, "a highlighted light option's ground changes");
+  assert.ok(!transparent(lightActive), `a highlighted light option's ground: ${lightActive}`);
+  assert.notEqual(lightActive, "rgb(247, 247, 246)");
+  await page.keyboard.press("Escape");
+  await hidden("light-status-content");
+
+  // RTL: the list aligns to the trigger's right edge, and the chevron and the check sit at the
+  // left ends.
+  await page.click("#rtl-select-trigger");
+  await shown("rtl-select-content");
+
+  const rtl = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+
+    return {
+      listRight: rect("#rtl-select-content").right,
+      triggerRight: rect("#rtl-select-trigger").right,
+      chevronInset: rect("#rtl-select-trigger > svg").left - rect("#rtl-select-trigger").left,
+      chevronBeforeText:
+        rect("#rtl-select-trigger > svg").right <= rect("#rtl-select-trigger > span").left,
+      checkBeforeText:
+        rect("#rtl-select-active > svg").right <= rect("#rtl-select-active > span").left,
+    };
+  });
+
+  near(rtl.listRight, rtl.triggerRight, 0.5, "RTL list end");
+  near(rtl.chevronInset, 11, 1, "RTL chevron inset");
+  assert.equal(rtl.chevronBeforeText, true, "the RTL chevron is at the left end");
+  assert.equal(rtl.checkBeforeText, true, "the RTL check is at the left end");
+  await page.keyboard.press("Escape");
+  await hidden("rtl-select-content");
+
+  // Scrolling and placement, in a 600px viewport: a long list scrolls within the room left less
+  // 8px and shows the chosen option without scrolling the page; near the viewport's bottom it
+  // opens 4px above; a wide list beside the viewport's end stays inside it.
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.evaluate(() =>
+    document.getElementById("country-trigger").scrollIntoView({ block: "center" }),
+  );
+  await page.focus("#country-trigger");
+
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+
+  await page.keyboard.press("ArrowDown");
+  await shown("country-content");
+
+  const country = await page.evaluate(() => {
+    const list = document.getElementById("country-content");
+    const style = getComputedStyle(list);
+    const rect = list.getBoundingClientRect();
+    const greece = document.getElementById("country-gr").getBoundingClientRect();
+
+    return {
+      scrolls: list.scrollHeight > list.clientHeight,
+      maxHeight: parseFloat(style.maxHeight),
+      available: parseFloat(style.getPropertyValue("--og-available-height")),
+      greeceInside: greece.top >= rect.top && greece.bottom <= rect.bottom,
+      scrollY: window.scrollY,
+    };
+  });
+
+  assert.equal(country.scrolls, true, "the country list scrolls");
+  near(country.maxHeight, Math.min(320, country.available - 8), 1, "the list's max height");
+  assert.equal(country.greeceInside, true, "the chosen country is in view");
+  assert.equal(country.scrollY, scrollBefore, "opening doesn't scroll the page");
+  await page.keyboard.press("End");
+  await page.waitForSelector("#country-ch[data-active]");
+  assert.ok(
+    await page.evaluate(() => {
+      const list = document.getElementById("country-content").getBoundingClientRect();
+      const last = document.getElementById("country-ch").getBoundingClientRect();
+
+      return last.top >= list.top && last.bottom <= list.bottom;
+    }),
+    "End shows the last country",
+  );
+  await page.keyboard.press("Escape");
+  await hidden("country-content");
+
+  await page.evaluate(() => {
+    const trigger = document.getElementById("country-trigger").getBoundingClientRect();
+
+    window.scrollBy(0, trigger.bottom - (window.innerHeight - 60));
+  });
+  await page.keyboard.press("ArrowDown");
+  await shown("country-content");
+  near(
+    (await rectOf("#country-content")).bottom,
+    (await rectOf("#country-trigger")).top - 4,
+    0.5,
+    "flipped list bottom",
+  );
+  await page.keyboard.press("Escape");
+  await hidden("country-content");
+
+  await page.evaluate(() =>
+    document.getElementById("edge-select-trigger").scrollIntoView({ block: "center" }),
+  );
+  await page.click("#edge-select-trigger");
+  await shown("edge-select-content");
+
+  const edge = await page.evaluate(() => {
+    const list = document.getElementById("edge-select-content").getBoundingClientRect();
+    const trigger = document.getElementById("edge-select-trigger").getBoundingClientRect();
+
+    return {
+      viewport: document.documentElement.clientWidth,
+      triggerRight: trigger.right,
+      listRight: list.right,
+      startDelta: Math.abs(list.left - trigger.left),
+      endDelta: Math.abs(list.right - trigger.right),
+    };
+  });
+
+  near(edge.triggerRight, edge.viewport, 0.5, "the edge trigger reaches the viewport's end");
+  assert.ok(edge.listRight <= edge.viewport + 0.5, `edge list end ${edge.listRight}`);
+  assert.ok(Math.min(edge.startDelta, edge.endDelta) <= 0.5, "the edge list aligns to its trigger");
+  await page.keyboard.press("Escape");
+  await hidden("edge-select-content");
+
+  // Tab out of an open list, from a fresh page: a scrolling list isn't a Tab stop, so focus
+  // reaches the next control and the list closes.
+  await fresh();
+  await page.evaluate(() =>
+    document.getElementById("country-trigger").scrollIntoView({ block: "center" }),
+  );
+  await page.focus("#country-trigger");
+  await page.keyboard.press("ArrowDown");
+  await shown("country-content");
+  assert.equal(await scrolls("country-content"), true);
+  await page.keyboard.press("Tab");
+  await rendered();
+  assert.equal(await activeId(), "picks-save");
+  assert.equal(await attribute("country-trigger", "aria-expanded"), "false");
+
+  await page.evaluate(() =>
+    document.getElementById("scrolling-planet-input").scrollIntoView({ block: "center" }),
+  );
+  await page.focus("#scrolling-planet-input");
+  await page.keyboard.press("ArrowDown");
+  await shown("scrolling-planet-content");
+  assert.equal(await scrolls("scrolling-planet-content"), true);
+  await page.keyboard.press("Tab");
+  await rendered();
+  assert.equal(await activeId(), "after-scrolling-planet");
+
+  await page.evaluate(() =>
+    document.getElementById("planet-input").scrollIntoView({ block: "start" }),
+  );
+  await page.focus("#planet-input");
+  await page.keyboard.press("ArrowDown");
+  await shown("planet-content");
+  assert.equal(await scrolls("planet-content"), false);
+  await page.keyboard.press("Tab");
+  await rendered();
+  assert.equal(await activeId(), "country-trigger");
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  // Motion: the list fades and scales in on data-entering and reverses on data-leaving, which
+  // Origami waits for. Under reduced motion it doesn't animate, and the first render of the close
+  // hides it.
+  const watchAnimations = (id, phase) =>
+    page.evaluate(
+      ([id, phase]) => {
+        const list = document.getElementById(id);
+
+        window.listAnimations = undefined;
+
+        const observer = new MutationObserver((records) => {
+          let marked = false;
+
+          for (const record of records) {
+            if (record.oldValue === null) {
+              marked = true;
+            }
+          }
+
+          if (!marked) {
+            return;
+          }
+
+          observer.disconnect();
+
+          const animations = [];
+
+          for (const animation of list.getAnimations()) {
+            const timing = animation.effect.getTiming();
+
+            animations.push({
+              name: animation.animationName,
+              duration: timing.duration,
+              direction: timing.direction,
+            });
+          }
+
+          window.listAnimations = animations;
+        });
+
+        observer.observe(list, { attributeFilter: [phase], attributeOldValue: true });
+      },
+      [id, phase],
+    );
+  const watchedAnimations = async () => {
+    const handle = await page.waitForFunction(() => window.listAnimations);
+
+    return handle.jsonValue();
+  };
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.focus("#status-trigger");
+  await watchAnimations("status-content", "data-entering");
+  await page.keyboard.press("ArrowDown");
+  assert.deepEqual(await watchedAnimations(), [
+    { name: "popup-in", duration: 120, direction: "normal" },
+  ]);
+  await shown("status-content");
+  await watchAnimations("status-content", "data-leaving");
+  await page.keyboard.press("Escape");
+  assert.deepEqual(await watchedAnimations(), [
+    { name: "popup-in", duration: 120, direction: "reverse" },
+  ]);
+  await hidden("status-content");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await watchAnimations("status-content", "data-entering");
+  await page.keyboard.press("ArrowDown");
+  assert.deepEqual(await watchedAnimations(), []);
+  await shown("status-content");
+  await page.evaluate(() => {
+    const trigger = document.getElementById("status-trigger");
+    const list = document.getElementById("status-content");
+
+    window.hiddenAtClose = undefined;
+
+    const observer = new MutationObserver(() => {
+      if (trigger.getAttribute("aria-expanded") !== "false") {
+        return;
+      }
+
+      observer.disconnect();
+      window.hiddenAtClose = !list.matches(":popover-open");
+    });
+
+    observer.observe(trigger, { attributeFilter: ["aria-expanded"] });
+  });
+  await watchAnimations("status-content", "data-leaving");
+  await page.keyboard.press("Escape");
+  assert.equal(
+    await (await page.waitForFunction(() => window.hiddenAtClose !== undefined)).jsonValue(),
+    true,
+  );
+  assert.equal(await page.evaluate(() => window.hiddenAtClose), true, "hidden at the close render");
+  assert.equal((await styleOf("#status-trigger", ["transitionDuration"])).transitionDuration, "0s");
+
+  // Touch, per Field, from a fresh page: opening, browsing and Escape leave a field untouched;
+  // leaving it marks it touched and shows its error, with the Trigger or input invalid and
+  // described by it. A field with a value shows none.
+  await fresh();
+  await page.focus("#list-plain-input");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "status-trigger");
+  assert.equal(await textOf("status-touched"), "false");
+  assert.equal(await page.$("#status-error"), null);
+  assert.equal(await attribute("status-trigger", "aria-invalid"), null);
+  await page.keyboard.press("ArrowDown");
+  await shown("status-content");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await hidden("status-content");
+  assert.equal(await activeId(), "status-trigger");
+  assert.equal(await textOf("status-touched"), "false");
+  assert.equal(await page.$("#status-error"), null);
+
+  await page.keyboard.press("Tab");
+  await untilText("status-touched", "true");
+  await page.waitForSelector("#status-error");
+  await untilText("status-error", "Choose a status");
+  assert.equal(await attribute("status-trigger", "aria-invalid"), "true");
+  assert.equal(
+    await attribute("status-trigger", "aria-describedby"),
+    "status-description status-error",
+  );
+  assert.equal((await styleOf("#status-trigger", ["borderTopColor"])).borderTopColor, darkOrange);
+
+  assert.equal(await activeId(), "planet-input");
+  await page.keyboard.press("ArrowDown");
+  await shown("planet-content");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await hidden("planet-content");
+  assert.equal(await textOf("planet-touched"), "false");
+  assert.equal(await page.$("#planet-error"), null);
+  await page.keyboard.press("Tab");
+  await untilText("planet-touched", "true");
+  await page.waitForSelector("#planet-error");
+  await untilText("planet-error", "Choose a planet");
+  assert.equal(await attribute("planet-input", "aria-invalid"), "true");
+  assert.equal(
+    await attribute("planet-input", "aria-describedby"),
+    "planet-description planet-error",
+  );
+  assert.equal((await styleOf("#planet-input", ["borderTopColor"])).borderTopColor, darkOrange);
+
+  assert.equal(await activeId(), "country-trigger");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "picks-save");
+  await untilText("country-touched", "true");
+  assert.equal(await attribute("country-trigger", "aria-invalid"), null);
+
+  // Keyboard focus back on the invalid Trigger: the orange border holds under the ring.
+  await page.focus("#list-plain-input");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "status-trigger");
+  assert.equal((await styleOf("#status-trigger", ["borderTopColor"])).borderTopColor, darkOrange);
+  assert.deepEqual(await outline("#status-trigger"), ringOutline(darkRing));
+
+  await page.click("#focus-status");
+  assert.equal(await activeId(), "status-trigger");
+  await page.click("#focus-planet");
+  assert.equal(await activeId(), "planet-input");
+
+  // One Save click after a blur error, from a fresh page: the press on Save blurs the empty
+  // Planet, the errors show without moving Save, and the click lands and submits, marking every
+  // field touched. Once both have values, one click saves.
+  await fresh();
+  await page.focus("#planet-input");
+
+  const saveBefore = await rectOf("#picks-save");
+
+  await page.click("#picks-save");
+  await page.waitForSelector("#planet-error");
+  await untilText("planet-error", "Choose a planet");
+  await page.waitForSelector("#status-error");
+  await untilText("status-error", "Choose a status");
+  assert.equal(await attribute("status-trigger", "aria-invalid"), "true");
+  assert.equal(await textOf("pick-saves"), "0");
+
+  const saveAfter = await rectOf("#picks-save");
+
+  near(saveAfter.top, saveBefore.top, 0.5, "Save didn't move");
+  near(saveAfter.left, saveBefore.left, 0.5, "Save didn't move sideways");
+
+  await page.click("#status-trigger");
+  await shown("status-content");
+  await page.click("#status-active");
+  await untilText("status-value", "active");
+  await page.click("#planet-input");
+  await page.keyboard.type("ma");
+  await page.waitForSelector("#planet-mars");
+  await page.click("#planet-mars");
+  await untilText("planet-value", "4");
+  await page.click("#picks-save");
+  await untilText("pick-saves", "1");
+
+  // Combobox typing, from a fresh page: typing opens on the matches with none highlighted; the
+  // arrows highlight and Enter chooses, putting the label in the input and writing the value. No
+  // match leaves the list open with the empty row; Escape puts the chosen label back. The Trigger
+  // opens every option and leaves focus in the input; hovering it tints the input's border.
+  await fresh();
+  await page.click("#planet-input");
+  await selectAll();
+  await page.keyboard.type("ma");
+  await until("planet-input", "aria-expanded", "true");
+  await shown("planet-content");
+  assert.deepEqual(await optionIds("planet-content"), ["planet-mars"]);
+  assert.deepEqual(await activeOptions("planet-content"), []);
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#planet-mars[data-active]");
+  await page.keyboard.press("Enter");
+  await hidden("planet-content");
+  await untilValue("planet-input", "Mars");
+  await untilText("planet-value", "4");
+
+  await selectAll();
+  await page.keyboard.type("zzz");
+  await shown("planet-content");
+  await page.waitForSelector("#planet-empty");
+  await untilText("planet-empty", "No planet matches “zzz”.");
+  assert.equal(await hasAttribute("planet-content", "data-present"), true);
+  await page.keyboard.press("Enter");
+  await rendered();
+  assert.equal(await textOf("planet-value"), "4");
+  await page.keyboard.press("Escape");
+  await hidden("planet-content");
+  await untilValue("planet-input", "Mars");
+  assert.equal(await textOf("planet-value"), "4");
+
+  await page.click("#planet-trigger");
+  await shown("planet-content");
+  assert.equal((await optionIds("planet-content")).length, 9, "the Trigger shows every planet");
+  assert.equal(await activeId(), "planet-input");
+  assert.deepEqual(await activeOptions("planet-content"), []);
+  await page.keyboard.press("Escape");
+  await hidden("planet-content");
+
+  await page.focus("#picks-save");
+  await page.mouse.move(0, 0);
+  assert.equal((await styleOf("#planet-input", ["borderTopColor"])).borderTopColor, darkInput);
+  await page.hover("#planet-trigger");
+  assert.notEqual(
+    (await styleOf("#planet-input", ["borderTopColor"])).borderTopColor,
+    darkInput,
+    "hovering the chevron tints the input's border",
+  );
+  await page.mouse.move(0, 0);
+
+  // Forced colors, from a fresh page: the highlighted option paints Highlight with HighlightText,
+  // others Canvas with CanvasText, a disabled one GrayText, and the chosen check CanvasText; text
+  // projected into an option follows its row; both controls' focus rings are Highlight.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+
+  const systemColors = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    const read = (property, value) => {
+      probe.style.cssText = `position: fixed; forced-color-adjust: none; ${property}: ${value}`;
+
+      return getComputedStyle(probe)[property === "color" ? "color" : "backgroundColor"];
+    };
+
+    document.body.append(probe);
+
+    const result = {
+      canvas: read("background", "Canvas"),
+      canvasText: read("color", "CanvasText"),
+      highlight: read("background", "Highlight"),
+      highlightText: read("color", "HighlightText"),
+      grayText: read("color", "GrayText"),
+    };
+
+    probe.remove();
+
+    return result;
+  });
+  const colors = (selector) => styleOf(selector, ["backgroundColor", "color"]);
+
+  await page.focus("#list-plain-input");
+  await page.keyboard.press("Tab");
+  assert.deepEqual(await outline("#status-trigger"), ringOutline(systemColors.highlight));
+  await page.keyboard.press("ArrowDown");
+  await shown("status-content");
+  await page.waitForSelector("#status-draft[data-active]");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#status-active[data-active]");
+  assert.deepEqual(await colors("#status-active"), {
+    backgroundColor: systemColors.highlight,
+    color: systemColors.highlightText,
+  });
+  assert.deepEqual(await colors("#status-draft"), {
+    backgroundColor: systemColors.canvas,
+    color: systemColors.canvasText,
+  });
+  assert.equal((await colors("#status-paused")).color, systemColors.grayText);
+
+  const forcedList = await styleOf("#status-content", ["borderTopWidth", "borderTopColor"]);
+
+  assert.ok(parseFloat(forcedList.borderTopWidth) >= 1, "the forced list has a border");
+  assert.match(forcedList.borderTopColor, /^rgb\(/, "the forced list's border is opaque");
+
+  await page.keyboard.press("Enter");
+  await hidden("status-content");
+  await page.keyboard.press("ArrowDown");
+  await shown("status-content");
+  await page.waitForSelector("#status-active[data-active]");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#status-ended[data-active]");
+  assert.deepEqual(await styleOf("#status-active > svg", ["opacity", "color"]), {
+    opacity: "1",
+    color: systemColors.canvasText,
+  });
+  await page.keyboard.press("Escape");
+  await hidden("status-content");
+
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "planet-input");
+  assert.deepEqual(await outline("#planet-input"), ringOutline(systemColors.highlight));
+
+  const emailColor = (id) =>
+    styleOf(`#customer-${id}-email`, ["color"]).then((style) => style.color);
+
+  await page.click("#customer-input");
+  await page.keyboard.type("a");
+  await shown("customer-content");
+  assert.equal(await emailColor(1), systemColors.canvasText, "an ordinary row's email");
+  await page.keyboard.press("ArrowDown");
+  await page.waitForSelector("#customer-1[data-active]");
+  assert.equal(await emailColor(1), systemColors.highlightText, "the highlighted row's email");
+  assert.equal(await emailColor(3), systemColors.grayText, "a disabled row's email");
+  await page.keyboard.press("Escape");
+  await hidden("customer-content");
   await page.emulateMedia({ forcedColors: "none" });
 
   assert.deepEqual(errors, [], "console errors or warnings");
