@@ -177,6 +177,7 @@ const directiveDefaults = {
   "OrigamiFieldDescription.id": ["opaque generated hosted ID", /generat/i],
   "OrigamiFieldError.id": ["opaque generated hosted ID", /generat/i],
   "OrigamiCheckbox.checked": ["false", /\bfalse\b/i],
+  "OrigamiCheckbox.mixed": ["false", /\bfalse\b/i],
   "OrigamiCheckbox.disabled": ["false", /\bfalse\b/i],
   "OrigamiCheckbox.focusableWhenDisabled": ["false", /\bfalse\b/i],
   "OrigamiCheckbox.id": ["opaque generated hosted ID", /generat/i],
