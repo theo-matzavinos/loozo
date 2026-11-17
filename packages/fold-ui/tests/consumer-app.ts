@@ -6,6 +6,8 @@ import {
   disabled,
   email,
   form,
+  max,
+  min,
   readonly,
   required,
   submit,
@@ -25,8 +27,10 @@ import {
 } from "#ui/dialog";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
+import { NumberFieldParts } from "#ui/number-field";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
 import { SheetParts } from "#ui/sheet";
+import { Slider, SliderThumb } from "#ui/slider";
 import { Switch } from "#ui/switch";
 import { Textarea } from "#ui/textarea";
 import { LucideTriangleAlert } from "@lucide/angular";
@@ -70,9 +74,12 @@ export class SearchDialog {
     FormField,
     Input,
     LucideTriangleAlert,
+    NumberFieldParts,
     RadioGroup,
     RadioGroupItem,
     SheetParts,
+    Slider,
+    SliderThumb,
     Switch,
     Textarea,
   ],
@@ -413,6 +420,215 @@ export class SearchDialog {
       <button zzButton variant="primary" type="submit" id="ctl-save">Save controls</button>
       <output id="control-saves">{{ controlSaves() }}</output>
     </form>
+
+    <!-- Number field and Slider: one control per Field. -->
+    <form id="numbers" class="grid w-[410px] gap-4 p-5" (submit)="saveNumbers($event)">
+      <input zzInput aria-label="Plain amount" value="1.234,50" id="plain-input" />
+      <div
+        zzNumberField
+        [locale]="'el-GR'"
+        minimumFractionDigits="2"
+        maximumFractionDigits="2"
+        [(value)]="bareAmount"
+        id="amount-bare"
+      >
+        <input zzNumberFieldInput aria-label="Bare amount" id="amount-bare-input" />
+      </div>
+
+      <div zzField #amountField="zzField" id="amount-field">
+        <label zzFieldLabel id="amount-label">Amount (€)</label>
+        <div
+          zzNumberField
+          [formField]="numbers.amount"
+          [locale]="'el-GR'"
+          minimumFractionDigits="2"
+          maximumFractionDigits="2"
+          id="amount"
+        >
+          <button zzNumberFieldDecrement aria-label="Decrease amount" id="amount-dec"></button>
+          <span zzNumberFieldAdornment id="amount-sign">€</span>
+          <input zzNumberFieldInput placeholder="0,00" id="amount-input" />
+          <button zzNumberFieldIncrement aria-label="Increase amount" id="amount-inc"></button>
+        </div>
+        <p zzFieldDescription>The deposit, in euros.</p>
+        @if (amountField.state.errorsShown()) {
+          @switch (amountField.state.errors()[0]?.kind) {
+            @case ("numberInvalid") {
+              <p zzFieldError>That isn't an amount</p>
+            }
+            @case ("numberIncomplete") {
+              <p zzFieldError>Finish the amount</p>
+            }
+            @default {
+              <p zzFieldError>{{ amountField.state.errors()[0]?.message }}</p>
+            }
+          }
+        }
+        <output id="amount-value">{{ numbers.amount().value() }}</output>
+      </div>
+
+      <div zzField id="tickets-field">
+        <label zzFieldLabel>Tickets</label>
+        <div zzNumberField [formField]="numbers.tickets" maximumFractionDigits="0" id="tickets">
+          <button zzNumberFieldDecrement aria-label="Fewer tickets" id="tickets-dec"></button>
+          <input zzNumberFieldInput id="tickets-input" />
+          <button zzNumberFieldIncrement aria-label="More tickets" id="tickets-inc"></button>
+        </div>
+      </div>
+      <div zzField id="share-field">
+        <label zzFieldLabel>Share (%)</label>
+        <div zzNumberField [formField]="numbers.share" id="share">
+          <input zzNumberFieldInput id="share-input" />
+          <span zzNumberFieldAdornment id="share-sign">%</span>
+        </div>
+      </div>
+      <div zzField id="pair-field">
+        <label zzFieldLabel>Seats</label>
+        <div zzNumberField [formField]="numbers.seats" maximumFractionDigits="0" id="pair">
+          <input zzNumberFieldInput id="pair-input" />
+          <button zzNumberFieldDecrement aria-label="Fewer seats"></button>
+          <button zzNumberFieldIncrement aria-label="More seats"></button>
+        </div>
+      </div>
+      <div zzField id="locked-amount-field">
+        <label zzFieldLabel>Locked amount (€)</label>
+        <div
+          zzNumberField
+          [formField]="numbers.lockedAmount"
+          [locale]="'el-GR'"
+          minimumFractionDigits="2"
+          maximumFractionDigits="2"
+          id="locked-amount"
+        >
+          <button
+            zzNumberFieldDecrement
+            aria-label="Decrease locked amount"
+            id="locked-amount-dec"
+          ></button>
+          <input zzNumberFieldInput id="locked-amount-input" />
+          <button
+            zzNumberFieldIncrement
+            aria-label="Increase locked amount"
+            id="locked-amount-inc"
+          ></button>
+        </div>
+      </div>
+      <div zzField id="frozen-amount-field">
+        <label zzFieldLabel>Frozen amount (€)</label>
+        <div
+          zzNumberField
+          [formField]="numbers.frozenAmount"
+          [locale]="'el-GR'"
+          minimumFractionDigits="2"
+          maximumFractionDigits="2"
+          id="frozen-amount"
+        >
+          <button
+            zzNumberFieldDecrement
+            aria-label="Decrease frozen amount"
+            id="frozen-amount-dec"
+          ></button>
+          <input zzNumberFieldInput id="frozen-amount-input" />
+          <button
+            zzNumberFieldIncrement
+            aria-label="Increase frozen amount"
+            id="frozen-amount-inc"
+          ></button>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <div zzNumberField [(value)]="quantity" min="1" maximumFractionDigits="0" id="quantity">
+          <button zzNumberFieldDecrement aria-label="Fewer" id="quantity-dec"></button>
+          <input zzNumberFieldInput aria-label="Quantity" id="quantity-input" />
+          <button zzNumberFieldIncrement aria-label="More" id="quantity-inc"></button>
+        </div>
+        <output id="quantity-value">{{ quantity() }}</output>
+      </div>
+      <div zzNumberField [value]="8" class="h-7" id="amount-sm">
+        <button zzNumberFieldDecrement aria-label="Decrease small" id="amount-sm-dec"></button>
+        <input zzNumberFieldInput aria-label="Small" />
+        <button zzNumberFieldIncrement aria-label="Increase small" id="amount-sm-inc"></button>
+      </div>
+      <div zzNumberField [value]="8" class="h-9" id="amount-lg">
+        <button zzNumberFieldDecrement aria-label="Decrease large" id="amount-lg-dec"></button>
+        <input zzNumberFieldInput aria-label="Large" />
+        <button zzNumberFieldIncrement aria-label="Increase large" id="amount-lg-inc"></button>
+      </div>
+
+      <div zzField id="zoom-field">
+        <div class="flex items-baseline justify-between">
+          <span zzFieldLabel id="zoom-label">Zoom</span>
+          <output class="tabular-nums" id="zoom-value">{{ numbers.zoom().value() }}%</output>
+        </div>
+        <div zzSlider [formField]="numbers.zoom" step="10" id="zoom">
+          <div
+            zzSliderThumb
+            [attr.aria-valuetext]="numbers.zoom().value() + '%'"
+            id="zoom-thumb"
+          ></div>
+        </div>
+        <p zzFieldDescription id="zoom-description">Scales the org chart.</p>
+      </div>
+      <div zzField id="zoom-locked-field">
+        <span zzFieldLabel>Locked zoom</span>
+        <div zzSlider [formField]="numbers.zoomLocked" id="zoom-locked">
+          <div zzSliderThumb id="zoom-locked-thumb"></div>
+        </div>
+      </div>
+      <div zzField id="zoom-frozen-field">
+        <span zzFieldLabel>Frozen zoom</span>
+        <div zzSlider [formField]="numbers.zoomFrozen" id="zoom-frozen">
+          <div zzSliderThumb id="zoom-frozen-thumb"></div>
+        </div>
+      </div>
+      <div zzField #zoomInvalidField="zzField" id="zoom-invalid-field">
+        <span zzFieldLabel>Contrast</span>
+        <div zzSlider [formField]="numbers.zoomInvalid" id="zoom-invalid">
+          <div zzSliderThumb id="zoom-invalid-thumb"></div>
+        </div>
+        @if (zoomInvalidField.state.errorsShown()) {
+          <p zzFieldError>{{ zoomInvalidField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div dir="rtl">
+        <div zzSlider [(value)]="rtlZoom" id="zoom-rtl">
+          <div zzSliderThumb aria-label="Right-to-left zoom" id="zoom-rtl-thumb"></div>
+        </div>
+      </div>
+      <div class="grid gap-2" id="zoom-ends">
+        <div zzSlider [value]="0" id="zoom-at-min">
+          <div zzSliderThumb aria-label="Lowest zoom"></div>
+        </div>
+        <div zzSlider [value]="100" id="zoom-at-max">
+          <div zzSliderThumb aria-label="Highest zoom"></div>
+        </div>
+      </div>
+      <div class="light grid gap-4 bg-background p-2">
+        <div zzNumberField [value]="1234.5" [locale]="'el-GR'" id="light-amount">
+          <span zzNumberFieldAdornment>€</span>
+          <input zzNumberFieldInput aria-label="Light amount" />
+        </div>
+        <div zzSlider [value]="50" id="light-zoom">
+          <div zzSliderThumb aria-label="Light zoom" id="light-zoom-thumb"></div>
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <button zzButton variant="primary" type="submit" id="numbers-save">Save numbers</button>
+        <button
+          zzButton
+          type="button"
+          (click)="numbers.amount().focusBoundControl()"
+          id="focus-amount"
+        >
+          Focus amount
+        </button>
+        <button zzButton type="button" (click)="numbers.zoom().focusBoundControl()" id="focus-zoom">
+          Focus zoom
+        </button>
+      </div>
+      <output id="number-saves">{{ numberSaves() }}</output>
+    </form>
   `,
 })
 export class App {
@@ -434,6 +650,10 @@ export class App {
   protected readonly density = signal<string | null>("compact");
   protected readonly tierAddon = signal<string | null>("a");
   protected readonly controlSaves = signal(0);
+  protected readonly bareAmount = signal<number | null>(1234.5);
+  protected readonly quantity = signal<number | null>(3);
+  protected readonly rtlZoom = signal(25);
+  protected readonly numberSaves = signal(0);
   protected readonly cycles = [
     { value: "monthly", label: "Monthly", locked: false },
     { value: "weekly", label: "Weekly", locked: true },
@@ -483,6 +703,52 @@ export class App {
       );
     },
   );
+
+  // Every rule has a message: a rule without one gives an error whose message is undefined.
+  protected readonly numbers = form(
+    signal({
+      amount: null as number | null,
+      tickets: 10 as number | null,
+      share: 25 as number | null,
+      seats: 2 as number | null,
+      lockedAmount: 1234.5 as number | null,
+      frozenAmount: 1234.5 as number | null,
+      zoom: 100,
+      zoomLocked: 50,
+      zoomFrozen: 50,
+      zoomInvalid: 30,
+    }),
+    (path) => {
+      required(path.amount, { message: "Enter an amount" });
+      min(path.amount, 0, { message: "It can't be negative" });
+      max(path.amount, 1000, { message: "Up to 1.000 €" });
+      min(path.tickets, 1, { message: "At least one ticket" });
+      max(path.tickets, 10, { message: "Up to 10 tickets" });
+      max(path.share, 100, { message: "Up to 100%" });
+      disabled(path.lockedAmount);
+      readonly(path.frozenAmount);
+      min(path.zoom, 20, { message: "At least 20%" });
+      max(path.zoom, 180, { message: "Up to 180%" });
+      disabled(path.zoomLocked);
+      readonly(path.zoomFrozen);
+      validate(path.zoomInvalid, ({ value }) => {
+        if (value() < 50) {
+          return { kind: "contrast", message: "Choose at least 50." };
+        }
+
+        return undefined;
+      });
+    },
+  );
+
+  protected async saveNumbers(event: Event): Promise<void> {
+    event.preventDefault();
+    await submit(this.numbers, async () => {
+      this.numberSaves.update((count) => count + 1);
+
+      return undefined;
+    });
+  }
 
   protected async saveControls(event: Event): Promise<void> {
     event.preventDefault();
