@@ -27,7 +27,15 @@ export function segmentId(text: string): string {
 /** The `$localize` tagged template a destination copy writes for one static segment. */
 export function segmentMessage(text: string): string {
   // A static segment never starts with ":", so its text needs no leading "\:" after the block.
-  const escaped = text.replace(/[\\`]/g, "\\$&").replace(/\$\{/g, "\\${");
+  // Line terminators are escaped: a template normalizes a literal CR or CRLF to LF, and the
+  // message must stay on the declaration's line for copy diagnostics.
+  const escaped = text
+    .replace(/[\\`]/g, "\\$&")
+    .replace(/\$\{/g, "\\${")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 
   return `$localize\`:${meaning}|${description}@@${segmentId(text)}:${escaped}\``;
 }

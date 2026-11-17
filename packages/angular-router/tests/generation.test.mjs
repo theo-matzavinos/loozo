@@ -4986,7 +4986,20 @@ async function outputSnapshot(project) {
 test("translated segments: one $localize message per static word, escaped, in the destination copy", async () => {
   const project = await copyProject();
   const header = 'import { defineRoute, numberParam, stringParam } from "@loozo/angular-router";\n';
-  const words = ["a`b", "c\\d", "e${f}", "g:h", "i@@j", "k|l", "über", "x"];
+  const words = [
+    "a`b",
+    "c\\d",
+    "e${f}",
+    "g:h",
+    "i@@j",
+    "k|l",
+    "über",
+    "cr\rx",
+    "lf\nx",
+    "crlf\r\nx",
+    "ls\u2028x",
+    "x",
+  ];
   const routes = {
     tricky: `${header}export default defineRoute(${JSON.stringify(`${words.join("/")}/$id`)}, { params: { id: numberParam } });\n`,
     "tricky/child": `${header}import parent from "../route.js";\nexport default defineRoute("x/$rest[]", { parent, params: { rest: stringParam } });\n`,

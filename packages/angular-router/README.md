@@ -175,7 +175,7 @@ Parsing should be pure and deterministic. A path codec runs twice per navigation
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route`, `ParamCodec`, `Destination`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
+The package root exports exactly `defineRoute`, `createUrl`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route`, `ParamCodec`, `Destination`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
 
 ### Fragments
 
@@ -590,11 +590,8 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - Route declarations can't use custom matchers or write `loadChildren`; generation emits `loadChildren` for every route with children ([Lazy route children](#lazy-route-children)).
 - Primary outlet only, for now. Named outlets are planned for 1.0. Until then you can add outlet routes by hand next to the generated `routes`; they aren't typed, and typed navigation drops any outlet segment from the URL.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
-- No translated path segments yet; per-locale route trees are planned for 1.0. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
-
 - [Translated URLs](#translated-urls) have no links to the same page in another locale, SEO alternate links, locale detection or redirects, or switching locale inside one build, and Launch applications can't use them yet. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
-- No data, URL or transfer caches. Resolver data lives in Angular.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 
