@@ -23,7 +23,10 @@ export default class Probe {
   readonly #route = injectRoute();
   readonly #target = this.#route.search().target ?? "";
   protected readonly caught = signal("");
-  protected readonly own = computed(() => ownUrls[this.#target]?.() ?? "");
+  // Own keys only: a target such as `__proto__` names no URL, as the server's schema refuses it.
+  protected readonly own = computed(() =>
+    Object.hasOwn(ownUrls, this.#target) ? ownUrls[this.#target]() : "",
+  );
 
   constructor() {
     this.#route.remote.probe.go(this.#target, { transferCache: false }).then(
