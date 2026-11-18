@@ -138,7 +138,7 @@ export class TabsProbe {
         <button ogTabsTrigger value="b" data-role="outer-b">Outer B</button>
       </div>
       <div ogTabsPanel value="a" data-role="outer-panel-a">
-        <section ogTabs #innerTabs="ogTabs" [(value)]="inner">
+        <section ogTabs #innerTabs="ogTabs" [(value)]="inner" orientation="vertical">
           <div ogTabsList aria-label="Inner" data-role="inner-list">
             <button ogTabsTrigger value="x" data-role="inner-x">Inner X</button>
             <button ogTabsTrigger value="y" data-role="inner-y">Inner Y</button>

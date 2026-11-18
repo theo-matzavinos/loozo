@@ -66,8 +66,10 @@ test("S1: roles, mounted-only associations, exactly-once selection, disabled blo
     await expect(trigger).toHaveAttribute("type", "button");
     await expect(trigger).toHaveAttribute("aria-controls", panelId ?? "");
     await expect(trigger).not.toHaveAttribute("aria-disabled", /.*/);
+    await expect(trigger).toHaveAttribute("data-orientation", "horizontal");
     await expect(content).toHaveAttribute("role", "tabpanel");
     await expect(content).toHaveAttribute("aria-labelledby", triggerId ?? "");
+    await expect(content).toHaveAttribute("data-orientation", "horizontal");
   }
 
   await expect(tab(page, "profile")).toHaveAttribute("aria-selected", "true");
@@ -264,6 +266,12 @@ test("S3: manual vertical arrows move focus only; Enter selects; Shift+Tab leave
 
   await expect(list).toHaveAttribute("aria-orientation", "vertical");
   await expect(root).toHaveAttribute("data-orientation", "vertical");
+
+  for (const key of coreKeys) {
+    await expect(part(key)).toHaveAttribute("data-orientation", "vertical");
+    await expect(part(`panel-${key}`)).toHaveAttribute("data-orientation", "vertical");
+  }
+
   await part("profile").focus();
   await page.keyboard.press("ArrowDown");
   // Billing is disabled and skipped; manual activation does not select.
@@ -537,6 +545,23 @@ test("S5: no auto-selection; disabled and removed selections keep the value; foc
   await expect(page.getByTestId("focus-guard-outputs")).toHaveText("0");
 });
 
+/** Every consumer Trigger and mounted consumer Panel of the factory Tabs carries `orientation`. */
+async function expectFactoryOrientation(page: Page, orientation: string): Promise<void> {
+  for (const key of coreKeys) {
+    await expect(page.getByTestId(`consumer-tab-${key}`)).toHaveAttribute(
+      "data-orientation",
+      orientation,
+    );
+  }
+
+  for (const key of ["profile", "security"]) {
+    await expect(page.getByTestId(`consumer-panel-${key}`)).toHaveAttribute(
+      "data-orientation",
+      orientation,
+    );
+  }
+}
+
 test("S6: replaced root, Trigger and Panel Options drive behavior and associations; nested Tabs are independent", async ({
   page,
 }, info) => {
@@ -552,6 +577,7 @@ test("S6: replaced root, Trigger and Panel Options drive behavior and associatio
   await expect(page.getByTestId("factory-tabs-state")).toHaveText("profile");
   await expect(root).toHaveAttribute("data-orientation", "vertical");
   await expect(list).toHaveAttribute("aria-orientation", "vertical");
+  await expectFactoryOrientation(page, "vertical");
   // Upper Trigger Options alone drive the IDs.
   await expect(profile).toHaveAttribute("id", "consumer-tab-profile");
   await expect(profile).toHaveAttribute("aria-controls", "consumer-panel-profile");
@@ -578,7 +604,9 @@ test("S6: replaced root, Trigger and Panel Options drive behavior and associatio
   await expect(page.getByTestId("consumer-panel-profile")).toBeHidden();
 
   await page.getByTestId("factory-tabs-horizontal").click();
+  await expect(root).toHaveAttribute("data-orientation", "horizontal");
   await expect(list).toHaveAttribute("aria-orientation", "horizontal");
+  await expectFactoryOrientation(page, "horizontal");
   await security.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(profile).toBeFocused();
@@ -648,8 +676,17 @@ test("S6: a nested Tabs root has its own State, keys and tab stop", async ({ pag
   await expectTabStop(part("outer-list"), part("outer-a"));
   await expectTabStop(part("inner-list"), part("inner-x"));
 
+  // Each part carries its own root's axis: the inner Tabs is vertical inside a horizontal one.
+  for (const role of ["outer-a", "outer-b", "outer-panel-a", "outer-panel-b"]) {
+    await expect(part(role)).toHaveAttribute("data-orientation", "horizontal");
+  }
+
+  for (const role of ["inner-x", "inner-y", "inner-panel-x"]) {
+    await expect(part(role)).toHaveAttribute("data-orientation", "vertical");
+  }
+
   await part("inner-x").focus();
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
   await expect(part("inner-y")).toBeFocused();
   await expect(part("inner-value")).toHaveText("y");
   await expect(part("outer-value")).toHaveText("a");
