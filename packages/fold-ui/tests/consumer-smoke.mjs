@@ -173,6 +173,14 @@ try {
   assert.match(vat, /\bdata-checked=""/);
   assert.match(vat, /\bdata-slot="checkbox"/);
   assert.match(element(html, "vat"), /<svg\b[^>]*\bdata-slot="checkbox-indicator"/);
+
+  // A select-all parent over a partial selection is mixed on the server, without data-checked.
+  const allInvoices = openingTag(html, "all-invoices");
+
+  assert.match(allInvoices, /\baria-checked="mixed"/);
+  assert.match(allInvoices, /\bdata-mixed=""/);
+  assert.doesNotMatch(allInvoices, /\sdata-checked=/);
+  assert.match(element(html, "all-invoices"), /<svg\b[^>]*\bdata-slot="checkbox-mixed-indicator"/);
   assert.match(openingTag(html, "terms"), /\bid="terms"/);
   assert.match(openingTag(html, "terms-label"), /\bfor="terms"/);
   assert.match(openingTag(html, "cycle"), /\baria-labelledby="cycle-label"/);
@@ -1035,6 +1043,58 @@ try {
   await page.click("#select-row");
   await page.waitForFunction(() => document.getElementById("selected").textContent === "true");
 
+  // Select-all: mixed shows the checked fill with the minus. From mixed, a click checks every
+  // invoice and shows the check, the next unchecks them all, one invoice makes the parent mixed
+  // again, and Space from mixed checks them all.
+  const invoiceStates = () =>
+    page.evaluate(() =>
+      ["invoice-0412", "invoice-0413", "invoice-0414"].map((id) =>
+        document.getElementById(id).getAttribute("aria-checked"),
+      ),
+    );
+  const checkboxLooks = (id) =>
+    page.evaluate((id) => {
+      const box = document.getElementById(id);
+      const style = getComputedStyle(box);
+      const glyph = (slot) => {
+        const glyphStyle = getComputedStyle(box.querySelector(`[data-slot=${slot}]`));
+
+        return `${glyphStyle.opacity} ${glyphStyle.color}`;
+      };
+
+      return {
+        box: `${style.backgroundColor} ${style.borderTopColor}`,
+        check: glyph("checkbox-indicator"),
+        minus: glyph("checkbox-mixed-indicator"),
+      };
+    }, id);
+  const glyphColor = "rgb(20, 20, 20)";
+
+  assert.equal(await attribute("all-invoices", "aria-checked"), "mixed");
+  assert.deepEqual(await checkboxLooks("all-invoices"), {
+    box: `${foreground} ${foreground}`,
+    check: `0 ${glyphColor}`,
+    minus: `1 ${glyphColor}`,
+  });
+  await page.click("#all-invoices");
+  await until("all-invoices", "aria-checked", "true");
+  assert.deepEqual(await invoiceStates(), ["true", "true", "true"]);
+  assert.equal(await attribute("all-invoices", "data-mixed"), null);
+  assert.deepEqual(await checkboxLooks("all-invoices"), {
+    box: `${foreground} ${foreground}`,
+    check: `1 ${glyphColor}`,
+    minus: `0 ${glyphColor}`,
+  });
+  await page.click("#all-invoices");
+  await until("all-invoices", "aria-checked", "false");
+  assert.deepEqual(await invoiceStates(), ["false", "false", "false"]);
+  await page.click("#invoice-0413");
+  await until("all-invoices", "aria-checked", "mixed");
+  await page.focus("#all-invoices");
+  await page.keyboard.press("Space");
+  await until("all-invoices", "aria-checked", "true");
+  assert.deepEqual(await invoiceStates(), ["true", "true", "true"]);
+
   // Arrows move and check, skipping the disabled item; Tab enters on the checked item. Only the
   // checked item shows its dot, and only a keyboard-focused one rings its indicator.
   await page.click("#cycle-monthly");
@@ -1234,6 +1294,7 @@ try {
         glyph: style("#vat > svg").color,
         unchecked: style("#merged-checkbox").borderTopColor,
         lightFill: style("#light-checkbox").backgroundColor,
+        lightMixed: `${style("#light-mixed-checkbox").backgroundColor} ${style("#light-mixed-checkbox > [data-slot=checkbox-mixed-indicator]").opacity}`,
         lightThumb: style("#light-switch > [data-slot=switch-thumb]").backgroundColor,
         mergedRadius: parseFloat(style("#merged-checkbox").borderTopLeftRadius) >= 8,
         mergedWidth: style("#merged-switch").width,
@@ -1244,6 +1305,7 @@ try {
       glyph: "rgb(20, 20, 20)",
       unchecked: "rgb(107, 107, 104)",
       lightFill: "rgb(27, 27, 27)",
+      lightMixed: "rgb(27, 27, 27) 1",
       lightThumb: "rgb(233, 233, 231)",
       mergedRadius: true,
       mergedWidth: "40px",
@@ -1256,13 +1318,14 @@ try {
       [
         "#vat",
         "#vat > svg",
+        "#vat > [data-slot=checkbox-mixed-indicator]",
         "#renew",
         "#renew > [data-slot=switch-thumb]",
         "#cycle-monthly > [data-slot=radio-group-indicator]",
         "#cycle-monthly > [data-slot=radio-group-indicator] > span",
       ].map((selector) => getComputedStyle(document.querySelector(selector)).transitionDuration),
     ),
-    ["0s", "0s", "0s", "0s", "0s", "0s"],
+    ["0s", "0s", "0s", "0s", "0s", "0s", "0s"],
   );
 
   // Forced colors, from a fresh page: the radio's dot and the switch's thumb keep the system button
@@ -1318,6 +1381,48 @@ try {
     false,
     "an on switch looks different from an off one",
   );
+
+  // The mixed parent's minus keeps the system text color, and its glyph area, inside the border
+  // that Chromium tints on a focused or just-clicked box, differs from unchecked and checked.
+  const minus = "#all-invoices > [data-slot=checkbox-mixed-indicator]";
+  const glyphArea = async () => {
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.mouse.move(0, 0);
+    await rendered();
+
+    const clip = await page.locator(minus).boundingBox();
+
+    return page.screenshot({ clip, animations: "disabled" });
+  };
+
+  await fresh();
+  await page.locator("#all-invoices").scrollIntoViewIfNeeded();
+  assert.equal(await attribute("all-invoices", "aria-checked"), "mixed");
+  assertStandsOut(
+    await page.evaluate(
+      ([minus, box]) => ({
+        part: getComputedStyle(document.querySelector(minus)).color,
+        ground: getComputedStyle(document.querySelector(box)).backgroundColor,
+      }),
+      [minus, "#all-invoices"],
+    ),
+    "the forced minus",
+  );
+
+  const mixedGlyph = await glyphArea();
+
+  await page.click("#all-invoices");
+  await until("all-invoices", "aria-checked", "true");
+
+  const checkedGlyph = await glyphArea();
+
+  await page.click("#all-invoices");
+  await until("all-invoices", "aria-checked", "false");
+
+  const uncheckedGlyph = await glyphArea();
+
+  assert.equal(mixedGlyph.equals(uncheckedGlyph), false, "a forced mixed box shows its minus");
+  assert.equal(mixedGlyph.equals(checkedGlyph), false, "forced mixed and checked look different");
   await page.emulateMedia({ forcedColors: "none" });
 
   // Number field and Slider. Exact outline and border widths are DPR-1 values: at a fractional
