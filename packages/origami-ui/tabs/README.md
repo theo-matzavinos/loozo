@@ -41,12 +41,14 @@ Other parts read a Trigger's or Panel's Options only after Angular has set its i
 
 `OrigamiTabsState` has `value()`, `disabled()`, `orientation()` and `activation()`, the effective values from the root Options. The root exposes it as `state`; use it to render a Panel's heavy content only while that Panel is selected.
 
-| Element | Attributes                                                                                                                                                                                                                                                                                              |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root    | `data-orientation`, `data-disabled`                                                                                                                                                                                                                                                                     |
-| List    | `role="tablist"`, `aria-orientation`                                                                                                                                                                                                                                                                    |
-| Trigger | `role="tab"`, `type="button"`, `id`, `aria-selected` (`"true"` or `"false"`), `aria-controls` (only while a Panel with its value is mounted), `tabindex`, `data-selected` while selected; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
-| Panel   | `role="tabpanel"`, `tabindex="0"`, `id`, `aria-labelledby` (only while a Trigger with its value is mounted), `hidden` unless selected, `data-selected` while selected                                                                                                                                   |
+| Element | Attributes                                                                                                                                                                                                                                                                                                                  |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root    | `data-orientation`, `data-disabled`                                                                                                                                                                                                                                                                                         |
+| List    | `role="tablist"`, `aria-orientation`                                                                                                                                                                                                                                                                                        |
+| Trigger | `role="tab"`, `type="button"`, `id`, `aria-selected` (`"true"` or `"false"`), `aria-controls` (only while a Panel with its value is mounted), `tabindex`, `data-selected` while selected, `data-orientation`; when disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
+| Panel   | `role="tabpanel"`, `tabindex="0"`, `id`, `aria-labelledby` (only while a Trigger with its value is mounted), `hidden` unless selected, `data-selected` while selected, `data-orientation`                                                                                                                                   |
+
+`data-orientation` on the Trigger and Panel is always present, `"horizontal"` or `"vertical"`, from the nearest root's effective orientation. Key orientation styles on the part itself: a selector through the root's `data-orientation` also matches a Tabs nested in a Panel.
 
 ## Accessibility
 
@@ -57,6 +59,6 @@ Other parts read a Trigger's or Panel's Options only after Angular has set its i
 
 ## Server rendering and hydration
 
-Tabs' selection, roles, associations, hidden Panels and single `tabindex="0"` are in the server HTML, also when Triggers and Panels repeat in `@for`, and hydration doesn't change them.
+Tabs' selection, roles, associations, hidden Panels, `data-orientation` on the root, Triggers and Panels, and single `tabindex="0"` are in the server HTML, also when Triggers and Panels repeat in `@for`, and hydration doesn't change them.
 
 What holds for every primitive is in [Server rendering and hydration](../README.md#server-rendering-and-hydration).

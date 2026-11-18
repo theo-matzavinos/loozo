@@ -60,7 +60,8 @@ export abstract class OrigamiTabsTriggerOptions {
 }
 
 /**
- * A native `type="button"` with `role="tab"`. Click, Enter or
+ * A native `type="button"` with `role="tab"` and the nearest root's effective
+ * `data-orientation`. Click, Enter or
  * Space focuses it and selects its value once if it is still mounted and enabled after its focus
  * handlers ran; selecting the selected tab writes nothing and there is no deselection. Arrow keys along the effective orientation (horizontal arrows follow
  * reading direction), Home and End move focus among enabled Triggers in DOM order, wrapping at
@@ -97,6 +98,7 @@ export abstract class OrigamiTabsTriggerOptions {
     "[attr.aria-selected]": "selected()",
     "[attr.aria-controls]": "panelId()",
     "[attr.data-selected]": "selectedAttribute()",
+    "[attr.data-orientation]": "orientation()",
     "(click)": "activate()",
     "(keydown)": "keydown($event)",
     "(focus)": "focused()",
@@ -122,6 +124,8 @@ export class OrigamiTabsTrigger implements OrigamiTabsTriggerOptions {
   readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
 
+  /** @internal The nearest root's effective `data-orientation`. */
+  protected readonly orientation = this.#context.orientation;
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
   /** Combined root and own disabled policy. */

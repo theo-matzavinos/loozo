@@ -474,6 +474,22 @@ test("G3 H1 H2 H3: Toggle server pressed state and retained nodes; the first act
   }
 });
 
+/** The main Tabs' Triggers and Panels are vertical; the order Tabs' Triggers keep the default. */
+async function expectTabsOrientation(unit: Locator): Promise<void> {
+  for (const testId of [
+    "hydration-tab-first",
+    "hydration-tab-second",
+    "hydration-panel-first",
+    "hydration-panel-second",
+  ]) {
+    await expect(unit.getByTestId(testId)).toHaveAttribute("data-orientation", "vertical");
+  }
+
+  for (const testId of ["hydration-order-early", "hydration-order-one", "hydration-order-two"]) {
+    await expect(unit.getByTestId(testId)).toHaveAttribute("data-orientation", "horizontal");
+  }
+}
+
 /** Server-rendered Tabs semantics; C has no selection and a disabled first Trigger. */
 async function expectServerTabs(page: Page, labels: string[]): Promise<void> {
   for (const label of labels) {
@@ -494,6 +510,7 @@ async function expectServerTabs(page: Page, labels: string[]): Promise<void> {
       "aria-labelledby",
       (await second.getAttribute("id")) ?? "",
     );
+    await expectTabsOrientation(unit);
 
     if (label === "C") {
       await expect(first).toBeDisabled();
@@ -573,6 +590,8 @@ test("S7 H1 H2 H3: Tabs server selection, DOM-order tab stop and associations su
     }
 
     await expect(b.getByTestId("tab-output-count")).toHaveText("1");
+    // B is attached in both modes; attachment keeps every orientation marker.
+    await expectTabsOrientation(b);
     await expect(second).toHaveAttribute("aria-selected", "true");
     await expect(second).toHaveAttribute("tabindex", "0");
     await expect(b.getByTestId("hydration-tab-first")).toHaveAttribute("tabindex", "-1");

@@ -1,5 +1,5 @@
-import { Component, computed, inject, input } from "@angular/core";
-import { OrigamiTabsState, OrigamiTabsTrigger } from "@loozo/origami-ui/tabs";
+import { Component, computed, input } from "@angular/core";
+import { OrigamiTabsTrigger } from "@loozo/origami-ui/tabs";
 import { cn } from "../cn";
 
 /**
@@ -26,7 +26,6 @@ const INDICATOR =
   ],
   host: {
     "data-slot": "tabs-trigger",
-    "[attr.data-orientation]": "orientation()",
     "[class]": "classes()",
   },
   template: `
@@ -36,9 +35,6 @@ const INDICATOR =
 })
 export class TabsTrigger {
   readonly class = input("");
-
-  /** The root's orientation, which Origami puts only on the root and the List. */
-  protected readonly orientation = inject(OrigamiTabsState).orientation;
 
   protected readonly classes = computed(() =>
     cn(

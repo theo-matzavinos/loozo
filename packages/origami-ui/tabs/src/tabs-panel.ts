@@ -35,8 +35,8 @@ export abstract class OrigamiTabsPanelOptions {
 /**
  * Static `role="tabpanel"` content for the Trigger of the same value. It is `hidden` unless
  * its value is the root value, whether or not a Trigger with that value is mounted, and
- * carries `data-selected` while shown. `aria-labelledby` names only
- * a mounted Trigger of the same value. A static `tabindex="0"` makes the Panel a tab stop for
+ * carries `data-selected` while shown and the nearest root's effective `data-orientation`.
+ * `aria-labelledby` names only a mounted Trigger of the same value. A static `tabindex="0"` makes the Panel a tab stop for
  * content without focusable children; a consumer's static `tabindex` overrides it. Panels have
  * no enter/exit Presence: gate heavy content with the root's State. Requires a nearest Tabs root.
  */
@@ -50,6 +50,7 @@ export abstract class OrigamiTabsPanelOptions {
     "[attr.aria-labelledby]": "triggerId()",
     "[attr.hidden]": "hiddenAttribute()",
     "[attr.data-selected]": "selectedAttribute()",
+    "[attr.data-orientation]": "orientation()",
   },
 })
 export class OrigamiTabsPanel implements OrigamiTabsPanelOptions {
@@ -65,6 +66,8 @@ export class OrigamiTabsPanel implements OrigamiTabsPanelOptions {
   readonly #context = inject(TabsContext);
   readonly #selected = computed(() => this.#context.value() === this.#options().value());
 
+  /** @internal The nearest root's effective `data-orientation`. */
+  protected readonly orientation = this.#context.orientation;
   /** @internal Readonly effective host identity. */
   protected readonly effectiveId = computed(() => this.#options().id());
   /** @internal Mounted-only labelling association. */

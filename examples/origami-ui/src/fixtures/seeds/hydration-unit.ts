@@ -280,6 +280,7 @@ export class AccordionObservation {
 
     <div
       ogTabs
+      orientation="vertical"
       [(value)]="tab"
       (valueChange)="tabOutputs.update(increment)"
       data-testid="hydration-tabs"
