@@ -1,4 +1,11 @@
-import { isRootRelative } from "../outcomes.js";
+import {
+  createUrl,
+  destinationRecord,
+  type AnyRoute,
+  type Destination,
+  type SearchOf,
+  type UrlValues,
+} from "@loozo/angular-router/_core";
 
 // Keyed with Symbol.for so the brand survives the duplicate module copies a native SSR
 // bundle may load, and non-enumerable so it never reaches JSON.
@@ -8,7 +15,12 @@ const outcomeKey = Symbol.for("@loozo/angular-launch/outcome/v1");
 export type Outcome =
   | { readonly kind: "forbidden" }
   | { readonly kind: "notFound" }
-  | { readonly kind: "redirect"; readonly to: string };
+  | {
+      readonly kind: "redirect";
+      readonly to: `/${string}`;
+      // The path positions of `to` that hold the destination's static segments, ascending.
+      readonly words: readonly number[];
+    };
 
 function outcomeError(message: string, outcome: Outcome): Error {
   const error = new Error(message);
@@ -59,35 +71,63 @@ export function notFound(): Error {
 }
 
 /**
- * Creates an error that answers the call with a redirect to `to` when thrown from
- * middleware or a handler.
+ * Creates an error that answers the call with a redirect to an app destination when thrown
+ * from middleware or a handler.
  *
  * @remarks
- * The caller's call rejects with `RpcRedirect` from `@loozo/angular-launch`. In a guard or
- * resolver, `rpcNavigationErrors()` navigates to `to` instead, which during server
- * rendering answers the page request with a 302. Nothing navigates outside navigation.
- * Only root-relative app URLs, such as `createUrl` builds, are accepted; an external
- * redirect (OAuth, for example) is data the page acts on.
+ * The redirect goes to `createUrl(destination, values)`; both arguments are typed exactly as
+ * `createUrl`'s, so `values` is required (`{}` for none). The caller's call rejects with
+ * `RpcRedirect` from `@loozo/angular-launch`. In a guard or resolver, `rpcNavigationErrors()`
+ * navigates to its `to` instead, which during server rendering answers the page request with
+ * a 302. Nothing navigates outside navigation. Only declared destinations are targets: a
+ * redirect target's search keys must be declared on its route, and an external redirect
+ * (OAuth, for example) is data the page acts on.
+ *
+ * With `translateSegments`, the server still builds the canonical URL and the frame also
+ * lists which of its path positions are static words, so the page's own build can put them
+ * in its language.
  *
  * @example
  * ```ts
  * // signIn: the sign-in route's `destination`, from its destination.generated.ts
  * if (context.user === null) {
- *   throw redirect(createUrl(signIn, {}));
+ *   throw redirect(signIn, {});
  * }
+ *
+ * throw redirect(todo, { params: { id: 2 }, fragment: "title" });
  * ```
  *
- * @param to - The root-relative URL to go to, such as `/sign-in?next=%2Ftodos`.
+ * @param destination - A genuine destination imported from a `destination.generated.ts`.
+ * @param values - Its params, search and fragment, as `createUrl` takes them.
  * @returns The error to `throw`.
- * @throws TypeError when `to` isn't a root-relative URL of the same origin, such as
- * `https://example.com/`, `//example.com/` or `/\example.com/`.
+ * @throws TypeError for anything but a genuine destination from this package instance, and
+ * for values `createUrl` refuses; a codec's own failure propagates unchanged, as from
+ * `createUrl`.
  */
-export function redirect(to: `/${string}`): Error {
-  if (!isRootRelative(to)) {
-    throw new TypeError(`redirect() takes a root-relative URL, not ${JSON.stringify(to)}`);
+export function redirect<
+  Target extends AnyRoute,
+  SearchKeys extends keyof SearchOf<NoInfer<Target>> = never,
+>(destination: Destination<Target>, values: UrlValues<NoInfer<Target>, SearchKeys>): Error {
+  const record = destinationRecord(destination);
+  const to = createUrl(destination, values);
+  const params = (values as { readonly params?: Readonly<Record<string, unknown>> }).params;
+  const words: number[] = [];
+  let position = 0;
+
+  // createUrl writes one path position per static or scalar segment and one per catchall
+  // element, in segment order.
+  for (const segment of record.url.segments) {
+    if (segment.kind === "static") {
+      words.push(position);
+      position += 1;
+    } else if (segment.kind === "scalar") {
+      position += 1;
+    } else {
+      position += (params![segment.name] as readonly unknown[]).length;
+    }
   }
 
-  return outcomeError("RPC redirect outcome", { kind: "redirect", to });
+  return outcomeError("RPC redirect outcome", { kind: "redirect", to, words });
 }
 
 /**

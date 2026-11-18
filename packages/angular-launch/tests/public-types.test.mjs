@@ -332,9 +332,12 @@ import {
   type Schema,
   type StageArgs,
 } from "@loozo/angular-launch/server";
+import { defineDestination } from "@loozo/angular-router/_generated";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 function expect<T extends true>(): T | void {}
+
+const signInPage = defineDestination("sign-in", {}, "src/routes/sign-in/route.ts");
 
 export interface User { id: string }
 
@@ -344,7 +347,7 @@ export const root = defineRoute("", {}).context(({ request }) => ({ request, use
 // needs.
 export function signedIn({ context }: StageArgs<ContextOf<typeof root>>) {
   if (context.user === null) {
-    throw redirect("/sign-in");
+    throw redirect(signInPage, {});
   }
 
   return { ...context, user: context.user };
@@ -574,6 +577,9 @@ const callProcedureProof = `
 import { defineRoute } from "@loozo/angular-launch";
 import { redirect, type Schema } from "@loozo/angular-launch/server";
 import { callProcedure } from "@loozo/angular-launch/testing";
+import { defineDestination } from "@loozo/angular-router/_generated";
+
+const signInPage = defineDestination("sign-in", {}, "src/routes/sign-in/route.ts");
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 function expect<T extends true>(): T | void {}
@@ -587,7 +593,7 @@ export const root = defineRoute("", {})
   .remote(({ query }) => ({ session: { current: query({ handler: ({ context }) => context.user }) } }));
 export const signedIn = defineRoute("", { parent: root }).context(({ context }) => {
   if (context.user === null) {
-    throw redirect("/sign-in");
+    throw redirect(signInPage, {});
   }
 
   return { ...context, user: context.user };
@@ -682,6 +688,53 @@ export async function calls() {
   return [cookies, headers];
 }
 `;
+
+const redirectProof = `
+import { redirect } from "@loozo/angular-launch/server";
+import { createUrl, numberParam, stringParam } from "@loozo/angular-router";
+import { defineDestination } from "@loozo/angular-router/_generated";
+
+const signIn = defineDestination("sign-in", { search: { next: stringParam } }, "src/routes/sign-in/route.ts");
+const todo = defineDestination("todos/$id", { params: { id: numberParam }, fragments: ["title"] }, "src/routes/todos/$id/route.ts");
+const help = defineDestination("help/$topic[]", { params: { topic: stringParam } }, "src/routes/help/$topic[]/route.ts");
+
+const errors: Error[] = [
+  redirect(signIn, {}),
+  redirect(signIn, { search: { next: createUrl(todo, { params: { id: 2 } }) } }),
+  redirect(todo, { params: { id: 2 }, fragment: "title" }),
+  redirect(help, { params: { topic: [] } }),
+  redirect(help, { params: { topic: ["a", "b"] } }),
+];
+// The same values createUrl takes, through one variable.
+const values = { params: { id: 3 } } as const;
+createUrl(todo, values);
+redirect(todo, values);
+
+// @ts-expect-error a URL string isn't a destination
+redirect("/sign-in");
+// @ts-expect-error values are required, as for createUrl
+redirect(signIn);
+// @ts-expect-error a missing path value
+redirect(todo, {});
+// @ts-expect-error a wrong path value
+redirect(todo, { params: { id: "2" } });
+// @ts-expect-error an unknown search key
+redirect(signIn, { search: { other: "x" } });
+// @ts-expect-error an undeclared fragment
+redirect(todo, { params: { id: 2 }, fragment: "body" });
+// @ts-expect-error a catchall takes an array
+redirect(help, { params: { topic: "a" } });
+// @ts-expect-error a destination without params takes none
+redirect(signIn, { params: {} });
+
+void errors;
+`;
+
+await test("redirect() takes a destination and values typed exactly as createUrl's", () => {
+  const { messages } = program({ "redirect.ts": redirectProof });
+
+  assert.deepEqual(messages, []);
+});
 
 await test("callProcedure types its options from the route's root stage and its result from the procedure", () => {
   const { messages } = program({ "call.ts": callProcedureProof });

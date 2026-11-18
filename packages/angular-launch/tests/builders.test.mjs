@@ -111,7 +111,8 @@ async function setUp() {
           strict: true,
           skipLibCheck: true,
           experimentalDecorators: true,
-          types: [],
+          // Declares $localize for the translated configuration's copies.
+          types: ["@angular/localize"],
         },
         include: ["src/**/*.ts", "generated/**/*.ts"],
       }),
@@ -125,6 +126,7 @@ async function setUp() {
             projectType: "application",
             root: "",
             sourceRoot: "src",
+            i18n: { sourceLocale: "en", locales: { de: "src/locale/messages.de.xlf" } },
             architect: {
               build: {
                 builder: "@loozo/angular-launch:application",
@@ -136,7 +138,11 @@ async function setUp() {
                   outputMode: "server",
                   tsConfig: "tsconfig.json",
                 },
-                configurations: { check: { check: true }, watch: { watch: true } },
+                configurations: {
+                  check: { check: true },
+                  watch: { watch: true },
+                  translated: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+                },
               },
               official: {
                 builder: "@angular/build:application",
@@ -148,6 +154,7 @@ async function setUp() {
                 configurations: {
                   check: { buildTarget: "app:build:check" },
                   official: { buildTarget: "app:official" },
+                  translated: { buildTarget: "app:build:translated" },
                 },
               },
             },
@@ -352,7 +359,14 @@ await test("application generates, then runs Angular's builder with every other 
   // An omitted conditions reaches Angular as its default list, never as an explicit [].
   assert.deepEqual(call.options.conditions, ["module", "production"]);
 
-  for (const key of ["tsconfig", "scanDirectories", "outDirectory", "tanstackQuery", "check"]) {
+  for (const key of [
+    "tsconfig",
+    "scanDirectories",
+    "outDirectory",
+    "tanstackQuery",
+    "translateSegments",
+    "check",
+  ]) {
     assert.equal(Object.hasOwn(call.options, key), false, key);
   }
 
@@ -851,4 +865,87 @@ await test("serve's dev-server middleware forwards /_rpc/ upgrades to the latest
     globalThis[slot] = saved;
     await served.stop();
   }
+});
+
+const catalog = (target) => `<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="de" datatype="plaintext" original="ng2.template">
+    <body>
+      <trans-unit id="route.segment.todos" datatype="html"><source>todos</source><target>${target}</target></trans-unit>
+    </body>
+  </file>
+</xliff>
+`;
+const providerImport = `import { provideRedirectTranslation } from "../generated/redirects.generated";
+export const providers = [provideRedirectTranslation()];
+`;
+
+await test("translateSegments reaches generation with the project's localization, and never Angular's builder", async () => {
+  await put("src/locale/messages.de.xlf", catalog("aufgaben"));
+  await put("src/config.ts", providerImport);
+
+  try {
+    const { output, errors } = await run("build", "translated");
+
+    assert.equal(output.success, true, errors);
+
+    const call = callsOf("application").at(-1);
+
+    assert.equal(Object.hasOwn(call.options, "translateSegments"), false);
+    assert.deepEqual(call.options.polyfills, ["@angular/localize/init"]);
+
+    const files = await snapshot();
+
+    assert.match(files["generated/redirects.generated.ts"].bytes, /words: \["todos"\]/);
+    assert.match(files["generated/server.generated.ts"].bytes, /_source-text/);
+
+    // The project's catalog is validated: a translation that isn't one segment fails the build
+    // before Angular's builder runs.
+    const builds = callsOf("application").length;
+
+    await put("src/locale/messages.de.xlf", catalog("a/b"));
+
+    const failed = await run("build", "translated");
+
+    assert.equal(failed.output.success, false);
+    assert.match(failed.errors, /Locale de: route\.segment\.todos translates to "a\/b"/);
+    assert.equal(callsOf("application").length, builds);
+  } finally {
+    await put("src/locale/messages.de.xlf", catalog("aufgaben"));
+  }
+});
+
+await test("serve watches the catalogs with translateSegments: a bad edit is logged and serving goes on", async () => {
+  const served = await start("serve", "translated");
+
+  try {
+    await waitFor(
+      () => served.outputs.some((output) => output.success),
+      "dev server never started",
+    );
+
+    const errors = served.logs.length;
+
+    await put("src/locale/messages.de.xlf", catalog("a/b"));
+    await waitFor(
+      () =>
+        served.logs
+          .slice(errors)
+          .some((entry) => entry.level === "error" && /Locale de: /.test(entry.message)),
+      "a bad catalog edit wasn't validated",
+    );
+    assert.equal(served.error, undefined);
+    assert.equal(served.completed, false);
+  } finally {
+    await served.stop();
+    await put("src/locale/messages.de.xlf", catalog("aufgaben"));
+  }
+
+  // Back off: without the provider import, the table is removed as stale.
+  await put("src/config.ts", "export const providers = [];\n");
+
+  const { output, errors } = await run("build");
+
+  assert.equal(output.success, true, errors);
+  assert.equal((await snapshot())["generated/redirects.generated.ts"], undefined);
 });

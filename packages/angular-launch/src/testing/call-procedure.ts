@@ -131,9 +131,12 @@ export type ProcedureCall<Value> =
         | {
             /** Always 303. */
             readonly status: 303;
-            /** A stage, middleware or the handler threw `redirect(to)`. */
+            /**
+             * A stage, middleware or the handler threw `redirect()`. Never with `words`: the
+             * test's binding isn't translated.
+             */
             readonly redirect: {
-              /** The root-relative destination. */
+              /** The root-relative URL `createUrl` built for the destination. */
               readonly to: `/${string}`;
             };
           }

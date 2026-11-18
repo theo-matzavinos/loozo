@@ -45,11 +45,20 @@ await test("the committed builder schemas match the installed @angular/build", a
 
 await test("the application schema is Angular's with the Launch options and a false conditions default", async () => {
   const angular = await angularSchema("application");
-  const { tsconfig, scanDirectories, outDirectory, tanstackQuery, check, ...properties } =
-    application.properties;
+  const {
+    tsconfig,
+    scanDirectories,
+    outDirectory,
+    tanstackQuery,
+    translateSegments,
+    check,
+    ...properties
+  } = application.properties;
   const { default: conditionsDefault, ...conditions } = properties.conditions;
 
-  assert.ok(tsconfig && scanDirectories && outDirectory && tanstackQuery && check);
+  assert.ok(
+    tsconfig && scanDirectories && outDirectory && tanstackQuery && translateSegments && check,
+  );
   assert.equal(conditionsDefault, false);
   assert.deepEqual({ ...properties, conditions }, angular.schema.properties);
 });
@@ -94,23 +103,31 @@ await test("Angular's defaults apply to the application options, including neste
   assert.equal(result.data.optimization.fonts, true);
 });
 
-await test("tanstackQuery and check are booleans that default to false", async () => {
+await test("tanstackQuery, translateSegments and check are booleans that default to false", async () => {
   const omitted = await validate(launch);
 
   assert.equal(omitted.success, true, JSON.stringify(omitted.errors));
   assert.equal(omitted.data.tanstackQuery, false);
+  assert.equal(omitted.data.translateSegments, false);
   assert.equal(omitted.data.check, false);
 
   for (const value of [true, false]) {
-    const result = await validate({ ...launch, tanstackQuery: value, check: value });
+    const result = await validate({
+      ...launch,
+      tanstackQuery: value,
+      translateSegments: value,
+      check: value,
+    });
 
     assert.equal(result.success, true, JSON.stringify(result.errors));
     assert.equal(result.data.tanstackQuery, value);
+    assert.equal(result.data.translateSegments, value);
     assert.equal(result.data.check, value);
   }
 
   for (const options of [
     { ...launch, tanstackQuery: "yes" },
+    { ...launch, translateSegments: "yes" },
     { ...launch, check: 1 },
   ]) {
     const result = await validate(options);

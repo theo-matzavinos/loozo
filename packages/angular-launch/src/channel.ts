@@ -1,5 +1,6 @@
 import type { ChannelCallOptions, ErrorMetadata, RpcError } from "./client.js";
 import { parseJson, serializeJson } from "./json.js";
+import type { TranslateRedirect } from "./redirect-translation.js";
 import { failureRejection } from "./stream.js";
 
 /**
@@ -58,6 +59,7 @@ const messageWindow = 32;
  * @param options - The call options.
  * @param opened - Called once the socket opens.
  * @param refused - Fails the channel at once with this error, without a connection.
+ * @param translate - Puts a redirect's listed words in this build's language.
  */
 export function openChannel(
   path: string,
@@ -66,6 +68,7 @@ export function openChannel(
   { signal }: ChannelCallOptions,
   opened: () => void = () => undefined,
   refused?: Error,
+  translate?: TranslateRedirect,
 ): Channel<unknown, unknown> {
   const values: unknown[] = [];
   const sends: {
@@ -211,7 +214,7 @@ export function openChannel(
       let error: Error | undefined;
 
       if (typeof status === "number") {
-        error = failureRejection(body, status, declared, own);
+        error = failureRejection(body, status, declared, own, translate);
       }
 
       finish(error ?? new TypeError("Launch channel sent an unrecognized error"));

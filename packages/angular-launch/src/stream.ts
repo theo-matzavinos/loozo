@@ -1,6 +1,7 @@
 import { RpcError, recognizedError, type ErrorMetadata, type StreamCallOptions } from "./client.js";
 import { parseJson, serializeJson } from "./json.js";
 import { recognizedOutcome } from "./outcomes.js";
+import type { TranslateRedirect } from "./redirect-translation.js";
 
 /** One parsed `text/event-stream` event: its name and its data line. */
 interface Event {
@@ -55,13 +56,15 @@ function eventData(data: string): unknown {
  * or an `RpcNotFound`, or `undefined` when the frame is none of them.
  *
  * @remarks
- * Internal. Streams and channels recognize their failure frames with it.
+ * Internal. Streams and channels recognize their failure frames with it; `translate` puts a
+ * redirect's listed words in this build's language.
  */
 export function failureRejection(
   body: unknown,
   status: number,
   declared: readonly ErrorMetadata[],
   own: (error: RpcError<string, unknown>) => RpcError<string, unknown>,
+  translate?: TranslateRedirect,
 ): Error | undefined {
   const frame = recognizedError(body, status, declared);
 
@@ -69,7 +72,7 @@ export function failureRejection(
     return own(new RpcError(frame.code, status, frame.data, frame.message));
   }
 
-  return recognizedOutcome(body, status);
+  return recognizedOutcome(body, status, translate);
 }
 
 /**
@@ -92,6 +95,7 @@ export function failureRejection(
  * @param own - Associates a converted error with its procedure for `isError`.
  * @param options - The call options.
  * @param opened - Called once the response turned out to be the stream's events.
+ * @param translate - Puts a redirect's listed words in this build's language.
  */
 export async function* openStream(
   url: string,
@@ -100,6 +104,7 @@ export async function* openStream(
   own: (error: RpcError<string, unknown>) => RpcError<string, unknown>,
   { signal }: StreamCallOptions,
   opened: () => void = () => undefined,
+  translate?: TranslateRedirect,
 ): AsyncGenerator<unknown, void, undefined> {
   if (signal?.aborted) {
     throw new DOMException("RPC stream aborted", "AbortError");
@@ -135,7 +140,7 @@ export async function* openStream(
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
       }
 
-      const error = failureRejection(body, response.status, declared, own);
+      const error = failureRejection(body, response.status, declared, own, translate);
 
       if (!error) {
         throw new TypeError(`Launch stream request failed with status ${response.status}`);
@@ -195,7 +200,7 @@ export async function* openStream(
           const { status, ...body } = frame;
 
           if (typeof status === "number") {
-            error = failureRejection(body, status, declared, own);
+            error = failureRejection(body, status, declared, own, translate);
           }
         }
 

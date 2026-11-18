@@ -183,7 +183,7 @@ The package root exports exactly `defineRoute`, `createUrl`, `serverRoutePath`, 
 
 ## Building URLs
 
-`createUrl` builds a root-relative URL from a route's `destination`, imported from the `destination.generated.ts` beside its declaration, synchronously and without running any parsers. It's typed `` `/${string}` ``, so it fits APIs that take only root-relative URLs, such as Launch's `redirect()`:
+`createUrl` builds a root-relative URL from a route's `destination`, imported from the `destination.generated.ts` beside its declaration, synchronously and without running any parsers. It's typed `` `/${string}` ``, so it fits APIs that take only root-relative URLs:
 
 [src/product-url.ts](snippets/src/product-url.ts)
 
@@ -479,7 +479,7 @@ A server route that spells out the source words fails Angular's route check in e
 
 **Serving.** A multi-locale `localize: true` dev server serves untranslated source, so serve one locale, for example with `"localize": ["de"]` in the serve target's build configuration. Serve also watches the catalogs and checks them on every edit, logging an error at once. Angular's dev server only reads catalogs when it rebuilds, though, and usually doesn't watch them, so a catalog edit reaches the app at your next source save or restart. Until then the old words are served. (A catalog Angular already watches, because it's imported, listed as an asset or under a root watched with `NG_BUILD_WATCH_ROOT=1`, reaches the app at once instead.) After a rebuild with a broken catalog, a collided route is unreachable in that locale, and a translation that isn't one segment makes server rendering fail.
 
-Launch applications can't turn this on yet. [`examples/angular-router/localize-proof`](../../examples/angular-router/localize-proof/README.md) is a working en + de app with prerendering, a lazy children table and a redirect.
+Launch applications turn it on in Launch's builders; see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). [`examples/angular-router/localize-proof`](../../examples/angular-router/localize-proof/README.md) is a working en + de app with prerendering, a lazy children table and a redirect.
 
 ## Unit tests and i18n extraction
 
@@ -591,7 +591,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - Primary outlet only, for now. Named outlets are planned for 1.0. Until then you can add outlet routes by hand next to the generated `routes`; they aren't typed, and typed navigation drops any outlet segment from the URL.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
-- [Translated URLs](#translated-urls) have no links to the same page in another locale, SEO alternate links, locale detection or redirects, or switching locale inside one build, and Launch applications can't use them yet. Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
+- [Translated URLs](#translated-urls) have no links to the same page in another locale, SEO alternate links, locale detection or redirects, or switching locale inside one build; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 

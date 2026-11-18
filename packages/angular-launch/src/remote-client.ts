@@ -1,5 +1,5 @@
 import { isPlatformServer } from "@angular/common";
-import { inject, PLATFORM_ID } from "@angular/core";
+import { inject, PLATFORM_ID, REQUEST } from "@angular/core";
 import { HttpClient, HttpContext, HttpContextToken, HttpErrorResponse } from "@angular/common/http";
 import type { Subscription } from "rxjs";
 import { openChannel, type Channel } from "./channel.js";
@@ -14,6 +14,7 @@ import {
 import { connect, type Opener } from "./connect.js";
 import { serializeJson } from "./json.js";
 import { recognizedOutcome } from "./outcomes.js";
+import { REDIRECT_TRANSLATOR, type TranslateRedirect } from "./redirect-translation.js";
 import { openStream } from "./stream.js";
 
 export const RPC_CALL = new HttpContextToken(() => false);
@@ -32,6 +33,7 @@ function call(
   group: string,
   method: ClientMethod,
   input: unknown,
+  translate: TranslateRedirect | undefined,
   { signal, transferCache = true }: CallOptions = {},
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -94,7 +96,7 @@ function call(
               return;
             }
 
-            const outcome = recognizedOutcome(error.error, error.status);
+            const outcome = recognizedOutcome(error.error, error.status, translate);
 
             if (outcome) {
               reject(outcome);
@@ -128,6 +130,7 @@ function owner(group: string, method: ClientMethod) {
 
 function stream(
   server: boolean,
+  translate: TranslateRedirect | undefined,
   group: string,
   method: ClientMethod,
   input: unknown,
@@ -150,6 +153,7 @@ function stream(
         own,
         options,
         opened,
+        translate,
       );
     },
   };
@@ -158,6 +162,7 @@ function stream(
 // Channels don't run during server rendering either: they fail at once with FORBIDDEN.
 function channel(
   server: boolean,
+  translate: TranslateRedirect | undefined,
   group: string,
   method: ClientMethod,
   input: unknown,
@@ -178,23 +183,33 @@ function channel(
     }
   }
 
-  return openChannel(path, method.errors, own, options, opened, refused);
+  return openChannel(path, method.errors, own, options, opened, refused, translate);
 }
 
 export function injectClient(
   groups: Readonly<Record<string, { readonly methods: readonly ClientMethod[] }>>,
 ): unknown {
   const http = inject(HttpClient);
+  let translate = inject(REDIRECT_TRANSLATOR, { optional: true }) ?? undefined;
   let server = false;
 
-  // Only streams and channels depend on the platform.
-  for (const group of Object.values(groups)) {
-    if (group.methods.some((method) => method.kind === "stream" || method.kind === "channel")) {
-      server = isPlatformServer(inject(PLATFORM_ID));
-
-      break;
-    }
+  // Only a redirect translation, streams and channels depend on the platform.
+  if (
+    translate ||
+    Object.values(groups).some((group) =>
+      group.methods.some((method) => method.kind === "stream" || method.kind === "channel"),
+    )
+  ) {
+    server = isPlatformServer(inject(PLATFORM_ID));
   }
+
+  // On the server, only a live request's rendering translates, as the rendering backend tells
+  // live from prerender. A prerendered page's calls run in this localized application, so
+  // their redirects are already in its language.
+  if (server && !(inject(REQUEST, { optional: true }) instanceof Request)) {
+    translate = undefined;
+  }
+
   const result: Record<string, Record<string, unknown>> = Object.create(null);
 
   for (const [namespace, group] of Object.entries(groups)) {
@@ -206,32 +221,60 @@ export function injectClient(
 
       if (method.kind === "stream") {
         open = (input, signal, opened) =>
-          stream(server, namespace, method, input, { signal }, opened);
+          stream(server, translate, namespace, method, input, { signal }, opened);
 
         if (method.input) {
           invoke = (input, options) =>
-            stream(server, namespace, method, input, options as StreamCallOptions | undefined);
+            stream(
+              server,
+              translate,
+              namespace,
+              method,
+              input,
+              options as StreamCallOptions | undefined,
+            );
         } else {
           invoke = (options) =>
-            stream(server, namespace, method, null, options as StreamCallOptions | undefined);
+            stream(
+              server,
+              translate,
+              namespace,
+              method,
+              null,
+              options as StreamCallOptions | undefined,
+            );
         }
       } else if (method.kind === "channel") {
         open = (input, signal, opened) =>
-          channel(server, namespace, method, input, { signal }, opened);
+          channel(server, translate, namespace, method, input, { signal }, opened);
 
         if (method.input) {
           invoke = (input, options) =>
-            channel(server, namespace, method, input, options as ChannelCallOptions | undefined);
+            channel(
+              server,
+              translate,
+              namespace,
+              method,
+              input,
+              options as ChannelCallOptions | undefined,
+            );
         } else {
           invoke = (options) =>
-            channel(server, namespace, method, null, options as ChannelCallOptions | undefined);
+            channel(
+              server,
+              translate,
+              namespace,
+              method,
+              null,
+              options as ChannelCallOptions | undefined,
+            );
         }
       } else if (method.input) {
         invoke = (input, options) =>
-          call(http, namespace, method, input, options as CallOptions | undefined);
+          call(http, namespace, method, input, translate, options as CallOptions | undefined);
       } else {
         invoke = (options) =>
-          call(http, namespace, method, null, options as CallOptions | undefined);
+          call(http, namespace, method, null, translate, options as CallOptions | undefined);
       }
 
       if (open) {

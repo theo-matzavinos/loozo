@@ -1,4 +1,3 @@
-import { createUrl } from "@loozo/angular-router";
 import { defineRoute } from "@loozo/angular-launch";
 import { redirect } from "@loozo/angular-launch/server";
 import { timing } from "../../timing.server";
@@ -12,7 +11,7 @@ export default defineRoute("", { parent })
     context.stats.signedInChecks += 1;
 
     if (context.user === null) {
-      throw redirect(createUrl(signIn, {}));
+      throw redirect(signIn, {});
     }
 
     return { ...context, user: context.user };

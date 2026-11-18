@@ -1668,3 +1668,178 @@ void namespace; void session; void procedure; void inputKey; void mutationKey; v
   // Without the option, a page that reads route.queries is a type error.
   await rejectUnchanged(root, /queries\.ts.*Property 'queries' does not exist/s);
 });
+
+// A translated fixture: Angular localize types, a German catalog, and a lazy child table.
+async function translatedFixture() {
+  const root = await fixture();
+  const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+  config.compilerOptions.types = ["node", "@angular/localize"];
+  await put(root, "tsconfig.json", JSON.stringify(config));
+  await put(
+    root,
+    "src/locale/messages.de.xlf",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="de" datatype="plaintext" original="ng2.template">
+    <body>
+      <trans-unit id="route.segment.left" datatype="html"><source>left</source><target>links</target></trans-unit>
+    </body>
+  </file>
+</xliff>
+`,
+  );
+
+  return root;
+}
+
+function localization(root, polyfills = ["@angular/localize/init"]) {
+  return {
+    sourceLocale: "en",
+    locales: [{ code: "de", files: [resolve(root, "src/locale/messages.de.xlf")] }],
+    polyfills,
+  };
+}
+
+const providerImport = `import { provideRedirectTranslation } from '../generated/redirects.generated';
+export const providers = [provideRedirectTranslation()];
+`;
+
+test("translateSegments writes the word table, the host installer and the binding option; off removes them", async () => {
+  const root = await translatedFixture();
+
+  await generate(root, options);
+
+  const off = await snapshot(root);
+
+  assert.equal(off["generated/redirects.generated.ts"], undefined);
+  assert.doesNotMatch(off["generated/server.generated.ts"].bytes, /_source-text|translateSegments/);
+
+  const translated = { ...options, translateSegments: true, localization: localization(root) };
+
+  // Turning the option on without the provider fails before any write, naming it.
+  await rejectUnchanged(
+    root,
+    /translateSegments needs provideRedirectTranslation\(\) from generated\/redirects\.generated\.ts in your application config's providers/,
+    translated,
+  );
+  // A type-only import or another name doesn't count.
+  await put(
+    root,
+    "src/config.ts",
+    `import type { provideRedirectTranslation } from '../generated/redirects.generated';
+export type Provider = typeof provideRedirectTranslation;
+`,
+  );
+  await rejectUnchanged(root, /needs provideRedirectTranslation\(\)/, translated);
+  await put(root, "src/config.ts", providerImport);
+  await generate(root, translated);
+
+  const on = await snapshot(root);
+  const server = on["generated/server.generated.ts"].bytes.split("\n");
+  const message = (word) =>
+    `$localize\`:URL path segment|One segment of page URLs, without "/". Changing it changes links and bookmarks.@@route.segment.${word}:${word}\``;
+
+  assert.deepEqual(server.slice(0, 2), [
+    "// @loozo/angular-launch: owned server.generated.ts",
+    "import '@loozo/angular-launch/_source-text';",
+  ]);
+  assert.match(
+    on["generated/server.generated.ts"].bytes,
+    /const application = bindApplication\("[a-f0-9]{64}", \[.*\], \{ translateSegments: true \}\);/,
+  );
+  assert.equal(
+    on["generated/redirects.generated.ts"].bytes,
+    [
+      "// @loozo/angular-launch: owned redirects.generated.ts",
+      "import { redirectTranslation } from '@loozo/angular-launch/_redirects';",
+      "",
+      "// Every static route segment, canonical, with the router's own message for it.",
+      "export const provideRedirectTranslation = () =>",
+      "  redirectTranslation(() => ({",
+      '    words: ["left", "right"],',
+      "    translations: [",
+      `      ${message("left")},`,
+      `      ${message("right")},`,
+      "    ],",
+      "  }));",
+      "",
+    ].join("\n"),
+  );
+  // The router translates the copies with the same messages.
+  assert.match(
+    on["src/routes/left/destination.generated.ts"].bytes,
+    new RegExp(message("left").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
+
+  // A second run is a no-op, and check passes.
+  await generate(root, translated);
+  assert.deepEqual(await snapshot(root), on);
+  await generate(root, { ...translated, check: true });
+
+  // A route whose word another route has too adds nothing to the table; check still reports
+  // the new copies first.
+  await put(
+    root,
+    "src/routes/left/right/route.ts",
+    `import { defineRoute } from '@loozo/angular-launch'; import parent from '../route'; export default defineRoute('right', {parent});`,
+  );
+  await put(
+    root,
+    "src/routes/left/right/page.ts",
+    `import { Component } from '@angular/core'; @Component({selector:'fixture-left-right',template:'ok'}) export default class Page {}`,
+  );
+  await assert.rejects(generate(root, { ...translated, check: true }), /Generated artifacts/);
+  await generate(root, translated);
+  assert.match(
+    (await snapshot(root))["generated/redirects.generated.ts"].bytes,
+    /words: \["left", "right"\],/,
+  );
+
+  // Off again while the config still imports the table: generation refuses, naming the import.
+  await rejectUnchanged(
+    root,
+    /Generated import is not a retained owned target: \.\.\/generated\/redirects\.generated/,
+  );
+
+  // Without the import, the table is stale and removed, and the server file goes back to
+  // today's bytes.
+  await rm(resolve(root, "src/config.ts"));
+  await generate(root, options);
+
+  const back = await snapshot(root);
+
+  assert.equal(back["generated/redirects.generated.ts"], undefined);
+  assert.doesNotMatch(
+    back["generated/server.generated.ts"].bytes,
+    /_source-text|translateSegments/,
+  );
+});
+
+test("translateSegments validates every locale with the router's rules before any write", async () => {
+  const root = await translatedFixture();
+
+  await put(root, "src/config.ts", providerImport);
+  await rejectUnchanged(root, /translateSegments needs the build's localization/, {
+    ...options,
+    translateSegments: true,
+  });
+  await rejectUnchanged(root, /translateSegments needs the @angular\/localize\/init polyfill/, {
+    ...options,
+    translateSegments: true,
+    localization: localization(root, []),
+  });
+  await put(
+    root,
+    "src/locale/messages.de.xlf",
+    (await readFile(resolve(root, "src/locale/messages.de.xlf"), "utf8")).replace(
+      "<target>links</target>",
+      "<target>a/b</target>",
+    ),
+  );
+  await rejectUnchanged(root, /Locale de: route\.segment\.left translates to "a\/b"/, {
+    ...options,
+    translateSegments: true,
+    localization: localization(root),
+  });
+});

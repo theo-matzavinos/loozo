@@ -206,7 +206,15 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         session = createGenerationSession(context.workspaceRoot, launch);
         releases.push(() => session.dispose());
 
-        const watcher = chokidar.watch([scanRoot], { ignoreInitial: true, followSymlinks: false });
+        // A catalog edit regenerates too: bytes stay the same, so only the per-locale check runs.
+        // Angular's dev server applies a catalog at its next rebuild, not at this edit.
+        const watched = [scanRoot];
+
+        for (const locale of launch.localization?.locales ?? []) {
+          watched.push(...locale.files);
+        }
+
+        const watcher = chokidar.watch(watched, { ignoreInitial: true, followSymlinks: false });
         const ready = Promise.withResolvers<boolean>();
 
         releases.push(() => {

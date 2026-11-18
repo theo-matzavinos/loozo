@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "proof": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "i18n": {
+        "sourceLocale": "en",
+        "locales": { "de": "src/locale/messages.de.xlf" }
+      },
+      "architect": {
+        "build": {
+          "builder": "@loozo/angular-launch:application",
+          "options": {
+            "tsconfig": "tsconfig.app.json",
+            "scanDirectories": ["src/routes"],
+            "outDirectory": "generated",
+            "translateSegments": true,
+            "localize": true,
+            "polyfills": ["@angular/localize/init"],
+            "i18nMissingTranslation": "error",
+            "browser": "src/main.ts",
+            "server": "src/main.server.ts",
+            "ssr": { "entry": "src/server.ts" },
+            "outputMode": "server",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "outputPath": "dist/proof",
+            "optimization": { "scripts": true, "styles": true, "fonts": false },
+            "sourceMap": false,
+            "security": { "allowedHosts": ["127.0.0.1", "localhost"] }
+          },
+          "configurations": {
+            "production": {},
+            "development": {
+              "localize": ["de"],
+              "optimization": { "scripts": false, "styles": false, "fonts": false },
+              "sourceMap": true
+            },
+            "ci": { "check": true }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@loozo/angular-launch:serve",
+          "options": {
+            "buildTarget": "proof:build:development",
+            "host": "127.0.0.1",
+            "port": 0
+          }
+        }
+      }
+    }
+  }
+}

@@ -193,7 +193,8 @@ export interface Reply {
   /** 200 for a result, 303 for a redirect, otherwise the error's or not-found's status. */
   readonly status: number;
   /**
-   * The result, an `{ error: { code, message, data } }` frame, `{ redirect: { to } }` or
+   * The result, an `{ error: { code, message, data } }` frame, `{ redirect: { to } }` (with
+   * `words` too for a translated application's destination with static segments) or
    * `{ notFound: null }`.
    */
   readonly body: unknown;
@@ -209,7 +210,7 @@ export interface Reply {
   };
 }
 
-function outcomeReply(outcome: Outcome): Reply {
+function outcomeReply(outcome: Outcome, application: ApplicationBinding): Reply {
   if (outcome.kind === "forbidden") {
     return failure("FORBIDDEN");
   }
@@ -219,6 +220,12 @@ function outcomeReply(outcome: Outcome): Reply {
   }
 
   // No Location header: fetch then hands the 303 to the client instead of following it.
+  // A translated app's page builds swap the listed static words into their own language; any
+  // other frame keeps exactly `{ to }`.
+  if (application.translateSegments && outcome.words.length > 0) {
+    return { status: 303, body: { redirect: { to: outcome.to, words: outcome.words } } };
+  }
+
   return { status: 303, body: { redirect: { to: outcome.to } } };
 }
 
@@ -390,7 +397,7 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * envelope must be strict JSON (`INTERNAL` otherwise, such as for `{ input: undefined }`,
  * a cycle or an accessor), and exactly `{ input }` (`INVALID_INPUT` with no issues);
  * the owning route's stages run, root first, each at most once per scope (a stage that
- * throws `forbidden()`, `notFound()` or `redirect(to)` answers with that outcome, and any
+ * throws `forbidden()`, `notFound()` or `redirect()` answers with that outcome, and any
  * other failure gives `INTERNAL` with the reply's `failedStage` naming it); the owning
  * route's `.use()` middleware runs with no input; the input must pass the schema
  * (`INVALID_INPUT` with the schema's issues), or be `null` without one (`INVALID_INPUT`
@@ -398,7 +405,8 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * handler. The handler's strict JSON result is returned with status 200, and its
  * declared errors with their status. `forbidden()` thrown from middleware or the
  * handler gives `FORBIDDEN`, `notFound()` a 404 with `{ notFound: null }` and
- * `redirect(to)` a 303 with `{ redirect: { to } }`; a middleware that calls `next` twice
+ * `redirect()` a 303 with `{ redirect: { to } }` (plus `words` in a translated application);
+ * a middleware that calls `next` twice
  * or doesn't return its result gives `INTERNAL`.
  *
  * A stream's handler returns an iterable instead of a result. Its iterator goes to
@@ -505,7 +513,7 @@ export async function runProcedure(
         const outcome = outcomeOf(staged.error);
 
         if (outcome !== undefined) {
-          return outcomeReply(outcome);
+          return outcomeReply(outcome, application);
         }
 
         console.error("Launch context stage failed", staged.error);
@@ -588,7 +596,7 @@ export async function runProcedure(
       const outcome = outcomeOf(error);
 
       if (outcome !== undefined) {
-        return outcomeReply(outcome);
+        return outcomeReply(outcome, application);
       }
 
       // The caller sent a bad message: its own fault, not an unexpected failure.

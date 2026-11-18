@@ -10,9 +10,11 @@ import { bindApplication } from "../../dist/server/generated.js";
  * @param {{
  *   context?: (args: { request: Request }) => object | Promise<object>,
  *   namespaces?: Record<string, { use?: object[], build: (builders: object) => object }>,
- * }} options - The root stage, and each namespace's middleware and procedures.
+ *   translateSegments?: true,
+ * }} options - The root stage, each namespace's middleware and procedures, and whether the
+ * app was generated with translated segments.
  */
-export function application(id, { context, namespaces = {} } = {}) {
+export function application(id, { context, namespaces = {}, translateSegments } = {}) {
   let root = defineRoute("", {});
   const routes = [];
 
@@ -32,13 +34,13 @@ export function application(id, { context, namespaces = {} } = {}) {
     routes.push([route, `src/routes/${name}/route.ts`]);
   }
 
-  return bindApplication(id, routes);
+  return bindApplication(id, routes, translateSegments ? { translateSegments } : undefined);
 }
 
 const bindings = new WeakMap();
 
 /**
- * The application for an `{ id, context }` description and a namespaces map, bound once per
+ * The application for an `{ id, context, translateSegments? }` description and a namespaces map, bound once per
  * pair, so every call with the same pair shares its stages, as one generated app does.
  */
 export function bound(description, namespaces) {
@@ -52,7 +54,11 @@ export function bound(description, namespaces) {
   let app = byNamespaces.get(namespaces);
 
   if (!app) {
-    app = application(description.id, { context: description.context, namespaces });
+    app = application(description.id, {
+      context: description.context,
+      namespaces,
+      translateSegments: description.translateSegments,
+    });
     byNamespaces.set(namespaces, app);
   }
 
