@@ -210,16 +210,20 @@ test("two Selects, one in a hydrate-on-interaction block, each work", async ({ p
 // listeners, then replays the earlier pointerdown. Core gets click (opens), then pointerdown
 // (closes). A plain Angular listener on the trigger gets the same order, so the adapter can't
 // restore it without reordering or dropping events. Chromium dispatches the click before the
-// replay; Firefox and WebKit after it. So Chromium incremental asserts exactly that open-then-close
-// and every other project asserts it stays open. Anything else fails, including Angular replaying
-// first in Chromium: then expect ["false", "true"] there too and drop the readme caveat.
-test("a fast first press on an already-loaded hydrate-on-interaction Select opens it, except the known Chromium inversion", async ({
+// replay; Firefox after it. WebKit dispatches it after the replay too, except when the live click
+// lands between the block's hydration and the replay: seen once on a CI runner (PR #114), never
+// locally. So Chromium incremental asserts exactly that open-then-close, WebKit incremental accepts
+// either, and every other project asserts it stays open. Anything else fails, including Angular
+// replaying first in Chromium: then expect ["false", "true"] there too and drop the readme caveat.
+test("a fast first press on an already-loaded hydrate-on-interaction Select opens it, except the known Chromium and WebKit inversion", async ({
   page,
   browserName,
 }, testInfo) => {
   const messages = captureMessages(page);
   const inside = page.locator("[data-testid=inside] [uiSelectTrigger]");
-  const inverted = browserName === "chromium" && modeOf(testInfo) === "incremental";
+  const incremental = modeOf(testInfo) === "incremental";
+  const inverted = browserName === "chromium" && incremental;
+  const either = browserName === "webkit" && incremental;
 
   await hydrated(page, "/defer", "[data-testid=outside]");
   await expect(inside).toHaveAttribute("aria-expanded", "false");
@@ -246,6 +250,11 @@ test("a fast first press on an already-loaded hydrate-on-interaction Select open
 
   if (inverted) {
     expect(transitions).toEqual(["false", "true", "false"]);
+  } else if (either) {
+    expect([
+      ["false", "true"],
+      ["false", "true", "false"],
+    ]).toContainEqual(transitions);
   } else {
     expect(transitions).toEqual(["false", "true"]);
   }

@@ -94,7 +94,7 @@ Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it
 2. Angular hands the live `click` to the hydrated trigger, and core opens.
 3. Angular then replays the earlier `pointerdown`, and core closes.
 
-A second press works. Seen in Chromium, where the window was about 60 ms in this package's suite. Firefox and WebKit dispatch that `click` after the replay. A plain Angular `(pointerdown)` and `(click)` listener on the same trigger gets the same order, so the order is Angular's; this package hands events to core in the order Angular delivers them and doesn't reorder or drop them. The likelihood is an estimate: it needs a press faster than the hydration, which test tools' default clicks always are. The browser suite asserts this exact open-then-close for the fast press in Chromium, so it fails once Angular replays first, and the caveat can go.
+A second press works. Seen in Chromium, where the window was about 60 ms in this package's suite, and once in WebKit on a CI runner, where it's rare: WebKit inverts only when the live `click` lands between the block's hydration and the replay, which a local machine never hit. Firefox dispatches that `click` after the replay. A plain Angular `(pointerdown)` and `(click)` listener on the same trigger gets the same order, so the order is Angular's; this package hands events to core in the order Angular delivers them and doesn't reorder or drop them. The likelihood is an estimate: it needs a press faster than the hydration, which test tools' default clicks always are. The browser suite asserts this exact open-then-close for the fast press in Chromium, so it fails once Angular replays first, and the caveat can go; in WebKit it accepts either outcome.
 
 ## Not in this release
 

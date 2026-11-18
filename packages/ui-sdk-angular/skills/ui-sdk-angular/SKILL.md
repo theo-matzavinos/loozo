@@ -63,7 +63,7 @@ export class AppToggle {
 
 - Works with `provideClientHydration()`, eager or incremental. No provider of its own.
 - Keep a root and all its parts inside one `@defer (hydrate …)` block.
-- In a `@defer (hydrate on interaction)` block whose code is already loaded, a fast first press can open a Select and close it again in Chromium; Angular replays the `pointerdown` after the `click` (Select readme, "Known limitation"). Don't work around it by reordering or dropping events.
+- In a `@defer (hydrate on interaction)` block whose code is already loaded, a fast first press can open a Select and close it again in Chromium, and rarely in WebKit; Angular replays the `pointerdown` after the `click` (Select readme, "Known limitation"). Don't work around it by reordering or dropping events.
 - Put a part with a static `id` before the parts that reference it, like a Select trigger with an `id` before its content; written after, the server references the generated id until the part binds.
 - A Select rendered open (`[defaultOpen]="true"`) is unpositioned on the server; core positions it and moves its name from `aria-labelledby` to `aria-label` when the trigger binds. Start it closed when the server render must be final.
 - Give separate Angular applications on one page distinct `APP_ID`s.
