@@ -5,7 +5,9 @@
 // colors, the Number field's and Slider's server state, geometry, typing, stepping, keys,
 // pointer and touch, validation, states and forced colors, and Select's and Combobox's server
 // state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
-// values, states, themes and forced colors.
+// values, states, themes and forced colors, and Tabs', Tooltip's and Popover's server state,
+// geometry, keys, pointer and hover, guarded unavailable actions, placement and flipping, Tab
+// order and scrolling, nesting, motion and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -3047,6 +3049,599 @@ try {
   assert.equal(await emailColor(3), systemColors.grayText, "a disabled row's email");
   await page.keyboard.press("Escape");
   await hidden("customer-content");
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // Tabs, Tooltip and Popover. Exact geometry and outline widths are DPR-1 values.
+  //
+  // Server rendering: each List is a named tablist with its orientation and one Tab stop; every
+  // fold Trigger carries the orientation and its hidden dot; unselected Panels are hidden. A
+  // Tooltip's id joins a Field description's on its Trigger, and fold Buttons keep their slot.
+  // Popover Content is a closed, inert dialog with no tabindex of fold's.
+  for (const [list, orientation] of [
+    ["tabs-list", "horizontal"],
+    ["vtabs-list", "vertical"],
+  ]) {
+    const tag = openingTag(html, list);
+    const triggers = tagsIn(element(html, list), "button");
+
+    assert.match(tag, /\brole="tablist"/);
+    assert.match(tag, new RegExp(`\\baria-orientation="${orientation}"`));
+    assert.match(tag, /\bdata-slot="tabs-list"/);
+    assert.equal(triggers.filter((tag) => tag.includes('tabindex="0"')).length, 1, list);
+
+    for (const trigger of triggers) {
+      assert.match(trigger, /\brole="tab"/);
+      assert.match(trigger, /\bdata-slot="tabs-trigger"/);
+      assert.match(trigger, new RegExp(`\\bdata-orientation="${orientation}"`));
+    }
+  }
+
+  assert.match(openingTag(html, "tab-all"), /\baria-selected="true"/);
+  assert.match(openingTag(html, "tab-drafts"), /\baria-selected="false"/);
+  assert.match(openingTag(html, "inner-active"), /\bdata-orientation="horizontal"/);
+  assert.ok(
+    tagsIn(element(html, "tab-all"), "span").some(
+      (tag) => tag.includes('aria-hidden="true"') && tag.includes('data-slot="tabs-indicator"'),
+    ),
+    "the tab's dot is hidden",
+  );
+  assert.match(openingTag(html, "panel-all"), /\brole="tabpanel"/);
+  assert.match(openingTag(html, "panel-all"), /\btabindex="0"/);
+  assert.match(openingTag(html, "panel-all"), /\bdata-slot="tabs-panel"/);
+  assert.doesNotMatch(openingTag(html, "panel-all"), /\shidden[\s=>]/);
+  assert.match(openingTag(html, "panel-drafts"), /\shidden[\s=>]/);
+  assert.match(openingTag(html, "tabs"), /\bdata-slot="tabs"/);
+
+  const describedBy = /\baria-describedby="([^"]*)"/.exec(openingTag(html, "tip-status"));
+
+  assert.ok(describedBy, "the Select Trigger is described");
+  assert.deepEqual(describedBy[1].split(" ").sort(), [
+    "tip-status-content",
+    "tip-status-description",
+  ]);
+  assert.match(openingTag(html, "tip-copy-content"), /\brole="tooltip"/);
+  assert.match(openingTag(html, "tip-copy-content"), /\bpopover="manual"/);
+  assert.match(openingTag(html, "tip-copy-content"), /\sinert[\s=>]/);
+  assert.match(openingTag(html, "tip-copy-content"), /\bdata-slot="tooltip-content"/);
+  assert.match(openingTag(html, "tip-copy-trigger"), /\baria-describedby="tip-copy-content"/);
+  assert.match(openingTag(html, "tip-save-trigger"), /\bdata-slot="button"/);
+  assert.match(openingTag(html, "tip-publish-trigger"), /\baria-disabled="true"/);
+  assert.match(openingTag(html, "tip-save"), /\bdata-slot="tooltip"/);
+
+  const filtersTrigger = openingTag(html, "filters-trigger");
+  const filtersContent = openingTag(html, "filters-content");
+
+  assert.match(filtersTrigger, /\baria-expanded="false"/);
+  assert.match(filtersTrigger, /\baria-controls="filters-content"/);
+  assert.match(filtersTrigger, /\baria-describedby="tip-filters-content"/);
+  assert.match(filtersTrigger, /\bdata-slot="popover-trigger"/);
+  assert.match(filtersTrigger, /\bclass="[^"]*\bh-8\b/);
+  assert.match(filtersContent, /\brole="dialog"/);
+  assert.match(filtersContent, /\bpopover="manual"/);
+  assert.match(filtersContent, /\sinert[\s=>]/);
+  assert.match(filtersContent, /\bdata-slot="popover-content"/);
+  assert.doesNotMatch(filtersContent, /\stabindex=/);
+  assert.match(openingTag(html, "notes-content"), /\btabindex="0"/);
+  assert.match(openingTag(html, "filters"), /\bdata-slot="popover"/);
+
+  // Tabs from a fresh page. The first label's x and its text edges, read from the label's own
+  // text, not the Trigger's box.
+  await fresh();
+
+  const labelEdges = (ids) =>
+    page.evaluate((ids) => {
+      const result = {};
+
+      for (const id of ids) {
+        let text = null;
+
+        for (const node of document.getElementById(id).childNodes) {
+          if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== "") {
+            text = node;
+            break;
+          }
+        }
+
+        const content = text.textContent;
+        const first = content.search(/\S/);
+        const last = content.trimEnd().length - 1;
+        const range = document.createRange();
+
+        range.setStart(text, first);
+        range.setEnd(text, first + 1);
+        const left = range.getBoundingClientRect().left;
+
+        range.setStart(text, last);
+        range.setEnd(text, last + 1);
+        result[id] = { left, right: range.getBoundingClientRect().right };
+      }
+
+      return result;
+    }, ids);
+  const tabsLook = await page.evaluate(() => {
+    const style = (selector, pseudo) => getComputedStyle(document.querySelector(selector), pseudo);
+    const dot = (id) => {
+      const indicator = style(`#${id} > [data-slot=tabs-indicator]`);
+
+      return `${indicator.display} ${indicator.visibility}`;
+    };
+    const rect = (id) => document.getElementById(id).getBoundingClientRect();
+
+    return {
+      selected: `${style("#tab-all").fontWeight} ${style("#tab-all").color}`,
+      unselected: `${style("#tab-reports").fontWeight} ${style("#tab-reports").color}`,
+      underline: `${style("#tab-all", "::after").borderBottomWidth} ${style("#tab-all", "::after").borderBottomStyle} ${style("#tab-all", "::after").borderBottomColor}`,
+      unselectedAfter: style("#tab-reports", "::after").content,
+      flushUnderline: Math.abs(rect("tabs-list").bottom - 1 - rect("tab-all").bottom) < 0.5,
+      height: style("#tab-all").height,
+      listGap: style("#tabs-list").columnGap,
+      baseline: `${style("#tabs-list").borderBottomWidth} ${style("#tabs-list").borderBottomColor}`,
+      disabled: style("#tab-archived").opacity,
+      dots: [
+        "tab-all",
+        "tab-drafts",
+        "tab-archived",
+        "tab-reports",
+        "inner-active",
+        "inner-ended",
+      ].map(dot),
+      verticalDots: ["vtab-profile", "vtab-security", "vtab-billing", "vtab-team"].map(dot),
+      verticalList: `${style("#vtabs-list").flexDirection} ${style("#vtabs-list").borderRightWidth} ${style("#vtabs-list").borderBottomWidth}`,
+      verticalBar: `${style("#vtab-profile", "::after").borderRightWidth} ${style("#vtab-profile", "::after").borderBottomWidth}`,
+      verticalWidth: Math.abs(rect("vtab-security").width - (rect("vtabs-list").width - 1)) < 0.5,
+      hiddenGrid: style("#panel-drafts").display,
+    };
+  });
+
+  assert.deepEqual(tabsLook, {
+    selected: `600 ${foreground}`,
+    unselected: "500 rgb(163, 163, 160)",
+    underline: `2px solid ${foreground}`,
+    unselectedAfter: "none",
+    flushUnderline: true,
+    height: "36px",
+    listGap: "20px",
+    baseline: `1px ${darkBorder}`,
+    disabled: "0.5",
+    dots: [
+      "block visible",
+      "none visible",
+      "none visible",
+      "none visible",
+      "block visible",
+      "none visible",
+    ],
+    verticalDots: ["block visible", "block hidden", "block hidden", "block hidden"],
+    verticalList: "column 1px 0px",
+    verticalBar: "2px 0px",
+    verticalWidth: true,
+    hiddenGrid: "none",
+  });
+
+  const beforeArrow = await labelEdges(["tab-all", "tab-drafts", "tab-archived", "tab-reports"]);
+
+  near(beforeArrow["tab-drafts"].left - beforeArrow["tab-all"].right, 24, 0.5, "label spacing");
+
+  // The keys: ArrowRight selects the next tab, moving only the label that lost the dot; the next
+  // skips the disabled tab. Tab reaches the Panel's ring; a pointer click on a Panel shows none.
+  await page.click("#tab-all");
+  await page.keyboard.press("ArrowRight");
+  await until("tab-drafts", "aria-selected", "true");
+  await rendered();
+
+  const afterArrow = await labelEdges(["tab-all", "tab-drafts", "tab-archived", "tab-reports"]);
+
+  near(
+    afterArrow["tab-all"].left - beforeArrow["tab-all"].left,
+    -14,
+    1,
+    "label 1 after ArrowRight",
+  );
+  near(
+    afterArrow["tab-archived"].left - beforeArrow["tab-archived"].left,
+    0,
+    1,
+    "label 3 after ArrowRight",
+  );
+  assert.equal(await activeId(), "tab-drafts");
+  assert.deepEqual(await outline("#tab-drafts"), ringOutline("rgb(76, 196, 111)"));
+
+  await page.keyboard.press("ArrowRight");
+  await until("tab-reports", "aria-selected", "true");
+  assert.equal(await activeId(), "tab-reports");
+  await page.waitForSelector("#reports-body");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "panel-reports");
+  assert.deepEqual(await outline("#panel-reports"), ringOutline("rgb(76, 196, 111)"));
+
+  await page.click("#vpanel-profile");
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const panel = document.getElementById("vpanel-profile");
+
+      return [document.activeElement === panel, panel.matches(":focus-visible")];
+    }),
+    [true, false],
+  );
+
+  // Vertical: every label lines up whichever tab is selected, and ArrowDown moves none of them.
+  const verticalIds = ["vtab-profile", "vtab-security", "vtab-billing", "vtab-team"];
+  const beforeDown = await labelEdges(verticalIds);
+
+  await page.click("#vtab-profile");
+  await page.keyboard.press("ArrowDown");
+  await until("vtab-security", "aria-selected", "true");
+  await rendered();
+
+  const afterDown = await labelEdges(verticalIds);
+
+  for (const id of verticalIds) {
+    near(beforeDown[id].left, beforeDown["vtab-profile"].left, 0.5, `${id} lines up`);
+    near(afterDown[id].left - beforeDown[id].left, 0, 1, `${id} after ArrowDown`);
+  }
+
+  // The focusable disabled tab takes focus without being selected.
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await activeId(), "vtab-billing");
+  assert.equal(await attribute("vtab-billing", "aria-disabled"), "true");
+  assert.equal(await attribute("vtab-billing", "aria-selected"), "false");
+  assert.equal((await styleOf("#vtab-billing", ["opacity"])).opacity, "0.5");
+
+  // Tooltip, from a fresh page: a resting mouse opens it, without a fixed sleep.
+  const opened = (id, timeout = 5000) =>
+    page.waitForFunction(
+      (id) => {
+        const content = document.getElementById(id);
+
+        return content.matches(":popover-open") && getComputedStyle(content).opacity === "1";
+      },
+      id,
+      { timeout },
+    );
+  const isOpen = (id) =>
+    page.evaluate((id) => document.getElementById(id).matches(":popover-open"), id);
+  const dismissed = (id) =>
+    page.waitForFunction((id) => !document.getElementById(id).matches(":popover-open"), id);
+
+  // The Tooltips and Popovers sit near the page's end, so the page gets room to scroll one to the
+  // viewport's top.
+  const scrollToTop = (id) =>
+    page.evaluate((id) => {
+      document.body.style.paddingBottom = "100vh";
+      document.getElementById(id).scrollIntoView({ block: "start" });
+    }, id);
+
+  await fresh();
+  await page.hover("#tip-save-trigger");
+  await opened("tip-save-content", 1500);
+  await page.mouse.move(0, 0);
+  await dismissed("tip-save-content");
+
+  // Keyboard focus opens one at once, 6px above its Trigger and centred on it, as the inverted
+  // chip; Escape closes it and keeps focus.
+  await page.focus("#tip-save-trigger");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "tip-copy-trigger");
+  await opened("tip-copy-content");
+
+  const copyTrigger = await rectOf("#tip-copy-trigger");
+  const copyChip = await rectOf("#tip-copy-content");
+
+  near(copyTrigger.top - copyChip.bottom, 6, 0.5, "the Tooltip's gap");
+  near(
+    copyChip.left + copyChip.width / 2,
+    copyTrigger.left + copyTrigger.width / 2,
+    0.5,
+    "the Tooltip's centre",
+  );
+  assert.deepEqual(
+    await styleOf("#tip-copy-content", [
+      "backgroundColor",
+      "color",
+      "fontSize",
+      "fontWeight",
+      "borderTopLeftRadius",
+      "paddingTop",
+      "paddingLeft",
+    ]),
+    {
+      backgroundColor: foreground,
+      color: "rgb(20, 20, 20)",
+      fontSize: "12px",
+      fontWeight: "400",
+      borderTopLeftRadius: "6px",
+      paddingTop: "4px",
+      paddingLeft: "8px",
+    },
+  );
+  await page.keyboard.press("Escape");
+  await dismissed("tip-copy-content");
+  assert.equal(await activeId(), "tip-copy-trigger");
+
+  // An unavailable action explains itself on focus, and its guarded handler ignores a pointer
+  // click, Enter and Space; once available, one click runs it. Playwright treats aria-disabled as
+  // disabled, hence force.
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "tip-publish-trigger");
+  await opened("tip-publish-content");
+  assert.equal(await textOf("tip-publish-content"), "Nothing to publish yet");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Space");
+  await page.click("#tip-publish-trigger", { force: true });
+  await rendered();
+  assert.equal(await textOf("publish-count"), "0");
+  await page.click("#edit-draft");
+  await page.click("#tip-publish-trigger");
+  await untilText("publish-count", "1");
+
+  // At the viewport's top edge it flips below, 6px from its Trigger.
+  await scrollToTop("tip-save-trigger");
+  await page.focus("#tip-copy-trigger");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await activeId(), "tip-save-trigger");
+  await opened("tip-save-content");
+
+  const topTrigger = await rectOf("#tip-save-trigger");
+  const topChip = await rectOf("#tip-save-content");
+
+  near(topChip.top - topTrigger.bottom, 6, 0.5, "the flipped Tooltip's gap");
+  await page.keyboard.press("Escape");
+
+  // Popover, from a fresh page: a click opens it, 4px below the Trigger at its start, 288px wide
+  // with 12px padding, on the surface; it replaces the Trigger's Tooltip.
+  await fresh();
+  await scrollToTop("filters-trigger");
+  // The Trigger's own Tooltip is open on hover first, so the click has one to replace.
+  await page.hover("#filters-trigger");
+  await opened("tip-filters-content");
+  await page.click("#filters-trigger");
+  await opened("filters-content");
+  await dismissed("tip-filters-content");
+  assert.equal(await isOpen("tip-filters-content"), false);
+  // Off the Trigger, so its Tooltip opens only from keyboard focus from here on.
+  await page.mouse.move(0, 0);
+  assert.equal(await attribute("filters-trigger", "aria-expanded"), "true");
+
+  const popoverTrigger = await rectOf("#filters-trigger");
+  const popover = await rectOf("#filters-content");
+
+  near(popover.top - popoverTrigger.bottom, 4, 0.5, "the Popover's gap");
+  near(popover.left, popoverTrigger.left, 0.5, "the Popover's start");
+  assert.deepEqual(
+    await styleOf("#filters-content", [
+      "width",
+      "paddingTop",
+      "backgroundColor",
+      "borderTopLeftRadius",
+      "borderTopWidth",
+    ]),
+    {
+      width: "288px",
+      paddingTop: "12px",
+      backgroundColor: darkSurface,
+      borderTopLeftRadius: "12px",
+      borderTopWidth: "1px",
+    },
+  );
+
+  // Tab runs from the Trigger through its controls to what follows, focusing the nested
+  // Tooltip's button opens it, and Shift+Tab reverses.
+  const forward = [];
+
+  for (let step = 0; step < 4; step += 1) {
+    await page.keyboard.press("Tab");
+    forward.push(await activeId());
+
+    if (forward.at(-1) === "filter-reset") {
+      await opened("tip-reset-content");
+    }
+  }
+
+  assert.deepEqual(forward, ["filter-owner", "filter-reset", "filter-apply", "after-filters"]);
+
+  const backward = [];
+
+  for (let step = 0; step < 4; step += 1) {
+    await page.keyboard.press("Shift+Tab");
+    backward.push(await activeId());
+  }
+
+  assert.deepEqual(backward, ["filter-apply", "filter-reset", "filter-owner", "filters-trigger"]);
+
+  // Escape closes it from inside and returns focus to the Trigger.
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "filter-owner");
+  await page.keyboard.press("Escape");
+  await dismissed("filters-content");
+  assert.equal(await activeId(), "filters-trigger");
+
+  // A Tooltip inside it is hidden by the time the Popover is, when code closes the Popover.
+  await page.keyboard.press("Enter");
+  await opened("filters-content");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "filter-reset");
+  await opened("tip-reset-content");
+  await page.evaluate(() => {
+    const content = document.getElementById("filters-content");
+    const tip = document.getElementById("tip-reset-content");
+
+    window.tipOpenAtHide = undefined;
+    content.addEventListener(
+      "toggle",
+      (event) => {
+        if (event.newState === "closed") {
+          window.tipOpenAtHide = tip.matches(":popover-open");
+        }
+      },
+      { once: true },
+    );
+    document.getElementById("filter-apply").click();
+  });
+  assert.equal(
+    await (await page.waitForFunction(() => window.tipOpenAtHide !== undefined)).jsonValue(),
+    true,
+  );
+  assert.equal(await page.evaluate(() => window.tipOpenAtHide), false);
+
+  // An outside click closes it and leaves focus where it landed.
+  await page.click("#filters-trigger");
+  await opened("filters-content");
+  await page.click("#vpanel-profile");
+  await dismissed("filters-content");
+  assert.equal(await activeId(), "vpanel-profile");
+
+  // At the viewport's bottom it opens 4px above.
+  await page.evaluate(() =>
+    document.getElementById("filters-trigger").scrollIntoView({ block: "end" }),
+  );
+  await page.click("#filters-trigger");
+  await opened("filters-content");
+
+  const bottomTrigger = await rectOf("#filters-trigger");
+  const flipped = await rectOf("#filters-content");
+
+  near(bottomTrigger.top - flipped.bottom, 4, 0.5, "the flipped Popover's gap");
+  await page.keyboard.press("Escape");
+  await dismissed("filters-content");
+
+  // Long text in a 600px viewport scrolls inside, within the room left less 8px. Its authored
+  // tabindex="0" makes it the Tab stop after the Trigger, with the ring, and ArrowDown scrolls it.
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await scrollToTop("notes-trigger");
+  await page.click("#notes-trigger");
+  await opened("notes-content");
+
+  const notes = await page.evaluate(() => {
+    const content = document.getElementById("notes-content");
+
+    return {
+      height: content.getBoundingClientRect().height,
+      available: parseFloat(getComputedStyle(content).getPropertyValue("--og-available-height")),
+      scrolls: content.scrollHeight > content.clientHeight,
+    };
+  });
+
+  assert.ok(notes.scrolls, "the notes scroll");
+  assert.ok(
+    notes.height <= notes.available - 8 + 0.5,
+    `notes ${notes.height} of ${notes.available}`,
+  );
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "notes-content");
+  assert.deepEqual(await outline("#notes-content"), ringOutline("rgb(76, 196, 111)"));
+  await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(() => document.getElementById("notes-content").scrollTop > 0);
+  await page.keyboard.press("Escape");
+  await dismissed("notes-content");
+
+  // Interactive Content taller than a short viewport: Chromium skips the scrolling panel, so Tab
+  // from the Trigger reaches the first field.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await scrollToTop("scrollform-trigger");
+  await page.click("#scrollform-trigger");
+  await opened("scrollform-content");
+  assert.equal(await scrolls("scrollform-content"), true);
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "scrollform-0");
+  await page.keyboard.press("Escape");
+  await dismissed("scrollform-content");
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  // Motion: both fade and scale in with the floating surfaces' popup-in, and not under reduced
+  // motion.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await fresh();
+  await scrollToTop("filters-trigger");
+  await watchAnimations("filters-content", "data-entering");
+  await page.click("#filters-trigger");
+  assert.deepEqual(await watchedAnimations(), [
+    { name: "popup-in", duration: 120, direction: "normal" },
+  ]);
+  await opened("filters-content");
+  await page.keyboard.press("Escape");
+  await dismissed("filters-content");
+  await page.focus("#tip-save-trigger");
+  await watchAnimations("tip-copy-content", "data-entering");
+  await page.keyboard.press("Tab");
+  assert.deepEqual(await watchedAnimations(), [
+    { name: "popup-in", duration: 120, direction: "normal" },
+  ]);
+  await opened("tip-copy-content");
+  await page.keyboard.press("Escape");
+  await dismissed("tip-copy-content");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await watchAnimations("tip-copy-content", "data-entering");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  assert.deepEqual(await watchedAnimations(), []);
+  await opened("tip-copy-content");
+  await page.keyboard.press("Escape");
+  await dismissed("tip-copy-content");
+  await watchAnimations("filters-content", "data-entering");
+  await page.click("#filters-trigger");
+  assert.deepEqual(await watchedAnimations(), []);
+  await opened("filters-content");
+  await page.keyboard.press("Escape");
+  await dismissed("filters-content");
+
+  // Forced colors, from a fresh page: the selected tab's underline stays an opaque border and its
+  // dot is CanvasText; both disabled tabs, natively or focusably, are GrayText; the chip's and
+  // panel's borders are opaque; tab, Panel and Popover Content rings are Chromium's Highlight.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+
+  const forcedTabs = await page.evaluate(() => {
+    const style = (selector, pseudo) => getComputedStyle(document.querySelector(selector), pseudo);
+    const after = style("#tab-all", "::after");
+
+    return {
+      underline: `${after.borderBottomWidth} ${after.borderBottomStyle}`,
+      underlineColor: after.borderBottomColor,
+      dot: style("#tab-all > [data-slot=tabs-indicator]").backgroundColor,
+      disabled: style("#tab-archived").color,
+      focusableDisabled: style("#vtab-billing").color,
+    };
+  });
+
+  assert.equal(forcedTabs.underline, "2px solid");
+  assert.match(forcedTabs.underlineColor, /^rgb\(/, "the forced underline is opaque");
+  assert.equal(forcedTabs.dot, systemColors.canvasText);
+  assert.equal(forcedTabs.disabled, systemColors.grayText);
+  assert.equal(forcedTabs.focusableDisabled, systemColors.grayText);
+
+  await page.click("#tab-all");
+  await page.keyboard.press("ArrowRight");
+  await until("tab-drafts", "aria-selected", "true");
+  assert.deepEqual(await outline("#tab-drafts"), ringOutline(systemColors.highlight));
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "panel-drafts");
+  assert.deepEqual(await outline("#panel-drafts"), ringOutline(systemColors.highlight));
+
+  await page.focus("#tip-save-trigger");
+  await page.keyboard.press("Tab");
+  await opened("tip-copy-content");
+
+  const forcedChip = await styleOf("#tip-copy-content", ["borderTopWidth", "borderTopColor"]);
+
+  assert.equal(forcedChip.borderTopWidth, "1px");
+  assert.match(forcedChip.borderTopColor, /^rgb\(/, "the forced chip's border is opaque");
+  await page.keyboard.press("Escape");
+
+  await scrollToTop("notes-trigger");
+  await page.click("#notes-trigger");
+  await opened("notes-content");
+
+  const forcedPanel = await styleOf("#notes-content", ["borderTopWidth", "borderTopColor"]);
+
+  assert.equal(forcedPanel.borderTopWidth, "1px");
+  assert.match(forcedPanel.borderTopColor, /^rgb\(/, "the forced panel's border is opaque");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "notes-content");
+  assert.deepEqual(await outline("#notes-content"), ringOutline(systemColors.highlight));
+  await page.keyboard.press("Escape");
+  await dismissed("notes-content");
   await page.emulateMedia({ forcedColors: "none" });
 
   assert.deepEqual(errors, [], "console errors or warnings");

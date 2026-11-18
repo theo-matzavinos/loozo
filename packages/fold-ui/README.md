@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, and Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -44,9 +44,10 @@ ng generate @loozo/fold-ui:add --names field input textarea
 ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names select combobox
+ng generate @loozo/fold-ui:add --names tabs tooltip popover
 ```
 
-NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select works with 0.0.4. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -77,7 +78,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select and Combobox share the floating list's look from `popup`, so adding either adds `popup`, and Combobox's input is Input's look, so adding `combobox` adds `input` too; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -100,14 +101,14 @@ To re-theme, change the token values in your copy; when you add a text size, rad
 - utilities such as `bg-primary`, `text-muted-foreground`, `border-input`, `rounded-control`, `rounded-dialog` and `shadow-edge`.
 - a five-step type ladder: `text-display` (28px), `text-headline` (20px), `text-title` (15px), `text-body` (13px) and `text-label` (12px), each with its line height and weight. The body text is 13px, set on `<body>`, so `rem` stays 16px and Tailwind's spacing keeps its sizes.
 - `dark:` and `light:` variants that follow the classes instead of the system preference. `dark:` doesn't follow an explicit `.dark` nested inside `.light`.
-- `animate-popup-in` and `animate-popup-out`, the floating list's 120ms fade and scale from 96%; see [Floating lists](#floating-lists).
+- `animate-popup-in` and `animate-popup-out`, the floating layers' 120ms fade and scale from 96%; see [Floating layers](#floating-layers).
 - the Hanken Grotesk variable font, imported from `@fontsource-variable/hanken-grotesk`.
 
 Tailwind's default colors and `text-*` sizes stay available.
 
 ## Class merging and slots
 
-Every part except the AlertDialog, Dialog and Sheet roots takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
+Every part except the AlertDialog, Dialog and Sheet roots and TooltipTrigger takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
 
 ```html
 <button foldButton class="px-6">Wider</button>
@@ -134,9 +135,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected` and `data-disabled`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`, and so does fold's TabsTrigger, mirroring its root's.
 
 ## Button
 
@@ -782,7 +783,7 @@ readonly statuses = [
 ];
 ```
 
-`Select` picks one value from a list, over Origami's [Select](../origami-ui/select/README.md), which owns the behavior: the keys, typeahead, pointer, positioning, Field membership and server rendering. `SelectTrigger` is Input's 32px box with the soft edge and a trailing chevron; `SelectContent` floats the `SelectOption`s 4px below it, in the [floating list](#floating-lists). In a Field, the Trigger is the Field's control; name the Field with a FieldLabel on a `<span>`:
+`Select` picks one value from a list, over Origami's [Select](../origami-ui/select/README.md), which owns the behavior: the keys, typeahead, pointer, positioning, Field membership and server rendering. `SelectTrigger` is Input's 32px box with the soft edge and a trailing chevron; `SelectContent` floats the `SelectOption`s 4px below it, in the [floating list](#floating-layers). In a Field, the Trigger is the Field's control; name the Field with a FieldLabel on a `<span>`:
 
 <!-- prettier-ignore -->
 ```html
@@ -904,11 +905,162 @@ Choosing an option puts its `label` in the input. Closing without a choice puts 
 
 [Origami's README](../origami-ui/combobox/README.md) describes the keys, typing, IME, hydration and the rest.
 
-## Floating lists
+## Tabs
 
-Select and Combobox share one look from `popup`, a folder of class lists with no Angular code, which your own panels can use too:
+```ts
+import { TabsParts } from "#ui/tabs";
+
+readonly view = signal<string | null>("all");
+```
+
+`Tabs` switches between panels, over Origami's [Tabs](../origami-ui/tabs/README.md), which owns the behavior: selection, the arrow keys, roving focus and server rendering. `TabsList` is a row of text tabs, 36px tall and 20px apart on a 1px baseline; the selected `TabsTrigger` has `foreground` 600 text, a 2px underline and the green status-light dot, and the others muted 500 text. Each `TabsPanel` shows while its Trigger is selected:
+
+<!-- prettier-ignore -->
+```html
+<section foldTabs [(value)]="view" #tabs="foldTabs">
+  <div foldTabsList aria-label="Contract lists">
+    <button foldTabsTrigger value="all">All contracts</button>
+    <button foldTabsTrigger value="drafts">
+      Drafts <span class="text-label font-normal text-muted-foreground tabular-nums">3</span>
+    </button>
+    <button foldTabsTrigger value="archived" [disabled]="!archiveReady()">
+      <svg lucideArchive aria-hidden="true"></svg> Archived
+    </button>
+  </div>
+  <div foldTabsPanel value="all">…</div>
+  <div foldTabsPanel value="drafts">…</div>
+  <div foldTabsPanel value="archived">
+    @if (tabs.state.value() === "archived") {
+      <app-archive />
+    }
+  </div>
+</section>
+
+<section foldTabs orientation="vertical" value="profile">…</section>
+```
+
+- `Tabs`: the root. It takes `value` (two-way), `disabled`, `orientation` (`horizontal` by default, or `vertical`), `activation` (`automatic` by default: an arrow key selects; `manual`: Enter or Space does) and `class`, and emits `valueChange`. Its template reference, `#tabs="foldTabs"` with your prefix, has `state`, with `value`, `disabled`, `orientation` and `activation` signals.
+- `TabsList`: the row, or the column when vertical. Name it with `aria-label` or `aria-labelledby`. It takes `class`.
+- `TabsTrigger`: a `<button>` tab. It takes `value` (required), `id`, `disabled`, `focusableWhenDisabled` and `class`. Its content can be any markup, such as a count or a 16px icon before the label.
+- `TabsPanel`: the content for the Trigger with the same `value`. It takes `value` (required), `id` and `class`.
+
+The value is yours: a tab with no matching value, or a `null` value, leaves nothing selected. The dot, the underline and the weight all follow Origami's `aria-selected`.
+
+- **Vertical.** The List becomes a column beside the Panels, with its baseline on its inline end, and the selected tab's bar sits on it. Vertical tabs keep the dot's space on every row, so the labels line up and selecting one moves nothing; horizontal tabs show the dot only on the selected tab, so the label that loses it slides 14px.
+- **Few, short tabs.** The List doesn't scroll or wrap, so a long one overflows a narrow container. Use a Select, or vertical Tabs, for many.
+- **Heavy panels.** Every Panel is rendered while hidden; gate expensive content on `state.value()`, as above.
+- **Panel focus.** A Panel is a Tab stop with the focus ring, for reading or scrolling it from the keyboard. When it starts with a focusable element, give it `tabindex="-1"`.
+- **Layout on a Panel.** fold sets no `display` on a Panel, so a `class="grid"` of yours is still hidden while another tab is selected.
+- **Not navigation.** For links between pages, use a `<nav>` of links with `aria-current="page"`, not Tabs.
+
+[Origami's README](../origami-ui/tabs/README.md) describes the keys, activation, disabled tabs and hydration.
+
+## Tooltip
+
+```ts
+import { Button } from "#ui/button";
+import { TooltipParts } from "#ui/tooltip";
+
+readonly dirty = signal(false);
+```
+
+`Tooltip` describes a control, over Origami's [Tooltip](../origami-ui/tooltip/README.md), which owns the behavior: hover with a delay, keyboard focus at once, Escape, the delay group across Tooltips and positioning. `TooltipContent` is an inverted chip, `foreground` with `background` text at 12px, 6px above its Trigger. Put `foldTooltipTrigger` on the button itself, next to its own fold directive:
+
+<!-- prettier-ignore -->
+```html
+<span foldTooltip>
+  <button foldButton size="icon" variant="ghost" aria-label="Copy link" foldTooltipTrigger (click)="copy()">
+    <svg lucideLink aria-hidden="true"></svg>
+  </button>
+  <span foldTooltipContent>Copies the address of this page</span>
+</span>
+```
+
+- `Tooltip`: the root, layout-transparent (`display: contents`), so the button stays the flex or grid item. It takes `open` (two-way), `disabled`, `openDelay` (600ms by default) and `class`, and emits `openChange`. Its template reference, `#tip="foldTooltip"`, has `state`, with `open` and `disabled` signals.
+- `TooltipTrigger`: marks the element the Tooltip describes, adding its Content's id to the element's `aria-describedby`. It takes no inputs, sets no classes and has no `data-slot` of its own, so it keeps the button's.
+- `TooltipContent`: the chip, up to 256px wide. It takes `id`, `side` (default `block-start`), `align` (default `center`), `gap` (default 6, in CSS pixels) and `class`.
+
+It works on every fold button: a Button, a PopoverTrigger, a DialogTrigger, a SelectTrigger in a Field (whose description it joins in `aria-describedby`) or a TabsTrigger.
+
+- **A description, not a name.** It's announced after the control's name. An icon button still needs its `aria-label`.
+- **Touch never opens it.** Don't put anything essential only in a Tooltip.
+- **Text only.** It can't hold links or buttons; use a [Popover](#popover) for those.
+- **Layout on the root.** `display: contents` ignores layout classes such as `ms-auto` alone; add a display utility with them, like `class="inline-flex ms-auto"`.
+- **One root per element.** Don't put `foldTooltip` and `foldPopover` on the same element; nest the wrappers instead.
+
+An unavailable action can explain why with a Tooltip: a disabled button can't take focus or hover events, so make it `focusableWhenDisabled`. A focusable disabled button still dispatches `click`, from a pointer, Enter or Space, so its handler returns while the action is unavailable:
+
+<!-- prettier-ignore -->
+```html
+<span foldTooltip>
+  <button foldButton [disabled]="!dirty()" focusableWhenDisabled foldTooltipTrigger (click)="publish()">Publish</button>
+  <span foldTooltipContent>
+    @if (dirty()) { Publishes your changes } @else { Nothing to publish yet }
+  </span>
+</span>
+```
+
+```ts
+protected publish(): void {
+  if (!this.dirty()) {
+    return;
+  }
+
+  this.changes.publish();
+}
+```
+
+[Origami's README](../origami-ui/tooltip/README.md) describes opening and closing, the delay group, disabled controls and hydration.
+
+## Popover
+
+```ts
+import { Button } from "#ui/button";
+import { PopoverParts } from "#ui/popover";
+
+readonly filtersOpen = signal(false);
+```
+
+`Popover` opens a non-modal panel from a button, over Origami's [Popover](../origami-ui/popover/README.md), which owns the behavior: opening and closing, positioning, Escape and outside clicks, focus restoration and server rendering. `PopoverTrigger` is styled like a Button and also anchors the panel; `PopoverContent` is a 288px [floating surface](#floating-layers) with 12px padding, 4px below the Trigger:
+
+<!-- prettier-ignore -->
+```html
+<div foldPopover [(open)]="filtersOpen">
+  <button foldPopoverTrigger>Filters <svg lucideChevronDown aria-hidden="true"></svg></button>
+  <div foldPopoverContent aria-labelledby="filters-title" #filters="foldPopoverContent">
+    <h2 id="filters-title" class="mb-2 text-title">Filters</h2>
+    @if (filters.state.open()) {
+      <div class="grid gap-3">
+        …
+        <button foldButton variant="primary" (click)="apply(); filtersOpen.set(false)">Apply</button>
+      </div>
+    }
+  </div>
+</div>
+```
+
+- `Popover`: the root, layout-transparent (`display: contents`). It takes `open` (two-way), `disabled`, `dismissible` (`true` by default; `false` keeps it open on Escape and outside clicks) and `class`, and emits `openChange`. Its template reference has `state`, with `open`, `disabled` and `dismissible` signals.
+- `PopoverTrigger`: a `<button>` that opens and closes it, secondary by default. It takes Button's `variant`, `size` and `class`, plus `id`, `disabled` and `focusableWhenDisabled`. It's also the panel's anchor; there's no separate Anchor part.
+- `PopoverContent`: the panel, `role="dialog"` by default. It takes `id`, `side` (default `block-end`), `align` (default `start`), `gap` (default 4, in CSS pixels) and `class`. Its template reference, `#filters="foldPopoverContent"`, has `state`, with an `open` signal that stays `true` through the closing animation.
+
+Name the panel with `aria-labelledby` or `aria-label`, and author it right after its Trigger, so Tab moves from the Trigger into it. Escape and an outside click close it; Escape returns focus to the Trigger. There's no close part: close it from your own button by setting `open` to `false`.
+
+- **Gate heavy content** on the Content's `state.open()`, as above; the panel's own markup is always rendered.
+- **Layout inside.** fold sets no `display` on Content, which must keep the browser's closed `display: none`; lay out an inner element, like the `grid` above.
+- **Not a focus trap.** It's non-modal: Tab leaves it for the next element on the page, and focus can move anywhere while it's open.
+- **Tooltips inside it** show once it's open and hide when it finishes closing, staying visible through its closing animation.
+- **Keyboard and scrolling.** Content scrolls when it's taller than the room left below or above the Trigger. Text-only Content that can scroll needs `tabindex="0"`, so the keyboard can reach and scroll it in every browser (Safari skips it otherwise). Interactive Content needs nothing; Firefox adds one Tab stop on the panel while it scrolls, which `tabindex="-1"` removes. Whenever the panel takes keyboard focus, it shows the focus ring.
+- **In a Dialog.** It opens over the dialog in the top layer; the first Escape closes the Popover, the next one the dialog.
+- **One button primitive per element.** Don't add `foldButton` to a PopoverTrigger; it already has the Button look.
+
+[Origami's README](../origami-ui/popover/README.md) describes positioning, dismissal, nesting and hydration.
+
+## Floating layers
+
+Select, Combobox and Popover share one look from `popup`, and Tooltip shares its motion: a folder of class lists with no Angular code, which your own panels can use too:
 
 - `popupClasses`: a floating surface: 12px radius, the surface fill, a 1px border, 4px padding, the popover shadow, and the entrance and exit animations. Width and padding beyond that are yours.
+- `popupMotionClasses`: the entrance and exit animations alone, for a floating layer with a look of its own, like Tooltip's chip. `popupClasses` includes them.
 - `popupListClasses`: a list anchored to its trigger: at least as wide as it, at most the viewport's width less 16px, and at most 20rem tall or the room left less 8px, scrolling inside itself.
 - `optionClasses`: a 32px option row with a 6px radius, an 8% foreground tint while highlighted, a check (its direct `<svg>` child) shown while selected, and 50% opacity when disabled.
 
@@ -919,8 +1071,8 @@ import { popupClasses } from "#ui/popup";
 protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.class()));
 ```
 
-- **Motion.** The list fades in and scales from 96% over 120ms once Origami has placed it, and reverses when it closes, from its center whichever side it opens on. Under reduced motion it doesn't animate, and it's hidden when Angular renders the close.
-- **Out of the Tab order.** Select's and Combobox's Content have `tabindex="-1"`: in Chromium and Firefox a scrolling list is otherwise a Tab stop, and Tab from the open list lands on it instead of the next control. If you compose `popupListClasses` over Origami's Content yourself, add it too.
+- **Motion.** The list, panel or chip fades in and scales from 96% over 120ms once Origami has placed it, and reverses when it closes, from its center whichever side it opens on. Under reduced motion it doesn't animate, and it's hidden when Angular renders the close.
+- **Out of the Tab order.** Select's and Combobox's Content have `tabindex="-1"`: in Chromium and Firefox a scrolling list is otherwise a Tab stop, and Tab from the open list lands on it instead of the next control. If you compose `popupListClasses` over Origami's Content yourself, add it too. Popover Content has none, because its panel can hold text the keyboard needs to reach; see its [keyboard and scrolling](#popover) note.
 - **Forced colors.** In forced-colors mode, such as Windows High Contrast, the highlighted option paints `Highlight` with `HighlightText`, and a disabled one `GrayText`. Text you put in an option follows its row's system color, whatever its own color class. A descendant's own background, border or fill keeps its color, so give it `forced-colors:` classes. To keep a deliberate system color on a descendant's text, write `forced-colors:text-[Mark]!`: the `!` is required, because the shared rule has the same specificity and comes later.
 
 ## Limitations
@@ -932,6 +1084,10 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - Nx workspaces are untested.
 - No range, multi-thumb or vertical Slider, and no ticks or marks; no press-and-hold or wheel stepping in NumberField.
 - No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. A list wider than its trigger near the viewport's edge can overflow it: Origami flips a list but doesn't shift it.
+- No scrolling or wrapping Tabs List, sliding underline or link tabs.
+- No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. A Tooltip or Popover near the viewport's cross-axis edge can overflow it: Origami flips them but doesn't shift them.
+- A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
+- In Firefox's forced-colors mode, focus rings are `CanvasText`, the text color, rather than Chromium's `Highlight`: fold leaves the ring's forced color to the browser, as on every other fold part.
 
 ## Developing this package
 

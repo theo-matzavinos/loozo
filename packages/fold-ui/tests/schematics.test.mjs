@@ -426,7 +426,7 @@ describe("add", () => {
     }
   });
 
-  test("copies the form controls, the lists, Dialog and Sheet with only what they import", async () => {
+  test("copies the form controls, the lists, the floating layers, Tabs, Dialog and Sheet with only what they import", async () => {
     const cases = {
       checkbox: ["checkbox", "cn"],
       combobox: ["cn", "combobox", "input", "popup"],
@@ -434,13 +434,16 @@ describe("add", () => {
       field: ["cn", "field"],
       input: ["cn", "input"],
       "number-field": ["cn", "number-field"],
+      popover: ["button", "cn", "popover", "popup"],
       popup: ["popup"],
       "radio-group": ["cn", "radio-group"],
       select: ["cn", "popup", "select"],
       sheet: ["button", "cn", "sheet"],
       slider: ["cn", "slider"],
       switch: ["cn", "switch"],
+      tabs: ["cn", "tabs"],
       textarea: ["cn", "input", "textarea"],
+      tooltip: ["cn", "popup", "tooltip"],
     };
 
     for (const [name, expected] of Object.entries(cases)) {
@@ -514,6 +517,29 @@ describe("add", () => {
     assert.match(
       readText(tree, "src/ui/combobox/combobox-empty.ts"),
       /selector: "\[zzComboboxEmpty\]"/,
+    );
+  });
+
+  test("renames Tabs', Tooltip's and Popover's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["tabs", "tooltip", "popover"] },
+      await setUp(runner),
+    );
+
+    assert.match(readText(tree, "src/ui/tabs/tabs.ts"), /exportAs: "zzTabs"/);
+    assert.match(
+      readText(tree, "src/ui/tabs/tabs-trigger.ts"),
+      /selector: "button\[zzTabsTrigger\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/tooltip/tooltip-trigger.ts"),
+      /selector: "\[zzTooltipTrigger\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/popover/popover-content.ts"),
+      /exportAs: "zzPopoverContent"/,
     );
   });
 

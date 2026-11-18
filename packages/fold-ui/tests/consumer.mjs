@@ -119,12 +119,15 @@ ng([
   "field",
   "input",
   "number-field",
+  "popover",
   "radio-group",
   "select",
   "sheet",
   "slider",
   "switch",
+  "tabs",
   "textarea",
+  "tooltip",
 ]);
 
 const installed = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -141,14 +144,17 @@ assert.deepEqual(folders.sort(), [
   "field",
   "input",
   "number-field",
+  "popover",
   "popup",
   "radio-group",
   "select",
   "sheet",
   "slider",
   "switch",
+  "tabs",
   "textarea",
   "theme.css",
+  "tooltip",
 ]);
 // The CLI runs the app's Prettier on written files, so quotes follow the app's style.
 assert.match(
