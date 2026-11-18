@@ -4,9 +4,11 @@
     <body>
       <trans-unit id="route.segment.account" datatype="html"><source>account</source><target>konto</target></trans-unit>
       <trans-unit id="route.segment.anmelden" datatype="html"><source>anmelden</source><target>empfangen</target></trans-unit>
+      <trans-unit id="route.segment.chat" datatype="html"><source>chat</source><target>plaudern</target></trans-unit>
       <trans-unit id="route.segment.docs" datatype="html"><source>docs</source><target>dokumente</target></trans-unit>
       <trans-unit id="route.segment.guarded" datatype="html"><source>guarded</source><target>geschuetzt</target></trans-unit>
       <trans-unit id="route.segment.help" datatype="html"><source>help</source><target>hilfe</target></trans-unit>
+      <trans-unit id="route.segment.item" datatype="html"><source>item</source><target>artikel</target></trans-unit>
       <trans-unit id="route.segment.jump" datatype="html"><source>jump</source><target>springen</target></trans-unit>
       <trans-unit id="route.segment.lazy" datatype="html"><source>lazy</source><target>spaet</target></trans-unit>
       <trans-unit id="route.segment.live" datatype="html"><source>live</source><target>direkt</target></trans-unit>
@@ -15,8 +17,11 @@
       <trans-unit id="route.segment.not-found" datatype="html"><source>not-found</source><target>nicht-gefunden</target></trans-unit>
       <trans-unit id="route.segment.old" datatype="html"><source>old</source><target>alt</target></trans-unit>
       <trans-unit id="route.segment.probe" datatype="html"><source>probe</source><target>sonde</target></trans-unit>
+      <trans-unit id="route.segment.products" datatype="html"><source>products</source><target>produkte</target></trans-unit>
+      <trans-unit id="route.segment.shelf" datatype="html"><source>shelf</source><target>regal</target></trans-unit>
       <trans-unit id="route.segment.sign-in" datatype="html"><source>sign-in</source><target>anmelden</target></trans-unit>
       <trans-unit id="route.segment.start" datatype="html"><source>start</source><target>anfang</target></trans-unit>
+      <trans-unit id="route.segment.teams" datatype="html"><source>teams</source><target>mannschaften</target></trans-unit>
     </body>
   </file>
 </xliff>

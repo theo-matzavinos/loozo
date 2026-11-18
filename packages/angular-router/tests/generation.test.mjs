@@ -1352,6 +1352,10 @@ async function extensionProject() {
       tuple,
       tuple.replace('name: "context"', 'name: "toString"'),
     ),
+    "reserved-outlet": descriptor.replace(
+      tuple,
+      tuple.replace('name: "context"', 'name: "__outlet"'),
+    ),
     duplicate: descriptor.replace('{ name: "use"; type', '{ name: "context"; type'),
     "false-flag": descriptor.replace(tuple, tuple.replace("serverOnly: true", "serverOnly: false")),
     "negative-min": descriptor.replace(tuple, tuple.replace("min: 1;", "min: -1;")),
@@ -1619,6 +1623,12 @@ const y = () => ({ account: { me: () => "u" } });`;
       reason: /Reserved contributed step name: toString$/,
     },
     {
+      name: "outlet witness name rejected",
+      pkg: "reserved-outlet",
+      expr: `defineRoute("x", {})`,
+      reason: /Reserved contributed step name: __outlet$/,
+    },
+    {
       name: "duplicate name rejected",
       pkg: "duplicate",
       expr: `defineRoute("x", {})`,
@@ -1781,7 +1791,7 @@ const y = () => ({ account: { me: () => "u" } });`;
   ];
 
   await project.write("wrapper.ts", `export { defineRoute } from "@fixture/route-extension";\n`);
-  assert.equal(cases.length, 45);
+  assert.equal(cases.length, 46);
 
   for (const testCase of cases) {
     let pkg = testCase.pkg ?? "route-extension";
@@ -2302,7 +2312,8 @@ const injectDoc = `/**
  * Data holds the resolver results of this route and its ancestors, a nearer
  * key hiding an ancestor's; native static data and the title stay out. Title
  * is the nearest declared title in the chain, or undefined when none declares one.
- * All navigation values are explicit; current inputs are never reused implicitly.
+ * Navigation values are explicit; links and navigations compose with the current URL,
+ * keeping the named-outlet branches a navigation doesn't touch.
  *
  * @returns A noncallable handle for this declaration.
  * @throws A synchronous wiring error outside an injection context or when the
@@ -5478,5 +5489,411 @@ test("translated segments: catalogs load as Angular's loader loads them", async 
   // And generation resolves the route word through such a catalog.
   await project.page("products");
   await project.catalog(duplicate);
+  await project.translate();
+});
+
+const outletHeader =
+  'import { defineRoute, enumParam, numberParam, stringParam } from "@loozo/angular-router";\n';
+const outletChild = (from) => `${outletHeader}import parent from "${from}";\n`;
+
+// The record of one declaration, as emitted into a table.
+function recordOf(table, path) {
+  const start = table.indexOf(`path: ${JSON.stringify(path)},`);
+
+  assert.ok(start >= 0, `Missing record: ${path}`);
+
+  const end = table.slice(start).search(/ \}(?:,\n|\];)/);
+
+  return table.slice(table.lastIndexOf("{ ", start), start + end + 2);
+}
+
+test("named outlets: outlet records in root and children tables, anchored empty leaves and primary RouteTypes", async () => {
+  const project = await copyProject();
+  const result = await project.analyze({
+    "+home": `${outletHeader}\nexport default defineRoute("", {}).canMatch([() => true]);\n`,
+    "chat/$id": `${outletHeader}\nexport default defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });\n`,
+    "chat/$id/settings": `${outletChild("../route.js")}\nexport default defineRoute("settings", { parent });\n`,
+    "chat/$rest[]": `${outletHeader}\nexport default defineRoute("$rest[]", { outlet: "chat", params: { rest: stringParam } });\n`,
+    products: `${outletHeader}\nexport default defineRoute("products", { search: { sort: enumParam(["name", "price"]) } });\n`,
+    "products/+overview": `${outletChild("../route.js")}\nexport default defineRoute("", { parent }).canMatch([() => true]);\n`,
+    "products/list": `${outletChild("../route.js")}\nexport default defineRoute("list", { parent });\n`,
+    "products/item/$id": `${outletChild("../../route.js")}\nexport default defineRoute("item/$id", { parent, outlet: "detail", params: { id: numberParam } });\n`,
+    "products/item/$id/specs": `${outletChild("../route.js")}\nexport default defineRoute("specs", { parent });\n`,
+    "teams/$teamId": `${outletHeader}\nexport default defineRoute("teams/$teamId", { params: { teamId: numberParam } });\n`,
+    "teams/$teamId/+index": `${outletChild("../route.js")}\nexport default defineRoute("", { parent });\n`,
+    "teams/$teamId/item/$id": `${outletChild("../../route.js")}\nexport default defineRoute("item/$id", { parent, outlet: "detail", params: { id: numberParam } });\n`,
+    plain: `${outletHeader}\nexport default defineRoute("plain", {});\n`,
+    "plain/+index": `${outletChild("../route.js")}\nexport default defineRoute("", { parent }).canMatch([() => true]);\n`,
+  });
+  const read = (path) => result.desired.get(resolve(project.root, path));
+  const routes = read("generated/routes.generated.ts");
+  const products = read("src/routes/products/children.generated.ts");
+  const chat = read("src/routes/chat/$id/children.generated.ts");
+  const item = read("src/routes/products/item/$id/children.generated.ts");
+  const teams = read("src/routes/teams/$teamId/children.generated.ts");
+  const plain = read("src/routes/plain/children.generated.ts");
+
+  // A branch root names its outlet, in whichever table holds it; its descendants don't.
+  assert.match(recordOf(routes, "chat/:id"), /^\{ path: "chat\/:id",\noutlet: "chat",\n/);
+  assert.match(recordOf(routes, "**"), /^\{ path: "\*\*",\noutlet: "chat",\n/);
+  assert.match(recordOf(products, "item/:id"), /^\{ path: "item\/:id",\noutlet: "detail",\n/);
+  assert.match(recordOf(teams, "item/:id"), /^\{ path: "item\/:id",\noutlet: "detail",\n/);
+  assert.doesNotMatch(chat, /outlet:/);
+  assert.doesNotMatch(item, /outlet:/);
+  assert.doesNotMatch(recordOf(products, "list"), /outlet:/);
+
+  // Empty leaves at a branch's anchor match by prefix and gate their canMatch adapters; a leaf
+  // without callbacks just matches by prefix; any other empty leaf keeps full.
+  assert.equal(
+    recordOf(routes, ""),
+    `{ path: "",\n...record(destination__home_route),\n...callbacks(route__home_route, { onlyAtEnd: true }),\nloadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/+home/page") }`,
+  );
+  assert.match(
+    recordOf(products, ""),
+    /\.\.\.callbacks\(route_products__overview_route, \{ onlyAtEnd: true \}\)/,
+  );
+  assert.doesNotMatch(recordOf(products, ""), /pathMatch/);
+  assert.doesNotMatch(recordOf(teams, ""), /pathMatch|callbacks/);
+  assert.match(
+    recordOf(plain, ""),
+    /pathMatch: 'full',\n[^]*\.\.\.callbacks\(route_plain__index_route\),/,
+  );
+
+  // The active route reads the primary chain: RouteTypes names no branch member.
+  const types = routes.slice(routes.indexOf("export type RouteTypes"));
+
+  for (const id of [
+    "chat/$id",
+    "chat/$id/settings",
+    "chat/$rest[]",
+    "products/item/$id",
+    "products/item/$id/specs",
+    "teams/$teamId/item/$id",
+  ]) {
+    assert.ok(!types.includes(JSON.stringify(`src/routes/${id}/route.ts`)), id);
+  }
+
+  for (const id of ["+home", "products", "products/list", "plain"]) {
+    assert.ok(types.includes(JSON.stringify(`src/routes/${id}/route.ts`)), id);
+  }
+
+  // `..` stays inside a branch and a branch root has none.
+  assert.match(
+    recordOf(chat, "settings"),
+    /\.\.\.record\(destination_chat_\$id_settings_route, destination_chat_\$id_route\)/,
+  );
+  assert.match(
+    recordOf(item, "specs"),
+    /\.\.\.record\(destination_products_item_\$id_specs_route, destination_products_item_\$id_route\)/,
+  );
+  assert.match(
+    recordOf(products, "item/:id"),
+    /\.\.\.record\(destination_products_item_\$id_route\),/,
+  );
+  assert.match(recordOf(routes, "chat/:id"), /\.\.\.record\(destination_chat_\$id_route\),/);
+  assert.doesNotMatch(result.copy("chat/$id", "route"), /routegen\$up/);
+  assert.match(result.copy("chat/$id/settings", "route"), /routegen\$up/);
+
+  // The destination copy keeps the fact as written.
+  assert.match(result.copy("chat/$id", "destination"), /outlet: "chat"/);
+});
+
+test("named outlets: positions compare per outlet and anchor under a structural key", async () => {
+  const project = await copyProject();
+  const base = {
+    products: `${outletHeader}\nexport default defineRoute("products", {});\n`,
+    "products/list": `${outletChild("../route.js")}\nexport default defineRoute("list", { parent });\n`,
+    // The same path in different outlets, and the primary, passes.
+    "products/item": `${outletChild("../route.js")}\nexport default defineRoute("item", { parent, outlet: "detail" });\n`,
+    "products/aside-item": `${outletChild("../route.js")}\nexport default defineRoute("item", { parent, outlet: "aside" });\n`,
+    "products/plain-item": `${outletChild("../route.js")}\nexport default defineRoute("item", { parent });\n`,
+    // A literal primary path spelled like the branch doesn't collide with it (F4).
+    literal: `${outletHeader}\nexport default defineRoute("products/(detail:item)", {});\n`,
+    "literal/child": `${outletChild("../route.js")}\nexport default defineRoute("child", { parent });\n`,
+    "products/item/child": `${outletChild("../route.js")}\nexport default defineRoute("child", { parent });\n`,
+    plain: `${outletHeader}\nexport default defineRoute("plain", {});\n`,
+    "+home": `${outletHeader}\nexport default defineRoute("", {});\n`,
+    "to-literal": `${outletHeader}import { destination as to } from "../literal/destination.generated.js";\n\nexport default defineRoute("to-literal", {}).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+    "to-branch": `${outletHeader}import { destination as to } from "../products/item/destination.generated.js";\n\nexport default defineRoute("to-branch", {}).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+  };
+  const result = await project.analyze(base, {
+    componentless: ["to-literal", "to-branch"],
+  });
+  const selected = selections(result.sources);
+  const keys = [...selected.keys()];
+
+  assert.ok(keys.includes(JSON.stringify(["primary", [], ["products", "(detail:item)"]])));
+  assert.ok(keys.includes(JSON.stringify(["detail", ["products"], ["item"]])));
+  assert.ok(keys.includes(JSON.stringify(["aside", ["products"], ["item"]])));
+  assert.ok(keys.includes(JSON.stringify(["primary", [], ["products", "item"]])));
+
+  // Each child's `..` is its own parent: the literal for the literal's child, the branch member
+  // for the branch child; a top-level route's is the root winner through the root key.
+  assert.match(
+    result.copy("literal/child", "route"),
+    /import \{ destination as routegen\$up \} from "\.\.\/destination\.generated\.js"/,
+  );
+  assert.match(
+    result.copy("products/item/child", "route"),
+    /import \{ destination as routegen\$up \} from "\.\.\/destination\.generated\.js"/,
+  );
+  assert.match(
+    result.copy("plain", "route"),
+    /import \{ destination as routegen\$up \} from "\.\.\/\+home\/destination\.generated\.js"/,
+  );
+
+  // Same outlet and path under a parent and its pathless child: one position, both named.
+  await assert.rejects(
+    project.analyze(
+      {
+        ...base,
+        "products/+layout": `${outletChild("../route.js")}\nexport default defineRoute("", { parent });\n`,
+        "products/+layout/item": `${outletChild("../route.js")}\nexport default defineRoute("item", { parent, outlet: "detail" });\n`,
+      },
+      { componentless: ["to-literal", "to-branch"] },
+    ),
+    /Ordinary route collision\/overlap: src\/routes\/products\/[+a-z/]*item\/route\.ts \(\/products\/\(detail:item\)\); src\/routes\/products\/[+a-z/]*item\/route\.ts \(\/products\/\(detail:item\)\)$/,
+  );
+
+  // Catchalls compete per outlet: two in chat collide, one in chat and one primary don't.
+  const catchalls = {
+    "+home": `${outletHeader}\nexport default defineRoute("", {});\n`,
+    "chat/$rest[]": `${outletHeader}\nexport default defineRoute("$rest[]", { outlet: "chat", params: { rest: stringParam } });\n`,
+    "$rest[]": `${outletHeader}\nexport default defineRoute("$rest[]", { params: { rest: stringParam } });\n`,
+  };
+
+  await project.analyze(catchalls);
+  await assert.rejects(
+    project.analyze({
+      ...catchalls,
+      "talk/$other[]": `${outletHeader}\nexport default defineRoute("$other[]", { outlet: "chat", params: { other: stringParam } });\n`,
+    }),
+    /Competing sibling catchalls: /,
+  );
+});
+
+test("named outlets: an empty-path primary parent adds no anchor segment", async () => {
+  const project = await copyProject();
+  const routes = {
+    account: `${outletHeader}\nexport default defineRoute("account", {});\n`,
+    "account/+layout": `${outletChild("../route.js")}\nexport default defineRoute("", { parent });\n`,
+    "account/+layout/profile": `${outletChild("../route.js")}\nexport default defineRoute("profile", { parent });\n`,
+    "account/+layout/help": `${outletChild("../route.js")}\nexport default defineRoute("help", { parent, outlet: "aside" });\n`,
+  };
+  const result = await project.analyze(routes);
+  const layout = result.desired.get(
+    resolve(project.root, "src/routes/account/+layout/children.generated.ts"),
+  );
+  const account = result.desired.get(
+    resolve(project.root, "src/routes/account/children.generated.ts"),
+  );
+  const help = result.sources.declarations.find((declaration) => declaration.path === "help");
+
+  assert.match(recordOf(layout, "help"), /^\{ path: "help",\noutlet: "aside",\n/);
+  assert.doesNotMatch(recordOf(layout, "profile"), /outlet:/);
+  assert.deepEqual(help.branch, { outlet: "aside", anchor: [{ kind: "static", text: "account" }] });
+  assert.equal(
+    recordOf(account, ""),
+    `{ path: "",\n...record(destination_account__layout_route),\nloadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("./+layout/page"),\nloadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("./+layout/children.generated.js").then((m) => m.routes) }`,
+  );
+
+  // An aside branch declared directly under account takes the same position.
+  await assert.rejects(
+    project.analyze({
+      ...routes,
+      "account/help": `${outletChild("../route.js")}\nexport default defineRoute("help", { parent, outlet: "aside" });\n`,
+    }),
+    /Ordinary route collision\/overlap: src\/routes\/account\/[+a-z/]*help\/route\.ts \(\/account\/\(aside:help\)\); src\/routes\/account\/[+a-z/]*help\/route\.ts \(\/account\/\(aside:help\)\)$/,
+  );
+});
+
+test("named outlets: redirects into a branch keep their policies; sources can't be in one", async () => {
+  const project = await copyProject();
+  const routes = {
+    products: `${outletHeader}\nexport default defineRoute("products", { search: { sort: enumParam(["name", "price"]) } });\n`,
+    "products/item/$id": `${outletChild("../../route.js")}\nexport default defineRoute("item/$id", { parent, outlet: "detail", params: { id: numberParam } });\n`,
+    "chat/$id": `${outletHeader}\nexport default defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });\n`,
+    "old-item/$id": `${outletHeader}import { destination as to } from "../../products/item/$id/destination.generated.js";\n\nexport default defineRoute("old-item/$id", { params: { id: numberParam } }).redirect({ to, search: { mode: "replace", values: { sort: "price" } }, fragment: { mode: "drop" } });\n`,
+    "old-chat/$id": `${outletHeader}import { destination as to } from "../../chat/$id/destination.generated.js";\n\nexport default defineRoute("old-chat/$id", { params: { id: numberParam } }).redirect({ to, search: { mode: "preserve" }, fragment: { mode: "drop" } });\n`,
+  };
+  const settings = { componentless: ["old-item/$id", "old-chat/$id"] };
+
+  await project.analyze(routes, settings);
+
+  // An inherited key is a known replacement; an unknown one and an undeclared fragment aren't.
+  await assert.rejects(
+    project.analyze(
+      {
+        ...routes,
+        "old-item/$id": routes["old-item/$id"].replace('{ sort: "price" }', "{ page: 2 }"),
+      },
+      settings,
+    ),
+    /Unknown\/incompatible redirect replacement key: page$/,
+  );
+  await assert.rejects(
+    project.analyze(
+      {
+        ...routes,
+        "old-item/$id": routes["old-item/$id"].replace(
+          'fragment: { mode: "drop" }',
+          'fragment: { mode: "replace", value: "top" }',
+        ),
+      },
+      settings,
+    ),
+    /Fragment replacement requires a destination-declared name$/,
+  );
+  await assert.rejects(
+    project.analyze(
+      {
+        ...routes,
+        "chat/$id/old": `${outletChild("../route.js")}import { destination as to } from "../destination.generated.js";\n\nexport default defineRoute("old", { parent }).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+      },
+      { componentless: [...settings.componentless, "chat/$id/old"] },
+    ),
+    /Redirect sources can't be in a named outlet: src\/routes\/chat\/\$id\/old\/route\.ts$/,
+  );
+});
+
+test("named outlets: declarations mirror the runtime's outlet rules", async () => {
+  const project = await copyProject();
+  const parent = `${outletHeader}\nexport default defineRoute("chat", { outlet: "chat" });\n`;
+
+  for (const [routes, pattern] of [
+    [
+      {
+        x: `${outletHeader}const name = "chat";\nexport default defineRoute("x", { outlet: name });\n`,
+      },
+      /outlet must be a string literal$/,
+    ],
+    [
+      { x: `${outletHeader}\nexport default defineRoute("x", { outlet: "1chat" });\n` },
+      /Outlet name must be a letter followed by letters, digits, '-' or '_', and not "primary": 1chat$/,
+    ],
+    [
+      { x: `${outletHeader}\nexport default defineRoute("x", { outlet: "primary" });\n` },
+      /not "primary": primary$/,
+    ],
+    [
+      { x: `${outletHeader}\nexport default defineRoute("", { outlet: "chat" });\n` },
+      /A named-outlet route needs a path: an empty one activates with its anchor and can't be closed$/,
+    ],
+    [
+      {
+        chat: parent,
+        "chat/x": `${outletChild("../route.js")}\nexport default defineRoute("x", { parent, outlet: "aside" });\n`,
+      },
+      /Named outlets don't nest: the parent is in outlet chat$/,
+    ],
+    [
+      {
+        x: `${outletHeader}\nexport default defineRoute("x", { outlet: "chat", search: { q: stringParam } });\n`,
+      },
+      /Routes in a named outlet can't declare search or fragments: the query and fragment belong to the primary route$/,
+    ],
+    [
+      {
+        chat: parent,
+        "chat/x": `${outletChild("../route.js")}\nexport default defineRoute("x", { parent, fragments: ["top"] });\n`,
+      },
+      /Routes in a named outlet can't declare search or fragments/,
+    ],
+  ]) {
+    await assert.rejects(project.analyze(routes), pattern);
+  }
+});
+
+test("named outlets: filesystem mode keeps an authored outlet through a move", async () => {
+  const project = await filesystemProject();
+
+  await project.page("+home");
+  await project.page("chat/$id");
+  await project.write(
+    "src/routes/chat/$id/route.ts",
+    `${outletHeader}\nexport default defineRoute("chat/$id", { outlet: "chat", params: { id: stringParam } });\n`,
+  );
+  await project.generate();
+  assert.match(await project.routes(), /path: "chat\/:id",\noutlet: "chat",/);
+
+  await project.move("src/routes/chat", "src/routes/talk");
+  await project.generate();
+
+  const moved = await project.read("src/routes/talk/$id/route.ts");
+
+  assert.match(
+    moved,
+    /defineRoute\("talk\/\$id", \{ outlet: "chat", params: \{ id: stringParam \} \}\)/,
+  );
+  assert.match(await project.routes(), /path: "talk\/:id",\noutlet: "chat",/);
+});
+
+test("named outlets: Launch-mode discovery admits outlet", async () => {
+  const project = await copyProject();
+
+  await project.author({
+    "+home": `${outletHeader}\nexport default defineRoute("", {});\n`,
+    "chat/$id": `${outletHeader}\nexport default defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });\n`,
+  });
+
+  const sources = await discover(
+    project.root,
+    "tsconfig.json",
+    ["src/routes"],
+    "generated",
+    undefined,
+    new Map(),
+    false,
+    true,
+  );
+  const desired = emitLaunchRoutes(sources);
+
+  assert.match(
+    desired.get(resolve(project.root, "generated/routes.generated.ts")),
+    /path: "chat\/:id",\noutlet: "chat",/,
+  );
+});
+
+test("named outlets: each locale checks translated anchors and in-branch paths", async () => {
+  const project = await localizedProject();
+
+  await project.page("products");
+  await project.page("detail");
+  await project.page("products/item/$id");
+  await project.page("products/entry/$id");
+
+  for (const directory of ["item", "entry"]) {
+    await project.write(
+      `src/routes/products/${directory}/$id/route.ts`,
+      `${outletChild("../../route.js")}\nexport default defineRoute("${directory}/$id", { parent, outlet: "detail", params: { id: stringParam } });\n`,
+    );
+  }
+
+  await project.generate();
+  await project.translate();
+
+  // The anchor's word translates once (produits, not what a catalog says produits becomes),
+  // the outlet name never does, even when a route word spells it, and a translation that
+  // merges two branch positions fails in that locale.
+  await project.catalog(
+    xliff1([
+      ["route.segment.products", "produits"],
+      ["route.segment.produits", "X"],
+      ["route.segment.detail", "einzel"],
+      ["route.segment.item", "artikel"],
+      ["route.segment.entry", "artikel"],
+    ]),
+  );
+  await assert.rejects(
+    project.translate(),
+    /^Error: Locale de: .*: Ordinary route collision\/overlap: src\/routes\/products\/[a-z]+\/\$id\/route\.ts \(\/produits\/\(detail:artikel\/\$id\)\); src\/routes\/products\/[a-z]+\/\$id\/route\.ts \(\/produits\/\(detail:artikel\/\$id\)\)$/,
+  );
+
+  await project.catalog(
+    xliff1([
+      ["route.segment.products", "produkte"],
+      ["route.segment.item", "artikel"],
+    ]),
+  );
   await project.translate();
 });

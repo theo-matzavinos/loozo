@@ -1,4 +1,4 @@
-import { Component, afterNextRender } from "@angular/core";
+import { Component, afterNextRender, computed } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { injectRoute } from "./route.generated.js";
 import { destination as oldItem } from "../../old-items/$id/destination.generated.js";
@@ -18,23 +18,30 @@ import { destination as oldItem } from "../../old-items/$id/destination.generate
       <h3>Local resolved data</h3>
       <p id="resolved">{{ route.data().item.text }}</p>
       <nav>
-        <a id="direct" [routerLink]="direct">Direct item 8</a>
-        <a id="alias" [routerLink]="alias">Alias item 8, drop query and fragment</a>
-        <a id="query" [routerLink]="query">Score 44</a>
+        <a id="direct" [routerLink]="direct()">Direct item 8</a>
+        <a id="alias" [routerLink]="alias()">Alias item 8, drop query and fragment</a>
+        <a id="query" [routerLink]="query()">Score 44</a>
       </nav>
     </article>
   `,
 })
 export default class Item {
   readonly route = injectRoute();
-  readonly direct = this.route.link({ params: { teamId: 7, id: 8 }, search: { score: 43 } });
-  readonly alias = this.route.link({
-    to: oldItem,
-    params: { teamId: 7, id: 8 },
-    search: { score: 99 },
-    fragment: "old",
-  });
-  readonly query = this.route.link({ params: { teamId: 7, id: 8 }, search: { score: 44 } });
+  // Built where they render, so they follow commits.
+  readonly direct = computed(() =>
+    this.route.link({ params: { teamId: 7, id: 8 }, search: { score: 43 } }),
+  );
+  readonly alias = computed(() =>
+    this.route.link({
+      to: oldItem,
+      params: { teamId: 7, id: 8 },
+      search: { score: 99 },
+      fragment: "old",
+    }),
+  );
+  readonly query = computed(() =>
+    this.route.link({ params: { teamId: 7, id: 8 }, search: { score: 44 } }),
+  );
 
   constructor() {
     afterNextRender(() => {

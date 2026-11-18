@@ -1,4 +1,5 @@
-import { Component, inject, LOCALE_ID } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Component, inject, LOCALE_ID, PLATFORM_ID } from "@angular/core";
 import { toSignal } from "@angular/core/rxjs-interop";
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
 import { filter, map } from "rxjs";
@@ -7,6 +8,11 @@ import { destination as guarded } from "./routes/+authenticated/guarded/destinat
 import { destination as lazyGuarded } from "./routes/+authenticated/lazy/guarded/destination.generated";
 import { destination as live } from "./routes/+authenticated/live/destination.generated";
 import { destination as manualsStart } from "./routes/manuals/start/destination.generated";
+
+declare global {
+  // In the browser: a router navigation, as a link click starts one, for the proof to drive.
+  var proofNavigate: ((url: string) => Promise<boolean>) | undefined;
+}
 
 @Component({
   selector: "proof-root",
@@ -26,10 +32,11 @@ import { destination as manualsStart } from "./routes/manuals/start/destination.
   `,
 })
 export class App {
+  readonly #router = inject(Router);
   protected readonly locale = inject(LOCALE_ID);
   // The router-relative URL after redirects; the base href adds the locale.
   protected readonly at = toSignal(
-    inject(Router).events.pipe(
+    this.#router.events.pipe(
       filter((event) => event instanceof NavigationEnd),
       map((event) => event.urlAfterRedirects),
     ),
@@ -39,4 +46,10 @@ export class App {
   protected readonly lazyGuarded = createUrl(lazyGuarded, {});
   protected readonly live = createUrl(live, {});
   protected readonly manualsStart = createUrl(manualsStart, {});
+
+  constructor() {
+    if (isPlatformBrowser(inject(PLATFORM_ID))) {
+      globalThis.proofNavigate = (url) => this.#router.navigateByUrl(url);
+    }
+  }
 }

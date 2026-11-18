@@ -2,6 +2,9 @@ export { callbacks, lazyRedirect, redirect } from "./callbacks.js";
 export { effectivePath, nativePath } from "./native-path.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 export { provideActiveRouteHydration } from "./hydration.js";
+export { injectNavigationBase } from "./base.js";
+export { compose } from "./compose.js";
+export type { Composition } from "./compose.js";
 export type { ActiveHandle, ActiveRoute, RouteTypeEntry, RouteTypeMap } from "./active.js";
 export { extension, record, recordExtension, recordFacts, resolverKeys } from "./record.js";
 export { authoredRouteOf, defineDestination, routeOf } from "@loozo/angular-router/_core";
@@ -19,6 +22,8 @@ import {
   destinationRecord,
   routeMetadata,
   type AnyRoute,
+  type Branch,
+  type OutletOf,
   type ContributionRecord,
   type ExtensionSpec,
   type RuntimeExtension,
@@ -32,6 +37,8 @@ import {
   type FragmentsOf,
   type TitleOf,
 } from "@loozo/angular-router/_core";
+import { injectNavigationBase } from "./base.js";
+import { compose, type Composition } from "./compose.js";
 import { observeRecord, type RouteView } from "./handle.js";
 import { destinationOf } from "./inputs.js";
 
@@ -71,6 +78,97 @@ type OwnNavigation<
 > = keyof ParamsOf<Target> extends never
   ? PathlessOwnNavigation<SearchFieldOf<Target, Keys>, FragmentsOf<Target>>
   : PathOwnNavigation<ParamsOf<Target>, SearchFieldOf<Target, Keys>, FragmentsOf<Target>>;
+interface CloseValues {
+  /** Closes the whole named-outlet branch: no URL values. */
+  readonly close: true;
+  /** Forbidden: a close takes no URL values. */
+  readonly params?: never;
+  /** Forbidden: a close takes no URL values. */
+  readonly search?: never;
+  /** Forbidden: a close takes no URL values. */
+  readonly fragment?: never;
+}
+interface OwnClose extends CloseValues {
+  /** Omitted: the branch this declaration renders in. */
+  readonly to?: undefined;
+}
+interface OwnCloseNavigation extends OwnClose, NavigationBehaviorOptions {}
+// Only a declaration in a named outlet closes its own branch.
+type OwnCloseOf<Target, Close> = OutletOf<Target> extends string ? Close : never;
+type BranchDestination<To extends AnyRoute, Id extends string> = Destination<To, Id> &
+  (IsUnion<Id> extends true ? never : unknown) &
+  (OutletOf<To> extends string ? unknown : never);
+
+/**
+ * Link and navigate to a destination imported from any `destination.generated.ts`, or close
+ * a destination's named-outlet branch: what every route handle offers, the active route
+ * before narrowing too.
+ */
+export interface DestinationNavigation {
+  /**
+   * Creates a UrlTree for a destination, composed with the current URL, without navigating.
+   *
+   * @param target - `to`, a genuine destination imported from a `destination.generated.ts`, and the referenced declaration's complete explicit values: params only in a named outlet.
+   * @returns A UrlTree for Angular RouterLink.
+   * @throws Synchronously for fake destinations, invalid URL values or a behavior option.
+   */
+  link<
+    To extends AnyRoute,
+    const Id extends string,
+    Keys extends keyof SearchOf<NoInfer<To>> = never,
+  >(
+    target: {
+      /** A genuine destination imported from a `destination.generated.ts`. */
+      readonly to: Destination<To, Id> & (IsUnion<Id> extends true ? never : unknown);
+    } & UrlValues<NoInfer<To>, Keys>,
+  ): UrlTree;
+  /**
+   * Creates a UrlTree of the current URL without the destination's named outlet at its anchor,
+   * whatever that outlet shows.
+   *
+   * @param target - `to`, a genuine destination in a named outlet, and `close: true`; no URL values.
+   * @returns A UrlTree equal to the current URL when the outlet isn't open there.
+   * @throws Synchronously for fake or primary destinations, URL values or a behavior option.
+   */
+  link<To extends AnyRoute, const Id extends string>(
+    target: CloseValues & {
+      /** A genuine destination in a named outlet. */
+      readonly to: BranchDestination<To, Id>;
+    },
+  ): UrlTree;
+  /**
+   * Navigates to a destination, composed with the current URL.
+   *
+   * @param target - `to`, a genuine destination imported from a `destination.generated.ts`; the referenced declaration's complete explicit values (params only in a named outlet); and Angular's navigation behavior options.
+   * @returns Angular's identical Router.navigateByUrl Promise.
+   * @throws Synchronously for fake destinations or invalid URL values.
+   */
+  navigate<
+    To extends AnyRoute,
+    const Id extends string,
+    Keys extends keyof SearchOf<NoInfer<To>> = never,
+  >(
+    target: {
+      /** A genuine destination imported from a `destination.generated.ts`. */
+      readonly to: Destination<To, Id> & (IsUnion<Id> extends true ? never : unknown);
+    } & UrlValues<NoInfer<To>, Keys> &
+      NavigationBehaviorOptions,
+  ): Promise<boolean>;
+  /**
+   * Closes the destination's named outlet at its anchor, whatever it shows.
+   *
+   * @param target - `to`, a genuine destination in a named outlet, `close: true` and Angular's navigation behavior options; no URL values.
+   * @returns Angular's identical Router.navigateByUrl Promise. With the outlet not open there the
+   * URL is unchanged, and Angular's `onSameUrlNavigation` decides: `false` under its default "ignore".
+   * @throws Synchronously for fake or primary destinations or URL values.
+   */
+  navigate<To extends AnyRoute, const Id extends string>(
+    target: CloseValues & {
+      /** A genuine destination in a named outlet. */
+      readonly to: BranchDestination<To, Id>;
+    } & NavigationBehaviorOptions,
+  ): Promise<boolean>;
+}
 
 /**
  * The noncallable typed handle returned by a colocated `injectRoute()` facade.
@@ -94,10 +192,19 @@ type OwnNavigation<
  * `link` and `navigate` take one target record. Its `to` selects the
  * destination: omitted for this exact declaration, not its pathless winner;
  * `..` for the parent route, the nearest ancestor with a shorter path or the
- * root for a top-level route, as generation resolved it; or a genuine
+ * root for a top-level route (inside a named outlet, the nearest such ancestor
+ * in the branch; a branch root has none), as generation resolved it; or a genuine
  * destination imported from any `destination.generated.ts`, never a string path.
  * `params`, `search` and `fragment` are the destination's complete explicit
- * values; there is no current-value reuse or implicit query merge. For
+ * values; a destination in a named outlet takes params only, and its query and
+ * fragment stay the page's. `close: true`, with no values, closes the named-outlet
+ * branch of this declaration or of the `to` destination.
+ *
+ * The URL is composed with the current one: navigating the primary path keeps each
+ * open named-outlet branch whose anchor is still on the new path, and opening or
+ * replacing a branch keeps the rest of the URL. Call `link` where it renders (a
+ * template or a `computed`), so it follows commits; a link stored once keeps the
+ * branches open when it ran. `createUrl` builds the exact URL instead. For
  * `navigate`, the record's other keys are Angular's `NavigationBehaviorOptions`,
  * passed to `Router.navigateByUrl` as given; `link` takes none, so set them on
  * RouterLink.
@@ -111,12 +218,21 @@ type OwnNavigation<
  * import { destination as report } from "../report/destination.generated.js";
  *
  * const route = injectRoute(); // Inside an Angular injection context.
- * const link = route.link({ to: report, params: { reportId: 42 } });
- * // Bind link to Angular RouterLink, or navigate with the same record and behavior options:
+ * readonly link = computed(() => route.link({ to: report, params: { reportId: 42 } }));
+ * // Bind link() to Angular RouterLink, or navigate with the same record and behavior options:
  * void route.navigate({ to: report, params: { reportId: 42 }, replaceUrl: true });
  * ```
  */
-export interface Handle<Target extends AnyRoute, Parent extends Destination<AnyRoute> = never> {
+export type Handle<
+  Target extends AnyRoute,
+  Parent extends Destination<AnyRoute> = never,
+> = RouteHandle<Target, Parent> & DestinationNavigation;
+
+/** A handle's signals and its own, `..` and own-close forms. */
+export interface RouteHandle<
+  Target extends AnyRoute,
+  Parent extends Destination<AnyRoute> = never,
+> {
   /** Effective positional params of the committed snapshot; kept while a navigation is pending. */
   readonly params: Signal<Readonly<ParamsOf<Target>>>;
   /** Effective declared search, from the same snapshot as params; absent keys have no value or fallback. */
@@ -126,18 +242,18 @@ export interface Handle<Target extends AnyRoute, Parent extends Destination<AnyR
   /** Resolved title of the nearest route in the chain that declares one, from the same snapshot as params. */
   readonly title: Signal<TitleOf<Target>>;
   /**
-   * Creates a native UrlTree for this exact declaration, not its pathless winner, without navigating.
+   * Creates a UrlTree for this exact declaration, not its pathless winner, composed with the current URL, without navigating.
    *
-   * @param target - No `to`, and this declaration's explicit params/search and optional own fragment.
-   * @returns Router.parseUrl's result, suitable for Angular RouterLink.
+   * @param target - No `to`, and this declaration's explicit params/search and optional own fragment; params only in a named outlet.
+   * @returns A UrlTree for Angular RouterLink.
    * @throws Synchronous URL validation, encoding or stringifier failures, or a behavior option, before Angular.
    */
   link<Keys extends keyof SearchOf<Target> = never>(target: OwnLink<Target, Keys>): UrlTree;
   /**
-   * Creates a UrlTree for the parent route, when the bound declaration has one.
+   * Creates a UrlTree for the parent route, when the bound declaration has one, composed with the current URL.
    *
    * @param target - `to: ".."` and the parent route's complete explicit values.
-   * @returns Router.parseUrl's result without navigating.
+   * @returns A UrlTree for Angular RouterLink, without navigating.
    * @throws Synchronously for invalid URL values or a behavior option.
    */
   link<Keys extends keyof SearchOf<Up<Parent>> = never>(
@@ -147,26 +263,17 @@ export interface Handle<Target extends AnyRoute, Parent extends Destination<AnyR
     } & UrlValues<Up<Parent>, Keys>,
   ): UrlTree;
   /**
-   * Creates a UrlTree for a destination's own exact declaration.
+   * Creates a UrlTree of the current URL without the named-outlet branch this declaration renders in.
    *
-   * @param target - `to`, a genuine destination imported from a `destination.generated.ts`, and the referenced declaration's complete explicit values.
-   * @returns Router.parseUrl's result without navigating.
-   * @throws Synchronously for fake destinations, invalid URL values or a behavior option.
+   * @param target - `close: true` and no URL values; only in a named outlet.
+   * @returns A UrlTree equal to the current URL when the branch isn't open.
+   * @throws Synchronously for URL values or a behavior option.
    */
-  link<
-    To extends AnyRoute,
-    const Id extends string,
-    Keys extends keyof SearchOf<NoInfer<To>> = never,
-  >(
-    target: {
-      /** A genuine destination imported from a `destination.generated.ts`. */
-      readonly to: Destination<To, Id> & (IsUnion<Id> extends true ? never : unknown);
-    } & UrlValues<NoInfer<To>, Keys>,
-  ): UrlTree;
+  link(target: OwnCloseOf<Target, OwnClose>): UrlTree;
   /**
-   * Navigates to this exact declaration, not its pathless winner, via Router.navigateByUrl.
+   * Navigates to this exact declaration, not its pathless winner, composed with the current URL, via Router.navigateByUrl.
    *
-   * @param target - No `to`; this declaration's explicit params/search and optional own fragment; and Angular's navigation behavior options.
+   * @param target - No `to`; this declaration's explicit params/search and optional own fragment (params only in a named outlet); and Angular's navigation behavior options.
    * @returns Angular's identical Promise; Angular owns skips, redirects and failures.
    * @throws Synchronous URL validation, encoding or stringifier failures before Angular.
    */
@@ -174,7 +281,7 @@ export interface Handle<Target extends AnyRoute, Parent extends Destination<AnyR
     target: OwnNavigation<Target, Keys>,
   ): Promise<boolean>;
   /**
-   * Navigates to the parent route, when the bound declaration has one.
+   * Navigates to the parent route, when the bound declaration has one, composed with the current URL.
    *
    * @param target - `to: ".."`, the parent route's complete explicit values and Angular's navigation behavior options.
    * @returns Angular's identical Router.navigateByUrl Promise.
@@ -188,23 +295,14 @@ export interface Handle<Target extends AnyRoute, Parent extends Destination<AnyR
       NavigationBehaviorOptions,
   ): Promise<boolean>;
   /**
-   * Navigates to a destination's own exact declaration.
+   * Closes the whole named-outlet branch this declaration renders in.
    *
-   * @param target - `to`, a genuine destination imported from a `destination.generated.ts`; the referenced declaration's complete explicit values; and Angular's navigation behavior options.
-   * @returns Angular's identical Router.navigateByUrl Promise.
-   * @throws Synchronously for fake destinations or invalid URL values.
+   * @param target - `close: true`, no URL values, and Angular's navigation behavior options; only in a named outlet.
+   * @returns Angular's identical Router.navigateByUrl Promise. With the branch not open the URL is
+   * unchanged, and Angular's `onSameUrlNavigation` decides: `false` under its default "ignore".
+   * @throws Synchronously for URL values.
    */
-  navigate<
-    To extends AnyRoute,
-    const Id extends string,
-    Keys extends keyof SearchOf<NoInfer<To>> = never,
-  >(
-    target: {
-      /** A genuine destination imported from a `destination.generated.ts`. */
-      readonly to: Destination<To, Id> & (IsUnion<Id> extends true ? never : unknown);
-    } & UrlValues<NoInfer<To>, Keys> &
-      NavigationBehaviorOptions,
-  ): Promise<boolean>;
+  navigate(target: OwnCloseOf<Target, OwnCloseNavigation>): Promise<boolean>;
 }
 
 export function nativeOptions(route: AnyRoute): Record<string, unknown> {
@@ -233,11 +331,12 @@ export function injectGeneratedRoute<
 >(route: Target, up?: Parent): Handle<Target, Parent> & Members {
   const router = inject(Router);
   const destroy = inject(DestroyRef);
+  const base = injectNavigationBase();
   const own = destinationOf(route);
   const view = observeRecord(own, inject(ActivatedRoute), router, (release) => {
     destroy.onDestroy(release);
   });
-  const handle = createDestinationHandle(own, up, router, view);
+  const handle = createDestinationHandle(own, up, router, view, base);
   const slot = routeMetadata(route).extension;
 
   if (slot?.declared) {
@@ -265,7 +364,9 @@ export function addMembers(
 
 /**
  * The handle of the declaration whose destination is `own`, over the signals of one
- * activated record. `up` is the destination of its `..` target, when it has one.
+ * activated record. `up` is the destination of its `..` target, when it has one. `base`
+ * returns the URL link and navigate compose with; it injects nothing, so the handle works
+ * outside an injection context.
  */
 export function createDestinationHandle<
   Target extends AnyRoute,
@@ -275,9 +376,14 @@ export function createDestinationHandle<
   up: Parent | undefined,
   router: Router,
   view: RouteView,
+  base: () => UrlTree,
 ): Handle<Target, Parent> {
-  // Splits the one target record into its destination, URL values and behavior options.
-  function resolve(args: readonly unknown[]): { url: string; options: Record<string, unknown> } {
+  // Splits the one target record into the destination's URL, or the branch it closes, and
+  // behavior options. Validates everything before Angular is called.
+  function resolve(args: readonly unknown[]): {
+    target: { readonly url: string } | { readonly close: Branch };
+    options: Record<string, unknown>;
+  } {
     const record = args[0];
 
     if (
@@ -292,10 +398,17 @@ export function createDestinationHandle<
     const values: Record<string, unknown> = {};
     const rest: [string, unknown][] = [];
     let to: unknown;
+    let close = false;
 
     for (const [key, value] of Object.entries(record)) {
       if (key === "to") {
         to = value;
+      } else if (key === "close") {
+        if (value !== true) {
+          throw new TypeError("close must be true");
+        }
+
+        close = true;
       } else if (key === "params" || key === "search" || key === "fragment") {
         values[key] = value;
       } else {
@@ -319,10 +432,36 @@ export function createDestinationHandle<
       target = to as Destination<AnyRoute>;
     }
 
-    return {
-      url: createUrl(target, values as unknown as UrlValues<AnyRoute>),
-      options,
-    };
+    if (!close) {
+      return {
+        target: { url: createUrl(target, values as unknown as UrlValues<AnyRoute>) },
+        options,
+      };
+    }
+
+    if (Object.keys(values).length > 0) {
+      throw new TypeError("close takes no URL values");
+    }
+
+    const { id, url } = destinationRecord(target);
+
+    if (!url.branch) {
+      throw new TypeError(`close needs a destination in a named outlet: ${id}`);
+    }
+
+    return { target: { close: url.branch }, options };
+  }
+
+  function composed(target: { readonly url: string } | { readonly close: Branch }): UrlTree {
+    let input: Composition;
+
+    if ("close" in target) {
+      input = target;
+    } else {
+      input = { open: router.parseUrl(target.url) };
+    }
+
+    return compose(base(), input);
   }
 
   return {
@@ -331,7 +470,7 @@ export function createDestinationHandle<
     data: view.data as Signal<DataOf<Target>>,
     title: view.title as Signal<TitleOf<Target>>,
     link: ((...args: unknown[]) => {
-      const { url, options } = resolve(args);
+      const { target, options } = resolve(args);
       const behavior = Object.keys(options);
 
       if (behavior.length > 0) {
@@ -340,12 +479,13 @@ export function createDestinationHandle<
         );
       }
 
-      return router.parseUrl(url);
+      return composed(target);
     }) as Handle<Target, Parent>["link"],
     navigate: ((...args: unknown[]) => {
-      const { url, options } = resolve(args);
+      const { target, options } = resolve(args);
 
-      return router.navigateByUrl(url, options);
+      // No same-URL check: Angular's onSameUrlNavigation decides an unchanged URL.
+      return router.navigateByUrl(composed(target), options);
     }) as Handle<Target, Parent>["navigate"],
   };
 }

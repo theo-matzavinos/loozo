@@ -2,7 +2,9 @@
 // of examples/angular-launch/localize-proof with SSR: generation determinism, per-locale word
 // tables and the host's source-text $localize, raw RPC frames and SSR redirects across locales
 // in one process, every probe redirect caught by a real generated client next to that build's
-// own createUrl, Chromium RPC redirects, streams and channels, and ng serve with a catalog edit.
+// own createUrl, redirects into named outlets (canonical frame, caught RpcRedirect.to, SSR 302
+// and the committed browser URL with what each outlet renders), Chromium RPC redirects, streams
+// and channels, and ng serve with a catalog edit.
 //
 // Usage: node tests/localize.mjs /absolute/owned/absent-evidence-directory
 // `pnpm run test:localize` runs it under the machine-wide gate lock, which every build and
@@ -13,6 +15,8 @@ import { cp, mkdir, readdir, readFile, rename, rmdir, symlink, writeFile } from 
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import "@angular/compiler";
+import { DefaultUrlSerializer } from "@angular/router";
 
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(packageDirectory, "../..");
@@ -157,6 +161,126 @@ async function files(directory) {
   return result;
 }
 
+// What a document shows: the primary page with its values, and each named outlet's page with
+// its values. Runs in Node on the raw HTML and in Chromium on the live page.
+function shown(document) {
+  const result = { page: document.querySelector("#page")?.getAttribute("data-id") ?? null };
+  const values = document.querySelector("#values");
+
+  if (values) {
+    result.values = JSON.parse(values.textContent);
+  }
+
+  for (const outlet of ["detail", "chat", "aside"]) {
+    const section = document.querySelector(`#${outlet}`);
+
+    if (section) {
+      result[outlet] = [
+        section.getAttribute("data-id"),
+        JSON.parse(section.querySelector(".values").textContent),
+      ];
+    }
+  }
+
+  return result;
+}
+
+// Angular's own form of a URL, which it commits and writes into a Location: it unescapes some
+// encoded characters a createUrl string keeps.
+const serializer = new DefaultUrlSerializer();
+
+function committed(url) {
+  return serializer.serialize(serializer.parse(url));
+}
+
+// Every redirect into a named outlet the probe makes, plus two primary ones that test the
+// same byte-for-byte rules: the canonical frame, each build's createUrl, and what renders there.
+const outletCases = {
+  nested: {
+    frame: { to: "/products/(detail:item/3)", words: [0, 1] },
+    de: "/produkte/(detail:artikel/3)",
+    en: "/products/(detail:item/3)",
+    shown: { page: "products", values: { tag: [] }, detail: ["products/item/$id", { id: "3" }] },
+  },
+  "root-branch": {
+    frame: { to: "/(chat:chat/7)", words: [0] },
+    de: "/(chat:plaudern/7)",
+    en: "/(chat:chat/7)",
+    shown: { page: null, chat: ["chat/$id", { id: "7" }] },
+  },
+  "root-branch-word": {
+    frame: { to: "/(chat:chat/chat)", words: [0] },
+    de: "/(chat:plaudern/chat)",
+    en: "/(chat:chat/chat)",
+    shown: { page: null, chat: ["chat/$id", { id: "chat" }] },
+  },
+  "dynamic-anchor": {
+    frame: { to: "/teams/products/(detail:item/item)", words: [0, 2] },
+    de: "/mannschaften/products/(detail:artikel/item)",
+    en: "/teams/products/(detail:item/item)",
+    shown: {
+      page: "teams/$team",
+      values: { team: "products" },
+      detail: ["teams/$team/item/$id", { team: "products", id: "item" }],
+    },
+  },
+  shelf: {
+    frame: { to: "/products/(detail:shelf/shelf/item/products)", words: [0, 1] },
+    de: "/produkte/(detail:regal/shelf/item/products)",
+    en: "/products/(detail:shelf/shelf/item/products)",
+    shown: {
+      page: "products",
+      values: { tag: [] },
+      detail: ["products/shelf/$rest[]", { rest: ["shelf", "item", "products"] }],
+    },
+  },
+  "shelf-empty": {
+    frame: { to: "/products/(detail:shelf)", words: [0, 1] },
+    de: "/produkte/(detail:regal)",
+    en: "/products/(detail:shelf)",
+    shown: {
+      page: "products",
+      values: { tag: [] },
+      detail: ["products/shelf/$rest[]", { rest: [] }],
+    },
+  },
+  encoded: {
+    frame: {
+      to: "/products/(detail:item/a%2Fb%3Ac%28d%29e%25f%26g%40h%24i%2Cj%20%C3%A4)",
+      words: [0, 1],
+    },
+    de: "/produkte/(detail:artikel/a%2Fb%3Ac%28d%29e%25f%26g%40h%24i%2Cj%20%C3%A4)",
+    en: "/products/(detail:item/a%2Fb%3Ac%28d%29e%25f%26g%40h%24i%2Cj%20%C3%A4)",
+    shown: {
+      page: "products",
+      values: { tag: [] },
+      detail: ["products/item/$id", { id: "a/b:c(d)e%f&g@h$i,j ä" }],
+    },
+  },
+  "no-static": {
+    frame: { to: "/(aside:chat)" },
+    de: "/(aside:chat)",
+    en: "/(aside:chat)",
+    shown: { page: null, aside: ["$note", { note: "chat" }] },
+  },
+  lookalike: {
+    frame: { to: "/account/%28detail%3Aitem%29/sign-in", words: [0, 2] },
+    de: "/konto/%28detail%3Aitem%29/anmelden",
+    en: "/account/%28detail%3Aitem%29/sign-in",
+    shown: { page: "account/$id/sign-in", values: { id: "(detail:item)" } },
+  },
+  query: {
+    frame: {
+      to: "/products?tag=a&tag=b%26c&tag=a&tag=%C3%A4#%C3%BCber%20%26%20%28uns%29",
+      words: [0],
+    },
+    de: "/produkte?tag=a&tag=b%26c&tag=a&tag=%C3%A4#%C3%BCber%20%26%20%28uns%29",
+    en: "/products?tag=a&tag=b%26c&tag=a&tag=%C3%A4#%C3%BCber%20%26%20%28uns%29",
+    shown: { page: "products", values: { tag: ["a", "b&c", "a", "ä"] } },
+  },
+};
+const jumpWord = { de: "springen", en: "jump" };
+
 // What the raw HTML says before any client code runs.
 function inspect(body) {
   const window = new Window();
@@ -173,6 +297,7 @@ function inspect(body) {
     own: text("#own"),
     ownLink: document.querySelector("#own-link")?.getAttribute("href") ?? null,
     guardedLink: document.querySelector("#guarded")?.getAttribute("href") ?? null,
+    shown: shown(document),
   };
 
   window.close();
@@ -198,7 +323,7 @@ assert.equal(serverGenerated.split("\n")[1], "import '@loozo/angular-launch/_sou
 assert.match(serverGenerated, /\{ translateSegments: true \}\);/);
 assert.match(
   table,
-  /words: \["account", "anmelden", "docs", "guarded", "help", "jump", "lazy", "live", "manuals", "missing", "not-found", "old", "probe", "sign-in", "start"\],/,
+  /words: \["account", "anmelden", "chat", "docs", "guarded", "help", "item", "jump", "lazy", "live", "manuals", "missing", "not-found", "old", "probe", "products", "shelf", "sign-in", "start", "teams"\],/,
 );
 
 // 2. Build output: no init warning; each locale's table holds its words, inlined; the host has
@@ -213,8 +338,20 @@ for (const [target, extension] of [
   ["server", ".mjs"],
 ]) {
   for (const [locale, words] of [
-    ["en", ["sign-in", "guarded", "lazy", "help", "docs", "old"]],
-    ["de", ["anmelden", "geschuetzt", "spaet", "hilfe", "dokumente", "empfangen"]],
+    ["en", ["sign-in", "guarded", "lazy", "help", "docs", "old", "products", "teams"]],
+    [
+      "de",
+      [
+        "anmelden",
+        "geschuetzt",
+        "spaet",
+        "hilfe",
+        "dokumente",
+        "empfangen",
+        "produkte",
+        "plaudern",
+      ],
+    ],
   ]) {
     let code = "";
 
@@ -290,6 +427,22 @@ try {
     assert.equal(frame.body, '{"redirect":{"to":"/sign-in","words":[0]}}', page);
   }
 
+  // 3b. Redirects into named outlets: the frame counts the anchor's segments, then the group's,
+  // never the outlet label; a branch without a static segment has no words.
+  const outlets = { frames: {}, ssr: {}, browser: {} };
+
+  for (const [target, { frame: expected }] of Object.entries(outletCases)) {
+    const frame = await fetchRaw("/_rpc/probe/go", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin, referer: origin + "/de/" },
+      body: JSON.stringify({ input: target }),
+    });
+
+    assert.equal(frame.status, 303, target);
+    assert.equal(frame.body, JSON.stringify({ redirect: expected }), target);
+    outlets.frames[target] = JSON.parse(frame.body);
+  }
+
   // 4. Final SSR Locations: Angular's final URL after every route redirect.
   const wireBefore = server.output.split("PROOF_WIRE").length;
 
@@ -312,6 +465,29 @@ try {
   // Interceptors in the rendering server app saw the wire body, words included.
   assert.ok(server.output.split("PROOF_WIRE").length > wireBefore);
   assert.match(server.output, /PROOF_WIRE \{"redirect":\{"to":"\/sign-in","words":\[0\]\}\}/);
+
+  // 4b. A resolver's redirect into a named outlet, rendered on the server: the 302 goes to
+  // Angular's form of the build's createUrl, and that URL renders the branch beside its anchor.
+  for (const [target, cases] of Object.entries(outletCases)) {
+    for (const locale of ["de", "en"]) {
+      const path = `/${locale}/${jumpWord[locale]}?target=${target}`;
+      const redirected = await fetchRaw(path);
+      const location = `/${locale}${committed(cases[locale])}`;
+
+      assert.equal(redirected.status, 302, path);
+      assert.equal(redirected.location, location, path);
+
+      const landed = await fetchRaw(location);
+
+      assert.equal(landed.status, 200, location);
+      assert.deepEqual(landed.html.shown, cases.shown, location);
+      outlets.ssr[`${locale} ${target}`] = {
+        location,
+        status: landed.status,
+        shown: landed.html.shown,
+      };
+    }
+  }
 
   const missing = await fetchRaw("/de/vermisst");
 
@@ -340,6 +516,10 @@ try {
     "manuals-start": ["/dokumente/anfang", "/manuals/start"],
     anmelden: ["/empfangen", "/anmelden"],
   };
+
+  for (const [target, { de, en }] of Object.entries(outletCases)) {
+    probes[target] = [de, en];
+  }
 
   for (const [target, [german, english]] of Object.entries(probes)) {
     for (const [path, expected] of [
@@ -465,6 +645,55 @@ try {
       return { stream, channel };
     });
   }
+
+  // A resolver's RPC redirect into a named outlet, in the browser: the client navigation
+  // commits Angular's form of the build's createUrl and renders the branch beside its anchor,
+  // in one document; the interceptor saw each canonical frame.
+  for (const locale of ["de", "en"]) {
+    await flow(`${locale}-outlets`, async (page) => {
+      const result = {};
+
+      await page.goto(`${origin}/${locale}/`);
+      await settled(page);
+      await page.waitForTimeout(400);
+
+      for (const [target, cases] of Object.entries(outletCases)) {
+        const at = committed(cases[locale]);
+
+        await page.evaluate(
+          (url) => void globalThis.proofNavigate(url),
+          `/${jumpWord[locale]}?target=${target}`,
+        );
+        await page.waitForFunction(
+          (expected) => document.querySelector("#at")?.textContent === expected,
+          at,
+        );
+
+        const observed = await page.evaluate(
+          `({ shown: (${shown.toString()})(document), url: location.pathname + location.search + location.hash, document: globalThis.proofDocument })`,
+        );
+
+        assert.equal(observed.url, `/${locale}${at}`, `${locale} ${target}`);
+        assert.deepEqual(observed.shown, cases.shown, `${locale} ${target}`);
+        assert.equal(observed.document, "same", `${locale} ${target}`);
+        result[target] = { at, ...observed };
+      }
+
+      const wire = await page.evaluate(() => globalThis.proofWire ?? []);
+      const frames = [];
+
+      for (const { frame } of Object.values(outletCases)) {
+        frames.push({ redirect: frame });
+      }
+
+      assert.deepEqual(wire, frames, locale);
+      outlets.browser[locale] = result;
+
+      return result;
+    });
+  }
+
+  await save("outlets.json", outlets);
 
   for (const [target, [german]] of Object.entries(probes)) {
     await flow(`de-probe-${target}`, async (page) => {

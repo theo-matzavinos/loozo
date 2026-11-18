@@ -18,7 +18,9 @@ export type Outcome =
   | {
       readonly kind: "redirect";
       readonly to: `/${string}`;
-      // The path positions of `to` that hold the destination's static segments, ascending.
+      // The ordinals of `to`'s path segments that hold the destination's static segments,
+      // ascending: a named-outlet destination's anchor segments, then its group's; the outlet
+      // label is no segment.
       readonly words: readonly number[];
     };
 
@@ -84,8 +86,8 @@ export function notFound(): Error {
  * (OAuth, for example) is data the page acts on.
  *
  * With `translateSegments`, the server still builds the canonical URL and the frame also
- * lists which of its path positions are static words, so the page's own build can put them
- * in its language.
+ * lists which of its path segments are static words, counted in order across a named outlet's
+ * anchor and group, so the page's own build can put them in its language.
  *
  * @example
  * ```ts
@@ -114,9 +116,9 @@ export function redirect<
   const words: number[] = [];
   let position = 0;
 
-  // createUrl writes one path position per static or scalar segment and one per catchall
-  // element, in segment order.
-  for (const segment of record.url.segments) {
+  // createUrl writes one path segment per static or scalar segment and one per catchall
+  // element, in order: in a named outlet, the anchor's before the group's.
+  for (const segment of [...(record.url.branch?.anchor ?? []), ...record.url.segments]) {
     if (segment.kind === "static") {
       words.push(position);
       position += 1;

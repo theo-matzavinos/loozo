@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "proof": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@loozo/angular-router:application",
+          "options": {
+            "tsconfig": "tsconfig.routes.json",
+            "scanDirectories": ["src/routes"],
+            "outDirectory": "generated",
+            "autoDefineRoutes": false,
+            "browser": "src/main.ts",
+            "server": "src/main.server.ts",
+            "ssr": { "entry": "src/server.ts" },
+            "outputMode": "server",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "outputPath": "dist/proof",
+            "styles": ["src/styles.css"],
+            "optimization": { "scripts": false, "styles": false, "fonts": false },
+            "sourceMap": false,
+            "security": { "allowedHosts": ["127.0.0.1", "localhost"] }
+          },
+          "configurations": {
+            "development": { "sourceMap": true },
+            "ci": { "check": true }
+          },
+          "defaultConfiguration": "development"
+        },
+        "serve": {
+          "builder": "@loozo/angular-router:serve",
+          "options": {
+            "buildTarget": "proof:build:development",
+            "host": "127.0.0.1",
+            "port": 0
+          }
+        }
+      }
+    }
+  }
+}

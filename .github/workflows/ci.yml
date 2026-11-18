@@ -139,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [application, filesystem, navigation, lifecycle, ssr, localize, tooling]
+        test: [application, filesystem, navigation, lifecycle, ssr, outlets, localize, tooling]
     env:
       REACHED: ${{ needs.affected.outputs.router != 'false' }}
     defaults:

@@ -1,7 +1,13 @@
 import { isArrayCodec, type ParamCodec } from "./codecs.js";
+import type { Segment } from "./path.js";
 import { ownRecord, checkKeys, has } from "./records.js";
 import { findRoute } from "./route.js";
-import { findDestination, type Destination, type UrlMetadata } from "./destination.js";
+import {
+  destinationRecord,
+  findDestination,
+  type Destination,
+  type UrlMetadata,
+} from "./destination.js";
 import type { AnyRoute, SearchOf, UrlValues } from "./types.js";
 
 function encode(value: string): string {
@@ -22,18 +28,59 @@ function stringify(codec: ParamCodec<any>, value: unknown, path: boolean): strin
   return encode(text);
 }
 
+/**
+ * A destination's root-relative path from its encoded segment texts:
+ * `/<anchor>/(<outlet>:<group>)` in a named outlet (`/(<outlet>:<group>)` at the root),
+ * otherwise `/<group>`. Both URL serializers, `createUrl` and generated redirects, end here.
+ *
+ * @param name - The destination's id, or its route's path, for the error.
+ * @throws TypeError for a named-outlet destination whose group serializes to no segment.
+ *
+ * @internal
+ */
+export function branchPath(
+  branch: UrlMetadata["branch"],
+  anchor: readonly string[],
+  group: readonly string[],
+  name: string,
+): `/${string}` {
+  if (!branch) {
+    return `/${group.join("/")}`;
+  }
+
+  if (group.length === 0) {
+    throw new TypeError(
+      `A destination in outlet ${branch.outlet} needs at least one path segment: ${name}`,
+    );
+  }
+
+  const outlet = `(${branch.outlet}:${group.join("/")})`;
+
+  if (anchor.length === 0) {
+    return `/${outlet}`;
+  }
+
+  return `/${anchor.join("/")}/${outlet}`;
+}
+
 // A destination and a route carry the same URL fields.
-function urlOf(target: unknown): Omit<UrlMetadata, "parent"> {
+function urlOf(target: unknown): { url: Omit<UrlMetadata, "parent">; name: string } {
   const destination = findDestination(target);
 
   if (destination) {
-    return destination.url;
+    return { url: destination.url, name: destination.id };
   }
 
   const route = findRoute(target);
 
   if (route) {
-    return route;
+    let name = JSON.stringify((target as { path: string }).path);
+
+    if (route.destination) {
+      name = destinationRecord(route.destination).id;
+    }
+
+    return { url: route, name };
   }
 
   throw new TypeError("Expected a genuine route or destination from this package instance");
@@ -48,6 +95,11 @@ function urlOf(target: unknown): Omit<UrlMetadata, "parent"> {
  * omitted. Searchless/paramless routes forbid those records. Catchalls and
  * `arrayParam` search keys require readonly arrays, including a valid empty array.
  * Values are never taken from a current navigation.
+ *
+ * A destination in a named outlet takes params only and creates its branch below its
+ * anchor's primary path, `/products/(detail:item/3)`, or `/(chat:chat/7)` at the root,
+ * with no other branch: it's the exact URL, not a composition with the current one. Its
+ * group needs at least one segment, so an empty array for a catchall-only branch root throws.
  *
  * Stringifies without calling parsers, guards, resolvers or redirects. Static
  * segments and logical values are component-encoded (also escaping parentheses),
@@ -64,8 +116,9 @@ function urlOf(target: unknown): Omit<UrlMetadata, "parent"> {
  * @returns A root-relative URL string, typed `` `/${string}` ``; this does not navigate or
  * return a UrlTree.
  * @throws TypeError for nongenuine targets, invalid records, missing or unknown keys,
- * undeclared fragments, nonarray catchalls or array search values, nonstring codec output, or empty/dot
- * path output. Application stringifier failures propagate unchanged.
+ * undeclared fragments, nonarray catchalls or array search values, nonstring codec output, empty/dot
+ * path output, search or fragment for a named-outlet destination, or its empty outlet group.
+ * Application stringifier failures propagate unchanged.
  * @throws URIError for ill-formed Unicode in a serialized value.
  *
  * @example
@@ -85,10 +138,14 @@ export function createUrl<
 ): `/${string}`;
 
 export function createUrl(target: unknown, values: unknown): `/${string}` {
-  const metadata = urlOf(target);
+  const { url: metadata, name } = urlOf(target);
   const options = ownRecord(values, "URL options");
 
   checkKeys(options, new Set(["params", "search", "fragment"]), "URL options");
+
+  if (metadata.branch && (has(options, "search") || has(options, "fragment"))) {
+    throw new TypeError(`A destination in outlet ${metadata.branch.outlet} takes params only`);
+  }
 
   const paramKeys = Object.keys(metadata.params);
   let params: Record<string, unknown> = Object.create(null);
@@ -129,7 +186,7 @@ export function createUrl(target: unknown, values: unknown): `/${string}` {
     }
   }
 
-  // Check all cardinalities before invoking application stringifiers.
+  // Check all cardinalities before invoking application stringifiers. An anchor holds no catchall.
   for (const segment of metadata.segments) {
     if (segment.kind === "catchall" && !Array.isArray(params[segment.name])) {
       throw new TypeError(`Catchall requires an array: ${segment.name}`);
@@ -148,21 +205,26 @@ export function createUrl(target: unknown, values: unknown): `/${string}` {
     }
   }
 
-  const parts: string[] = [];
+  function serialize(segments: readonly Segment[]): string[] {
+    const parts: string[] = [];
 
-  for (const segment of metadata.segments) {
-    if (segment.kind === "static") {
-      parts.push(encode(segment.text));
-    } else if (segment.kind === "scalar") {
-      parts.push(stringify(metadata.params[segment.name], params[segment.name], true));
-    } else {
-      for (const value of params[segment.name] as readonly unknown[]) {
-        parts.push(stringify(metadata.params[segment.name], value, true));
+    for (const segment of segments) {
+      if (segment.kind === "static") {
+        parts.push(encode(segment.text));
+      } else if (segment.kind === "scalar") {
+        parts.push(stringify(metadata.params[segment.name], params[segment.name], true));
+      } else {
+        for (const value of params[segment.name] as readonly unknown[]) {
+          parts.push(stringify(metadata.params[segment.name], value, true));
+        }
       }
     }
+
+    return parts;
   }
 
-  let url: `/${string}` = `/${parts.join("/")}`;
+  const anchor = serialize(metadata.branch?.anchor ?? []);
+  let url = branchPath(metadata.branch, anchor, serialize(metadata.segments), name);
   const query: string[] = [];
 
   for (const key of searchKeys) {

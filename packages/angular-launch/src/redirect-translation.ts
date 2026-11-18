@@ -1,8 +1,8 @@
 import { InjectionToken, makeEnvironmentProviders, type EnvironmentProviders } from "@angular/core";
 
 /**
- * Puts the listed static word positions of a canonical redirect target in this build's
- * language. Internal.
+ * Puts the listed static path segments of a canonical redirect target, ordinals of
+ * {@link targetSegments}, in this build's language. Internal.
  */
 export type TranslateRedirect = (to: `/${string}`, words: readonly number[]) => `/${string}`;
 
@@ -25,29 +25,125 @@ function encode(text: string): string {
   return encodeURIComponent(text).replaceAll("(", "%28").replaceAll(")", "%29");
 }
 
+// One path segment as createUrl encodes it, and an outlet group's label: the router's outlet
+// name grammar, then ":". Sticky, so each match starts exactly at `lastIndex`.
+const segmentText = /(?:[A-Za-z0-9\-_.!~*']|%[0-9A-Fa-f]{2})+/y;
+const outletLabel = /[A-Za-z][A-Za-z0-9_-]*:/y;
+
+// Reads `segment ("/" segment)*` from `at` into `spans`, stopping before an outlet group's
+// "/(". Returns the offset after the last segment, or undefined when no segment starts there.
+function readSegments(to: string, at: number, spans: [number, number][]): number | undefined {
+  for (;;) {
+    segmentText.lastIndex = at;
+
+    if (!segmentText.test(to)) {
+      return undefined;
+    }
+
+    const end = segmentText.lastIndex;
+
+    spans.push([at, end]);
+
+    if (to[end] !== "/" || to[end + 1] === "(") {
+      return end;
+    }
+
+    at = end + 1;
+  }
+}
+
 /**
- * Swaps the words at `words` in `to`'s path for their translation in `table`.
+ * The path segments of a redirect target, in order, as `[start, end)` offsets into `to`.
  *
  * @remarks
- * Internal. Only the listed path positions change: parameter and catchall values, the search
- * and the fragment stay byte for byte, and a word missing from `table` stays canonical.
+ * Internal. It recognizes only the paths `createUrl` writes: `/` or `/a/b` for a primary
+ * destination, and `/(outlet:a/b)` or `/a/(outlet:b)` for one in a named outlet, the anchor's
+ * segments before the group's; any `?` or `#` suffix follows. The outlet label is no segment.
+ * Matrix parameters, several groups, nested outlets and anything else aren't recognized.
+ *
+ * @param to - A root-relative redirect target.
+ * @returns The segment spans, or `undefined` for any other path.
+ */
+export function targetSegments(to: string): readonly (readonly [number, number])[] | undefined {
+  // createUrl encodes "?" and "#" inside segments, so the first one ends the path.
+  const cut = to.search(/[?#]/);
+  const end = cut === -1 ? to.length : cut;
+  const spans: [number, number][] = [];
+  let at = 1;
+
+  if (to[0] !== "/") {
+    return undefined;
+  }
+
+  if (at < end && to[at] !== "(") {
+    const after = readSegments(to, at, spans);
+
+    if (after === undefined) {
+      return undefined;
+    }
+
+    if (after === end) {
+      return spans;
+    }
+
+    // Only "/(" ends the anchor early: the group follows.
+    if (to[after] !== "/") {
+      return undefined;
+    }
+
+    at = after + 1;
+  }
+
+  if (at === end) {
+    return spans;
+  }
+
+  outletLabel.lastIndex = at + 1;
+
+  if (to[at] !== "(" || !outletLabel.test(to)) {
+    return undefined;
+  }
+
+  const close = readSegments(to, outletLabel.lastIndex, spans);
+
+  if (close === undefined || to[close] !== ")" || close + 1 !== end) {
+    return undefined;
+  }
+
+  return spans;
+}
+
+/**
+ * Swaps the path segments at `words` in `to` for their words' translation in `table`.
+ *
+ * @remarks
+ * Internal. `words` are ascending ordinals of {@link targetSegments}. Only those segments
+ * change: parameter and catchall values, outlet labels, the search and the fragment stay byte
+ * for byte, and a word missing from `table`, or one that doesn't decode, stays canonical.
+ *
+ * @throws TypeError when `to` isn't a path `createUrl` writes, which recognition already
+ * refused.
  */
 export function swap(
   table: ReadonlyMap<string, string>,
   to: `/${string}`,
   words: readonly number[],
 ): `/${string}` {
-  // createUrl encodes "?" and "#" inside segments, so the first one ends the path.
-  const cut = to.search(/[?#]/);
-  const path = cut === -1 ? to : to.slice(0, cut);
-  const suffix = cut === -1 ? "" : to.slice(cut);
-  const parts = path.slice(1).split("/");
+  const segments = targetSegments(to);
+
+  if (segments === undefined) {
+    throw new TypeError(`Not a createUrl path: ${to}`);
+  }
+
+  let result = "";
+  let copied = 1;
 
   for (const at of words) {
+    const [start, end] = segments[at];
     let canonical: string;
 
     try {
-      canonical = decodeURIComponent(parts[at]);
+      canonical = decodeURIComponent(to.slice(start, end));
     } catch {
       continue;
     }
@@ -55,11 +151,12 @@ export function swap(
     const word = table.get(canonical);
 
     if (word !== undefined) {
-      parts[at] = encode(word);
+      result += to.slice(copied, start) + encode(word);
+      copied = end;
     }
   }
 
-  return `/${parts.join("/")}${suffix}`;
+  return `/${result}${to.slice(copied)}`;
 }
 
 /**

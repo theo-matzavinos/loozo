@@ -32,6 +32,7 @@ import {
 } from "@angular/router";
 import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
 import type { Subscription } from "rxjs";
+import { browserUrl } from "./base.js";
 import { committedChain } from "./committed.js";
 import { parseInputs, type SnapshotLike } from "./inputs.js";
 import { recordFacts, resolverKeys } from "./record.js";
@@ -429,14 +430,6 @@ async function publish(
       console.warn(`@loozo/angular-router: active route not seeded (${reason})`);
     }
   }
-}
-
-/** The URL Angular's initial navigation reads, and its serialization without the fragment. */
-function browserUrl(router: Router, location: Location): { tree: UrlTree; url: string } {
-  const tree = router.parseUrl(location.path(true));
-  const url = router.serializeUrl(new UrlTree(tree.root, tree.queryParams));
-
-  return { tree, url };
 }
 
 function primarySegments(tree: UrlTree): UrlSegment[] {

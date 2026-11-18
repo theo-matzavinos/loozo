@@ -39,3 +39,38 @@ export const special = defineDestination("(x)/ä", {}, "src/routes/(x)/ä/route.
 export const signInGerman = defineDestination("sign-in", {}, "src/routes/sign-in/route.ts", [
   "anmelden",
 ]);
+
+// Named-outlet destinations: a nested branch below a static and below a dynamic anchor, a
+// root branch whose outlet name is also a route word, a catchall branch and a branch with no
+// static segment.
+export const products = defineDestination("products", {}, "src/routes/products/route.ts");
+export const productItem = defineDestination(
+  "item/$id",
+  { parent: products, outlet: "detail", params: { id: stringParam } },
+  "src/routes/products/item/$id/route.ts",
+);
+export const productShelf = defineDestination(
+  "shelf/$rest[]",
+  { parent: products, outlet: "detail", params: { rest: stringParam } },
+  "src/routes/products/shelf/$rest[]/route.ts",
+);
+export const teams = defineDestination(
+  "teams/$team",
+  { params: { team: stringParam } },
+  "src/routes/teams/$team/route.ts",
+);
+export const teamItem = defineDestination(
+  "item/$id",
+  { parent: teams, outlet: "detail", params: { id: stringParam } },
+  "src/routes/teams/$team/item/$id/route.ts",
+);
+export const chat = defineDestination(
+  "chat/$id",
+  { outlet: "chat", params: { id: stringParam } },
+  "src/routes/chat/$id/route.ts",
+);
+export const note = defineDestination(
+  "$note",
+  { outlet: "aside", params: { note: stringParam } },
+  "src/routes/$note/route.ts",
+);

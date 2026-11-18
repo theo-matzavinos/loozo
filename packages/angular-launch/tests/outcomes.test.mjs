@@ -28,15 +28,17 @@ import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/serv
 import { bound, application as bind } from "./fixtures/application.mjs";
 import { defineRoute } from "../dist/index.js";
 import { createUrl } from "@loozo/angular-router/_core";
-import { REDIRECT_TRANSLATOR } from "../dist/redirect-translation.js";
+import { REDIRECT_TRANSLATOR, swap } from "../dist/redirect-translation.js";
 import { recognizedOutcome } from "../dist/outcomes.js";
 import {
   account,
   docsOld,
   help,
+  productItem,
   root,
   signIn,
   signInNext,
+  teamItem,
   todo,
   todos,
 } from "./fixtures/destinations.mjs";
@@ -108,6 +110,10 @@ const namespaces = {
 
           if (input === "missing") {
             throw notFound();
+          }
+
+          if (input === "panel") {
+            throw redirect(productItem, { params: { id: "3" } });
           }
 
           throw redirect(todos, {});
@@ -193,6 +199,15 @@ test("redirect() goes to createUrl's URL for a genuine destination only, and out
 
   // createUrl's own refusals reach the caller unchanged.
   assert.throws(() => redirect(todo, { params: {} }), /Missing path value: id/);
+  // A named-outlet destination takes params only, as createUrl does.
+  assert.throws(
+    () => redirect(productItem, { params: { id: "3" }, search: {} }),
+    /A destination in outlet detail takes params only/,
+  );
+  assert.throws(
+    () => redirect(productItem, { params: { id: "3" }, fragment: "x" }),
+    /A destination in outlet detail takes params only/,
+  );
   assert.equal(JSON.stringify(notFound()), "{}");
 });
 
@@ -340,6 +355,19 @@ test("the client recognizes only exact outcome frames with their own status", as
     { status: 303, error: { redirect: { to: "/", words: [0] } } },
     { status: 303, error: { redirect: { to: "/a", words: [0], extra: 1 } } },
     { status: 303, error: { redirect: { words: [0] } } },
+    // An outlet label is no segment, and words need a path createUrl writes.
+    { status: 303, error: { redirect: { to: "/(o:b)", words: [1] } } },
+    { status: 303, error: { redirect: { to: "/a/(o:b)", words: [2] } } },
+    { status: 303, error: { redirect: { to: "/a(o:b)", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a/(o:b)(p:c)", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/(o:b//p:c)", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a/(o:b/(p:c))", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a;m=1", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a/", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a/(o:b", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a/(o:)", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a/(1o:b)", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/ä", words: [0] } } },
   ];
 
   try {
@@ -634,6 +662,14 @@ test("recognition translates a frame with words once, and leaves every other fra
     "/a/b~t",
   );
   assert.deepEqual(calls, [["/a/b", [0, 1]]]);
+  assert.equal(
+    recognizedOutcome({ redirect: { to: "/a/(o:b/c)?x=(y:z)", words: [0, 1] } }, 303, translate).to,
+    "/a/(o:b/c)?x=(y:z)~t",
+  );
+  assert.deepEqual(calls[1], ["/a/(o:b/c)?x=(y:z)", [0, 1]]);
+  calls.length = 1;
+  // Without words, any root-relative `to` stays as it is, outlet syntax or not.
+  assert.equal(recognizedOutcome({ redirect: { to: "/a(o:b)" } }, 303, translate).to, "/a(o:b)");
   assert.equal(recognizedOutcome({ redirect: { to: "/a" } }, 303, translate).to, "/a");
   assert.equal(recognizedOutcome({ redirect: { to: "/a", words: [0] } }, 303).to, "/a");
   assert.equal(recognizedOutcome({ redirect: { to: "/a", words: [] } }, 303, translate), undefined);
@@ -648,15 +684,40 @@ test("recognition translates a frame with words once, and leaves every other fra
 // One redirecting procedure in a translated application, called through HttpClient with a
 // recording handler in front of the backend, where an interceptor sits, in the browser, while
 // rendering a live request and while prerendering.
-async function translatedCall(platform) {
-  const application = bind(`translated-${platform}`, {
+const translatedTargets = {
+  signIn: {
+    outcome: () => redirect(signIn, {}),
+    frame: { redirect: { to: "/sign-in", words: [0] } },
+    // Not idempotent, so translating twice would show.
+    translate: (to) => `${to}~t`,
+  },
+  // A dynamic anchor whose value is also a word: only the listed segments change.
+  teamItem: {
+    outcome: () => redirect(teamItem, { params: { team: "products", id: "3" } }),
+    frame: { redirect: { to: "/teams/products/(detail:item/3)", words: [0, 2] } },
+    translate: (to, words) =>
+      swap(
+        new Map([
+          ["teams", "mannschaften"],
+          ["products", "produkte"],
+          ["item", "artikel"],
+        ]),
+        to,
+        words,
+      ),
+  },
+};
+
+async function translatedCall(platform, name = "signIn") {
+  const target = translatedTargets[name];
+  const application = bind(`translated-${platform}-${name}`, {
     translateSegments: true,
     namespaces: {
       go: {
         build: ({ query }) => ({
-          signIn: query({
+          [name]: query({
             handler: () => {
-              throw redirect(signIn, {});
+              throw target.outcome();
             },
           }),
         }),
@@ -677,10 +738,9 @@ async function translatedCall(platform) {
         }),
       ),
   });
-  const translate = (to) => `${to}~t`;
   const providers = [
     { provide: HttpClient, useFactory: () => new HttpClient(recording(inject(HttpBackend))) },
-    { provide: REDIRECT_TRANSLATOR, useValue: translate },
+    { provide: REDIRECT_TRANSLATOR, useValue: target.translate },
   ];
 
   if (platform === "browser") {
@@ -692,10 +752,7 @@ async function translatedCall(platform) {
           handle: () =>
             new Observable((subscriber) =>
               subscriber.error(
-                new HttpErrorResponse({
-                  status: 303,
-                  error: { redirect: { to: "/sign-in", words: [0] } },
-                }),
+                new HttpErrorResponse({ status: 303, error: structuredClone(target.frame) }),
               ),
             ),
         },
@@ -719,13 +776,13 @@ async function translatedCall(platform) {
   const injector = createEnvironmentInjector(providers, parent);
   const rpc = runInInjectionContext(injector, () =>
     injectClient({
-      go: { methods: [{ name: "signIn", input: false, kind: "query", errors: [] }] },
+      go: { methods: [{ name, input: false, kind: "query", errors: [] }] },
     }),
   );
   let caught;
 
   try {
-    await rpc.go.signIn();
+    await rpc.go[name]();
   } catch (error) {
     caught = error;
   }
@@ -777,6 +834,28 @@ test("a translated redirect reaches the caller in the build's words, after inter
   );
 });
 
+test("a translated redirect into a named outlet translates its anchor and group words, and never while prerendering", async () => {
+  const wireBody = translatedTargets.teamItem.frame;
+
+  for (const platform of ["browser", "live"]) {
+    const { caught, wire } = await translatedCall(platform, "teamItem");
+
+    assert.ok(caught instanceof RpcRedirect, platform);
+    assert.equal(caught.to, "/mannschaften/products/(detail:artikel/3)", platform);
+    assert.deepEqual(wire, [wireBody], platform);
+  }
+
+  const { caught, wire, fault } = await translatedCall("prerender", "teamItem");
+
+  assert.ok(caught instanceof RpcRedirect);
+  assert.equal(caught.to, "/teams/products/(detail:item/3)");
+  assert.deepEqual(wire, [wireBody]);
+  assert.equal(
+    fault?.message,
+    `Launch can't prerender this page: /_rpc/go/teamItem answered 303 ${JSON.stringify(wireBody)}`,
+  );
+});
+
 test("in a translated app, a stream's start response and error event redirect in the build's words", async () => {
   const server = await serve({
     ...application,
@@ -812,6 +891,12 @@ test("in a translated app, a stream's start response and error event redirect in
 
     assert.ok(moved instanceof RpcRedirect);
     assert.equal(moved.to, "/todos~0");
+
+    // A named-outlet target's words reach the translator as segment ordinals.
+    const panel = await rejection(rpc.todos.watch("panel"));
+
+    assert.ok(panel instanceof RpcRedirect);
+    assert.equal(panel.to, "/products/(detail:item/3)~0,1");
 
     // Before it started: the 303 response.
     server.signOut();

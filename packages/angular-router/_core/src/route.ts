@@ -11,6 +11,7 @@ import {
   destinationRecord,
   findDestination,
   registerDestination,
+  type Branch,
   type Destination,
   type TargetOf,
   type UrlMetadata,
@@ -26,7 +27,7 @@ import type {
   RuntimeExtension,
   UrlFacts,
 } from "./fluent.js";
-import type { AnyRoute, CodecMap } from "./types.js";
+import type { AnyRoute, CodecMap, EffectiveOutlet } from "./types.js";
 
 export interface RouteMetadata extends Omit<UrlMetadata, "parent"> {
   readonly parent?: AnyRoute;
@@ -45,7 +46,9 @@ export interface RouteMetadata extends Omit<UrlMetadata, "parent"> {
 }
 
 const routes = new WeakMap<object, RouteMetadata>();
-const factsKeys = new Set(["parent", "params", "search", "fragments"]);
+const factsKeys = new Set(["parent", "params", "search", "fragments", "outlet"]);
+// Characters Angular's URL grammar can't misread in `(name:…)`; "primary" is Angular's own.
+const outletName = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const routerSteps: readonly RouterStep[] = [
   "canMatch",
   "canActivate",
@@ -80,6 +83,7 @@ export const reservedStepNames: ReadonlySet<string> = new Set([
   "__search",
   "__data",
   "__title",
+  "__outlet",
   "__contribution",
   ...Object.getOwnPropertyNames(Object.prototype),
 ]);
@@ -230,6 +234,66 @@ interface Facts<Parent> extends Omit<UrlMetadata, "parent"> {
 }
 
 /**
+ * Where local segments land: below the parent's effective segments in its outlet, or, for
+ * a branch root (`outlet` given), inside a new outlet group whose anchor is the parent's
+ * effective primary segments. A pathless or empty-path parent adds no anchor segment.
+ */
+function placement(
+  inherited: Pick<UrlMetadata, "segments" | "branch"> | undefined,
+  localSegments: readonly Segment[],
+  outlet: string | undefined,
+): Pick<UrlMetadata, "segments" | "branch"> {
+  if (outlet !== undefined) {
+    const branch: Branch = Object.freeze({
+      outlet,
+      anchor: inherited?.segments ?? Object.freeze([]),
+    });
+
+    return { segments: localSegments, branch };
+  }
+
+  const segments = Object.freeze([...(inherited?.segments ?? []), ...localSegments]);
+
+  if (inherited?.branch) {
+    return { segments, branch: inherited.branch };
+  }
+
+  return { segments };
+}
+
+function ownOutlet(
+  supplied: Readonly<Record<string, unknown>>,
+  inherited: Omit<UrlMetadata, "parent"> | undefined,
+  localSegments: readonly Segment[],
+): string | undefined {
+  if (!has(supplied, "outlet")) {
+    return undefined;
+  }
+
+  const outlet = supplied.outlet;
+
+  if (typeof outlet !== "string" || !outletName.test(outlet) || outlet === "primary") {
+    throw new TypeError(
+      `Outlet name must be a letter followed by letters, digits, '-' or '_', and not "primary": ${String(outlet)}`,
+    );
+  }
+
+  if (inherited?.branch) {
+    throw new TypeError(
+      `Named outlets don't nest: the parent is in outlet ${inherited.branch.outlet}`,
+    );
+  }
+
+  if (localSegments.length === 0) {
+    throw new TypeError(
+      "A named-outlet route needs a path: an empty one activates with its anchor and can't be closed",
+    );
+  }
+
+  return outlet;
+}
+
+/**
  * Path grammar, parent, local codecs and fragments: everything but behavior.
  * `inheritedOf` authenticates the parent in the registry the caller means (routes
  * for `defineRoute`, destinations for `defineDestination`) and returns its URL facts.
@@ -256,6 +320,17 @@ function facts<Parent>(
         throw new TypeError("Catchall declarations cannot have children");
       }
     }
+  }
+
+  const outlet = ownOutlet(supplied, inherited, localSegments);
+
+  if (
+    (outlet !== undefined || inherited?.branch) &&
+    (has(supplied, "search") || has(supplied, "fragments"))
+  ) {
+    throw new TypeError(
+      "Routes in a named outlet can't declare search or fragments: the query and fragment belong to the primary route",
+    );
   }
 
   const localNames = new Set<string>();
@@ -326,7 +401,7 @@ function facts<Parent>(
   return {
     parent,
     localSegments,
-    segments: Object.freeze([...(inherited?.segments ?? []), ...localSegments]),
+    ...placement(inherited, localSegments, outlet),
     localParams,
     localSearch,
     params: Object.freeze({ ...inherited?.params, ...localParams }),
@@ -673,12 +748,16 @@ export function copyRoute(
  * and navigation; declaration alone does not register a route with Angular.
  *
  * @param path - The literal local path, relative to the authored parent.
- * @param facts - Local codecs, parent and fragments. Behavior goes in chained steps;
+ * A route with `outlet` renders in that named outlet of its parent's level, and so do its
+ * descendants: it needs a nonempty path, can't sit below another named-outlet route, and
+ * neither it nor its descendants declare search or fragments.
+ *
+ * @param facts - Local codecs, parent, fragments and outlet. Behavior goes in chained steps;
  * structural Angular options such as children, component and matcher are
  * generator-owned and cannot be set.
  * @returns A frozen route preserving inferred effective input types, offering its steps.
  * @throws TypeError for invalid paths or URL facts, missing or extra local codecs,
- * fallback or array codecs in path params, inherited key conflicts, and, from the
+ * fallback or array codecs in path params, inherited key conflicts, a broken outlet rule, and, from the
  * step that supplies them, invalid behavior values, nonarray redirect replacements
  * for array search keys, a nongenuine parent route, or a redirect target that isn't a
  * genuine destination.
@@ -698,9 +777,10 @@ export function defineRoute<
   Params extends Record<string, PathCodec> = {},
   Search extends CodecMap = {},
   const Fragments extends readonly string[] = [],
+  const Outlet extends string | undefined = undefined,
 >(
   path: Path & ValidPath<Path>,
-  facts: UrlFacts<Path, Parent, Params, Search, Fragments>,
+  facts: UrlFacts<Path, Parent, Params, Search, Fragments, Outlet>,
 ): RouteBuilder<
   Path,
   ParentSchema<Parent>,
@@ -709,6 +789,7 @@ export function defineRoute<
   {},
   Fragments,
   unknown,
+  EffectiveOutlet<Outlet, Parent>,
   never,
   NoExtension
 >;
@@ -745,12 +826,13 @@ export function defineDestination<
   Search extends CodecMap = {},
   const F extends readonly string[] = [],
   const Id extends string = string,
+  const Outlet extends string | undefined = undefined,
 >(
   path: P & ValidPath<P>,
-  facts: UrlFacts<P, TargetOf<ParentDestination>, Params, Search, F, ParentDestination>,
+  facts: UrlFacts<P, TargetOf<ParentDestination>, Params, Search, F, Outlet, ParentDestination>,
   id: Id,
   segments?: readonly string[],
-): Destination<UrlTarget<P, TargetOf<ParentDestination>, Params, Search, F>, Id>;
+): Destination<UrlTarget<P, TargetOf<ParentDestination>, Params, Search, F, Outlet>, Id>;
 
 export function defineDestination(
   path: unknown,
@@ -799,16 +881,23 @@ export function defineDestination(
     localSegments.push(Object.freeze({ kind: "static", text }));
   }
 
-  let inherited: readonly Segment[] = [];
+  let inherited: UrlMetadata | undefined;
 
   if (url.parent) {
-    inherited = destinationRecord(url.parent).url.segments;
+    inherited = destinationRecord(url.parent).url;
+  }
+
+  // A branch root's anchor is the parent's already-translated text, kept as facts() split it.
+  let outlet: string | undefined;
+
+  if (url.branch && !inherited?.branch) {
+    outlet = url.branch.outlet;
   }
 
   const translated: UrlMetadata = {
     ...url,
     localSegments: Object.freeze(localSegments),
-    segments: Object.freeze([...inherited, ...localSegments]),
+    ...placement(inherited, Object.freeze(localSegments), outlet),
   };
 
   return registerDestination({ id, path: path as string, url: Object.freeze(translated) });

@@ -1,6 +1,13 @@
 import type { ParamCodec, PathCodec } from "./codecs.js";
 import type { CatchallName, Segment } from "./path.js";
-import type { AnyRoute, CodecMap, EffectiveParams, EffectiveSearch, Route } from "./types.js";
+import type {
+  AnyRoute,
+  CodecMap,
+  EffectiveOutlet,
+  EffectiveParams,
+  EffectiveSearch,
+  Route,
+} from "./types.js";
 
 declare const destinationBrand: unique symbol;
 
@@ -17,7 +24,7 @@ declare const destinationBrand: unique symbol;
  * genuine. Spreads, copies, fakes and routes are not destinations.
  *
  * @typeParam Target - The URL-only schema of the referenced route: its effective
- * params and search, its own fragments and catchall flag.
+ * params and search, its own fragments, catchall flag and outlet.
  * @typeParam Id - The exact generated declaration identity.
  */
 export declare class Destination<Target extends AnyRoute, Id extends string = string> {
@@ -43,11 +50,13 @@ export interface LocalFacts<
   Params extends Record<string, PathCodec>,
   Search extends CodecMap,
   F extends readonly string[],
+  Outlet extends string | undefined = undefined,
 > {
   readonly path: P;
   readonly params: Params;
   readonly search: Search;
   readonly fragments: F;
+  readonly outlet: Outlet;
 }
 
 /**
@@ -61,6 +70,7 @@ export type UrlTarget<
   Params extends Record<string, PathCodec>,
   Search extends CodecMap,
   F extends readonly string[],
+  Outlet extends string | undefined = undefined,
 > = Route<
   P,
   EffectiveParams<P, Params, Parent>,
@@ -69,11 +79,12 @@ export type UrlTarget<
   F[number],
   CatchallName<P> extends never ? false : true,
   {},
-  undefined
+  undefined,
+  EffectiveOutlet<Outlet, Parent>
 > & {
   // String-keyed like Route's other witnesses, so declaration emit can name it.
   /** Type-only: local facts for routeOf's inference; never a runtime property. */
-  readonly __facts?: LocalFacts<P, Params, Search, F>;
+  readonly __facts?: LocalFacts<P, Params, Search, F, Outlet>;
 };
 
 /**
@@ -83,15 +94,29 @@ export type UrlTarget<
 export type TargetOf<D> = D extends Destination<infer Target, any> ? Target : undefined;
 
 /**
+ * Where a named-outlet declaration sits: its outlet and the primary segments the outlet
+ * group hangs below. The anchor holds static and scalar segments only.
+ *
+ * @internal
+ */
+export interface Branch {
+  readonly outlet: string;
+  readonly anchor: readonly Segment[];
+}
+
+/**
  * A destination's URL facts: its parent destination, its local and effective path
- * segments and codecs, and its own fragment names.
+ * segments and codecs, its own fragment names and, in a named outlet, its branch.
  *
  * @internal
  */
 export interface UrlMetadata {
   readonly parent?: Destination<AnyRoute>;
   readonly localSegments: readonly Segment[];
+  /** The effective segments; in a named outlet, the segments inside the outlet group. */
   readonly segments: readonly Segment[];
+  /** Present in a named outlet: the branch root's own outlet, inherited unchanged. */
+  readonly branch?: Branch;
   readonly localParams: Readonly<Record<string, ParamCodec<any>>>;
   readonly localSearch: Readonly<Record<string, ParamCodec<any>>>;
   readonly params: Readonly<Record<string, ParamCodec<any>>>;

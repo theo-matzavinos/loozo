@@ -832,7 +832,7 @@ test("each step returns a new frozen stage and leaves the earlier one unchanged"
   assert.equal(routeMetadata(ended).config.redirect.to, target);
 });
 
-test("URL facts take only parent, params, search and fragments", () => {
+test("URL facts take only parent, params, search, fragments and outlet", () => {
   assert.throws(() => defineRoute("plain", { title: "x" }), /Unknown URL facts key: title/);
   assert.throws(() => defineRoute("plain", { resolve: {} }), /Unknown URL facts key: resolve/);
   assert.throws(() => defineRoute("plain", null), /URL facts must be an own record/);
@@ -974,6 +974,7 @@ test("createRouteFactory validates its manifest", () => {
     "__search",
     "__data",
     "__title",
+    "__outlet",
     "__contribution",
     // Object.prototype members: a route inherits them, so they'd survive their use.
     "__proto__",
@@ -1718,19 +1719,24 @@ test("generated callbacks and handles run on route copies without a route set", 
   );
 
   // Handles resolve `to` against their own destination, its `..` destination and genuine
-  // destinations.
+  // destinations, and compose with the URL `base` returns.
+  const { DefaultUrlSerializer } = await import("@angular/router");
+  const serializer = new DefaultUrlSerializer();
   const router = {
-    parseUrl: (url) => ({ url }),
-    navigateByUrl: (url, options) => Promise.resolve({ url, options }),
+    parseUrl: (url) => serializer.parse(url),
+    navigateByUrl: (tree, options) => Promise.resolve({ url: serializer.serialize(tree), options }),
   };
+  const base = () => serializer.parse("/");
   const view = { params: null, search: null, data: null, title: null };
-  const handle = createDestinationHandle(item, layout, router, view);
+  const handle = createDestinationHandle(item, layout, router, view, base);
+  const href = (tree) => serializer.serialize(tree);
 
-  assert.deepEqual(handle.link({ params: { orgId: 4, itemId: 8 }, fragment: "detail" }), {
-    url: "/orgs/4/items/8#detail",
-  });
-  assert.deepEqual(handle.link({ to: "..", params: { orgId: 4 } }), { url: "/orgs/4" });
-  assert.deepEqual(handle.link({ to: docs, params: { rest: ["a", "b"] } }), { url: "/docs/a/b" });
+  assert.equal(
+    href(handle.link({ params: { orgId: 4, itemId: 8 }, fragment: "detail" })),
+    "/orgs/4/items/8#detail",
+  );
+  assert.equal(href(handle.link({ to: "..", params: { orgId: 4 } })), "/orgs/4");
+  assert.equal(href(handle.link({ to: docs, params: { rest: ["a", "b"] } })), "/docs/a/b");
   assert.deepEqual(await handle.navigate({ to: org, params: { orgId: 5 }, replaceUrl: true }), {
     url: "/orgs/5",
     options: { replaceUrl: true },
@@ -1740,7 +1746,8 @@ test("generated callbacks and handles run on route copies without a route set", 
     /^TypeError: Unknown generated selector: \/orgs\/\$orgId$/,
   );
   assert.throws(
-    () => createDestinationHandle(org, undefined, router, view).link({ to: "..", params: {} }),
+    () =>
+      createDestinationHandle(org, undefined, router, view, base).link({ to: "..", params: {} }),
     /^TypeError: Unknown generated selector: \.\.$/,
   );
 
@@ -1795,4 +1802,617 @@ test("extension record stamps carry the copy's runtime and chain, and handle mem
   assert.equal(typeof Object.getOwnPropertyDescriptor(handle, "member").get, "function");
   assert.deepEqual(handle.member, { chain: slot.chain, injector });
   assert.equal(reads, 1);
+});
+
+test("outlet facts: names, nesting, paths and primary-owned query and fragment", () => {
+  const products = defineRoute("products", { search: { sort: stringParam } });
+
+  for (const outlet of ["primary", "1chat", "chat:x", "chat/x", "", 7, null]) {
+    assert.throws(
+      () => defineRoute("chat", { outlet }),
+      /^TypeError: Outlet name must be a letter followed by letters, digits, '-' or '_', and not "primary": /,
+    );
+  }
+
+  const chat = defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });
+
+  assert.throws(
+    () => defineRoute("x", { parent: chat, outlet: "aside" }),
+    /^TypeError: Named outlets don't nest: the parent is in outlet chat$/,
+  );
+  assert.throws(
+    () => defineRoute("", { parent: products, outlet: "detail" }),
+    /^TypeError: A named-outlet route needs a path: an empty one activates with its anchor and can't be closed$/,
+  );
+
+  for (const facts of [
+    { outlet: "chat", search: { q: stringParam } },
+    { outlet: "chat", fragments: ["top"] },
+    { parent: chat, search: {} },
+    { parent: chat, fragments: [] },
+  ]) {
+    assert.throws(
+      () => defineRoute("x", facts),
+      /^TypeError: Routes in a named outlet can't declare search or fragments: the query and fragment belong to the primary route$/,
+    );
+  }
+
+  // The anchor is the parent's accumulated primary segments; descendants inherit it.
+  const teams = defineRoute("teams/$teamId", { params: { teamId: numberParam } });
+  const item = defineRoute("item/$id", {
+    parent: teams,
+    outlet: "detail",
+    params: { id: numberParam },
+  });
+  const specs = defineRoute("specs", { parent: item });
+
+  assert.deepEqual(routeMetadata(item).branch, {
+    outlet: "detail",
+    anchor: [
+      { kind: "static", text: "teams" },
+      { kind: "scalar", name: "teamId" },
+    ],
+  });
+  assert.deepEqual(routeMetadata(item).segments, [
+    { kind: "static", text: "item" },
+    { kind: "scalar", name: "id" },
+  ]);
+  assert.equal(routeMetadata(specs).branch, routeMetadata(item).branch);
+  assert.deepEqual(
+    routeMetadata(specs).segments.map((segment) => segment.text ?? segment.name),
+    ["item", "id", "specs"],
+  );
+  assert.deepEqual(Object.keys(routeMetadata(specs).params), ["teamId", "id"]);
+  assert.ok(Object.isFrozen(routeMetadata(item).branch.anchor));
+
+  // A pathless primary parent adds no anchor segment.
+  const account = defineRoute("account", {});
+  const layout = defineRoute("", { parent: account });
+  const help = defineRoute("help", { parent: layout, outlet: "aside" });
+
+  assert.deepEqual(routeMetadata(help).branch.anchor, [{ kind: "static", text: "account" }]);
+  assert.equal(routeMetadata(products).branch, undefined);
+});
+
+test("branch destinations: their own URL below the anchor, params only, a nonempty group", async () => {
+  const { serverRoutePath } = root;
+  const products = defineDestination("products", { search: { sort: stringParam } }, "products");
+  const item = defineDestination(
+    "item/$id",
+    { parent: products, outlet: "detail", params: { id: numberParam } },
+    "item",
+  );
+  const panel = defineDestination("panel", { parent: products, outlet: "detail" }, "panel");
+  const panelRest = defineDestination(
+    "$rest[]",
+    { parent: panel, params: { rest: stringParam } },
+    "panelRest",
+  );
+  const chat = defineDestination(
+    "chat/$id",
+    { outlet: "chat", params: { id: numberParam } },
+    "chat",
+  );
+  const chatRest = defineDestination(
+    "$rest[]",
+    { outlet: "chat", params: { rest: stringParam } },
+    "chatRest",
+  );
+  const nestedRest = defineDestination(
+    "$rest[]",
+    { parent: products, outlet: "detail", params: { rest: stringParam } },
+    "nestedRest",
+  );
+  const files = defineDestination(
+    "files/$rest[]",
+    { outlet: "chat", params: { rest: stringParam } },
+    "files",
+  );
+  const odd = defineDestination("a(b)", { outlet: "chat" }, "odd");
+
+  assert.equal(createUrl(chat, { params: { id: 7 } }), "/(chat:chat/7)");
+  assert.equal(createUrl(item, { params: { id: 3 } }), "/products/(detail:item/3)");
+  assert.equal(createUrl(chatRest, { params: { rest: ["a", "b"] } }), "/(chat:a/b)");
+  assert.equal(createUrl(odd, {}), "/(chat:a%28b%29)");
+  assert.equal(createUrl(chatRest, { params: { rest: ["(x)"] } }), "/(chat:%28x%29)");
+
+  // Only a catchall-only branch root with an empty array has an empty group.
+  assert.equal(createUrl(panelRest, { params: { rest: [] } }), "/products/(detail:panel)");
+  assert.equal(createUrl(files, { params: { rest: [] } }), "/(chat:files)");
+  assert.throws(
+    () => createUrl(chatRest, { params: { rest: [] } }),
+    /^TypeError: A destination in outlet chat needs at least one path segment: chatRest$/,
+  );
+  assert.throws(
+    () => createUrl(nestedRest, { params: { rest: [] } }),
+    /^TypeError: A destination in outlet detail needs at least one path segment: nestedRest$/,
+  );
+
+  for (const values of [
+    { params: { id: 3 }, search: {} },
+    { params: { id: 3 }, search: { sort: "a" } },
+    { params: { id: 3 }, fragment: "x" },
+  ]) {
+    assert.throws(
+      () => createUrl(item, values),
+      /^TypeError: A destination in outlet detail takes params only$/,
+    );
+  }
+
+  // Routes and destinations agree; an authored route names itself by its path.
+  const route = defineRoute("$rest[]", { outlet: "chat", params: { rest: stringParam } });
+
+  assert.throws(
+    () => createUrl(route, { params: { rest: [] } }),
+    /^TypeError: A destination in outlet chat needs at least one path segment: "\$rest\[\]"$/,
+  );
+
+  assert.throws(
+    () => serverRoutePath(chat),
+    /^TypeError: serverRoutePath\(chat\): a destination in outlet chat has no server path; named-outlet URLs match the \*\* server route$/,
+  );
+  assert.equal(serverRoutePath(products), "products");
+
+  // A translated build: the anchor is the parent's translated text, translated once, and a
+  // descendant inherits it unchanged.
+  const produits = defineDestination("products", {}, "produits", ["produits"]);
+  const article = defineDestination(
+    "item/$id",
+    { parent: produits, outlet: "detail", params: { id: numberParam } },
+    "article",
+    ["artikel"],
+  );
+  const specs = defineDestination("specs", { parent: article }, "specs", ["details"]);
+
+  assert.deepEqual(destinationRecord(article).url.branch.anchor, [
+    { kind: "static", text: "produits" },
+  ]);
+  assert.equal(destinationRecord(specs).url.branch, destinationRecord(article).url.branch);
+  assert.equal(createUrl(article, { params: { id: 3 } }), "/produits/(detail:artikel/3)");
+  assert.equal(createUrl(specs, { params: { id: 3 } }), "/produits/(detail:artikel/3/details)");
+});
+
+test("branch redirects replace the URL with the destination's and keep their query policy", async () => {
+  await import("@angular/compiler");
+
+  const { redirect } = await import("@loozo/angular-router/_generated");
+  const { DefaultUrlSerializer } = await import("@angular/router");
+  const { Injector, runInInjectionContext } = await import("@angular/core");
+  const { Router } = await import("@angular/router");
+  const serializer = new DefaultUrlSerializer();
+  const injector = Injector.create({
+    providers: [{ provide: Router, useValue: { parseUrl: (url) => serializer.parse(url) } }],
+  });
+  const products = defineDestination("products", { search: { sort: stringParam } }, "products");
+  const item = defineDestination(
+    "item/$id",
+    { parent: products, outlet: "detail", params: { id: numberParam } },
+    "item",
+  );
+  const chatRest = defineDestination(
+    "$rest[]",
+    { outlet: "chat", params: { rest: stringParam } },
+    "chatRest",
+  );
+  const snapshot = {
+    url: [{ path: "old-item" }, { path: "3" }],
+    queryParams: { sort: "name", x: "1" },
+    fragment: "top",
+  };
+  const run = (search) => {
+    const source = routeOf(
+      defineRoute,
+      defineDestination("old-item/$id", { params: { id: numberParam } }, `old-${search.mode}`),
+    ).redirect({
+      to: item,
+      search,
+      fragment: { mode: "drop" },
+    });
+
+    return serializer.serialize(runInInjectionContext(injector, () => redirect(source)(snapshot)));
+  };
+
+  assert.equal(
+    run({ mode: "replace", values: { sort: "price" } }),
+    "/products/(detail:item/3)?sort=price",
+  );
+  assert.equal(run({ mode: "replace", values: {} }), "/products/(detail:item/3)");
+  assert.equal(run({ mode: "preserve" }), "/products/(detail:item/3)?sort=name&x=1");
+  assert.equal(run({ mode: "drop" }), "/products/(detail:item/3)");
+
+  // Into a root-level branch, the tree carries the empty primary group Angular's split of a
+  // fresh URL gives a prefix empty-path primary route, and only where the root config has one.
+  const chat = defineDestination(
+    "chat/$id",
+    { outlet: "chat", params: { id: numberParam } },
+    "chat",
+  );
+  const intoChat = (config, policies) => {
+    const source = routeOf(
+      defineRoute,
+      defineDestination("old-chat/$id", { params: { id: numberParam } }, "old-chat"),
+    ).redirect({ to: chat, ...policies });
+    const routerWith = Injector.create({
+      providers: [
+        { provide: Router, useValue: { config, parseUrl: (url) => serializer.parse(url) } },
+      ],
+    });
+
+    return runInInjectionContext(routerWith, () =>
+      redirect(source)({
+        url: [{ path: "old-chat" }, { path: "7" }],
+        queryParams: { x: "1" },
+        fragment: "f",
+      }),
+    );
+  };
+  const dropped = { search: { mode: "drop" }, fragment: { mode: "drop" } };
+  const withPrimary = intoChat([{ path: "" }, { path: "**" }], dropped);
+
+  assert.deepEqual(Object.keys(withPrimary.root.children), ["primary", "chat"]);
+  assert.equal(withPrimary.root.children.primary.segments.length, 0);
+  assert.equal(withPrimary.root.children.primary.hasChildren(), false);
+  assert.equal(withPrimary.root.children.chat.parent, withPrimary.root);
+  assert.equal(serializer.serialize(withPrimary), "/(chat:chat/7)");
+  assert.equal(
+    serializer.serialize(
+      intoChat([{ path: "", outlet: "primary" }], {
+        search: { mode: "preserve" },
+        fragment: { mode: "preserve" },
+      }),
+    ),
+    "/(chat:chat/7)?x=1#f",
+  );
+
+  for (const config of [
+    [],
+    [{ path: "**" }],
+    [{ path: "", pathMatch: "full" }],
+    [{ path: "", outlet: "chat" }],
+    [{ path: "home" }],
+  ]) {
+    const tree = intoChat(config, dropped);
+
+    assert.deepEqual(Object.keys(tree.root.children), ["chat"], JSON.stringify(config));
+  }
+
+  // A nested branch's tree already has its primary group.
+  assert.deepEqual(Object.keys(serializer.parse(run({ mode: "drop" })).root.children), ["primary"]);
+
+  const empty = routeOf(
+    defineRoute,
+    defineDestination("gone/$rest[]", { params: { rest: stringParam } }, "gone"),
+  ).redirect({
+    to: chatRest,
+    search: { mode: "drop" },
+    fragment: { mode: "drop" },
+  });
+
+  assert.throws(
+    () =>
+      runInInjectionContext(injector, () =>
+        redirect(empty)({ url: [{ path: "gone" }], queryParams: {}, fragment: null }),
+      ),
+    /^TypeError: A destination in outlet chat needs at least one path segment: chatRest$/,
+  );
+});
+
+test("onlyAtEnd canMatch adapters refuse longer URLs before building any input", async () => {
+  await import("@angular/compiler");
+
+  const { callbacks, record } = await import("@loozo/angular-router/_generated");
+  let parsed = 0;
+  let called = 0;
+  const counted = { parse: (raw) => ((parsed += 1), raw), stringify: (value) => value };
+  const home = defineDestination("", { search: { q: counted } }, "home");
+  const copy = routeOf(defineRoute, home).canMatch([
+    () => {
+      called += 1;
+
+      return true;
+    },
+  ]);
+  const gated = callbacks(copy, { onlyAtEnd: true }).canMatch;
+  // Angular passes one partial snapshot to all of a candidate's canMatch guards.
+  const snapshot = () => ({
+    routeConfig: { ...record(home) },
+    url: [],
+    queryParamMap: { getAll: () => ["x"] },
+  });
+  const longer = snapshot();
+
+  assert.equal(gated.length, 2);
+
+  for (const guard of gated) {
+    assert.equal(guard({}, [{ path: "products" }], longer), false);
+  }
+
+  assert.deepEqual({ parsed, called }, { parsed: 0, called: 0 });
+
+  const end = snapshot();
+
+  for (const guard of gated) {
+    assert.equal(guard({}, [], end), true);
+  }
+
+  assert.deepEqual({ parsed, called }, { parsed: 1, called: 1 });
+
+  // Without it, the same adapters run on any URL.
+  const ungated = snapshot();
+
+  for (const guard of callbacks(copy).canMatch) {
+    guard({}, [{ path: "products" }], ungated);
+  }
+
+  assert.equal(called, 2);
+
+  // A route an extension's factory made builds its extension input only where the leaf ends
+  // the primary path too.
+  let inputs = 0;
+  const seen = [];
+  const extended = createRouteFactory({
+    steps: [],
+    input: () => {
+      inputs += 1;
+
+      return { extra: true };
+    },
+    handle: () => ({}),
+  });
+  const extendedGated = callbacks(
+    routeOf(extended, home).canMatch([
+      (input) => {
+        seen.push(input.extra);
+
+        return true;
+      },
+    ]),
+    { onlyAtEnd: true },
+  ).canMatch;
+  const extendedLonger = snapshot();
+
+  for (const guard of extendedGated) {
+    assert.equal(guard({}, [{ path: "products" }], extendedLonger), false);
+  }
+
+  assert.deepEqual({ inputs, seen }, { inputs: 0, seen: [] });
+
+  const extendedEnd = snapshot();
+
+  for (const guard of extendedGated) {
+    assert.equal(guard({}, [], extendedEnd), true);
+  }
+
+  assert.deepEqual({ inputs, seen }, { inputs: 1, seen: [true] });
+});
+
+test("handles close branches by metadata and take params only in a named outlet", async () => {
+  await import("@angular/compiler");
+
+  const { createDestinationHandle } = await import("@loozo/angular-router/_generated");
+  const { DefaultUrlSerializer } = await import("@angular/router");
+  const serializer = new DefaultUrlSerializer();
+  const navigations = [];
+  const router = {
+    parseUrl: (url) => serializer.parse(url),
+    navigateByUrl: (tree, options) => {
+      navigations.push([serializer.serialize(tree), options]);
+
+      return Promise.resolve(false);
+    },
+  };
+  let current = "/products/(list//detail:item/3)(chat:chat/7)?sort=price";
+  const base = () => serializer.parse(current);
+  const view = { params: null, search: null, data: null, title: null };
+  const products = defineDestination("products", { search: { sort: stringParam } }, "products");
+  const list = defineDestination("list", { parent: products }, "list");
+  const item = defineDestination(
+    "item/$id",
+    { parent: products, outlet: "detail", params: { id: numberParam } },
+    "item",
+  );
+  const chat = defineDestination(
+    "chat/$id",
+    { outlet: "chat", params: { id: numberParam } },
+    "chat",
+  );
+  const settings = defineDestination("settings", { parent: chat }, "settings");
+  const own = createDestinationHandle(chat, undefined, router, view, base);
+  const nested = createDestinationHandle(settings, chat, router, view, base);
+  const shell = createDestinationHandle(list, products, router, view, base);
+  const href = (tree) => serializer.serialize(tree);
+
+  assert.equal(href(own.link({ close: true })), "/products/(list//detail:item/3)?sort=price");
+  assert.equal(href(nested.link({ close: true })), "/products/(list//detail:item/3)?sort=price");
+  assert.equal(
+    href(shell.link({ to: item, close: true })),
+    "/products/list(chat:chat/7)?sort=price",
+  );
+  assert.equal(
+    href(own.link({ params: { id: 8 } })),
+    "/products/(list//detail:item/3)(chat:chat/8)?sort=price",
+  );
+  assert.equal(
+    href(shell.link({ search: { sort: "name" } })),
+    "/products/(list//detail:item/3)(chat:chat/7)?sort=name",
+  );
+  assert.equal(
+    href(nested.link({ to: "..", params: { id: 9 } })),
+    "/products/(list//detail:item/3)(chat:chat/9)?sort=price",
+  );
+
+  // Closing what isn't open composes the current URL, and Angular decides.
+  current = "/products/list?sort=price";
+  assert.equal(href(own.link({ close: true })), current);
+  assert.equal(await own.navigate({ close: true, onSameUrlNavigation: "reload" }), false);
+  assert.deepEqual(navigations.at(-1), [current, { onSameUrlNavigation: "reload" }]);
+
+  for (const [record, pattern] of [
+    [{ close: true, params: { id: 1 } }, /^TypeError: close takes no URL values$/],
+    [{ close: true, search: {} }, /^TypeError: close takes no URL values$/],
+    [{ close: false }, /^TypeError: close must be true$/],
+    [{ close: "yes" }, /^TypeError: close must be true$/],
+  ]) {
+    assert.throws(() => own.link(record), pattern);
+  }
+
+  assert.throws(
+    () => shell.link({ close: true }),
+    /^TypeError: close needs a destination in a named outlet: list$/,
+  );
+  assert.throws(
+    () => own.link({ to: products, close: true }),
+    /^TypeError: close needs a destination in a named outlet: products$/,
+  );
+  assert.throws(
+    () => own.link({ close: true, replaceUrl: true }),
+    /link takes no navigation behavior options/,
+  );
+  assert.throws(
+    () => own.link({ params: { id: 1 }, fragment: "x" }),
+    /^TypeError: A destination in outlet chat takes params only$/,
+  );
+});
+
+test("handle writes reject a zero-segment group before navigating and take [] in a nonempty one", async () => {
+  await import("@angular/compiler");
+
+  const { createDestinationHandle } = await import("@loozo/angular-router/_generated");
+  const { DefaultUrlSerializer } = await import("@angular/router");
+  const serializer = new DefaultUrlSerializer();
+  const calls = [];
+  const router = {
+    parseUrl: (url) => {
+      calls.push(["parseUrl", url]);
+
+      return serializer.parse(url);
+    },
+    navigateByUrl: (tree) => {
+      calls.push(["navigateByUrl", serializer.serialize(tree)]);
+
+      return Promise.resolve(true);
+    },
+  };
+  const base = () => serializer.parse("/products/list?sort=price");
+  const view = { params: null, search: null, data: null, title: null };
+  const products = defineDestination("products", { search: { sort: stringParam } }, "products");
+  const list = defineDestination("list", { parent: products }, "list");
+  const chatRest = defineDestination(
+    "$rest[]",
+    { outlet: "chat", params: { rest: stringParam } },
+    "chatRest",
+  );
+  const nestedRest = defineDestination(
+    "$rest[]",
+    { parent: products, outlet: "detail", params: { rest: stringParam } },
+    "nestedRest",
+  );
+  const panel = defineDestination("panel", { parent: products, outlet: "detail" }, "panel");
+  const panelRest = defineDestination(
+    "$rest[]",
+    { parent: panel, params: { rest: stringParam } },
+    "panelRest",
+  );
+  const files = defineDestination(
+    "files/$rest[]",
+    { outlet: "chat", params: { rest: stringParam } },
+    "files",
+  );
+  const shell = createDestinationHandle(list, products, router, view, base);
+  const empty = { params: { rest: [] } };
+
+  // Own and destination-targeted forms, link and navigate: a synchronous TypeError, and
+  // Angular is never called.
+  for (const [destination, up, pattern] of [
+    [
+      chatRest,
+      undefined,
+      /^TypeError: A destination in outlet chat needs at least one path segment: chatRest$/,
+    ],
+    [
+      nestedRest,
+      products,
+      /^TypeError: A destination in outlet detail needs at least one path segment: nestedRest$/,
+    ],
+  ]) {
+    const own = createDestinationHandle(destination, up, router, view, base);
+
+    for (const [form, call] of [
+      ["own link", () => own.link(empty)],
+      ["own navigate", () => own.navigate(empty)],
+      ["targeted link", () => shell.link({ to: destination, ...empty })],
+      ["targeted navigate", () => shell.navigate({ to: destination, ...empty })],
+    ]) {
+      assert.throws(call, pattern, form);
+    }
+  }
+
+  assert.deepEqual(calls, []);
+
+  // An accumulated group that keeps a static segment takes [] on every form.
+  for (const [destination, up, expected] of [
+    [panelRest, panel, "/products/(list//detail:panel)?sort=price"],
+    [files, undefined, "/products/list(chat:files)?sort=price"],
+  ]) {
+    const own = createDestinationHandle(destination, up, router, view, base);
+
+    assert.equal(serializer.serialize(own.link(empty)), expected);
+    assert.equal(serializer.serialize(shell.link({ to: destination, ...empty })), expected);
+
+    calls.length = 0;
+    assert.equal(await own.navigate(empty), true);
+    assert.equal(await shell.navigate({ to: destination, ...empty }), true);
+    assert.deepEqual(
+      calls.filter(([kind]) => kind === "navigateByUrl"),
+      [
+        ["navigateByUrl", expected],
+        ["navigateByUrl", expected],
+      ],
+    );
+  }
+});
+
+test("the navigation base reads the browser URL before the first success, the router state after", async () => {
+  await import("@angular/compiler");
+
+  const { injectNavigationBase } = await import("@loozo/angular-router/_generated");
+  const { Injector, PLATFORM_ID, runInInjectionContext, signal } = await import("@angular/core");
+  const { Location } = await import("@angular/common");
+  const { DefaultUrlSerializer, Router } = await import("@angular/router");
+  const serializer = new DefaultUrlSerializer();
+  const success = signal(null);
+  const router = {
+    lastSuccessfulNavigation: success,
+    parseUrl: (url) => serializer.parse(url),
+    serializeUrl: (tree) => serializer.serialize(tree),
+    routerState: { snapshot: { url: "" } },
+  };
+  const location = {
+    path: (fragment) =>
+      fragment ? "/products/(list//detail:item/3)?a=1#f" : "/products/(list//detail:item/3)?a=1",
+  };
+  const make = (platform) =>
+    runInInjectionContext(
+      Injector.create({
+        providers: [
+          { provide: Router, useValue: router },
+          { provide: Location, useValue: location },
+          { provide: PLATFORM_ID, useValue: platform },
+        ],
+      }),
+      injectNavigationBase,
+    );
+  const browser = make("browser");
+  const server = make("server");
+
+  assert.equal(serializer.serialize(browser()), "/products/(list//detail:item/3)?a=1#f");
+  assert.equal(serializer.serialize(server()), "/");
+
+  router.routerState.snapshot.url = "/plain(chat:chat/7)";
+  success.set({ id: 1 });
+  assert.equal(serializer.serialize(browser()), "/plain(chat:chat/7)");
+  assert.equal(serializer.serialize(server()), "/plain(chat:chat/7)");
+
+  // The function injects nothing; creating it needs an injection context.
+  assert.throws(() => injectNavigationBase(), /NG0203/);
 });

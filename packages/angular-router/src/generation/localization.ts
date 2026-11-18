@@ -221,12 +221,19 @@ function translatedView(sources: Sources, text: (word: string) => string): Sourc
 
   for (const declaration of sources.declarations) {
     const segments = map(declaration.segments);
+    let branch = declaration.branch;
+
+    // The anchor holds source words, like `effective`; the outlet name is never translated.
+    if (branch) {
+      branch = { outlet: branch.outlet, anchor: map(branch.anchor) };
+    }
 
     copies.set(declaration, {
       ...declaration,
       path: authored(segments),
       segments,
       effective: map(declaration.effective),
+      branch,
       children: [],
     });
   }

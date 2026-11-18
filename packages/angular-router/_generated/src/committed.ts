@@ -1,9 +1,16 @@
-import type { ActivatedRoute, ActivatedRouteSnapshot, Navigation, Router } from "@angular/router";
+import {
+  PRIMARY_OUTLET,
+  type ActivatedRoute,
+  type ActivatedRouteSnapshot,
+  type Navigation,
+  type Router,
+} from "@angular/router";
 
 /**
  * The live primary chain, root first, when it is the committed tree; otherwise undefined.
  *
  * @remarks
+ * The chain follows the primary child at each level, never a named outlet's.
  * Angular replaces the router state and advances each route's snapshot during
  * activation, before the navigation succeeds. The tree is committed when every live
  * route holds the state's snapshot at its depth, and either no navigation runs or the
@@ -24,8 +31,8 @@ export function committedChain(
     }
 
     live.push(route);
-    route = route.firstChild;
-    snapshot = snapshot.firstChild;
+    route = primaryChild(route.children);
+    snapshot = primaryChild(snapshot.children);
   }
 
   if (snapshot !== null) {
@@ -41,4 +48,16 @@ export function committedChain(
   }
 
   return undefined;
+}
+
+function primaryChild<Node extends { readonly outlet: string }>(
+  children: readonly Node[],
+): Node | null {
+  for (const child of children) {
+    if (child.outlet === PRIMARY_OUTLET) {
+      return child;
+    }
+  }
+
+  return null;
 }
