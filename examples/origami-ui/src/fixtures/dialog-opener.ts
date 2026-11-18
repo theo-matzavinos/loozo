@@ -1,6 +1,7 @@
 import {
   Component,
   DestroyRef,
+  ElementRef,
   Service,
   booleanAttribute,
   effect,
@@ -42,6 +43,8 @@ export class OpenerLog {
   readonly destroyed = signal(0);
   readonly ownerCloses = signal(0);
   readonly confirmCloses = signal(0);
+  /** Y19: each search dialog's instance and host, held weakly so a forced collection can clear them. */
+  readonly searchDialogs: WeakRef<object>[] = [];
 }
 
 /** Y21: an application component that is an AlertDialog root, opened from inside another dialog. */
@@ -149,6 +152,9 @@ export class OpenerSearchDialog {
   constructor() {
     const log = inject(OpenerLog);
 
+    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+
+    log.searchDialogs.push(new WeakRef(this), new WeakRef(host));
     inject(DestroyRef).onDestroy(() => log.destroyed.update(increment));
   }
 
@@ -376,6 +382,10 @@ export class OpenerOwner {
         Check the closed reference
       </button>
       <output data-testid="retained">{{ retained() }}</output>
+      <button type="button" data-testid="check-collected" (click)="checkCollected()">
+        Check the destroyed dialogs
+      </button>
+      <output data-testid="collected">{{ collected() }}</output>
     </section>
   `,
 })
@@ -394,6 +404,7 @@ export class DialogOpenerFixture {
   readonly effectCloses = signal(0);
   readonly conditionalCloses = signal(0);
   readonly retained = signal("unchecked");
+  readonly collected = signal("unchecked");
   readonly increment = increment;
   readonly #location = inject(Location);
   readonly #searchDialog = injectOrigamiDialogOpener(OpenerSearchDialog);
@@ -444,6 +455,19 @@ export class DialogOpenerFixture {
     } else {
       this.retained.set("released");
     }
+  }
+
+  checkCollected(): void {
+    // Y19: how many of the search dialogs' instances and hosts were tracked, and how many are left.
+    let alive = 0;
+
+    for (const ref of this.log.searchDialogs) {
+      if (ref.deref() !== undefined) {
+        alive += 1;
+      }
+    }
+
+    this.collected.set(`${this.log.searchDialogs.length} ${alive}`);
   }
 
   async openSearch(twoWay: boolean): Promise<void> {
