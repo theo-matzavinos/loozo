@@ -1,0 +1,39 @@
+import { Component, signal } from "@angular/core";
+import { UiCheckbox, UiCheckboxInput } from "@loozo/ui-sdk-angular/checkbox";
+import { UiRadio, UiRadioGroup } from "@loozo/ui-sdk-angular/radio";
+import { UiSelect, UiSelectTrigger } from "@loozo/ui-sdk-angular/select";
+import { UiSwitch } from "@loozo/ui-sdk-angular/switch";
+
+/** Decision W: a named control without its input warns once in development; one with it doesn't. */
+@Component({
+  selector: "app-form-warnings",
+  imports: [
+    UiCheckbox,
+    UiCheckboxInput,
+    UiSwitch,
+    UiRadioGroup,
+    UiRadio,
+    UiSelect,
+    UiSelectTrigger,
+  ],
+  template: `
+    <button data-testid="show" (click)="shown.set(true)">Show</button>
+    @if (shown()) {
+      <button uiCheckbox name="lonely-checkbox" aria-label="Lonely"></button>
+      <button uiSwitch name="lonely-switch" aria-label="Lonely"></button>
+      <div uiRadioGroup name="lonely-radio" aria-label="Lonely">
+        <button uiRadio value="one">One</button>
+      </div>
+      <div uiSelect name="lonely-select">
+        <button uiSelectTrigger aria-label="Lonely">Lonely</button>
+      </div>
+      <button uiCheckbox #paired="uiCheckbox" name="paired" aria-label="Paired"></button>
+      <input [uiCheckboxInput]="paired" />
+      <button uiCheckbox aria-label="Unnamed"></button>
+      <span data-testid="shown">shown</span>
+    }
+  `,
+})
+export class FormWarnings {
+  protected readonly shown = signal(false);
+}

@@ -3,9 +3,15 @@
 // file; it has no runtime part.
 import type { OutputEmitterRef } from "@angular/core";
 import type { ɵExpect } from "@loozo/ui-sdk-angular";
+import type { UiCheckbox } from "@loozo/ui-sdk-angular/checkbox";
+import type { UiRadioGroup } from "@loozo/ui-sdk-angular/radio";
 import type { UiSelect } from "@loozo/ui-sdk-angular/select";
+import type { UiSwitch } from "@loozo/ui-sdk-angular/switch";
 import type { UiToggle } from "@loozo/ui-sdk-angular/toggle";
 import type { ChangeDetails } from "@ui-sdk/core";
+import type { CheckboxCheckedChangeReason, CheckedState } from "@ui-sdk/core/checkbox";
+import type { RadioGroupValueChangeReason } from "@ui-sdk/core/radio";
+import type { SwitchCheckedChangeReason } from "@ui-sdk/core/switch";
 import type {
   ListHighlightDetails,
   SelectOpenChangeReason,
@@ -76,4 +82,35 @@ type _PressedRequest = [
       ChangeDetails<TogglePressedChangeReason>
     >
   >,
+];
+
+type _CheckedRequests = [
+  ɵExpect<Same<Emitted<UiCheckbox["checkedChangeRequest"]>["value"], CheckedState>>,
+  ɵExpect<
+    Same<
+      Emitted<UiCheckbox["checkedChangeRequest"]>["details"],
+      ChangeDetails<CheckboxCheckedChangeReason>
+    >
+  >,
+  ɵExpect<Same<Emitted<UiCheckbox["checkedChange"]>, CheckedState>>,
+  ɵExpect<Same<Emitted<UiSwitch["checkedChangeRequest"]>["value"], boolean>>,
+  ɵExpect<
+    Same<
+      Emitted<UiSwitch["checkedChangeRequest"]>["details"],
+      ChangeDetails<SwitchCheckedChangeReason>
+    >
+  >,
+];
+
+type Size = "s" | "m" | "l";
+
+type _RadioValueRequest = [
+  ɵExpect<Same<Emitted<UiRadioGroup<Size>["valueChangeRequest"]>["value"], Size | null>>,
+  ɵExpect<
+    Same<
+      Emitted<UiRadioGroup<Size>["valueChangeRequest"]>["details"],
+      ChangeDetails<RadioGroupValueChangeReason>
+    >
+  >,
+  ɵExpect<Same<Emitted<UiRadioGroup<Size>["valueChange"]>, Size | null>>,
 ];

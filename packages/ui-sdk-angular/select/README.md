@@ -1,11 +1,12 @@
 # Select
 
-`@loozo/ui-sdk-angular/select`: a single-value select, core's `select`, from five directives on elements you write: the root, its trigger, the value, the content and each item.
+`@loozo/ui-sdk-angular/select`: a single-value select, core's `select`, from directives on elements you write: the root, its trigger, the value, the content, each item, and the hidden input that takes part in a form.
 
 ```ts
 import {
   UiSelect,
   UiSelectContent,
+  UiSelectFormInput,
   UiSelectItem,
   UiSelectTrigger,
   UiSelectValue,
@@ -13,7 +14,7 @@ import {
 ```
 
 ```html
-<div uiSelect [(value)]="fruit" (valueChangeRequest)="guard($event)" [loop]="true">
+<div uiSelect name="fruit" [(value)]="fruit" (valueChangeRequest)="guard($event)" [loop]="true">
   <button uiSelectTrigger aria-label="Fruit">
     <span uiSelectValue #shown="uiSelectValue">{{ shown.state().label || "Pick one" }}</span>
   </button>
@@ -29,6 +30,7 @@ import {
     </div>
     }
   </div>
+  <input uiSelectFormInput />
 </div>
 <button (click)="fruit.set(null)">Clear</button>
 ```
@@ -52,6 +54,7 @@ guard({ value, details }: UiSdkEvent<NonNullable<SelectOptions<string>["onValueC
 - **Controlled keys:** `value` (`T | null`), `open`, `query`, each with `default<Key>` for the uncontrolled start and the two outputs `<key>ChangeRequest` (`{ value, details }`, cancelable) and `<key>Change`.
 - **Items and values:** `items`, `itemToValue`, `itemToLabel`, `isItemEqualToValue`, `placeholder`.
 - **Behavior:** `loop`, `modal`, `presentation`, `disabled`, `readOnly`, `dismissible`, `controller`, `container`, `debug`.
+- **Forms:** `name`, `form`, `required`, `autoComplete`, submitted through `uiSelectFormInput`; see [native forms](../README.md#native-forms).
 - **Search and async lists**, for slots this release doesn't ship yet, so they have no visible effect: `filter`, `emptyItems`, `status`, `announcement`, the `query` family and the `loadMore` output.
 - **Other outputs:** `openChangeComplete` (`boolean`), `highlight` (`{ value, details }`), `dismissAttempt` (core's details).
 
@@ -59,14 +62,17 @@ The root has no `state`; read the value through `uiSelectValue`.
 
 ## Parts
 
-| Directive         | `exportAs`        | Inputs                                                                                                                          | `state()`                                             |
-| ----------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `uiSelectTrigger` | `uiSelectTrigger` | `disabled`, `controller`                                                                                                        | `{ open, disabled, readOnly, required, placeholder }` |
-| `uiSelectValue`   | `uiSelectValue`   | `placeholder`, `maxLabels`, `getMoreLabel`                                                                                      | `{ value, label, labels, placeholder }`               |
-| `uiSelectContent` | `uiSelectContent` | `side`, `align`, `sideOffset`, `alignOffset`, `collisionPadding`, `arrowPadding`, `anchor`, `container`, `alignItemWithTrigger` | `{ open, presentation, items, status }`               |
-| `uiSelectItem`    | `uiSelectItem`    | `[uiSelectItem]` (its value, required, any type), `label`, `disabled`, `index`                                                  | `{ highlighted, selected, disabled }`                 |
+| Directive           | `exportAs`          | Inputs                                                                                                                          | `state()`                                             |
+| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `uiSelectTrigger`   | `uiSelectTrigger`   | `disabled`, `controller`                                                                                                        | `{ open, disabled, readOnly, required, placeholder }` |
+| `uiSelectValue`     | `uiSelectValue`     | `placeholder`, `maxLabels`, `getMoreLabel`                                                                                      | `{ value, label, labels, placeholder }`               |
+| `uiSelectContent`   | `uiSelectContent`   | `side`, `align`, `sideOffset`, `alignOffset`, `collisionPadding`, `arrowPadding`, `anchor`, `container`, `alignItemWithTrigger` | `{ open, presentation, items, status }`               |
+| `uiSelectItem`      | `uiSelectItem`      | `[uiSelectItem]` (its value, required, any type), `label`, `disabled`, `index`                                                  | `{ highlighted, selected, disabled }`                 |
+| `uiSelectFormInput` | `uiSelectFormInput` | none                                                                                                                            | none                                                  |
 
 The content always stays in the DOM, hidden while closed; there's no exit animation before unmount yet.
+
+Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it a visually hidden text input whose value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill.
 
 ## Rules
 
@@ -88,11 +94,10 @@ The content always stays in the DOM, hidden while closed; there's no exit animat
 2. Angular hands the live `click` to the hydrated trigger, and core opens.
 3. Angular then replays the earlier `pointerdown`, and core closes.
 
-A second press works. Seen in Chromium, where the window was about 60 ms in this package's suite. Firefox and WebKit dispatch that `click` after the replay. A plain Angular `(pointerdown)` and `(click)` listener on the same trigger gets the same order, so the order is Angular's; this package hands events to core in the order Angular delivers them and doesn't reorder or drop them. The likelihood is an estimate: it needs a press faster than the hydration, which test tools' default clicks always are. The browser suite asserts this exact open-then-close for the fast press in Chromium, so it fails once Angular replays first, and the caveat can go.
+A second press works. Seen in Chromium, where the window was about 60 ms in this package's suite, and once in WebKit on a CI runner, where it's rare: WebKit inverts only when the live `click` lands between the block's hydration and the replay, which a local machine never hit. Firefox dispatches that `click` after the replay. A plain Angular `(pointerdown)` and `(click)` listener on the same trigger gets the same order, so the order is Angular's; this package hands events to core in the order Angular delivers them and doesn't reorder or drop them. The likelihood is an estimate: it needs a press faster than the hydration, which test tools' default clicks always are. The browser suite asserts this exact open-then-close for the fast press in Chromium, so it fails once Angular replays first, and the caveat can go; in WebKit it accepts either outcome.
 
 ## Not in this release
 
 - `multiple`: one value only.
-- Native forms: `name`, `form`, `required` and `autoComplete` aren't inputs, and a form submission leaves the Select out; submit the bound value yourself. In development, a static `name` attribute on the root logs a warning.
 - Angular Forms (`ControlValueAccessor`, signal forms): bind `[(value)]` to your own signal.
 - SelectLabel, SelectGroup, the search input and core's other Select slots, and learning labels from item text.

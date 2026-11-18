@@ -1,12 +1,4 @@
-import {
-  Directive,
-  type InputSignal,
-  HostAttributeToken,
-  type OnInit,
-  inject,
-  input,
-  output,
-} from "@angular/core";
+import { Directive, type InputSignal, type OnInit, input, output } from "@angular/core";
 import {
   type UiSdkEvent,
   type ɵBoundNames,
@@ -21,15 +13,11 @@ import { type SelectOptions, select } from "@ui-sdk/core/select";
 /** Core's `root` slot handles no events. */
 const events = [] as const;
 
-/**
- * How UiSelect passes core's options that aren't inputs. Excluded from this release: `multiple`
- * (single value only) and native form participation (`name`, `form`, `required`,
- * `autoComplete`).
- */
+/** How UiSelect passes core's options that aren't inputs. Excluded: `multiple` (single value only). */
 const classes = {
   internal: [],
   fixed: [],
-  excluded: ["multiple", "name", "form", "required", "autoComplete"],
+  excluded: ["multiple"],
 } as const;
 
 /** Core's options for one value, without the `multiple: true` branch this release excludes. */
@@ -39,7 +27,8 @@ type SingleOptions<T> = Extract<SelectOptions<T>, { multiple?: false }>;
  * A single-value select, on an element around its trigger and content. Inputs are core's
  * `select` options. `value`, `open` and `query` control it when set; `null` selects nothing and
  * stays controlled. Each `<key>ChangeRequest` output comes first and can cancel; `<key>Change`
- * follows unless canceled, so `[(value)]` binds both.
+ * follows unless canceled, so `[(value)]` binds both. To submit it with a form, give it a `name` and
+ * write `<input uiSelectFormInput />` inside it.
  *
  * @example
  * ```html
@@ -114,6 +103,14 @@ export class UiSelect<T = string> implements OnInit {
   readonly dismissible = input(undefined, { transform: optionalBoolean });
   /** Logs every state change with its reason, in development builds. */
   readonly debug = input(undefined, { transform: optionalBoolean });
+  /** The name the value submits under, through its form input. Without one, it submits nothing. */
+  readonly name = input<string | undefined>(undefined);
+  /** The id of the form it belongs to, when it isn't inside that form. */
+  readonly form = input<string | undefined>(undefined);
+  /** Blocks form submission until a value is selected. */
+  readonly required = input(undefined, { transform: optionalBoolean });
+  /** The form input's `autocomplete`, for browser autofill. */
+  readonly autoComplete = input<string | undefined>(undefined);
 
   /** A selection wants to change `value`. Call `details.cancel()` to refuse it. */
   readonly valueChangeRequest =
@@ -167,6 +164,10 @@ export class UiSelect<T = string> implements OnInit {
       container: this.container(),
       dismissible: this.dismissible(),
       debug: this.debug(),
+      name: this.name(),
+      form: this.form(),
+      required: this.required(),
+      autoComplete: this.autoComplete(),
       onValueChange: (value, details) => {
         this.valueChangeRequest.emit({ value: value as T | null, details });
 
@@ -200,19 +201,10 @@ export class UiSelect<T = string> implements OnInit {
       onDismissAttempt: (details) => this.dismissAttempt.emit(details),
     }),
     "uiSelect",
+    { slot: "form-input", markup: "<input uiSelectFormInput /> inside it" },
   );
   protected readonly instanceId = this.ɵroot.id;
   protected readonly slot = ɵinjectSlot(this.ɵroot, "root", () => ({}), { events });
-
-  constructor() {
-    const name = inject(new HostAttributeToken("name"), { optional: true });
-
-    if ((typeof ngDevMode === "undefined" || ngDevMode) && name !== null) {
-      console.warn(
-        `uiSelect: name="${name}" has no effect. This release of @loozo/ui-sdk-angular doesn't take part in native forms; submit the bound value yourself.`,
-      );
-    }
-  }
 
   ngOnInit(): void {
     this.ɵroot.ready();

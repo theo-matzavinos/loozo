@@ -14,9 +14,33 @@ const files = [
   "select/src/select-value.ts",
   "select/src/select-content.ts",
   "select/src/select-item.ts",
+  "select/src/select-form-input.ts",
+  "checkbox/src/checkbox.ts",
+  "checkbox/src/checkbox-indicator.ts",
+  "checkbox/src/checkbox-input.ts",
+  "switch/src/switch.ts",
+  "switch/src/switch-thumb.ts",
+  "switch/src/switch-input.ts",
+  "radio/src/radio-group.ts",
+  "radio/src/radio.ts",
+  "radio/src/radio-indicator.ts",
+  "radio/src/radio-input.ts",
 ];
 
-const transformByKind = { boolean: "optionalBoolean", number: "optionalNumber" };
+/** Each entry point's core primitive, which its root and part directives render. */
+const primitives = {
+  toggle: ["@ui-sdk/core/toggle", "toggle"],
+  select: ["@ui-sdk/core/select", "select"],
+  checkbox: ["@ui-sdk/core/checkbox", "checkbox"],
+  switch: ["@ui-sdk/core/switch", "switchPrimitive"],
+  radio: ["@ui-sdk/core/radio", "radioGroup"],
+};
+
+const transformByKind = {
+  boolean: "optionalBoolean",
+  number: "optionalNumber",
+  checked: "optionalChecked",
+};
 const passThroughKinds = new Set(["string", "list", "value"]);
 
 function literalStrings(node) {
@@ -162,11 +186,12 @@ async function readDirective(file) {
         }
 
         if (callee === "ɵinjectSlot") {
-          const [, slot, props, options] = initializer.arguments;
+          const [root, slot, props, options] = initializer.arguments;
           const slotOptions = objectProperties(options);
 
           directive.slot = {
             name: slot.text,
+            rootByReference: ts.isArrowFunction(unwrap(root)),
             passed: objectProperties(returnedObject(props)),
             keyProp: slotOptions.get("keyProp")?.initializer.text,
           };
@@ -179,26 +204,17 @@ async function readDirective(file) {
 }
 
 async function loadPrimitive(directive) {
-  const name =
-    directive.root?.primitive ??
-    [...directive.imports.keys()].find(
-      (imported) => imported === "toggle" || imported === "select",
-    );
-  const specifier = directive.imports.get(name);
+  const [specifier, name] = primitives[directive.file.split("/")[0]];
 
-  if (directive.root) {
-    return (await import(specifier))[name];
-  }
-
-  // A slot directive's primitive is its root's; Select's slots import `UiSelect` from ./select.
-  return (await import("@ui-sdk/core/select")).select;
+  return (await import(specifier))[name];
 }
 
 // A function reads a custom element's attribute for values no kind fits, like Select's
-// `filter` and `modal`: Angular passes them through.
+// `filter` and `modal`: Angular passes them through. Checkbox's `checked` parser is the one
+// with its own transform, which keeps `"indeterminate"`.
 function kindOf(spec) {
   if (typeof spec === "function") {
-    return "value";
+    return spec.name === "checkedAttribute" ? "checked" : "value";
   }
 
   if (typeof spec === "string") {
@@ -215,9 +231,14 @@ function lowerFirst(name) {
 /** Core's names this directive takes as inputs or outputs, mapped to core's names. */
 function boundNames(directive, schema) {
   const bound = new Map();
-  const selectorInput = directive.selector.replace(/^\[|\]$/g, "");
+  const selectorInput = directive.selector.replace(/^(\w+)?\[|\]$/g, "");
 
   for (const [name, input] of directive.inputs) {
+    if (name === selectorInput && directive.slot.keyProp === undefined) {
+      // An input's reference to its control, like `[uiCheckboxInput]="terms"`: not a core name.
+      continue;
+    }
+
     if (name === selectorInput) {
       bound.set(directive.slot.keyProp, { input: name, ...input });
       continue;
@@ -417,5 +438,21 @@ for (const directive of directives) {
     }
 
     assert.deepEqual(problems, []);
+  });
+
+  test(`${directive.className}: a part outside its root's element names its control by a required reference`, () => {
+    const selectorInput = directive.selector.replace(/^(\w+)?\[|\]$/g, "");
+    const reference = directive.slot.keyProp === undefined && directive.inputs.get(selectorInput);
+
+    assert.equal(
+      Boolean(reference),
+      directive.slot.rootByReference,
+      "a slot reads its root through a reader exactly when its selector-named input is a reference",
+    );
+
+    if (reference) {
+      assert.ok(reference.required, `${selectorInput} must be input.required`);
+      assert.match(directive.selector, /^input\[/, "a reference names an <input>'s control");
+    }
   });
 }
