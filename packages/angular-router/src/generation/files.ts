@@ -23,12 +23,14 @@ export const colocatedFiles: ReadonlySet<string> = new Set([
   "children.generated.ts",
 ]);
 
-// Launch generation emits only server.generated.ts. The other two entries are retired
-// outputs, kept so a marked file left by an earlier generation is found and deleted.
+// Launch generation emits server.generated.ts, and redirects.generated.ts with translateSegments.
+// The other two entries are retired outputs, kept so a marked file left by an earlier generation
+// is found and deleted.
 export const launchMarkers = {
   "rpc.generated.ts": "// @loozo/angular-launch: owned rpc.generated.ts",
   "context.generated.d.ts": "// @loozo/angular-launch: owned context.generated.d.ts",
   "server.generated.ts": "// @loozo/angular-launch: owned server.generated.ts",
+  "redirects.generated.ts": "// @loozo/angular-launch: owned redirects.generated.ts",
 } as const;
 
 // Git may check committed generated files out with CRLF line endings (core.autocrlf on

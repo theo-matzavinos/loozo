@@ -1,4 +1,5 @@
 import { targetFromTargetString, type BuilderContext } from "@angular-devkit/architect";
+import { projectLocalization } from "@loozo/angular-router/_generation";
 import type { GenerationOptions } from "../generation/index.js";
 
 export type JsonObject = NonNullable<Parameters<BuilderContext["scheduleBuilder"]>[1]>;
@@ -28,7 +29,7 @@ function validateLaunchOptions(value: JsonObject): asserts value is JsonObject &
     throw new Error("scanDirectories must contain exactly one nonempty string");
   }
 
-  for (const key of ["tanstackQuery", "check"] as const) {
+  for (const key of ["tanstackQuery", "translateSegments", "check"] as const) {
     if (Object.hasOwn(value, key) && typeof value[key] !== "boolean") {
       throw new Error(`${key} must be a boolean`);
     }
@@ -47,11 +48,23 @@ export function message(error: unknown): string {
 export function split(options: JsonObject): { launch: GenerationOptions; official: JsonObject } {
   validateLaunchOptions(options);
 
-  const { tsconfig, scanDirectories, outDirectory, tanstackQuery, check, ...official } = options;
+  const {
+    tsconfig,
+    scanDirectories,
+    outDirectory,
+    tanstackQuery,
+    translateSegments,
+    check,
+    ...official
+  } = options;
   const launch: GenerationOptions = { tsconfig, scanDirectories, outDirectory };
 
   if (tanstackQuery !== undefined) {
     launch.tanstackQuery = tanstackQuery;
+  }
+
+  if (translateSegments !== undefined) {
+    launch.translateSegments = translateSegments;
   }
 
   if (check !== undefined) {
@@ -85,10 +98,14 @@ export async function buildTargetOptions(
   }
 
   const options = await context.validateOptions(raw, builder);
-  const { launch } = split(options);
+  const { launch, official } = split(options);
 
   if (launch.check === true) {
     throw new Error("Serve writes generated files; its buildTarget must not resolve check: true");
+  }
+
+  if (launch.translateSegments === true) {
+    launch.localization = await projectLocalization(context, target.project, official.polyfills);
   }
 
   return launch;

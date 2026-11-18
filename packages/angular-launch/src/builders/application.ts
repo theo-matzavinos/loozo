@@ -5,6 +5,7 @@ import {
   type BuilderOutput,
 } from "@angular-devkit/architect";
 import { generate } from "../generation/index.js";
+import { projectLocalization } from "@loozo/angular-router/_generation";
 import { message, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
@@ -63,7 +64,21 @@ const builder: Builder<JsonObject> = createBuilder<JsonObject>(
         official.conditions = defaultConditions(official.optimization);
       }
 
-      generation = generate(context.workspaceRoot, launch, () => stopped);
+      generation = (async () => {
+        if (launch.translateSegments === true) {
+          const project = context.target?.project;
+
+          if (!project) {
+            throw new Error(
+              "translateSegments needs the application builder to run as a project target",
+            );
+          }
+
+          launch.localization = await projectLocalization(context, project, official.polyfills);
+        }
+
+        await generate(context.workspaceRoot, launch, () => stopped);
+      })();
 
       try {
         await generation;

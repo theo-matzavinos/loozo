@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="de" datatype="plaintext" original="ng2.template">
+    <body>
+      <trans-unit id="route.segment.account" datatype="html"><source>account</source><target>konto</target></trans-unit>
+      <trans-unit id="route.segment.anmelden" datatype="html"><source>anmelden</source><target>empfangen</target></trans-unit>
+      <trans-unit id="route.segment.docs" datatype="html"><source>docs</source><target>dokumente</target></trans-unit>
+      <trans-unit id="route.segment.guarded" datatype="html"><source>guarded</source><target>geschuetzt</target></trans-unit>
+      <trans-unit id="route.segment.help" datatype="html"><source>help</source><target>hilfe</target></trans-unit>
+      <trans-unit id="route.segment.jump" datatype="html"><source>jump</source><target>springen</target></trans-unit>
+      <trans-unit id="route.segment.lazy" datatype="html"><source>lazy</source><target>spaet</target></trans-unit>
+      <trans-unit id="route.segment.live" datatype="html"><source>live</source><target>direkt</target></trans-unit>
+      <trans-unit id="route.segment.manuals" datatype="html"><source>manuals</source><target>dokumente</target></trans-unit>
+      <trans-unit id="route.segment.missing" datatype="html"><source>missing</source><target>vermisst</target></trans-unit>
+      <trans-unit id="route.segment.not-found" datatype="html"><source>not-found</source><target>nicht-gefunden</target></trans-unit>
+      <trans-unit id="route.segment.old" datatype="html"><source>old</source><target>alt</target></trans-unit>
+      <trans-unit id="route.segment.probe" datatype="html"><source>probe</source><target>sonde</target></trans-unit>
+      <trans-unit id="route.segment.sign-in" datatype="html"><source>sign-in</source><target>anmelden</target></trans-unit>
+      <trans-unit id="route.segment.start" datatype="html"><source>start</source><target>anfang</target></trans-unit>
+    </body>
+  </file>
+</xliff>

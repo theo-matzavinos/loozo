@@ -26,6 +26,10 @@
       "type": "boolean",
       "default": false
     },
+    "translateSegments": {
+      "type": "boolean",
+      "default": false
+    },
     "check": {
       "type": "boolean",
       "default": false

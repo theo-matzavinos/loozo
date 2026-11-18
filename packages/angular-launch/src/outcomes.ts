@@ -1,4 +1,5 @@
 import { serializeJson } from "./json.js";
+import type { TranslateRedirect } from "./redirect-translation.js";
 
 const base = "http://launch.invalid";
 
@@ -27,12 +28,17 @@ export function isRootRelative(to: unknown): to is `/${string}` {
 }
 
 /**
- * The rejection of a call whose middleware or handler threw `redirect(to)`.
+ * The rejection of a call whose stage, middleware or handler threw `redirect()`.
  *
  * @remarks
  * Generated callables reject with it for a response that is exactly a redirect frame, and
  * stream iteration throws it. In a guard or resolver, {@link rpcNavigationErrors} turns it
  * into a navigation to {@link RpcRedirect.to}; anywhere else, nothing navigates for you.
+ *
+ * With `translateSegments` and `provideRedirectTranslation()` installed, `to` is in the
+ * page's language, in the browser and while rendering a live request: it equals the page's
+ * own `createUrl` for the same destination and values. The wire frame and every
+ * `HttpInterceptor` see the canonical URL with its `words`.
  */
 export class RpcRedirect extends Error {
   /**
@@ -41,7 +47,10 @@ export class RpcRedirect extends Error {
    * @param to - The root-relative URL the server redirected to.
    */
   constructor(
-    /** The root-relative URL the server redirected to, such as `/sign-in`. */
+    /**
+     * The root-relative URL the server redirected to, such as `/sign-in`, in this build's
+     * language for a translated app.
+     */
     readonly to: `/${string}`,
   ) {
     super(`RPC redirected to ${to}`);
@@ -66,21 +75,47 @@ export class RpcNotFound extends Error {
   }
 }
 
+// Valid `words`: a non-empty array of strictly increasing integer positions, each naming a
+// non-empty segment of `to`'s path.
+function validWords(words: unknown, to: string): words is readonly number[] {
+  if (!Array.isArray(words) || words.length === 0) {
+    return false;
+  }
+
+  const cut = to.search(/[?#]/);
+  const parts = (cut === -1 ? to : to.slice(0, cut)).slice(1).split("/");
+  let previous = -1;
+
+  for (const at of words) {
+    if (!Number.isInteger(at) || at <= previous || at >= parts.length || parts[at] === "") {
+      return false;
+    }
+
+    previous = at;
+  }
+
+  return true;
+}
+
 /**
  * Recognizes a response body that is exactly a redirect or not-found frame.
  *
  * @remarks
- * Internal. A redirect is status 303 with exactly `{ redirect: { to } }`, where `to` is
- * root-relative; not-found is status 404 with exactly `{ notFound: null }`. The body must
- * be strict JSON.
+ * Internal. A redirect is status 303 with exactly `{ redirect: { to } }` or
+ * `{ redirect: { to, words } }`, where `to` is root-relative and `words` lists the static word
+ * positions of its path, strictly increasing; not-found is status 404 with exactly
+ * `{ notFound: null }`. The body must be strict JSON. A redirect with `words` goes through
+ * `translate` when one is given; anything else keeps its `to`.
  *
  * @param value - The parsed response body.
  * @param status - The response's HTTP status.
+ * @param translate - Puts a frame's listed words in this build's language.
  * @returns The rejection to use, or `undefined` when the body doesn't match exactly.
  */
 export function recognizedOutcome(
   value: unknown,
   status: number,
+  translate?: TranslateRedirect,
 ): RpcRedirect | RpcNotFound | undefined {
   try {
     serializeJson(value);
@@ -102,15 +137,34 @@ export function recognizedOutcome(
 
   const redirect = value.redirect;
 
-  if (
-    typeof redirect !== "object" ||
-    redirect === null ||
-    !("to" in redirect) ||
-    Object.keys(redirect).length !== 1 ||
-    !isRootRelative(redirect.to)
-  ) {
+  if (typeof redirect !== "object" || redirect === null || !("to" in redirect)) {
     return undefined;
   }
 
-  return new RpcRedirect(redirect.to);
+  const keys = Object.keys(redirect).length;
+  const hasWords = "words" in redirect;
+
+  if (keys !== (hasWords ? 2 : 1) || !isRootRelative(redirect.to)) {
+    return undefined;
+  }
+
+  if (!hasWords) {
+    return new RpcRedirect(redirect.to);
+  }
+
+  if (!validWords(redirect.words, redirect.to)) {
+    return undefined;
+  }
+
+  if (!translate) {
+    return new RpcRedirect(redirect.to);
+  }
+
+  const translated = translate(redirect.to, redirect.words);
+
+  if (!isRootRelative(translated)) {
+    return undefined;
+  }
+
+  return new RpcRedirect(translated);
 }

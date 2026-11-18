@@ -29,10 +29,15 @@ export function discoverLaunchRoutes(
 
 /**
  * The router's generated files for discovered routes, with Launch's copy data, type
- * exports and handle members when `copies` is given.
+ * exports and handle members when `copies` is given, and `$localize`-tagged static segments
+ * when `options.translateSegments` is true.
  */
-export function emitLaunchRoutes(sources: Sources, copies?: LaunchCopies): Map<string, string> {
-  return emit(sources, selections(sources), copies);
+export function emitLaunchRoutes(
+  sources: Sources,
+  copies?: LaunchCopies,
+  options: { translateSegments?: boolean } = {},
+): Map<string, string> {
+  return emit(sources, selections(sources), copies, options);
 }
 
 export { CompilerState } from "./compiler.js";
@@ -42,3 +47,6 @@ export { planOutputs, publish, walk, auditPath, launchMarkers, specifier } from 
 export { fail, properties } from "./sources.js";
 export type { Sources, Declaration } from "./sources.js";
 export type { Json, JsonRecord, LaunchCopies } from "./copies.js";
+export { segmentMessage, validateLocales } from "./localization.js";
+export type { Localization } from "./localization.js";
+export { localization as projectLocalization } from "../builders/options.js";

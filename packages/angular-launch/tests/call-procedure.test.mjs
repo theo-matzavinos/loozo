@@ -5,6 +5,7 @@ import { defineRoute as defineRouterRoute } from "@loozo/angular-router";
 import { defineRoute } from "../dist/index.js";
 import { forbidden, notFound, redirect } from "../dist/server/index.js";
 import { callProcedure } from "../dist/testing/index.js";
+import { signIn } from "./fixtures/destinations.mjs";
 
 const idSchema = {
   "~standard": {
@@ -42,7 +43,7 @@ function app({ rootStage = () => ({ user: "from the real root" }), use = [], pro
   const root = defineRoute("", {}).context(rootStage);
   const signedIn = defineRoute("", { parent: root }).context(({ context }) => {
     if (context.user === null) {
-      throw redirect("/sign-in");
+      throw redirect(signIn, {});
     }
 
     return { ...context, user: context.user, signedIn: true };

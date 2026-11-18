@@ -30,6 +30,16 @@ import {
 import { RPC_CALL } from "../dist/remote-client.js";
 import { defineRoute } from "../dist/index.js";
 import { application as bind } from "./fixtures/application.mjs";
+import {
+  account,
+  docsOld,
+  help,
+  pathless,
+  root,
+  signIn,
+  signInNext,
+  todo,
+} from "./fixtures/destinations.mjs";
 
 const require = createRequire(
   new URL("../../../examples/angular-launch/package.json", import.meta.url),
@@ -366,7 +376,7 @@ test("a memoized stage failure keeps naming its stage for every later chain that
 
 test("a stage's outcome answers as it would from middleware, without a failed stage", async () => {
   for (const [outcome, status, body] of [
-    [() => redirect("/sign-in"), 303, { redirect: { to: "/sign-in" } }],
+    [() => redirect(signIn, {}), 303, { redirect: { to: "/sign-in" } }],
     [() => notFound(), 404, { notFound: null }],
     [
       () => forbidden(),
@@ -381,6 +391,73 @@ test("a stage's outcome answers as it would from middleware, without a failed st
     assert.equal(reply.status, status);
     assert.deepEqual(reply.body, body);
     assert.equal(reply.failedStage, undefined);
+  }
+});
+
+// Each target a procedure redirects to, with createUrl's values.
+const redirectTargets = {
+  signIn: () => redirect(signIn, {}),
+  root: () => redirect(root, {}),
+  pathless: () => redirect(pathless, {}),
+  account: () => redirect(account, { params: { id: "sign-in" } }),
+  helpEmpty: () => redirect(help, { params: { topic: [] } }),
+  help: () => redirect(help, { params: { topic: ["sign-in", "x"] } }),
+  docsOld: () => redirect(docsOld, {}),
+  search: () => redirect(signInNext, { search: { next: "/todos" } }),
+  fragment: () => redirect(todo, { params: { id: 2 }, fragment: "title" }),
+};
+
+function redirecting(translateSegments) {
+  return bind(`redirects-${translateSegments}`, {
+    translateSegments,
+    namespaces: {
+      go: {
+        build: ({ query }) =>
+          Object.fromEntries(
+            Object.entries(redirectTargets).map(([name, outcome]) => [
+              name,
+              query({
+                handler: () => {
+                  throw outcome();
+                },
+              }),
+            ]),
+          ),
+      },
+    },
+  });
+}
+
+test("redirect frames list their static word positions only in a translated application", async () => {
+  const expected = {
+    signIn: ["/sign-in", [0]],
+    root: ["/", undefined],
+    pathless: ["/docs", [0]],
+    account: ["/account/sign-in/sign-in", [0, 2]],
+    helpEmpty: ["/help", [0]],
+    help: ["/help/sign-in/x", [0]],
+    docsOld: ["/docs/old", [0, 1]],
+    search: ["/sign-in?next=%2Ftodos", [0]],
+    fragment: ["/todos/2#title", [0]],
+  };
+
+  for (const translated of [undefined, true]) {
+    const application = redirecting(translated);
+    const scope = createRequestScope(application, new Request("http://localhost/"));
+
+    for (const [name, [to, words]] of Object.entries(expected)) {
+      const reply = await procedureCall(application, scope, `go/${name}`);
+
+      assert.equal(reply.status, 303, name);
+
+      // Without the flag, and for a destination without static words, the frame is exactly
+      // `{ redirect: { to } }`, byte for byte.
+      if (translated && words) {
+        assert.equal(JSON.stringify(reply.body), JSON.stringify({ redirect: { to, words } }), name);
+      } else {
+        assert.equal(JSON.stringify(reply.body), JSON.stringify({ redirect: { to } }), name);
+      }
+    }
   }
 });
 

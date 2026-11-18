@@ -15,8 +15,10 @@ import {
   runProcedure,
 } from "../dist/server/generated.js";
 import { bound } from "./fixtures/application.mjs";
+import { elsewhere } from "./fixtures/destinations.mjs";
 import { createUpgradeHandler } from "../dist/node/index.js";
 import { injectClient } from "../dist/remote-client.js";
+import { REDIRECT_TRANSLATOR } from "../dist/redirect-translation.js";
 import { RpcError, RpcNotFound, RpcRedirect } from "../dist/index.js";
 
 let contexts = 0;
@@ -427,7 +429,7 @@ test("failures before the handler returns are frames on the accepted socket, wit
             }
 
             if (input.room === "moved") {
-              throw redirect("/elsewhere");
+              throw redirect(elsewhere, {});
             }
 
             if (input.room === "missing") {
@@ -1022,7 +1024,7 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
 // A real Node server with the upgrade handler, and Node's WebSocket standing in for the
 // browser's: it resolves the client's relative URL against the server and sends what a
 // browser sends by itself.
-async function serve(namespaces, { maxPayload, origin } = {}) {
+async function serve(namespaces, { maxPayload, origin, description = application } = {}) {
   const server = createServer(async (incoming, outgoing) => {
     const chunks = [];
 
@@ -1031,7 +1033,7 @@ async function serve(namespaces, { maxPayload, origin } = {}) {
     }
 
     const response = await handleRpc(
-      bound(application, namespaces),
+      bound(description, namespaces),
       new Request(`http://${incoming.headers.host}${incoming.url}`, {
         method: incoming.method,
         headers: incoming.headers,
@@ -1046,7 +1048,7 @@ async function serve(namespaces, { maxPayload, origin } = {}) {
   const upgrades = [];
   const listener = createUpgradeHandler(
     (request) =>
-      handleChannelUpgrade(bound(application, namespaces), request, {
+      handleChannelUpgrade(bound(description, namespaces), request, {
         allowedHosts: ["127.0.0.1"],
       }),
     { maxPayload },
@@ -1267,12 +1269,13 @@ test("a socket left before accept that fails while it's destroyed doesn't take t
   assert.equal(socket.listenerCount("error"), 0);
 });
 
-function client(platform = "browser") {
+function client(platform = "browser", translate) {
   const parent = createEnvironmentInjector([]);
   const injector = createEnvironmentInjector(
     [
       { provide: HttpClient, useValue: {} },
       { provide: PLATFORM_ID, useValue: platform },
+      ...(translate ? [{ provide: REDIRECT_TRANSLATOR, useValue: translate }] : []),
     ],
     parent,
   );
@@ -1341,7 +1344,7 @@ const clientRegistry = (seen) => ({
           }
 
           if (input.room === "moved") {
-            throw redirect("/elsewhere");
+            throw redirect(elsewhere, {});
           }
 
           throw notFound();
@@ -1796,5 +1799,31 @@ test("a value frame that isn't strict JSON is a malformed frame", async () => {
     globalThis.WebSocket = RealWebSocket;
     destroy();
     sockets.close();
+  }
+});
+
+test("in a translated app, a channel's redirect failure frame reaches the caller in the build's words", async () => {
+  const seen = { log: [], deaf: Promise.withResolvers() };
+  const server = await serve(clientRegistry(seen), {
+    description: { ...application, id: "launch-channel-translated", translateSegments: true },
+  });
+  const { rpc, destroy } = client("browser", (to, words) => `${to}~${words.join(",")}`);
+
+  try {
+    let caught;
+
+    try {
+      for await (const value of rpc.chat.fail({ room: "moved" })) {
+        void value;
+      }
+    } catch (error) {
+      caught = error;
+    }
+
+    assert.ok(caught instanceof RpcRedirect);
+    assert.equal(caught.to, "/elsewhere~0");
+  } finally {
+    destroy();
+    server.close();
   }
 });

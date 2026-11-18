@@ -228,10 +228,11 @@ export interface MiddlewareResult {
  * ```ts
  * import { redirect, type StageArgs } from "@loozo/angular-launch/server";
  * import type { Context } from "./routes/route.generated";
+ * import { destination as signIn } from "./routes/sign-in/destination.generated";
  *
  * export function signedIn({ context }: StageArgs<Context>) {
  *   if (context.user === null) {
- *     throw redirect("/sign-in");
+ *     throw redirect(signIn, {});
  *   }
  *
  *   return { ...context, user: context.user };
@@ -378,7 +379,7 @@ type ProcedureMiddleware<ContextValue, Input> =
  * can't add to the context: derive values in a `.context()` stage instead.
  *
  * Refuse a call with `throw forbidden()`, which fails it with `FORBIDDEN`, or answer it
- * with `throw notFound()` or `throw redirect(to)`. Any other exception fails it with
+ * with `throw notFound()` or `throw redirect(destination, values)`. Any other exception fails it with
  * `INTERNAL` and is logged on the server. Declared errors belong to handlers.
  *
  * @example
@@ -601,7 +602,7 @@ export interface ProcedureBuilder<ContextValue> {
    * the request the call runs in, its abort signal and its response cookies and headers. Inputs and results must be strict JSON; a
    * result that isn't fails the call with `INTERNAL`. Throwing an error created by
    * `errors` returns that declared error, throwing `forbidden()` fails the call with
-   * `FORBIDDEN`, and throwing `notFound()` or `redirect(to)` answers it with that outcome;
+   * `FORBIDDEN`, and throwing `notFound()` or `redirect()` answers it with that outcome;
    * any other exception fails the call with `INTERNAL` and is logged on the server.
    *
    * An explicit `input` schema must have a concrete type, without `undefined`, `null`,

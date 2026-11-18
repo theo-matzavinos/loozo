@@ -19,14 +19,17 @@ import {
   specifier,
   CompilerState,
   AnchorState,
+  validateLocales,
 } from "@loozo/angular-router/_generation";
 import type {
   Declaration,
   JsonRecord,
   LaunchCopies,
+  Localization,
   Sources,
 } from "@loozo/angular-router/_generation";
 import type { ClientMethod } from "../remote-client.js";
+import { emitRedirects } from "./redirects.js";
 
 // One procedure's browser metadata, as JSON in its route's copy data.
 type MethodData = {
@@ -52,6 +55,19 @@ export interface GenerationOptions {
    * in its providers. Defaults to `false`.
    */
   tanstackQuery?: boolean;
+  /**
+   * Translates static route segments per Angular localize build, as the router's
+   * `translateSegments` does, and writes `redirects.generated.ts`, whose
+   * `provideRedirectTranslation()` puts RPC redirects in the page's language. Needs
+   * `localization`. Defaults to `false`.
+   */
+  translateSegments?: boolean;
+  /**
+   * The build's i18n configuration and polyfills, which every locale's translated route tree
+   * is validated against. Read only when `translateSegments` is true; Launch's builders fill it
+   * from the project.
+   */
+  localization?: Localization;
   /**
    * Verifies the generated files without writing them, failing when any is changed,
    * missing or stale. Defaults to `false`.
@@ -422,14 +438,21 @@ function emitServer(
   desired: Map<string, string>,
   workspace: string,
   appId: string,
+  translateSegments: boolean,
 ): PayloadImport[] {
   const payloads: PayloadImport[] = [];
   const file = resolve(sources.output, "server.generated.ts");
-  const lines = [
-    launchMarkers["server.generated.ts"],
+  const lines: string[] = [launchMarkers["server.generated.ts"]];
+
+  // First, so the host has a source-text $localize before any destination copy evaluates.
+  if (translateSegments) {
+    lines.push(`import '@loozo/angular-launch/_source-text';`);
+  }
+
+  lines.push(
     `import type { HandleOptions } from '@loozo/angular-launch/server';`,
     `import { bindApplication, createRequestScope as scopeFor, handleChannelUpgrade, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
-  ];
+  );
   const routes: string[] = [];
   // By code unit, so the order doesn't depend on the machine's locale.
   const declarations = [...sources.declarations].sort((a, b) => {
@@ -452,8 +475,10 @@ function emitServer(
     routes.push(`[${local}, ${JSON.stringify(label(workspace, declaration.file))}]`);
   }
 
+  const binding = translateSegments ? ", { translateSegments: true }" : "";
+
   lines.push(
-    `const application = bindApplication(${JSON.stringify(appId)}, [${routes.join(", ")}]);`,
+    `const application = bindApplication(${JSON.stringify(appId)}, [${routes.join(", ")}]${binding});`,
     `export const createRequestScope = (request: Request) => scopeFor(application, request);`,
     `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(application, request, options);`,
     `export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(application, request, options);`,
@@ -573,14 +598,39 @@ function moduleReferences(source: ts.SourceFile): ts.StringLiteralLike[] {
   return references;
 }
 
+const translationProvider = "provideRedirectTranslation";
+
+// Whether `specifier` is a value import declaration that names the translation provider.
+function importsProvider(specifier: ts.StringLiteralLike): boolean {
+  const statement = specifier.parent;
+
+  if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) {
+    return false;
+  }
+
+  const bindings = statement.importClause?.namedBindings;
+
+  if (!bindings || !ts.isNamedImports(bindings)) {
+    return false;
+  }
+
+  return bindings.elements.some(
+    (element) =>
+      !element.isTypeOnly && (element.propertyName ?? element.name).text === translationProvider,
+  );
+}
+
 // Check generation's own domain before publication: generated outputs, discovered
 // route/Launch declarations and application TypeScript files that directly import
 // a generated output (import/export-from, import(), import types, import =). Other
-// application files and dependencies are left to the application's own build.
+// application files and dependencies are left to the application's own build. With
+// `redirects`, some application file must import its provider: the check proves the import,
+// not that both applications install it.
 function checkGeneratedDomain(
   sources: Sources,
   validation: ReturnType<typeof createValidationProgram>,
   generated: ReadonlyMap<string, string>,
+  redirects?: string,
 ): void {
   const { program, host } = validation;
   const options = program.getCompilerOptions();
@@ -595,6 +645,7 @@ function checkGeneratedDomain(
     (file) => host.getCanonicalFileName(file),
     options,
   );
+  let provided = false;
 
   for (const source of program.getSourceFiles()) {
     const file = resolve(source.fileName);
@@ -619,12 +670,26 @@ function checkGeneratedDomain(
         program.getModeForUsageLocation(source, specifier),
       ).resolvedModule;
 
-      if (resolved && generated.has(resolve(resolved.resolvedFileName))) {
+      if (!resolved) {
+        continue;
+      }
+
+      const target = resolve(resolved.resolvedFileName);
+
+      if (generated.has(target)) {
         selected.add(file);
 
-        break;
+        if (target === redirects && importsProvider(specifier)) {
+          provided = true;
+        }
       }
     }
+  }
+
+  if (redirects !== undefined && !provided) {
+    throw new Error(
+      `translateSegments needs ${translationProvider}() from ${label(dirname(sources.configFile), redirects)} in your application config's providers, so RPC redirects reach the page's language`,
+    );
   }
 
   const declarationEmit = options.declaration || options.composite;
@@ -721,6 +786,16 @@ async function runGeneration(
     );
   }
 
+  const translateSegments = options.translateSegments === true;
+
+  if (translateSegments) {
+    if (!options.localization) {
+      throw new Error("translateSegments needs the build's localization");
+    }
+
+    await validateLocales(sources, options.localization);
+  }
+
   const analysis = await analyze(sources, launchEntry);
   const tanstackQuery = options.tanstackQuery === true;
   const copies: LaunchCopies = {
@@ -737,7 +812,13 @@ async function runGeneration(
       ...(tanstackQuery ? [{ member: "queries", type: "Queries" }] : []),
     ],
   };
-  const desired = emitLaunchRoutes(sources, copies);
+  const desired = emitLaunchRoutes(sources, copies, { translateSegments });
+  const redirects = resolve(sources.output, "redirects.generated.ts");
+
+  if (translateSegments) {
+    add(desired, redirects, emitRedirects(sources));
+  }
+
   const appManifest = JSON.parse(await readFile(resolve(application, "package.json"), "utf8"));
 
   if (typeof appManifest.name !== "string" || appManifest.name.length === 0) {
@@ -753,17 +834,21 @@ async function runGeneration(
     .update("\0")
     .update(label(application, sources.output))
     .digest("hex");
-  const payloads = emitServer(sources, desired, application, appId);
+  const payloads = emitServer(sources, desired, application, appId, translateSegments);
 
   await auditPath(sources.output);
 
   const outputInventory = await walk(sources.output);
   // context.generated.d.ts is a retired output. The router's retired marker for it is what
   // finds a marked leftover in the output directory and deletes it; listing it here keeps its
-  // location in the plan's set of owned outputs.
-  const globals = ["routes.generated.ts", "server.generated.ts", "context.generated.d.ts"].map(
-    (name) => resolve(sources.output, name),
-  );
+  // location in the plan's set of owned outputs. redirects.generated.ts is listed so turning
+  // translateSegments off removes it as stale.
+  const globals = [
+    "routes.generated.ts",
+    "server.generated.ts",
+    "redirects.generated.ts",
+    "context.generated.d.ts",
+  ].map((name) => resolve(sources.output, name));
   const plan = await planOutputs(
     desired,
     [...sources.encountered, ...outputInventory],
@@ -775,7 +860,7 @@ async function runGeneration(
   await validateRoutes(sources, desired, validation, compiler?.routerAnchor);
   await validatePayloadImports(validation, payloads);
   checkLaunchTypes(validation, analysis);
-  checkGeneratedDomain(sources, validation, desired);
+  checkGeneratedDomain(sources, validation, desired, translateSegments ? redirects : undefined);
   publish(plan, options.check === true, stopped, new Map(), new Set());
 }
 
@@ -786,7 +871,11 @@ async function runGeneration(
  * Node-only. Generation reads your sources without running them. It writes the router's
  * files, with each route copy carrying its route's `.remote()` metadata and the `Remote`,
  * `Context` and, with `tanstackQuery`, `Queries` types, and `server.generated.ts` in the
- * output directory, which binds every route with a server step. It deletes a marked
+ * output directory, which binds every route with a server step. With `translateSegments`,
+ * every locale's translated route tree is validated first, static segments become `$localize`
+ * messages, `server.generated.ts` first imports Launch's source-text `$localize` for the
+ * unlocalized host, and `redirects.generated.ts` holds the word table an application file must
+ * import `provideRedirectTranslation()` from. It deletes a marked
  * `rpc.generated.ts` or `context.generated.d.ts` an earlier version wrote. Run it before
  * the Angular build.
  *
@@ -818,7 +907,10 @@ async function runGeneration(
  * @throws Rejects when a path escapes the workspace, the tsconfig disables strict
  * checking or enables `noCheck`, the application's `package.json` has no `name`, the
  * sources or generated files fail validation, a file to replace lacks the ownership
- * marker, or, with `check`, a generated file is out of date.
+ * marker, or, with `check`, a generated file is out of date; with `translateSegments`, also
+ * when `localization` is missing, the build lacks the `@angular/localize/init` polyfill, a
+ * locale's catalog fails the router's checks, or no application file imports
+ * `provideRedirectTranslation`.
  */
 export function generate(
   workspace: string,
@@ -862,10 +954,24 @@ export function generate(
  */
 export function createGenerationSession(
   workspace: string,
-  { tsconfig, scanDirectories, outDirectory, tanstackQuery }: Omit<GenerationOptions, "check">,
+  {
+    tsconfig,
+    scanDirectories,
+    outDirectory,
+    tanstackQuery,
+    translateSegments,
+    localization,
+  }: Omit<GenerationOptions, "check">,
 ): GenerationSession {
   const application = resolve(workspace);
-  const fixed = { tsconfig, scanDirectories: [...scanDirectories], outDirectory, tanstackQuery };
+  const fixed = {
+    tsconfig,
+    scanDirectories: [...scanDirectories],
+    outDirectory,
+    tanstackQuery,
+    translateSegments,
+    localization,
+  };
   const compiler: GenerationCompilerState = {
     discovery: new CompilerState(),
     overlay: new CompilerState(),

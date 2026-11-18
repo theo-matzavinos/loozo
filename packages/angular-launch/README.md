@@ -15,7 +15,7 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
-- Optionally, `@tanstack/angular-query` `^5.0.0-rc.5` for the [TanStack Query integration](tanstack-query/README.md).
+- Optionally, `@tanstack/angular-query` `^5.0.0-rc.5` for the [TanStack Query integration](tanstack-query/README.md), and `@angular/localize` for [translated URLs](#translated-urls).
 
 Install both packages:
 
@@ -73,12 +73,13 @@ A stage runs at most once per request scope, and only when a call needs it: a pa
 // src/routes/+authenticated/route.ts
 import { defineRoute } from "@loozo/angular-launch";
 import { redirect } from "@loozo/angular-launch/server";
+import { destination as signIn } from "../sign-in/destination.generated";
 import parent from "../route";
 
 export default defineRoute("", { parent })
   .context(({ context }) => {
     if (context.user === null) {
-      throw redirect("/sign-in");
+      throw redirect(signIn, {});
     }
 
     return { ...context, user: context.user }; // `User | null` above, `User` below
@@ -157,7 +158,7 @@ export const config: ApplicationConfig = {
 };
 ```
 
-To have pages follow a procedure's [`redirect()` and `notFound()`](#redirects-and-not-found), add [`rpcNavigationErrors`](#navigating-on-outcomes) to `provideRouter`.
+To have pages follow a procedure's [`redirect()` and `notFound()`](#redirects-and-not-found), add [`rpcNavigationErrors`](#navigating-on-outcomes) to `provideRouter`. With [translated URLs](#translated-urls), add `provideRedirectTranslation()` here too.
 
 The server config adds the generated `provideServer()`, after `provideHttpClient()`:
 
@@ -277,6 +278,8 @@ export const reqHandler = createNodeRequestHandler(app);
 
 Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks). The upgrade handler only matters if you define [channels](#channels); `ng serve` uses it too. See [Channels on Node](#channels-on-node).
 
+Import `server.generated` before any module that reaches a route, as above: with [translated URLs](#translated-urls) that order is required.
+
 Always pass `scope.request` together with `scope`, not your original request. The scope ties the render's stages to the request Angular renders; if they don't match, RPC calls during rendering fail with `INTERNAL` and a server log entry. This catches wiring mistakes only; it doesn't check your authentication.
 
 ## Declaring server behavior on routes
@@ -302,7 +305,7 @@ defineRoute("todos", { parent })
 `.context(stage)` derives a route's context. The stage receives `{ context, request, response, signal }`: the context of the stages above it (`{}` at the first), the request scope's request and signal, and the [cookies and headers](#cookies-and-headers) of the call that first needs it. It returns the route's whole context, an object or a promise of one, which the stages and procedures below receive as it is, type included. To add to the context above, spread it: `({ context }) => ({ ...context, user })`.
 
 - **When it runs:** at most once per request scope, and only for an RPC call whose namespace sits at or below it. A call runs the stages from the root down to the route that declared its namespace; a page render that makes no RPC runs none. Its result, failures included, is reused by every later call in the scope, such as every call in one server render.
-- **Refusing:** a stage can `throw forbidden()`, `notFound()` or `redirect(to)`, which answers every call that needs it with that [outcome](#redirects-and-not-found): a signed-out stage on a pathless route refuses its whole subtree. Any other exception fails those calls with `INTERNAL`, logged with the route whose stage threw.
+- **Refusing:** a stage can `throw forbidden()`, `notFound()` or `redirect(destination, values)`, which answers every call that needs it with that [outcome](#redirects-and-not-found): a signed-out stage on a pathless route refuses its whole subtree. Any other exception fails those calls with `INTERNAL`, logged with the route whose stage threw.
 - **Its value** can be any object type: a union, an object with optional keys or a class instance, which keeps its methods. A key above that the stage doesn't return is gone below it, and so is its type.
 - **Standalone stages** type their argument with `StageArgs` from `@loozo/angular-launch/server` and the context they receive, such as the parent route's `Context` from its `route.generated.ts`:
 
@@ -310,10 +313,11 @@ defineRoute("todos", { parent })
   // src/auth.server.ts
   import { redirect, type StageArgs } from "@loozo/angular-launch/server";
   import type { Context } from "./routes/route.generated";
+  import { destination as signIn } from "./routes/sign-in/destination.generated";
 
   export function signedIn({ context }: StageArgs<Context>) {
     if (context.user === null) {
-      throw redirect("/sign-in");
+      throw redirect(signIn, {});
     }
 
     return { ...context, user: context.user };
@@ -376,7 +380,7 @@ So a caller that a stage or the route's middleware refuses gets that answer even
 
 - **`next()`** continues the call and resolves to the result the middleware must return. Middleware doesn't change the context: derive values in a [stage](#context-stages). A middleware must call `next` exactly once and return its result; calling it twice or returning anything else fails the call with `INTERNAL`.
 - **Wrapping:** `next()` rejects when anything after it throws, declared errors included, so a middleware can time, log or run the rest of the call in a transaction that rolls back.
-- **Refusing:** `throw forbidden()` fails the call with `FORBIDDEN`, and `throw notFound()` or `throw redirect(to)` answer it with that [outcome](#redirects-and-not-found); a handler can throw them too. Any other exception fails the call with `INTERNAL`. Declared errors belong to handlers.
+- **Refusing:** `throw forbidden()` fails the call with `FORBIDDEN`, and `throw notFound()` or `throw redirect(destination, values)` answer it with that [outcome](#redirects-and-not-found); a handler can throw them too. Any other exception fails the call with `INTERNAL`. Declared errors belong to handlers.
 - **Needs:** a `middleware()` needs nothing unless you say so, so it fits anywhere. Pass the context it reads as a type argument, or annotate its argument with `MiddlewareArgs<Needs, Input>` to require an input shape too. Written inline, `middleware(…)` doesn't pick up the route's context type either, so write inline middleware as a bare function and keep `middleware()` for middleware you share.
 
   ```ts
@@ -538,7 +542,6 @@ A page that can't be shown, because the visitor must sign in first or the thing 
 
 ```ts
 // src/routes/+authenticated/route.ts
-import { createUrl } from "@loozo/angular-router";
 import { defineRoute } from "@loozo/angular-launch";
 import { redirect } from "@loozo/angular-launch/server";
 import { destination as signIn } from "../sign-in/destination.generated";
@@ -547,7 +550,7 @@ import parent from "../route";
 // Every procedure at or below this route answers a signed-out caller with the redirect.
 export default defineRoute("", { parent }).context(({ context }) => {
   if (context.user === null) {
-    throw redirect(createUrl(signIn, {}));
+    throw redirect(signIn, {});
   }
 
   return { ...context, user: context.user };
@@ -572,8 +575,8 @@ get: query({
 }),
 ```
 
-- **`redirect(to)`** takes a root-relative app URL, such as `createUrl` builds. `redirect("https://…")` is a type error, and a URL that leaves the app, such as `//example.com`, throws a `TypeError`. An external redirect, such as to an OAuth provider, is data your page acts on.
-- **On the wire** a redirect is a 303 with `{ "redirect": { "to": "/sign-in" } }` and no `Location` header, so `fetch` hands it to the client instead of following it, and not-found is a 404 with `{ "notFound": null }`. Only status 200 is a result: a handler that returns `{ redirect: { to } }` returns data.
+- **`redirect(destination, values)`** goes to `createUrl(destination, values)`, and takes the same arguments: a `destination` from a `destination.generated.ts`, and its params, search and fragment, `{}` for none. Wrong values fail to type-check, and a URL string is a type error, so only declared pages are targets: to send the visitor on afterwards, declare a search key such as `next` on the sign-in route and pass `redirect(signIn, { search: { next: createUrl(todos, {}) } })`. An external redirect, such as to an OAuth provider, is data your page acts on.
+- **On the wire** a redirect is a 303 with `{ "redirect": { "to": "/sign-in" } }` and no `Location` header (with [translated URLs](#translated-urls), also its `words`), so `fetch` hands it to the client instead of following it, and not-found is a 404 with `{ "notFound": null }`. Only status 200 is a result: a handler that returns `{ redirect: { to } }` returns data.
 - **On the client** the call rejects with `RpcRedirect` (with its `to`) or `RpcNotFound` from `@loozo/angular-launch`. They aren't `RpcError`s, so `isError` is false for them. Nothing navigates for you, except in a guard or resolver with [`rpcNavigationErrors`](#navigating-on-outcomes).
 - **Not-found isn't `RPC_NOT_FOUND`**, which means no such procedure, and it doesn't take a declared `NOT_FOUND` code. Use `notFound()` when the page can't be shown, and a declared error when the page handles the case itself, as the example's `complete` does.
 
@@ -902,9 +905,73 @@ The results reach the browser inside the page, as during server rendering: throu
 - The app still needs its server. A static deployment (`outputMode: "static"`) can't answer `/_rpc/`, so there, a client-side navigation to a prerendered page that calls an RPC fails.
 - Context stages run at build time, at most once per prerendered page, in Angular's prerender workers, so whatever they use, such as a database, must be reachable from the build. The request's URL has the page's path on a local origin Angular picks, such as `http://localhost:<port>`; don't build absolute links from it.
 - `ng serve` renders prerendered routes on every request the same way, anonymously whatever cookies the browser sends.
+- With [translated URLs](#translated-urls), prerendered calls run in that locale's server app, so `createUrl` in a procedure returns the locale's words there, unlike on a live server.
 - Angular's prerender timeout doesn't reach handlers: their `signal` aborts when the render's application is destroyed, or when `HttpClient` unsubscribes from the call.
 
 Blocking initial navigation (`withEnabledBlockingInitialNavigation`) works with `finishLaunchRendering`. With it, Angular also runs the initial navigation to `/` while it discovers your routes at build time, so resolvers on the routes that match `/`, such as the root route's, make their calls then, once, with the anonymous context. A call refused there, such as one that needs a signed-in user, doesn't fail the build: Angular logs the error and still finds every route. Pages you prerender still fail the build for it, as above, and server-rendered pages make the call again with each visitor's context. Angular documents blocking initial navigation for server rendering without hydration, and Launch apps hydrate: hydration is what enables the HTTP transfer cache.
+
+## Translated URLs
+
+The router can [translate static URL segments](../angular-router/README.md#translated-urls) per Angular localize build, so the German build serves `/de/anmelden` where the source build serves `/en/sign-in`. A Launch app turns it on in its application builder, and Launch then also puts every RPC redirect in the page's language: a German visitor sent to sign in lands on `/de/anmelden`, whether the redirect reaches them through a call in the browser or as the 302 that answers a server-rendered page.
+
+Set it up in this order:
+
+1. Turn on `translateSegments` with Angular's `i18n`, `localize` and the `@angular/localize/init` polyfill, as the router's guide describes, and add `"types": ["@angular/localize"]` to the app tsconfig. With several locales, serve one at a time from a development configuration such as `"localize": ["de"]`: Angular's dev server doesn't localize a multi-locale `localize: true` build.
+
+   ```jsonc
+   // angular.json (excerpt)
+   "i18n": { "sourceLocale": "en", "locales": { "de": "src/locale/messages.de.xlf" } },
+   "build": {
+     "builder": "@loozo/angular-launch:application",
+     "options": {
+       "translateSegments": true,
+       "localize": true,
+       "i18nMissingTranslation": "error",
+       "polyfills": ["@angular/localize/init"]
+       // …the rest as in Setup
+     }
+   }
+   ```
+
+2. Import `server.generated` in `server.ts` before any import that reaches a route: an authored module that imports a `destination.generated.ts` or `route.generated.ts`, directly or through other modules. The setup above already does. Angular runs no polyfills in the server entry, so `server.generated.ts` first installs a `$localize` that returns each message's source text, and any destination copy evaluated before it fails the build, or the server's start, with `ReferenceError: $localize is not defined`.
+
+   The server entry must stay in the source language: if something else installs a `$localize` there first that translates, such as `loadTranslations` or a catalog loaded at runtime, Launch keeps it, and redirects are then built from translated words. That isn't supported. A word the page's build doesn't know stays as it is, so the German page can't match the URL; and a translated word that happens to be another route's canonical word is translated again, which reaches the wrong page: with `sign-in` → `anmelden` and a route whose canonical word is `anmelden`, a German visitor sent to sign in lands on that route's German path instead.
+
+3. Add `provideRedirectTranslation()` from the generated `redirects.generated.ts` to the config both apps share. Generation fails until some application file imports it; it can't check that both the browser and the server app install it, so put it in `config.ts`, which `config.server.ts` merges:
+
+   ```ts
+   // src/config.ts
+   import { provideRedirectTranslation } from "../generated/redirects.generated";
+
+   export const config: ApplicationConfig = {
+     providers: [
+       provideHttpClient(),
+       provideClientHydration(),
+       provideRouter(
+         routes,
+         withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFound, {}) })),
+       ),
+       provideRedirectTranslation(),
+     ],
+   };
+   ```
+
+   An app that leaves it out redirects German visitors to the source-language path, which the German build can't match: navigation stays where it was, and the server answers a guarded German page as if it had no page.
+
+Procedures don't change. `redirect(signIn, {})` builds the source-language URL on the server, whose code Angular never localizes, and the redirect frame also lists which of its path positions are static words: `{ "redirect": { "to": "/sign-in", "words": [0] } }`. The page's own build, in the browser or rendering a live request, swaps those positions for its words when its generated client recognizes the frame, so `RpcRedirect.to` is `/anmelden` in the German build: exactly what `createUrl(signIn, {})` returns there. Parameter and catchall values, the search and the fragment stay as they are, as they do in that build's `createUrl`.
+
+Which page a translated URL reaches is the router's: Launch's redirect equals the German link byte for byte. If a catalog makes one route's translated path fall under another route's catchall, such as `docs` → `dokumente` and `manuals/start` → `dokumente/anfang` next to `docs/$rest[]`, German redirects and German links alike reach the catchall. Pick distinct words for routes that sit under another route's catchall.
+
+What stays in the source language:
+
+- The wire frame, and what every `HttpInterceptor` sees of it, in the browser and during server rendering. With the option on, an interceptor or a test that compares redirect bodies exactly sees `words` too.
+- URLs inside search values: `redirect(signIn, { search: { next: createUrl(todos, {}) } })` sends the visitor on to the source-language `next` after signing in, which the German build can't match. Pass an id instead and build the URL in the page.
+- URLs a procedure returns as data, sets in a `Location` header through `response`, logs, or sends by email or webhook, and redirects your `server.ts` issues itself. While prerendering, procedures run in the localized server app, so `createUrl` there returns that locale's words: return ids and build URLs in the page.
+- [`callProcedure`](#testing-handlers-stages-and-middleware) results, which never carry `words`.
+
+A browser still running the client of a build from before the option was turned on doesn't recognize a frame with `words` and rejects with Angular's `HttpErrorResponse` until it reloads.
+
+`ng serve` also watches the catalogs: an edit runs the router's per-locale checks again and logs a `Locale de: …` error without stopping the server. Angular's dev server applies a catalog at its next rebuild, not at the edit.
 
 ## Testing
 
@@ -939,7 +1006,7 @@ Answer a call with what the server would send:
 | `FORBIDDEN`     | `{ error: { code: "FORBIDDEN", message: "RPC forbidden", data: null } }`               | 403              |
 | `RPC_NOT_FOUND` | `{ error: { code: "RPC_NOT_FOUND", message: "RPC not found", data: null } }`           | 404              |
 | `INTERNAL`      | `{ error: { code: "INTERNAL", message: "Internal server error", data: null } }`        | 500              |
-| `redirect(to)`  | `{ redirect: { to } }`                                                                 | 303              |
+| `redirect()`    | `{ redirect: { to } }`, plus `words` with [translated URLs](#translated-urls)          | 303              |
 | `notFound()`    | `{ notFound: null }`                                                                   | 404              |
 
 Pass the status as `flush(body, { status, statusText })`. The client recognizes an error only when its code, status and message all match, the procedure's declaration for a declared error and the table for Launch's own codes, and its data has the shape shown. A failing status whose body is neither a recognized error nor an outcome rejects with Angular's `HttpErrorResponse`, so a mistyped message makes `isError` false without any other sign. A body flushed with a success status is a result, whatever it contains.
@@ -956,7 +1023,7 @@ To test a procedure, call it with `callProcedure` from `@loozo/angular-launch/te
 
 [src/routes/todos/procedures.spec.ts](snippets/src/routes/todos/procedures.spec.ts)
 
-- The call settles to what the browser would get, the bodies in the table above with their status: `{ status: 200, result }`, `{ status, error: { code, message, data } }`, `{ status: 303, redirect: { to } }` or `{ status: 404, notFound: null }`. It also has `cookies`, the `Set-Cookie` values the call set, and `headers`, the headers it set. Narrow with `"error" in call`, then by `call.error.code`, to reach a declared error's typed data. An unexpected failure is `INTERNAL`, and Launch logs it with `console.error` as the server does.
+- The call settles to what the browser would get, the bodies in the table above with their status: `{ status: 200, result }`, `{ status, error: { code, message, data } }`, `{ status: 303, redirect: { to } }` (never with `words`, even in a [translated](#translated-urls) app: `to` is whatever `createUrl` gives in the graph the test imports) or `{ status: 404, notFound: null }`. It also has `cookies`, the `Set-Cookie` values the call set, and `headers`, the headers it set. Narrow with `"error" in call`, then by `call.error.code`, to reach a declared error's typed data. An unexpected failure is `INTERNAL`, and Launch logs it with `console.error` as the server does.
 - `context`, `input` and the result are typed from the route: `context` as the root route's stage returns it (`{}` without one), so input the schema refuses needs a cast.
 - Stages, middleware and the handler receive a `POST` to `http://localhost/_rpc/<namespace>/<procedure>` as their `request`. Pass `request` to give them your own, with headers or an abort signal.
 - A namespace belongs to the route whose `.remote()` declares it: call an ancestor's namespace through the ancestor's route. Streams and channels can't be called this way.
@@ -1183,22 +1250,25 @@ The [builders](#builders) run generation for you. Underneath, it's a Node functi
 generate(workspace: string, options: GenerationOptions, stopped?: () => boolean): Promise<void>;
 ```
 
-| Option            | Type       | Description                                                                   |
-| ----------------- | ---------- | ----------------------------------------------------------------------------- |
-| `tsconfig`        | `string`   | Your app tsconfig, relative to `workspace`                                    |
-| `scanDirectories` | `string[]` | Exactly one route directory, relative to the tsconfig's directory             |
-| `outDirectory`    | `string`   | Where the app-wide generated files go, relative to `workspace`                |
-| `tanstackQuery`   | `boolean`  | Also add `route.queries`; see [TanStack Query](tanstack-query/README.md)      |
-| `check`           | `boolean`  | Verify generated files without writing them; fails if anything is out of date |
+| Option              | Type           | Description                                                                                                |
+| ------------------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
+| `tsconfig`          | `string`       | Your app tsconfig, relative to `workspace`                                                                 |
+| `scanDirectories`   | `string[]`     | Exactly one route directory, relative to the tsconfig's directory                                          |
+| `outDirectory`      | `string`       | Where the app-wide generated files go, relative to `workspace`                                             |
+| `tanstackQuery`     | `boolean`      | Also add `route.queries`; see [TanStack Query](tanstack-query/README.md)                                   |
+| `translateSegments` | `boolean`      | Translate static segments per Angular localize build; see [Translated URLs](#translated-urls)              |
+| `localization`      | `Localization` | The build's `i18n` and polyfills, required with `translateSegments`; the builders read it from the project |
+| `check`             | `boolean`      | Verify generated files without writing them; fails if anything is out of date                              |
 
 `workspace` is the absolute path of the application directory (the one with its `package.json`). The tsconfig, scan directory and output directory must all be inside it. `stopped` lets a caller cancel: if it returns `true` before writing starts, nothing is written.
 
-Generation reads your source without running it. It writes the router's files, with Launch's additions, plus one file of its own:
+Generation reads your source without running it. It writes the router's files, with Launch's additions, plus its own:
 
-| File                                   | Contents                                                                                                                                                                                       |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `route.generated.ts` beside each route | The router's browser copy without the server steps, carrying the route's procedure metadata, `Remote`, `Context` and `remote` on `injectRoute()`; `Queries` and `queries` with `tanstackQuery` |
-| `<outDirectory>/server.generated.ts`   | `createRequestScope`, `handleRequest`, `handleUpgrade` and `provideServer`, bound to every route with a server step                                                                            |
+| File                                    | Contents                                                                                                                                                                                       |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `route.generated.ts` beside each route  | The router's browser copy without the server steps, carrying the route's procedure metadata, `Remote`, `Context` and `remote` on `injectRoute()`; `Queries` and `queries` with `tanstackQuery` |
+| `<outDirectory>/server.generated.ts`    | `createRequestScope`, `handleRequest`, `handleUpgrade` and `provideServer`, bound to every route with a server step                                                                            |
+| `<outDirectory>/redirects.generated.ts` | With `translateSegments` only: `provideRedirectTranslation`, every static route word with the router's message for it                                                                          |
 
 Each file carries an ownership marker comment. Generation only replaces or removes files with those exact names and markers, fails rather than overwrite an unmarked file or a symlink in their place, and removes stale ones, including the `rpc.generated.ts` and `context.generated.d.ts` files an earlier Launch version wrote. Unchanged files aren't rewritten. Everything is validated before anything is written, so a run that fails validation changes nothing. Files are then written one at a time, with no rollback: a write error partway through, such as an unwritable file, or an interrupted run can leave some files updated and others not. The next successful run repairs them.
 
@@ -1216,7 +1286,7 @@ RPC URLs are `/_rpc/<namespace>/<procedure>`, so they change only when you renam
 
 #### `@loozo/angular-launch:application`
 
-All `@angular/build:application` options, plus the generation options above (`tsconfig`, `scanDirectories`, `outDirectory`, `tanstackQuery` and `check`, which default to `false`). It takes those out and passes every other option through unchanged.
+All `@angular/build:application` options, plus the generation options above (`tsconfig`, `scanDirectories`, `outDirectory`, and `tanstackQuery`, `translateSegments` and `check`, which default to `false`). It takes those out and passes every other option through unchanged. With `translateSegments`, it reads `localization` from the project's `i18n` and the build's `polyfills`, so it must run as a project target.
 
 The builder runs generation once, then the official application build. Invalid options stop the build before generation starts. Generation errors, including drift with `check: true`, are logged and fail the build before the Angular build runs. `watch: true` is rejected; use the serve builder for watching.
 
@@ -1231,7 +1301,7 @@ All `@angular/build:dev-server` options, set in `angular.json` or on the command
 
 Invalid options stop the serve builder before it generates anything, and so does an invalid build target. The build target must not resolve `check: true`, because serving always writes generated files. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build.
 
-The builder then watches the scan directory and regenerates when files are added, changed or removed there. A pass starts once changes have been quiet for 150 ms, so saving several files at once or renaming a directory runs one pass. Passes run one at a time; changes during a pass cause one more. A failed pass is logged and the server keeps running; the next change retries. Other files, such as a server module a stage imports, don't trigger generation: route copies name their types through their route's declaration, not as text, so there's nothing to regenerate, and Angular's build still checks them. A route edit rebuilds twice, once for the edit and once for its regenerated copy, so the first reload can briefly pair new server code with the old copy.
+The builder then watches the scan directory, and with `translateSegments` the catalogs too, and regenerates when files are added, changed or removed there. A pass starts once changes have been quiet for 150 ms, so saving several files at once or renaming a directory runs one pass. Passes run one at a time; changes during a pass cause one more. A failed pass is logged and the server keeps running; the next change retries. Other files, such as a server module a stage imports, don't trigger generation: route copies name their types through their route's declaration, not as text, so there's nothing to regenerate, and Angular's build still checks them. A route edit rebuilds twice, once for the edit and once for its regenerated copy, so the first reload can briefly pair new server code with the old copy.
 
 Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. It costs some idle CPU. Set `"poll": false` in the serve target to go back to native file events; Angular's own configuration then applies, including a `poll` on the build target. A positive number overrides the build target's `poll`; `0` is rejected. On the command line, `--poll` accepts milliseconds only. `poll` configures Angular's dev-server watcher; Launch's own watcher uses native file events.
 
@@ -1269,7 +1339,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 - No success status other than 200: a result is always 200, and other statuses come from failures and outcomes. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
-- Redirects are root-relative only: an external destination, such as an OAuth provider, is data your page acts on. Outcomes act only in navigation, through `rpcNavigationErrors`, and nothing maps `FORBIDDEN` to a page: a stage that guards a page's reads throws `redirect()` or `notFound()` instead.
+- Redirects go to declared destinations only: an external destination, such as an OAuth provider, is data your page acts on, and a redirect target's search keys must be declared on its route. Outcomes act only in navigation, through `rpcNavigationErrors`, and nothing maps `FORBIDDEN` to a page: a stage that guards a page's reads throws `redirect()` or `notFound()` instead.
 - A route can't opt out of its ancestors' stages, and a stage's failure fails every later call in the same request scope, such as the rest of a server render.
 - An active-route handle's `remote` and `queries` use the `injectActiveRoute()` caller's injector, so providers a route adds reach only its own `injectRoute()`.
 - Middleware written inline in `.use()` doesn't infer the route's context type; give it the keys it reads.

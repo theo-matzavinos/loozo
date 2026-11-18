@@ -11,6 +11,7 @@ import {
   REQUEST,
   REQUEST_CONTEXT,
   RESPONSE_INIT,
+  inject,
   runInInjectionContext,
 } from "@angular/core";
 import {
@@ -22,9 +23,23 @@ import {
 } from "@angular/common/http";
 import { firstValueFrom, Observable } from "rxjs";
 import { QueryClient } from "@tanstack/angular-query";
-import { middleware, notFound, redirect } from "../dist/server/index.js";
+import { finishLaunchRendering, middleware, notFound, redirect } from "../dist/server/index.js";
 import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
-import { bound } from "./fixtures/application.mjs";
+import { bound, application as bind } from "./fixtures/application.mjs";
+import { defineRoute } from "../dist/index.js";
+import { createUrl } from "@loozo/angular-router/_core";
+import { REDIRECT_TRANSLATOR } from "../dist/redirect-translation.js";
+import { recognizedOutcome } from "../dist/outcomes.js";
+import {
+  account,
+  docsOld,
+  help,
+  root,
+  signIn,
+  signInNext,
+  todo,
+  todos,
+} from "./fixtures/destinations.mjs";
 import { injectClient } from "../dist/remote-client.js";
 import { RpcNotFound, RpcRedirect, rpcNavigationErrors } from "../dist/index.js";
 import { createQueries } from "../dist/tanstack-query/create-queries.js";
@@ -49,7 +64,7 @@ const idSchema = {
 };
 const signedIn = middleware(async ({ context, next }) => {
   if (context.user === null) {
-    throw redirect("/sign-in?next=%2Ftodos");
+    throw redirect(signInNext, { search: { next: "/todos" } });
   }
 
   return next();
@@ -78,7 +93,7 @@ const namespaces = {
           }
 
           if (input === "moved") {
-            throw redirect("/todos/2#title");
+            throw redirect(todo, { params: { id: 2 }, fragment: "title" });
           }
 
           return { id: input };
@@ -95,7 +110,7 @@ const namespaces = {
             throw notFound();
           }
 
-          throw redirect("/todos");
+          throw redirect(todos, {});
         },
       }),
     }),
@@ -126,24 +141,58 @@ function handle(request) {
   return handleRpc(bound(application, namespaces), request, { allowedHosts: ["test"] });
 }
 
-test("redirect() takes only root-relative URLs, and outcomes never reach JSON", () => {
-  for (const to of ["/", "/sign-in?next=%2Ftodos", "/todos/2#title", "/a//b"]) {
-    assert.equal(JSON.stringify(redirect(to)), "{}");
+test("redirect() goes to createUrl's URL for a genuine destination only, and outcomes never reach JSON", async () => {
+  const application = bind("redirect-targets", {
+    namespaces: {
+      go: {
+        build: ({ query }) => ({
+          to: query({
+            input: {
+              "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) },
+            },
+            handler: ({ input }) => {
+              throw redirect(targets[input][0], targets[input][1]);
+            },
+          }),
+        }),
+      },
+    },
+  });
+  const targets = {
+    signIn: [signIn, {}],
+    root: [root, {}],
+    todo: [todo, { params: { id: 2 }, fragment: "title" }],
+    search: [signInNext, { search: { next: "/todos" } }],
+    account: [account, { params: { id: "a/b" } }],
+    helpEmpty: [help, { params: { topic: [] } }],
+    help: [help, { params: { topic: ["x", "y"] } }],
+    docsOld: [docsOld, {}],
+  };
+
+  for (const [name, [destination, values]] of Object.entries(targets)) {
+    const response = await handleRpc(
+      application,
+      new Request("http://test/_rpc/go/to", {
+        method: "POST",
+        headers: { origin: "http://test", "content-type": "application/json" },
+        body: JSON.stringify({ input: name }),
+      }),
+      { allowedHosts: ["test"] },
+    );
+
+    assert.equal(response.status, 303, name);
+    assert.deepEqual(await response.json(), { redirect: { to: createUrl(destination, values) } });
+    assert.equal(JSON.stringify(redirect(destination, values)), "{}");
   }
 
-  for (const to of [
-    "https://example.com/",
-    "//example.com/",
-    "/\\example.com/",
-    "/\t/example.com/",
-    "/\n/example.com/",
-    "sign-in",
-    "",
-    42,
-  ]) {
-    assert.throws(() => redirect(to), TypeError, JSON.stringify(to));
+  const route = defineRoute("sign-in", {});
+
+  for (const target of ["/sign-in", { ...signIn }, route, null, 42]) {
+    assert.throws(() => redirect(target, {}), TypeError, String(target));
   }
 
+  // createUrl's own refusals reach the caller unchanged.
+  assert.throws(() => redirect(todo, { params: {} }), /Missing path value: id/);
   assert.equal(JSON.stringify(notFound()), "{}");
 });
 
@@ -277,6 +326,20 @@ test("the client recognizes only exact outcome frames with their own status", as
     { status: 303, error: { redirect: { to: "https://evil.example/" } } },
     { status: 404, error: { notFound: false } },
     { status: 404, error: [null] },
+    // Malformed words make the whole frame unrecognized.
+    { status: 303, error: { redirect: { to: "/a", words: [] } } },
+    { status: 303, error: { redirect: { to: "/a", words: 0 } } },
+    { status: 303, error: { redirect: { to: "/a", words: null } } },
+    { status: 303, error: { redirect: { to: "/a", words: ["0"] } } },
+    { status: 303, error: { redirect: { to: "/a", words: [0.5] } } },
+    { status: 303, error: { redirect: { to: "/a", words: [-1] } } },
+    { status: 303, error: { redirect: { to: "/a/b", words: [1, 0] } } },
+    { status: 303, error: { redirect: { to: "/a/b", words: [0, 0] } } },
+    { status: 303, error: { redirect: { to: "/a/b", words: [2] } } },
+    { status: 303, error: { redirect: { to: "/a?x=1/2", words: [1] } } },
+    { status: 303, error: { redirect: { to: "/", words: [0] } } },
+    { status: 303, error: { redirect: { to: "/a", words: [0], extra: 1 } } },
+    { status: 303, error: { redirect: { words: [0] } } },
   ];
 
   try {
@@ -287,6 +350,12 @@ test("the client recognizes only exact outcome frames with their own status", as
     );
     responses.push({ status: 404, error: { notFound: null } });
     await assert.rejects(rpc.todos.get("1"), RpcNotFound);
+    // Without a translation installed, a frame's words are recognized and left alone.
+    responses.push({ status: 303, error: { redirect: { to: "/sign-in", words: [0] } } });
+    await assert.rejects(
+      rpc.todos.get("1"),
+      (error) => error instanceof RpcRedirect && error.to === "/sign-in",
+    );
 
     for (const response of unrecognized) {
       responses.push(response);
@@ -302,7 +371,7 @@ test("the client recognizes only exact outcome frames with their own status", as
   }
 });
 
-async function serve() {
+async function serve(description = application) {
   const server = createServer(async (incoming, outgoing) => {
     const chunks = [];
 
@@ -315,7 +384,7 @@ async function serve() {
       headers: incoming.headers,
       body: Buffer.concat(chunks),
     });
-    const response = await handleRpc(bound(application, namespaces), request, {
+    const response = await handleRpc(bound(description, namespaces), request, {
       allowedHosts: ["127.0.0.1"],
     });
 
@@ -549,4 +618,211 @@ test("rpcNavigationErrors follows redirects and renders not-found at the request
   assert.match(signedOut.html, /<sign-in-page>sign in<\/sign-in-page>/);
   assert.equal(signedOut.path, "/sign-in?next=%2Ftodos");
   assert.equal(signedOut.status, 200);
+});
+
+test("recognition translates a frame with words once, and leaves every other frame alone", () => {
+  const calls = [];
+  // Not idempotent, so translating twice would show.
+  const translate = (to, words) => {
+    calls.push([to, words]);
+
+    return `${to}~t`;
+  };
+
+  assert.equal(
+    recognizedOutcome({ redirect: { to: "/a/b", words: [0, 1] } }, 303, translate).to,
+    "/a/b~t",
+  );
+  assert.deepEqual(calls, [["/a/b", [0, 1]]]);
+  assert.equal(recognizedOutcome({ redirect: { to: "/a" } }, 303, translate).to, "/a");
+  assert.equal(recognizedOutcome({ redirect: { to: "/a", words: [0] } }, 303).to, "/a");
+  assert.equal(recognizedOutcome({ redirect: { to: "/a", words: [] } }, 303, translate), undefined);
+  assert.equal(calls.length, 1);
+  // A translation that leaves the app's origin isn't a redirect Launch recognizes.
+  assert.equal(
+    recognizedOutcome({ redirect: { to: "/a", words: [0] } }, 303, () => "//evil.example/"),
+    undefined,
+  );
+});
+
+// One redirecting procedure in a translated application, called through HttpClient with a
+// recording handler in front of the backend, where an interceptor sits, in the browser, while
+// rendering a live request and while prerendering.
+async function translatedCall(platform) {
+  const application = bind(`translated-${platform}`, {
+    translateSegments: true,
+    namespaces: {
+      go: {
+        build: ({ query }) => ({
+          signIn: query({
+            handler: () => {
+              throw redirect(signIn, {});
+            },
+          }),
+        }),
+      },
+    },
+  });
+  const wire = [];
+  const recording = (backend) => ({
+    handle: (request) =>
+      new Observable((subscriber) =>
+        backend.handle(request).subscribe({
+          next: (event) => subscriber.next(event),
+          complete: () => subscriber.complete(),
+          error: (error) => {
+            wire.push(error.error);
+            subscriber.error(error);
+          },
+        }),
+      ),
+  });
+  const translate = (to) => `${to}~t`;
+  const providers = [
+    { provide: HttpClient, useFactory: () => new HttpClient(recording(inject(HttpBackend))) },
+    { provide: REDIRECT_TRANSLATOR, useValue: translate },
+  ];
+
+  if (platform === "browser") {
+    providers.push(
+      { provide: PLATFORM_ID, useValue: "browser" },
+      {
+        provide: HttpBackend,
+        useValue: {
+          handle: () =>
+            new Observable((subscriber) =>
+              subscriber.error(
+                new HttpErrorResponse({
+                  status: 303,
+                  error: { redirect: { to: "/sign-in", words: [0] } },
+                }),
+              ),
+            ),
+        },
+      },
+    );
+  } else {
+    const live = platform === "live";
+    const scope = live ? createRequestScope(application, new Request("http://test/guarded")) : null;
+
+    providers.push(
+      { provide: PLATFORM_ID, useValue: "server" },
+      { provide: REQUEST_CONTEXT, useValue: scope },
+      { provide: REQUEST, useValue: scope?.request ?? null },
+      { provide: DOCUMENT, useValue: { location: { href: "http://test/guarded" } } },
+      { provide: FetchBackend, useValue: { handle: () => assert.fail("left the server") } },
+      provideLaunchServer(application),
+    );
+  }
+
+  const parent = createEnvironmentInjector([]);
+  const injector = createEnvironmentInjector(providers, parent);
+  const rpc = runInInjectionContext(injector, () =>
+    injectClient({
+      go: { methods: [{ name: "signIn", input: false, kind: "query", errors: [] }] },
+    }),
+  );
+  let caught;
+
+  try {
+    await rpc.go.signIn();
+  } catch (error) {
+    caught = error;
+  }
+
+  let fault;
+
+  if (platform === "prerender") {
+    const app = {
+      injector,
+      components: [{}],
+      destroyed: false,
+      whenStable: async () => {},
+      destroy: () => {},
+    };
+
+    fault = await finishLaunchRendering(app).then(
+      () => undefined,
+      (error) => error,
+    );
+  }
+
+  injector.destroy();
+  parent.destroy();
+
+  return { caught, wire, fault };
+}
+
+test("a translated redirect reaches the caller in the build's words, after interceptors saw the wire body", async () => {
+  const wireBody = { redirect: { to: "/sign-in", words: [0] } };
+
+  for (const platform of ["browser", "live"]) {
+    const { caught, wire } = await translatedCall(platform);
+
+    assert.ok(caught instanceof RpcRedirect, platform);
+    assert.equal(caught.to, "/sign-in~t", platform);
+    assert.deepEqual(wire, [wireBody], platform);
+  }
+
+  // Prerendering runs procedures in the localized application, whose redirects are already in
+  // its words: the client never translates them, and the build still fails with the raw body.
+  const { caught, wire, fault } = await translatedCall("prerender");
+
+  assert.ok(caught instanceof RpcRedirect);
+  assert.equal(caught.to, "/sign-in");
+  assert.deepEqual(wire, [wireBody]);
+  assert.equal(
+    fault?.message,
+    `Launch can't prerender this page: /_rpc/go/signIn answered 303 ${JSON.stringify(wireBody)}`,
+  );
+});
+
+test("in a translated app, a stream's start response and error event redirect in the build's words", async () => {
+  const server = await serve({
+    ...application,
+    id: "launch-outcomes-translated",
+    translateSegments: true,
+  });
+  const parent = createEnvironmentInjector([]);
+  const injector = createEnvironmentInjector(
+    [
+      { provide: HttpClient, useValue: {} },
+      { provide: PLATFORM_ID, useValue: "browser" },
+      { provide: REDIRECT_TRANSLATOR, useValue: (to, words) => `${to}~${words.join(",")}` },
+    ],
+    parent,
+  );
+  const rpc = runInInjectionContext(injector, () => injectClient({ todos: { methods } }));
+
+  async function rejection(iterable) {
+    try {
+      for await (const value of iterable) {
+        void value;
+      }
+    } catch (error) {
+      return error;
+    }
+
+    return undefined;
+  }
+
+  try {
+    // After the stream started: the error event.
+    const moved = await rejection(rpc.todos.watch("moved"));
+
+    assert.ok(moved instanceof RpcRedirect);
+    assert.equal(moved.to, "/todos~0");
+
+    // Before it started: the 303 response.
+    server.signOut();
+
+    const refused = await rejection(rpc.todos.watch("1"));
+
+    assert.ok(refused instanceof RpcRedirect);
+    assert.equal(refused.to, "/sign-in?next=%2Ftodos~0");
+  } finally {
+    injector.destroy();
+    parent.destroy();
+    server.close();
+  }
 });

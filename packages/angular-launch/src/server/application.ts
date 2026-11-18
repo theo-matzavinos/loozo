@@ -64,6 +64,11 @@ export interface ApplicationBinding {
   readonly id: string;
   /** Every route's `.remote()` namespaces, keyed by namespace. */
   readonly namespaces: Readonly<Record<string, BoundNamespace>>;
+  /**
+   * Whether the application was generated with `translateSegments`: its redirect frames then
+   * list their static word positions.
+   */
+  readonly translateSegments?: true;
 }
 
 /**
@@ -129,6 +134,7 @@ export function bindNamespaces(
  *
  * @param id - The generated application identity.
  * @param routes - Each authored route with a server-only step, with its workspace-relative file.
+ * @param options - `translateSegments`: generation wrote the app with translated segments.
  * @returns The application binding.
  * @throws TypeError for a route Launch's `defineRoute` didn't make, or a stage whose route
  * isn't listed.
@@ -136,6 +142,7 @@ export function bindNamespaces(
 export function bindApplication(
   id: string,
   routes: readonly (readonly [route: AnyRoute, file: string])[],
+  options: { readonly translateSegments?: true } = {},
 ): ApplicationBinding {
   const chains: (readonly Readonly<Record<string, unknown>>[])[] = [];
   // Keyed by each route's own record, which its descendants' chains share.
@@ -187,6 +194,10 @@ export function bindApplication(
     }
 
     Object.assign(namespaces, bindNamespaces(own, owned));
+  }
+
+  if (options.translateSegments) {
+    return { id, namespaces, translateSegments: true };
   }
 
   return { id, namespaces };
