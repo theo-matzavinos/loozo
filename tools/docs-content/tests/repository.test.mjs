@@ -163,47 +163,56 @@ test("router's Handle lands in generatedApi and Destination on the root, without
 });
 
 test("router's Handle groups link/navigate overloads with per-overload params", () => {
-  let handle;
+  const symbols = new Map();
 
   for (const apiSymbol of router.generatedApi) {
-    if (apiSymbol.name === "Handle") {
-      handle = apiSymbol;
+    symbols.set(apiSymbol.name, apiSymbol);
+  }
+
+  // Handle is RouteHandle (own, ".." and own-close targets) & DestinationNavigation
+  // (destination and destination-close targets).
+  for (const [name, count] of [
+    ["RouteHandle", 3],
+    ["DestinationNavigation", 2],
+  ]) {
+    const members = new Map();
+
+    for (const member of symbols.get(name).members) {
+      assert.equal(members.has(member.name), false, `${name}.${member.name} is unique`);
+      members.set(member.name, member);
     }
-  }
 
-  const members = new Map();
+    for (const method of ["link", "navigate"]) {
+      const member = members.get(method);
+      const params = [];
 
-  for (const member of handle.members) {
-    assert.equal(members.has(member.name), false, `${member.name} is unique`);
-    members.set(member.name, member);
-  }
+      for (const signature of member.signatures) {
+        params.push(signature.params.map((param) => param.name).join(","));
+        assert.notEqual(signature.returnsHtml, "", `${name}.${method} overload returns`);
+        assert.equal(signature.throwsHtml.length, 1, `${name}.${method} overload throws`);
 
-  for (const name of ["link", "navigate"]) {
-    const member = members.get(name);
-    const params = [];
-
-    for (const signature of member.signatures) {
-      params.push(signature.params.map((param) => param.name).join(","));
-      assert.notEqual(signature.returnsHtml, "", `${name} overload returns`);
-      assert.equal(signature.throwsHtml.length, 1, `${name} overload throws`);
-
-      for (const param of signature.params) {
-        assert.notEqual(param.descriptionHtml, "", `${name} ${param.name} is described`);
+        for (const param of signature.params) {
+          assert.notEqual(
+            param.descriptionHtml,
+            "",
+            `${name}.${method} ${param.name} is described`,
+          );
+        }
       }
+
+      assert.equal(member.kind, "method");
+      assert.deepEqual(params, Array(count).fill("target"));
     }
 
-    assert.equal(member.kind, "method");
-    assert.deepEqual(params, ["target", "target", "target"]);
+    // Each overload documents its own kind of target.
+    const targets = new Set();
+
+    for (const signature of members.get("link").signatures) {
+      targets.add(signature.params[0].descriptionHtml);
+    }
+
+    assert.equal(targets.size, count);
   }
-
-  // Each overload documents its own kind of target: none, parent or destination.
-  const targets = new Set();
-
-  for (const signature of members.get("link").signatures) {
-    targets.add(signature.params[0].descriptionHtml);
-  }
-
-  assert.equal(targets.size, 3);
 });
 
 test("router's Handle and Destination list their documented type params", () => {
