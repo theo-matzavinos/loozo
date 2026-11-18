@@ -1795,7 +1795,7 @@ function duringExit(content: Locator, reads: ExitReads): Promise<ExitSnapshot> {
   );
 }
 
-test("Y19: a component opened from code binds a required, a defaulted signal-valued, a transformed and an aliased input, a model one- and two-way and an output; inputs stay live without Zone.js; it opens modally and closes itself through its own root; closed resolves after the exit, with its host removed and the component destroyed, and again when awaited later", async ({
+test("Y19: a component opened from code binds a required, a defaulted signal-valued, a transformed and an aliased input, a model one- and two-way and an output; inputs stay live without Zone.js; it opens modally and closes itself through its own root; closed resolves after the exit, with its host removed and the component destroyed, and again when awaited later; nothing keeps a destroyed one alive", async ({
   page,
 }, info) => {
   await fixture(page, "dialog-opener", info);
@@ -1865,6 +1865,16 @@ test("Y19: a component opened from code binds a required, a defaulted signal-val
   // The page's kept reference to the closed dialog no longer holds anything of its component.
   await script(page, "check-retained");
   await expect(page.getByTestId("retained")).toHaveText("released");
+
+  // Nor does anything else: a forced collection clears both dialogs' instances and hosts. The
+  // DevTools protocol's collection is Chromium's.
+  if (info.project.use.browserName === "chromium") {
+    const session = await page.context().newCDPSession(page);
+
+    await session.send("HeapProfiler.collectGarbage");
+    await script(page, "check-collected");
+    await expect(page.getByTestId("collected")).toHaveText("4 0");
+  }
 });
 
 test("Y20: a component opened from code closes, and is torn down, by the reference's close() after an exit, Escape, a backdrop click, Close, a native close without an exit and navigation through Location with an exit; close() before its first render never shows it; its opener's owner destroyed while it's open or during the exit tears it down at once, resolves closed and returns focus to the launch button, also with a second one open from the same opener, torn down first, or a confirmation from the owner's other opener, disposed after the older dialog; a query-only navigation closing two whose older one's shorter exit ends first returns focus to its launch button", async ({
