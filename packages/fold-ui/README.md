@@ -134,9 +134,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator`, `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`.
+Every part sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -538,11 +538,80 @@ import { Checkbox } from "#ui/checkbox";
 <button foldCheckbox aria-label="Select LC-2041" [(checked)]="selected"></button>
 ```
 
-It takes `checked` (two-way), `disabled`, `focusableWhenDisabled` and `id`, and emits `checkedChange` and `touch`; `[formField]` binds them. Checked, it fills with the foreground color and shows a check icon hidden from assistive technology; it's never green. The focus ring is green, an invalid box has a destructive border, a readonly one a dashed border without fill (a checked one keeps its fill), and a disabled one 50% opacity. There's no mixed state.
+It takes `checked` and `mixed` (both two-way), `disabled`, `focusableWhenDisabled` and `id`, and emits `checkedChange`, `mixedChange` and `touch`; `[formField]` binds all but `mixed`. Checked, it fills with the foreground color and shows a check icon hidden from assistive technology; it's never green. Mixed, it has the same fill with a minus instead, and `aria-checked="mixed"`. The focus ring is green, an invalid box has a destructive border, a readonly one a dashed border without fill (a checked or mixed one keeps its fill), and a disabled one 50% opacity. In forced-colors mode, such as Windows High Contrast, the box takes the system colors and the check or minus the system text color.
 
 - **Readonly only in a Field.** Origami sets `aria-readonly` from Signal Forms inside a Field; outside one, a readonly checkbox looks editable.
 - **Render the error.** When a validator rejects a checked box, its destructive border sits against the fill, faint in the dark theme, so render the Field's FieldError as the cue.
 - **Target size.** In an option row, the label's click and the 8px gap make the 16px box meet WCAG 2.5.8's spacing exception. In denser layouts, such as a table cell with another control within 4px, give it room yourself.
+
+### Select all
+
+A select-all parent derives `checked` and `mixed` from its children, and its handler writes them all:
+
+```html
+<div foldField orientation="horizontal">
+  <button
+    foldCheckbox
+    aria-controls="invoice-0412 invoice-0413 invoice-0414"
+    [checked]="all()"
+    [mixed]="some()"
+    (checkedChange)="selectAll($event)"
+  ></button>
+  <label foldFieldLabel>Select all invoices</label>
+</div>
+<div class="grid gap-1 ps-6">
+  @for (invoice of invoices; track invoice) {
+  <div foldField orientation="horizontal">
+    <button
+      foldCheckbox
+      [id]="'invoice-' + invoice"
+      [checked]="selected().has(invoice)"
+      (checkedChange)="select(invoice, $event)"
+    ></button>
+    <label foldFieldLabel>Invoice {{ invoice }}</label>
+  </div>
+  }
+</div>
+```
+
+```ts
+readonly invoices = ["0412", "0413", "0414"];
+readonly selected = signal<ReadonlySet<string>>(new Set(["0412"]));
+readonly all = computed(() => {
+  for (const invoice of this.invoices) {
+    if (!this.selected().has(invoice)) {
+      return false;
+    }
+  }
+
+  return true;
+});
+readonly some = computed(() => this.selected().size > 0 && !this.all());
+
+selectAll(checked: boolean): void {
+  if (checked) {
+    this.selected.set(new Set(this.invoices));
+
+    return;
+  }
+
+  this.selected.set(new Set());
+}
+
+select(invoice: string, checked: boolean): void {
+  const next = new Set(this.selected());
+
+  if (checked) {
+    next.add(invoice);
+  } else {
+    next.delete(invoice);
+  }
+
+  this.selected.set(next);
+}
+```
+
+A click or Space on the mixed parent checks every invoice. Origami's [mixed state and select-all](../origami-ui/checkbox/README.md#mixed-state-and-select-all) has the rest: why a one-way `[mixed]` comes back only when `some()` changes, how to derive the parent when a child is disabled, and how `mixed` works with `[formField]`.
 
 ## Switch
 
@@ -550,7 +619,7 @@ It takes `checked` (two-way), `disabled`, `focusableWhenDisabled` and `id`, and 
 import { Switch } from "#ui/switch";
 ```
 
-`Switch` is a 36×20 track with a 14px thumb on a native `<button>`, over Origami's [Switch](../origami-ui/switch/README.md): a click, Enter or Space toggles it. It has Checkbox's inputs, outputs, naming and notes, and the same looks: on, the track fills with the foreground color and the thumb slides to the end, following the text direction.
+`Switch` is a 36×20 track with a 14px thumb on a native `<button>`, over Origami's [Switch](../origami-ui/switch/README.md): a click, Enter or Space toggles it. It has Checkbox's inputs, outputs, naming and notes, except `mixed` and `mixedChange`, since a switch has no mixed state, and the same looks: on, the track fills with the foreground color and the thumb slides to the end, following the text direction.
 
 In forced-colors mode, such as Windows High Contrast, the thumb uses the system button text color, so it stays visible against the track.
 

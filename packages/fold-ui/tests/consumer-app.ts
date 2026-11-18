@@ -494,12 +494,45 @@ export class SearchDialog {
         <button zzRadioGroupItem value="compact">Compact</button>
         <button zzRadioGroupItem value="comfortable">Comfortable</button>
       </div>
+      <!-- Select-all: the parent derives checked and mixed over the invoices it can change. -->
+      <div class="grid gap-1" id="invoices">
+        <div zzField orientation="horizontal">
+          <button
+            zzCheckbox
+            aria-controls="invoice-0412 invoice-0413 invoice-0414"
+            [checked]="allInvoices()"
+            [mixed]="someInvoices()"
+            (checkedChange)="selectAllInvoices($event)"
+            id="all-invoices"
+          ></button>
+          <label zzFieldLabel>Select all invoices</label>
+        </div>
+        <div class="grid gap-1 ps-6">
+          @for (invoice of invoices; track invoice) {
+            <div zzField orientation="horizontal">
+              <button
+                zzCheckbox
+                [id]="'invoice-' + invoice"
+                [checked]="selectedInvoices().has(invoice)"
+                (checkedChange)="selectInvoice(invoice, $event)"
+              ></button>
+              <label zzFieldLabel>Invoice {{ invoice }}</label>
+            </div>
+          }
+        </div>
+      </div>
       <div class="flex items-center gap-2">
         <button zzCheckbox aria-label="Merged checkbox" class="rounded-full" id="merged-checkbox"></button>
         <button zzSwitch aria-label="Merged switch" class="w-10" id="merged-switch"></button>
       </div>
       <div class="light flex items-center gap-2 bg-background p-2">
         <button zzCheckbox aria-label="Light checkbox" [checked]="true" id="light-checkbox"></button>
+        <button
+          zzCheckbox
+          aria-label="Light mixed checkbox"
+          [mixed]="true"
+          id="light-mixed-checkbox"
+        ></button>
         <button zzSwitch aria-label="Light switch" [checked]="true" id="light-switch"></button>
       </div>
 
@@ -1049,6 +1082,20 @@ export class App {
   protected readonly navOpen = signal(false);
   protected readonly panelOpen = signal(false);
   protected readonly selected = signal(false);
+  protected readonly invoices = ["0412", "0413", "0414"];
+  protected readonly selectedInvoices = signal<ReadonlySet<string>>(new Set(["0412"]));
+  protected readonly allInvoices = computed(() => {
+    for (const invoice of this.invoices) {
+      if (!this.selectedInvoices().has(invoice)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+  protected readonly someInvoices = computed(
+    () => this.selectedInvoices().size > 0 && !this.allInvoices(),
+  );
   protected readonly density = signal<string | null>("compact");
   protected readonly tierAddon = signal<string | null>("a");
   protected readonly controlSaves = signal(0);
@@ -1213,6 +1260,28 @@ export class App {
 
       return undefined;
     });
+  }
+
+  protected selectAllInvoices(checked: boolean): void {
+    if (checked) {
+      this.selectedInvoices.set(new Set(this.invoices));
+
+      return;
+    }
+
+    this.selectedInvoices.set(new Set());
+  }
+
+  protected selectInvoice(invoice: string, checked: boolean): void {
+    const next = new Set(this.selectedInvoices());
+
+    if (checked) {
+      next.add(invoice);
+    } else {
+      next.delete(invoice);
+    }
+
+    this.selectedInvoices.set(next);
   }
 
   protected async saveControls(event: Event): Promise<void> {
