@@ -29,13 +29,22 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
 import { NumberFieldParts } from "#ui/number-field";
+import { PopoverParts } from "#ui/popover";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
 import { SelectParts } from "#ui/select";
 import { SheetParts } from "#ui/sheet";
 import { Slider, SliderThumb } from "#ui/slider";
 import { Switch } from "#ui/switch";
+import { TabsParts } from "#ui/tabs";
 import { Textarea } from "#ui/textarea";
-import { LucideTriangleAlert } from "@lucide/angular";
+import { TooltipParts } from "#ui/tooltip";
+import {
+  LucideArchive,
+  LucideChevronDown,
+  LucideLink,
+  LucideRotateCcw,
+  LucideTriangleAlert,
+} from "@lucide/angular";
 
 const PLANETS = [
   { id: 1, name: "Mercury", dwarf: false },
@@ -138,8 +147,13 @@ export class SearchDialog {
     FieldLabel,
     FormField,
     Input,
+    LucideArchive,
+    LucideChevronDown,
+    LucideLink,
+    LucideRotateCcw,
     LucideTriangleAlert,
     NumberFieldParts,
+    PopoverParts,
     RadioGroup,
     RadioGroupItem,
     SelectParts,
@@ -147,7 +161,9 @@ export class SearchDialog {
     Slider,
     SliderThumb,
     Switch,
+    TabsParts,
     Textarea,
+    TooltipParts,
   ],
   template: `
     <main class="flex flex-wrap items-center gap-2 p-5">
@@ -1064,6 +1080,179 @@ export class SearchDialog {
         </div>
       </div>
     </section>
+    <section id="layers" class="grid gap-8 p-5">
+      <section zzTabs [(value)]="view" #tabs="zzTabs" id="tabs">
+        <div zzTabsList aria-label="Contract lists" id="tabs-list">
+          <button zzTabsTrigger value="all" id="tab-all">All contracts</button>
+          <button zzTabsTrigger value="drafts" id="tab-drafts">
+            Drafts <span class="text-label font-normal text-muted-foreground tabular-nums">3</span>
+          </button>
+          <button zzTabsTrigger value="archived" disabled id="tab-archived">
+            <svg lucideArchive aria-hidden="true"></svg> Archived
+          </button>
+          <button zzTabsTrigger value="reports" id="tab-reports">Reports</button>
+        </div>
+        <div zzTabsPanel value="all" id="panel-all">
+          <p>Every contract.</p>
+          <section zzTabs value="active" id="inner-tabs">
+            <div zzTabsList aria-label="Contract states">
+              <button zzTabsTrigger value="active" id="inner-active">Active</button>
+              <button zzTabsTrigger value="ended" id="inner-ended">Ended</button>
+            </div>
+            <div zzTabsPanel value="active">Active contracts.</div>
+            <div zzTabsPanel value="ended">Ended contracts.</div>
+          </section>
+        </div>
+        <div zzTabsPanel value="drafts" class="grid" id="panel-drafts">Draft contracts.</div>
+        <div zzTabsPanel value="archived" id="panel-archived">Archived contracts.</div>
+        <div zzTabsPanel value="reports" id="panel-reports">
+          @if (tabs.state.value() === "reports") {
+            <p id="reports-body">Reports.</p>
+          }
+        </div>
+      </section>
+
+      <section zzTabs orientation="vertical" value="profile" id="vtabs">
+        <div zzTabsList aria-label="Settings" id="vtabs-list">
+          <button zzTabsTrigger value="profile" id="vtab-profile">Profile</button>
+          <button zzTabsTrigger value="security" id="vtab-security">Security</button>
+          <button zzTabsTrigger value="billing" disabled focusableWhenDisabled id="vtab-billing">
+            Billing
+          </button>
+          <button zzTabsTrigger value="team" disabled id="vtab-team">Team</button>
+        </div>
+        <div zzTabsPanel value="profile" id="vpanel-profile">Your profile.</div>
+        <div zzTabsPanel value="security" id="vpanel-security">Sign-in and sessions.</div>
+        <div zzTabsPanel value="billing">Invoices.</div>
+        <div zzTabsPanel value="team">Members.</div>
+      </section>
+
+      <div class="flex items-center gap-2" id="tips">
+        <span zzTooltip id="tip-save">
+          <button zzButton zzTooltipTrigger id="tip-save-trigger">Save draft</button>
+          <span zzTooltipContent id="tip-save-content">Saves without publishing</span>
+        </span>
+        <span zzTooltip id="tip-copy">
+          <button
+            zzButton
+            size="icon"
+            variant="ghost"
+            aria-label="Copy link"
+            zzTooltipTrigger
+            id="tip-copy-trigger"
+          >
+            <svg lucideLink aria-hidden="true"></svg>
+          </button>
+          <span zzTooltipContent id="tip-copy-content">Copies the address of this page</span>
+        </span>
+        <span zzTooltip id="tip-publish">
+          <button
+            zzButton
+            variant="primary"
+            [disabled]="!dirty()"
+            focusableWhenDisabled
+            zzTooltipTrigger
+            (click)="publish()"
+            id="tip-publish-trigger"
+          >
+            Publish
+          </button>
+          <span zzTooltipContent id="tip-publish-content">
+            @if (dirty()) {
+              Publishes your changes
+            } @else {
+              Nothing to publish yet
+            }
+          </span>
+        </span>
+        <button zzButton variant="ghost" (click)="dirty.set(true)" id="edit-draft">Edit</button>
+        <output id="publish-count">{{ publishes() }}</output>
+
+        <div zzPopover [(open)]="popoverFiltersOpen" id="filters">
+          <span zzTooltip id="tip-filters">
+            <button zzPopoverTrigger zzTooltipTrigger id="filters-trigger">
+              Filters <svg lucideChevronDown aria-hidden="true"></svg>
+            </button>
+            <span zzTooltipContent id="tip-filters-content">Narrow the list</span>
+          </span>
+          <div
+            zzPopoverContent
+            aria-labelledby="filters-title"
+            #filters="zzPopoverContent"
+            id="filters-content"
+          >
+            <h2 id="filters-title" class="mb-2 text-title">Filters</h2>
+            @if (filters.state.open()) {
+              <div class="grid gap-3">
+                <div zzField>
+                  <label zzFieldLabel>Owner</label>
+                  <input zzInput id="filter-owner" />
+                </div>
+                <div class="flex items-center justify-between">
+                  <span zzTooltip id="tip-reset">
+                    <button
+                      zzButton
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Reset filters"
+                      zzTooltipTrigger
+                      id="filter-reset"
+                    >
+                      <svg lucideRotateCcw aria-hidden="true"></svg>
+                    </button>
+                    <span zzTooltipContent id="tip-reset-content">Clears every filter</span>
+                  </span>
+                  <button zzButton variant="primary" (click)="popoverFiltersOpen.set(false)" id="filter-apply">
+                    Apply
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+        <button zzButton variant="ghost" id="after-filters">Export</button>
+
+        <div zzPopover id="notes-popover">
+          <button zzPopoverTrigger variant="ghost" id="notes-trigger">Release notes</button>
+          <div zzPopoverContent aria-label="Release notes" tabindex="0" id="notes-content">
+            @for (note of releaseNotes; track $index) {
+              <p class="mb-2">{{ note }}</p>
+            }
+          </div>
+        </div>
+
+        <div zzPopover id="scrollform-popover">
+          <button zzPopoverTrigger id="scrollform-trigger">Address</button>
+          <div zzPopoverContent aria-label="Address" id="scrollform-content">
+            <div class="grid gap-3">
+              @for (line of addressLines; track line) {
+                <div zzField>
+                  <label zzFieldLabel>{{ line }}</label>
+                  <input zzInput [id]="'scrollform-' + $index" />
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div zzField id="tip-status-field">
+        <span zzFieldLabel>Region</span>
+        <div zzSelect value="emea" #region="zzSelect">
+          <span zzTooltip>
+            <button zzSelectTrigger zzTooltipTrigger id="tip-status">
+              {{ region.state.selectedOption()?.label ?? "Choose a region" }}
+            </button>
+            <span zzTooltipContent id="tip-status-content">Where invoices are issued</span>
+          </span>
+          <div zzSelectContent>
+            <div zzSelectOption value="emea" label="Europe">Europe</div>
+            <div zzSelectOption value="apac" label="Asia">Asia</div>
+          </div>
+        </div>
+        <p zzFieldDescription id="tip-status-description">Sets the invoice currency.</p>
+      </div>
+    </section>
   `,
 })
 export class App {
@@ -1082,6 +1271,25 @@ export class App {
   protected readonly navOpen = signal(false);
   protected readonly panelOpen = signal(false);
   protected readonly selected = signal(false);
+  protected readonly popoverFiltersOpen = signal(false);
+  protected readonly view = signal<string | null>("all");
+  protected readonly dirty = signal(false);
+  protected readonly publishes = signal(0);
+  protected readonly releaseNotes = Array.from(
+    { length: 14 },
+    (_, index) =>
+      `Release ${index + 1}: invoices group by customer, contract dates follow your locale, and exports keep their filters.`,
+  );
+  protected readonly addressLines = [
+    "Street",
+    "Number",
+    "Floor",
+    "Postal code",
+    "City",
+    "Region",
+    "Country",
+    "Phone",
+  ];
   protected readonly invoices = ["0412", "0413", "0414"];
   protected readonly selectedInvoices = signal<ReadonlySet<string>>(new Set(["0412"]));
   protected readonly allInvoices = computed(() => {
@@ -1334,6 +1542,15 @@ export class App {
 
   protected openSearch(): void {
     this.#search.open();
+  }
+
+  protected publish(): void {
+    // A focusable disabled button still dispatches clicks, from a pointer, Enter or Space.
+    if (!this.dirty()) {
+      return;
+    }
+
+    this.publishes.update((count) => count + 1);
   }
 
   protected terminate(): void {

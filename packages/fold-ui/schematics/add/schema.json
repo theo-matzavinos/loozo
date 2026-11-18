@@ -19,13 +19,16 @@
           "field",
           "input",
           "number-field",
+          "popover",
           "popup",
           "radio-group",
           "select",
           "sheet",
           "slider",
           "switch",
-          "textarea"
+          "tabs",
+          "textarea",
+          "tooltip"
         ]
       },
       "x-prompt": "Which components do you want to add?"
