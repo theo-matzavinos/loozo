@@ -1,11 +1,12 @@
 # Select
 
-`@loozo/ui-sdk-angular/select`: a single-value select, core's `select`, from five directives on elements you write: the root, its trigger, the value, the content and each item.
+`@loozo/ui-sdk-angular/select`: a single-value select, core's `select`, from directives on elements you write: the root, its trigger, the value, the content, each item, and the hidden input that takes part in a form.
 
 ```ts
 import {
   UiSelect,
   UiSelectContent,
+  UiSelectFormInput,
   UiSelectItem,
   UiSelectTrigger,
   UiSelectValue,
@@ -13,7 +14,7 @@ import {
 ```
 
 ```html
-<div uiSelect [(value)]="fruit" (valueChangeRequest)="guard($event)" [loop]="true">
+<div uiSelect name="fruit" [(value)]="fruit" (valueChangeRequest)="guard($event)" [loop]="true">
   <button uiSelectTrigger aria-label="Fruit">
     <span uiSelectValue #shown="uiSelectValue">{{ shown.state().label || "Pick one" }}</span>
   </button>
@@ -29,6 +30,7 @@ import {
     </div>
     }
   </div>
+  <input uiSelectFormInput />
 </div>
 <button (click)="fruit.set(null)">Clear</button>
 ```
@@ -52,6 +54,7 @@ guard({ value, details }: UiSdkEvent<NonNullable<SelectOptions<string>["onValueC
 - **Controlled keys:** `value` (`T | null`), `open`, `query`, each with `default<Key>` for the uncontrolled start and the two outputs `<key>ChangeRequest` (`{ value, details }`, cancelable) and `<key>Change`.
 - **Items and values:** `items`, `itemToValue`, `itemToLabel`, `isItemEqualToValue`, `placeholder`.
 - **Behavior:** `loop`, `modal`, `presentation`, `disabled`, `readOnly`, `dismissible`, `controller`, `container`, `debug`.
+- **Forms:** `name`, `form`, `required`, `autoComplete`, submitted through `uiSelectFormInput`; see [native forms](../README.md#native-forms).
 - **Search and async lists**, for slots this release doesn't ship yet, so they have no visible effect: `filter`, `emptyItems`, `status`, `announcement`, the `query` family and the `loadMore` output.
 - **Other outputs:** `openChangeComplete` (`boolean`), `highlight` (`{ value, details }`), `dismissAttempt` (core's details).
 
@@ -59,14 +62,17 @@ The root has no `state`; read the value through `uiSelectValue`.
 
 ## Parts
 
-| Directive         | `exportAs`        | Inputs                                                                                                                          | `state()`                                             |
-| ----------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `uiSelectTrigger` | `uiSelectTrigger` | `disabled`, `controller`                                                                                                        | `{ open, disabled, readOnly, required, placeholder }` |
-| `uiSelectValue`   | `uiSelectValue`   | `placeholder`, `maxLabels`, `getMoreLabel`                                                                                      | `{ value, label, labels, placeholder }`               |
-| `uiSelectContent` | `uiSelectContent` | `side`, `align`, `sideOffset`, `alignOffset`, `collisionPadding`, `arrowPadding`, `anchor`, `container`, `alignItemWithTrigger` | `{ open, presentation, items, status }`               |
-| `uiSelectItem`    | `uiSelectItem`    | `[uiSelectItem]` (its value, required, any type), `label`, `disabled`, `index`                                                  | `{ highlighted, selected, disabled }`                 |
+| Directive           | `exportAs`          | Inputs                                                                                                                          | `state()`                                             |
+| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `uiSelectTrigger`   | `uiSelectTrigger`   | `disabled`, `controller`                                                                                                        | `{ open, disabled, readOnly, required, placeholder }` |
+| `uiSelectValue`     | `uiSelectValue`     | `placeholder`, `maxLabels`, `getMoreLabel`                                                                                      | `{ value, label, labels, placeholder }`               |
+| `uiSelectContent`   | `uiSelectContent`   | `side`, `align`, `sideOffset`, `alignOffset`, `collisionPadding`, `arrowPadding`, `anchor`, `container`, `alignItemWithTrigger` | `{ open, presentation, items, status }`               |
+| `uiSelectItem`      | `uiSelectItem`      | `[uiSelectItem]` (its value, required, any type), `label`, `disabled`, `index`                                                  | `{ highlighted, selected, disabled }`                 |
+| `uiSelectFormInput` | `uiSelectFormInput` | none                                                                                                                            | none                                                  |
 
 The content always stays in the DOM, hidden while closed; there's no exit animation before unmount yet.
+
+Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it a visually hidden text input whose value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill.
 
 ## Rules
 
@@ -93,6 +99,5 @@ A second press works. Seen in Chromium, where the window was about 60 ms in this
 ## Not in this release
 
 - `multiple`: one value only.
-- Native forms: `name`, `form`, `required` and `autoComplete` aren't inputs, and a form submission leaves the Select out; submit the bound value yourself. In development, a static `name` attribute on the root logs a warning.
 - Angular Forms (`ControlValueAccessor`, signal forms): bind `[(value)]` to your own signal.
 - SelectLabel, SelectGroup, the search input and core's other Select slots, and learning labels from item text.

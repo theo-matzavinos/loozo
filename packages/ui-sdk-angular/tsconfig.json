@@ -16,7 +16,10 @@
     "paths": {
       "@loozo/ui-sdk-angular": ["./src/public-api.ts"],
       "@loozo/ui-sdk-angular/toggle": ["./toggle/src/public-api.ts"],
-      "@loozo/ui-sdk-angular/select": ["./select/src/public-api.ts"]
+      "@loozo/ui-sdk-angular/select": ["./select/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/checkbox": ["./checkbox/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/switch": ["./switch/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/radio": ["./radio/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -24,5 +27,13 @@
     "strictInputAccessModifiers": true,
     "strictTemplates": true
   },
-  "include": ["src/**/*.ts", "toggle/src/**/*.ts", "select/src/**/*.ts", "tests/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "toggle/src/**/*.ts",
+    "select/src/**/*.ts",
+    "checkbox/src/**/*.ts",
+    "switch/src/**/*.ts",
+    "radio/src/**/*.ts",
+    "tests/*.ts"
+  ]
 }

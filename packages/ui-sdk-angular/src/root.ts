@@ -1,6 +1,9 @@
+import { isPlatformBrowser } from "@angular/common";
 import {
   DestroyRef,
+  PLATFORM_ID,
   type Signal,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -11,8 +14,14 @@ import type { OptionsOf, Primitive } from "@ui-sdk/core";
 import { UiSdkError } from "./error";
 import { ɵinjectInstanceId } from "./instance-id";
 
-/** What a root needs from each of its slots when it's destroyed. */
-type RegisteredSlot = { dispose(): void };
+/** What a root needs from each of its slots: its slot name, and unbinding when it's destroyed. */
+type RegisteredSlot = { readonly slotName: string; dispose(): void };
+
+/**
+ * The part that submits a root's value with a form, which the author writes: core's slot name
+ * and how to write its directive, for the development warning when `name` is set without it.
+ */
+export type ɵUiSdkFormInput = { readonly slot: string; readonly markup: string };
 
 /**
  * One core instance per root directive: created on its first read after the directive's inputs
@@ -41,7 +50,12 @@ export class ɵUiSdkRoot<P extends Primitive> {
   #ready = false;
   #instance: ReturnType<P> | undefined;
 
-  constructor(primitive: P, readOptions: () => OptionsOf<P>, directive: string) {
+  constructor(
+    primitive: P,
+    readOptions: () => OptionsOf<P>,
+    directive: string,
+    formInput?: ɵUiSdkFormInput,
+  ) {
     this.#primitive = primitive;
     this.#directive = directive;
     this.options = computed(() => definedOptions(readOptions()));
@@ -69,6 +83,26 @@ export class ɵUiSdkRoot<P extends Primitive> {
         this.delivered();
       });
     });
+
+    if (
+      formInput !== undefined &&
+      (typeof ngDevMode === "undefined" || ngDevMode) &&
+      isPlatformBrowser(inject(PLATFORM_ID))
+    ) {
+      // Every part of the root's render pass has registered by then, including inputs that
+      // resolve their root on their first read.
+      afterNextRender(() => {
+        const name = (untracked(this.options) as { name?: string }).name;
+
+        if (name === undefined || this.#has(formInput.slot)) {
+          return;
+        }
+
+        console.warn(
+          `${directive}: name="${name}" submits nothing without its input. Add ${formInput.markup}.`,
+        );
+      });
+    }
 
     inject(DestroyRef).onDestroy(() => {
       for (const slot of this.#slots) {
@@ -107,6 +141,16 @@ export class ɵUiSdkRoot<P extends Primitive> {
     this.#ready = true;
   }
 
+  #has(slotName: string): boolean {
+    for (const slot of this.#slots) {
+      if (slot.slotName === slotName) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   /**
    * Adds a slot to unbind before the instance is destroyed. The slot calls the returned function
    * when it's destroyed first, so a root that outlives its items doesn't keep them.
@@ -134,12 +178,14 @@ function definedOptions<O extends object>(options: O): O {
 
 /**
  * Creates the root for a root directive, from its primitive and a reader of its inputs as core's
- * options. `directive` names it in errors, like `uiSelect`.
+ * options. `directive` names it in errors, like `uiSelect`. A root that takes part in forms names
+ * its `formInput`, so development builds warn when `name` is set and no input is written.
  */
 export function ɵinjectRoot<P extends Primitive>(
   primitive: P,
   options: () => OptionsOf<P>,
   directive: string,
+  formInput?: ɵUiSdkFormInput,
 ): ɵUiSdkRoot<P> {
-  return new ɵUiSdkRoot(primitive, options, directive);
+  return new ɵUiSdkRoot(primitive, options, directive, formInput);
 }

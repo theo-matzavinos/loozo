@@ -35,6 +35,12 @@ export type ɵUiSdkSlotOptions = {
   readonly keyProp?: string;
 };
 
+/**
+ * A slot's root: the root directive's, or a reader of another element's, for a part outside its
+ * root's element tree, like a checkbox's hidden input beside its button.
+ */
+export type ɵUiSdkRootRef = ɵUiSdkRoot<Primitive> | (() => ɵUiSdkRoot<Primitive>);
+
 /** An event a host listener received before its slot's first bind. */
 type Queued = { readonly type: string; readonly event: Event };
 
@@ -50,13 +56,15 @@ export class ɵUiSdkSlot<S extends object> {
   readonly part: Signal<Part>;
   /** What core's render functions get for this part. */
   readonly state: Signal<S>;
+  /** Core's slot name, which the root counts its parts by. */
+  readonly slotName: string;
   readonly #send: (type: string, event: Event) => void;
   readonly #release: () => void;
   readonly #queue: Queued[] = [];
   #bound = false;
 
   constructor(
-    root: ɵUiSdkRoot<Primitive>,
+    rootRef: ɵUiSdkRootRef,
     slot: string,
     readProps: () => object,
     { events, keyProp }: ɵUiSdkSlotOptions,
@@ -64,8 +72,26 @@ export class ɵUiSdkSlot<S extends object> {
     const element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
     const authoredId = inject(new HostAttributeToken("id"), { optional: true });
     const browser = isPlatformBrowser(inject(PLATFORM_ID));
-    const channel = `ng:${root.id}:${slot}`;
     const version = signal(0);
+    let resolved: ɵUiSdkRoot<Primitive> | undefined;
+    let unregister: (() => void) | undefined;
+
+    this.slotName = slot;
+
+    // A reader is resolved on the first read, once Angular has set the inputs it reads, and kept:
+    // the slot stays with the root it registered with.
+    const root = (): ɵUiSdkRoot<Primitive> => {
+      if (resolved === undefined) {
+        resolved = typeof rootRef === "function" ? untracked(rootRef) : rootRef;
+        unregister = resolved.register(this);
+      }
+
+      return resolved;
+    };
+
+    if (typeof rootRef !== "function") {
+      root();
+    }
 
     const props = computed(
       () => {
@@ -74,9 +100,9 @@ export class ɵUiSdkSlot<S extends object> {
         if (keyProp !== undefined) {
           // Core maps values to keys by the options it has, like Select's `itemToValue`, so the
           // key follows the root's handovers, not its inputs.
-          root.handovers();
+          root().handovers();
 
-          const instance = root.instance() as unknown as Keyed;
+          const instance = root().instance() as unknown as Keyed;
 
           value["id"] = instance.api.internal.keyOf(value[keyProp]);
         }
@@ -90,7 +116,7 @@ export class ɵUiSdkSlot<S extends object> {
     // where a core listener that notifies during delivery may write signals.
     this.part = computed(() => {
       const next = props();
-      const instance = root.instance();
+      const instance = root().instance();
 
       return untracked(() => {
         const record = instance.part(slot, next);
@@ -106,7 +132,7 @@ export class ɵUiSdkSlot<S extends object> {
     this.state = computed(
       () => {
         version();
-        root.revision();
+        root().revision();
 
         return partState(this.part(), props()) as S;
       },
@@ -117,9 +143,9 @@ export class ɵUiSdkSlot<S extends object> {
       const record = this.part();
       const values = props();
 
-      root.revision();
+      root().revision();
       version();
-      untracked(() => applyAttrs(element, attrs(record, values), channel));
+      untracked(() => applyAttrs(element, attrs(record, values), `ng:${root().id}:${slot}`));
     };
 
     effect(write);
@@ -140,7 +166,7 @@ export class ɵUiSdkSlot<S extends object> {
         return;
       }
 
-      untracked(() => root.delivered());
+      untracked(() => root().delivered());
     });
 
     let unsubscribe: (() => void) | undefined;
@@ -214,11 +240,9 @@ export class ɵUiSdkSlot<S extends object> {
       disconnect?.();
     };
 
-    const unregister = root.register(this);
-
     inject(DestroyRef).onDestroy(() => {
       this.dispose();
-      unregister();
+      unregister?.();
     });
   }
 
@@ -259,11 +283,12 @@ function sameProps(a: Record<string, unknown>, b: Record<string, unknown>): bool
 }
 
 /**
- * Creates the slot for a slot directive. `props` reads its inputs and its internal and fixed
- * props under core's names; `events` lists the directive's static host listeners.
+ * Creates the slot for a slot directive. `root` is its root, or a reader of one another element
+ * holds, read once; `props` reads its inputs and its internal and fixed props under core's names;
+ * `events` lists the directive's static host listeners.
  */
 export function ɵinjectSlot<S extends object>(
-  root: ɵUiSdkRoot<Primitive>,
+  root: ɵUiSdkRootRef,
   slot: string,
   props: () => object,
   options: ɵUiSdkSlotOptions,

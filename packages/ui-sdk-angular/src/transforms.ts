@@ -21,3 +21,17 @@ export function optionalNumber(value: number | string | null | undefined): numbe
 
   return numberAttribute(value);
 }
+
+/**
+ * A checkbox's `checked` from a binding or a static attribute: `"indeterminate"` stays, other
+ * values follow `booleanAttribute`, and `undefined` stays "not passed" to core.
+ */
+export function optionalChecked(
+  value: boolean | string | null | undefined,
+): boolean | "indeterminate" | undefined {
+  if (value === "indeterminate") {
+    return "indeterminate";
+  }
+
+  return optionalBoolean(value);
+}

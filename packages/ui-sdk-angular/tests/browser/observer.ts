@@ -94,7 +94,13 @@ export function observeSlots(): void {
     }
 
     initial.set(node, attributes);
-    owners.set(node, node.closest("[data-ui-sdk-id]")?.getAttribute("data-testid") ?? "unknown");
+    // A form control's hidden input sits beside its control; the fixture names its instance.
+    owners.set(
+      node,
+      node.getAttribute("data-probe-instance") ??
+        node.closest("[data-ui-sdk-id]")?.getAttribute("data-testid") ??
+        "unknown",
+    );
   }
 
   const evidence: Evidence = {
@@ -125,7 +131,9 @@ export function observeSlots(): void {
     });
 
     if (!evidence.instances[instance]) {
-      const root = node.closest("[data-ui-sdk-id]");
+      const root =
+        document.querySelector(`[data-ui-sdk-id][data-testid="${instance}"]`) ??
+        node.closest("[data-ui-sdk-id]");
 
       evidence.instances[instance] = {
         id: root?.getAttribute("data-ui-sdk-id") ?? null,

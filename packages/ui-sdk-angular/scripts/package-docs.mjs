@@ -7,6 +7,9 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 const components = [
   { name: "toggle", title: "Toggle" },
   { name: "select", title: "Select" },
+  { name: "checkbox", title: "Checkbox" },
+  { name: "switch", title: "Switch" },
+  { name: "radio", title: "RadioGroup" },
 ];
 
 const root = new URL("../", import.meta.url);
