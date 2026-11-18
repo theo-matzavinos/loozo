@@ -152,13 +152,19 @@ await test("published root declarations retain documentation for every supported
 await test("published handle signals and every navigation overload retain documentation", async () => {
   const generated = await source("../dist/types/loozo-angular-router-_generated.d.ts");
   const core = await source("../dist/types/loozo-angular-router-_core.d.ts");
-  const handle = declaration(generated, "Handle");
+  // Handle joins a route's own forms and the destination forms every handle offers.
+  declaration(generated, "Handle");
+  const handle = declaration(generated, "RouteHandle");
+  const targets = declaration(generated, "DestinationNavigation");
   const destination = declaration(core, "Destination");
   const missing = [];
 
-  // params, search, data, title, then link and navigate for this route, ".." and a destination.
+  // params, search, data, title, then link and navigate for this route, ".." and its close.
   assert.equal(handle.members.length, 10);
-  checkMembers(handle, "Handle", missing);
+  // link and navigate for a destination and its close.
+  assert.equal(targets.members.length, 4);
+  checkMembers(handle, "RouteHandle", missing);
+  checkMembers(targets, "DestinationNavigation", missing);
   checkMembers(destination, "Destination", missing);
   assert.deepEqual(missing, [], "Published handle and destination members need documentation");
 });
@@ -168,6 +174,7 @@ await test("checked-in generated application exports carry documentation", async
     "../../../examples/angular-router/",
     "../../../examples/angular-router/ssr-proof/",
     "../../../examples/angular-router/localize-proof/",
+    "../../../examples/angular-router/outlets-proof/",
   ]) {
     const routes = await source(`${example}generated/routes.generated.ts`);
     const destination = await source(`${example}src/routes/+home/destination.generated.ts`);

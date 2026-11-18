@@ -13,6 +13,7 @@ export { defineDestination, defineRoute, routeMetadata } from "./route.js";
 export type { RouteMetadata } from "./route.js";
 export { destinationRecord } from "./destination.js";
 export type {
+  Branch,
   Destination,
   DestinationRecord,
   LocalFacts,
@@ -41,8 +42,9 @@ export type {
   StepSignature,
   UrlFacts,
 } from "./fluent.js";
-export { createUrl } from "./url.js";
+export { branchPath, createUrl } from "./url.js";
 export { angularPath } from "./path.js";
+export type { Segment } from "./path.js";
 export { serverRoutePath } from "./server-route-path.js";
 export type {
   Route,
@@ -56,6 +58,7 @@ export type {
   SearchOf,
   FragmentsOf,
   TitleOf,
+  OutletOf,
   RouteSchema,
   routeSchema,
 } from "./types.js";

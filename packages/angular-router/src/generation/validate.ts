@@ -29,10 +29,10 @@ import { seedsCopy } from "./copies.js";
 import type { CompilerState } from "./compiler.js";
 import { AnchorState, type Anchor, type AnchoredDeclaration } from "./anchor.js";
 
-export function authoredPath(declaration: Declaration): string {
+function spellings(segments: readonly Segment[]): string[] {
   const parts: string[] = [];
 
-  for (const segment of declaration.effective) {
+  for (const segment of segments) {
     if (segment.kind === "static") {
       parts.push(segment.text);
     } else if (segment.kind === "catchall") {
@@ -42,11 +42,66 @@ export function authoredPath(declaration: Declaration): string {
     }
   }
 
-  return `/${parts.join("/")}`;
+  return parts;
+}
+
+/**
+ * A declaration's effective path as authored, for diagnostics and ordering only: in a named
+ * outlet, `/products/(detail:item/$id)` or `/(chat:chat/$id)`. Static text can spell
+ * outlet syntax, so it's no identity; {@link positionKey} is.
+ */
+export function authoredPath(declaration: Pick<Declaration, "branch" | "effective">): string {
+  const group = spellings(declaration.effective).join("/");
+  const branch = declaration.branch;
+
+  if (!branch) {
+    return `/${group}`;
+  }
+
+  const anchor = spellings(branch.anchor);
+
+  if (anchor.length === 0) {
+    return `/(${branch.outlet}:${group})`;
+  }
+
+  return `/${anchor.join("/")}/(${branch.outlet}:${group})`;
+}
+
+/**
+ * The identity of a declaration's matching position: its outlet ("primary" outside a named
+ * one), its anchor and its effective segments, each in authored spelling.
+ */
+export function positionKey(declaration: Pick<Declaration, "branch" | "effective">): string {
+  const branch = declaration.branch;
+
+  return JSON.stringify([
+    branch?.outlet ?? "primary",
+    spellings(branch?.anchor ?? []),
+    spellings(declaration.effective),
+  ]);
 }
 
 function compatible(a: Segment, b: Segment): boolean {
   return a.kind !== "static" || b.kind !== "static" || a.text === b.text;
+}
+
+// Whether two declarations can match in the same outlet group: same outlet, and anchors of
+// equal length that can match the same URL.
+function sameGroup(a: Declaration, b: Declaration): boolean {
+  const left = a.branch?.anchor ?? [];
+  const right = b.branch?.anchor ?? [];
+
+  if (a.branch?.outlet !== b.branch?.outlet || left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (!compatible(left[index], right[index])) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function ancestor(a: Declaration, b: Declaration): boolean {
@@ -63,16 +118,32 @@ function ancestor(a: Declaration, b: Declaration): boolean {
   return false;
 }
 
+/**
+ * The winner of each matching position, keyed by {@link positionKey}. Sets `full` on the
+ * empty leaves that match exactly, and `anchorLeaf` instead on those at a named branch's
+ * anchor.
+ */
 export function selections(sources: Sources): Map<string, Declaration> {
   const declarations = sources.declarations.filter(
     (declaration) => declaration.retained || declaration.target,
   );
+
+  for (const declaration of declarations) {
+    if (declaration.target && declaration.branch) {
+      fail(declaration.source, `Redirect sources can't be in a named outlet: ${declaration.id}`);
+    }
+  }
 
   for (let left = 0; left < declarations.length; left += 1) {
     const a = declarations[left];
 
     for (let right = left + 1; right < declarations.length; right += 1) {
       const b = declarations[right];
+
+      if (!sameGroup(a, b)) {
+        continue;
+      }
+
       const catchA = a.effective.at(-1)?.kind === "catchall";
       const catchB = b.effective.at(-1)?.kind === "catchall";
 
@@ -132,21 +203,22 @@ export function selections(sources: Sources): Map<string, Declaration> {
   const groups = new Map<string, Declaration[]>();
 
   for (const declaration of declarations) {
-    const path = authoredPath(declaration);
-    const group = groups.get(path) ?? [];
+    const key = positionKey(declaration);
+    const group = groups.get(key) ?? [];
 
     group.push(declaration);
-    groups.set(path, group);
+    groups.set(key, group);
   }
 
   const result = new Map<string, Declaration>();
+  const exact: Declaration[] = [];
 
-  for (const [path, group] of groups) {
+  for (const [key, group] of groups) {
     if (group.length === 1) {
-      result.set(path, group[0]);
+      result.set(key, group[0]);
 
       if (group[0].path === "" && !group[0].children.some((child) => child.retained)) {
-        group[0].full = true;
+        exact.push(group[0]);
       }
 
       continue;
@@ -155,16 +227,33 @@ export function selections(sources: Sources): Map<string, Declaration> {
     const leaf = group.find((declaration) => !declaration.children.some((child) => child.retained));
 
     if (leaf && leaf.path === "") {
-      leaf.full = true;
-      result.set(path, leaf);
+      exact.push(leaf);
+      result.set(key, leaf);
     }
+  }
+
+  // Angular never matches a full-path empty route while its group has named children, so an
+  // empty leaf at a branch root's anchor matches by prefix and gates its canMatch adapters.
+  const anchors = new Set<string>();
+
+  for (const declaration of declarations) {
+    if (declaration.outlet !== undefined && declaration.retained) {
+      anchors.add(positionKey({ effective: declaration.branch!.anchor }));
+    }
+  }
+
+  for (const leaf of exact) {
+    const anchored = anchors.has(positionKey(leaf));
+
+    leaf.full = !anchored;
+    leaf.anchorLeaf = anchored;
   }
 
   for (const declaration of declarations) {
     if (declaration.target) {
       if (
         (!declaration.target.retained && !declaration.target.target) ||
-        result.get(authoredPath(declaration.target)) !== declaration.target
+        result.get(positionKey(declaration.target)) !== declaration.target
       ) {
         fail(
           declaration.source,

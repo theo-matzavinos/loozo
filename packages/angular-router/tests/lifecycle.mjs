@@ -3549,6 +3549,9 @@ export default class App {
       label: probe.labels.at(-1),
       up: this.router.serializeUrl(route.link({ to: '..' })),
       todos: 'todos' in members,
+      // Composed with the current URL from a timer: the handle injects nothing, and this app
+      // installs no active-route hydration provider.
+      composed: this.router.serializeUrl(route.link({ to: todos })),
     };
 
     // Leaving and coming back makes a new entry, with members of its own.
@@ -3564,8 +3567,17 @@ export default class App {
 
     const rebuilt = again !== route && again.remote !== members && probe.builds - before === 1;
 
+    // The entry a later commit created links and navigates outside any injection context too.
+    await outside();
+
+    const later = {
+      link: this.router.serializeUrl(again.link({ to: todos })),
+      navigated: await again.navigate({ to: todos }),
+    };
+
+    await this.application.whenStable();
+
     // Own and inherited data, on the page's handle and the narrowed active handle.
-    await this.visit('/shell/todos');
 
     const todosPage = (window as any).todosPage;
     const current = this.active();
@@ -3574,7 +3586,7 @@ export default class App {
       active: current?.is(todos) ? [current.remote.todos.list(), current.remote.session.current()] : null,
     };
 
-    return { local: { ...local, navigated }, active: { ...active, rebuilt }, own };
+    return { local: { ...local, navigated }, active: { ...active, rebuilt, later }, own };
   }
 }
 `,
@@ -3766,7 +3778,9 @@ try {
       label: "root",
       up: "/shell",
       todos: false,
+      composed: "/shell/todos",
       rebuilt: true,
+      later: { link: "/shell/todos", navigated: true },
     },
     own: {
       local: ["todos.list()", "session.current()"],

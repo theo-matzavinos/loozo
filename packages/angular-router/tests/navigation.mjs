@@ -579,10 +579,13 @@ if (route?.is(multi)) {
 }
 
 active()?.chain.find((parent) => parent.is(scope))?.link({ params: { scopeId: 'x' } });
-// @ts-expect-error link needs is() first, even with an explicit destination
+// Before narrowing, link and navigate take a destination.
 active()?.link({ to: item, params: { id: 1 } });
-// @ts-expect-error navigate needs is() first
 void active()?.navigate({ to: item, params: { id: 1 } });
+// @ts-expect-error the own form needs is() first
+active()?.link({ params: { id: 1 } });
+// @ts-expect-error the parent form needs is() first
+active()?.link({ to: '..', params: { scopeId: 'x' } });
 // Another tree's destination is a destination; at runtime it is never this tree's route.
 const foreignIs: boolean = active()?.is(foreign) ?? false;
 const foreignContained: boolean = active()?.contains(foreign) ?? false;

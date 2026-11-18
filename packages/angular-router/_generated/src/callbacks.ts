@@ -1,7 +1,9 @@
 import { EnvironmentInjector, inject, runInInjectionContext } from "@angular/core";
 import {
+  PRIMARY_OUTLET,
   Router,
   RedirectCommand,
+  UrlSegmentGroup,
   UrlTree,
   type Route,
   type ActivatedRouteSnapshot,
@@ -12,14 +14,17 @@ import {
   type CanMatchFn,
   type ResolveFn,
   type RedirectFunction,
+  type Routes,
 } from "@angular/router";
 import { from, isObservable, map, type ObservableInput } from "rxjs";
 import {
+  branchPath,
   destinationRecord,
   isArrayCodec,
   routeMetadata,
   type AnyRoute,
-  type UrlMetadata,
+  type DestinationRecord,
+  type Segment,
 } from "@loozo/angular-router/_core";
 import {
   hasIdentity,
@@ -47,8 +52,16 @@ type Callbacks = Pick<
  *
  * Parsing is synchronous, so every adapter calls its callback in the same call Angular
  * made: Angular's injection context is still active and inject() works at entry.
+ *
+ * With `onlyAtEnd`, generation's choice for an empty leaf at a named branch's anchor, which
+ * matches by prefix so it renders beside the branch, each canMatch adapter refuses first
+ * thing when primary segments remain: the leaf's matching callbacks and inputs run only
+ * where the leaf ends the primary path.
  */
-export function callbacks(route: AnyRoute): Callbacks {
+export function callbacks(
+  route: AnyRoute,
+  { onlyAtEnd = false }: { readonly onlyAtEnd?: boolean } = {},
+): Callbacks {
   const own = destinationOf(route);
   const metadata = routeMetadata(route);
   const config = metadata.config;
@@ -103,6 +116,10 @@ export function callbacks(route: AnyRoute): Callbacks {
     const handler = config.onInvalidParams as ((...args: any[]) => unknown) | undefined;
 
     canMatch.push((native, segments, snapshot) => {
+      if (onlyAtEnd && segments.length > 0) {
+        return false;
+      }
+
       const path = pathInputs(route, snapshot);
 
       if (!("error" in path)) {
@@ -130,6 +147,10 @@ export function callbacks(route: AnyRoute): Callbacks {
   if (matching) {
     for (const callback of matching) {
       canMatch.push((native, segments, snapshot) => {
+        if (onlyAtEnd && segments.length > 0) {
+          return false;
+        }
+
         const inputs = matchingCallbackInputs(route, snapshot);
 
         // Invalid path params: the generated guard ahead of this one decides.
@@ -204,7 +225,9 @@ export function redirect(route: AnyRoute): (snapshot: Parameters<RedirectFunctio
     search: { mode: string; values?: Record<string, unknown> };
     fragment: { mode: string; value?: string };
   };
-  const target = destinationRecord(config.to).url;
+  const destination = destinationRecord(config.to);
+  const target = destination.url;
+  const rootBranch = target.branch !== undefined && target.branch.anchor.length === 0;
 
   return (snapshot) => {
     const router = inject(Router);
@@ -246,7 +269,7 @@ export function redirect(route: AnyRoute): (snapshot: Parameters<RedirectFunctio
       params[key] = logical[sourceKey];
     }
 
-    const path = createUrlForPath(target, params);
+    const path = createUrlForPath(destination, params);
     const replacement: Record<string, string | string[]> = Object.create(null);
 
     if (config.search.mode === "replace") {
@@ -279,7 +302,11 @@ export function redirect(route: AnyRoute): (snapshot: Parameters<RedirectFunctio
     }
 
     // No native conversion before source codecs and destination stringification succeed.
-    const tree = router.parseUrl(path);
+    let tree = router.parseUrl(path);
+
+    if (rootBranch) {
+      tree = withEmptyPrimary(tree, router.config);
+    }
 
     if (config.search.mode === "preserve") {
       tree.queryParams = { ...snapshot.queryParams };
@@ -295,6 +322,40 @@ export function redirect(route: AnyRoute): (snapshot: Parameters<RedirectFunctio
 
     return tree;
   };
+}
+
+/**
+ * A fresh URL's recognition first splits the root, giving each empty-path route that can
+ * match beside a named outlet an empty group of its own; Angular re-matches an absolute
+ * redirect's tree as returned, without that split. So a redirect into a root-level branch
+ * returns the empty primary group itself, when the root config has a route that the split
+ * would give one (an empty path that matches by prefix), and renders what loading its URL does.
+ */
+function withEmptyPrimary(tree: UrlTree, config: Routes): UrlTree {
+  let eligible = false;
+
+  for (const route of config) {
+    if (
+      route.path === "" &&
+      route.pathMatch !== "full" &&
+      (route.outlet || PRIMARY_OUTLET) === PRIMARY_OUTLET
+    ) {
+      eligible = true;
+
+      break;
+    }
+  }
+
+  if (!eligible) {
+    return tree;
+  }
+
+  const root = new UrlSegmentGroup([], {
+    [PRIMARY_OUTLET]: new UrlSegmentGroup([], {}),
+    ...tree.root.children,
+  });
+
+  return new UrlTree(root, tree.queryParams, tree.fragment);
 }
 
 /**
@@ -325,8 +386,9 @@ function stringifySearch(
   return raw;
 }
 
-function createUrlForPath(metadata: UrlMetadata, params: Record<string, unknown>): string {
-  const parts: string[] = [];
+// A redirect into a named outlet replaces the whole URL with that destination's own URL.
+function createUrlForPath(destination: DestinationRecord, params: Record<string, unknown>): string {
+  const metadata = destination.url;
 
   function encode(raw: string): string {
     if (raw === "" || raw === "." || raw === "..") {
@@ -336,35 +398,43 @@ function createUrlForPath(metadata: UrlMetadata, params: Record<string, unknown>
     return encodeURIComponent(raw).replace(/\(/g, "%28").replace(/\)/g, "%29");
   }
 
-  for (const segment of metadata.segments) {
-    if (segment.kind === "static") {
-      parts.push(encode(segment.text));
-    } else if (segment.kind === "scalar") {
-      const raw = metadata.params[segment.name].stringify(params[segment.name]);
+  function serialize(segments: readonly Segment[]): string[] {
+    const parts: string[] = [];
 
-      if (typeof raw !== "string") {
-        throw new TypeError("Redirect codec must stringify to a string");
-      }
-
-      parts.push(encode(raw));
-    } else {
-      const values = params[segment.name];
-
-      if (!Array.isArray(values)) {
-        throw new TypeError("Redirect catchall requires an array");
-      }
-
-      for (const value of values) {
-        const raw = metadata.params[segment.name].stringify(value);
+    for (const segment of segments) {
+      if (segment.kind === "static") {
+        parts.push(encode(segment.text));
+      } else if (segment.kind === "scalar") {
+        const raw = metadata.params[segment.name].stringify(params[segment.name]);
 
         if (typeof raw !== "string") {
           throw new TypeError("Redirect codec must stringify to a string");
         }
 
         parts.push(encode(raw));
+      } else {
+        const values = params[segment.name];
+
+        if (!Array.isArray(values)) {
+          throw new TypeError("Redirect catchall requires an array");
+        }
+
+        for (const value of values) {
+          const raw = metadata.params[segment.name].stringify(value);
+
+          if (typeof raw !== "string") {
+            throw new TypeError("Redirect codec must stringify to a string");
+          }
+
+          parts.push(encode(raw));
+        }
       }
     }
+
+    return parts;
   }
 
-  return `/${parts.join("/")}`;
+  const anchor = serialize(metadata.branch?.anchor ?? []);
+
+  return branchPath(metadata.branch, anchor, serialize(metadata.segments), destination.id);
 }

@@ -33,7 +33,7 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 ...callbacks(route_teams_$teamId_route),
 loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("../src/routes/teams/$teamId/children.generated.js").then((m) => m.routes) }];
 
-/** Each generated route's types by id: its schema and, when it has one, its `..` destination. */
+/** Each generated primary-outlet route's types by id: its schema and, when it has one, its `..` destination. */
 export type RouteTypes = {
 "src/routes/products/$productId/route.ts": { schema: RouteSchema<typeof route_products_$productId_route> };
 "src/routes/reports/$reportId/route.ts": { schema: RouteSchema<typeof route_reports_$reportId_route> };
@@ -43,7 +43,7 @@ export type RouteTypes = {
 };
 /** An active route narrowed by is(): that declaration's handle. */
 export type ActiveHandle<Id extends keyof RouteTypes> = GeneratedActiveHandle<RouteTypes, Id>;
-/** An active route before narrowing: params, search, data and title read as the union of the tree's values; link and navigate need is(). */
+/** An active route before narrowing: params, search, data and title read as the union of the tree's values; link and navigate take a destination, and their own and `..` forms need is(). */
 export type ActiveRoute = GeneratedActiveRoute<RouteTypes>;
 /**
  * Injects a signal of the deepest active generated route in the primary outlet.
@@ -52,8 +52,8 @@ export type ActiveRoute = GeneratedActiveRoute<RouteTypes>;
  * Call in an Angular injection context. The value changes only when a navigation
  * commits, and is undefined before the first one (on a server-rendered page with
  * provideActiveRouteHydration(), it reads the server's route until then) or when no
- * generated route is active. A route keeps its handle while it stays active; each call
- * is its own reader.
+ * generated route is active. It never selects a named-outlet route. A route keeps its
+ * handle while it stays active; each call is its own reader.
  */
 export function injectActiveRoute(): Signal<ActiveRoute | undefined> {
   return injectGeneratedActiveRoute<RouteTypes>();

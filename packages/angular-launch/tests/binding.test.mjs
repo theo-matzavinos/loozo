@@ -32,12 +32,17 @@ import { defineRoute } from "../dist/index.js";
 import { application as bind } from "./fixtures/application.mjs";
 import {
   account,
+  chat,
   docsOld,
   help,
+  note,
   pathless,
+  productItem,
+  productShelf,
   root,
   signIn,
   signInNext,
+  teamItem,
   todo,
 } from "./fixtures/destinations.mjs";
 
@@ -405,6 +410,12 @@ const redirectTargets = {
   docsOld: () => redirect(docsOld, {}),
   search: () => redirect(signInNext, { search: { next: "/todos" } }),
   fragment: () => redirect(todo, { params: { id: 2 }, fragment: "title" }),
+  nested: () => redirect(productItem, { params: { id: "3" } }),
+  rootBranch: () => redirect(chat, { params: { id: "chat" } }),
+  dynamicAnchor: () => redirect(teamItem, { params: { team: "products", id: "item" } }),
+  shelf: () => redirect(productShelf, { params: { rest: ["item", "products", "x"] } }),
+  shelfEmpty: () => redirect(productShelf, { params: { rest: [] } }),
+  noStatic: () => redirect(note, { params: { note: "chat" } }),
 };
 
 function redirecting(translateSegments) {
@@ -428,7 +439,7 @@ function redirecting(translateSegments) {
   });
 }
 
-test("redirect frames list their static word positions only in a translated application", async () => {
+test("redirect frames list their static segment ordinals only in a translated application", async () => {
   const expected = {
     signIn: ["/sign-in", [0]],
     root: ["/", undefined],
@@ -439,6 +450,13 @@ test("redirect frames list their static word positions only in a translated appl
     docsOld: ["/docs/old", [0, 1]],
     search: ["/sign-in?next=%2Ftodos", [0]],
     fragment: ["/todos/2#title", [0]],
+    // Named outlets: the anchor's segments, then the group's; the outlet label is none.
+    nested: ["/products/(detail:item/3)", [0, 1]],
+    rootBranch: ["/(chat:chat/chat)", [0]],
+    dynamicAnchor: ["/teams/products/(detail:item/item)", [0, 2]],
+    shelf: ["/products/(detail:shelf/item/products/x)", [0, 1]],
+    shelfEmpty: ["/products/(detail:shelf)", [0, 1]],
+    noStatic: ["/(aside:chat)", undefined],
   };
 
   for (const translated of [undefined, true]) {

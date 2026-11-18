@@ -2,6 +2,12 @@ import { defineRoute } from "@loozo/angular-launch";
 import { notFound, readCookies, redirect, type Schema } from "@loozo/angular-launch/server";
 import { destination as account } from "./account/$id/sign-in/destination.generated";
 import { destination as anmelden } from "./anmelden/destination.generated";
+import { destination as chat } from "./chat/$id/destination.generated";
+import { destination as note } from "./$note/destination.generated";
+import { destination as products } from "./products/destination.generated";
+import { destination as productItem } from "./products/item/$id/destination.generated";
+import { destination as shelf } from "./products/shelf/$rest[]/destination.generated";
+import { destination as teamItem } from "./teams/$team/item/$id/destination.generated";
 import { destination as docsOld } from "./docs/old/destination.generated";
 import { destination as help } from "./help/$topic[]/destination.generated";
 import { destination as manualsStart } from "./manuals/start/destination.generated";
@@ -15,6 +21,19 @@ const redirects: Readonly<Record<string, () => Error>> = {
   "docs-old": () => redirect(docsOld, {}),
   "manuals-start": () => redirect(manualsStart, {}),
   anmelden: () => redirect(anmelden, {}),
+  // Named outlets: an outlet name is never a word, and values stay as they are.
+  nested: () => redirect(productItem, { params: { id: "3" } }),
+  "root-branch": () => redirect(chat, { params: { id: "7" } }),
+  "root-branch-word": () => redirect(chat, { params: { id: "chat" } }),
+  "dynamic-anchor": () => redirect(teamItem, { params: { team: "products", id: "item" } }),
+  shelf: () => redirect(shelf, { params: { rest: ["shelf", "item", "products"] } }),
+  "shelf-empty": () => redirect(shelf, { params: { rest: [] } }),
+  encoded: () => redirect(productItem, { params: { id: "a/b:c(d)e%f&g@h$i,j ä" } }),
+  "no-static": () => redirect(note, { params: { note: "chat" } }),
+  // A primary value that looks like outlet syntax, and a repeated search key with a fragment.
+  lookalike: () => redirect(account, { params: { id: "(detail:item)" } }),
+  query: () =>
+    redirect(products, { search: { tag: ["a", "b&c", "a", "ä"] }, fragment: "über & (uns)" }),
 };
 
 const target: Schema<string> = {

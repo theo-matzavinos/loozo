@@ -10,10 +10,16 @@ import {
 } from "@angular/core";
 import { NavigationEnd, Router, type ActivatedRoute, type Route } from "@angular/router";
 import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
+import { injectNavigationBase } from "./base.js";
 import { committedChain } from "./committed.js";
 import { observeRecord, seededView, type RouteView } from "./handle.js";
 import { SEED, type SeededChain } from "./hydration.js";
-import { addMembers, createDestinationHandle, type Handle } from "./index.js";
+import {
+  addMembers,
+  createDestinationHandle,
+  type DestinationNavigation,
+  type Handle,
+} from "./index.js";
 import { recordExtension, recordFacts, type RecordFacts } from "./record.js";
 
 /**
@@ -26,7 +32,7 @@ export interface RouteTypeEntry {
   readonly members?: object;
 }
 
-/** Each generated route's types by id, as `routes.generated.ts` emits them in `RouteTypes`. */
+/** Each generated primary-outlet route's types by id, as `routes.generated.ts` emits them in `RouteTypes`. */
 export type RouteTypeMap = { readonly [id: string]: RouteTypeEntry };
 
 type UpOf<Entry> = Entry extends { readonly up: infer Up extends Destination<AnyRoute> }
@@ -55,13 +61,15 @@ export type ActiveHandle<Types extends RouteTypeMap, Id extends keyof Types> = H
 
 /**
  * An active route before narrowing: params, search, data and title read as the union of
- * the tree's values; link and navigate need is().
+ * the tree's values; link and navigate take a destination (`to`), its close included,
+ * and its own and `..` forms need is().
  */
 export type ActiveRoute<Types extends RouteTypeMap> = Pick<
   Handle<Types[keyof Types]["schema"]>,
   "params" | "search" | "data" | "title"
 > &
-  ActiveBase<Types>;
+  ActiveBase<Types> &
+  DestinationNavigation;
 
 interface ActiveEntryHandle extends Handle<AnyRoute, Destination<AnyRoute>> {
   is(destination: unknown): boolean;
@@ -90,8 +98,9 @@ interface SeededEntry {
  * wraps it with its `RouteTypes`.
  *
  * @remarks
- * Each active record's own generated facts give its destination and `..` target; native
- * records, which carry none, are skipped, and nothing filters generated records by tree.
+ * The reader walks the primary child at each level, never a named outlet's, so it never
+ * selects a named-outlet record. Each active record's own generated facts give its
+ * destination and `..` target; native records, which carry none, are skipped.
  * `is` and `contains` take a genuine destination and compare identities. A record stamped
  * with its route extension gives its entry that extension's members, built with this
  * reader's injector, once per entry.
@@ -109,6 +118,10 @@ interface SeededEntry {
  * chain. Its first live reconcile adopts them, top-level first and only while each matches
  * the live record's destination below an adopted parent, when the seed was handed over to
  * that same commit; otherwise, and once that reconcile is done, it drops them for good.
+ *
+ * Every handle the reader creates, seeded, live or at a later commit, composes its links
+ * with the URL from one navigation base this call injects, so creating and using a handle
+ * needs no injection context. Before narrowing, `link` and `navigate` take a destination.
  */
 export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal<
   ActiveRoute<Types> | undefined
@@ -116,6 +129,7 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
   const router = inject(Router);
   const destroyRef = inject(DestroyRef);
   const seed = inject(SEED, { optional: true });
+  const base = injectNavigationBase();
   // Extension members build with the reader's injector: Angular exposes no activated
   // route's environment injector.
   const injector = inject(Injector);
@@ -143,9 +157,9 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
     }
 
     const chain: ActiveEntryHandle[] = [...(parent?.handle.chain ?? [])];
-    const base = createDestinationHandle(own, up, router, view);
+    const destinationHandle = createDestinationHandle(own, up, router, view, base);
     const handle: ActiveEntryHandle = {
-      ...base,
+      ...destinationHandle,
       is: (destination) => {
         destinationRecord(destination);
 

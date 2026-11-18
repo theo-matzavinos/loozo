@@ -108,12 +108,13 @@ No leading, trailing or repeated slashes. A catchall must be the last segment, a
 
 ### URL facts and steps
 
-| URL fact    | Purpose                                                                                 |
-| ----------- | --------------------------------------------------------------------------------------- |
-| `parent`    | The parent route, imported as the parent declaration's default export                   |
-| `params`    | One codec per path param, keyed by bare name. Required exactly when the path has params |
-| `search`    | Codecs for query params                                                                 |
-| `fragments` | The fragment names this route accepts                                                   |
+| URL fact    | Purpose                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `parent`    | The parent route, imported as the parent declaration's default export                       |
+| `params`    | One codec per path param, keyed by bare name. Required exactly when the path has params     |
+| `search`    | Codecs for query params                                                                     |
+| `fragments` | The fragment names this route accepts                                                       |
+| `outlet`    | The named outlet this route and its descendants render in ([Named outlets](#named-outlets)) |
 
 | Step                                                                          | Purpose                                                                               |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -126,7 +127,7 @@ No leading, trailing or repeated slashes. A catchall must be the last segment, a
 
 Each step takes one argument and returns a new route without that step, so steps come in any order, each at most once. `.redirect` comes last and isn't offered after a guard step or `.onInvalidParams`; `.onInvalidParams` is only offered when the path has params of its own. TypeScript reports a step used out of place as a missing property at that call.
 
-The facts object takes nothing else: behavior keys belong in steps, and structural keys such as `path`, `children`, `component`, `loadComponent`, `redirectTo`, `pathMatch`, `matcher` and `outlet` are rejected because generation owns them.
+The facts object takes nothing else: behavior keys belong in steps, and structural keys such as `path`, `children`, `component`, `loadComponent`, `redirectTo`, `pathMatch` and `matcher` are rejected because generation owns them.
 
 ### Parents
 
@@ -222,11 +223,59 @@ Reading `params` or `search` throws only if a path codec rejects a value it acce
 
 Without `to`, the call targets this route. `".."` targets the parent route: the nearest route above it with a shorter path, or the root route for a top-level route; TypeScript offers it only when that route exists. Otherwise `to` is a route's `destination`, imported from its `destination.generated.ts`. There are no string paths and no other relative selectors, and the values are always typed for the target route.
 
-Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it.
+Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. The URL itself is composed with the current one, so open [named outlets](#named-outlets) stay open where they still fit; call `link` where it renders, in a template or a `computed`, so it follows navigations.
 
 The rest of a `navigate` object is Angular's `NavigationBehaviorOptions`, such as `replaceUrl`, `state`, `info` or `skipLocationChange`, passed to `navigateByUrl` as given. The last call above uses `replaceUrl` to replace the current history entry instead of adding one, as a filter input that updates the search on every keystroke would. `link` takes no behavior options; set them as `RouterLink` inputs instead, such as `[replaceUrl]` or `[state]`.
 
 `to` takes only a genuine destination imported from a `destination.generated.ts`. A spread or copy of one, a declaration, or the `route` a `route.generated.ts` exports fails to type-check and throws a `TypeError` at runtime.
+
+### Named outlets
+
+A route with `outlet` renders in that named outlet of its parent's page, next to the parent's primary child; its children render inside it. Templates own the outlets, as in plain Angular:
+
+```ts
+// src/routes/chat/$id/route.ts: a panel next to any page, /(chat:chat/7)
+export default defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });
+
+// src/routes/products/item/$id/route.ts: a detail pane next to the products list, /products/(list//detail:item/3)
+export default defineRoute("item/$id", { parent, outlet: "detail", params: { id: numberParam } });
+
+// src/routes/chat/$rest[]/route.ts: the chat outlet's not-found panel
+export default defineRoute("$rest[]", { outlet: "chat", params: { rest: stringParam } });
+
+@Component({ imports: [RouterOutlet], template: `<router-outlet /><router-outlet name="chat" />` })
+export default class Shell {}
+```
+
+An outlet name is a letter followed by letters, digits, `-` or `_`. A route in a named outlet needs a nonempty path, can't name another outlet below it, and declares no `search` or `fragments`: the query and fragment belong to the primary route, and it still reads the search its primary ancestors declare. Its links take params only.
+
+Links and navigations open, replace and close branches and keep the rest of the URL:
+
+```ts
+readonly route = injectRoute(); // in the products list page
+readonly openItem = computed(() => this.route.link({ to: item, params: { id: 3 } }));
+// /products/(list//detail:item/3)?sort=price, with the branches open now
+void this.route.navigate({ to: chat, params: { id: 7 } }); // opens chat, or replaces what it shows
+
+readonly own = injectRoute(); // in the chat page, or any page inside the chat branch
+void this.own.navigate({ params: { id: 8 } }); // replaces the branch in place
+readonly closeLink = computed(() => this.own.link({ close: true })); // <a [routerLink]="closeLink()">×</a>
+
+readonly active = injectActiveRoute(); // in a shell, no is() needed
+void this.active()?.navigate({ to: chat, close: true }); // closes chat, whatever it shows
+```
+
+- A primary navigation keeps every open branch whose anchor is still on the new path: chat (at the root) always, a product detail while you stay on products, not when you switch team. Its query and fragment are the target's. Opening or closing a branch whose anchor is on the current path keeps the primary path, query and fragment; opening one whose anchor isn't (an item detail from `/plain`) navigates to its anchor, `/products/(detail:item/3)`, keeping only the branches that still fit there and dropping the query and fragment.
+- A close with nothing to close leaves the URL unchanged, and Angular's `onSameUrlNavigation` decides: by default the navigation is skipped and resolves `false`. With `"reload"`, Angular matches the URL again (`canMatch` runs) and activation guards and resolvers follow `runGuardsAndResolvers`.
+- `createUrl(chat, { params: { id: 7 } })` is the exact URL, `/(chat:chat/7)`, with no other branch; `router.navigateByUrl(createUrl(plain, {}))` clears every branch.
+- Build links where they render. A link stored once in a field keeps the branches that were open when it ran.
+- A guard in a branch belongs to the whole navigation: refusing it cancels a primary change too.
+- An unknown path or a rejected param in a named outlet fails the navigation; the root catchall covers the primary outlet only, so give each named outlet its own `$rest[]` catchall. Its value needs at least one segment: `[]` for a catchall-only branch path throws when the link is built.
+- A redirect into a branch replaces the whole URL with that branch's own URL and keeps its search policy; redirect sources can't be in a named outlet. An empty route at the anchor, such as home beside chat, renders beside it.
+- `..` inside a branch stays in the branch; a branch root has no `..`.
+- Launch's `redirect()` into a branch, with translated URLs too, is Launch's: see its [Translated URLs](../angular-launch/README.md#translated-urls).
+
+The proofs run on Angular 22.2.6. Earlier 22.x releases lack 22.2.4's fix for empty-path routes traversed through another outlet (angular/angular@ea8cdc4), which concerns hand-written empty-path routes beside named outlets and generated named routes below a pathless parent. [`examples/angular-router/outlets-proof`](../../examples/angular-router/outlets-proof/README.md) is a working SSR app with root and nested branches.
 
 ### The active route
 
@@ -234,9 +283,9 @@ Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads th
 
 [src/shell.ts](snippets/src/shell.ts)
 
-`injectActiveRoute()` needs an injection context and returns a signal of the deepest active route. It's `undefined` before the first navigation (on a server-rendered page with [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), the server's route until then), and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
+`injectActiveRoute()` needs an injection context and returns a signal of the deepest active route in the primary outlet; a route in a [named outlet](#named-outlets) is never the active route. It's `undefined` before the first navigation (on a server-rendered page with [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), the server's route until then), and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
 
-Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, and:
+Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, `link` and `navigate` with a `to` destination (a close included, [Named outlets](#named-outlets)), and:
 
 - `is(destination)`: whether it's exactly that route, not one of its ancestors. It narrows the route to that route's handle, with its `link` and `navigate`.
 - `contains(destination)`: whether that route is this one or one of its ancestors.
@@ -367,6 +416,8 @@ Declarations look the same, but the builder never creates or edits them, and dir
 The generated routes work with Angular SSR and `provideClientHydration` without extra setup; [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages) is optional. There's no data transfer cache or custom renderer. Parsing is synchronous and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values and resolved data.
 
 [`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with a search fallback, a resolver, a redirect and hydration.
+
+Angular SSR picks a server route by pathname and doesn't read outlet syntax, so a URL with a named outlet, such as `/products(chat:chat/7)`, reaches your `**` server route. Declare a root catchall (`defineRoute("$segments[]", …)`, your not-found page) so it renders instead of answering 404. `serverRoutePath` rejects a destination in a named outlet.
 
 ### The active route on hydrated pages
 
@@ -588,7 +639,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - No standalone generation CLI or public route-graph API. Generate through the two builders.
 - Route and page files must be `.ts`; `.mts`, `.cts` and `.tsx` are ignored without a warning. This stays after 1.0: Angular templates aren't JSX, and Angular's tooling isn't set up for components in `.mts` or `.cts` files.
 - Route declarations can't use custom matchers or write `loadChildren`; generation emits `loadChildren` for every route with children ([Lazy route children](#lazy-route-children)).
-- Primary outlet only, for now. Named outlets are planned for 1.0. Until then you can add outlet routes by hand next to the generated `routes`; they aren't typed, and typed navigation drops any outlet segment from the URL.
+- [Named outlets](#named-outlets) don't nest, have no empty-path routes, own no search or fragments, and can't hold redirect sources. One navigation opens or closes one branch. Filesystem mode has no directory convention for them: write `outlet` in the route file. Hand-written outlet routes aren't validated against generated ones, and next to a generated empty route they leave it full-match, so declare branches with `outlet`.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
 - [Translated URLs](#translated-urls) have no links to the same page in another locale, SEO alternate links, locale detection or redirects, or switching locale inside one build; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.

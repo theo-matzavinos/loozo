@@ -9,12 +9,14 @@ import type {
   AnyRoute,
   CodecMap,
   EffectiveData,
+  EffectiveOutlet,
   EffectiveParams,
   EffectiveSearch,
   EffectiveTitle,
   InvalidParamsHandler,
   LocalParams,
   MatchingGuard,
+  OutletOf,
   ParamsOf,
   Redirect,
   Resolver,
@@ -28,7 +30,8 @@ import type {
  * URL facts: the only object `defineRoute` takes. Behavior goes in chained steps.
  * Local params/search cannot redeclare keys inherited from the parent.
  *
- * @typeParam Parent - The parent's schema, which the inherited-key and catchall checks read.
+ * @typeParam Parent - The parent's schema, which the inherited-key, catchall and outlet checks read.
+ * @typeParam Outlet - The `outlet` fact, or undefined.
  * @typeParam ParentRef - What `parent` takes: the parent route itself, or, for a
  * destination, the parent destination whose target is `Parent`.
  */
@@ -38,17 +41,32 @@ export type UrlFacts<
   Params extends Record<string, PathCodec>,
   Search extends CodecMap,
   Fragments extends readonly string[],
+  Outlet extends string | undefined = undefined,
   ParentRef = Parent,
 > = {
   /** Genuine authored parent; pathless nodes retain inherited input ownership. */
   parent?: ParentRef &
-    (Parent extends Route<string, any, any, any, any, true, any, any> ? never : unknown);
-  /** Local search codecs; a plain key is absent unless present and valid. withFallback and arrayParam keys always read a value. */
+    (Parent extends Route<string, any, any, any, any, true, any, any, any> ? never : unknown);
+  /**
+   * The named outlet this route and its descendants render in, beside the parent's primary
+   * child. Needs a nonempty path; a route inside a named outlet can't name another.
+   */
+  outlet?: Outlet &
+    (OutletOf<Parent> extends string ? never : unknown) &
+    (Path extends "" ? never : unknown);
+  /**
+   * Local search codecs; a plain key is absent unless present and valid. withFallback and
+   * arrayParam keys always read a value. Not in a named outlet: the query belongs to the primary route.
+   */
   search?: Search &
     Record<Extract<keyof Search, keyof SearchOf<Parent>>, never> &
-    SyncCodecs<NoInfer<Search>>;
-  /** Local logical anchor names, never inherited; this does not enable scrolling. */
-  fragments?: Fragments;
+    SyncCodecs<NoInfer<Search>> &
+    (InBranch<Parent, Outlet> extends true ? never : unknown);
+  /**
+   * Local logical anchor names, never inherited; this does not enable scrolling. Not in a
+   * named outlet: the fragment belongs to the primary route.
+   */
+  fragments?: Fragments & (InBranch<Parent, Outlet> extends true ? never : unknown);
 } & (PathNames<Path> extends never
   ? {
       /** Paths without local placeholders cannot declare a params map. */
@@ -64,6 +82,13 @@ export type UrlFacts<
         > &
         SyncCodecs<NoInfer<Params>>;
     });
+
+// A route in a named outlet: its own `outlet` fact, or a parent in one.
+type InBranch<Parent, Outlet> = Outlet extends string
+  ? true
+  : OutletOf<Parent> extends string
+    ? true
+    : false;
 
 type Guard = "canMatch" | "canActivate" | "canActivateChild" | "canDeactivate";
 /** The router's own chained steps. */
@@ -194,7 +219,7 @@ type X<E extends ExtensionSpec, Parent, Own extends object> = Apply<
 type Eff<P extends string, Params, Parent> = EffectiveParams<P, Params, Parent>;
 type Srch<Search, Parent> = EffectiveSearch<Search, Parent>;
 
-/** A compact parent witness: its effective types and contribution chain, without its steps. */
+/** A compact parent witness: its effective types, outlet and contribution chain, without its steps. */
 export type ParentSchema<Parent> = Parent extends AnyRoute
   ? Route<
       string,
@@ -204,7 +229,8 @@ export type ParentSchema<Parent> = Parent extends AnyRoute
       never,
       boolean,
       Parent extends { readonly __data?: infer Data } ? Data : {},
-      TitleOf<Parent>
+      TitleOf<Parent>,
+      OutletOf<Parent>
     > & { readonly __contribution?: ContributionOf<Parent> }
   : undefined;
 
@@ -220,6 +246,7 @@ export interface RouteSteps<
   R,
   F extends readonly string[],
   T,
+  O extends string | undefined,
   Used extends RouterStep,
   E extends ExtensionSpec,
   Own extends object,
@@ -234,25 +261,38 @@ export interface RouteSteps<
       MatchingGuard<LocalParams<P, Params>, Srch<Search, Parent>>,
       X<E, Parent, Own>
     >[],
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "canMatch", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, R, F, T, O, Used | "canMatch", E, Own, Remaining>;
   /** Activation guards with effective inherited and local parsed inputs. */
   canActivate(
     guards: readonly Enrich<
       ActivationGuard<Eff<P, Params, Parent>, Srch<Search, Parent>>,
       X<E, Parent, Own>
     >[],
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "canActivate", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, R, F, T, O, Used | "canActivate", E, Own, Remaining>;
   /** Guards with declaring-parent inputs and Angular's native child snapshot. */
   canActivateChild(
     guards: readonly Enrich<
       ActivationGuard<Eff<P, Params, Parent>, Srch<Search, Parent>>,
       X<E, Parent, Own>
     >[],
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "canActivateChild", E, Own, Remaining>;
+  ): RouteBuilder<
+    P,
+    Parent,
+    Params,
+    Search,
+    R,
+    F,
+    T,
+    O,
+    Used | "canActivateChild",
+    E,
+    Own,
+    Remaining
+  >;
   /** Native component-first guard functions/tokens, without automatic input parsing. */
   canDeactivate(
     guards: NonNullable<NativeRoute["canDeactivate"]>,
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "canDeactivate", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, R, F, T, O, Used | "canDeactivate", E, Own, Remaining>;
   /** Local parsed-input resolvers; not snapshot-first native ResolveFn callbacks. */
   resolve<New>(
     resolvers: New &
@@ -260,21 +300,21 @@ export interface RouteSteps<
         PropertyKey,
         Enrich<Resolver<Eff<P, Params, Parent>, Srch<Search, Parent>>, X<E, Parent, Own>>
       >,
-  ): RouteBuilder<P, Parent, Params, Search, New, F, T, Used | "resolve", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, New, F, T, O, Used | "resolve", E, Own, Remaining>;
   /** A static title, or a parsed-input callback; not a snapshot-first native ResolveFn. */
   title(
     title:
       | string
       | Enrich<TitleResolver<Eff<P, Params, Parent>, Srch<Search, Parent>>, X<E, Parent, Own>>,
-  ): RouteBuilder<P, Parent, Params, Search, R, F, string, Used | "title", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, R, F, string, O, Used | "title", E, Own, Remaining>;
   /** Native route-scoped providers; provider factories are not run at declaration. */
   providers(
     providers: NonNullable<NativeRoute["providers"]>,
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "providers", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, R, F, T, O, Used | "providers", E, Own, Remaining>;
   /** Native static data, forwarded as authored. */
   data(
     data: NonNullable<NativeRoute["data"]>,
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "data", E, Own, Remaining>;
+  ): RouteBuilder<P, Parent, Params, Search, R, F, T, O, Used | "data", E, Own, Remaining>;
   /** Native rerun policy. Use paramsOrQueryParamsChange for query-dependent data. */
   runGuardsAndResolvers(
     policy: RunGuardsAndResolvers,
@@ -286,6 +326,7 @@ export interface RouteSteps<
     R,
     F,
     T,
+    O,
     Used | "runGuardsAndResolvers",
     E,
     Own,
@@ -298,14 +339,27 @@ export interface RouteSteps<
    */
   onInvalidParams(
     handler: InvalidParamsHandler,
-  ): RouteBuilder<P, Parent, Params, Search, R, F, T, Used | "onInvalidParams", E, Own, Remaining>;
+  ): RouteBuilder<
+    P,
+    Parent,
+    Params,
+    Search,
+    R,
+    F,
+    T,
+    O,
+    Used | "onInvalidParams",
+    E,
+    Own,
+    Remaining
+  >;
   /**
    * A typed native redirect to a destination. Terminal: no step follows it, and it
    * isn't offered after any guard step or onInvalidParams.
    */
   redirect<Target extends AnyRoute, Keys extends keyof SearchOf<NoInfer<Target>> = never>(
     redirect: Redirect<Eff<P, Params, Parent>, Target, Keys>,
-  ): RouteEnd<P, Parent, Params, Search, R, F, T, E, Own>;
+  ): RouteEnd<P, Parent, Params, Search, R, F, T, O, E, Own>;
 }
 
 /** The method-free declaration with its witnesses. */
@@ -317,6 +371,7 @@ export type RouteEnd<
   R,
   F extends readonly string[],
   T,
+  O extends string | undefined,
   E extends ExtensionSpec,
   Own extends object,
 > = Route<
@@ -327,7 +382,8 @@ export type RouteEnd<
   F[number],
   CatchallName<P> extends never ? false : true,
   EffectiveData<R, Parent>,
-  EffectiveTitle<T, Parent>
+  EffectiveTitle<T, Parent>,
+  O
 > &
   Witness<E, ChainOf<Parent, Own>>;
 
@@ -340,6 +396,7 @@ type ContributedSteps<
   R,
   F extends readonly string[],
   T,
+  O extends string | undefined,
   E extends ExtensionSpec,
   Own extends object,
   Remaining extends readonly ExtensionStep[],
@@ -356,6 +413,7 @@ type ContributedSteps<
     R,
     F,
     T,
+    O,
     never,
     E,
     Merge<Own, StepOwn<Entry["type"], ChainOf<Parent, Own>, A>>,
@@ -363,7 +421,11 @@ type ContributedSteps<
   >;
 };
 
-/** Every chain stage, including the exported chain end. */
+/**
+ * Every chain stage, including the exported chain end.
+ *
+ * @typeParam O - The route's outlet: its own `outlet` fact or its parent's, undefined in the primary outlet.
+ */
 export type RouteBuilder<
   P extends string,
   Parent extends AnyRoute | undefined,
@@ -372,13 +434,14 @@ export type RouteBuilder<
   R,
   F extends readonly string[],
   T,
+  O extends string | undefined = undefined,
   Used extends RouterStep = never,
   E extends ExtensionSpec = NoExtension,
   Own extends object = {},
   Remaining extends readonly ExtensionStep[] = E["steps"],
-> = RouteEnd<P, Parent, Params, Search, R, F, T, E, Own> &
+> = RouteEnd<P, Parent, Params, Search, R, F, T, O, E, Own> &
   Pick<
-    RouteSteps<P, Parent, Params, Search, R, F, T, Used, E, Own, Remaining>,
+    RouteSteps<P, Parent, Params, Search, R, F, T, O, Used, E, Own, Remaining>,
     Exclude<
       RouterStep,
       | Used
@@ -389,7 +452,7 @@ export type RouteBuilder<
   ([Used] extends [never]
     ? Remaining extends readonly []
       ? {}
-      : ContributedSteps<P, Parent, Params, Search, R, F, T, E, Own, Remaining>
+      : ContributedSteps<P, Parent, Params, Search, R, F, T, O, E, Own, Remaining>
     : {});
 
 /**
@@ -446,10 +509,22 @@ export interface RouteFactory<E extends ExtensionSpec> {
     Params extends Record<string, PathCodec> = {},
     Search extends CodecMap = {},
     const F extends readonly string[] = [],
+    const Outlet extends string | undefined = undefined,
   >(
     path: P & ValidPath<P>,
-    facts: UrlFacts<P, Parent, Params, Search, F>,
-  ): RouteBuilder<P, ParentSchema<Parent>, Params, Search, {}, F, unknown, never, E>;
+    facts: UrlFacts<P, Parent, Params, Search, F, Outlet>,
+  ): RouteBuilder<
+    P,
+    ParentSchema<Parent>,
+    Params,
+    Search,
+    {},
+    F,
+    unknown,
+    EffectiveOutlet<Outlet, Parent>,
+    never,
+    E
+  >;
 }
 
 /**
@@ -567,10 +642,22 @@ type CopyOf<D, Parent extends AnyRoute | undefined, E extends ExtensionSpec> =
       infer P extends string,
       infer Params extends Record<string, PathCodec>,
       infer Search extends CodecMap,
-      infer F extends readonly string[]
+      infer F extends readonly string[],
+      infer Outlet extends string | undefined
     >;
   }
-    ? RouteBuilder<P, ParentSchema<Parent>, Params, Search, {}, F, unknown, never, E>
+    ? RouteBuilder<
+        P,
+        ParentSchema<Parent>,
+        Params,
+        Search,
+        {},
+        F,
+        unknown,
+        EffectiveOutlet<Outlet, Parent>,
+        never,
+        E
+      >
     : never;
 
 /**
@@ -645,7 +732,8 @@ export type AuthoredCopy<
       infer P extends string,
       infer Params extends Record<string, PathCodec>,
       infer Search extends CodecMap,
-      infer F extends readonly string[]
+      infer F extends readonly string[],
+      infer Outlet extends string | undefined
     >;
   }
     ? RouteBuilder<
@@ -656,6 +744,7 @@ export type AuthoredCopy<
         {},
         F,
         unknown,
+        EffectiveOutlet<Outlet, Parent>,
         never,
         E,
         OwnOf<Authored, Parent>,

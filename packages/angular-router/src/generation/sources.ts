@@ -32,7 +32,12 @@ export interface Declaration {
   extension?: RouteExtension;
   path: string;
   segments: readonly Segment[];
+  // The effective segments; in a named outlet, the segments inside the outlet group.
   effective: readonly Segment[];
+  // The declaration's own `outlet` fact.
+  outlet?: string;
+  // In a named outlet: the branch root's outlet and the primary segments it hangs below.
+  branch?: Branch;
   parent?: Declaration;
   // The parent's default import, rewritten in place by both copies.
   parentImport?: ts.ImportDeclaration;
@@ -41,6 +46,13 @@ export interface Declaration {
   page?: string;
   retained: boolean;
   full: boolean;
+  // An empty leaf at a named branch's anchor: prefix-matched, its canMatch adapters gated.
+  anchorLeaf: boolean;
+}
+
+export interface Branch {
+  readonly outlet: string;
+  readonly anchor: readonly Segment[];
 }
 
 export interface RouteStep {
@@ -334,7 +346,9 @@ async function component(
   }
 }
 
-const factsKeys = new Set(["parent", "params", "search", "fragments"]);
+const factsKeys = new Set(["parent", "params", "search", "fragments", "outlet"]);
+// The runtime's outlet name rule (route.ts).
+const outletName = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const routerSteps: ReadonlySet<string> = new Set([
   "canMatch",
   "canActivate",
@@ -364,6 +378,7 @@ const reservedStepNames = new Set([
   "__search",
   "__data",
   "__title",
+  "__outlet",
   "__contribution",
   ...Object.getOwnPropertyNames(Object.prototype),
 ]);
@@ -934,6 +949,30 @@ export async function discover(
     }
 
     const needsParams = segments.some((segment) => segment.kind !== "static");
+    const outletNode = config.get("outlet");
+    let outlet: string | undefined;
+
+    if (outletNode) {
+      if (!ts.isStringLiteral(outletNode)) {
+        fail(outletNode, "outlet must be a string literal");
+      }
+
+      if (!outletName.test(outletNode.text) || outletNode.text === "primary") {
+        fail(
+          outletNode,
+          `Outlet name must be a letter followed by letters, digits, '-' or '_', and not "primary": ${outletNode.text}`,
+        );
+      }
+
+      if (segments.length === 0) {
+        fail(
+          outletNode,
+          "A named-outlet route needs a path: an empty one activates with its anchor and can't be closed",
+        );
+      }
+
+      outlet = outletNode.text;
+    }
 
     const ignored = filesystem && transparent(roots[0], dirname(file));
 
@@ -965,9 +1004,11 @@ export async function discover(
       path: path.text,
       segments,
       effective: [],
+      outlet,
       children: [],
       retained: true,
       full: false,
+      anchorLeaf: false,
     };
 
     declarations.push(declaration);
@@ -1175,16 +1216,18 @@ export async function discover(
 
     visiting.add(declaration);
 
-    if (declaration.parent) {
-      ancestry(declaration.parent);
+    const parent = declaration.parent;
 
-      if (declaration.parent.effective.some((segment) => segment.kind === "catchall")) {
+    if (parent) {
+      ancestry(parent);
+
+      if (parent.effective.some((segment) => segment.kind === "catchall")) {
         fail(declaration.source, "Catchall declarations cannot have children");
       }
 
       const owned = new Set<string>();
 
-      for (const segment of declaration.parent.effective) {
+      for (const segment of [...(parent.branch?.anchor ?? []), ...parent.effective]) {
         if (segment.kind !== "static") {
           owned.add(segment.name);
         }
@@ -1195,10 +1238,34 @@ export async function discover(
           fail(declaration.source, `Ancestor already owns path param: ${segment.name}`);
         }
       }
+    }
 
-      declaration.effective = [...declaration.parent.effective, ...declaration.segments];
+    if (declaration.outlet !== undefined && parent?.branch) {
+      fail(
+        declaration.config.get("outlet")!,
+        `Named outlets don't nest: the parent is in outlet ${parent.branch.outlet}`,
+      );
+    }
+
+    // A branch root's group starts at its own segments, below the parent's effective path.
+    if (declaration.outlet !== undefined) {
+      declaration.branch = { outlet: declaration.outlet, anchor: parent?.effective ?? [] };
+      declaration.effective = declaration.segments;
+    } else if (parent) {
+      declaration.branch = parent.branch;
+      declaration.effective = [...parent.effective, ...declaration.segments];
     } else {
       declaration.effective = declaration.segments;
+    }
+
+    if (
+      declaration.branch &&
+      (declaration.config.has("search") || declaration.config.has("fragments"))
+    ) {
+      fail(
+        declaration.config.get("search") ?? declaration.config.get("fragments")!,
+        "Routes in a named outlet can't declare search or fragments: the query and fragment belong to the primary route",
+      );
     }
 
     visiting.delete(declaration);

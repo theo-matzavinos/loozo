@@ -7,15 +7,17 @@ import {
   booleanParam,
   withFallback,
   arrayParam,
+  serverRoutePath,
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
-import { defineDestination, routeOf } from "@loozo/angular-router/_core";
+import { authoredRouteOf, defineDestination, routeOf } from "@loozo/angular-router/_core";
 import type {
   ContributionOf,
   ExtensionSpec,
   FragmentsOf,
   InputContribution,
+  OutletOf,
   ParamsOf,
   RouteFactory,
   RouteSchema,
@@ -1405,3 +1407,286 @@ const grouped = routeOf(extended, xorgDestination).groups({ count: () => 1 });
 grouped.mark("m");
 // @ts-expect-error The router's factory offers no contributed step.
 routeOf(defineRoute, xorgDestination).groups({ count: () => 1 });
+
+// Named outlets: the outlet witness survives every projection; branch values are params only.
+const oProducts = defineRoute("products", { search: { sort: enumParam(["name", "price"]) } });
+const oChat = defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });
+const oSettings = defineRoute("settings", { parent: oChat });
+const oItem = defineRoute("item/$id", {
+  parent: oProducts,
+  outlet: "detail",
+  params: { id: numberParam },
+}).title(({ params }) => `Item ${params.id}`);
+
+exact<Equal<OutletOf<typeof oChat>, "chat">>();
+exact<Equal<OutletOf<typeof oSettings>, "chat">>();
+exact<Equal<OutletOf<typeof oItem>, "detail">>();
+exact<Equal<OutletOf<typeof oProducts>, undefined>>();
+exact<Equal<OutletOf<RouteSchema<typeof oItem>>, "detail">>();
+// A branch member still reads the primary search it inherits.
+exact<Equal<SearchOf<typeof oItem>, SearchOf<typeof oProducts>>>();
+// @ts-expect-error An empty path can't be a named-outlet route.
+defineRoute("", { outlet: "chat" });
+// @ts-expect-error A named-outlet route declares no search.
+defineRoute("x", { outlet: "chat", search: { q: stringParam } });
+// @ts-expect-error A named-outlet route declares no fragments.
+defineRoute("x", { outlet: "chat", fragments: ["top"] });
+// @ts-expect-error Named outlets don't nest.
+defineRoute("x", { parent: oChat, outlet: "aside" });
+// @ts-expect-error Inside a named outlet, a child declares no search either.
+defineRoute("x", { parent: oChat, search: { q: stringParam } });
+
+const oProductsDestination = defineDestination(
+  "products",
+  { search: { sort: enumParam(["name", "price"]) } },
+  "oProducts",
+);
+const oListDestination = defineDestination("list", { parent: oProductsDestination }, "oList");
+const oItemDestination = defineDestination(
+  "item/$id",
+  { parent: oProductsDestination, outlet: "detail", params: { id: numberParam } },
+  "oItem",
+);
+const oChatDestination = defineDestination(
+  "chat/$id",
+  { outlet: "chat", params: { id: numberParam } },
+  "oChat",
+);
+const oSettingsDestination = defineDestination(
+  "settings",
+  { parent: oChatDestination },
+  "oSettings",
+);
+const oRestDestination = defineDestination(
+  "$rest[]",
+  { outlet: "chat", params: { rest: stringParam } },
+  "oRest",
+);
+const oTwinDestination = defineDestination(
+  "chat/$id",
+  { outlet: "chat", params: { id: numberParam } },
+  "oTwin",
+);
+declare const oEither: typeof oChatDestination | typeof oTwinDestination;
+const oProductsCopy = routeOf(defineRoute, oProductsDestination);
+const oListCopy = routeOf(defineRoute, oListDestination, oProductsCopy);
+const oChatCopy = routeOf(defineRoute, oChatDestination);
+const oSettingsCopy = routeOf(defineRoute, oSettingsDestination, oChatCopy);
+
+exact<Equal<OutletOf<TargetOf<typeof oChatDestination>>, "chat">>();
+exact<Equal<OutletOf<TargetOf<typeof oSettingsDestination>>, "chat">>();
+exact<Equal<OutletOf<TargetOf<typeof oItemDestination>>, "detail">>();
+exact<Equal<OutletOf<TargetOf<typeof oListDestination>>, undefined>>();
+// A generated root copy keeps its own outlet; a child copy inherits its parent's.
+exact<Equal<OutletOf<typeof oChatCopy>, "chat">>();
+exact<Equal<OutletOf<typeof oSettingsCopy>, "chat">>();
+exact<Equal<OutletOf<RouteSchema<typeof oSettingsCopy>>, "chat">>();
+exact<Equal<OutletOf<typeof oListCopy>, undefined>>();
+
+// Extension-made copies keep it too.
+const xChatDestination = defineDestination(
+  "c/$id",
+  { outlet: "chat", params: { id: numberParam } },
+  "xChat",
+);
+const xChatCopy = routeOf(extended, xChatDestination).groups({ count: () => 1 });
+const xChatAuthored = extended("c/$id", { outlet: "chat", params: { id: numberParam } });
+const xChatAuthoredCopy = authoredRouteOf<typeof xChatAuthored>()(extended, xChatDestination);
+
+exact<Equal<OutletOf<typeof xChatAuthored>, "chat">>();
+exact<Equal<OutletOf<typeof xChatCopy>, "chat">>();
+exact<Equal<OutletOf<typeof xChatAuthoredCopy>, "chat">>();
+
+// URLs: params only; the zero-segment rule is checked when the URL is built, not here.
+declare const oData: string[];
+
+createUrl(oChatDestination, { params: { id: 7 } });
+createUrl(oItemDestination, { params: { id: 3 } });
+createUrl(oRestDestination, { params: { rest: [] } });
+createUrl(oRestDestination, { params: { rest: oData } });
+// @ts-expect-error A named-outlet destination takes no search, even inherited.
+createUrl(oItemDestination, { params: { id: 3 }, search: { sort: "name" } });
+// @ts-expect-error A named-outlet destination takes no fragment.
+createUrl(oChatDestination, { params: { id: 3 }, fragment: "x" });
+serverRoutePath(oListDestination);
+// @ts-expect-error A named-outlet destination has no server path.
+serverRoutePath(oChatDestination);
+
+declare const oChatHandle: Handle<typeof oChatCopy>;
+declare const oSettingsHandle: Handle<typeof oSettingsCopy, typeof oChatDestination>;
+declare const oListHandle: Handle<typeof oListCopy, typeof oProductsDestination>;
+
+oChatHandle.link({ params: { id: 8 } });
+oChatHandle.link({ close: true });
+void oChatHandle.navigate({ params: { id: 8 }, replaceUrl: true });
+void oChatHandle.navigate({ close: true, replaceUrl: true });
+oSettingsHandle.link({ close: true });
+oSettingsHandle.link({ to: "..", params: { id: 9 } });
+oListHandle.link({ search: { sort: "price" } });
+oListHandle.link({ to: oChatDestination, params: { id: 7 } });
+oListHandle.link({ to: oRestDestination, params: { rest: [] } });
+oListHandle.link({ to: oChatDestination, close: true });
+oListHandle.link({ to: oItemDestination, close: true });
+void oListHandle.navigate({ to: oChatDestination, close: true, onSameUrlNavigation: "reload" });
+// @ts-expect-error A named-outlet route's own values are params only.
+oChatHandle.link({ params: { id: 8 }, search: {} });
+// @ts-expect-error A close takes no URL values.
+oChatHandle.link({ close: true, params: { id: 8 } });
+// @ts-expect-error A close takes no URL values.
+void oChatHandle.navigate({ close: true, params: { id: 8 } });
+// @ts-expect-error Only a route in a named outlet closes its own branch.
+oListHandle.link({ close: true });
+// @ts-expect-error close needs a destination in a named outlet.
+oListHandle.link({ to: oProductsDestination, close: true });
+// @ts-expect-error A union of destinations is ambiguous, for a close too.
+oListHandle.link({ to: oEither, close: true });
+// @ts-expect-error Targeted values in a named outlet are params only.
+oListHandle.link({ to: oItemDestination, params: { id: 1 }, search: { sort: "name" } });
+// @ts-expect-error link takes no behavior options, for a close either.
+oListHandle.link({ to: oChatDestination, close: true, replaceUrl: true });
+
+// The active route reads primary declarations; before narrowing it navigates by destination.
+type OutletRouteTypes = {
+  oProducts: { schema: RouteSchema<typeof oProductsCopy> };
+  oList: { schema: RouteSchema<typeof oListCopy>; up: typeof oProductsDestination };
+};
+declare const shell: ActiveRoute<OutletRouteTypes>;
+
+shell.link({ to: oChatDestination, params: { id: 7 } });
+void shell.navigate({ to: oChatDestination, params: { id: 7 } });
+void shell.navigate({ to: oChatDestination, close: true });
+void shell.navigate({ to: oListDestination, search: { sort: "price" }, replaceUrl: true });
+// @ts-expect-error Its own forms need is() first.
+shell.link({ search: { sort: "price" } });
+// @ts-expect-error `..` needs is() first.
+shell.link({ to: "..", search: {} });
+// @ts-expect-error A union of destinations is ambiguous before narrowing too.
+void shell.navigate({ to: oEither, close: true });
+// @ts-expect-error A named-outlet route is never the active route.
+shell.is(oChatDestination);
+
+if (shell.is(oListDestination)) {
+  shell.link({ search: { sort: "price" } });
+  shell.link({ to: oItemDestination, close: true });
+  // @ts-expect-error A primary route closes nothing of its own.
+  shell.link({ close: true });
+}
+
+// Catchall values in a named outlet: ordinary `string[]` and `[]` typecheck on every write
+// family for the four group shapes; whether the group ends up empty is a runtime check (§5).
+const oNestedRestDestination = defineDestination(
+  "$rest[]",
+  { parent: oProductsDestination, outlet: "detail", params: { rest: stringParam } },
+  "oNestedRest",
+);
+const oPanelDestination = defineDestination(
+  "panel",
+  { parent: oProductsDestination, outlet: "detail" },
+  "oPanel",
+);
+const oPanelRestDestination = defineDestination(
+  "$rest[]",
+  { parent: oPanelDestination, params: { rest: stringParam } },
+  "oPanelRest",
+);
+const oFilesDestination = defineDestination(
+  "files/$rest[]",
+  { outlet: "chat", params: { rest: stringParam } },
+  "oFiles",
+);
+const oPanelCopy = routeOf(defineRoute, oPanelDestination, oProductsCopy);
+const oRestCopy = routeOf(defineRoute, oRestDestination);
+const oNestedRestCopy = routeOf(defineRoute, oNestedRestDestination, oProductsCopy);
+const oPanelRestCopy = routeOf(defineRoute, oPanelRestDestination, oPanelCopy);
+const oFilesCopy = routeOf(defineRoute, oFilesDestination);
+declare const oRestHandle: Handle<typeof oRestCopy>;
+declare const oNestedRestHandle: Handle<typeof oNestedRestCopy>;
+declare const oPanelRestHandle: Handle<typeof oPanelRestCopy, typeof oPanelDestination>;
+declare const oFilesHandle: Handle<typeof oFilesCopy>;
+
+// A literal `[]`: own, targeted, unnarrowed and narrowed active forms.
+createUrl(oRestDestination, { params: { rest: [] } });
+createUrl(oNestedRestDestination, { params: { rest: [] } });
+createUrl(oPanelRestDestination, { params: { rest: [] } });
+createUrl(oFilesDestination, { params: { rest: [] } });
+oRestHandle.link({ params: { rest: [] } });
+oNestedRestHandle.link({ params: { rest: [] } });
+oPanelRestHandle.link({ params: { rest: [] } });
+oFilesHandle.link({ params: { rest: [] } });
+void oRestHandle.navigate({ params: { rest: [] } });
+void oNestedRestHandle.navigate({ params: { rest: [] } });
+void oPanelRestHandle.navigate({ params: { rest: [] } });
+void oFilesHandle.navigate({ params: { rest: [] } });
+oListHandle.link({ to: oRestDestination, params: { rest: [] } });
+oListHandle.link({ to: oNestedRestDestination, params: { rest: [] } });
+oListHandle.link({ to: oPanelRestDestination, params: { rest: [] } });
+oListHandle.link({ to: oFilesDestination, params: { rest: [] } });
+void oListHandle.navigate({ to: oRestDestination, params: { rest: [] } });
+void oListHandle.navigate({ to: oNestedRestDestination, params: { rest: [] } });
+void oListHandle.navigate({ to: oPanelRestDestination, params: { rest: [] } });
+void oListHandle.navigate({ to: oFilesDestination, params: { rest: [] } });
+shell.link({ to: oRestDestination, params: { rest: [] } });
+shell.link({ to: oNestedRestDestination, params: { rest: [] } });
+shell.link({ to: oPanelRestDestination, params: { rest: [] } });
+shell.link({ to: oFilesDestination, params: { rest: [] } });
+void shell.navigate({ to: oRestDestination, params: { rest: [] } });
+void shell.navigate({ to: oNestedRestDestination, params: { rest: [] } });
+void shell.navigate({ to: oPanelRestDestination, params: { rest: [] } });
+void shell.navigate({ to: oFilesDestination, params: { rest: [] } });
+
+if (shell.is(oListDestination)) {
+  shell.link({ to: oRestDestination, params: { rest: [] } });
+  shell.link({ to: oNestedRestDestination, params: { rest: [] } });
+  shell.link({ to: oPanelRestDestination, params: { rest: [] } });
+  shell.link({ to: oFilesDestination, params: { rest: [] } });
+  void shell.navigate({ to: oRestDestination, params: { rest: [] } });
+  void shell.navigate({ to: oNestedRestDestination, params: { rest: [] } });
+  void shell.navigate({ to: oPanelRestDestination, params: { rest: [] } });
+  void shell.navigate({ to: oFilesDestination, params: { rest: [] } });
+}
+
+// An ordinary `string[]`.
+createUrl(oRestDestination, { params: { rest: oData } });
+createUrl(oNestedRestDestination, { params: { rest: oData } });
+createUrl(oPanelRestDestination, { params: { rest: oData } });
+createUrl(oFilesDestination, { params: { rest: oData } });
+oRestHandle.link({ params: { rest: oData } });
+oNestedRestHandle.link({ params: { rest: oData } });
+oPanelRestHandle.link({ params: { rest: oData } });
+oFilesHandle.link({ params: { rest: oData } });
+void oRestHandle.navigate({ params: { rest: oData } });
+void oNestedRestHandle.navigate({ params: { rest: oData } });
+void oPanelRestHandle.navigate({ params: { rest: oData } });
+void oFilesHandle.navigate({ params: { rest: oData } });
+oListHandle.link({ to: oRestDestination, params: { rest: oData } });
+oListHandle.link({ to: oNestedRestDestination, params: { rest: oData } });
+oListHandle.link({ to: oPanelRestDestination, params: { rest: oData } });
+oListHandle.link({ to: oFilesDestination, params: { rest: oData } });
+void oListHandle.navigate({ to: oRestDestination, params: { rest: oData } });
+void oListHandle.navigate({ to: oNestedRestDestination, params: { rest: oData } });
+void oListHandle.navigate({ to: oPanelRestDestination, params: { rest: oData } });
+void oListHandle.navigate({ to: oFilesDestination, params: { rest: oData } });
+shell.link({ to: oRestDestination, params: { rest: oData } });
+shell.link({ to: oNestedRestDestination, params: { rest: oData } });
+shell.link({ to: oPanelRestDestination, params: { rest: oData } });
+shell.link({ to: oFilesDestination, params: { rest: oData } });
+void shell.navigate({ to: oRestDestination, params: { rest: oData } });
+void shell.navigate({ to: oNestedRestDestination, params: { rest: oData } });
+void shell.navigate({ to: oPanelRestDestination, params: { rest: oData } });
+void shell.navigate({ to: oFilesDestination, params: { rest: oData } });
+
+if (shell.is(oListDestination)) {
+  shell.link({ to: oRestDestination, params: { rest: oData } });
+  shell.link({ to: oNestedRestDestination, params: { rest: oData } });
+  shell.link({ to: oPanelRestDestination, params: { rest: oData } });
+  shell.link({ to: oFilesDestination, params: { rest: oData } });
+  void shell.navigate({ to: oRestDestination, params: { rest: oData } });
+  void shell.navigate({ to: oNestedRestDestination, params: { rest: oData } });
+  void shell.navigate({ to: oPanelRestDestination, params: { rest: oData } });
+  void shell.navigate({ to: oFilesDestination, params: { rest: oData } });
+}
+
+// @ts-expect-error A catchall value is an array.
+createUrl(oRestDestination, { params: { rest: "a" } });
+// @ts-expect-error A catchall value is an array, on a targeted form too.
+oListHandle.link({ to: oFilesDestination, params: { rest: "a" } });

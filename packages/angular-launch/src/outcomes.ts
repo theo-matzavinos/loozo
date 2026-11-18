@@ -1,5 +1,5 @@
 import { serializeJson } from "./json.js";
-import type { TranslateRedirect } from "./redirect-translation.js";
+import { targetSegments, type TranslateRedirect } from "./redirect-translation.js";
 
 const base = "http://launch.invalid";
 
@@ -75,19 +75,23 @@ export class RpcNotFound extends Error {
   }
 }
 
-// Valid `words`: a non-empty array of strictly increasing integer positions, each naming a
-// non-empty segment of `to`'s path.
+// Valid `words`: a non-empty array of strictly increasing integer ordinals of `to`'s path
+// segments, on a path createUrl writes.
 function validWords(words: unknown, to: string): words is readonly number[] {
   if (!Array.isArray(words) || words.length === 0) {
     return false;
   }
 
-  const cut = to.search(/[?#]/);
-  const parts = (cut === -1 ? to : to.slice(0, cut)).slice(1).split("/");
+  const segments = targetSegments(to);
+
+  if (segments === undefined) {
+    return false;
+  }
+
   let previous = -1;
 
   for (const at of words) {
-    if (!Number.isInteger(at) || at <= previous || at >= parts.length || parts[at] === "") {
+    if (!Number.isInteger(at) || at <= previous || at >= segments.length) {
       return false;
     }
 
@@ -102,8 +106,9 @@ function validWords(words: unknown, to: string): words is readonly number[] {
  *
  * @remarks
  * Internal. A redirect is status 303 with exactly `{ redirect: { to } }` or
- * `{ redirect: { to, words } }`, where `to` is root-relative and `words` lists the static word
- * positions of its path, strictly increasing; not-found is status 404 with exactly
+ * `{ redirect: { to, words } }`, where `to` is root-relative and `words` lists, strictly
+ * increasing, the ordinals of its path segments that hold static words, on a path `createUrl`
+ * writes (`targetSegments`); not-found is status 404 with exactly
  * `{ notFound: null }`. The body must be strict JSON. A redirect with `words` goes through
  * `translate` when one is given; anything else keeps its `to`.
  *

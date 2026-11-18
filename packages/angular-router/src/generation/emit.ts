@@ -283,6 +283,11 @@ export function emit(
       parts.push(`path: ${JSON.stringify(nativePath(declaration, !!declaration.target))}`);
     }
 
+    // A branch root names its outlet; its descendants are primary children in its own table.
+    if (declaration.outlet !== undefined) {
+      parts.push(`outlet: ${JSON.stringify(declaration.outlet)}`);
+    }
+
     if (declaration.full || declaration.target) {
       parts.push("pathMatch: 'full'");
     }
@@ -307,7 +312,9 @@ export function emit(
         parts.push(`...extension(${name})`);
       }
 
-      if (usesCallbacks(declaration)) {
+      if (usesCallbacks(declaration) && declaration.anchorLeaf) {
+        parts.push(`...callbacks(${name}, { onlyAtEnd: true })`);
+      } else if (usesCallbacks(declaration)) {
         parts.push(`...callbacks(${name})`);
       }
 
@@ -466,6 +473,8 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
   const top = [...before, ...ordinary, ...after];
   const { helpers, read, destinations } = imports(top);
   const retained = byId.filter((declaration) => declaration.retained);
+  // The active route reads the primary chain only.
+  const primary = retained.filter((declaration) => !declaration.branch);
   const routes: string[] = [
     markers["routes.generated.ts"],
     "import type { Signal } from '@angular/core';",
@@ -483,11 +492,7 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
   // RouteTypes members name the extension's types over each route copy.
   const memberTypes = new Map<string, string>();
 
-  if (
-    launch &&
-    launch.members.length > 0 &&
-    retained.some((declaration) => declaration.extension)
-  ) {
+  if (launch && launch.members.length > 0 && primary.some((declaration) => declaration.extension)) {
     const types = typeImports(launch.types);
 
     for (const member of launch.members) {
@@ -519,7 +524,7 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
   // table, is a type import here.
   const named = new Set<Declaration>();
 
-  for (const declaration of retained) {
+  for (const declaration of primary) {
     const winner = winners.get(declaration);
 
     if (winner && !destinations.has(winner)) {
@@ -544,12 +549,12 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
 export const routes: Routes = [${top.map((declaration) => record(declaration, routesFile)).join(",\n")}];\n`,
   );
   routes.push(
-    "/** Each generated route's types by id: its schema and, when it has one, its `..` destination. */",
+    "/** Each generated primary-outlet route's types by id: its schema and, when it has one, its `..` destination. */",
   );
   routes.push("export type RouteTypes = {");
 
   // One entry per line, so adding or removing a route changes only its own lines.
-  for (const declaration of retained) {
+  for (const declaration of primary) {
     const entry = [`schema: RouteSchema<typeof route_${names.get(declaration)}>`];
     const winner = winners.get(declaration);
 
@@ -573,7 +578,7 @@ export const routes: Routes = [${top.map((declaration) => record(declaration, ro
   routes.push(`};
 /** An active route narrowed by is(): that declaration's handle. */
 export type ActiveHandle<Id extends keyof RouteTypes> = GeneratedActiveHandle<RouteTypes, Id>;
-/** An active route before narrowing: params, search, data and title read as the union of the tree's values; link and navigate need is(). */
+/** An active route before narrowing: params, search, data and title read as the union of the tree's values; link and navigate take a destination, and their own and \`..\` forms need is(). */
 export type ActiveRoute = GeneratedActiveRoute<RouteTypes>;
 /**
  * Injects a signal of the deepest active generated route in the primary outlet.
@@ -582,8 +587,8 @@ export type ActiveRoute = GeneratedActiveRoute<RouteTypes>;
  * Call in an Angular injection context. The value changes only when a navigation
  * commits, and is undefined before the first one (on a server-rendered page with
  * provideActiveRouteHydration(), it reads the server's route until then) or when no
- * generated route is active. A route keeps its handle while it stays active; each call
- * is its own reader.
+ * generated route is active. It never selects a named-outlet route. A route keeps its
+ * handle while it stays active; each call is its own reader.
  */
 export function injectActiveRoute(): Signal<ActiveRoute | undefined> {
   return injectGeneratedActiveRoute<RouteTypes>();

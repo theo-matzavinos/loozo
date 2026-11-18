@@ -27,7 +27,7 @@ export declare const routeSchema: unique symbol;
  *
  * @remarks
  * Prefer inference from `defineRoute` over explicit generic arguments. The
- * optional `__params`, `__search`, `__data` and `__title` members are type witnesses only;
+ * optional `__params`, `__search`, `__data`, `__title` and `__outlet` members are type witnesses only;
  * they are not populated runtime properties. `path` is the only enumerable runtime
  * property; behavior and parent/codec/effective-path metadata are private. Spreading a
  * declaration does not produce another valid route.
@@ -45,6 +45,8 @@ export declare const routeSchema: unique symbol;
  * Defaults to the local results alone.
  * @typeParam Title - `string` when this declaration or an ancestor declares a title,
  * otherwise `undefined`.
+ * @typeParam Outlet - The named outlet the declaration renders in, its own `outlet` or
+ * its branch ancestor's, or `undefined` in the primary outlet.
  */
 export interface Route<
   Path extends string,
@@ -55,9 +57,20 @@ export interface Route<
   Catchall extends boolean = CatchallName<Path> extends never ? false : true,
   Data = LocalData<Resolvers>,
   Title extends string | undefined = undefined,
+  Outlet extends string | undefined = undefined,
 > {
   /** Type-only: this declaration without step methods or extension witnesses. */
-  readonly [routeSchema]: Route<Path, Params, Search, Resolvers, Fragments, Catchall, Data, Title>;
+  readonly [routeSchema]: Route<
+    Path,
+    Params,
+    Search,
+    Resolvers,
+    Fragments,
+    Catchall,
+    Data,
+    Title,
+    Outlet
+  >;
   /** Type-only nominal brand carrying fragment and catchall metadata; not populated at runtime. */
   readonly [routeBrand]: {
     /** Type-only: this declaration's own allowed fragment-name union. */
@@ -75,6 +88,8 @@ export interface Route<
   readonly __data?: Data;
   /** Type-only witness: string when this declaration or an ancestor declares a title. */
   readonly __title?: Title;
+  /** Type-only witness: the named outlet, or undefined in the primary outlet. */
+  readonly __outlet?: Outlet;
 }
 
 /** A method-free projection of an authored declaration, for generated consumers. */
@@ -86,13 +101,13 @@ type Unwrap<Value> = Value extends Promise<infer Inner> | Observable<infer Inner
 type Resolved<Callback> = Callback extends (...args: any[]) => infer Value
   ? Exclude<Unwrap<Value>, RedirectCommand>
   : never;
-export type AnyRoute = Route<string, any, any, any, any, boolean, any, any>;
+export type AnyRoute = Route<string, any, any, any, any, boolean, any, any, any>;
 /** Extracts a declaration's effective inherited and local path-value types. */
 export type ParamsOf<Target> =
-  Target extends Route<string, infer Params, any, any, any, boolean, any, any> ? Params : {};
+  Target extends Route<string, infer Params, any, any, any, boolean, any, any, any> ? Params : {};
 /** Extracts effective parsed search-value types; keys without a fallback or array codec are optional. */
 export type SearchOf<Target> =
-  Target extends Route<string, any, infer Search, any, any, boolean, any, any> ? Search : {};
+  Target extends Route<string, any, infer Search, any, any, boolean, any, any, any> ? Search : {};
 /**
  * Effective search values accepted by URL creation: every key may be omitted or
  * `undefined`, and a supplied value has the key's codec type.
@@ -102,7 +117,7 @@ export type SearchInputOf<Target> = {
 };
 /** Extracts only the selected declaration's own allowed fragment-name union. */
 export type FragmentsOf<Target> =
-  Target extends Route<string, any, any, any, infer Fragments, boolean, any, any>
+  Target extends Route<string, any, any, any, infer Fragments, boolean, any, any, any>
     ? Fragments
     : never;
 export type CodecMap = Record<string, ParamCodec<any>>;
@@ -140,6 +155,20 @@ export type EffectiveData<Resolvers, Parent> = Unshadowed<
   keyof Resolvers
 > &
   LocalData<Resolvers>;
+/**
+ * The named outlet a declaration renders in, or `undefined` in the primary outlet.
+ *
+ * @internal
+ */
+export type OutletOf<Target> = Target extends { readonly __outlet?: infer Outlet }
+  ? Outlet
+  : undefined;
+/**
+ * A declaration's outlet: its own `outlet` fact, or its parent's outlet.
+ *
+ * @internal
+ */
+export type EffectiveOutlet<Own, Parent> = Own extends string ? Own : OutletOf<Parent>;
 /** The title type of a declaration's chain: string when it or an ancestor declares one. */
 export type TitleOf<Target> = Target extends { readonly __title?: infer Title } ? Title : undefined;
 /** A local title makes the chain's title a string; otherwise the parent's title type carries over. */
@@ -267,13 +296,16 @@ type SearchInput<Schema, Keys extends keyof Schema> = keyof Schema extends never
   : [Keys] extends [never]
     ? Schema
     : Pick<Schema, Keys>;
-/** The `search` field type of URL values for supplied keys; `never` for a searchless destination. */
-export type SearchFieldOf<
-  Target extends AnyRoute,
-  SearchKeys,
-> = keyof SearchInputOf<Target> extends never
-  ? never
-  : SearchInput<SearchInputOf<Target>, SearchKeys & keyof SearchInputOf<Target>>;
+/**
+ * The `search` field type of URL values for supplied keys; `never` for a searchless
+ * destination and for one in a named outlet, whose query belongs to the primary route.
+ */
+export type SearchFieldOf<Target extends AnyRoute, SearchKeys> =
+  OutletOf<Target> extends string
+    ? never
+    : keyof SearchInputOf<Target> extends never
+      ? never
+      : SearchInput<SearchInputOf<Target>, SearchKeys & keyof SearchInputOf<Target>>;
 /** URL values for a destination without effective path params. */
 export type PathlessUrlValues<Search, Fragment> = {
   /** Forbidden: the destination has no effective path params. */
@@ -296,7 +328,8 @@ export type PathUrlValues<Params, Search, Fragment> = {
  * Explicit values for URL creation and generated link/navigation calls.
  * Effective path keys must be present; every search key may be omitted.
  * Paramless/searchless routes forbid those fields. Fragment names come only
- * from the destination's own declaration.
+ * from the destination's own declaration. A destination in a named outlet takes
+ * params only.
  *
  * @remarks
  * One object type literal, not an intersection: TypeScript relates a string to
