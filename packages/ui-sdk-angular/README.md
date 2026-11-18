@@ -7,11 +7,11 @@ Angular directives for [ui-sdk.dev](https://ui-sdk.dev)'s headless core, `@ui-sd
 ## Install
 
 ```sh
-npm install @loozo/ui-sdk-angular @ui-sdk/core@0.1.0-beta.1
+npm install @loozo/ui-sdk-angular @ui-sdk/core@0.1.0-beta.7
 ```
 
 - Angular `~22.2.2` (`@angular/core` and `@angular/common`).
-- `@ui-sdk/core` exactly `0.1.0-beta.1`, as a peer dependency. Its renderer entry isn't public API and changes often, so each release of this package pins the one core version it was tested with. Another core version is an install-time peer conflict on purpose.
+- `@ui-sdk/core` exactly `0.1.0-beta.7`, as a peer dependency. Its renderer entry isn't public API and changes often, so each release of this package pins the one core version it was tested with. Another core version is an install-time peer conflict on purpose.
 
 No provider: import the directives where you use them.
 
@@ -48,7 +48,8 @@ Works with `provideClientHydration()`, eager (`withEventReplay()`, `withNoIncrem
 - **One `APP_ID` per application.** Two Angular applications on one page need distinct `APP_ID`s, or their ids can collide; with a custom `APP_ID`, ids become `ui-sdk-<appId>-…`.
 - **Keep a root and all its parts in one `@defer (hydrate …)` block.** A part in a different hydrate boundary from its root can be unbound while its siblings handle events.
 - **`hydrate on interaction` and a fast first press.** In Chromium, a press shorter than the block's hydration can open a Select and close it again: Angular replays the press's `pointerdown` after its `click`. See [Select's known limitation](select/README.md#known-limitation).
-- **Authored ids before their references.** A part with a static `id` that other parts point at, like a Select trigger the content's `aria-labelledby` names, must come earlier in the same template than those parts, or sit in an ancestor view. Written after them, the server renders references to the generated id, and core repairs them once when the authored part binds.
+- **Authored ids before their references.** A part with a static `id` that other parts point at, like a Select trigger the content's `aria-labelledby` names, must come earlier in the same template than those parts, or sit in an ancestor view. Written after them, the server renders references to the generated id, and core repairs them when the authored part binds.
+- **A popup that starts open settles at bind.** A Select rendered open is positioned, and renamed with the same name as `aria-label`, when its trigger binds; see [Select's rules](select/README.md#rules).
 - **Events before the first bind.** Angular replays the events a user makes before a block hydrates; they arrive after the parts bind. A live event that reaches a part before its first bind, as in a block created outside change detection, waits and reaches core once every part of that render pass has bound.
 
 Shadow DOM, slotted content and elements from another realm, like an iframe, aren't supported.
