@@ -3,8 +3,8 @@
 // whether a locale's translated tree is valid.
 import { readFile } from "node:fs/promises";
 import { isStaticSegment, type Segment } from "../../_core/src/path.js";
-import { selections } from "./validate.js";
-import type { Declaration, Sources } from "./sources.js";
+import { authoredPath, catchallShadows, selections } from "./validate.js";
+import { fail, type Declaration, type Sources } from "./sources.js";
 
 /** The build's i18n configuration, as Angular's application builder reads it. */
 export interface Localization {
@@ -257,9 +257,10 @@ function translatedView(sources: Sources, text: (word: string) => string): Sourc
 
 /**
  * Checks every configured locale's translated tree before any write: each translation of a route
- * word must be one valid static segment without placeholders, and the tree must pass the same
- * collision and overlap rules as the canonical one. A word a catalog doesn't translate stands as
- * its source text, as Angular's inliner ships it; completeness is Angular's to enforce.
+ * word must be one valid static segment without placeholders, the tree must pass the same
+ * collision and overlap rules as the canonical one, and no catchall may shadow a route that it
+ * doesn't shadow in the canonical tree. A word a catalog doesn't translate stands as its source
+ * text, as Angular's inliner ships it; completeness is Angular's to enforce.
  */
 export async function validateLocales(sources: Sources, localization: Localization): Promise<void> {
   if (!localization.polyfills.includes(init)) {
@@ -269,6 +270,7 @@ export async function validateLocales(sources: Sources, localization: Localizati
   }
 
   const catalogs = await loadCatalogs(localization);
+  const canonicalShadows = catchallShadows(sources);
   const words = new Set<string>();
 
   for (const declaration of sources.declarations) {
@@ -315,7 +317,18 @@ export async function validateLocales(sources: Sources, localization: Localizati
     }
 
     try {
-      selections(translatedView(sources, (word) => translated.get(word)!));
+      const view = translatedView(sources, (word) => translated.get(word)!);
+
+      selections(view);
+
+      for (const [pair, [catchall, other]] of catchallShadows(view, sources)) {
+        if (!canonicalShadows.has(pair)) {
+          fail(
+            catchall.source,
+            `Catchall shadows a route: ${catchall.id} (${authoredPath(catchall)}) is tried before ${other.id} (${authoredPath(other)})`,
+          );
+        }
+      }
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`Locale ${locale.code}: ${error.message}`, { cause: error });

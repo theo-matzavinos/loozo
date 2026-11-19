@@ -2,7 +2,7 @@ import { dirname, extname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import { markers, specifier } from "./files.js";
 import { resolveModule, type Declaration, type Sources } from "./sources.js";
-import { authoredPath } from "./validate.js";
+import { childTable, rootTable } from "./validate.js";
 import { parentTargets } from "./selectors.js";
 import { copies, typeImports, type LaunchCopies } from "./copies.js";
 
@@ -192,15 +192,7 @@ export function emit(
   }
 
   // Every route with a retained child loads their records lazily from its colocated
-  // children.generated.ts. A retained child's parent is always retained (sources retain()).
-  function retainedChildren(declaration: Declaration): Declaration[] {
-    if (declaration.target) {
-      return [];
-    }
-
-    return declaration.children.filter((child) => child.retained).sort(order);
-  }
-
+  // children.generated.ts.
   function childrenFile(declaration: Declaration): string {
     return resolve(dirname(declaration.file), "children.generated.ts");
   }
@@ -249,21 +241,6 @@ export function emit(
     }
 
     return "nativePath";
-  }
-
-  function order(a: Declaration, b: Declaration): number {
-    const catchA = a.segments.at(-1)?.kind === "catchall";
-    const catchB = b.segments.at(-1)?.kind === "catchall";
-
-    if (catchA !== catchB) {
-      if (catchA) {
-        return 1;
-      }
-
-      return -1;
-    }
-
-    return authoredPath(a).localeCompare(authoredPath(b), "en") || a.id.localeCompare(b.id, "en");
   }
 
   // One record as written into `file`, the table that holds it.
@@ -326,7 +303,7 @@ export function emit(
         );
       }
 
-      if (retainedChildren(declaration).length > 0) {
+      if (childTable(declaration).length > 0) {
         parts.push(
           `loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import(${JSON.stringify(specifier(file, childrenFile(declaration)))}).then((m) => m.routes)`,
         );
@@ -415,7 +392,7 @@ export function emit(
 
   while (pending.length > 0) {
     const root = pending.shift()!;
-    const children = retainedChildren(root);
+    const children = childTable(root);
 
     if (children.length === 0) {
       continue;
@@ -450,27 +427,7 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
     pending.push(...children);
   }
 
-  const before: Declaration[] = [];
-  const ordinary: Declaration[] = [];
-  const after: Declaration[] = [];
-
-  for (const declaration of records) {
-    if (declaration.target) {
-      if (declaration.effective.at(-1)?.kind === "catchall") {
-        after.push(declaration);
-      } else {
-        before.push(declaration);
-      }
-    } else if (!declaration.parent) {
-      ordinary.push(declaration);
-    }
-  }
-
-  for (const group of [before, ordinary, after]) {
-    group.sort(order);
-  }
-
-  const top = [...before, ...ordinary, ...after];
+  const top = rootTable(records);
   const { helpers, read, destinations } = imports(top);
   const retained = byId.filter((declaration) => declaration.retained);
   // The active route reads the primary chain only.

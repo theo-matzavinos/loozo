@@ -5256,6 +5256,9 @@ test("translated segments: each locale's tree is checked before any write, with 
     "offers",
     "deals",
     "about",
+    "guides",
+    "guides/$rest[]",
+    "manuals/start",
   ]) {
     await project.page(directory);
   }
@@ -5330,6 +5333,22 @@ export default defineRoute("legacy", {}).redirect({
     [
       [["route.segment.deals", "offers"]],
       /^Error: Locale de: .*Ordinary route collision\/overlap: .*\(\/offers\)/,
+    ],
+    // A merge that puts a route under a catchall tried before it, which the source tree doesn't.
+    [
+      [
+        ["route.segment.guides", "dokumente"],
+        ["route.segment.manuals", "dokumente"],
+      ],
+      /^Error: Locale de: .*guides[\\/]\$rest\[\][\\/]route\.ts:1:1: Catchall shadows a route: src\/routes\/guides\/\$rest\[\]\/route\.ts \(\/dokumente\/\$rest\[\]\) is tried before src\/routes\/manuals\/start\/route\.ts \(\/dokumente\/start\)$/,
+    ],
+    // Collisions come first: guides/$rest[] would shadow news here too.
+    [
+      [
+        ["route.segment.guides", "neu"],
+        ["route.segment.news", "neu"],
+      ],
+      /^Error: Locale de: .*Ordinary route collision\/overlap: .*\(\/neu\); .*\(\/neu\)$/,
     ],
   ]) {
     const before = await outputSnapshot(project);
@@ -5896,4 +5915,354 @@ test("named outlets: each locale checks translated anchors and in-branch paths",
     ]),
   );
   await project.translate();
+});
+
+// One explicit-mode tree per row: each declaration `{ id, path, parent?, outlet?, params?,
+// target?, page? }` becomes src/routes/<id>/route.ts and, unless `page` is false, a page.
+async function writeDeclarations(project, declarations) {
+  for (const declaration of declarations) {
+    const facts = [];
+    let imports = outletHeader;
+    let redirect = "";
+
+    if (declaration.parent) {
+      imports += `import parent from "${relativeRoute(declaration.id, declaration.parent, "route.js")}";\n`;
+      facts.push("parent");
+    }
+
+    if (declaration.params) {
+      facts.push(
+        `params: { ${declaration.params.map((name) => `${name}: stringParam`).join(", ")} }`,
+      );
+    }
+
+    if (declaration.outlet) {
+      facts.push(`outlet: ${JSON.stringify(declaration.outlet)}`);
+    }
+
+    if (declaration.target) {
+      imports += `import { destination as to } from "${relativeRoute(declaration.id, declaration.target, "destination.generated.js")}";\n`;
+      redirect = '.redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } })';
+    }
+
+    await project.write(
+      `src/routes/${declaration.id}/route.ts`,
+      `${imports}\nexport default defineRoute(${JSON.stringify(declaration.path)}, { ${facts.join(", ")} })${redirect};\n`,
+    );
+
+    if (declaration.page !== false) {
+      await project.page(declaration.id);
+    }
+  }
+}
+
+// The specifier from one route directory to a file in another.
+function relativeRoute(from, to, file) {
+  const path = relative(resolve("/", from), resolve("/", to, file))
+    .split(sep)
+    .join("/");
+
+  if (path.startsWith(".")) {
+    return path;
+  }
+
+  return `./${path}`;
+}
+
+test("translated segments: a catchall may not shadow a route in one locale alone", async () => {
+  const docs = { id: "docs", path: "docs", page: false };
+  const rest = { id: "docs/$rest[]", path: "$rest[]", parent: "docs", params: ["rest"] };
+  const done = { id: "done", path: "done" };
+  const merge = { docs: "dokumente", manuals: "dokumente", start: "anfang" };
+  const deep = { id: "docs", path: "docs/deep/nested", page: false };
+  const account = { id: "account", path: "account", page: false };
+  const accountDocs = (id, parent) => [
+    { id, path: "docs", parent, outlet: "detail", page: false },
+    { id: `${id}/$rest[]`, path: "$rest[]", parent: id, params: ["rest"] },
+  ];
+  const wrapper = (id, parent) => ({ id, path: "", parent, page: false });
+  const start = (id, parent) => ({ id, path: "manuals/start", parent, outlet: "detail" });
+  const shadows = (catchall, path, other, otherPath) =>
+    `Catchall shadows a route: src/routes/${catchall}/route.ts (${path}) is tried before src/routes/${other}/route.ts (${otherPath})`;
+  const f2 = shadows(
+    "docs/$rest[]",
+    "/dokumente/deep/nested/$rest[]",
+    "manuals/$x[]",
+    "/dokumente/$x[]",
+  );
+
+  // Each row: a tree, or "same" to reuse the previous row's project with a new catalog; the
+  // canonical table and two paths whose emitted order the row depends on; and the reject tail.
+  const rows = [
+    {
+      name: "a: a root route under the catchall's translated prefix",
+      tree: [docs, rest, { id: "manuals/start", path: "manuals/start" }],
+      words: merge,
+      reject: shadows("docs/$rest[]", "/dokumente/$rest[]", "manuals/start", "/dokumente/anfang"),
+    },
+    { name: "b: distinct words", tree: "same", words: { ...merge, manuals: "handbuecher" } },
+    {
+      name: "c: the route sorts before the catchall's branch",
+      tree: [docs, rest, { id: "aaa/start", path: "aaa/start" }],
+      words: { ...merge, aaa: "dokumente" },
+    },
+    {
+      name: "d: canonical shadowing stays accepted",
+      tree: [docs, rest, { id: "docs/special", path: "docs/special" }],
+      words: { docs: "dokumente", start: "anfang" },
+    },
+    {
+      name: "e: an ordinary route shorter than the catchall's prefix",
+      tree: [
+        { id: "docs", path: "docs/deep", page: false },
+        rest,
+        { id: "manuals", path: "manuals" },
+      ],
+      words: merge,
+    },
+    {
+      name: "f: a catchall route",
+      tree: [docs, rest, { id: "manuals/$x[]", path: "manuals/$x[]", params: ["x"] }],
+      words: merge,
+      reject: shadows("docs/$rest[]", "/dokumente/$rest[]", "manuals/$x[]", "/dokumente/$x[]"),
+    },
+    {
+      name: "g: a catchall redirect, in the last root group",
+      tree: [
+        docs,
+        rest,
+        done,
+        { id: "manuals/$x[]", path: "manuals/$x[]", params: ["x"], target: "done", page: false },
+      ],
+      words: merge,
+      reject: shadows("docs/$rest[]", "/dokumente/$rest[]", "manuals/$x[]", "/dokumente/$x[]"),
+    },
+    {
+      name: "g: an ordinary redirect, in the first root group",
+      tree: [
+        docs,
+        rest,
+        done,
+        { id: "manuals/start", path: "manuals/start", target: "done", page: false },
+      ],
+      words: merge,
+    },
+    {
+      name: "h: a sibling of the catchall",
+      tree: [docs, rest, { id: "docs/intro", path: "intro", parent: "docs" }],
+      words: { docs: "dokumente", intro: "anfang", start: "anfang" },
+    },
+    {
+      name: "i: named branches below one anchor",
+      tree: [
+        account,
+        ...accountDocs("account/docs", "account"),
+        start("account/manuals/start", "account"),
+      ],
+      order: ["src/routes/account/children.generated.ts", "docs", "manuals/start"],
+      words: merge,
+      reject: shadows(
+        "account/docs/$rest[]",
+        "/account/(detail:dokumente/$rest[])",
+        "account/manuals/start",
+        "/account/(detail:dokumente/anfang)",
+      ),
+    },
+    {
+      name: "F3: the named route sorts first",
+      tree: [
+        account,
+        { id: "account/topics", path: "topics", parent: "account", outlet: "detail", page: false },
+        {
+          id: "account/topics/$rest[]",
+          path: "$rest[]",
+          parent: "account/topics",
+          params: ["rest"],
+        },
+        { id: "account/guides/start", path: "guides/start", parent: "account", outlet: "detail" },
+      ],
+      order: ["src/routes/account/children.generated.ts", "guides/start", "topics"],
+      words: { topics: "dokumente", guides: "dokumente", start: "anfang" },
+    },
+    {
+      name: "F1: a direct detail route sorts ahead of the wrapper holding the catchall",
+      tree: [
+        account,
+        wrapper("account/+layout", "account"),
+        ...accountDocs("account/+layout/docs", "account/+layout"),
+        start("account/manuals/start", "account"),
+      ],
+      order: ["src/routes/account/children.generated.ts", "", "manuals/start"],
+      words: merge,
+    },
+    {
+      name: "F1: the direct detail catchall sorts ahead of the wrapper holding the route",
+      tree: [
+        account,
+        wrapper("account/+layout", "account"),
+        ...accountDocs("account/docs", "account"),
+        start("account/+layout/manuals/start", "account/+layout"),
+      ],
+      order: ["src/routes/account/children.generated.ts", "", "docs"],
+      words: merge,
+      reject: shadows(
+        "account/docs/$rest[]",
+        "/account/(detail:dokumente/$rest[])",
+        "account/+layout/manuals/start",
+        "/account/(detail:dokumente/anfang)",
+      ),
+    },
+    {
+      name: "W: below a wrapper, emitted order decides (route's wrapper first)",
+      tree: [
+        account,
+        wrapper("account/+outer", "account"),
+        wrapper("account/+outer/+layout", "account/+outer"),
+        ...accountDocs("account/+outer/docs", "account/+outer"),
+        start("account/+outer/+layout/manuals/start", "account/+outer/+layout"),
+      ],
+      order: ["src/routes/account/+outer/children.generated.ts", "", "docs"],
+      words: merge,
+    },
+    {
+      name: "W: below a wrapper, emitted order decides (catchall's wrapper first)",
+      tree: [
+        account,
+        wrapper("account/+outer", "account"),
+        wrapper("account/+outer/+layout", "account/+outer"),
+        ...accountDocs("account/+outer/+layout/docs", "account/+outer/+layout"),
+        start("account/+outer/manuals/start", "account/+outer"),
+      ],
+      order: ["src/routes/account/+outer/children.generated.ts", "", "manuals/start"],
+      words: merge,
+      reject: shadows(
+        "account/+outer/+layout/docs/$rest[]",
+        "/account/(detail:dokumente/$rest[])",
+        "account/+outer/manuals/start",
+        "/account/(detail:dokumente/anfang)",
+      ),
+    },
+    {
+      name: "F2: a catchall route shorter than the catchall's prefix",
+      tree: [deep, rest, { id: "manuals/$x[]", path: "manuals/$x[]", params: ["x"] }],
+      words: merge,
+      reject: f2,
+    },
+    {
+      name: "F2: distinct words",
+      tree: "same",
+      words: { ...merge, manuals: "handbuecher" },
+    },
+    {
+      name: "F2: a hoisted catchall redirect shorter than the catchall's prefix",
+      tree: [
+        deep,
+        rest,
+        done,
+        { id: "manuals", path: "manuals", page: false },
+        {
+          id: "manuals/$x[]",
+          path: "$x[]",
+          parent: "manuals",
+          params: ["x"],
+          target: "done",
+          page: false,
+        },
+      ],
+      words: merge,
+      reject: f2,
+    },
+    {
+      name: "empty anchor: a direct detail route sorts ahead of the root wrapper",
+      tree: [wrapper("+layout"), ...accountDocs("+layout/docs", "+layout"), start("manuals/start")],
+      order: ["generated/routes.generated.ts", "", "manuals/start"],
+      words: { ...merge, area: "area", account: "account" },
+    },
+    {
+      name: "empty anchor: the direct detail catchall sorts ahead of the root wrapper",
+      tree: [wrapper("+layout"), ...accountDocs("docs"), start("+layout/manuals/start", "+layout")],
+      order: ["generated/routes.generated.ts", "", "docs"],
+      words: { ...merge, area: "area", account: "account" },
+      reject: shadows(
+        "docs/$rest[]",
+        "/(detail:dokumente/$rest[])",
+        "+layout/manuals/start",
+        "/(detail:dokumente/anfang)",
+      ),
+    },
+    {
+      name: "split anchor: the table of the record that ends the anchor is sorted (keep)",
+      tree: [
+        { id: "area", path: "area", page: false },
+        { id: "area/account", path: "account", parent: "area", page: false },
+        wrapper("area/account/+layout", "area/account"),
+        ...accountDocs("area/account/+layout/docs", "area/account/+layout"),
+        start("area/account/manuals/start", "area/account"),
+      ],
+      order: ["src/routes/area/account/children.generated.ts", "", "manuals/start"],
+      words: { ...merge, area: "area", account: "account" },
+    },
+    {
+      name: "split anchor: the table of the record that ends the anchor is sorted (reject)",
+      tree: [
+        { id: "area", path: "area", page: false },
+        { id: "area/account", path: "account", parent: "area", page: false },
+        wrapper("area/account/+layout", "area/account"),
+        ...accountDocs("area/account/docs", "area/account"),
+        start("area/account/+layout/manuals/start", "area/account/+layout"),
+      ],
+      order: ["src/routes/area/account/children.generated.ts", "", "docs"],
+      words: { ...merge, area: "area", account: "account" },
+      reject: shadows(
+        "area/account/docs/$rest[]",
+        "/area/account/(detail:dokumente/$rest[])",
+        "area/account/+layout/manuals/start",
+        "/area/account/(detail:dokumente/anfang)",
+      ),
+    },
+  ];
+
+  let project;
+
+  for (const row of rows) {
+    if (row.tree !== "same") {
+      project = await localizedProject({ extra: { autoDefineRoutes: false } });
+      await writeDeclarations(project, row.tree);
+    }
+
+    await project.generate({ autoDefineRoutes: false });
+
+    if (row.order) {
+      const [file, first, second] = row.order;
+      const table = await project.read(file);
+      const left = table.indexOf(`path: ${JSON.stringify(first)},`);
+      const right = table.indexOf(`path: ${JSON.stringify(second)},`);
+
+      assert.ok(left >= 0 && right >= 0 && left < right, `${row.name}: ${file}`);
+    }
+
+    const units = [];
+
+    for (const [word, text] of Object.entries(row.words)) {
+      units.push([`route.segment.${word}`, text]);
+    }
+
+    await project.catalog(xliff1(units));
+
+    if (!row.reject) {
+      await project.translate();
+
+      continue;
+    }
+
+    const before = await outputSnapshot(project);
+    const tail = row.reject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    await assert.rejects(
+      project.translate(),
+      new RegExp(`^Error: Locale de: .*: ${tail}$`),
+      row.name,
+    );
+    assert.deepEqual(await outputSnapshot(project), before, row.name);
+  }
 });

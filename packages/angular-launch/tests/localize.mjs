@@ -378,7 +378,7 @@ assert.ok(host.includes("Unterminated $localize metadata block"), "the host has 
 assert.equal(host.includes("geschuetzt"), false, "the host has no German table");
 await save("bundles.json", bundles);
 
-// 3–6. Raw HTTP in one fresh process, locales interleaved, then Chromium.
+// 3–5. Raw HTTP in one fresh process, locales interleaved, then Chromium.
 const server = background(process.execPath, [join(dist, "server/server.mjs")], {
   cwd: app,
   env: { ...process.env, PORT: "0" },
@@ -498,6 +498,7 @@ try {
     ["/de/anmelden", "sign-in"],
     ["/de/konto/sign-in/anmelden", "account/$id/sign-in"],
     ["/de/empfangen", "anmelden"],
+    ["/de/handbuecher/anfang", "manuals/start"],
     ["/en/manuals/start", "manuals/start"],
   ]) {
     const found = await fetchRaw(path);
@@ -513,7 +514,7 @@ try {
     help: ["/hilfe/sign-in", "/help/sign-in"],
     account: ["/konto/sign-in/anmelden", "/account/sign-in/sign-in"],
     "docs-old": ["/dokumente/alt", "/docs/old"],
-    "manuals-start": ["/dokumente/anfang", "/manuals/start"],
+    "manuals-start": ["/handbuecher/anfang", "/manuals/start"],
     anmelden: ["/empfangen", "/anmelden"],
   };
 
@@ -534,16 +535,9 @@ try {
     }
   }
 
-  // 6. Which page a translated URL reaches is the router's: German manuals/start is under
-  // docs/$rest[]'s German scope, for the redirect target and the German link alike.
-  const shadowed = await fetchRaw("/de/dokumente/anfang");
-
-  assert.equal(shadowed.status, 200);
-  assert.equal(shadowed.html.page, "docs/$rest[]");
-  assert.deepEqual(JSON.parse(shadowed.html.values), { rest: ["anfang"] });
   await save("http.json", http);
 
-  // 7. Chromium: RPC redirects in the browser, after hydration.
+  // 6. Chromium: RPC redirects in the browser, after hydration.
   browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
 
   const flows = {};
@@ -715,26 +709,26 @@ try {
         return { caught, own };
       }
 
-      // The German link to manuals/start reaches the page its SSR URL reaches.
+      // The German link to manuals/start reaches its page after hydration.
       await page.click("#own-link");
-      await page.waitForURL("**/de/dokumente/anfang");
+      await page.waitForURL("**/de/handbuecher/anfang");
 
       const followed = await marker(page);
 
-      assert.equal(followed.page, "docs/$rest[]");
-      assert.deepEqual(JSON.parse(followed.values), { rest: ["anfang"] });
+      assert.equal(followed.page, "manuals/start");
+      assert.deepEqual(JSON.parse(followed.values), {});
 
       return { caught, own, followed };
     });
   }
 
-  await save("browser.json", { flows, shadowed: shadowed.html });
+  await save("browser.json", { flows });
 } finally {
   await browser?.close();
   await stop(server, "server.log");
 }
 
-// 8. ng serve: the host evaluates destinations under Vite's SSR loader; a bad catalog edit is
+// 7. ng serve: the host evaluates destinations under Vite's SSR loader; a bad catalog edit is
 // logged and the server keeps serving.
 const served = await consumer("serve");
 const catalog = join(served, "src/locale/messages.de.xlf");
