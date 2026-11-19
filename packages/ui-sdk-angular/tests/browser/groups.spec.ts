@@ -1,6 +1,6 @@
 // Group context: Toolbar, ToggleGroup, SelectLabel/SelectGroup and CheckboxGroup find their
 // parent through DI. Hydration keeps every server attribute until the first input except core's
-// disclosed bind-time changes (K1–K7), and each group's flows work.
+// disclosed bind-time changes (K1–K8), and each group's flows work.
 import { type Page, expect, test } from "@playwright/test";
 import {
   captureMessages,
@@ -39,7 +39,7 @@ async function walk(page: Page, start: string, key: string, count: number): Prom
  * checkbox's made `id`, K2 a parent's `aria-controls`, K3 a parent without `allValues` settling
  * its checked state, K4 a Select group's server `hidden`, K5 a group's `aria-labelledby` once its
  * label binds, K6 the content's name moving to the SelectLabel, K7 a labeled trigger that also
- * has an `aria-label`.
+ * has an `aria-label`, K8 the tab stop of a toolbar whose items are all disabled.
  */
 const disclosed = [
   "all checkbox aria-controls",
@@ -56,6 +56,7 @@ const disclosed = [
   "loose-all checkbox data-indeterminate",
   "loose-all checkbox data-unchecked",
   "loose-b checkbox id",
+  "off-toolbar toolbar-button tabindex",
   "olives checkbox id",
   "vegetable select-content aria-labelledby",
   "vegetable select-trigger aria-labelledby",
@@ -200,6 +201,48 @@ test("toolbar group and toolbar disabled: items stay focusable with aria-disable
 
   await page.locator("[data-testid=bold]").click({ force: true });
   await expect(page.locator("[data-testid=bold]")).toHaveAttribute("aria-pressed", "false");
+  await page.locator("[data-testid=share]").click({ force: true });
+  await page.locator("[data-testid=share]").press("Enter");
+  await expect(page.locator("[data-testid=shares]")).toHaveText("0");
+  await page.locator("[data-testid=set-toolbar-disabled]").click();
+  await page.locator("[data-testid=share]").click();
+  await page.locator("[data-testid=share]").press("Enter");
+  await page.locator("[data-testid=share]").press("Space");
+  await expect(page.locator("[data-testid=shares]")).toHaveText("3");
+  expectClean(messages);
+});
+
+test("toolbar button: a click before hydration on a disabled button never emits press", async ({
+  page,
+}) => {
+  const messages = captureMessages(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await page.route("**/main.js", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/groups", { waitUntil: "commit" });
+  await page.locator("[data-testid=off-click]").waitFor({ state: "attached" });
+  // Playwright won't click an aria-disabled element unless forced.
+  await page.locator("[data-testid=off-press]").click({ force: true });
+  await page.locator("[data-testid=off-click]").click({ force: true });
+  release();
+  await expect(page.locator("[data-testid=app-ready]")).toHaveAttribute("data-ready", "true");
+  // Angular replays both clicks once the page hydrates; `press` refuses its replay.
+  await expect(
+    page.locator("[data-testid=off-clicks]"),
+    "the readme's documented replay",
+  ).toHaveText("1");
+  await expect(page.locator("[data-testid=off-presses]")).toHaveText("0");
+
+  await page.locator("[data-testid=off-press]").click({ force: true });
+  await page.locator("[data-testid=off-press]").press("Enter");
+  await page.waitForTimeout(300);
+  await expect(page.locator("[data-testid=off-presses]")).toHaveText("0");
   expectClean(messages);
 });
 

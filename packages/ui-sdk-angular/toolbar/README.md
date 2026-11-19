@@ -22,7 +22,7 @@ import {
   </div>
   <div uiToolbarSeparator></div>
   <div uiToolbarGroup [disabled]="!canShare()">
-    <button uiToolbarButton (click)="share()">Share</button>
+    <button uiToolbarButton (press)="share()">Share</button>
   </div>
   <a uiToolbarLink href="/help">Help</a>
   <input uiToolbarInput aria-label="Font size" value="12" />
@@ -53,7 +53,9 @@ import {
 | `uiToolbarGroup`     | `uiToolbarGroup`     | `disabled`                          | `{ disabled, orientation }` |
 | `uiToolbarSeparator` | `uiToolbarSeparator` | none                                | `{ orientation }`           |
 
-- **Items**: `uiToolbarButton` on a `<button>` (core gives other elements `role="button"`), `uiToolbarLink` on an `<a>`, `uiToolbarInput` on a text `<input>`, where arrow keys move the caret and leave the field only from the end they point at. Handle a button's press with your own `(click)`.
+- **Items**: `uiToolbarButton` on a `<button>` (core gives other elements `role="button"`), `uiToolbarLink` on an `<a>`, `uiToolbarInput` on a text `<input>`, where arrow keys move the caret and leave the field only from the end they point at.
+- **Handle a button's press with `(press)`, not `(click)`.** `uiToolbarButton`'s `press` output (`void`) emits on a click, Enter or Space while the button is enabled, never while it's disabled. A `(click)` on a disabled button still runs once for a click made before the page hydrated: Angular replays that click straight to the element's listeners, past core's check, and the directive can't stop your listener. The same goes for a `routerLink` on any toolbar item.
+- **A disabled link's `href` still works before hydration**: the browser follows it natively, and nothing can stop that. Remove it while the link's toolbar or group is disabled, such as `[attr.href]="canHelp() ? '/help' : null"`.
 - **A disabled item stays focusable** with `aria-disabled`, so arrow keys still reach it and a tooltip can say why; `[focusableWhenDisabled]="false"` disables it natively and skips it. `uiToolbarGroup`'s `disabled` disables every item and toggle inside it, and the toolbar's disables all of them.
 - **The separator** runs across the toolbar: `aria-orientation="vertical"` in a horizontal one.
 - Every item finds its toolbar, and its group, through Angular's DI: put them under the toolbar's element in the template.
@@ -62,5 +64,5 @@ import {
 
 - **Style by core's attributes**: `[data-disabled]`, `[aria-disabled="true"]`, `[data-orientation]`, and `tabindex="0"` on the item that holds the tab stop.
 - **Bind `[disabled]`** rather than a static `disabled` attribute.
-- **The server renders the toolbar final**: one tab stop, and nothing changes when it hydrates.
+- **The server renders the toolbar final**: one tab stop, and nothing changes when it hydrates. The one exception is a toolbar whose items are all disabled, by themselves, their groups or the toolbar. The server renders it with no tab stop, so Tab skips it until the page hydrates. Then core gives the first item `tabindex="0"`.
 - **Other components' triggers can't be toolbar items yet.** A Select trigger, or any part of another component, on the same element as `uiToolbarButton` isn't supported; it sits outside the toolbar's arrow keys. Menubar isn't part of this release.

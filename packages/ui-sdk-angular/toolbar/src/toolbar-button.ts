@@ -1,4 +1,4 @@
-import { Directive, type Signal, inject, input } from "@angular/core";
+import { Directive, type Signal, inject, input, output } from "@angular/core";
 import {
   type ɵBoundNames,
   type ɵExpect,
@@ -20,13 +20,18 @@ const events = ["keydown", "keyup"] as const;
  */
 const classes = { internal: ["id", "groupDisabled"], fixed: [], excluded: [] } as const;
 
-/** A button in a toolbar. Arrow keys move between it and the toolbar's other items. */
+/**
+ * A button in a toolbar. Arrow keys move between it and the toolbar's other items. Handle its
+ * press with `(press)`, not `(click)`: Angular replays a click made before hydration straight to
+ * the element's listeners, past core's check, so a disabled button's `(click)` would run.
+ */
 @Directive({
   selector: "[uiToolbarButton]",
   exportAs: "uiToolbarButton",
   host: {
     "(keydown)": 'slot.dispatch("keydown", $event)',
     "(keyup)": 'slot.dispatch("keyup", $event)',
+    "(click)": "pressed()",
   },
 })
 export class UiToolbarButton {
@@ -34,6 +39,8 @@ export class UiToolbarButton {
   readonly disabled = input(undefined, { transform: optionalBoolean });
   /** Whether a disabled button stays reachable with arrow keys; core's default is `true`. */
   readonly focusableWhenDisabled = input(undefined, { transform: optionalBoolean });
+  /** It was clicked, or pressed with Enter or Space, while enabled. Not emitted while disabled. */
+  readonly press = output<void>();
 
   readonly #key = ɵinjectInstanceId();
   readonly #group = inject(UiToolbarGroup, { optional: true });
@@ -52,6 +59,14 @@ export class UiToolbarButton {
 
   /** Whether it's disabled, by itself, its group or the toolbar, and the toolbar's orientation. */
   readonly state: Signal<ToolbarButtonState> = this.slot.state;
+
+  protected pressed(): void {
+    if (this.slot.state().disabled) {
+      return;
+    }
+
+    this.press.emit();
+  }
 }
 
 type _Parity = ɵExpect<

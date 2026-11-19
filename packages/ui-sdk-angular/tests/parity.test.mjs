@@ -313,6 +313,11 @@ for (const directive of directives) {
         continue;
       }
 
+      // A toolbar button's `press` reads the click itself, so a replayed one can be refused.
+      if (directive.outputs.has("press") && name === "(click)" && expression === "pressed()") {
+        continue;
+      }
+
       listeners.push(match[1]);
       assert.equal(
         expression,

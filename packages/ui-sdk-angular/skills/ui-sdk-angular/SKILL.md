@@ -37,6 +37,7 @@ description: Builds Angular interfaces with ui-sdk's headless components through
 - **Refuse a change** in `(<key>ChangeRequest)`, which emits `{ value, details }` before `<key>Change`: call `details.cancel()`. Not writing a controlled value back isn't a cancellation.
 - **Read state** from `state()` on the part directive (`exportAs` is the selector name), from another element or a descendant. Never from a binding on the part's own element: that throws `UiSdkError`.
 - **Style by core's attributes** on each part: `[aria-pressed="true"]`, `[data-highlighted]`, `[aria-selected="true"]`, `[data-disabled]`, `[data-open]`. Core renders no styles.
+- **Handle a `uiToolbarButton`'s press with `(press)`, never `(click)`**: Angular replays a click made before hydration past core's disabled check, so a disabled button's `(click)` (or a `routerLink` on any toolbar item) runs once; `press` emits only while enabled. Don't give a toolbar link an `href` while it's disabled.
 - **Your attributes win.** A static `id`, `aria-label` or `aria-labelledby` on a part is the one rendered. Name every Select trigger with a `<span uiSelectLabel>` inside the Select, or a static `aria-label` or `aria-labelledby`, not both a label and an attribute. Name toggle groups, checkbox groups and toolbars with `aria-label` or `aria-labelledby`.
 - **Item values** can be any type; give object values `[itemToValue]` on the root, and `[itemToLabel]` (or `[items]`) for labels that are right on the server.
 - **Bind `[disabled]`**, not a static `disabled` attribute.

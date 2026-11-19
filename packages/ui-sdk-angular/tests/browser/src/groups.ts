@@ -34,7 +34,7 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
  * Group context: a Toolbar around a toggle, a toggle group, a ToolbarGroup (with a button, a
  * toggle and a nested toggle group) and a link and input; a vetoed toggle group; a Select with a
  * label and groups, and one whose trigger also has an `aria-label`; a CheckboxGroup with a parent
- * and `allValues`, and one without.
+ * and `allValues`, and one without; a disabled Toolbar with a `(press)` and a `(click)` button.
  */
 @Component({
   selector: "app-groups",
@@ -70,7 +70,7 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
       </div>
       <div uiToolbarSeparator data-testid="separator"></div>
       <div uiToolbarGroup data-testid="toolbar-group" [disabled]="groupDisabled()">
-        <button uiToolbarButton data-testid="share">Share</button>
+        <button uiToolbarButton data-testid="share" (press)="shares.set(shares() + 1)">Share</button>
         <button uiToggle data-testid="italic" aria-label="Italic">I</button>
         <div uiToggleGroup data-testid="list" aria-label="List" [multiple]="true">
           <button uiToggle value="bullets" data-testid="bullets">Bullets</button>
@@ -85,6 +85,7 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
     <button type="button" data-testid="set-toolbar-disabled" (click)="toolbarDisabled.set(!toolbarDisabled())">
       Toolbar disabled
     </button>
+    <output data-testid="shares">{{ shares() }}</output>
     <output data-testid="align-value">{{ align().join(",") }}</output>
 
     <div
@@ -160,6 +161,13 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
     </form>
     <output data-testid="chosen">{{ chosen().join(",") }}</output>
     <button type="button" data-testid="set-chosen" (click)="chosen.set(['ham'])">Only ham</button>
+
+    <div uiToolbar data-testid="off-toolbar" aria-label="Off" [disabled]="true">
+      <button uiToolbarButton data-testid="off-press" (press)="presses.set(presses() + 1)">Press</button>
+      <button uiToolbarButton data-testid="off-click" (click)="clicks.set(clicks() + 1)">Click</button>
+    </div>
+    <output data-testid="off-presses">{{ presses() }}</output>
+    <output data-testid="off-clicks">{{ clicks() }}</output>
     <span data-testid="app-ready" [attr.data-ready]="ready()">groups</span>
   `,
 })
@@ -171,6 +179,9 @@ export class Groups {
   protected readonly changes = signal(0);
   protected readonly toppings = ["cheese", "ham", "olives"];
   protected readonly chosen = signal<string[]>(["cheese"]);
+  protected readonly shares = signal(0);
+  protected readonly presses = signal(0);
+  protected readonly clicks = signal(0);
   protected readonly ready = renderedFlag();
 
   protected veto(request: ValueRequest): void {
