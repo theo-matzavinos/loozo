@@ -67,7 +67,7 @@ function entryPoint(content, importPath) {
   return undefined;
 }
 
-test("router's root entry point yields its 15 public symbols with descriptions", () => {
+test("router's root entry point yields its 17 public symbols with descriptions", () => {
   const names = [];
 
   for (const apiSymbol of entryPoint(router, "@loozo/angular-router").symbols) {
@@ -75,11 +75,12 @@ test("router's root entry point yields its 15 public symbols with descriptions",
     assert.notEqual(apiSymbol.summaryHtml, "", `${apiSymbol.name} has a description`);
   }
 
-  assert.equal(names.length, 15);
+  assert.equal(names.length, 17);
   assert.deepEqual(
     new Set(names),
     new Set([
       "Destination",
+      "LocaleUrl",
       "ParamCodec",
       "ParamsOf",
       "Route",
@@ -90,6 +91,7 @@ test("router's root entry point yields its 15 public symbols with descriptions",
       "createUrl",
       "defineRoute",
       "enumParam",
+      "localeUrls",
       "serverRoutePath",
       "numberParam",
       "stringParam",
