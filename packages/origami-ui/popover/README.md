@@ -11,6 +11,8 @@ Popover is a non-modal floating surface anchored to an element: Content stays wh
 | `ogPopoverAnchor`  | `id` (default generated); may share the Trigger's element, which then uses the Trigger's ID                                                               |
 | `ogPopoverContent` | `id` (default generated), `side` (`"block-end"`), `align` (`"start"`), `gap` (`0`, in CSS pixels)                                                         |
 
+The Trigger renders no `aria-haspopup`: add the token that matches Content's role yourself (see [Dismissal and focus](#dismissal-and-focus)).
+
 Trigger, Anchor and Content are all required for the Popover to show. When one is missing, or a parent Popover closes, the Content is hidden but `open` keeps its value, so mounting the part again shows it. One of each part is supported per Popover. Content can be rendered by its own component, such as a menu: the Trigger names Content's ID once Angular has set Content's inputs, so the server HTML already has a bound ID.
 
 ## Replacing Options
@@ -92,7 +94,7 @@ It's absent in server HTML and until Content is first positioned. It's set when 
 - In a [Toolbar](../toolbar/README.md#toolbar-toggle-and-toolbar-popover-trigger), use `ogToolbarPopoverTrigger` instead of adding `ogToolbarItem` to the Trigger.
 - Unrelated Popovers stay open independently; opening one doesn't close another.
 
-The Popover is non-modal: there's no focus trap, no scroll lock, no automatic focus and no close when focus leaves. Native `autofocus` on an element inside Content still works when it opens. Tab order follows the DOM, so author Content right after its Trigger if keyboard users should reach it next. While Content runs its exit animation, it's `inert` and the Trigger's `aria-expanded` is already false. You supply Content's role and accessible name; Popover isn't a menu, listbox or dialog.
+The Popover is non-modal: there's no focus trap, no scroll lock, no automatic focus and no close when focus leaves. Native `autofocus` on an element inside Content still works when it opens. Tab order follows the DOM, so author Content right after its Trigger if keyboard users should reach it next. While Content runs its exit animation, it's `inert` and the Trigger's `aria-expanded` is already false. You supply Content's role and accessible name; Popover isn't a menu, listbox or dialog. So the Trigger renders no `aria-haspopup`, since it can't know Content's role: when Content has a popup role (`dialog`, `menu`, `listbox`, `tree` or `grid`), add the matching token as a static attribute, on the Trigger's element or on your composing directive's `host`, such as `aria-haspopup="dialog"`. No Popover part binds it, so your value is kept. Leave it off when Content's role is `group` or it has none: `aria-expanded` and `aria-controls` already tell assistive technology that the Trigger opens something.
 
 ## State and attributes
 

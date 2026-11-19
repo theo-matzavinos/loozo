@@ -35,6 +35,7 @@ import { LatePointer } from "./pointer-lifetime.js";
 import { PopoverNamedForm } from "./popover-named-form.js";
 import { PopoverRestoreTiming } from "./popover-restore-timing.js";
 import { PopoverShadow } from "./popover-shadow.js";
+import { PopoverHasPopup } from "./popover-has-popup.js";
 
 @Service({ autoProvided: false })
 export class BranchJournal {
@@ -255,6 +256,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     PopoverShadow,
     PopoverNamedForm,
     PopoverRestoreTiming,
+    PopoverHasPopup,
     NativePopover,
     NativeContent,
     OrigamiPopover,
@@ -455,6 +457,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
       <acceptance-popover-restore-timing />
     }
     <acceptance-popover />
+    <acceptance-popover-has-popup />
   `,
   styles: `
     :host {
