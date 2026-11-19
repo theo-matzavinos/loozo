@@ -5340,7 +5340,7 @@ export default defineRoute("legacy", {}).redirect({
         ["route.segment.guides", "dokumente"],
         ["route.segment.manuals", "dokumente"],
       ],
-      /^Error: Locale de: .*guides\/\$rest\[\]\/route\.ts:1:1: Catchall shadows a route: src\/routes\/guides\/\$rest\[\]\/route\.ts \(\/dokumente\/\$rest\[\]\) is tried before src\/routes\/manuals\/start\/route\.ts \(\/dokumente\/start\)$/,
+      /^Error: Locale de: .*guides[\\/]\$rest\[\][\\/]route\.ts:1:1: Catchall shadows a route: src\/routes\/guides\/\$rest\[\]\/route\.ts \(\/dokumente\/\$rest\[\]\) is tried before src\/routes\/manuals\/start\/route\.ts \(\/dokumente\/start\)$/,
     ],
     // Collisions come first: guides/$rest[] would shadow news here too.
     [
