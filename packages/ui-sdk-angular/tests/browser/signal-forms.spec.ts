@@ -232,11 +232,14 @@ test("hidden inputs submit under the form's field names, and a native reset writ
   ]);
 
   await changeAll(page, "size-l");
-  expect(await formData(page)).toEqual([
-    ["signup.size", "l"],
-    ["signup.fruit", "pear"],
-    ["signup.country", "fr"],
-  ]);
+  // The hidden inputs follow the model on Angular's next render, after the popup has closed.
+  await expect
+    .poll(() => formData(page))
+    .toEqual([
+      ["signup.size", "l"],
+      ["signup.fruit", "pear"],
+      ["signup.country", "fr"],
+    ]);
   // The model keeps the object; the form submits its key.
   expect((await model(page)).country).toEqual(alternate.country);
 
