@@ -6561,6 +6561,33 @@ test("sibling pathless groups: a group holding a catchall is tried last and may 
     ...fallback,
     "+authenticated/docs/intro": child("docs/intro", "../../route.js"),
   });
+
+  // Where the chains part at an ordinary record, its table order decides, as without groups:
+  // `docs` is tried before the root's `docs/intro`, so a catchall below it shadows that route
+  // whether or not the catchall sits in a group (§3's fallback overlap).
+  const rest = ", params: { rest: stringParam }";
+
+  for (const routesWith of [
+    {
+      docs: `${outletHeader}\nexport default defineRoute("docs", {});\n`,
+      "docs/$rest[]": child("$rest[]", "../route.js", rest),
+      intro: `${outletHeader}\nexport default defineRoute("docs/intro", {});\n`,
+    },
+    {
+      docs: `${outletHeader}\nexport default defineRoute("docs", {});\n`,
+      "docs/+a": child(""),
+      "docs/+a/$rest[]": child("$rest[]", "../route.js", rest),
+      "docs/+b": child(""),
+      "docs/+b/other": child("other"),
+      intro: `${outletHeader}\nexport default defineRoute("docs/intro", {});\n`,
+    },
+  ]) {
+    const result = await project.analyze(routesWith);
+
+    if (routesWith["docs/+a"]) {
+      assert.match(result.copy("docs", "children"), /\.\.\.owned\(\[\["\*\*"\]\]\)/);
+    }
+  }
 });
 
 test("sibling pathless groups: a named branch can't hang at a group's own path", async () => {
