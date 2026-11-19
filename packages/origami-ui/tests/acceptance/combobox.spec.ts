@@ -1,7 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page, TestInfo } from "playwright/test";
 import { bootstrapHeld, fixture } from "./observation.js";
-import { expectPreferred } from "./geometry.js";
+import { expectPreferred, geometry, placedSide, settled } from "./geometry.js";
 
 // CB means section 31. Cases run against the `combobox` fixture. "Open" is `:popover-open` on
 // Content with the input's `aria-expanded="true"`; "active" is the input's
@@ -1420,4 +1420,54 @@ test("CB17: focus moving to another element touches and closes without a choice;
   await expect(query).toHaveText("Greece");
   await expect(touches).toHaveText("3");
   await expect(value).toHaveText("string:gr");
+});
+
+test("CB22: Combobox Content wider than its input near the right edge of a narrow viewport slides inside it; near the bottom it flips above; typing still filters with Content in place", async ({
+  page,
+}, info) => {
+  await fixture(page, "combobox", info);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.getByTestId("edge-mount").evaluate((node) => (node as HTMLElement).click());
+
+  const input = page.getByTestId("edge-input");
+  const content = page.getByTestId("edge-content");
+  const hosts = { content: "edge-content", anchor: "edge-input" };
+
+  for (const side of ["block-end", "block-start"] as const) {
+    if (side === "block-start") {
+      await page.getByTestId("edge-near-bottom").evaluate((node) => (node as HTMLElement).click());
+    }
+
+    await input.focus();
+    await page.getByTestId("edge-open").evaluate((node) => (node as HTMLElement).click());
+    await expectOpen(input, content);
+    await settled(page, "edge-input", "edge-content");
+
+    let result = await geometry(page, side, "start", 4, hosts);
+
+    await info.attach(`CB22-${side}`, {
+      body: JSON.stringify(result, null, 2),
+      contentType: "application/json",
+    });
+    // Neither alignment fits: start-aligned it crosses the right edge, end-aligned the left.
+    expect(result.anchor.left + result.content.width).toBeGreaterThan(result.viewport.width);
+    expect(result.anchor.right - result.content.width).toBeLessThan(0);
+    expect(result.content.left).toBeGreaterThanOrEqual(-2);
+    expect(result.content.right).toBeLessThanOrEqual(result.viewport.width + 2);
+    await expect(content).toHaveAttribute("data-side", side);
+    expect(placedSide(result.anchor, result.content, 4, result)).toBe(side);
+
+    await page.keyboard.type("Al");
+    await expect(page.getByTestId("edge-al")).toBeVisible();
+    await expect(page.getByTestId("edge-at")).toHaveCount(0);
+    await settled(page, "edge-input", "edge-content");
+    result = await geometry(page, side, "start", 4, hosts);
+    expect(result.content.left).toBeGreaterThanOrEqual(-2);
+    expect(result.content.right).toBeLessThanOrEqual(result.viewport.width + 2);
+    await expect(content).toHaveAttribute("data-side", side);
+    expect(placedSide(result.anchor, result.content, 4, result)).toBe(side);
+    await input.fill("");
+    await page.keyboard.press("Escape");
+    await expectClosed(input, content);
+  }
 });

@@ -7,7 +7,15 @@ import {
   stopRetentionObservation,
   captureReferences,
 } from "./observation.js";
-import { geometry, expectPreferred, candidates } from "./geometry.js";
+import {
+  geometry,
+  expectPreferred,
+  candidates,
+  placedSide,
+  selected,
+  settled,
+  shifted,
+} from "./geometry.js";
 import { pauseExitOnStart } from "./animations.js";
 
 interface PresentationFrame {
@@ -766,7 +774,7 @@ test("V3 V10: Anchor axes changed by another owner's native show callback during
 });
 
 for (const layout of ["bottom", "right", "corner", "oversized"]) {
-  test(`V4: independent explicit flip candidates for ${layout}, no universal full-fit assertion`, async ({
+  test(`V4: independent explicit flip candidates for ${layout}, then an alignment-axis shift, no universal full-fit assertion`, async ({
     page,
   }, info) => {
     await fixture(page, "popover", info);
@@ -776,32 +784,24 @@ for (const layout of ["bottom", "right", "corner", "oversized"]) {
     await expect
       .poll(async () => {
         const result = await geometry(page);
-        let selected = result.expected.find(
-          (candidate) => candidate.mainOverflow <= 0 && candidate.crossOverflow <= 0,
-        );
-
-        if (!selected) {
-          const mainFits = result.expected.filter((candidate) => candidate.mainOverflow <= 0);
-
-          if (mainFits.length > 0) {
-            mainFits.sort((a, b) => a.primaryCrossOverflow - b.primaryCrossOverflow);
-            selected = mainFits[0];
-          } else {
-            const leastOverflow = [...result.expected];
-
-            leastOverflow.sort((a, b) => a.score - b.score);
-            selected = leastOverflow[0];
-          }
-        }
+        const chosen = selected(result.expected);
+        const position = shifted(chosen, result.anchor, result.content, result.viewport);
 
         return Math.max(
-          Math.abs(result.content.left - selected.x),
-          Math.abs(result.content.top - selected.y),
+          Math.abs(result.content.left - position.x),
+          Math.abs(result.content.top - position.y),
         );
       })
       .toBeLessThanOrEqual(2);
 
     const result = await geometry(page);
+    const chosen = selected(result.expected);
+    const position = shifted(chosen, result.anchor, result.content, result.viewport);
+
+    if (layout !== "oversized") {
+      // A fitting candidate exists, so the alignment flip wins and nothing shifts.
+      expect(position).toEqual({ x: chosen.x, y: chosen.y });
+    }
 
     await info.attach("independent-fallback-dom-edges", {
       body: JSON.stringify(result, null, 2),
@@ -839,6 +839,12 @@ for (const layout of ["bottom", "right", "corner", "oversized"]) {
         ),
       ).toBe(true);
       expect(result.content.width).toBeGreaterThan(result.viewport.width);
+      // Larger than the viewport along its alignment axis: pinned to its left or top edge.
+      if (chosen.side === "top" || chosen.side === "bottom") {
+        expect(Math.abs(result.content.left)).toBeLessThanOrEqual(2);
+      } else {
+        expect(Math.abs(result.content.top)).toBeLessThanOrEqual(2);
+      }
     }
   });
 }
@@ -987,6 +993,767 @@ test("V18: Content capped by --og-available-height is first revealed above its A
   expect(Math.abs(settled.top - first.top)).toBeLessThanOrEqual(1);
   expect(Math.abs(settled.bottom - first.bottom)).toBeLessThanOrEqual(1);
 });
+
+for (const [writingMode, direction] of [
+  ["horizontal-tb", "ltr"],
+  ["horizontal-tb", "rtl"],
+  ["vertical-rl", "ltr"],
+] as const) {
+  test(`V23: ${writingMode} ${direction}: Content too wide for either alignment shifts along its alignment axis into the viewport, and stops at a fully offscreen Anchor's far edge`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "popover", info);
+    await page.getByTestId("native-motion").selectOption("none");
+    await page.getByTestId("writing-mode").selectOption(writingMode);
+    await page.getByTestId("anchor-direction").selectOption(direction);
+
+    const vertical = writingMode !== "horizontal-tb";
+
+    for (const layout of ["narrow-start", "narrow-end", "partly-offscreen", "offscreen"]) {
+      await page.getByTestId("native-layout").selectOption(layout);
+      await nativeOpen(page);
+      await settled(page, "native-anchor", "native-content");
+      await expect
+        .poll(async () => {
+          const result = await geometry(page);
+          const position = shifted(
+            selected(result.expected),
+            result.anchor,
+            result.content,
+            result.viewport,
+          );
+
+          return Math.max(
+            Math.abs(result.content.left - position.x),
+            Math.abs(result.content.top - position.y),
+          );
+        })
+        .toBeLessThanOrEqual(2);
+
+      const result = await geometry(page);
+
+      await info.attach(`V23-${layout}`, {
+        body: JSON.stringify(result, null, 2),
+        contentType: "application/json",
+      });
+
+      // The layout exercises the shift: no candidate fits along the alignment axis.
+      expect(result.expected.every((candidate) => candidate.crossOverflow > 0)).toBe(true);
+
+      let start = result.content.left;
+      let end = result.content.right;
+      let limit = result.viewport.width;
+      let anchorEnd = result.anchor.right;
+
+      if (vertical) {
+        start = result.content.top;
+        end = result.content.bottom;
+        limit = result.viewport.height;
+        anchorEnd = result.anchor.bottom;
+      }
+
+      if (layout === "offscreen") {
+        // Attached rather than fitted: its near edge stops at the Anchor's far edge, clipped.
+        expect(anchorEnd).toBeLessThan(0);
+        expect(Math.abs(start - anchorEnd)).toBeLessThanOrEqual(2);
+      } else {
+        expect(start).toBeGreaterThanOrEqual(-2);
+        expect(end).toBeLessThanOrEqual(limit + 2);
+      }
+
+      // Still beside the Anchor at the gap on the side flip chose.
+      expect(
+        placedSide(result.anchor, result.content, 8, result),
+        "beside the Anchor at the gap",
+      ).not.toBeNull();
+      await scriptControl(page, "native-close");
+      await closed(page);
+    }
+  });
+}
+
+/** Content's box, the Anchor's box, the viewport and `--og-available-height`, in CSS pixels. */
+async function besideHeight(page: Page) {
+  return page.getByTestId("native-content").evaluate((content) => {
+    const anchor = document.querySelector('[data-testid="native-anchor"]');
+    const filler = content.querySelector('[data-testid="native-filler-box"]');
+
+    if (!(content instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+      throw new Error("Expected the native Content and separate Anchor");
+    }
+
+    const box = content.getBoundingClientRect();
+    const anchorBox = anchor.getBoundingClientRect();
+    let fillerHeight = 0;
+
+    if (filler instanceof HTMLElement) {
+      fillerHeight = filler.getBoundingClientRect().height;
+    }
+
+    return {
+      top: box.top,
+      bottom: box.bottom,
+      left: box.left,
+      right: box.right,
+      height: box.height,
+      anchorLeft: anchorBox.left,
+      anchorRight: anchorBox.right,
+      viewport: document.documentElement.clientHeight,
+      availableHeight: Number.parseFloat(content.style.getPropertyValue("--og-available-height")),
+      writingMode: getComputedStyle(content).writingMode,
+      clientHeight: content.clientHeight,
+      scrollHeight: content.scrollHeight,
+      fillerHeight,
+    };
+  });
+}
+
+for (const run of ["a", "b"] as const) {
+  test(`V24 (${run}): Content placed physically beside its Anchor may take the viewport's full height; a physical max-height cap stops natural and explicit heights there`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "popover", info);
+    await page.getByTestId("native-motion").selectOption("none");
+
+    // (a) horizontal-tb inline-end: physical right. (b) vertical-rl block-end: physical left.
+    let side = "inline-end";
+
+    if (run === "b") {
+      side = "block-end";
+      await page.getByTestId("writing-mode").selectOption("vertical-rl");
+    }
+
+    await page.getByTestId("native-side").selectOption(side);
+    await page.getByTestId("native-layout").selectOption("beside-near-bottom");
+    await scriptControl(page, "native-capped");
+
+    const measure = async (variant: string) => {
+      await nativeOpen(page);
+      await settled(page, "native-anchor", "native-content");
+
+      const measured = await besideHeight(page);
+
+      await info.attach(`V24-${run}-${variant}`, {
+        body: JSON.stringify(measured, null, 2),
+        contentType: "application/json",
+      });
+
+      if (run === "b") {
+        expect(measured.writingMode).toBe("vertical-rl");
+      }
+
+      expect(Math.abs(measured.availableHeight - measured.viewport)).toBeLessThanOrEqual(1);
+
+      if (run === "a") {
+        expect(Math.abs(measured.left - (measured.anchorRight + 8))).toBeLessThanOrEqual(1);
+      } else {
+        expect(Math.abs(measured.anchorLeft - 8 - measured.right)).toBeLessThanOrEqual(1);
+      }
+
+      return measured;
+    };
+
+    // Natural short: the cap doesn't stretch it, and it stays inside the viewport.
+    const short = await measure("natural-short");
+
+    await scriptControl(page, "native-capped");
+    await settled(page, "native-anchor", "native-content");
+
+    const uncapped = await besideHeight(page);
+
+    await scriptControl(page, "native-capped");
+    expect(Math.abs(short.height - uncapped.height)).toBeLessThanOrEqual(1);
+    expect(short.height).toBeLessThan(short.viewport);
+    expect(short.top).toBeGreaterThanOrEqual(-1);
+    expect(short.bottom).toBeLessThanOrEqual(short.viewport + 1);
+    await scriptControl(page, "native-close");
+    await closed(page);
+
+    // Natural tall: capped at the viewport's height, shifted to its top, scrolling its filler.
+    await scriptControl(page, "native-filler");
+
+    const tall = await measure("natural-tall");
+
+    expect(Math.abs(tall.height - tall.availableHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(tall.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(tall.bottom - tall.viewport)).toBeLessThanOrEqual(1);
+    expect(tall.fillerHeight).toBeGreaterThan(tall.clientHeight);
+    expect(tall.scrollHeight).toBeGreaterThan(tall.clientHeight);
+    await scriptControl(page, "native-close");
+    await closed(page);
+    await scriptControl(page, "native-filler");
+
+    // Explicitly oversized: max-height wins over height; nothing to scroll is asserted.
+    await scriptControl(page, "native-oversized-height");
+
+    const oversized = await measure("explicitly-oversized");
+
+    expect(Math.abs(oversized.height - oversized.availableHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(oversized.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(oversized.bottom - oversized.viewport)).toBeLessThanOrEqual(1);
+  });
+}
+
+interface SideBox {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+/** One MutationObserver batch on native Content: the `data-side` and coordinate pair it carried. */
+interface SideBatch {
+  index: number;
+  sideChanged: boolean;
+  oldSide: string | null;
+  side: string | null;
+  coordinatesChanged: boolean;
+  before: string;
+  after: string;
+  native: boolean;
+  opacity: string;
+  preparing: boolean;
+  entering: boolean;
+  leaving: boolean;
+  present: boolean;
+  openings: string;
+  content: SideBox;
+  anchor: SideBox;
+  writingMode: string;
+  direction: string;
+}
+
+declare global {
+  interface Window {
+    sideJournal: {
+      batches: SideBatch[];
+      toggles: { newState: string; side: string | null }[];
+    };
+  }
+}
+
+/** Journals every attribute batch on native Content; attached as evidence by the caller. */
+async function journalSides(page: Page): Promise<void> {
+  await page.getByTestId("native-content").evaluate((content) => {
+    if (!(content instanceof HTMLElement)) {
+      throw new Error("Expected the native Content host");
+    }
+
+    const journal: Window["sideJournal"] = { batches: [], toggles: [] };
+    const rectangle = (node: Element) => {
+      const { left, right, top, bottom, width, height } = node.getBoundingClientRect();
+
+      return { left, right, top, bottom, width, height };
+    };
+    let coordinates = `${content.style.left}/${content.style.top}`;
+    const observer = new MutationObserver((mutations) => {
+      const anchor = document.querySelector('[data-testid="native-anchor"]');
+
+      if (!(anchor instanceof HTMLElement)) {
+        throw new Error("Expected the separate native Anchor");
+      }
+
+      let sideChanged = false;
+      let oldSide: string | null = content.getAttribute("data-side");
+
+      for (const mutation of mutations) {
+        if (mutation.attributeName === "data-side" && !sideChanged) {
+          sideChanged = true;
+          oldSide = mutation.oldValue;
+        }
+      }
+
+      const side = content.getAttribute("data-side");
+      const after = `${content.style.left}/${content.style.top}`;
+      const anchorStyle = getComputedStyle(anchor);
+
+      journal.batches.push({
+        index: journal.batches.length,
+        sideChanged: sideChanged && oldSide !== side,
+        oldSide,
+        side,
+        coordinatesChanged: after !== coordinates,
+        before: coordinates,
+        after,
+        native: content.matches(":popover-open"),
+        opacity: getComputedStyle(content).opacity,
+        preparing: content.style.getPropertyValue("opacity").startsWith("var("),
+        entering: content.hasAttribute("data-entering"),
+        leaving: content.hasAttribute("data-leaving"),
+        present: content.hasAttribute("data-present"),
+        openings: document.querySelector('[data-testid="native-openings"]')?.textContent ?? "",
+        content: rectangle(content),
+        anchor: rectangle(anchor),
+        writingMode: anchorStyle.writingMode,
+        direction: anchorStyle.direction,
+      });
+      coordinates = after;
+    });
+
+    observer.observe(content, { attributes: true, attributeOldValue: true });
+    content.addEventListener("toggle", (event) => {
+      if (event instanceof ToggleEvent) {
+        journal.toggles.push({ newState: event.newState, side: content.getAttribute("data-side") });
+      }
+    });
+    window.sideJournal = journal;
+  });
+}
+
+async function sideBatches(page: Page): Promise<SideBatch[]> {
+  return page.evaluate(() => window.sideJournal.batches);
+}
+
+/** R1: a batch that changes `data-side` also changes `left` or `top` in that same batch. */
+function assertPaired(batches: SideBatch[]): void {
+  for (const batch of batches) {
+    if (batch.sideChanged) {
+      expect(batch.coordinatesChanged, `R1 pairing in batch ${batch.index}`).toBe(true);
+    }
+  }
+}
+
+/**
+ * A fresh activation from batch `from`: R2 while it prepares (the previous committed side, or
+ * none), then R3 at the batch that releases preparation, which commits `side` beside the Anchor.
+ */
+function assertFreshActivation(
+  batches: SideBatch[],
+  from: number,
+  previous: string | null,
+  side: string,
+  gap = 8,
+): SideBatch {
+  const activation = batches.slice(from);
+  const reveal = activation.find(
+    (batch) => batch.native && !batch.preparing && batch.opacity !== "0",
+  );
+
+  if (!reveal) {
+    throw new Error(`No first reveal after batch ${from}`);
+  }
+
+  for (const batch of activation) {
+    if (batch.index >= reveal.index) {
+      break;
+    }
+
+    if (batch.native && batch.preparing) {
+      expect(batch.side, `R2 preparation in batch ${batch.index}`).toBe(previous);
+    }
+  }
+
+  // The batch that releases preparation sets or changes the side, unless it stayed the same.
+  expect(reveal.sideChanged, `R3 commits the side in batch ${reveal.index}`).toBe(
+    previous !== side,
+  );
+  expect(reveal.side).toBe(side);
+  expect(placedSide(reveal.anchor, reveal.content, gap, reveal)).toBe(side);
+
+  return reveal;
+}
+
+/** R4: after a controlled move settles, Content sits on its `data-side` at the gap. */
+async function assertSettledSide(page: Page, side: string, gap = 8): Promise<void> {
+  await settled(page, "native-anchor", "native-content");
+
+  const result = await geometry(page);
+  const attribute = await page.getByTestId("native-content").getAttribute("data-side");
+
+  expect(attribute).toBe(side);
+  expect(placedSide(result.anchor, result.content, gap, result)).toBe(side);
+}
+
+interface CommittedPair {
+  side: string | null;
+  coordinates: string;
+}
+
+async function currentPair(page: Page): Promise<CommittedPair & { native: boolean }> {
+  return page.getByTestId("native-content").evaluate((node) => {
+    if (!(node instanceof HTMLElement)) {
+      throw new Error("Expected the native Content host");
+    }
+
+    return {
+      side: node.getAttribute("data-side"),
+      coordinates: `${node.style.left}/${node.style.top}`,
+      native: node.matches(":popover-open"),
+    };
+  });
+}
+
+/** The pair committed while Content is still open, taken before a close as R5's baseline. */
+async function committedPair(page: Page): Promise<CommittedPair> {
+  const { native, ...pair } = await currentPair(page);
+
+  expect(native, "the baseline is read while Content is open").toBe(true);
+  expect(pair.side).not.toBeNull();
+
+  return pair;
+}
+
+/**
+ * R5: after native hide, the side and coordinates equal `expected`: the pair committed before
+ * the close, or the last commit during the exit when the exit repositioned.
+ */
+async function assertRetained(page: Page, expected: CommittedPair): Promise<CommittedPair> {
+  const { native, ...now } = await currentPair(page);
+
+  expect(native).toBe(false);
+  expect(now.side).not.toBeNull();
+  expect(now).toEqual(expected);
+
+  return now;
+}
+
+async function scrollAnchor(page: Page, scrollTop: number): Promise<void> {
+  await page.getByTestId("native-scroll-two").evaluate((node, scrollTop) => {
+    node.scrollTop = scrollTop;
+  }, scrollTop);
+}
+
+test("V25: data-side is absent until the first reveal, committed with the coordinates on every reposition including during an exit, kept when closed, and a reversal keeps the last pair until a current result", async ({
+  page,
+  runtimeErrors,
+  drainIssues,
+}, info) => {
+  runtimeErrors.expectExactly([
+    {
+      description: "one unsupported writing-mode Error reported through ErrorHandler",
+      matches: isUnsupportedWritingMode,
+    },
+  ]);
+  await fixture(page, "popover", info);
+  await page.getByTestId("native-motion").selectOption("directional");
+  // No focus moves into Content, so closing restores none and never scrolls the Anchor.
+  await scriptControl(page, "native-autofocus-toggle");
+
+  const content = page.getByTestId("native-content");
+  const noPreference = info.project.metadata.motion === "no-preference";
+  const viewport = page.viewportSize();
+
+  if (viewport === null) {
+    throw new Error("Expected a fixed viewport");
+  }
+
+  try {
+    await journalSides(page);
+
+    // 1. Absent before the first open.
+    await expect(content).not.toHaveAttribute("data-side", /.*/);
+
+    // 2. First open below.
+    let from = (await sideBatches(page)).length;
+
+    await nativeOpen(page);
+    await expect(content).toHaveAttribute("data-side", "block-end");
+    assertFreshActivation(await sideBatches(page), from, null, "block-end");
+
+    // 3. Close: kept after native hide.
+    let committed = await committedPair(page);
+
+    await scriptControl(page, "native-close");
+    await closed(page);
+    await assertRetained(page, committed);
+
+    // 4. Fresh reopen near the bottom, flipped above.
+    await page.getByTestId("native-layout").selectOption("bottom");
+    from = (await sideBatches(page)).length;
+    await nativeOpen(page);
+    await expect(content).toHaveAttribute("data-side", "block-start");
+    assertFreshActivation(await sideBatches(page), from, "block-end", "block-start");
+
+    // 5. A scroll flips it below while open, a viewport resize flips it back.
+    await scrollAnchor(page, 200);
+    await assertSettledSide(page, "block-end");
+    await page.setViewportSize({ width: viewport.width, height: viewport.height - 150 });
+    await assertSettledSide(page, "block-start");
+    assertPaired(await sideBatches(page));
+
+    // 6. Close: kept.
+    committed = await committedPair(page);
+    await scriptControl(page, "native-close");
+    await closed(page);
+    await assertRetained(page, committed);
+    await page.setViewportSize(viewport);
+
+    // 7. Fresh reopen where block-end fits again.
+    from = (await sideBatches(page)).length;
+    await nativeOpen(page);
+    assertFreshActivation(await sideBatches(page), from, "block-start", "block-end");
+
+    if (noPreference) {
+      // 8. A flip during the paused exit commits the new pair while Content is still open; the
+      // replaced side-keyed exit counts as finished, so native hide follows.
+      await pauseExitOnStart(content);
+      await scriptControl(page, "native-close");
+      await expect(content).toHaveAttribute("data-leaving", "");
+      from = (await sideBatches(page)).length;
+      await scrollAnchor(page, 0);
+      await closed(page);
+
+      const exit = (await sideBatches(page)).slice(from);
+      const flip = exit.find((batch) => batch.sideChanged);
+
+      if (!flip) {
+        throw new Error("No side commit during the exit");
+      }
+
+      expect(flip.native).toBe(true);
+      expect(flip.leaving).toBe(true);
+      expect(flip.side).toBe("block-start");
+      expect(placedSide(flip.anchor, flip.content, 8, flip)).toBe("block-start");
+      assertPaired(exit);
+
+      await assertRetained(page, { side: "block-start", coordinates: flip.after });
+
+      // 9. A fresh reopen below, then a reversal during its paused exit that also requests the
+      // opposite side: no second native show, and the last pair stays until a current result
+      // commits the new side and coordinates together.
+      await scrollAnchor(page, 200);
+      from = (await sideBatches(page)).length;
+      await nativeOpen(page);
+      assertFreshActivation(await sideBatches(page), from, "block-start", "block-end");
+      await expect(content).toHaveAttribute("data-phase", "open");
+      await pauseExitOnStart(content);
+      await scriptControl(page, "native-close");
+      await expect(content).toHaveAttribute("data-leaving", "");
+
+      const openings = await page.getByTestId("native-openings").textContent();
+      const toggles = await page.evaluate(() => window.sideJournal.toggles.length);
+      const pair = await content.evaluate((node) => {
+        if (!(node instanceof HTMLElement)) {
+          throw new Error("Expected the native Content host");
+        }
+
+        return `${node.style.left}/${node.style.top}`;
+      });
+
+      from = (await sideBatches(page)).length;
+      await scriptControl(page, "native-reverse-other-side");
+      await expect(content).toHaveAttribute("data-side", "block-start");
+      await expect(content).toHaveAttribute("data-phase", "open");
+      await expect(content).toHaveAttribute("data-present", "");
+      await assertSettledSide(page, "block-start");
+
+      const reversal = (await sideBatches(page)).slice(from);
+      const moved = reversal.find((batch) => batch.coordinatesChanged);
+      const entering = reversal.find((batch) => batch.entering);
+
+      await info.attach("V25-reversal-entrance-pair", {
+        body: JSON.stringify({ pair, entering, moved }, null, 2),
+        contentType: "application/json",
+      });
+
+      if (!moved) {
+        throw new Error("No coordinate commit after the reversal");
+      }
+
+      for (const batch of reversal) {
+        expect(batch.native, `no native hide in batch ${batch.index}`).toBe(true);
+
+        if (batch.index < moved.index) {
+          expect(batch.side).toBe("block-end");
+          expect(batch.after).toBe(pair);
+        }
+      }
+
+      expect(moved.sideChanged).toBe(true);
+      expect(moved.side).toBe("block-start");
+      assertPaired(reversal);
+      await expect(page.getByTestId("native-openings")).toHaveText(openings ?? "");
+      expect(await page.evaluate(() => window.sideJournal.toggles.length)).toBe(toggles);
+    } else {
+      // 8r. Reduced motion: no exit is retained; native hide follows at once, side kept.
+      committed = await committedPair(page);
+      await scriptControl(page, "native-close");
+      await closed(page);
+      await expect(content).toHaveAttribute("data-retained", "false");
+      await assertRetained(page, committed);
+
+      // 9r. The same reversal while closed is a fresh activation on the new side.
+      const openings = Number(await page.getByTestId("native-openings").textContent());
+
+      from = (await sideBatches(page)).length;
+      await scriptControl(page, "native-reverse-other-side");
+      await expect(page.getByTestId("native-openings")).toHaveText(String(openings + 1));
+      await expect(content).toHaveAttribute("data-side", "block-start");
+      assertFreshActivation(await sideBatches(page), from, "block-end", "block-start");
+    }
+
+    assertPaired(await sideBatches(page));
+
+    // 10. A positioning failure writes no new value.
+    committed = await committedPair(page);
+    await scriptControl(page, "native-close");
+    await closed(page);
+
+    const kept = await assertRetained(page, committed);
+
+    await page.getByTestId("writing-mode").selectOption("sideways-lr");
+    await scriptControl(page, "native-open");
+    await expect
+      .poll(async () => {
+        await drainIssues();
+
+        return runtimeErrors.records.length;
+      })
+      .toBe(1);
+    await afterPointerTasks(page);
+    expect(
+      await content.evaluate((node) => {
+        if (!(node instanceof HTMLElement)) {
+          throw new Error("Expected the native Content host");
+        }
+
+        return {
+          side: node.getAttribute("data-side"),
+          coordinates: `${node.style.left}/${node.style.top}`,
+        };
+      }),
+    ).toEqual(kept);
+  } finally {
+    await info.attach("V25-side-journal", {
+      body: JSON.stringify(
+        await page.evaluate(() => window.sideJournal ?? null).catch(() => null),
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+  }
+});
+
+const oppositeSide: Record<string, string> = {
+  "block-start": "block-end",
+  "block-end": "block-start",
+  "inline-start": "inline-end",
+  "inline-end": "inline-start",
+};
+
+for (const writingMode of ["horizontal-tb", "vertical-rl", "vertical-lr"]) {
+  test(`V26: ${writingMode}: data-side is the logical side Content landed on, mapped with the Anchor's axes, for both directions and every side, preferred and flipped; horizontally, an alignment-only flip keeps it`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "popover", info);
+    await page.getByTestId("native-motion").selectOption("none");
+    await journalSides(page);
+
+    const content = page.getByTestId("native-content");
+    const results: Record<string, unknown>[] = [];
+
+    await page.getByTestId("writing-mode").selectOption(writingMode);
+
+    for (const direction of ["ltr", "rtl"]) {
+      await page.getByTestId("anchor-direction").selectOption(direction);
+      // Content's own direction is the opposite; only the Anchor's axes decide.
+      let contentDirection = "ltr";
+
+      if (direction === "ltr") {
+        contentDirection = "rtl";
+      }
+
+      await page.getByTestId("content-direction").selectOption(contentDirection);
+
+      for (const side of ["block-start", "block-end", "inline-start", "inline-end"]) {
+        await page.getByTestId("native-side").selectOption(side);
+
+        for (const flipped of [false, true]) {
+          await page.getByTestId("native-layout").selectOption("center");
+
+          // Forced flip: the Anchor sits near the requested side's own viewport edge.
+          if (flipped) {
+            const edge = await page.getByTestId("native-anchor").evaluate((anchor, side) => {
+              const style = getComputedStyle(anchor);
+              const vertical = style.writingMode !== "horizontal-tb";
+              let blockStart = "top";
+              let inlineStart = "left";
+
+              if (style.writingMode === "vertical-rl") {
+                blockStart = "right";
+              }
+
+              if (style.writingMode === "vertical-lr") {
+                blockStart = "left";
+              }
+
+              if (vertical) {
+                inlineStart = "top";
+              }
+
+              const opposite: Record<string, string> = {
+                top: "bottom",
+                bottom: "top",
+                left: "right",
+                right: "left",
+              };
+
+              if (style.direction === "rtl") {
+                inlineStart = opposite[inlineStart];
+              }
+
+              const sides: Record<string, string> = {
+                "block-start": blockStart,
+                "block-end": opposite[blockStart],
+                "inline-start": inlineStart,
+                "inline-end": opposite[inlineStart],
+              };
+
+              return sides[side];
+            }, side);
+
+            await page.getByTestId("native-layout").selectOption(edge);
+          }
+
+          const from = (await sideBatches(page)).length;
+
+          await nativeOpen(page);
+
+          let expected = side;
+
+          if (flipped) {
+            expected = oppositeSide[side];
+          }
+
+          const previous = await page.evaluate((from) => {
+            const batches = window.sideJournal.batches;
+
+            if (from === 0) {
+              return null;
+            }
+
+            return batches[from - 1].side;
+          }, from);
+          const reveal = assertFreshActivation(await sideBatches(page), from, previous, expected);
+
+          results.push({ writingMode, direction, side, flipped, reveal });
+          await scriptControl(page, "native-close");
+          await closed(page);
+        }
+      }
+    }
+
+    await info.attach(`V26-${writingMode}-first-reveals`, {
+      body: JSON.stringify(results, null, 2),
+      contentType: "application/json",
+    });
+
+    if (writingMode !== "horizontal-tb") {
+      return;
+    }
+
+    // An alignment-only flip (V4 "right": bottom-end) keeps the requested side.
+    await page.getByTestId("anchor-direction").selectOption("ltr");
+    await page.getByTestId("native-side").selectOption("block-end");
+    await page.getByTestId("native-layout").selectOption("right");
+    await nativeOpen(page);
+    await expect(content).toHaveAttribute("data-side", "block-end");
+    await assertSettledSide(page, "block-end");
+  });
+}
 
 test("V5 V7: topmost branch veto consumes Escape and protected descendant prevents partial writes", async ({
   page,
@@ -2819,15 +3586,24 @@ test("V13: a calculation superseded before it resolves is never committed for th
 
       return { left, top, right, bottom };
     };
-    const records: { content: ReturnType<typeof box>; anchor: ReturnType<typeof box> }[] = [];
+    const records: {
+      content: ReturnType<typeof box>;
+      anchor: ReturnType<typeof box>;
+      side: string | null;
+    }[] = [];
     let coordinates = "";
-    // A commit writes the coordinates; the size properties (V17) are written during a calculation.
+    // A commit writes the coordinates and `data-side` in one batch; the size properties (V17) are
+    // written during a calculation.
     const record = () => {
       const next = `${content.style.left}/${content.style.top}`;
 
       if (next !== coordinates) {
         coordinates = next;
-        records.push({ content: box(content), anchor: box(anchor) });
+        records.push({
+          content: box(content),
+          anchor: box(anchor),
+          side: content.getAttribute("data-side"),
+        });
       }
     };
     // Every style attribute Content had, including states a later write replaced before this
@@ -2877,6 +3653,7 @@ test("V13: a calculation superseded before it resolves is never committed for th
   expect(initial.content.right, "vertical-rl places Content at the Anchor's left").toBeLessThan(
     initial.anchor.left,
   );
+  expect(initial.side, "vertical-rl's left is its block end").toBe("block-end");
   await scriptControl(page, "native-supersede-position");
   await expect(page.getByTestId("native-callbacks")).toContainText("supersede");
   await expect
@@ -2902,14 +3679,18 @@ test("V13: a calculation superseded before it resolves is never committed for th
     contentType: "application/json",
   });
 
-  // Every commit is horizontal-tb's block-start placement, never the older left-of-Anchor result.
+  // Every commit is horizontal-tb's block-start placement, never the older left-of-Anchor result,
+  // and carries its side: the superseded calculation's block-end never appears.
   for (const commit of records) {
     expect(commit.content.bottom).toBeLessThanOrEqual(commit.anchor.top);
+    expect(commit.side).toBe("block-start");
   }
 
   // The size properties too: Content keeps the opened calculation's available height until the
   // newer one replaces it with the space above the Anchor, gap 12. The superseded calculation's
-  // measurement never appears, not even transiently.
+  // measurement never appears after it, not even transiently. Beside the Anchor it is the full
+  // viewport height, like the opened one's, so a superseded write before the newer one is
+  // indistinguishable here; the side journal above covers that order.
   const opened = heights[0];
   const current = heights[heights.length - 1];
   const changed = heights.indexOf(current);

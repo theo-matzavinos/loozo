@@ -3173,3 +3173,316 @@ test("N14 H2 H3: a touch press canceled before hydration only closes, so a later
     releaseLazy();
   }
 });
+
+interface HydrationSideBatch {
+  testid: string;
+  unit: string;
+  index: number;
+  sideChanged: boolean;
+  side: string | null;
+  coordinatesChanged: boolean;
+  native: boolean;
+  preparing: boolean;
+  opacity: string;
+  entering: boolean;
+  content: { left: number; right: number; top: number; bottom: number };
+  anchor: { left: number; right: number; top: number; bottom: number };
+}
+
+declare global {
+  interface Window {
+    hydrationSides: {
+      batches: HydrationSideBatch[];
+      shows: { testid: string; unit: string; side: string | null; opacity: string }[];
+    };
+  }
+}
+
+/**
+ * Before bootstrap: journals every attribute batch on each unit's Popover and Tooltip Content, and
+ * probes each native `showPopover()` synchronously, right after the native promotion.
+ */
+async function journalHydrationSides(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const journal: Window["hydrationSides"] = { batches: [], shows: [] };
+    const hosts = ["hydration-popover-content", "hydration-tooltip-content"];
+    const references: Record<string, string> = {
+      "hydration-popover-content": "hydration-popover-trigger",
+      "hydration-tooltip-content": "hydration-tooltip-trigger",
+    };
+    const box = (node: Element) => {
+      const { left, right, top, bottom } = node.getBoundingClientRect();
+
+      return { left, right, top, bottom };
+    };
+    const show = HTMLElement.prototype.showPopover;
+
+    HTMLElement.prototype.showPopover = function (...options) {
+      show.apply(this, options);
+
+      const testid = this.getAttribute("data-testid") ?? "";
+
+      if (hosts.includes(testid)) {
+        journal.shows.push({
+          testid,
+          unit: this.closest("[data-unit]")?.getAttribute("data-unit") ?? "",
+          side: this.getAttribute("data-side"),
+          opacity: getComputedStyle(this).opacity,
+        });
+      }
+    };
+
+    for (const testid of hosts) {
+      for (const content of document.querySelectorAll(`[data-testid="${testid}"]`)) {
+        if (!(content instanceof HTMLElement)) {
+          continue;
+        }
+
+        const unit = content.closest("[data-unit]");
+        const reference = unit?.querySelector(`[data-testid="${references[testid]}"]`);
+
+        if (!unit || !(reference instanceof HTMLElement)) {
+          throw new Error(`Missing the ${testid} reference`);
+        }
+
+        let coordinates = `${content.style.left}/${content.style.top}`;
+        let index = 0;
+
+        new MutationObserver((mutations) => {
+          let sideChanged = false;
+          let oldSide: string | null = null;
+
+          for (const mutation of mutations) {
+            if (mutation.attributeName === "data-side" && !sideChanged) {
+              sideChanged = true;
+              oldSide = mutation.oldValue;
+            }
+          }
+
+          const side = content.getAttribute("data-side");
+          const after = `${content.style.left}/${content.style.top}`;
+
+          journal.batches.push({
+            testid,
+            unit: unit.getAttribute("data-unit") ?? "",
+            index,
+            sideChanged: sideChanged && oldSide !== side,
+            side,
+            coordinatesChanged: after !== coordinates,
+            native: content.matches(":popover-open"),
+            preparing: content.style.getPropertyValue("opacity").startsWith("var("),
+            opacity: getComputedStyle(content).opacity,
+            entering: content.hasAttribute("data-entering"),
+            content: box(content),
+            anchor: box(reference),
+          });
+          index += 1;
+          coordinates = after;
+        }).observe(content, { attributes: true, attributeOldValue: true });
+      }
+    }
+
+    window.hydrationSides = journal;
+  });
+}
+
+/** The logical side of the physical edge Content sits beside at `gap`, in horizontal-tb LTR. */
+function besideSide(batch: HydrationSideBatch, gap: number): string | null {
+  const { anchor, content } = batch;
+
+  if (Math.abs(anchor.top - gap - content.bottom) <= 2) {
+    return "block-start";
+  }
+
+  if (Math.abs(content.top - (anchor.bottom + gap)) <= 2) {
+    return "block-end";
+  }
+
+  if (Math.abs(anchor.left - gap - content.right) <= 2) {
+    return "inline-start";
+  }
+
+  if (Math.abs(content.left - (anchor.right + gap)) <= 2) {
+    return "inline-end";
+  }
+
+  return null;
+}
+
+/**
+ * A host's first activation: it prepares with no side, and the batch that releases preparation
+ * commits the side it sits on, paired with its coordinates. Returns that batch.
+ */
+async function expectFirstReveal(
+  page: Page,
+  unit: string,
+  testid: string,
+  gap: number,
+): Promise<HydrationSideBatch> {
+  const host = page.locator(`[data-unit="${unit}"]`).getByTestId(testid);
+
+  await expect.poll(() => host.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+  await expect(host).toHaveAttribute("data-side", /.+/);
+
+  const batches = (await page.evaluate(() => window.hydrationSides.batches)).filter(
+    (batch) => batch.unit === unit && batch.testid === testid,
+  );
+  const reveal = batches.find((batch) => batch.native && !batch.preparing && batch.opacity !== "0");
+
+  if (!reveal) {
+    throw new Error(`No first reveal for ${unit} ${testid}`);
+  }
+
+  for (const batch of batches) {
+    if (batch.index >= reveal.index) {
+      break;
+    }
+
+    expect(batch.side, `${unit} ${testid} prepares without a side`).toBeNull();
+  }
+
+  expect(reveal.sideChanged).toBe(true);
+  expect(reveal.coordinatesChanged).toBe(true);
+  expect(reveal.side).toBe(besideSide(reveal, gap));
+
+  return reveal;
+}
+
+test("V27 N20 H1 H2: Popover and Tooltip data-side is absent in server HTML, while dehydrated and at native show; an initially-open host gets it when first revealed, without an entrance; a host opened later gets it at its first reveal", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const raw = await (await page.request.get("/hydration")).text();
+
+  expect(raw).toContain("hydration-popover-content");
+  expect(raw).not.toContain("data-side");
+
+  const releaseMain = await bootstrapHeld(page, "/hydration", info);
+
+  try {
+    for (const label of ["A", "B", "C"]) {
+      const unit = page.locator(`[data-unit="${label}"]`);
+
+      for (const testid of ["hydration-popover-content", "hydration-tooltip-content"]) {
+        await expect(unit.getByTestId(testid)).not.toHaveAttribute("data-side", /.*/);
+      }
+    }
+
+    await journalHydrationSides(page);
+
+    const a = page.locator('[data-unit="A"]');
+    const b = page.locator('[data-unit="B"]');
+    const c = page.locator('[data-unit="C"]');
+
+    if (incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+
+      // Dehydrated blocks: no side, natively closed.
+      for (const unit of [a, b, c]) {
+        for (const testid of ["hydration-popover-content", "hydration-tooltip-content"]) {
+          await expect(unit.getByTestId(testid)).not.toHaveAttribute("data-side", /.*/);
+          expect(
+            await unit.getByTestId(testid).evaluate((node) => node.matches(":popover-open")),
+          ).toBe(false);
+        }
+      }
+
+      // N14's keyboard flow hydrates A only and replays the Trigger's focus.
+      await a.getByTestId("hydration-tooltip-before").focus();
+      await page.keyboard.press("Tab");
+      await expect(a).toHaveAttribute("data-client-render-seen", "true");
+      await expect(b).toHaveAttribute("data-client-render-seen", "false");
+    } else {
+      await a.getByTestId("hydration-tooltip-before").focus();
+      await page.keyboard.press("Tab");
+    }
+
+    // B's initially-open Popover in view, by scroll only, so one resumed host is visible.
+    await b
+      .getByTestId("hydration-popover-trigger")
+      .evaluate((node) => node.scrollIntoView({ block: "center" }));
+
+    if (!incremental) {
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    // A: its initially-open Popover resumes without an entrance; its Tooltip opens by the replay.
+    await expectFirstReveal(page, "A", "hydration-popover-content", 0);
+    await expectFirstReveal(page, "A", "hydration-tooltip-content", 8);
+
+    if (incremental) {
+      await expect(b.getByTestId("hydration-popover-content")).not.toHaveAttribute(
+        "data-side",
+        /.*/,
+      );
+      await expect(c.getByTestId("hydration-popover-content")).not.toHaveAttribute(
+        "data-side",
+        /.*/,
+      );
+      // A trusted Enter on B's hydrate button, focused without scrolling B's Anchor away.
+      await b
+        .getByTestId("hydrate-unit")
+        .evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+      await page.keyboard.press("Enter");
+      await expect(b).toHaveAttribute("data-client-render-seen", "true");
+      await expect(c).toHaveAttribute("data-client-render-seen", "false");
+    }
+
+    // B: its initially-open Popover and Tooltip resume without an entrance.
+    const visible = await expectFirstReveal(page, "B", "hydration-popover-content", 0);
+
+    expect(visible.content.top).toBeGreaterThanOrEqual(0);
+    await expectFirstReveal(page, "B", "hydration-tooltip-content", 8);
+
+    // C: no side until its Trigger opens it; then at its first reveal.
+    await expect(c.getByTestId("hydration-popover-content")).not.toHaveAttribute("data-side", /.*/);
+
+    if (incremental) {
+      await c.getByTestId("hydrate-unit").click();
+      await expect(c).toHaveAttribute("data-client-render-seen", "true");
+    }
+
+    const resumed = await page.evaluate(() => window.hydrationSides.batches);
+
+    for (const batch of resumed) {
+      if (batch.testid === "hydration-popover-content" || batch.unit === "B") {
+        expect(batch.entering, `${batch.unit} ${batch.testid} resumes without an entrance`).toBe(
+          false,
+        );
+      }
+    }
+
+    await c.getByTestId("hydration-popover-trigger").click();
+    await expectFirstReveal(page, "C", "hydration-popover-content", 0);
+
+    const journal = await page.evaluate(() => window.hydrationSides);
+
+    await info.attach("V27-N20-side-journal", {
+      body: JSON.stringify(journal, null, 2),
+      contentType: "application/json",
+    });
+
+    // At native show, preparation hides Content and no side is written yet.
+    expect(journal.shows.length).toBeGreaterThanOrEqual(5);
+
+    for (const show of journal.shows) {
+      expect(show, `${show.unit} ${show.testid} at native show`).toMatchObject({
+        side: null,
+        opacity: "0",
+      });
+    }
+
+    // Later scroll-induced batches are paired only.
+    for (const batch of journal.batches) {
+      if (batch.sideChanged) {
+        expect(batch.coordinatesChanged).toBe(true);
+      }
+    }
+
+    await assertReferences(page, info);
+  } finally {
+    releaseMain();
+  }
+});

@@ -251,6 +251,44 @@ export class FactoryPlacement {}
       <output data-testid="edge-intent">{{ edgeOpen() }}</output>
     </section>
 
+    <!-- N19: a fixed Trigger 4 px from the viewport's left edge, its centered Content wider than it. -->
+    <section data-tooltip-case="left-edge">
+      <button
+        type="button"
+        data-testid="left-edge-mount"
+        (click)="leftEdgeMounted.set(!leftEdgeMounted())"
+      >
+        Mount the left-edge Tooltip
+      </button>
+      <button type="button" data-testid="left-edge-near-top" (click)="leftEdgeTop.set(4)">
+        Move it near the top edge
+      </button>
+      <button
+        type="button"
+        data-testid="left-edge-toggle"
+        (click)="leftEdgeOpen.set(!leftEdgeOpen())"
+      >
+        Open or close it
+      </button>
+      <output data-testid="left-edge-intent">{{ leftEdgeOpen() }}</output>
+      @if (leftEdgeMounted()) {
+        <span ogTooltip [openDelay]="0" [(open)]="leftEdgeOpen">
+          <button
+            type="button"
+            ogTooltipTrigger
+            class="trigger left-edge"
+            data-testid="left-edge-trigger"
+            [style.top.px]="leftEdgeTop()"
+          >
+            Save draft
+          </button>
+          <span ogTooltipContent class="tooltip" [gap]="6" data-testid="left-edge-content"
+            >Saves without publishing the draft</span
+          >
+        </span>
+      }
+    </section>
+
     <section data-tooltip-case="removal" class="stage">
       <h2>N3 N12 removal</h2>
       @if (removalRoot()) {
@@ -1220,6 +1258,11 @@ export class FactoryPlacement {}
       padding: 6px 10px;
       margin: 4px;
     }
+    .left-edge {
+      position: fixed;
+      left: 4px;
+      margin: 0;
+    }
     .wide {
       padding: 10px 24px;
     }
@@ -1297,6 +1340,9 @@ export class TooltipFixture {
   readonly graceMode = signal("horizontal-tb");
   readonly graceDirection = signal("ltr");
   readonly edgeOpen = signal(false);
+  readonly leftEdgeMounted = signal(false);
+  readonly leftEdgeTop = signal(300);
+  readonly leftEdgeOpen = signal(false);
 
   readonly removalRoot = signal(true);
   readonly removalTrigger = signal(true);

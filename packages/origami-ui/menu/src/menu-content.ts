@@ -97,7 +97,7 @@ function defaultSide(): OrigamiPopoverSide {
  * Trigger.
  *
  * Like Popover Content, it exposes `--og-anchor-width` and `--og-available-height` for consumer
- * sizing, retains its children through Presence's exit and exposes that retention as
+ * sizing and `data-side` for directional styling, retains its children through Presence's exit and exposes that retention as
  * `state.open()`. Scope a custom `display` to `:popover-open` and use `gap`, not margins. Requires
  * a nearest Menu root; a second mounted Content fails. The consumer owns dimensions, overflow and
  * styling.

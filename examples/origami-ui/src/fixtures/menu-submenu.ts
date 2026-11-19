@@ -338,6 +338,44 @@ export class MenuSubmenuShadow {
       </button>
     </section>
 
+    <!-- MN53: a fixed Menu near the block end whose submenu is taller than the viewport. -->
+    <section>
+      <h2>Long submenu</h2>
+      <button type="button" data-testid="long-mount" (click)="longMounted.set(!longMounted())">
+        Mount the long-submenu Menu
+      </button>
+      <button type="button" data-testid="long-near-inline-end" (click)="longNearInlineEnd()">
+        Move it near the inline end
+      </button>
+      @if (longMounted()) {
+        <div ogMenu [(open)]="longOpen">
+          <button
+            ogMenuTrigger
+            class="long-trigger"
+            data-testid="long-trigger"
+            [style.left.px]="longLeft()"
+            [style.top.px]="longTop()"
+          >
+            Long
+          </button>
+          <div ogMenuContent data-testid="long-content" class="menu">
+            <button ogMenuItem data-testid="long-first">First</button>
+            <div ogMenuSub [(open)]="longSubOpen">
+              <button ogMenuSubTrigger data-testid="long-sub-trigger">Many</button>
+              <div ogMenuContent data-testid="long-sub-content" class="menu long-sub">
+                @for (item of longItems; track item) {
+                  <button ogMenuItem [attr.data-testid]="'long-item-' + item">
+                    Item {{ item }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+      <output data-testid="long-state">{{ longOpen() }} {{ longSubOpen() }}</output>
+    </section>
+
     <section>
       <h2>Tools in a dialog</h2>
       <div ogDialog [(open)]="toolsDialogOpen">
@@ -394,12 +432,27 @@ export class MenuSubmenuShadow {
       border: 1px solid #555555;
       inline-size: 360px;
     }
+    .long-trigger {
+      position: fixed;
+      margin: 0;
+    }
+    .long-sub {
+      box-sizing: border-box;
+      max-height: var(--og-available-height);
+      overflow: auto;
+    }
   `,
 })
 export class MenuSubmenu {
   protected readonly increment = increment;
 
   readonly editOpen = signal(false);
+  readonly longItems = Array.from({ length: 60 }, (_, index) => index + 1);
+  readonly longMounted = signal(false);
+  readonly longOpen = signal(false);
+  readonly longSubOpen = signal(false);
+  readonly longLeft = signal(100);
+  readonly longTop = signal(800);
   readonly moveOpen = signal(false);
   readonly moreOpen = signal(false);
   readonly shareOpen = signal(false);
@@ -413,6 +466,10 @@ export class MenuSubmenu {
   readonly selections = signal<readonly string[]>([]);
   /** `name:open` for each `openChange` of Edit and its submenus, in the order they ran. */
   readonly changes = signal<readonly string[]>([]);
+
+  longNearInlineEnd(): void {
+    this.longLeft.set(document.documentElement.clientWidth - 160);
+  }
 
   /** Whether Move to's next close is undone by its `openChange` listener. */
   protected keepMove = false;

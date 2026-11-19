@@ -1,7 +1,7 @@
 import { test, expect, type ErrorRecord } from "./contract-test.js";
 import type { Locator, Page, TestInfo } from "playwright/test";
 import { fixture } from "./observation.js";
-import { expectPreferred } from "./geometry.js";
+import { expectPreferred, settled } from "./geometry.js";
 import { pauseExitOnStart, resumeAnimations } from "./animations.js";
 import {
   sharedOwnerCase,
@@ -918,6 +918,62 @@ test("N3: a flipped placement near the viewport edge keeps the grace area; a lea
     .toBe(2);
   await page.mouse.move(point.x, graceBox.y - 1);
   await expect(page.getByTestId("grace-intent")).toHaveText("false");
+});
+
+test("N19: a Tooltip whose centered Content would cross the viewport's left edge slides inside it, keeps its side and gap, and keeps its grace area; near the top it flips below", async ({
+  page,
+}, info) => {
+  await fixture(page, "tooltip", info);
+  await away(page);
+  await script(page, "left-edge-mount");
+
+  const trigger = page.getByTestId("left-edge-trigger");
+  const content = page.getByTestId("left-edge-content");
+  const intent = page.getByTestId("left-edge-intent");
+  const point = center(await box(trigger));
+
+  await page.mouse.move(point.x, point.y);
+  await expect(intent).toHaveText("true");
+  await expectShown(content);
+  await settled(page, "left-edge-trigger", "left-edge-content");
+
+  let triggerBox = await box(trigger);
+  let contentBox = await box(content);
+
+  await info.attach("N19-above", {
+    body: JSON.stringify({ triggerBox, contentBox }, null, 2),
+    contentType: "application/json",
+  });
+  // Centered on the Trigger, it would start left of the viewport.
+  expect(center(triggerBox).x - contentBox.width / 2).toBeLessThan(-2);
+  expect(Math.abs(contentBox.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(triggerBox.y - 6 - (contentBox.y + contentBox.height))).toBeLessThanOrEqual(2);
+  await expect(content).toHaveAttribute("data-side", "block-start");
+
+  // The transit toward the shifted Content's far-left part keeps it open; leaving the area closes it.
+  await page.mouse.move(contentBox.x + 3, contentBox.y + contentBox.height / 2, { steps: 12 });
+  await elapse(page, 300);
+  await expect(intent).toHaveText("true");
+  await away(page);
+  await expect(intent).toHaveText("false");
+  await expectHidden(content);
+
+  // Near the top edge, block-start doesn't fit: it flips below, still shifted inside.
+  await script(page, "left-edge-near-top");
+  await script(page, "left-edge-toggle");
+  await expectShown(content);
+  await expect(content).toHaveAttribute("data-side", "block-end");
+  await settled(page, "left-edge-trigger", "left-edge-content");
+  triggerBox = await box(trigger);
+  contentBox = await box(content);
+  await info.attach("N19-below", {
+    body: JSON.stringify({ triggerBox, contentBox }, null, 2),
+    contentType: "application/json",
+  });
+  expect(Math.abs(contentBox.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(contentBox.y - (triggerBox.y + triggerBox.height + 6))).toBeLessThanOrEqual(2);
+  await script(page, "left-edge-toggle");
+  await expectHidden(content);
 });
 
 test("N3: a leave between Content's native show and its reveal closes at once, also toward where Content is about to be", async ({

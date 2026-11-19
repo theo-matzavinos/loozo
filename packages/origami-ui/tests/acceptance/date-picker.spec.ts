@@ -1,7 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { fixture } from "./observation.js";
-import { expectPreferred } from "./geometry.js";
+import { expectPreferred, geometry, placedSide, settled } from "./geometry.js";
 
 // Date picker (section 27, DP), against the `date-picker` fixture. Every Calendar shows
 // 27 October 2026 as today.
@@ -1590,3 +1590,40 @@ for (const shape of [
     await expect(page.getByTestId(`${name}-clicks`)).toHaveText("4");
   });
 }
+
+test("DP38: date picker Content wider than the room near the right edge of a narrow viewport slides inside it; near the bottom it flips above", async ({
+  page,
+}, info) => {
+  await fixture(page, "date-picker", info);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.getByTestId("edge-mount").evaluate((node) => (node as HTMLElement).click());
+
+  const trigger = page.getByTestId("edge-trigger");
+  const content = page.getByTestId("edge-content");
+  const hosts = { content: "edge-content", anchor: "edge-trigger" };
+
+  for (const side of ["block-end", "block-start"] as const) {
+    if (side === "block-start") {
+      await page.getByTestId("edge-near-bottom").evaluate((node) => (node as HTMLElement).click());
+    }
+
+    await trigger.click();
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await settled(page, "edge-trigger", "edge-content");
+
+    const result = await geometry(page, side, "start", 0, hosts);
+
+    await info.attach(`DP38-${side}`, {
+      body: JSON.stringify(result, null, 2),
+      contentType: "application/json",
+    });
+    expect(result.anchor.left + result.content.width).toBeGreaterThan(result.viewport.width);
+    expect(result.anchor.right - result.content.width).toBeLessThan(0);
+    expect(result.content.left).toBeGreaterThanOrEqual(-2);
+    expect(result.content.right).toBeLessThanOrEqual(result.viewport.width + 2);
+    await expect(content).toHaveAttribute("data-side", side);
+    expect(placedSide(result.anchor, result.content, 0, result)).toBe(side);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+  }
+});

@@ -135,7 +135,12 @@ export class OrigamiPopoverContentState {
  * candidates use opposite main side, opposite cross alignment, then both, omitting duplicate
  * center candidates. After trying candidates, prefer a main-axis-fitting candidate with less
  * cross-axis overflow; otherwise use least-overflow best fit. This is not an all-four-edge fit
- * guarantee or an always-return-to-requested policy.
+ * guarantee or an always-return-to-requested policy. Then Content shifts along its alignment axis
+ * into the viewport, no further than keeps it touching the Anchor, so it stays attached to an
+ * Anchor that has left view; content larger than the viewport starts at its left or top edge.
+ * Every coordinate commit also writes the side Content landed on as `data-side` (`block-start`,
+ * `block-end`, `inline-start`, `inline-end`, in the Anchor's axes): absent until Content is first
+ * positioned, set when it first becomes visible, kept while closed.
  * Document/nested scroll, viewport resize, Anchor/Content resize and observed layout movement
  * are tracked, including visible retained exit while its Anchor remains available. Tracking
  * stops when fully closed, suppressed or destroyed. Obsolete geometry cannot update a destroyed,

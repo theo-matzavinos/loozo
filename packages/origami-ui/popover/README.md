@@ -25,7 +25,7 @@ Content gets `popover="manual"` and is shown with `showPopover()`, so it paints 
 
 Origami owns the `popover` attribute and the native show/hide calls; don't drive them yourself. It also sets `position: fixed`, `top`/`left` coordinates, resets `right`, `bottom` and `margin`, and suppresses paint and pointer events briefly while it measures. Everything else about the Content's box is yours:
 
-- Give Content stable, measurable dimensions. Origami doesn't size it or keep oversized content inside the viewport, but it gives you [the measurements to do it](#sizing-to-the-anchor).
+- Give Content stable, measurable dimensions. Origami slides Content into the viewport along its alignment axis but doesn't size it, so content larger than the viewport still overflows; it gives you [the measurements to cap it](#sizing-to-the-anchor).
 - Scope any custom `display` to `:popover-open`, so the browser's closed Popover stays hidden.
 - Use `gap` for distance from the Anchor, not margins.
 - `transform` is free for your animations; positioning doesn't use it. `z-index` doesn't reorder top-layer elements.
@@ -40,7 +40,11 @@ Origami owns the `popover` attribute and the native show/hide calls; don't drive
 | `vertical-rl`       | right / left                | top / bottom                       | bottom / top                       |
 | `vertical-lr`       | left / right                | top / bottom                       | bottom / top                       |
 
-When the requested placement overflows, Floating UI tries the opposite side, then the opposite alignment, then both (`"center"` has no opposite alignment). If none fits, it prefers a candidate that fits along the main axis with the least cross-axis overflow, and otherwise the one with the least overflow. That isn't a guarantee that Content fits on every edge, or that it moves back to the requested placement. `gap` must be finite and nonnegative; reading any other effective value throws a `RangeError` rather than clamping it. That's a configuration error, separate from the positioning failure below. All three settings are reactive.
+When the requested placement overflows, Floating UI tries the opposite side, then the opposite alignment, then both (`"center"` has no opposite alignment). If none fits, it prefers a candidate that fits along the main axis with the least cross-axis overflow, and otherwise the one with the least overflow. That isn't a guarantee that Content fits on every edge, or that it moves back to the requested placement.
+
+After that choice, Content that still crosses the viewport along its alignment axis (horizontally when it's above or below the Anchor, vertically beside it) slides inward until it fits, keeping its side and gap. An alignment flip that fits wins, so nothing slides then. The slide stops where Content's edge meets the Anchor's far edge, so Content stays attached to its Anchor: when the Anchor has scrolled fully out of view, Content stays partly clipped beside it instead of floating at the viewport's edge. Content larger than the viewport along that axis can't fit and starts at the viewport's left or top edge, in RTL too. There's no gutter: shifted Content can touch the viewport's edge, so add one in your own styles if you want it.
+
+`gap` must be finite and nonnegative; reading any other effective value throws a `RangeError` rather than clamping it. That's a configuration error, separate from the positioning failure below. All three settings are reactive.
 
 While Content is shown, including during its exit animation while the Anchor is still available, its position follows document and nested scrolling, viewport resizes, Anchor and Content resizes and observed Anchor movement. Tracking stops once Content is fully closed, suppressed or destroyed. It doesn't follow an ancestor that resizes without any of those, or an Anchor moved by a transform animation. A nested Popover is positioned only after its parent has been positioned and revealed.
 
@@ -49,7 +53,7 @@ While Content is shown, including during its exit animation while the Anchor is 
 Each time Content is positioned, Origami sets two custom properties inline on it, in CSS pixels:
 
 - `--og-anchor-width`: the Anchor's border-box width.
-- `--og-available-height`: the height Content can take without overflowing the viewport where it was placed, after any flip. Placed above or below, that's from the gap to the viewport's edge; placed beside, from its aligned edge, or both ways from its center when centered. Never negative.
+- `--og-available-height`: the height Content can take without overflowing the viewport where it was placed, after any flip. Placed above or below, that's from the gap to the viewport's edge; placed beside, the viewport's full height, because Content slides vertically to fit. Never negative.
 
 They size nothing on their own. Use them to match the Anchor's width or to cap the height and scroll:
 
@@ -61,7 +65,22 @@ They size nothing on their own. Use them to match the Anchor's width or to cap t
 }
 ```
 
-Origami measures Content again after they resize it, so the placement uses the final size. They're absent until Content is first positioned, only the browser sets them, and they keep their last values while Content is closed. Both are physical, so in a vertical writing mode they're still a width and a height.
+Origami measures Content again after they resize it, so the placement uses the final size. They're absent until Content is first positioned, only the browser sets them, and they keep their last values while Content is closed. Both are physical, so in a vertical writing mode they're still a width and a height. Cap with `max-height`: `max-block-size` is a width in a vertical writing mode.
+
+## Resolved side
+
+Content's `data-side` is the side it actually opened on, after any flip: `block-start`, `block-end`, `inline-start` or `inline-end`, in the Anchor's writing mode and direction like `side`. Origami writes it together with the coordinates every time it positions Content, so a styled layer can run directional motion:
+
+```css
+.popup[data-side="block-start"][data-entering] {
+  animation-name: rise-from-below;
+}
+.popup[data-side="block-end"][data-entering] {
+  animation-name: drop-from-above;
+}
+```
+
+It's absent in server HTML and until Content is first positioned. It's set when Content first becomes visible, not yet when the browser shows it transparently to measure, so code running synchronously in `showPopover()`, such as a `beforetoggle` listener, sees no side yet or the previous one; a `toggle` event can arrive before or after it's set. It updates on every reposition, such as a flip on scroll or resize, and keeps its last value while Content is closed. Reopened during its exit animation, Content keeps its last position and side until it's positioned again, so an entrance keyed on `data-side` can start from the old side. A flip during an entrance or exit replaces an animation keyed on `data-side`, which [Presence](../presence/README.md) treats as finished, so it ends early. Origami owns the attribute; don't bind your own `data-side` on Content.
 
 ## Dismissal and focus
 
@@ -82,7 +101,7 @@ The Popover is non-modal: there's no focus trap, no scroll lock, no automatic fo
 | Element | Attributes                                                                                                                                                                                                               |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Trigger | `type="button"`, `id`, `aria-controls` (only while Content is mounted), `aria-expanded`; when it or the root is disabled, `aria-disabled="true"`, `data-disabled` and, unless `focusableWhenDisabled`, native `disabled` |
-| Content | `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), and Presence's `data-entering`, `data-present` and `data-leaving`                                                             |
+| Content | `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), [`data-side`](#resolved-side), and Presence's `data-entering`, `data-present` and `data-leaving`                              |
 
 `aria-expanded` is true from the moment the browser shows Content, including the short measuring step, and false as soon as a close is accepted. For Popover, `opening` can start before `data-entering` appears: the entering attribute waits until Content has been positioned, so your entrance animation starts in the right place.
 
@@ -98,4 +117,4 @@ What holds for every primitive is in [Server rendering and hydration](../README.
 
 ## Limitations
 
-Popover supports the `horizontal-tb`, `vertical-rl` and `vertical-lr` writing modes; others fail positioning. It doesn't keep oversized content inside the viewport, doesn't track transform-animated anchors or unobserved ancestor resizes, and doesn't create a source association for Tab order.
+Popover supports the `horizontal-tb`, `vertical-rl` and `vertical-lr` writing modes; others fail positioning. Shifting can't fit content larger than the viewport. Popover doesn't track transform-animated anchors or unobserved ancestor resizes, and doesn't create a source association for Tab order.

@@ -1,7 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { fixture } from "./observation.js";
-import { expectPreferred } from "./geometry.js";
+import { expectPreferred, geometry, placedSide, settled } from "./geometry.js";
 
 // MN means the Menu section. Cases run against the `menu` fixture; MN8's replay runs in
 // hydration.spec.ts.
@@ -3661,4 +3661,56 @@ test("MN52: a Toolbar Menu Trigger stays in the Toolbar's roving focus and its i
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByTestId("toolbar-menu-vertical-before")).toBeFocused();
   await expectClosed(vertical("trigger"), vertical("content"));
+});
+
+test("MN53: a submenu taller than the viewport near the block end is capped by --og-available-height and slides inside the viewport beside its sub-trigger; near the inline end it flips to inline-start; arrows still open and close it", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+
+  const mount = page.getByTestId("long-mount");
+
+  await mount.scrollIntoViewIfNeeded();
+  await mount.evaluate((node) => (node as HTMLElement).click());
+
+  const trigger = page.getByTestId("long-trigger");
+  const content = page.getByTestId("long-content");
+  const subTrigger = page.getByTestId("long-sub-trigger");
+  const sub = page.getByTestId("long-sub-content");
+  const hosts = { content: "long-sub-content", anchor: "long-sub-trigger" };
+
+  for (const side of ["inline-end", "inline-start"] as const) {
+    if (side === "inline-start") {
+      await page
+        .getByTestId("long-near-inline-end")
+        .evaluate((node) => (node as HTMLElement).click());
+    }
+
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expectOpen(trigger, content);
+    await expect(content).toHaveAttribute("data-side", "block-end");
+    await page.keyboard.press("ArrowDown");
+    await expect(subTrigger).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expectOpen(subTrigger, sub);
+    await settled(page, "long-sub-trigger", "long-sub-content");
+
+    const result = await geometry(page, side, "start", 0, hosts);
+
+    await info.attach(`MN53-${side}`, {
+      body: JSON.stringify(result, null, 2),
+      contentType: "application/json",
+    });
+    expect(Math.abs(result.content.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(result.content.bottom - result.viewport.height)).toBeLessThanOrEqual(1);
+    await expect(sub).toHaveAttribute("data-side", side);
+    expect(placedSide(result.anchor, result.content, 0, result)).toBe(side);
+
+    await page.keyboard.press("ArrowLeft");
+    await expectClosed(subTrigger, sub);
+    await expect(subTrigger).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expectClosed(trigger, content);
+  }
 });

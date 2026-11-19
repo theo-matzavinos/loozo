@@ -313,6 +313,36 @@ const longOptions: readonly number[] = Array.from({ length: 111 }, (_, index) =>
       </button>
     </section>
 
+    <!-- Z20: a fixed Trigger partly scrolled out at the viewport's left edge. -->
+    <section>
+      <h2>Edge</h2>
+      <button type="button" data-testid="edge-mount" (click)="edgeMounted.set(!edgeMounted())">
+        Mount the edge Select
+      </button>
+      <button type="button" data-testid="edge-near-bottom" (click)="edgeNearBottom()">
+        Move it near the bottom edge
+      </button>
+      @if (edgeMounted()) {
+        <div ogSelect #edge="ogSelect" [(value)]="edgeValue">
+          <button
+            ogSelectTrigger
+            class="edge-select"
+            data-testid="edge-trigger"
+            aria-label="Edge"
+            [style.top.px]="edgeTop()"
+          >
+            {{ edge.state.value() ?? "Choose" }}
+          </button>
+          <div ogSelectContent data-testid="edge-content" class="list edge-list" [gap]="4">
+            <div ogSelectOption value="one" data-testid="edge-one">One</div>
+            <div ogSelectOption value="two" data-testid="edge-two">Two</div>
+            <div ogSelectOption value="three" data-testid="edge-three">Three</div>
+          </div>
+        </div>
+      }
+      <output data-testid="edge-value">{{ describe(edgeValue()) }}</output>
+    </section>
+
     <section>
       <h2>Replaced Options over host-composed parts</h2>
       <select-precedence-factory />
@@ -369,12 +399,25 @@ const longOptions: readonly number[] = Array.from({ length: 111 }, (_, index) =>
     .spacer {
       block-size: 200vh;
     }
+    .edge-select {
+      position: fixed;
+      left: -12px;
+      inline-size: 240px;
+      margin: 0;
+    }
+    .edge-list {
+      box-sizing: border-box;
+      inline-size: var(--og-anchor-width);
+    }
   `,
 })
 export class SelectFixture {
   readonly increment = increment;
   readonly longOptions = longOptions;
   readonly attached = signal(false);
+  readonly edgeMounted = signal(false);
+  readonly edgeTop = signal(300);
+  readonly edgeValue = signal<string | null>(null);
 
   readonly fruitValue = signal<string | null>("banana");
   readonly fruitOpen = signal(false);
@@ -427,6 +470,10 @@ export class SelectFixture {
   }
 
   /** A value with its runtime type, so `"1"` and `1` read differently. */
+  edgeNearBottom(): void {
+    this.edgeTop.set(document.documentElement.clientHeight - 60);
+  }
+
   describe(value: string | number | boolean | null): string {
     if (value === null) {
       return "null";
