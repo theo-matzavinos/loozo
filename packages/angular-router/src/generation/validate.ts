@@ -20,6 +20,7 @@ import {
   resolveModule,
   routeChain,
   unalias,
+  type Branch,
   type Declaration,
   type Sources,
 } from "./sources.js";
@@ -65,6 +66,64 @@ export function authoredPath(declaration: Pick<Declaration, "branch" | "effectiv
   }
 
   return `/${anchor.join("/")}/(${branch.outlet}:${group})`;
+}
+
+// Emitted order within one table: records whose own last segment isn't a catchall first, then
+// authored path, then id.
+function recordOrder(a: Declaration, b: Declaration): number {
+  const catchA = a.segments.at(-1)?.kind === "catchall";
+  const catchB = b.segments.at(-1)?.kind === "catchall";
+
+  if (catchA !== catchB) {
+    if (catchA) {
+      return 1;
+    }
+
+    return -1;
+  }
+
+  return authoredPath(a).localeCompare(authoredPath(b), "en") || a.id.localeCompare(b.id, "en");
+}
+
+/**
+ * The root table's records in emitted order: redirects that don't end in a catchall, then
+ * parentless routes, then catchall redirects, each group in {@link recordOrder}. `records` is
+ * the selected set (retained routes and redirects); a redirect sits here with its effective path.
+ */
+export function rootTable(records: readonly Declaration[]): Declaration[] {
+  const before: Declaration[] = [];
+  const ordinary: Declaration[] = [];
+  const after: Declaration[] = [];
+
+  for (const declaration of records) {
+    if (declaration.target) {
+      if (declaration.effective.at(-1)?.kind === "catchall") {
+        after.push(declaration);
+      } else {
+        before.push(declaration);
+      }
+    } else if (!declaration.parent) {
+      ordinary.push(declaration);
+    }
+  }
+
+  for (const group of [before, ordinary, after]) {
+    group.sort(recordOrder);
+  }
+
+  return [...before, ...ordinary, ...after];
+}
+
+/**
+ * A route's children table in emitted order: its retained children, none for a redirect. A
+ * retained child's parent is always retained (sources retain()).
+ */
+export function childTable(declaration: Declaration): Declaration[] {
+  if (declaration.target) {
+    return [];
+  }
+
+  return declaration.children.filter((child) => child.retained).sort(recordOrder);
 }
 
 /**
@@ -259,6 +318,174 @@ export function selections(sources: Sources): Map<string, Declaration> {
           declaration.source,
           `Redirect target is pruned or not the canonical shared-path target: ${declaration.target.id}`,
         );
+      }
+    }
+  }
+
+  return result;
+}
+
+// Each selected record's position in the emitted table that holds it. A redirect sits only in
+// the root table and a retained record only in its parent's table (or the root's), so one
+// position per id is enough.
+function emittedIndex(sources: Sources): Map<string, number> {
+  const records = sources.declarations.filter(
+    (declaration) => declaration.retained || declaration.target,
+  );
+  const tables = [rootTable(records)];
+
+  for (const record of records) {
+    tables.push(childTable(record));
+  }
+
+  const index = new Map<string, number>();
+
+  for (const table of tables) {
+    for (let position = 0; position < table.length; position += 1) {
+      index.set(table[position].id, position);
+    }
+  }
+
+  return index;
+}
+
+// The records Angular passes through to reach a declaration: a redirect is one root record.
+function chain(declaration: Declaration): Declaration[] {
+  if (declaration.target) {
+    return [declaration];
+  }
+
+  const path: Declaration[] = [];
+  let current: Declaration | undefined = declaration;
+
+  while (current) {
+    path.unshift(current);
+    current = current.parent;
+  }
+
+  return path;
+}
+
+// Whether a catchall's fixed segments can match other's leading ones. An ordinary other needs
+// at least as many segments (a catchall also matches zero); a catchall other can stand for
+// whatever of the prefix its own fixed segments leave over.
+function prefixCanMeet(catchall: Declaration, other: Declaration): boolean {
+  const prefix = catchall.effective.slice(0, -1);
+  let segments = other.effective;
+  let length = prefix.length;
+
+  if (segments.at(-1)?.kind === "catchall") {
+    segments = segments.slice(0, -1);
+    length = Math.min(length, segments.length);
+  } else if (segments.length < prefix.length) {
+    return false;
+  }
+
+  for (let index = 0; index < length; index += 1) {
+    if (!compatible(prefix[index], segments[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Angular sorts a table by the requested outlet only where it enters that outlet's group: the
+// root table for an empty anchor, or the children of the non-empty primary record that ends
+// the anchor. Below an empty primary wrapper it tries the wrapper's children as emitted, and
+// inside the branch every record is primary. Relies on validated shapes: named outlets don't
+// nest, a branch root's path isn't empty, and only a branch root has `outlet`.
+function sortedOutlet(
+  branch: Branch | undefined,
+  parent: Declaration | undefined,
+): string | undefined {
+  if (!branch) {
+    return undefined;
+  }
+
+  if (!parent) {
+    if (branch.anchor.length === 0) {
+      return branch.outlet;
+    }
+
+    return undefined;
+  }
+
+  if (
+    !parent.branch &&
+    parent.segments.length > 0 &&
+    parent.effective.length === branch.anchor.length
+  ) {
+    return branch.outlet;
+  }
+
+  return undefined;
+}
+
+// Whether Angular tries the catchall's branch before other's where their chains diverge.
+function triedFirst(
+  catchall: Declaration,
+  other: Declaration,
+  index: ReadonlyMap<string, number>,
+): boolean {
+  const left = chain(catchall);
+  const right = chain(other);
+  let at = 0;
+
+  while (at < left.length && at < right.length && left[at] === right[at]) {
+    at += 1;
+  }
+
+  if (at === left.length || at === right.length) {
+    return false;
+  }
+
+  const outlet = sortedOutlet(catchall.branch, left[at - 1]);
+
+  if (outlet !== undefined) {
+    const leftMatches = left[at].outlet === outlet;
+    const rightMatches = right[at].outlet === outlet;
+
+    if (leftMatches !== rightMatches) {
+      return leftMatches;
+    }
+  }
+
+  return index.get(left[at].id)! < index.get(right[at].id)!;
+}
+
+/**
+ * Each pair [catchall, other], keyed by `JSON.stringify([catchall.id, other.id])`, where Angular
+ * tries a retained catchall's branch before other's and the catchall's fixed segments can match
+ * other's leading ones, so other's URLs under that prefix reach the catchall. Order comes from
+ * `canonical`'s declarations, by id; a translated view passes the canonical sources.
+ */
+export function catchallShadows(
+  sources: Sources,
+  canonical: Sources = sources,
+): Map<string, readonly [catchall: Declaration, other: Declaration]> {
+  const records = sources.declarations.filter(
+    (declaration) => declaration.retained || declaration.target,
+  );
+  const byId = new Map(canonical.declarations.map((declaration) => [declaration.id, declaration]));
+  const index = emittedIndex(canonical);
+  const result = new Map<string, readonly [catchall: Declaration, other: Declaration]>();
+
+  for (const catchall of records) {
+    if (!catchall.retained || catchall.effective.at(-1)?.kind !== "catchall") {
+      continue;
+    }
+
+    for (const other of records) {
+      if (other === catchall || ancestor(other, catchall) || !sameGroup(catchall, other)) {
+        continue;
+      }
+
+      if (
+        prefixCanMeet(catchall, other) &&
+        triedFirst(byId.get(catchall.id)!, byId.get(other.id)!, index)
+      ) {
+        result.set(JSON.stringify([catchall.id, other.id]), [catchall, other]);
       }
     }
   }

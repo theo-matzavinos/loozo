@@ -962,7 +962,7 @@ Procedures don't change. `redirect(signIn, {})` builds the source-language URL o
 
 A destination in a [named outlet](../angular-router/README.md#named-outlets) counts its anchor's segments first, then its group's, and its outlet name is never a word, even when it's spelled like one. `redirect(item, { params: { team: "products", id: "3" } })` for `item/$id` in the `detail` outlet below `teams/$team` is `{ "to": "/teams/products/(detail:item/3)", "words": [0, 2] }`; the German build makes it `/mannschaften/products/(detail:artikel/3)`, and `/(chat:chat/7)` at the root becomes `/(chat:plaudern/7)`.
 
-Which page a translated URL reaches is the router's: Launch's redirect equals the German link byte for byte. If a catalog makes one route's translated path fall under another route's catchall, such as `docs` → `dokumente` and `manuals/start` → `dokumente/anfang` next to `docs/$rest[]`, German redirects and German links alike reach the catchall. Pick distinct words for routes that sit under another route's catchall.
+Which page a translated URL reaches is the router's: Launch's redirect equals the German link byte for byte, and generation rejects a catalog that puts one route's translated path under a catchall Angular tries first, where the source words don't ([Translated URLs](../angular-router/README.md#translated-urls)).
 
 What stays in the source language:
 

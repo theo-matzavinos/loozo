@@ -493,6 +493,14 @@ A translation must be one segment: not empty, `.`, `..`, `*` or `**`, without `/
 Locale de: …/src/routes/new/route.ts:1:1: Ordinary route collision/overlap: src/routes/new/route.ts (/neu); src/routes/news/route.ts (/neu)
 ```
 
+A locale also fails when its words put a route under another route's catchall that Angular tries first, where your source words don't: with `docs` and its child `$rest[]` next to `manuals/start`, translating `docs` and `manuals` both to `dokumente` would send `/dokumente/anfang` to the catchall.
+
+```text
+Locale de: …/src/routes/docs/$rest[]/route.ts:1:1: Catchall shadows a route: src/routes/docs/$rest[]/route.ts (/dokumente/$rest[]) is tried before src/routes/manuals/start/route.ts (/dokumente/anfang)
+```
+
+The check compares against your source tree: a route your source words already put under such a catchall, such as a root `docs/special` beside `docs/$rest[]`, is unreachable in every locale and isn't reported.
+
 Every static word is translatable, including ones an outside system depends on, such as `api`, `.well-known` or an OAuth callback path. Give those a translation equal to their source text.
 
 Missing translations are Angular's to report. Its default, `i18nMissingTranslation: "warning"`, ships the source word, so a German URL can mix translated and untranslated words. Use `"error"` when every URL must be translated. Adding a route with a new word then works like this:
