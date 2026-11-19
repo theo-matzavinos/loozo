@@ -41,9 +41,6 @@ export type ɵUiSdkSlotOptions = {
  */
 export type ɵUiSdkRootRef = ɵUiSdkRoot<Primitive> | (() => ɵUiSdkRoot<Primitive>);
 
-/** An event a host listener received before its slot's first bind. */
-type Queued = { readonly type: string; readonly event: Event };
-
 /** Select's adapter-facing key mapping; only components with a `key`-kind prop have it. */
 type Keyed = { readonly api: { readonly internal: { keyOf(value: unknown): string } } };
 
@@ -60,7 +57,8 @@ export class ɵUiSdkSlot<S extends object> {
   readonly slotName: string;
   readonly #send: (type: string, event: Event) => void;
   readonly #release: () => void;
-  readonly #queue: Queued[] = [];
+  /** What arrived before the first bind, in order: events for core, and `afterBind` callbacks. */
+  readonly #queue: (() => void)[] = [];
   #bound = false;
 
   constructor(
@@ -214,8 +212,8 @@ export class ɵUiSdkSlot<S extends object> {
         read: () => {
           this.#bound = true;
 
-          for (const { type, event } of this.#queue.splice(0)) {
-            this.#send(type, event);
+          for (const run of this.#queue.splice(0)) {
+            run();
           }
         },
       });
@@ -252,12 +250,26 @@ export class ɵUiSdkSlot<S extends object> {
    */
   dispatch(type: string, event: Event): void {
     if (!this.#bound) {
-      this.#queue.push({ type, event });
+      this.#queue.push(() => this.#send(type, event));
 
       return;
     }
 
     this.#send(type, event);
+  }
+
+  /**
+   * Runs `run` now, or, before the first bind, queues it with the events, for a directive's own
+   * listener that reads the slot's state, which isn't readable before the first bind.
+   */
+  afterBind(run: () => void): void {
+    if (!this.#bound) {
+      this.#queue.push(run);
+
+      return;
+    }
+
+    run();
   }
 
   /** Unsubscribes, unbinds and disconnects the current part. Idempotent. */

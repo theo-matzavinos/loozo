@@ -1,4 +1,5 @@
-import { Component, signal } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Component, Directive, ElementRef, PLATFORM_ID, inject, signal } from "@angular/core";
 import type { UiSdkEvent } from "@loozo/ui-sdk-angular";
 import {
   UiCheckbox,
@@ -191,12 +192,31 @@ export class Groups {
 }
 
 /**
+ * Fixture-only, listed before the package's directives: with `?earlyPress`, clicks its element
+ * in a microtask after the creation pass, before the update pass and the first bind.
+ */
+@Directive({ selector: "[appEarlyClick]" })
+export class AppEarlyClick {
+  constructor() {
+    const element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+
+    if (!isPlatformBrowser(inject(PLATFORM_ID)) || !location.search.includes("earlyPress")) {
+      return;
+    }
+
+    queueMicrotask(() => element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  }
+}
+
+/**
  * Incremental only: a toggle group inside an eager Toolbar, and a Select with a group, each in a
- * hydrate-on-interaction block.
+ * hydrate-on-interaction block; and a Toolbar in one whose buttons AppEarlyClick clicks before
+ * their first bind, with `?earlyPress`.
  */
 @Component({
   selector: "app-groups-defer",
   imports: [
+    AppEarlyClick,
     UiToolbar,
     UiToolbarButton,
     UiToggle,
@@ -235,9 +255,33 @@ export class Groups {
         </div>
       </div>
     }
+    @defer (hydrate on interaction) {
+      <button type="button" data-testid="early-ready">Hydrate</button>
+      <div uiToolbar data-testid="early-toolbar" aria-label="Early">
+        <button
+          appEarlyClick
+          uiToolbarButton
+          data-testid="early-on"
+          (press)="presses.set(presses() + 1)"
+        >
+          On
+        </button>
+        <button
+          appEarlyClick
+          uiToolbarButton
+          data-testid="early-off"
+          [disabled]="true"
+          (press)="presses.set(presses() + 10)"
+        >
+          Off
+        </button>
+      </div>
+      <output data-testid="early-presses">{{ presses() }}</output>
+    }
     <span data-testid="app-ready" [attr.data-ready]="ready()">groups defer</span>
   `,
 })
 export class GroupsDefer {
+  protected readonly presses = signal(0);
   protected readonly ready = renderedFlag();
 }

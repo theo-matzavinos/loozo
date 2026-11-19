@@ -246,6 +246,25 @@ test("toolbar button: a click before hydration on a disabled button never emits 
   expectClean(messages);
 });
 
+test("toolbar button: a live click before the first bind waits, then emits press once while enabled", async ({
+  page,
+}, testInfo) => {
+  test.skip(modeOf(testInfo) !== "incremental", "incremental hydration only");
+
+  const messages = captureMessages(page);
+  const presses = page.locator("[data-testid=early-presses]");
+
+  // AppEarlyClick clicks both buttons after the block's creation pass, before its first bind.
+  await page.goto("/groups-defer?earlyPress");
+  await expect(page.locator("[data-testid=app-ready]")).toHaveAttribute("data-ready", "true");
+  // Hydrates the block without touching either button.
+  await page.locator("[data-testid=early-ready]").click();
+  await expect(presses, "the enabled button counts 1, the disabled one 10").toHaveText("1");
+  await page.waitForTimeout(500);
+  await expect(presses).toHaveText("1");
+  expectClean(messages);
+});
+
 test("select label and groups: the label names and focuses the trigger, groups name their items", async ({
   page,
 }) => {

@@ -61,11 +61,13 @@ export class UiToolbarButton {
   readonly state: Signal<ToolbarButtonState> = this.slot.state;
 
   protected pressed(): void {
-    if (this.slot.state().disabled) {
-      return;
-    }
+    this.slot.afterBind(() => {
+      if (this.slot.state().disabled) {
+        return;
+      }
 
-    this.press.emit();
+      this.press.emit();
+    });
   }
 }
 
