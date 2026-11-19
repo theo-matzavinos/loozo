@@ -6266,3 +6266,489 @@ test("translated segments: a catchall may not shadow a route in one locale alone
     assert.deepEqual(await outputSnapshot(project), before, row.name);
   }
 });
+
+// Sibling pathless groups: the L1 tree, two `+group` folders under the root.
+const group = (name, steps = "") =>
+  `${outletHeader}\nexport default defineRoute("", {})${steps};\n`;
+const child = (path, from = "../route.js", facts = "") =>
+  `${outletChild(from)}\nexport default defineRoute(${JSON.stringify(path)}, { parent${facts} });\n`;
+const groupRoutes = {
+  "+authenticated": group("authenticated", ".canMatch([() => true])"),
+  "+authenticated/inbox": child("inbox"),
+  "+authenticated/settings": child("settings"),
+  "+signed-in": group("signed-in"),
+  "+signed-in/+index": child(""),
+  "+signed-in/profile": child("profile"),
+};
+// A root redirect to a declaration whose destination sits at `to`, relative to src/routes.
+const redirectTo = (to) =>
+  `${outletHeader}import { destination as to } from "../${to}/destination.generated.js";\n\nexport default defineRoute("old", {}).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`;
+
+// The `..` destination a declaration's RouteTypes entry names, or undefined without one.
+function upOf(routes, id) {
+  const line = routes.split("\n").find((text) => text.startsWith(`"src/routes/${id}/route.ts": `));
+
+  assert.ok(line, `Missing RouteTypes entry: ${id}`);
+
+  return /up: typeof (destination_\w+)/.exec(line)?.[1];
+}
+
+test("sibling pathless groups: each group record owns its descendants' claims; children tables and `..` follow the shared path's winner", async () => {
+  const project = await copyProject();
+  const result = await project.analyze(groupRoutes);
+  const routes = result.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+  const authenticated = result.copy("+authenticated", "children");
+  const signedIn = result.copy("+signed-in", "children");
+
+  assert.match(routes, /^import \{ record, callbacks, owned, injectGeneratedActiveRoute, /m);
+  assert.ok(
+    routes.includes(
+      `export const routes: Routes = [{ path: "",\n...record(destination__authenticated_route),\n...owned([["inbox"], ["settings"]], callbacks(route__authenticated_route)),\nloadComponent: `,
+    ),
+    routes,
+  );
+  assert.ok(
+    routes.includes(
+      `{ path: "",\n...record(destination__signed_in_route),\n...owned([["profile"], []]),\nloadComponent: `,
+    ),
+    routes,
+  );
+  // A guardless group still imports its route copy only as a type.
+  assert.match(routes, /^import type \{ route as route__signed_in_route \}/m);
+
+  // Children tables are ordinary: the index matches exactly, no table holds a group.
+  assert.doesNotMatch(authenticated, /\.\.\.owned\(/);
+  assert.doesNotMatch(signedIn, /\.\.\.owned\(/);
+  assert.match(recordOf(signedIn, ""), /^\{ path: "",\npathMatch: 'full',\n/);
+
+  // The one childless declaration at `/` wins it, so every page's `..` is signed-in's index.
+  for (const id of ["+authenticated/inbox", "+authenticated/settings", "+signed-in/profile"]) {
+    assert.equal(upOf(routes, id), "destination__signed_in__index_route", id);
+  }
+
+  assert.equal(upOf(routes, "+authenticated"), undefined);
+  assert.equal(upOf(routes, "+signed-in/+index"), undefined);
+
+  // A redirect lands on the winner; a group never ends a path, so it's no target.
+  await project.analyze(
+    { ...groupRoutes, old: redirectTo("+signed-in/+index") },
+    { componentless: ["old"] },
+  );
+
+  for (const target of ["+signed-in", "+authenticated"]) {
+    await assert.rejects(
+      project.analyze({ ...groupRoutes, old: redirectTo(target) }, { componentless: ["old"] }),
+      new RegExp(
+        `Redirect target is pruned or not the canonical shared-path target: src/routes/\\${target}/route\\.ts$`,
+      ),
+    );
+  }
+
+  // Groups nested in a group, and groups below a parent with a path, are groups too.
+  const nested = await project.analyze({
+    ...groupRoutes,
+    "+authenticated/+mail": child("", "../route.js"),
+    "+authenticated/+mail/drafts": child("drafts", "../route.js"),
+    "+authenticated/+chat": child("", "../route.js"),
+    "+authenticated/+chat/rooms/$id": child(
+      "rooms/$id",
+      "../../route.js",
+      ", params: { id: numberParam }",
+    ),
+    products: `${outletHeader}\nexport default defineRoute("products", {});\n`,
+    "products/+a": child("", "../route.js"),
+    "products/+a/list": child("list", "../route.js"),
+    "products/+b": child("", "../route.js"),
+    "products/+b/detail/$id": child(
+      "detail/$id",
+      "../../route.js",
+      ", params: { id: numberParam }",
+    ),
+  });
+  const nestedRoutes = nested.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+
+  assert.match(
+    nestedRoutes,
+    /\.\.\.owned\(\[\["drafts"\], \["inbox"\], \["rooms", ":"\], \["settings"\]\], callbacks\(route__authenticated_route\)\)/,
+  );
+  assert.match(nested.copy("+authenticated", "children"), /\.\.\.owned\(\[\["drafts"\]\]\)/);
+  assert.match(nested.copy("+authenticated", "children"), /\.\.\.owned\(\[\["rooms", ":"\]\]\)/);
+  assert.match(nested.copy("products", "children"), /\.\.\.owned\(\[\["list"\]\]\)/);
+  assert.match(nested.copy("products", "children"), /\.\.\.owned\(\[\["detail", ":"\]\]\)/);
+  assert.doesNotMatch(nestedRoutes, /path: "products",[^}]*owned/);
+});
+
+test("sibling pathless groups: a lone pathless wrapper is no group, so an existing tree keeps its bytes", async () => {
+  const project = await copyProject();
+  const lone = {
+    "+authenticated": group("authenticated", ".canMatch([() => true])"),
+    "+authenticated/inbox": child("inbox"),
+    profile: `${outletHeader}\nexport default defineRoute("profile", {});\n`,
+  };
+  const result = await project.analyze(lone);
+  const routes = result.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+
+  assert.doesNotMatch(routes, /\.\.\.owned\(|, owned/);
+  assert.match(routes, /\.\.\.callbacks\(route__authenticated_route\),/);
+  assert.equal(
+    result.sources.declarations.some((declaration) => declaration.group || declaration.fallback),
+    false,
+  );
+
+  // A pathless leaf beside it, which collided before, makes the wrapper a group; the leaf ends
+  // `/` and is no group, having no children.
+  const leaf = await project.analyze({
+    ...lone,
+    "+home": `${outletHeader}\nexport default defineRoute("", {});\n`,
+  });
+  const groups = [];
+
+  for (const declaration of leaf.sources.declarations) {
+    if (declaration.group) {
+      groups.push(declaration.id);
+    }
+  }
+
+  assert.deepEqual(groups, ["src/routes/+authenticated/route.ts"]);
+  assert.match(
+    leaf.desired.get(resolve(project.root, "generated/routes.generated.ts")),
+    /\.\.\.owned\(\[\["inbox"\]\], callbacks\(route__authenticated_route\)\)/,
+  );
+});
+
+test("sibling pathless groups: descendants' real collisions still fail, naming the groups", async () => {
+  const project = await copyProject();
+  const prefix = (a, b) =>
+    `Ordinary route collision/overlap: src/routes/${a[0]}/route.ts \\(${a[1]}\\); src/routes/${b[0]}/route.ts \\(${b[1]}\\)`;
+  const suffix =
+    ", in sibling pathless groups src/routes/\\+authenticated/route.ts and src/routes/\\+signed-in/route.ts$";
+
+  for (const [extra, pattern] of [
+    [
+      { "+authenticated/profile": child("profile") },
+      prefix(["\\+authenticated/profile", "/profile"], ["\\+signed-in/profile", "/profile"]) +
+        suffix,
+    ],
+    [
+      {
+        "+authenticated/items/$id": child(
+          "items/$id",
+          "../../route.js",
+          ", params: { id: numberParam }",
+        ),
+        "+signed-in/items/$slug": child(
+          "items/$slug",
+          "../../route.js",
+          ", params: { slug: stringParam }",
+        ),
+      },
+      prefix(
+        ["\\+authenticated/items/\\$id", "/items/\\$id"],
+        ["\\+signed-in/items/\\$slug", "/items/\\$slug"],
+      ) + suffix,
+    ],
+    [
+      {
+        "+authenticated/items/$id": child(
+          "items/$id",
+          "../../route.js",
+          ", params: { id: numberParam }",
+        ),
+        "+signed-in/items/new": child("items/new", "../../route.js"),
+      },
+      prefix(
+        ["\\+authenticated/items/\\$id", "/items/\\$id"],
+        ["\\+signed-in/items/new", "/items/new"],
+      ) + suffix,
+    ],
+    [
+      { "+authenticated/+index": child("") },
+      prefix(["\\+authenticated/\\+index", "/"], ["\\+signed-in/\\+index", "/"]) + suffix,
+    ],
+    // A lone pathless chain inside a group ends `/` itself.
+    [
+      {
+        "+authenticated/+inner": child(""),
+        "+authenticated/+inner/deep": child("deep"),
+      },
+      prefix(["\\+authenticated/\\+inner", "/"], ["\\+signed-in/\\+index", "/"]) + suffix,
+    ],
+    // A group's descendant against a root-level route: not across groups, so no suffix.
+    [
+      { inbox: `${outletHeader}\nexport default defineRoute("inbox", {});\n` },
+      `${prefix(["\\+authenticated/inbox", "/inbox"], ["inbox", "/inbox"])}$`,
+    ],
+  ]) {
+    await assert.rejects(project.analyze({ ...groupRoutes, ...extra }), new RegExp(pattern));
+  }
+});
+
+test("sibling pathless groups: a group holding a catchall is tried last and may not shadow a route outside it", async () => {
+  const project = await copyProject();
+  const catchall = (path, from = "../route.js") =>
+    child(path, from, ", params: { rest: stringParam }");
+  const fallback = {
+    ...groupRoutes,
+    "+authenticated/$rest[]": catchall("$rest[]"),
+    outside: `${outletHeader}\nexport default defineRoute("outside", {});\n`,
+  };
+  const result = await project.analyze(fallback);
+  const routes = result.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+  const order = [...routes.matchAll(/\.\.\.record\((destination_\w+)/g)].map((match) => match[1]);
+
+  assert.deepEqual(order, [
+    "destination__signed_in_route",
+    "destination_outside_route",
+    "destination__authenticated_route",
+  ]);
+  assert.match(routes, /\.\.\.owned\(\[\["\*\*"\], \["inbox"\], \["settings"\]\], /);
+
+  const shadow = (catchallId, catchallPath, otherId, otherPath) =>
+    new RegExp(
+      `Catchall in a pathless group shadows a route outside it: src/routes/${catchallId}/route\\.ts \\(${catchallPath}\\) is tried before src/routes/${otherId}/route\\.ts \\(${otherPath}\\)$`,
+    );
+
+  for (const [extra, pattern] of [
+    // Both groups fall back, and the first one's catchall covers the second one's route.
+    [
+      {
+        "+authenticated/$rest[]": undefined,
+        "+authenticated/docs/$rest[]": catchall("docs/$rest[]", "../../route.js"),
+        "+signed-in/docs/intro": child("docs/intro", "../../route.js"),
+        "+signed-in/$rest[]": catchall("$rest[]"),
+      },
+      shadow(
+        "\\+authenticated/docs/\\$rest\\[\\]",
+        "/docs/\\$rest\\[\\]",
+        "\\+signed-in/[^ ]+",
+        "/[^ ]+",
+      ),
+    ],
+    // A group's catchall before a root-level catchall.
+    [
+      {
+        $rest: undefined,
+        "$rest[]": `${outletHeader}\nexport default defineRoute("$rest[]", { params: { rest: stringParam } });\n`,
+      },
+      shadow("\\+authenticated/\\$rest\\[\\]", "/\\$rest\\[\\]", "\\$rest\\[\\]", "/\\$rest\\[\\]"),
+    ],
+    // Catchalls in both groups: their parents differ, so this isn't a sibling competition.
+    [
+      { "+signed-in/$rest[]": catchall("$rest[]") },
+      shadow(
+        "\\+authenticated/\\$rest\\[\\]",
+        "/\\$rest\\[\\]",
+        "\\+signed-in/\\$rest\\[\\]",
+        "/\\$rest\\[\\]",
+      ),
+    ],
+  ]) {
+    const routesWith = { ...fallback };
+
+    for (const [key, text] of Object.entries(extra)) {
+      if (text === undefined) {
+        delete routesWith[key];
+      } else {
+        routesWith[key] = text;
+      }
+    }
+
+    await assert.rejects(project.analyze(routesWith), pattern);
+  }
+
+  // Inside one group a catchall backs its siblings, as in any table.
+  await project.analyze({
+    ...fallback,
+    "+authenticated/docs/intro": child("docs/intro", "../../route.js"),
+  });
+});
+
+test("sibling pathless groups: a named branch can't hang at a group's own path", async () => {
+  const project = await copyProject();
+  const branch = (from) =>
+    `${outletChild(from)}\nexport default defineRoute("chat/$id", { parent, outlet: "chat", params: { id: numberParam } });\n`;
+  const message = (id) =>
+    new RegExp(
+      `A named-outlet route can't hang at a pathless group's own path while the group has pathless siblings: src/routes/${id}/route\\.ts; give it a parent with a path, or declare it beside the groups$`,
+    );
+
+  await assert.rejects(
+    project.analyze({ ...groupRoutes, "+authenticated/chat/$id": branch("../../route.js") }),
+    message("\\+authenticated/chat/\\$id"),
+  );
+  // Through a lone pathless wrapper inside the group too (which ends `/` itself, so no index).
+  const noIndex = { ...groupRoutes };
+
+  delete noIndex["+signed-in/+index"];
+  await assert.rejects(
+    project.analyze({
+      ...noIndex,
+      "+authenticated/+panel": child(""),
+      "+authenticated/+panel/deep": child("deep"),
+      "+authenticated/+panel/chat/$id": branch("../../route.js"),
+    }),
+    message("\\+authenticated/\\+panel/chat/\\$id"),
+  );
+
+  // Beside the groups, or below a primary route with a path inside one, a branch is fine.
+  const admitted = await project.analyze({
+    ...groupRoutes,
+    "chat/$id": `${outletHeader}\nexport default defineRoute("chat/$id", { outlet: "chat", params: { id: numberParam } });\n`,
+    "+authenticated/products": child("products"),
+    "+authenticated/products/item/$id": `${outletChild("../../route.js")}\nexport default defineRoute("item/$id", { parent, outlet: "detail", params: { id: numberParam } });\n`,
+  });
+  const routes = admitted.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+
+  assert.match(routes, /\.\.\.owned\(\[\["inbox"\], \["products"\], \["settings"\]\], /);
+  // The index sits at the chat branch's anchor, so it prefix-matches; the group still claims `/`.
+  assert.match(
+    recordOf(admitted.copy("+signed-in", "children"), ""),
+    /^\{ path: "",\n\.\.\.record\(/,
+  );
+  assert.match(routes, /\.\.\.owned\(\[\["profile"\], \[\]\]\)/);
+});
+
+test("sibling pathless groups: shared paths without a childless declaration have no winner", async () => {
+  const project = await copyProject();
+  const noIndex = { ...groupRoutes };
+
+  delete noIndex["+signed-in/+index"];
+
+  // At the root: no `..` for top-level pages, and neither group is a redirect target.
+  const root = await project.analyze(noIndex);
+  const rootRoutes = root.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+
+  for (const id of ["+authenticated/inbox", "+authenticated/settings", "+signed-in/profile"]) {
+    assert.equal(upOf(rootRoutes, id), undefined, id);
+  }
+
+  assert.match(rootRoutes, /\.\.\.owned\(\[\["profile"\]\]\)/);
+
+  for (const target of ["+signed-in", "+authenticated"]) {
+    await assert.rejects(
+      project.analyze({ ...noIndex, old: redirectTo(target) }, { componentless: ["old"] }),
+      /Redirect target is pruned or not the canonical shared-path target: /,
+    );
+  }
+
+  // Below `products`: the parent and both groups share /products, and none of them ends it.
+  const products = {
+    products: `${outletHeader}\nexport default defineRoute("products", {});\n`,
+    "products/+a": child("", "../route.js"),
+    "products/+a/inbox": child("inbox", "../route.js"),
+    "products/+b": child("", "../route.js"),
+    "products/+b/profile": child("profile", "../route.js"),
+  };
+  const nested = await project.analyze(products);
+  const nestedRoutes = nested.desired.get(resolve(project.root, "generated/routes.generated.ts"));
+
+  assert.equal(upOf(nestedRoutes, "products/+a/inbox"), undefined);
+  assert.equal(upOf(nestedRoutes, "products/+b/profile"), undefined);
+  await assert.rejects(
+    project.analyze({ ...products, old: redirectTo("products") }, { componentless: ["old"] }),
+    /Redirect target is pruned or not the canonical shared-path target: src\/routes\/products\/route\.ts$/,
+  );
+
+  // An index in either group wins /products for every page below it.
+  const indexed = { ...products, "products/+b/+index": child("", "../route.js") };
+  const withIndex = await project.analyze(indexed);
+  const indexedRoutes = withIndex.desired.get(
+    resolve(project.root, "generated/routes.generated.ts"),
+  );
+
+  assert.equal(upOf(indexedRoutes, "products/+a/inbox"), "destination_products__b__index_route");
+  assert.equal(upOf(indexedRoutes, "products/+b/profile"), "destination_products__b__index_route");
+  await project.analyze(
+    { ...indexed, old: redirectTo("products/+b/+index") },
+    { componentless: ["old"] },
+  );
+
+  for (const target of ["products", "products/+a", "products/+b"]) {
+    await assert.rejects(
+      project.analyze({ ...indexed, old: redirectTo(target) }, { componentless: ["old"] }),
+      /Redirect target is pruned or not the canonical shared-path target: /,
+    );
+  }
+
+  // A path one declaration holds is still its own winner, children or not.
+  const teams = {
+    teams: `${outletHeader}\nexport default defineRoute("teams", {});\n`,
+    "teams/$id": child("$id", "../route.js", ", params: { id: numberParam }"),
+  };
+  const singleton = await project.analyze(teams);
+
+  assert.equal(
+    upOf(
+      singleton.desired.get(resolve(project.root, "generated/routes.generated.ts")),
+      "teams/$id",
+    ),
+    "destination_teams_route",
+  );
+  await project.analyze({ ...teams, old: redirectTo("teams") }, { componentless: ["old"] });
+});
+
+test("sibling pathless groups: a declaration below a group changes only its own files and the tables that hold it", async () => {
+  const project = await copyProject();
+  const before = await project.analyze(groupRoutes);
+  const after = await project.analyze({
+    ...groupRoutes,
+    "+authenticated/archive": child("archive"),
+  });
+  const changed = [];
+
+  for (const [file, text] of after.desired) {
+    if (before.desired.get(file) !== text) {
+      changed.push(relative(project.root, file).split(sep).join("/"));
+    }
+  }
+
+  assert.deepEqual(changed.sort(), [
+    "generated/routes.generated.ts",
+    "src/routes/+authenticated/archive/destination.generated.ts",
+    "src/routes/+authenticated/archive/route.generated.ts",
+    "src/routes/+authenticated/children.generated.ts",
+  ]);
+  assert.match(
+    after.desired.get(resolve(project.root, "generated/routes.generated.ts")),
+    /\.\.\.owned\(\[\["archive"\], \["inbox"\], \["settings"\]\], /,
+  );
+});
+
+test("translated segments: a group's claims carry its descendants' messages, and a merge across groups collides", async () => {
+  const project = await localizedProject();
+
+  for (const directory of [
+    "+authenticated",
+    "+authenticated/inbox",
+    "+authenticated/settings",
+    "+signed-in",
+    "+signed-in/+index",
+    "+signed-in/profile",
+  ]) {
+    await project.page(directory);
+  }
+
+  await project.translate();
+
+  const routes = await project.routes();
+  const message = (word) =>
+    `$localize\`:URL path segment|One segment of page URLs, without "/". Changing it changes links and bookmarks.@@route.segment.${word}:${word}\``;
+
+  assert.ok(
+    routes.includes(`...owned([[${message("inbox")}], [${message("settings")}]]),`),
+    routes,
+  );
+  assert.ok(routes.includes(`...owned([[${message("profile")}], []]),`), routes);
+
+  // A word that reads the same in two groups in one locale is a collision there alone.
+  await project.catalog(
+    xliff1([
+      ["route.segment.inbox", "konto"],
+      ["route.segment.profile", "konto"],
+    ]),
+  );
+  await assert.rejects(
+    project.translate(),
+    /^Error: Locale de: .*Ordinary route collision\/overlap: src\/routes\/\+authenticated\/inbox\/route\.ts \(\/konto\); src\/routes\/\+signed-in\/profile\/route\.ts \(\/konto\), in sibling pathless groups src\/routes\/\+authenticated\/route\.ts and src\/routes\/\+signed-in\/route\.ts$/,
+  );
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { get } from "node:http";
+import { createServer as createHttpServer, get } from "node:http";
 import { createServer } from "node:net";
 import { cp, lstat, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -2081,3 +2081,294 @@ if (browserFailures.length > 0) {
 console.log(
   "Native SSR HTTP302/handle-signals/search-fallback/matrix/concurrency + exact-Node hydration/SPA/query/lazy browser closure proof passed",
 );
+
+// Sibling pathless groups under SSR (SPEC §11): the server renders the owning group, the browser
+// adopts its active route by id without importing the other group's table, and Angular's route
+// extraction attributes `/` to the first group, so its layout chunk is hinted for `/`. Each kind
+// of load is asserted on its own: an extraction-derived hint, the hint's download, a
+// hydration-seed import and a recognition import.
+const { buildFixture, chunkSources, requestedTables, siblingFixture } =
+  await import("./sibling-groups.mjs");
+const siblings = join(evidence, "sibling-groups");
+const siblingObservations = {};
+const authenticatedLayout = "src/routes/+authenticated/page.ts";
+const authenticatedTable = "src/routes/+authenticated/children.generated.ts";
+const signedInTable = "src/routes/+signed-in/children.generated.ts";
+
+await mkdir(siblings);
+
+// The data-layout and data-leaf labels in a document, in order.
+function siblingRendered(html) {
+  return [...html.matchAll(/data-(?:layout|leaf)="([^"]*)"/g)].map((match) => match[1]);
+}
+
+// Serves one tree from its own Node server, requests each URL, then opens it in a browser and
+// waits for hydration. Every observation is recorded before any assertion.
+async function siblingSsr(name, options, urls) {
+  const directory = await siblingFixture(siblings, name, { app: "ssr-proof", ...options });
+
+  await buildFixture(directory);
+
+  const chunks = await chunkSources(directory);
+  const httpPort = await port();
+  const origin = "http://127.0.0.1:" + httpPort;
+  const server = spawn(process.execPath, [join(directory, "dist/proof/server/server.mjs")], {
+    cwd: directory,
+    env: { ...process.env, PORT: String(httpPort) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const closed = new Promise((done) => server.once("close", done));
+  // The Node server renders pages only; this front serves the browser files beside it.
+  const front = createHttpServer(async (request, response) => {
+    const path = new URL(request.url, origin).pathname;
+
+    if (path.endsWith(".js") || path.endsWith(".css")) {
+      try {
+        const body = await readFile(join(directory, "dist/proof/browser", path));
+        let type = "text/css";
+
+        if (path.endsWith(".js")) {
+          type = "text/javascript";
+        }
+
+        response.writeHead(200, { "content-type": type }).end(body);
+      } catch {
+        response.writeHead(404).end();
+      }
+
+      return;
+    }
+
+    const rendered = await requestSsr(origin + request.url);
+
+    response.writeHead(rendered.status, { "content-type": "text/html" }).end(rendered.body);
+  });
+
+  await new Promise((done) => front.listen(0, "127.0.0.1", done));
+
+  const frontOrigin = "http://127.0.0.1:" + front.address().port;
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  const result = {};
+
+  try {
+    const deadline = Date.now() + 60000;
+
+    for (;;) {
+      try {
+        await requestSsr(origin + "/profile", 3000);
+
+        break;
+      } catch (error) {
+        if (Date.now() > deadline) {
+          throw error;
+        }
+
+        await new Promise((done) => setTimeout(done, 100));
+      }
+    }
+
+    for (const url of urls) {
+      const response = await requestSsr(origin + url);
+      const hints = [];
+
+      for (const href of preloadHints(response.body, origin + url)) {
+        hints.push(...(chunks[new URL(href).pathname.slice(1)] ?? []));
+      }
+
+      const seen = {
+        status: response.status,
+        server: siblingRendered(response.body),
+        seed: transferredSeed(response.body)?.routes.map((route) => route.id),
+        hinted: [...new Set(hints)].sort(),
+      };
+      const context = await browser.newContext({ colorScheme: "dark" });
+      const page = await context.newPage();
+      const requests = [];
+      const pageErrors = [];
+
+      page.on("request", (request) => {
+        const path = new URL(request.url()).pathname.slice(1);
+
+        if (path.endsWith(".js")) {
+          requests.push(path);
+        }
+      });
+      page.on("pageerror", (error) => pageErrors.push(String(error)));
+
+      let allowScripts;
+      const scripts = new Promise((done) => {
+        allowScripts = done;
+      });
+
+      // Scripts wait until the server's nodes are captured, so hydration can be checked against
+      // them and the shell's first read is the one before the initial navigation.
+      await page.route("**/*", async (route) => {
+        if (route.request().resourceType() === "script") {
+          await scripts;
+        }
+
+        await route.continue();
+      });
+
+      try {
+        await page.goto(frontOrigin + url, { waitUntil: "commit" });
+        await page.waitForSelector("script#ng-state", { state: "attached" });
+        await page.evaluate(() => {
+          window.proofServerNodes = [...document.querySelectorAll("[data-layout], [data-leaf]")];
+        });
+        allowScripts();
+        await page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+        await page.waitForTimeout(100);
+
+        const browserSide = await page.evaluate(() => {
+          const nodes = [...document.querySelectorAll("[data-layout], [data-leaf]")];
+          const active = window.proofShell.active();
+          let reused = nodes.length === window.proofServerNodes.length;
+
+          for (let index = 0; index < nodes.length; index += 1) {
+            if (nodes[index] !== window.proofServerNodes[index]) {
+              reused = false;
+            }
+          }
+
+          return {
+            rendered: nodes.map(
+              (node) => node.getAttribute("data-layout") ?? node.getAttribute("data-leaf"),
+            ),
+            reused,
+            calls: [...window.proof.calls],
+            evaluated: [...window.proof.evaluated],
+            navigationErrors: [...window.navigationErrors],
+            // The shell's read before the initial navigation, and whether the commit handed the
+            // same handles over.
+            start: window.proofStart,
+            firstChain: window.proofFirstChain ?? null,
+            firstLink: window.proofFirstLink ?? null,
+            firstIsActive: window.proofFirst !== undefined && window.proofFirst === active,
+            firstGroupIsActive:
+              window.proofFirst !== undefined && window.proofFirst.chain[0] === active?.chain[0],
+          };
+        });
+
+        const downloaded = new Set();
+
+        for (const request of requests) {
+          for (const input of chunks[request] ?? []) {
+            downloaded.add(input);
+          }
+        }
+
+        Object.assign(seen, browserSide, {
+          downloaded: [...downloaded].sort(),
+          tables: requestedTables(chunks, requests),
+          pageErrors,
+        });
+        await page.screenshot({
+          path: join(siblings, `${name}-${url.replace(/[^a-z0-9]+/gi, "_") || "root"}.png`),
+          fullPage: true,
+        });
+      } finally {
+        await context.close();
+      }
+
+      result[url] = seen;
+    }
+  } finally {
+    await browser.close();
+    await new Promise((done) => front.close(done));
+    server.kill();
+    await closed;
+    siblingObservations[name] = result;
+    await save("sibling-groups.json", siblingObservations);
+  }
+
+  return result;
+}
+
+try {
+  const indexed = await siblingSsr("ssr-index", {}, ["/", "/profile"]);
+
+  // The owning group renders on the server and stays after hydration; the seed holds only its
+  // chain, so hydration imports no authenticated table, and recognition never tries it either.
+  assert.equal(indexed["/profile"].status, 200);
+  assert.deepEqual(indexed["/profile"].server, ["signed-in", "profile"]);
+  assert.deepEqual(indexed["/profile"].rendered, ["signed-in", "profile"]);
+  assert.deepEqual(indexed["/profile"].seed, [
+    "src/routes/+signed-in/route.ts",
+    "src/routes/+signed-in/profile/route.ts",
+  ]);
+  assert.deepEqual(indexed["/profile"].tables, [signedInTable]);
+  assert.equal(indexed["/profile"].calls.includes("authenticated:canMatch"), false);
+
+  // Seed adoption by id: before the initial navigation starts, the shell already reads the
+  // signed-in chain's handles, with the page's own link; the commit keeps those handles and the
+  // server's nodes.
+  for (const [url, leaf] of [
+    ["/profile", "profile"],
+    ["/", "index"],
+  ]) {
+    assert.deepEqual(
+      {
+        start: indexed[url].start,
+        firstChain: indexed[url].firstChain,
+        firstLink: indexed[url].firstLink,
+        firstIsActive: indexed[url].firstIsActive,
+        firstGroupIsActive: indexed[url].firstGroupIsActive,
+        reused: indexed[url].reused,
+      },
+      {
+        start: { navigated: false, navigating: false },
+        firstChain: ["signed-in", leaf],
+        firstLink: url,
+        firstIsActive: true,
+        firstGroupIsActive: true,
+        reused: true,
+      },
+      `seed adoption on ${url}`,
+    );
+  }
+
+  assert.equal(indexed["/"].status, 200);
+  assert.deepEqual(indexed["/"].server, ["signed-in", "index"]);
+  assert.deepEqual(indexed["/"].rendered, ["signed-in", "index"]);
+  assert.deepEqual(indexed["/"].seed, [
+    "src/routes/+signed-in/route.ts",
+    "src/routes/+signed-in/+index/route.ts",
+  ]);
+
+  // F4, native Angular behavior. Extraction-derived hint: route extraction walks `path: ""`
+  // records without canMatch and keeps the first, so `/` hints authenticated's layout chunk,
+  // never its table.
+  assert.ok(indexed["/"].hinted.includes(authenticatedLayout), "extraction-derived hint");
+  assert.equal(indexed["/"].hinted.includes(authenticatedTable), false, "extraction-derived hint");
+  // Modulepreload download: the browser fetches the hinted layout and never evaluates it.
+  assert.ok(indexed["/"].downloaded.includes(authenticatedLayout), "modulepreload download");
+  assert.equal(
+    indexed["/"].evaluated.includes("authenticated:layout"),
+    false,
+    "modulepreload download",
+  );
+  // Hydration-seed and recognition imports: only signed-in's table.
+  assert.deepEqual(indexed["/"].tables, [signedInTable], "hydration-seed and recognition imports");
+  assert.equal(indexed["/"].calls.includes("authenticated:canMatch"), false, "recognition import");
+
+  // Without an index nothing ends `/`: 200 with the app shell alone, before and after hydration.
+  const shellOnly = await siblingSsr("ssr-no-index", { index: false }, ["/"]);
+
+  assert.equal(shellOnly["/"].status, 200);
+  assert.deepEqual(shellOnly["/"].server, []);
+  assert.deepEqual(shellOnly["/"].rendered, []);
+  assert.equal(shellOnly["/"].seed, undefined);
+  assert.equal(shellOnly["/"].firstChain, null);
+  assert.ok(shellOnly["/"].hinted.includes(authenticatedLayout), "extraction-derived hint");
+  assert.deepEqual(shellOnly["/"].tables, [], "recognition import");
+  assert.deepEqual(shellOnly["/"].navigationErrors, []);
+  assert.deepEqual(shellOnly["/"].pageErrors, []);
+} catch (error) {
+  // The dev server above left Angular's uncaught-error handler installed, so set the code here.
+  process.exitCode = 1;
+
+  throw error;
+}
+
+console.log("Sibling pathless groups SSR, hydration and route-extraction hint proof passed");

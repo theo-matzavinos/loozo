@@ -396,6 +396,33 @@ A `-` directory can't contain a page or a declaration with behavior.
 
 Set `"autoDefineRoutes": { "filename": "definition.ts" }` on the application target to seed a different file name. It must be a plain `.ts` file name that isn't a generated file name. That only affects new files; existing declarations are found by content, whatever their name.
 
+### Sibling groups
+
+A `+` directory with routes below it is a **sibling group** when its parent holds another pathless route: another `+` directory with a page or declaration, with or without routes below it. That can be a second group, or a leaf such as `+home/page.ts` or `+index`. Each group gives its pages a layout and guards, and each URL reaches the group whose routes own it:
+
+```text
+src/routes/
+  +authenticated/
+    route.ts        defineRoute("", { parent }).canMatch([requireLogin])
+    page.ts         the authenticated layout
+    inbox/          /inbox
+    settings/       /settings
+  +signed-in/
+    page.ts         the signed-in layout
+    +index/         /
+    profile/        /profile
+```
+
+`/inbox` renders inside the authenticated layout and `/profile` inside the signed-in one. On `/profile`, `requireLogin` isn't called and `+authenticated`'s routes aren't loaded: the generated record of each group only matches the URLs its own routes have.
+
+- A group ends no URL itself. `/` is `+signed-in/+index`'s, so it renders the signed-in layout with that page, and `..` from `inbox`, `settings` or `profile` goes there. Without an `+index` (or another page at `/`) nothing renders at `/` but the app shell, with status 200 under SSR, and pages have no `..`. Add a `+index`, or a root catchall for a not-found page.
+- Two pages at the same URL in different groups still collide; generation names both groups.
+- A catchall in a group (`+authenticated/$rest[]`) is tried after every other route of the groups, so it frames not-found pages in that group's layout and catches a URL another group's guard refuses. It may not hide a route outside its group, such as a root catchall.
+- Environment initializers in a group's `.providers(…)` run the first time Angular tries the group, even on a URL it doesn't own. Start group-only work from a guard, a resolver or the layout instead.
+- A named outlet's route can't hang directly under a group; give it a parent with a path, or declare it beside the groups. When every route of a named outlet refuses its part of the URL (an invalid param, or the branch's own guard), Angular tries that part against the groups too. A group with a route of the same shape, or a catchall, then runs its `.canMatch` guards with those segments (a `UrlTree` they return redirects the navigation) or loads its routes before the navigation fails. Those guards can't tell this attempt from a primary one.
+
+A `+` directory with routes below it and no other pathless route beside it isn't a group: it matches every URL that reaches it, like any pathless route. Adding a pathless leaf beside it, such as `+home/page.ts` or `+index`, makes it a group, with the rules above.
+
 ### Explicit authoring
 
 To write every path and parent yourself, turn filesystem definitions off:
