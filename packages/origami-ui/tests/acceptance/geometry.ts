@@ -1,10 +1,10 @@
 import { expect } from "playwright/test";
 import type { Page } from "playwright/test";
 
-type Edge = "top" | "bottom" | "left" | "right";
-type Side = "block-start" | "block-end" | "inline-start" | "inline-end";
+export type Edge = "top" | "bottom" | "left" | "right";
+export type Side = "block-start" | "block-end" | "inline-start" | "inline-end";
 type Align = "start" | "center" | "end";
-interface Rect {
+export interface Rect {
   left: number;
   right: number;
   top: number;
@@ -30,17 +30,8 @@ interface Candidate {
 
 const opposite: Record<Edge, Edge> = { top: "bottom", bottom: "top", left: "right", right: "left" };
 
-/** Independent DOM-edge arithmetic. No Floating UI invocation, import or generated expectation. */
-export function candidates(
-  anchor: Rect,
-  content: Rect,
-  viewport: { width: number; height: number },
-  writingMode: string,
-  direction: string,
-  side: Side,
-  align: Align,
-  gap: number,
-): Candidate[] {
+/** The physical edge of each logical side for an Anchor's writing mode and direction. */
+function physicalSides(writingMode: string, direction: string): Record<Side, Edge> {
   let blockStart: Edge = "top";
   let blockEnd: Edge = "bottom";
   let inlineStart: Edge = "left";
@@ -67,12 +58,131 @@ export function candidates(
     inlineEnd = old;
   }
 
-  const sides: Record<Side, Edge> = {
+  return {
     "block-start": blockStart,
     "block-end": blockEnd,
     "inline-start": inlineStart,
     "inline-end": inlineEnd,
   };
+}
+
+/** The logical side whose physical edge, for these Anchor axes, is `edge`. */
+export function logicalSide(writingMode: string, direction: string, edge: Edge): Side {
+  const sides = physicalSides(writingMode, direction);
+
+  for (const side of ["block-start", "block-end", "inline-start", "inline-end"] as const) {
+    if (sides[side] === edge) {
+      return side;
+    }
+  }
+
+  throw new Error(`No logical side for ${edge}`);
+}
+
+/**
+ * The physical edge of the Anchor that Content sits beside at `gap` (2 CSS px tolerance), from
+ * boxes alone; null when it sits beside none.
+ */
+export function placedEdge(anchor: Rect, content: Rect, gap: number): Edge | null {
+  const distances: Record<Edge, number> = {
+    top: anchor.top - gap - content.bottom,
+    bottom: content.top - (anchor.bottom + gap),
+    left: anchor.left - gap - content.right,
+    right: content.left - (anchor.right + gap),
+  };
+
+  for (const edge of ["top", "bottom", "left", "right"] as const) {
+    if (Math.abs(distances[edge]) <= 2) {
+      return edge;
+    }
+  }
+
+  return null;
+}
+
+/** The logical side Content sits on, from boxes alone, mapped with the Anchor's axes. */
+export function placedSide(
+  anchor: Rect,
+  content: Rect,
+  gap: number,
+  axes: { writingMode: string; direction: string },
+): Side | null {
+  const edge = placedEdge(anchor, content, gap);
+
+  if (edge === null) {
+    return null;
+  }
+
+  return logicalSide(axes.writingMode, axes.direction, edge);
+}
+
+/**
+ * Shifts a chosen candidate along its alignment axis (x beside top/bottom, y beside left/right):
+ * into the viewport, its left/top bound winning when Content is larger, then no further than
+ * keeps it touching the Anchor (`[anchor start − size, anchor end]`).
+ */
+export function shifted(
+  candidate: { side: Edge; x: number; y: number },
+  anchor: Rect,
+  content: Rect,
+  viewport: { width: number; height: number },
+): { x: number; y: number } {
+  if (candidate.side === "top" || candidate.side === "bottom") {
+    let x = Math.max(0, Math.min(candidate.x, viewport.width - content.width));
+
+    x = Math.max(anchor.left - content.width, Math.min(x, anchor.right));
+
+    return { x, y: candidate.y };
+  }
+
+  let y = Math.max(0, Math.min(candidate.y, viewport.height - content.height));
+
+  y = Math.max(anchor.top - content.height, Math.min(y, anchor.bottom));
+
+  return { x: candidate.x, y };
+}
+
+/** The candidate Floating UI's explicit fallback policy selects, from independent DOM edges. */
+export function selected(expected: Candidate[]): Candidate {
+  const fitting = expected.find(
+    (candidate) => candidate.mainOverflow <= 0 && candidate.crossOverflow <= 0,
+  );
+
+  if (fitting) {
+    return fitting;
+  }
+
+  const mainFits = expected.filter((candidate) => candidate.mainOverflow <= 0);
+
+  if (mainFits.length > 0) {
+    mainFits.sort((a, b) => a.primaryCrossOverflow - b.primaryCrossOverflow);
+
+    return mainFits[0];
+  }
+
+  const leastOverflow = [...expected];
+
+  leastOverflow.sort((a, b) => a.score - b.score);
+
+  return leastOverflow[0];
+}
+
+/** Independent DOM-edge arithmetic. No Floating UI invocation, import or generated expectation. */
+export function candidates(
+  anchor: Rect,
+  content: Rect,
+  viewport: { width: number; height: number },
+  writingMode: string,
+  direction: string,
+  side: Side,
+  align: Align,
+  gap: number,
+): Candidate[] {
+  const sides = physicalSides(writingMode, direction);
+  const blockStart = sides["block-start"];
+  const blockEnd = sides["block-end"];
+  const inlineStart = sides["inline-start"];
+  const inlineEnd = sides["inline-end"];
   const physical = sides[side];
   let cross: Edge | "center" = "center";
 
@@ -277,4 +387,44 @@ export async function expectPreferred(
       { message: "Independent anchor/content logical-edge expectation, tolerance 2 CSS px" },
     )
     .toBeLessThanOrEqual(2);
+}
+
+/**
+ * Waits until the Anchor's box and Content's inline `left`/`top` are each unchanged over two
+ * consecutive animation frames, so a controlled move's reposition has committed.
+ */
+export async function settled(page: Page, anchor: string, content: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          async ({ anchor, content }) => {
+            const anchorNode = document.querySelector(`[data-testid="${anchor}"]`);
+            const contentNode = document.querySelector(`[data-testid="${content}"]`);
+
+            if (!(anchorNode instanceof HTMLElement) || !(contentNode instanceof HTMLElement)) {
+              throw new Error("Missing settled-geometry hosts");
+            }
+
+            const sample = () => {
+              const box = anchorNode.getBoundingClientRect();
+
+              return `${box.left},${box.top},${box.right},${box.bottom}|${contentNode.style.left}/${contentNode.style.top}`;
+            };
+            const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+            const first = sample();
+
+            await frame();
+
+            const second = sample();
+
+            await frame();
+
+            return first === second && second === sample();
+          },
+          { anchor, content },
+        ),
+      { message: "Anchor box and Content coordinates stable over two animation frames" },
+    )
+    .toBe(true);
 }

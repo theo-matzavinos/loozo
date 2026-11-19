@@ -66,16 +66,16 @@ The root and Content each have their own Options; the Trigger has none. A Conten
 
 ## Positioning
 
-Content is positioned like [Popover Content](../popover/README.md#positioning), with the **Trigger** as its reference: `side` and `align` are logical and resolved from the Trigger's writing mode and direction, the default places it above the Trigger and centered, and it flips when it doesn't fit. Origami sets the same `popover="manual"`, `position: fixed` and coordinates, so scope a custom `display` to `:popover-open` and use `gap`, not margins. Content gets the same [`--og-anchor-width` and `--og-available-height`](../popover/README.md#sizing-to-the-anchor), measured against the Trigger. A [positioning failure](../popover/README.md#positioning-failure) hides it and is reported the same way.
+Content is positioned like [Popover Content](../popover/README.md#positioning), with the **Trigger** as its reference: `side` and `align` are logical and resolved from the Trigger's writing mode and direction, the default places it above the Trigger and centered, it flips when it doesn't fit, and it slides along the Trigger's edge to stay inside the viewport. Origami sets the same `popover="manual"`, `position: fixed` and coordinates, so scope a custom `display` to `:popover-open` and use `gap`, not margins. Content gets the same [`--og-anchor-width` and `--og-available-height`](../popover/README.md#sizing-to-the-anchor), measured against the Trigger, and the same [`data-side`](../popover/README.md#resolved-side). A [positioning failure](../popover/README.md#positioning-failure) hides it and is reported the same way.
 
 ## State and attributes
 
 `OrigamiTooltipState` has `open()` and `disabled()`, the effective root Options; `open()` reports what was requested, not whether Content is visible. `OrigamiTooltipContentState.open()` is Presence's `open()`.
 
-| Element | Attributes                                                                                                                                                                                           |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger | `aria-describedby` (while Content is mounted)                                                                                                                                                        |
-| Content | `role="tooltip"` (your static `role` wins), `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), Presence's `data-entering`, `data-present` and `data-leaving` |
+| Element | Attributes                                                                                                                                                                                                                                              |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger | `aria-describedby` (while Content is mounted)                                                                                                                                                                                                           |
+| Content | `role="tooltip"` (your static `role` wins), `id`, `popover="manual"`, `inert` whenever it isn't shown (closed, exiting or suppressed), [`data-side`](../popover/README.md#resolved-side), Presence's `data-entering`, `data-present` and `data-leaving` |
 
 ## Server rendering and hydration
 

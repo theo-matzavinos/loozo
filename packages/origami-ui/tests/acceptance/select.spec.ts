@@ -1,7 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { fixture } from "./observation.js";
-import { expectPreferred } from "./geometry.js";
+import { expectPreferred, geometry, placedSide, settled } from "./geometry.js";
 
 // Z means section 23. Cases run against the `select` fixture; Z8's replay runs in hydration.spec.ts.
 
@@ -1725,4 +1725,49 @@ test("Z18: the list takes the Trigger's static aria-label while nothing names it
   await expect(late).not.toHaveAttribute("aria-label", /.*/);
   await page.getByTestId("toggle-naming-late-trigger").click();
   await expect(late).toHaveAttribute("aria-label", "Late name");
+});
+
+test("Z20: a Select whose Trigger is partly scrolled out at the left edge keeps the Trigger's width and slides inside the viewport; near the bottom it flips above; a choice still writes and closes", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+  await script(page.getByTestId("edge-mount"));
+
+  const trigger = page.getByTestId("edge-trigger");
+  const content = page.getByTestId("edge-content");
+  const hosts = { content: "edge-content", anchor: "edge-trigger" };
+
+  for (const [placement, side] of [
+    ["partly scrolled out", "block-end"],
+    ["near the bottom", "block-start"],
+  ] as const) {
+    if (side === "block-start") {
+      await script(page.getByTestId("edge-near-bottom"));
+    }
+
+    await trigger.click();
+    await expectOpen(trigger, content);
+    await settled(page, "edge-trigger", "edge-content");
+
+    const result = await geometry(page, side, "start", 4, hosts);
+
+    await info.attach(`Z20-${side}`, {
+      body: JSON.stringify(result, null, 2),
+      contentType: "application/json",
+    });
+    expect(result.anchor.left, `the Trigger is ${placement}`).toBeLessThan(-2);
+    expect(Math.abs(result.content.left)).toBeLessThanOrEqual(2);
+    expect(Math.abs(result.content.width - result.anchor.width)).toBeLessThanOrEqual(1);
+    await expect(content).toHaveAttribute("data-side", side);
+    expect(placedSide(result.anchor, result.content, 4, result)).toBe(side);
+
+    if (side === "block-end") {
+      await trigger.press("Escape");
+      await expectClosed(trigger, content);
+    }
+  }
+
+  await page.getByTestId("edge-two").click();
+  await expectClosed(trigger, content);
+  await expect(page.getByTestId("edge-value")).toHaveText("string:two");
 });

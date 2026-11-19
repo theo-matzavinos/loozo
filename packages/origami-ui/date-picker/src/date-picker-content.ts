@@ -65,7 +65,7 @@ export abstract class OrigamiDatePickerContentOptions {
  * Only template attributes are read: a bound `aria-label` on the Trigger isn't copied, so name
  * Content yourself then.
  *
- * Like Popover Content, it exposes `--og-anchor-width` and `--og-available-height` for sizing,
+ * Like Popover Content, it exposes `--og-anchor-width`, `--og-available-height` and `data-side`,
  * retains its children through Presence's exit and exposes that retention as `state.open()`.
  * Scope a custom `display` to `:popover-open` and use `gap`, not margins. Requires a nearest
  * picker root, any of the five; a second mounted Content fails.

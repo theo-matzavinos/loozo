@@ -287,6 +287,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         <label>Motion <select data-testid="native-motion" (change)="select($event, motion)">
           <option value="finite">Finite</option><option value="none">None</option><option value="zero">Zero</option>
           <option value="infinite">Infinite</option><option value="mixed">Finite and infinite</option>
+          <option value="directional">Directional (keyed on data-side)</option>
         </select></label>
         <label>Anchor writing mode <select data-testid="writing-mode" (change)="select($event, writingMode)">
           <option value="horizontal-tb">Horizontal</option><option value="vertical-rl">Vertical right to left</option><option value="vertical-lr">Vertical left to right</option>
@@ -320,7 +321,17 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         <label>Layout <select data-testid="native-layout" (change)="setLayout($event)">
           <option value="center">Centered</option><option value="bottom">Near bottom</option><option value="right">Near right</option>
           <option value="corner">Bottom right corner</option><option value="oversized">Oversized content</option>
+          <option value="top">Near top</option><option value="left">Near left</option>
+          <option value="narrow-start">Wide content, Anchor near the alignment-axis start</option>
+          <option value="narrow-end">Wide content, Anchor near the alignment-axis end</option>
+          <option value="partly-offscreen">Wide content, Anchor partly past the alignment-axis start</option>
+          <option value="offscreen">Wide content, Anchor fully past the alignment-axis start</option>
+          <option value="beside-near-bottom">Anchor near the bottom, natural Content height</option>
         </select></label>
+        <button type="button" data-testid="native-capped" (click)="capped.set(!capped())">Cap Content's height at --og-available-height</button>
+        <button type="button" data-testid="native-filler" (click)="filler.set(!filler())">Add a physically tall descendant</button>
+        <button type="button" data-testid="native-oversized-height" (click)="height.set(2000)">Give Content an explicit 2000 px height</button>
+        <button type="button" data-testid="native-reverse-other-side" (click)="reverseOtherSide(root.settings)">Request the opposite block side and open in one handler</button>
         <label>Pointer policy <select data-testid="pointer-policy" (change)="select($event, pointerPolicy)">
           <option value="normal">Normal</option><option value="prevent">Prevent down</option><option value="capture">Acquire pointer capture</option>
           <option value="mount-child">Mount an open child Popover</option>
@@ -347,6 +358,7 @@ export class NativeContent implements OrigamiPopoverContentOptions {
               }
               @if (root.settings.contentMounted()) {
                 <section nativeContent #content="nativeContent" id="native-content-id" class="surface motion"
+                  [class.capped]="capped()"
                   data-testid="native-content" [attr.data-phase]="content.presence.phase()"
                   [attr.data-retained]="content.state.open()" [attr.data-motion]="motion()"
                   [style.direction]="contentDirection()" [style.width.px]="width()" [style.height.px]="height()"
@@ -365,6 +377,9 @@ export class NativeContent implements OrigamiPopoverContentOptions {
                     <button type="button" data-testid="native-inside-size" (click)="width.set(220); height.set(180)">Resize content</button>
                     <button type="button" data-testid="native-inside-style" (click)="consumerOpacity.set('.75'); consumerPointer.set('auto'); liveText.set('updated')">Update consumer styles/binding</button>
                     <p data-testid="native-live-text">{{ liveText() }}</p>
+                  }
+                  @if (filler()) {
+                    <div class="filler" data-testid="native-filler-box" aria-hidden="true"></div>
                   }
                   <!-- Logical child lifetime is independent of the parent's ordinary gated children. -->
                     <section nativePopover #child="nativePopover" name="child" data-testid="native-child-owner">
@@ -558,6 +573,89 @@ export class NativeContent implements OrigamiPopoverContentOptions {
         outline-offset: 2px;
       }
     }
+    .capped {
+      max-height: var(--og-available-height);
+      overflow: auto;
+    }
+    /* Physically tall in every writing mode; grid rows would grow the width under vertical-rl. */
+    .filler {
+      height: calc(200vh + 100px);
+      width: 8px;
+      flex: none;
+    }
+    /* One entrance and exit per resolved side. Geometry-neutral: opacity and outline color only. */
+    .motion[data-motion="directional"][data-side="block-start"][data-entering] {
+      animation: enter-block-start 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="block-end"][data-entering] {
+      animation: enter-block-end 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="inline-start"][data-entering] {
+      animation: enter-inline-start 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="inline-end"][data-entering] {
+      animation: enter-inline-end 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="block-start"][data-leaving] {
+      animation: leave-block-start 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="block-end"][data-leaving] {
+      animation: leave-block-end 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="inline-start"][data-leaving] {
+      animation: leave-inline-start 600ms linear;
+    }
+    .motion[data-motion="directional"][data-side="inline-end"][data-leaving] {
+      animation: leave-inline-end 600ms linear;
+    }
+    @keyframes enter-block-start {
+      from {
+        opacity: 0.2;
+        outline-color: red;
+      }
+    }
+    @keyframes enter-block-end {
+      from {
+        opacity: 0.2;
+        outline-color: green;
+      }
+    }
+    @keyframes enter-inline-start {
+      from {
+        opacity: 0.2;
+        outline-color: blue;
+      }
+    }
+    @keyframes enter-inline-end {
+      from {
+        opacity: 0.2;
+        outline-color: yellow;
+      }
+    }
+    @keyframes leave-block-start {
+      to {
+        opacity: 0.2;
+        outline-color: red;
+      }
+    }
+    @keyframes leave-block-end {
+      to {
+        opacity: 0.2;
+        outline-color: green;
+      }
+    }
+    @keyframes leave-inline-start {
+      to {
+        opacity: 0.2;
+        outline-color: blue;
+      }
+    }
+    @keyframes leave-inline-end {
+      to {
+        opacity: 0.2;
+        outline-color: yellow;
+      }
+    }
     @media (prefers-reduced-motion: reduce) {
       .motion {
         animation: none !important;
@@ -592,7 +690,9 @@ export class PopoverFixture {
   readonly left = signal(300);
   readonly top = signal(300);
   readonly width = signal(180);
-  readonly height = signal(140);
+  readonly height = signal<number | null>(140);
+  readonly capped = signal(false);
+  readonly filler = signal(false);
   readonly unusedOutputs = signal(0);
   readonly presentationMounted = signal(false);
   readonly ownerLifetimeMounted = signal(false);
@@ -731,32 +831,106 @@ export class PopoverFixture {
     }
 
     const value = event.target.value;
-
-    this.left.set(300);
-    this.top.set(300);
-    this.width.set(180);
-    this.height.set(140);
-
     const anchor = this.element.querySelector('[data-testid="native-anchor"]');
 
     if (!(anchor instanceof HTMLElement)) {
       throw new Error("The layout fixture requires a mounted separate anchor");
     }
 
+    // The Anchor's offset inside the fixed container, from the layout currently rendered.
     const rectangle = anchor.getBoundingClientRect();
+    const offsetLeft = rectangle.left - this.left();
+    const offsetTop = rectangle.top - this.top();
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+
+    this.left.set(300);
+    this.top.set(300);
+    this.width.set(180);
+    this.height.set(140);
 
     if (value === "bottom" || value === "corner") {
-      this.top.set(300 + document.documentElement.clientHeight - 16 - rectangle.bottom);
+      this.top.set(viewportHeight - 16 - rectangle.height - offsetTop);
     }
 
     if (value === "right" || value === "corner") {
-      this.left.set(300 + document.documentElement.clientWidth - 16 - rectangle.right);
+      this.left.set(viewportWidth - 16 - rectangle.width - offsetLeft);
+    }
+
+    if (value === "top") {
+      this.top.set(16 - offsetTop);
+    }
+
+    if (value === "left") {
+      this.left.set(16 - offsetLeft);
     }
 
     if (value === "oversized") {
       this.width.set(window.innerWidth + 200);
       this.height.set(window.innerHeight + 200);
     }
+
+    if (value === "beside-near-bottom") {
+      this.top.set(viewportHeight - 16 - rectangle.height - offsetTop);
+      this.height.set(null);
+    }
+
+    if (
+      value !== "narrow-start" &&
+      value !== "narrow-end" &&
+      value !== "partly-offscreen" &&
+      value !== "offscreen"
+    ) {
+      return;
+    }
+
+    // Content spans 90% of the viewport along the alignment axis: x for a horizontal Anchor,
+    // y for a vertical one, where block sides sit left or right of it.
+    const vertical = getComputedStyle(anchor).writingMode !== "horizontal-tb";
+    let length = viewportWidth;
+    let anchorLength = rectangle.width;
+
+    if (vertical) {
+      length = viewportHeight;
+      anchorLength = rectangle.height;
+      this.height.set(Math.round(length * 0.9));
+    } else {
+      this.width.set(Math.round(length * 0.9));
+    }
+
+    // Near either edge, neither alignment fits: Content overflows the far edge start-aligned and
+    // the near edge end-aligned.
+    let start = Math.round(length * 0.15);
+
+    if (value === "narrow-end") {
+      start = length - Math.round(length * 0.15) - anchorLength;
+    }
+
+    // Partly visible: 40 px past the edge, or half a vertical Anchor's 32 px.
+    if (value === "partly-offscreen") {
+      start = -Math.min(40, Math.round(anchorLength / 2));
+    }
+
+    if (value === "offscreen") {
+      start = -anchorLength - 60;
+    }
+
+    if (vertical) {
+      this.top.set(start - offsetTop);
+    } else {
+      this.left.set(start - offsetLeft);
+    }
+  }
+
+  /** A retained-exit reversal that also changes placement: the opposite block side, then open. */
+  reverseOtherSide(settings: NativeSettings): void {
+    if (settings.side() === "block-end") {
+      settings.side.set("block-start");
+    } else {
+      settings.side.set("block-end");
+    }
+
+    settings.open.set(true);
   }
 
   dragStart(event: DragEvent): void {

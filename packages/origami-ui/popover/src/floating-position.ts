@@ -1,4 +1,4 @@
-import { computePosition, flip, offset, platform, size } from "@floating-ui/dom";
+import { computePosition, flip, limitShift, offset, platform, shift, size } from "@floating-ui/dom";
 import type { Placement, Side } from "@floating-ui/dom";
 
 export interface PositionConfiguration {
@@ -21,12 +21,24 @@ export interface PositionAxes {
   readonly direction: string;
 }
 
-/** The `size` middleware's measurements for the placement `flip` chose, in CSS pixels. */
+/** The `size` middleware's measurements after `flip` and `shift`, in CSS pixels. */
 export interface PositionSize {
   /** The reference's border-box width. */
   readonly anchorWidth: number;
-  /** The height Content can take on its placed side without overflowing the viewport, never negative. */
+  /**
+   * The height Content can take without overflowing the viewport, never negative: from the gap to
+   * the viewport's edge on a top or bottom side, the viewport's full height on a left or right
+   * side, where `shift` slides Content vertically.
+   */
   readonly availableHeight: number;
+}
+
+/** What a calculation resolves to: fixed-strategy coordinates and the logical side Content was placed on. */
+export interface PositionResolution {
+  readonly x: number;
+  readonly y: number;
+  /** The final placement's side, mapped back with this calculation's axes; an alignment-only flip keeps it. */
+  readonly side: PositionConfiguration["side"];
 }
 
 /**
@@ -41,7 +53,7 @@ export function positionContent(
   axes: PositionAxes,
   names: { readonly label: string; readonly referenceLabel: string },
   measured: (size: PositionSize) => void,
-) {
+): Promise<PositionResolution> {
   let blockStart: Side;
   let inlineStart: Side;
 
@@ -150,7 +162,16 @@ export function positionContent(
         boundary: "clippingAncestors",
         rootBoundary: "viewport",
       }),
-      // After flip, so it measures the placement flip chose.
+      // After flip, so flip chooses from unshifted candidates. Floating UI's mainAxis is the
+      // alignment axis (x on top/bottom placements); the limiter keeps Content touching its reference.
+      shift({
+        mainAxis: true,
+        crossAxis: false,
+        limiter: limitShift({ crossAxis: false }),
+        boundary: "clippingAncestors",
+        rootBoundary: "viewport",
+      }),
+      // After flip and shift, so it measures the final position.
       size({
         boundary: "clippingAncestors",
         rootBoundary: "viewport",
@@ -162,5 +183,21 @@ export function positionContent(
         },
       }),
     ],
+  }).then(({ x, y, placement: placed }) => {
+    const placedSide = placed.split("-")[0];
+
+    if (placedSide === blockStart) {
+      return { x, y, side: "block-start" };
+    }
+
+    if (placedSide === opposites[blockStart]) {
+      return { x, y, side: "block-end" };
+    }
+
+    if (placedSide === inlineStart) {
+      return { x, y, side: "inline-start" };
+    }
+
+    return { x, y, side: "inline-end" };
   });
 }

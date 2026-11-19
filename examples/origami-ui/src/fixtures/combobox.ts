@@ -93,6 +93,45 @@ function starts(name: string, query: string): boolean {
     </button>
     <output data-testid="fixture-attached" data-combobox-fixture-chunk>{{ attached() }}</output>
 
+    <!-- CB22: a fixed input near the viewport's right edge, its Content wider than it. -->
+    <section>
+      <h2>Edge</h2>
+      <button type="button" data-testid="edge-mount" (click)="edgeMounted.set(!edgeMounted())">
+        Mount the edge Combobox
+      </button>
+      <button type="button" data-testid="edge-near-bottom" (click)="edgeNearBottom()">
+        Move it near the bottom edge
+      </button>
+      <button type="button" data-testid="edge-open" (click)="edgeOpen.set(true)">
+        Open the edge Combobox
+      </button>
+      @if (edgeMounted()) {
+        <div
+          ogCombobox
+          [(value)]="edgeValue"
+          [(query)]="edgeQuery"
+          [(open)]="edgeOpen"
+          class="edge-combobox"
+          [style.top.px]="edgeTop()"
+        >
+          <input ogComboboxInput data-testid="edge-input" aria-label="Edge country" />
+          <div ogComboboxContent data-testid="edge-content" class="list edge-panel" [gap]="4">
+            @for (item of edgeMatches(); track item.code) {
+              <div
+                ogComboboxOption
+                [value]="item.code"
+                [label]="item.name"
+                [disabled]="item.disabled"
+                [attr.data-testid]="'edge-' + item.code"
+              >
+                {{ item.name }}
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </section>
+
     <section>
       <h2>Country</h2>
       <form (submit)="submitted($event)">
@@ -399,6 +438,17 @@ function starts(name: string, query: string): boolean {
       max-block-size: 200px;
       overflow-y: auto;
     }
+    .edge-combobox {
+      position: fixed;
+      right: 90px;
+    }
+    .edge-combobox input {
+      inline-size: 150px;
+      box-sizing: border-box;
+    }
+    .edge-panel {
+      inline-size: 288px;
+    }
     .padding {
       block-size: 20px;
       font-size: 12px;
@@ -463,6 +513,13 @@ export class ComboboxFixture {
 
     return this.#matches(query);
   });
+
+  readonly edgeMounted = signal(false);
+  readonly edgeTop = signal(100);
+  readonly edgeValue = signal<string | null>(null);
+  readonly edgeQuery = signal("");
+  readonly edgeOpen = signal(false);
+  readonly edgeMatches = computed(() => this.#matches(this.edgeQuery()));
 
   readonly customerValue = signal<number | null>(2);
   readonly customerQuery = signal("Bianca Rossi");
@@ -568,6 +625,10 @@ export class ComboboxFixture {
     } else {
       queueMicrotask(() => box.open.set(false));
     }
+  }
+
+  edgeNearBottom(): void {
+    this.edgeTop.set(document.documentElement.clientHeight - 60);
   }
 
   submitted(event: Event): void {

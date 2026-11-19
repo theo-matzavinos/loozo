@@ -27,7 +27,7 @@ export type OrigamiTooltipAlign = "start" | "center" | "end";
 /**
  * Whole Content configuration; a replacement supplies all four fields, and defaults on an unused
  * directive never repair an incomplete one. Placement uses the Trigger's axes, not the Content's
- * direction, with Popover Content's flip candidates.
+ * direction, with Popover Content's flip candidates, alignment-axis shift and `data-side`.
  *
  * @example
  * ```ts

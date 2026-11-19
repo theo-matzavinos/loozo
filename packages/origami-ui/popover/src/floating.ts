@@ -24,7 +24,7 @@ import type {
   ɵOrigamiPresentationChild,
 } from "@loozo/origami-ui/utils";
 import { positionContent } from "./floating-position";
-import type { PositionAxes, PositionConfiguration } from "./floating-position";
+import type { PositionAxes, PositionConfiguration, PositionResolution } from "./floating-position";
 import { FloatingPreparation } from "./floating-preparation";
 
 /** @internal What a Content part registers: its element, placement Options, Presence and adapter. */
@@ -93,7 +93,7 @@ type PositionSnapshot = {
   readonly request: number;
   readonly transition: ɵOrigamiPresenceTransition;
 };
-type PositionResult = PositionSnapshot & { readonly x: number; readonly y: number };
+type PositionResult = PositionSnapshot & PositionResolution;
 
 /**
  * @internal Native manual top-layer presentation of one Content host, positioned against its
@@ -563,8 +563,7 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
       const result = this.#positionResult;
 
       if (result !== null && this.#resultCurrent(result)) {
-        content.element.style.setProperty("left", `${result.x}px`);
-        content.element.style.setProperty("top", `${result.y}px`);
+        this.#commitPlacement(content.element, result);
         this.#preparation.release(content.element);
         content.presentation.commitReveal(result.transition);
         activation.revealed = true;
@@ -607,8 +606,7 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
       const result = this.#positionResult;
 
       if (result !== null && this.#resultCurrent(result)) {
-        content.element.style.setProperty("left", `${result.x}px`);
-        content.element.style.setProperty("top", `${result.y}px`);
+        this.#commitPlacement(content.element, result);
         this.#positionResult = null;
       }
 
@@ -616,6 +614,16 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
     }
 
     this.#hide(activation);
+  }
+
+  /** Writes a current result's coordinates and resolved side together, so the two never disagree. */
+  #commitPlacement(element: HTMLElement, result: PositionResult): void {
+    if (element.getAttribute("data-side") !== result.side) {
+      element.setAttribute("data-side", result.side);
+    }
+
+    element.style.setProperty("left", `${result.x}px`);
+    element.style.setProperty("top", `${result.y}px`);
   }
 
   /** Observes a connected reference's axes and returns the scalars read; a change invalidates the position. */
@@ -736,6 +744,7 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
           transition,
           x: coordinates.x,
           y: coordinates.y,
+          side: coordinates.side,
         };
 
         if (!this.#resultCurrent(result)) {

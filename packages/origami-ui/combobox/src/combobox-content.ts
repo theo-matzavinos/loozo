@@ -76,7 +76,7 @@ export abstract class OrigamiComboboxContentOptions {
  * bound `aria-label` on the input isn't copied, so name Content yourself then.
  *
  * Like Popover Content, it exposes `--og-anchor-width` (the input's width) and
- * `--og-available-height` for consumer sizing, retains its children through Presence's exit and
+ * `--og-available-height` for consumer sizing and `data-side` for directional styling, retains its children through Presence's exit and
  * exposes that retention as `state.open()`. Scope a custom `display` to `:popover-open` and use
  * `gap`, not margins. Requires a nearest Combobox root; a second mounted Content fails. The
  * consumer owns dimensions, overflow, an empty-results message and styling.

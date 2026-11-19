@@ -100,6 +100,44 @@ export class DatePickerLabel {
     </button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
 
+    <!-- DP38: a fixed Trigger near the viewport's right edge, its Content wider than the room. -->
+    <section class="edge-section">
+      <h2>Edge</h2>
+      <button type="button" data-testid="edge-mount" (click)="edgeMounted.set(!edgeMounted())">
+        Mount the edge date picker
+      </button>
+      <button type="button" data-testid="edge-near-bottom" (click)="edgeNearBottom()">
+        Move it near the bottom edge
+      </button>
+      @if (edgeMounted()) {
+        <div ogDatePicker #edge="ogDatePicker" [(value)]="edgeValue" [(open)]="edgeOpen">
+          <button
+            ogDatePickerTrigger
+            class="edge-trigger"
+            data-testid="edge-trigger"
+            [style.top.px]="edgeTop()"
+          >
+            {{ edge.state.value() ?? "Choose a date" }}
+          </button>
+          <div ogDatePickerContent class="panel edge-panel" data-testid="edge-content">
+            <div ogCalendar #edgeCal="ogCalendar" today="2026-10-27" locale="en-US">
+              <span ogCalendarHeading>{{ edgeCal.state.heading() }}</span>
+              <table
+                ogCalendarGrid
+                calendarViewRows
+                data-testid="edge-grid"
+                [view]="edgeCal.state.view()"
+                [weeks]="edgeCal.state.weeks()"
+                [months]="edgeCal.state.months()"
+                [years]="edgeCal.state.years()"
+              ></table>
+            </div>
+          </div>
+        </div>
+      }
+      <output data-testid="edge-open">{{ edgeOpen() }}</output>
+    </section>
+
     <section>
       <h2>Trigger first, Signal Forms</h2>
       <button type="button" data-testid="a-before">Before</button>
@@ -608,6 +646,18 @@ export class DatePickerLabel {
     .spacer {
       block-size: 50vh;
     }
+    .edge-section {
+      margin-block-end: 0;
+    }
+    .edge-trigger {
+      position: fixed;
+      right: 90px;
+      inline-size: 120px;
+    }
+    .edge-panel {
+      box-sizing: border-box;
+      inline-size: 288px;
+    }
   `,
 })
 export class DatePickerFixture {
@@ -626,6 +676,10 @@ export class DatePickerFixture {
     readonly(path.r);
     disabled(path.d);
   });
+  readonly edgeMounted = signal(false);
+  readonly edgeTop = signal(100);
+  readonly edgeValue = signal<string | null>(null);
+  readonly edgeOpen = signal(false);
   readonly aOpen = signal(false);
   readonly aMonth = signal<string | null>(null);
   readonly aView = signal<CalendarView>("days");
@@ -673,6 +727,10 @@ export class DatePickerFixture {
 
   parse(state: OrigamiDatePickerState): string {
     return kinds(state.parseErrors());
+  }
+
+  edgeNearBottom(): void {
+    this.edgeTop.set(document.documentElement.clientHeight - 60);
   }
 
   write(value: string): void {
