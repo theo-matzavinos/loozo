@@ -35,7 +35,7 @@ Only one control is in the Tab order (`tabindex="0"`): the focused one while foc
 
 ## Toolbar Toggle and Toolbar Popover Trigger
 
-`ogToolbarToggle` is a Toggle and `ogToolbarPopoverTrigger` a Popover Trigger that are also Toolbar controls: each has the inputs, Options and behavior of the primitive it's built on, and takes one stop in the Toolbar's arrow sequence. `ogToolbarToggle` exposes Toggle's State as `state` (`#spelling="ogToolbarToggle"`). A Toolbar Popover Trigger is disabled in the Toolbar while it's disabled as a Trigger, by its own `disabled` or its Popover's.
+`ogToolbarToggle` is a Toggle and `ogToolbarPopoverTrigger` a Popover Trigger that are also Toolbar controls: each has the inputs, Options and behavior of the primitive it's built on, and takes one stop in the Toolbar's arrow sequence. `ogToolbarToggle` exposes Toggle's State as `state` (`#spelling="ogToolbarToggle"`). A Toolbar Popover Trigger is disabled in the Toolbar while it's disabled as a Trigger, by its own `disabled` or its Popover's. Like a [Popover Trigger](../popover/README.md#dismissal-and-focus), it renders no `aria-haspopup`: add the token that matches your Content's role.
 
 [src/toolbar/insert-toolbar.ts](../snippets/src/toolbar/insert-toolbar.ts)
 

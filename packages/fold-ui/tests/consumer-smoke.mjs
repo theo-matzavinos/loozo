@@ -3113,6 +3113,7 @@ try {
 
   assert.match(filtersTrigger, /\baria-expanded="false"/);
   assert.match(filtersTrigger, /\baria-controls="filters-content"/);
+  assert.match(filtersTrigger, /\baria-haspopup="dialog"/);
   assert.match(filtersTrigger, /\baria-describedby="tip-filters-content"/);
   assert.match(filtersTrigger, /\bdata-slot="popover-trigger"/);
   assert.match(filtersTrigger, /\bclass="[^"]*\bh-8\b/);
@@ -3391,6 +3392,8 @@ try {
   // with 12px padding, on the surface; it replaces the Trigger's Tooltip.
   await fresh();
   await scrollToTop("filters-trigger");
+  // The Trigger announces Content's default dialog role, hydrated, open and closed again.
+  assert.equal(await attribute("filters-trigger", "aria-haspopup"), "dialog");
   // The Trigger's own Tooltip is open on hover first, so the click has one to replace.
   await page.hover("#filters-trigger");
   await opened("tip-filters-content");
@@ -3401,6 +3404,7 @@ try {
   // Off the Trigger, so its Tooltip opens only from keyboard focus from here on.
   await page.mouse.move(0, 0);
   assert.equal(await attribute("filters-trigger", "aria-expanded"), "true");
+  assert.equal(await attribute("filters-trigger", "aria-haspopup"), "dialog");
 
   const popoverTrigger = await rectOf("#filters-trigger");
   const popover = await rectOf("#filters-content");
@@ -3454,6 +3458,8 @@ try {
   await page.keyboard.press("Escape");
   await dismissed("filters-content");
   assert.equal(await activeId(), "filters-trigger");
+  assert.equal(await attribute("filters-trigger", "aria-expanded"), "false");
+  assert.equal(await attribute("filters-trigger", "aria-haspopup"), "dialog");
 
   // A Tooltip inside it is hidden by the time the Popover is, when code closes the Popover.
   await page.keyboard.press("Enter");

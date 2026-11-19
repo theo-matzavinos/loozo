@@ -2817,6 +2817,59 @@ test("V22: a script close whose render moves focus outside Content before the de
   }
 });
 
+test("V28: the Trigger binds no aria-haspopup, so an authored or composer token stays in server HTML, once hydrated, open and closed, and a group's Trigger has none", async ({
+  page,
+}, info) => {
+  const variants = [
+    { name: "authored", hasPopup: "dialog" },
+    { name: "composer", hasPopup: "dialog" },
+    { name: "group", hasPopup: null },
+  ];
+
+  async function expectHasPopup(
+    stage: string,
+    name: string,
+    hasPopup: string | null,
+  ): Promise<void> {
+    const trigger = page.getByTestId(`has-popup-${name}-trigger`);
+
+    if (hasPopup === null) {
+      await expect(trigger, `${stage} ${name}`).not.toHaveAttribute("aria-haspopup", /.*/);
+    } else {
+      await expect(trigger, `${stage} ${name}`).toHaveAttribute("aria-haspopup", hasPopup);
+    }
+  }
+
+  async function expectEvery(stage: string, expanded: string): Promise<void> {
+    for (const { name, hasPopup } of variants) {
+      await expectHasPopup(stage, name, hasPopup);
+      await expect(page.getByTestId(`has-popup-${name}-trigger`)).toHaveAttribute(
+        "aria-expanded",
+        expanded,
+      );
+    }
+  }
+
+  await fixture(page, "popover", info, () => expectEvery("server", "false"));
+  await expectEvery("hydrated", "false");
+
+  for (const { name, hasPopup } of variants) {
+    const trigger = page.getByTestId(`has-popup-${name}-trigger`);
+    const content = page.getByTestId(`has-popup-${name}-content`);
+
+    await trigger.click();
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expectHasPopup("open", name, hasPopup);
+
+    await content.getByRole("textbox").focus();
+    await page.keyboard.press("Escape");
+    await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expectHasPopup("closed", name, hasPopup);
+  }
+});
+
 test("V16: a Trigger's own disabled blocks only its activation; the root, writes and Escape stay enabled", async ({
   page,
 }, info) => {

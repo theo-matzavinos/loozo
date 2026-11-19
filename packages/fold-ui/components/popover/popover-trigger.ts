@@ -10,6 +10,6 @@ import { ButtonStyle } from "../button";
     OrigamiPopoverAnchor,
     { directive: ButtonStyle, inputs: ["variant", "size", "class"] },
   ],
-  host: { "data-slot": "popover-trigger" },
+  host: { "data-slot": "popover-trigger", "aria-haspopup": "dialog" },
 })
 export class PopoverTrigger {}
