@@ -43,6 +43,8 @@ export type {
   UrlFacts,
 } from "./fluent.js";
 export { branchPath, createUrl } from "./url.js";
+export { localeUrls } from "./locale-urls.js";
+export type { LocaleUrl } from "./locale-urls.js";
 export { angularPath } from "./path.js";
 export type { Segment } from "./path.js";
 export { serverRoutePath } from "./server-route-path.js";

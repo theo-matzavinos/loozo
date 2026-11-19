@@ -878,7 +878,8 @@ export function defineDestination(
       );
     }
 
-    localSegments.push(Object.freeze({ kind: "static", text }));
+    // The authored word stays beside its translation for localeUrls.
+    localSegments.push(Object.freeze({ kind: "static", text, canonical: segment.text }));
   }
 
   let inherited: UrlMetadata | undefined;

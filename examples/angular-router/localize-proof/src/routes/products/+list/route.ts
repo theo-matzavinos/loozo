@@ -1,3 +1,3 @@
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute, numberParam, withFallback } from "@loozo/angular-router";
 
-export default defineRoute("products", {});
+export default defineRoute("products", { search: { page: withFallback(numberParam, 1) } });

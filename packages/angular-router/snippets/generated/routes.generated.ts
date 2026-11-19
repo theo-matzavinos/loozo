@@ -2,11 +2,13 @@
 import type { Signal } from '@angular/core';
 import type { Routes } from '@angular/router';
 import { record, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
+import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
 import { route as route_products_$productId_route } from "../src/routes/products/$productId/route.generated.js";
 import { route as route_reports_$reportId_route } from "../src/routes/reports/$reportId/route.generated.js";
 import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
 import type { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
 import type { route as route_teams_$teamId_members_$memberId_route } from "../src/routes/teams/$teamId/members/$memberId/route.generated.js";
+import { destination as destination_$segments___route } from "../src/routes/$segments[]/destination.generated.js";
 import { destination as destination_products_$productId_route } from "../src/routes/products/$productId/destination.generated.js";
 import { destination as destination_reports_$reportId_route } from "../src/routes/reports/$reportId/destination.generated.js";
 import { destination as destination_teams_$teamId_old_items_$id_route } from "../src/routes/teams/$teamId/old-items/$id/destination.generated.js";
@@ -31,10 +33,15 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 { path: "teams/:teamId",
 ...record(destination_teams_$teamId_route),
 ...callbacks(route_teams_$teamId_route),
-loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("../src/routes/teams/$teamId/children.generated.js").then((m) => m.routes) }];
+loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("../src/routes/teams/$teamId/children.generated.js").then((m) => m.routes) },
+{ path: "**",
+...record(destination_$segments___route),
+...callbacks(route_$segments___route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/$segments[]/page") }];
 
 /** Each generated primary-outlet route's types by id: its schema and, when it has one, its `..` destination. */
 export type RouteTypes = {
+"src/routes/$segments[]/route.ts": { schema: RouteSchema<typeof route_$segments___route> };
 "src/routes/products/$productId/route.ts": { schema: RouteSchema<typeof route_products_$productId_route> };
 "src/routes/reports/$reportId/route.ts": { schema: RouteSchema<typeof route_reports_$reportId_route> };
 "src/routes/teams/$teamId/items/$id/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_items_$id_route>; up: typeof destination_teams_$teamId_route };

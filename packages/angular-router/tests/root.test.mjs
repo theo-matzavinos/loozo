@@ -33,6 +33,7 @@ test("plain Node public namespace and concrete product consumer", () => {
     "createUrl",
     "defineRoute",
     "enumParam",
+    "localeUrls",
     "numberParam",
     "serverRoutePath",
     "stringParam",
@@ -1965,7 +1966,7 @@ test("branch destinations: their own URL below the anchor, params only, a nonemp
   const specs = defineDestination("specs", { parent: article }, "specs", ["details"]);
 
   assert.deepEqual(destinationRecord(article).url.branch.anchor, [
-    { kind: "static", text: "produits" },
+    { kind: "static", text: "produits", canonical: "products" },
   ]);
   assert.equal(destinationRecord(specs).url.branch, destinationRecord(article).url.branch);
   assert.equal(createUrl(article, { params: { id: 3 } }), "/produits/(detail:artikel/3)");
@@ -2505,4 +2506,25 @@ test("the navigation base reads the browser URL before the first success, the ro
 
   // The function injects nothing; creating it needs an injection context.
   assert.throws(() => injectNavigationBase(), /NG0203/);
+});
+
+test("without a locale table, localeUrls checks its values and returns an empty list", () => {
+  const { localeUrls } = root;
+  const product = defineDestination(
+    "products/$productId",
+    { params: { productId: numberParam } },
+    "no-table",
+    ["produkte"],
+  );
+  const urls = localeUrls(product, { params: { productId: 42 } });
+
+  assert.deepEqual(urls, []);
+  assert.equal(Object.isFrozen(urls), true);
+  assert.throws(() => localeUrls(product, { params: {} }), {
+    name: "TypeError",
+    message: "Missing path value: productId",
+  });
+  assert.throws(() => localeUrls(defineRoute("products", {}), {}), {
+    message: "Expected a genuine destination",
+  });
 });

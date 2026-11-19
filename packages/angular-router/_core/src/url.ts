@@ -139,6 +139,24 @@ export function createUrl<
 
 export function createUrl(target: unknown, values: unknown): `/${string}` {
   const { url: metadata, name } = urlOf(target);
+
+  return serializeUrl(metadata, name, values);
+}
+
+/**
+ * `createUrl` over URL facts: checks `values` against `metadata` and serializes them, with
+ * every rule, message and encoding `createUrl` documents. `localeUrls` serializes a locale's
+ * copy of a destination's facts with it.
+ *
+ * @param name - The destination's id, or its route's path, for errors.
+ *
+ * @internal
+ */
+export function serializeUrl(
+  metadata: Omit<UrlMetadata, "parent">,
+  name: string,
+  values: unknown,
+): `/${string}` {
   const options = ownRecord(values, "URL options");
 
   checkKeys(options, new Set(["params", "search", "fragment"]), "URL options");

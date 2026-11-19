@@ -2,6 +2,7 @@ import { targetFromTargetString, type BuilderContext } from "@angular-devkit/arc
 import { join } from "node:path";
 import type { GenerationOptions } from "../generation/generate.js";
 import type { Localization } from "../generation/localization.js";
+import { checkDefine } from "./locale-table.js";
 
 export type JsonObject = NonNullable<Parameters<BuilderContext["scheduleBuilder"]>[1]>;
 
@@ -95,6 +96,8 @@ export function split(options: JsonObject): { router: GenerationOptions; officia
     ...official
   } = options;
   const router: GenerationOptions = { tsconfig, scanDirectories, outDirectory };
+
+  checkDefine(official.define);
 
   if (autoDefineRoutes !== undefined) {
     router.autoDefineRoutes = autoDefineRoutes;
@@ -192,11 +195,20 @@ export async function localization(
   return { sourceLocale, locales, polyfills: list };
 }
 
-// Router options for serve come from its build target, resolved as Angular's dev server resolves it.
+/** The project's raw `i18n` metadata, which the locale table normalizes as Angular does. */
+export async function projectI18n(context: BuilderContext, project: string): Promise<unknown> {
+  const metadata = await context.getProjectMetadata(project);
+
+  return metadata.i18n;
+}
+
+// Router options for serve come from its build target, resolved as Angular's dev server resolves
+// it. The official options give the locale table its baseHref and localize; project is the build
+// target's.
 export async function buildTargetOptions(
   context: BuilderContext,
   buildTarget: string,
-): Promise<GenerationOptions> {
+): Promise<{ router: GenerationOptions; official: JsonObject; project: string }> {
   const project = context.target?.project;
 
   if (!project) {
@@ -226,5 +238,5 @@ export async function buildTargetOptions(
     router.localization = await localization(context, target.project, official.polyfills);
   }
 
-  return router;
+  return { router, official, project: target.project };
 }

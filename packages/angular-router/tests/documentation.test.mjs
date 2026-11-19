@@ -119,7 +119,7 @@ await test("published root declarations retain documentation for every supported
 
   const exports = checker.getExportsOfModule(root);
 
-  assert.equal(exports.length, 15);
+  assert.equal(exports.length, 17);
 
   const missing = [];
 

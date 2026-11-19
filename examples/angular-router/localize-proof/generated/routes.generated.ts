@@ -4,9 +4,9 @@ import type { Routes } from '@angular/router';
 import { record, nativePath, effectivePath, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
 import { route as route_products_$productId_route } from "../src/routes/products/$productId/route.generated.js";
+import { route as route_products__list_route } from "../src/routes/products/+list/route.generated.js";
 import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
 import type { route as route__home_route } from "../src/routes/+home/route.generated.js";
-import type { route as route_products__list_route } from "../src/routes/products/+list/route.generated.js";
 import type { route as route_teams_$teamId__overview_route } from "../src/routes/teams/$teamId/+overview/route.generated.js";
 import type { route as route_teams_$teamId_members_route } from "../src/routes/teams/$teamId/members/route.generated.js";
 import { destination as destination__home_route } from "../src/routes/+home/destination.generated.js";
@@ -31,6 +31,7 @@ pathMatch: 'full',
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/+home/page") },
 { path: nativePath(destination_products__list_route),
 ...record(destination_products__list_route, destination__home_route),
+...callbacks(route_products__list_route),
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/products/+list/page") },
 { path: nativePath(destination_products_$productId_route),
 ...record(destination_products_$productId_route, destination__home_route),

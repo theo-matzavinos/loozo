@@ -49,7 +49,13 @@ export type CatchallName<Path extends string> = Path extends `${string}/${infer 
     : never;
 
 export type Segment =
-  | { readonly kind: "static"; readonly text: string }
+  | {
+      readonly kind: "static";
+      /** This build's text: the authored word, or its translation. */
+      readonly text: string;
+      /** The authored word, present when `text` is its translation in a translated build. */
+      readonly canonical?: string;
+    }
   | { readonly kind: "scalar" | "catchall"; readonly name: string };
 
 /**
