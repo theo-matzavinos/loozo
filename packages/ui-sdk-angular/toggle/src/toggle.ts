@@ -1,4 +1,4 @@
-import { Directive, type OnInit, type Signal, input, output } from "@angular/core";
+import { Directive, type OnInit, type Signal, inject, input, output } from "@angular/core";
 import {
   type UiSdkEvent,
   type ɵBoundNames,
@@ -7,20 +7,23 @@ import {
   optionalBoolean,
   ɵinjectRoot,
   ɵinjectSlot,
+  ɵinjectToolbarScope,
 } from "@loozo/ui-sdk-angular";
 import {
   type ToggleController,
+  type ToggleGroupApi,
   type ToggleOptions,
   type ToggleState,
   toggle,
 } from "@ui-sdk/core/toggle";
+import { UiToggleGroup } from "./toggle-group";
 
 /** The event types core's `root` slot handles, declared below as static host listeners. */
 const events = ["keydown", "keyup", "click"] as const;
 
 /**
- * How UiToggle passes core's options that aren't inputs. `group` and `toolbar` are internal:
- * core reads them from a ToggleGroup or Toolbar, which this package doesn't ship yet.
+ * How UiToggle passes core's options that aren't inputs. `group` and `toolbar` are internal: the
+ * ToggleGroup and Toolbar around it, found through DI.
  */
 const classes = { internal: ["group", "toolbar"], fixed: [], excluded: [] } as const;
 
@@ -64,6 +67,9 @@ export class UiToggle implements OnInit {
   /** `pressed` changed, after no `pressedChangeRequest` listener canceled it. */
   readonly pressedChange = output<boolean>();
 
+  readonly #group = inject(UiToggleGroup, { optional: true });
+  readonly #toolbar = ɵinjectToolbarScope();
+
   protected readonly root = ɵinjectRoot(
     toggle,
     () => ({
@@ -74,8 +80,8 @@ export class UiToggle implements OnInit {
       focusableWhenDisabled: this.focusableWhenDisabled(),
       controller: this.controller(),
       debug: this.debug(),
-      group: undefined,
-      toolbar: undefined,
+      group: groupOf(this.#group),
+      toolbar: this.#toolbar(),
       onPressedChange: (pressed, details) => {
         this.pressedChangeRequest.emit({ value: pressed, details });
 
@@ -96,6 +102,15 @@ export class UiToggle implements OnInit {
   ngOnInit(): void {
     this.root.ready();
   }
+}
+
+/** Core's internal `group` option: a reader of the group's api, or none outside a group. */
+function groupOf(group: UiToggleGroup | null): (() => ToggleGroupApi) | undefined {
+  if (group === null) {
+    return undefined;
+  }
+
+  return () => group.ɵroot.instance().api;
 }
 
 type _Parity = ɵExpect<

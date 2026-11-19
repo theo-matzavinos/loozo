@@ -1,7 +1,7 @@
 {
   "name": "@loozo/ui-sdk-angular",
   "version": "0.0.0",
-  "description": "Angular directives for ui-sdk.dev's headless core: Toggle, Select, Checkbox, Switch and RadioGroup, with SSR, hydration and native forms.",
+  "description": "Angular directives for ui-sdk.dev's headless core: Toggle, ToggleGroup, Toolbar, Select, Checkbox, CheckboxGroup, Switch and RadioGroup, with SSR, hydration and native forms.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
   "author": "Theophilos Matzavinos",
@@ -36,6 +36,10 @@
     "./radio": {
       "types": "./dist/types/loozo-ui-sdk-angular-radio.d.ts",
       "default": "./dist/fesm2022/loozo-ui-sdk-angular-radio.mjs"
+    },
+    "./toolbar": {
+      "types": "./dist/types/loozo-ui-sdk-angular-toolbar.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular-toolbar.mjs"
     },
     "./package.json": "./package.json"
   },

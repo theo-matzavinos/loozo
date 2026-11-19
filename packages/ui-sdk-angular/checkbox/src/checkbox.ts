@@ -1,4 +1,4 @@
-import { Directive, type OnInit, type Signal, input, output } from "@angular/core";
+import { Directive, type OnInit, type Signal, inject, input, output } from "@angular/core";
 import {
   type UiSdkEvent,
   type ɵBoundNames,
@@ -11,20 +11,22 @@ import {
 } from "@loozo/ui-sdk-angular";
 import {
   type CheckboxController,
+  type CheckboxGroupApi,
   type CheckboxOptions,
   type CheckboxState,
   type CheckedState,
   checkbox,
 } from "@ui-sdk/core/checkbox";
+import { UiCheckboxGroup } from "./checkbox-group";
 
 /** The event types core's `root` slot handles, declared below as static host listeners. */
 const events = ["keydown", "keyup", "click"] as const;
 
 /**
- * How UiCheckbox passes core's options that aren't inputs. `group` is internal: core reads it
- * from a CheckboxGroup, which this package doesn't ship yet; `parent` only works inside one.
+ * How UiCheckbox passes core's options that aren't inputs. `group` is internal: the
+ * `uiCheckboxGroup` around it, found through DI.
  */
-const classes = { internal: ["group"], fixed: [], excluded: ["parent"] } as const;
+const classes = { internal: ["group"], fixed: [], excluded: [] } as const;
 
 /**
  * A checkbox, on the `<button>` it's applied to. Inputs are core's `checkbox` options; `checked`
@@ -73,6 +75,11 @@ export class UiCheckbox implements OnInit {
   readonly value = input<string | undefined>(undefined);
   /** The id of the form it belongs to, when it isn't inside that form. */
   readonly form = input<string | undefined>(undefined);
+  /**
+   * Makes it the group's parent: checked when every value is, unchecked when none is,
+   * indeterminate in between, and pressing it checks or unchecks them all. Only inside a group.
+   */
+  readonly parent = input(undefined, { transform: optionalBoolean });
   /** Checks it from anywhere; create one with `createCheckboxController()`. */
   readonly controller = input<CheckboxController | undefined>(undefined);
   /** Logs every state change with its reason, in development builds. */
@@ -88,6 +95,8 @@ export class UiCheckbox implements OnInit {
    */
   readonly touch = output<void>();
 
+  readonly #group = inject(UiCheckboxGroup, { optional: true });
+
   /** The core instance; the part directives read it. Not public API. */
   readonly ɵroot = ɵinjectRoot(
     checkbox,
@@ -102,7 +111,8 @@ export class UiCheckbox implements OnInit {
       form: this.form(),
       controller: this.controller(),
       debug: this.debug(),
-      group: undefined,
+      parent: this.parent(),
+      group: groupOf(this.#group),
       onCheckedChange: (checked, details) => {
         this.checkedChangeRequest.emit({ value: checked, details });
 
@@ -135,6 +145,15 @@ export class UiCheckbox implements OnInit {
   ngOnInit(): void {
     this.ɵroot.ready();
   }
+}
+
+/** Core's internal `group` option: a reader of the group's api, or none outside a group. */
+function groupOf(group: UiCheckboxGroup | null): (() => CheckboxGroupApi) | undefined {
+  if (group === null) {
+    return undefined;
+  }
+
+  return () => group.ɵroot.instance().api;
 }
 
 type _Parity = ɵExpect<

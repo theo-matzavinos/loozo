@@ -31,7 +31,9 @@ function idPrefix(appId: string): string {
 /**
  * Allocates a core instance id that survives hydration: `ui-sdk-s<n>` on the server, the
  * server-rendered `data-ui-sdk-id` while hydrating, and `ui-sdk-<n>` for a root the browser
- * creates. The root renders it as `data-ui-sdk-id`. Call it once, from a root directive.
+ * creates. The root renders it as `data-ui-sdk-id`. Call it once per directive: from a root, or
+ * from a part whose core prop of kind `id` is made for it. A part whose id reaches its attributes,
+ * like a Select group's, renders it as `data-ui-sdk-id` too; one whose id only keys it doesn't.
  */
 export function ɵinjectInstanceId(): string {
   const ids = inject(UiSdkIds);

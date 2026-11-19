@@ -1,6 +1,6 @@
 ---
 name: ui-sdk-angular
-description: Builds Angular interfaces with ui-sdk's headless components through @loozo/ui-sdk-angular, the Angular directives over @ui-sdk/core (Toggle, single-value Select, Checkbox, Switch and RadioGroup so far), with server rendering, hydration and native forms. Covers imports, one directive per part, controlled and uncontrolled inputs, cancelling a change, styling by core's attributes, hidden form inputs, hostDirectives composition and the SSR rules. Use whenever an Angular project has @loozo/ui-sdk-angular installed or the user wants ui-sdk components in Angular.
+description: Builds Angular interfaces with ui-sdk's headless components through @loozo/ui-sdk-angular, the Angular directives over @ui-sdk/core (Toggle, ToggleGroup, Toolbar, single-value Select with its label and groups, Checkbox, CheckboxGroup, Switch and RadioGroup so far), with server rendering, hydration and native forms. Covers imports, one directive per part, groups found through DI, controlled and uncontrolled inputs, cancelling a change, styling by core's attributes, hidden form inputs, hostDirectives composition and the SSR rules. Use whenever an Angular project has @loozo/ui-sdk-angular installed or the user wants ui-sdk components in Angular.
 ---
 
 # Build with ui-sdk in Angular
@@ -11,11 +11,11 @@ description: Builds Angular interfaces with ui-sdk's headless components through
 
 - `node_modules/@loozo/ui-sdk-angular/docs/llms.txt` is the index for the installed version. Read it, then only the component pages your task needs, like `docs/select.md`.
 - For what an option or controller does, read core's docs: `node_modules/@ui-sdk/core/docs/llms.txt`, and core's skill (`node_modules/@ui-sdk/core/skills/ui-sdk/SKILL.md`) for building components core doesn't ship. Core's skill is written for React, Vue, Svelte, Solid and web components: in Angular, its framework examples and its "import from `@ui-sdk/<framework>/<component>`" rule are replaced by the rules below.
-- Only Toggle, single-value Select, Checkbox, Switch and RadioGroup have directives so far. For any other component, say so; don't hand-roll an adapter over `@ui-sdk/core/renderer`, which isn't public API.
+- Only Toggle, ToggleGroup, Toolbar, single-value Select (with SelectLabel, SelectGroup and SelectGroupLabel), Checkbox, CheckboxGroup, Switch and RadioGroup have directives so far. For any other component, say so; don't hand-roll an adapter over `@ui-sdk/core/renderer`, which isn't public API.
 
 ## Rules
 
-- **Import from entries**: `@loozo/ui-sdk-angular/toggle`, `/select`, `/checkbox`, `/switch`, `/radio`. The primary entry has only `UiSdkEvent`, `UiSdkError` and the input transforms; never use its `ɵ` exports.
+- **Import from entries**: `@loozo/ui-sdk-angular/toggle`, `/toolbar`, `/select`, `/checkbox`, `/switch`, `/radio`. The primary entry has only `UiSdkEvent`, `UiSdkError` and the input transforms; never use its `ɵ` exports.
 - **One directive per part**, on an element you write, nested as core's composition shows:
 
   ```html
@@ -31,15 +31,17 @@ description: Builds Angular interfaces with ui-sdk's headless components through
   </div>
   ```
 
-- **Inputs are core's options and props, under core's names**, except core's `readOnly`, written `[readonly]` (or a static `readonly`) on Checkbox, Switch, RadioGroup and Select. An unset input is "not passed". A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component while set; `null` is a value (a Select with `null` selects nothing and stays controlled). Never switch a key between set and `undefined`.
+- **Groups are found through DI**: put `uiToggle` inside `uiToggleGroup` or `uiToolbar` (and `uiToggleGroup` inside `uiToolbar`), `uiCheckbox` inside `uiCheckboxGroup`, `uiSelectItem` inside `uiSelectGroup`, and toolbar items (`uiToolbarButton`, `uiToolbarLink`, `uiToolbarInput`, `uiToolbarGroup`, `uiToolbarSeparator`) inside `uiToolbar`. Inside a group, give each toggle or checkbox a `value` and leave `pressed`/`checked` unset: the group's `[(value)]` (a string array) decides. A `uiCheckbox parent` checks them all; give its group `[allValues]` so the server renders it right.
+- **Inputs are core's options and props, under core's names**, except core's `readOnly`, written `[readonly]` (or a static `readonly`) on Checkbox, CheckboxGroup, Switch, RadioGroup and Select. An unset input is "not passed". A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component while set; `null` is a value (a Select with `null` selects nothing and stays controlled). Never switch a key between set and `undefined`.
 - **Two-way binding**: `[(pressed)]`, `[(checked)]`, `[(value)]`, `[(open)]` bind the input and `<key>Change`.
 - **Refuse a change** in `(<key>ChangeRequest)`, which emits `{ value, details }` before `<key>Change`: call `details.cancel()`. Not writing a controlled value back isn't a cancellation.
 - **Read state** from `state()` on the part directive (`exportAs` is the selector name), from another element or a descendant. Never from a binding on the part's own element: that throws `UiSdkError`.
 - **Style by core's attributes** on each part: `[aria-pressed="true"]`, `[data-highlighted]`, `[aria-selected="true"]`, `[data-disabled]`, `[data-open]`. Core renders no styles.
-- **Your attributes win.** A static `id`, `aria-label` or `aria-labelledby` on a part is the one rendered. Name every Select trigger with a static `aria-label` or `aria-labelledby`.
+- **Handle a `uiToolbarButton`'s press with `(press)`, never `(click)`**: Angular replays a click made before hydration past core's disabled check, so a disabled button's `(click)` (or a `routerLink` on any toolbar item) runs once; `press` emits only while enabled. Don't give a toolbar link an `href` while it's disabled.
+- **Your attributes win.** A static `id`, `aria-label` or `aria-labelledby` on a part is the one rendered. Name every Select trigger with a `<span uiSelectLabel>` inside the Select, or a static `aria-label` or `aria-labelledby`, not both a label and an attribute. Name toggle groups, checkbox groups and toolbars with `aria-label` or `aria-labelledby`.
 - **Item values** can be any type; give object values `[itemToValue]` on the root, and `[itemToLabel]` (or `[items]`) for labels that are right on the server.
 - **Bind `[disabled]`**, not a static `disabled` attribute.
-- **Native forms need the hidden input you write.** Give the control a `name`, then add its input: beside a checkbox or switch button, naming it by template reference (`<button uiCheckbox #terms="uiCheckbox" name="terms">` then `<input [uiCheckboxInput]="terms" />`; `[uiSwitchInput]`; `<input [uiRadioInput]="radio" />` beside each `<button uiRadio #radio="uiRadio">`), and `<input uiSelectFormInput />` inside a Select. Never put the input inside the button. Without it nothing submits, and development builds warn.
+- **Native forms need the hidden input you write.** Give the control a `name`, then add its input: beside a checkbox or switch button, naming it by template reference (`<button uiCheckbox #terms="uiCheckbox" name="terms">` then `<input [uiCheckboxInput]="terms" />`; `[uiSwitchInput]`; `<input [uiRadioInput]="radio" />` beside each `<button uiRadio #radio="uiRadio">`), and `<input uiSelectFormInput />` inside a Select. In a `uiCheckboxGroup`, each checkbox still needs its own `uiCheckboxInput` (it submits under the group's `name`), and `required` needs `<input uiCheckboxGroupInput />` inside the group. Never put the input inside the button. Without it nothing submits, and development builds warn.
 - **Indicators stay in the DOM**: hide `uiCheckboxIndicator` and `uiRadioIndicator` by `[data-unchecked]`, or render them under `@if (ref.state().checked)`.
 
 ## Composing a part into your own directive
@@ -68,10 +70,12 @@ export class AppToggle {
 - A Select rendered open (`[defaultOpen]="true"`) is unpositioned on the server; core positions it and moves its name from `aria-labelledby` to `aria-label` when the trigger binds. Start it closed when the server render must be final.
 - Give separate Angular applications on one page distinct `APP_ID`s.
 - Server-rendered hidden inputs submit the server's values before hydration. A control inside `<fieldset disabled>` gets `aria-disabled` and `data-disabled` only when it binds; style it by `:disabled` too.
-- Select `multiple` isn't supported.
+- Select `multiple` isn't supported, nor a Select trigger (or any other component's part) on a `uiToolbarButton`'s element, nor Menubar.
+- Core settles some group attributes when parts bind: a grouped checkbox's made `id`, a parent's `aria-controls` (and its checked state without `allValues`), a Select group's `hidden` and `aria-labelledby`. Don't "fix" them; give checkboxes static ids if the server HTML needs them.
 
 ## Signal forms
 
+- **`[formField]` isn't supported on `uiToggleGroup` or `uiCheckboxGroup`.**
 - **`[formField]` goes on the control's root**: `<button uiCheckbox [formField]="f.terms">`, `uiSwitch`, `<div uiRadioGroup [formField]="f.size">`, `<div uiSelect [formField]="f.country">`. Never on its hidden input, and never beside `[(checked)]`, `[(value)]`, `name`, `disabled`, `readonly` or `required`: the field writes those.
 - **Start every field defined**: booleans for Checkbox and Switch, a value or `null` for RadioGroup and Select. Never `undefined`, and no optional fields.
 - **Add the hidden input only for native submission**, and give `form()` a `name` then. Checkbox and Switch submit `"on"` under `[formField]`.

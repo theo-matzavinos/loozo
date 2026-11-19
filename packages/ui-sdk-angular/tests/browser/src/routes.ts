@@ -6,6 +6,7 @@ import { FormControls } from "./form-controls";
 import { FormWarnings } from "./form-warnings";
 import { Forms } from "./forms";
 import { FormsDefer } from "./forms-defer";
+import { Groups, GroupsDefer } from "./groups";
 import { Home } from "./home";
 import { Lifecycle } from "./lifecycle";
 import { OpenOrder } from "./open-order";
@@ -35,4 +36,6 @@ export const routes: Routes = [
   { path: "signal-forms-boolean", component: SignalFormsBoolean },
   { path: "signal-forms-hidden", component: SignalFormsHidden },
   { path: "signal-forms-types", component: SignalFormsTypes },
+  { path: "groups", component: Groups },
+  { path: "groups-defer", component: GroupsDefer },
 ];
