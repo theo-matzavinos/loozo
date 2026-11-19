@@ -8,6 +8,7 @@ type CallbackName<K extends string> = K extends `${infer Key}ChangeRequest`
 /**
  * The core option or prop names a directive binds: its inputs under their own names (renamed
  * through `R`, like `{ uiSelectItem: "value" }`) and its outputs under their callbacks' names.
+ * `touch` is Signal Forms' name, not a core callback, so it binds none.
  */
 export type ɵBoundNames<D, R extends Record<string, string> = {}> = {
   [K in keyof D & string]: D[K] extends InputSignalWithTransform<any, any>
@@ -15,7 +16,9 @@ export type ɵBoundNames<D, R extends Record<string, string> = {}> = {
       ? R[K]
       : K
     : D[K] extends OutputEmitterRef<any>
-      ? CallbackName<K>
+      ? K extends "touch"
+        ? never
+        : CallbackName<K>
       : never;
 }[keyof D & string];
 

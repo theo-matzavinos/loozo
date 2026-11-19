@@ -33,6 +33,9 @@ import {
   <input uiSelectFormInput />
 </div>
 <button (click)="fruit.set(null)">Clear</button>
+
+<!-- bound to a signal form field, in place of [(value)] -->
+<div uiSelect [formField]="f.fruit">…</div>
 ```
 
 ```ts
@@ -53,10 +56,11 @@ guard({ value, details }: UiSdkEvent<NonNullable<SelectOptions<string>["onValueC
 
 - **Controlled keys:** `value` (`T | null`), `open`, `query`, each with `default<Key>` for the uncontrolled start and the two outputs `<key>ChangeRequest` (`{ value, details }`, cancelable) and `<key>Change`.
 - **Items and values:** `items`, `itemToValue`, `itemToLabel`, `isItemEqualToValue`, `placeholder`.
-- **Behavior:** `loop`, `modal`, `presentation`, `disabled`, `readOnly`, `dismissible`, `controller`, `container`, `debug`.
+- **Behavior:** `loop`, `modal`, `presentation`, `disabled`, `readonly` (core's `readOnly`: opens, but doesn't change the value), `dismissible`, `controller`, `container`, `debug`.
 - **Forms:** `name`, `form`, `required`, `autoComplete`, submitted through `uiSelectFormInput`; see [native forms](../README.md#native-forms).
 - **Search and async lists**, for slots this release doesn't ship yet, so they have no visible effect: `filter`, `emptyItems`, `status`, `announcement`, the `query` family and the `loadMore` output.
-- **Other outputs:** `openChangeComplete` (`boolean`), `highlight` (`{ value, details }`), `dismissAttempt` (core's details).
+- **Other outputs:** `openChangeComplete` (`boolean`), `highlight` (`{ value, details }`), `dismissAttempt` (core's details), and `touch` (`void`) when focus leaves the trigger and its popup, wherever the popup renders; opening it, moving through items and closing it back to the trigger don't count. Signal forms mark the field touched on it.
+- **`focus(options?)`** focuses the trigger; signal forms' `focusBoundControl()` calls it. It takes effect once the trigger has rendered (call it after `afterNextRender` or from an event); earlier it does nothing. Core's focus takes no options, so `options` is ignored.
 
 The root has no `state`; read the value through `uiSelectValue`.
 
@@ -85,6 +89,42 @@ Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it
 - **Refuse a change with `valueChangeRequest`** (`details.cancel()`); not writing a controlled `value` back isn't a cancellation, and core warns in development after a second.
 - **A kept item can change.** A `[disabled]` or `[label]` change reaches core's keyboard and pointer handling at once; a new value on a kept element (`track $index`) moves it to the new item, with no lost event.
 - Keep the root and all its parts inside one `@defer (hydrate …)` block.
+- **Under `[formField]`, an object field needs `itemToValue`** for its key and submission, and `itemToLabel` or `items` for a server-correct label, as with `[(value)]`. Resetting it to a new object with the same key selects the same item. See [signal forms](../README.md#signal-forms).
+
+## Composing it
+
+Through `hostDirectives`. To bind it with `[formField]`, expose what the field writes and `touch`, and forward `focus()`: Angular calls the composer's, not UiSelect's.
+
+```ts
+@Component({
+  selector: "app-country",
+  imports: [UiSelectTrigger, UiSelectValue, UiSelectContent, UiSelectItem],
+  hostDirectives: [
+    {
+      directive: UiSelect,
+      inputs: [
+        "value",
+        "disabled",
+        "readonly",
+        "required",
+        "name",
+        "items",
+        "itemToValue",
+        "itemToLabel",
+      ],
+      outputs: ["valueChange", "touch"],
+    },
+  ],
+  template: `…trigger and content…`,
+})
+export class AppCountry {
+  readonly #select = inject<UiSelect<Country>>(UiSelect);
+
+  focus(options?: FocusOptions): void {
+    this.#select.focus(options);
+  }
+}
+```
 
 ## Known limitation
 
@@ -99,5 +139,5 @@ A second press works. Seen in Chromium, where the window was about 60 ms in this
 ## Not in this release
 
 - `multiple`: one value only.
-- Angular Forms (`ControlValueAccessor`, signal forms): bind `[(value)]` to your own signal.
+- `ControlValueAccessor`, template-driven and reactive forms; [signal forms](../README.md#signal-forms) are supported.
 - SelectLabel, SelectGroup, the search input and core's other Select slots, and learning labels from item text.

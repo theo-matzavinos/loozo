@@ -1,4 +1,13 @@
-import { Directive, type InputSignal, type OnInit, input, output } from "@angular/core";
+import {
+  DOCUMENT,
+  DestroyRef,
+  Directive,
+  type InputSignal,
+  type OnInit,
+  inject,
+  input,
+  output,
+} from "@angular/core";
 import {
   type UiSdkEvent,
   type ɵBoundNames,
@@ -43,7 +52,7 @@ type SingleOptions<T> = Extract<SelectOptions<T>, { multiple?: false }>;
 @Directive({
   selector: "[uiSelect]",
   exportAs: "uiSelect",
-  host: { "[attr.data-ui-sdk-id]": "instanceId" },
+  host: { "[attr.data-ui-sdk-id]": "instanceId", "(document:focusout)": "focusOut($event)" },
 })
 export class UiSelect<T = string> implements OnInit {
   /** The selected value; `null` selects nothing. Set it to control the select. */
@@ -91,8 +100,8 @@ export class UiSelect<T = string> implements OnInit {
     input<SelectOptions<T>["presentation"]>(undefined);
   /** Stops opening and selecting. */
   readonly disabled = input(undefined, { transform: optionalBoolean });
-  /** Opens but doesn't change the value. */
-  readonly readOnly = input(undefined, { transform: optionalBoolean });
+  /** Opens but doesn't change the value. Written `readonly`, like a native input's. */
+  readonly readOnly = input(undefined, { alias: "readonly", transform: optionalBoolean });
   /** Opens, closes and selects from anywhere; create one with `createSelectController()`. */
   readonly controller: InputSignal<SelectOptions<T>["controller"]> =
     input<SelectOptions<T>["controller"]>(undefined);
@@ -135,6 +144,12 @@ export class UiSelect<T = string> implements OnInit {
   /** `dismissible` refused a dismissal made on purpose. */
   readonly dismissAttempt =
     output<Parameters<NonNullable<SelectOptions<T>["onDismissAttempt"]>>[0]>();
+  /**
+   * Focus left the trigger and its popup, so the user is done with it; opening the popup, moving
+   * through items and closing it back to the trigger don't count. Signal Forms' `[formField]` marks
+   * the field touched on it. Focus leaving before the select has rendered doesn't emit.
+   */
+  readonly touch = output<void>();
 
   /** The core instance; the slot directives read it. Not public API. */
   readonly ɵroot = ɵinjectRoot(
@@ -206,9 +221,65 @@ export class UiSelect<T = string> implements OnInit {
   protected readonly instanceId = this.ɵroot.id;
   protected readonly slot = ɵinjectSlot(this.ɵroot, "root", () => ({}), { events });
 
+  readonly #destroyRef = inject(DestroyRef);
+  readonly #document = inject(DOCUMENT);
+
+  /**
+   * Focuses the trigger. Signal Forms' `focusBoundControl()` calls it. Core's focus takes no
+   * options, so `options` is ignored. It takes effect once the trigger has rendered; earlier it
+   * does nothing.
+   */
+  focus(_options?: FocusOptions): void {
+    if (!this.ɵroot.isReady()) {
+      return;
+    }
+
+    this.ɵroot.instance().api.focus();
+  }
+
+  protected focusOut(event: FocusEvent): void {
+    if (!this.ɵroot.isReady()) {
+      return;
+    }
+
+    const { internal } = this.ɵroot.instance().api;
+
+    if (!within(event.target, internal)) {
+      return;
+    }
+
+    // Closing the popup returns focus to the trigger right after this focusout, as after an item
+    // press or Escape; decide once that has landed.
+    queueMicrotask(() => {
+      if (this.#destroyRef.destroyed || within(this.#document.activeElement, internal)) {
+        return;
+      }
+
+      this.touch.emit();
+    });
+  }
+
   ngOnInit(): void {
     this.ɵroot.ready();
   }
+}
+
+/** The trigger and popup lookups `within` reads from core's adapter-facing API. */
+type Boundary = {
+  controlElement(): HTMLElement | undefined;
+  readonly popup: { element(): HTMLElement | undefined };
+};
+
+/** Whether `target` is inside the select's trigger or its popup, wherever the popup renders. */
+function within(target: EventTarget | null, internal: Boundary): boolean {
+  if (!(target instanceof Node)) {
+    return false;
+  }
+
+  const trigger = internal.controlElement();
+  const popup = internal.popup.element();
+
+  return trigger?.contains(target) === true || popup?.contains(target) === true;
 }
 
 type _Parity = ɵExpect<

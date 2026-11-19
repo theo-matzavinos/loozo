@@ -2,7 +2,7 @@
 
 Angular directives for [ui-sdk.dev](https://ui-sdk.dev)'s headless core, `@ui-sdk/core`. Core keeps every behavior: keyboard, focus, ARIA, popups and selection. This package puts each of a component's parts on an element you write, one attribute directive per part, and renders core's attributes on the server and in the browser, so the page is correct before it hydrates.
 
-**Status:** experimental. MIT license. It has [Toggle](toggle/README.md), single-value [Select](select/README.md), [Checkbox](checkbox/README.md), [Switch](switch/README.md) and [RadioGroup](radio/README.md), which take part in native forms.
+**Status:** experimental. MIT license. It has [Toggle](toggle/README.md), single-value [Select](select/README.md), [Checkbox](checkbox/README.md), [Switch](switch/README.md) and [RadioGroup](radio/README.md), which take part in native forms and bind to [signal forms](#signal-forms).
 
 ## Install
 
@@ -34,7 +34,7 @@ Each component has its own entry, like core's. The primary entry, `@loozo/ui-sdk
 
 ## How the directives map to core
 
-- A root directive (`uiToggle`, `uiSelect`, `uiCheckbox`, `uiSwitch`, `uiRadioGroup`) owns one core instance. Its inputs are core's options, under core's names. An unset input (`undefined`) isn't passed to core.
+- A root directive (`uiToggle`, `uiSelect`, `uiCheckbox`, `uiSwitch`, `uiRadioGroup`) owns one core instance. Its inputs are core's options, under core's names, with one exception: core's `readOnly` is written `readonly`, the name native inputs and signal forms use (`[readonly]`, `readonly`); the TypeScript member stays `readOnly`. An unset input (`undefined`) isn't passed to core.
 - Each part directive (`uiSelectTrigger`, `uiSelectItem`, …) is one core slot on its host element. Its inputs are the slot's props.
 - A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component when its input is set, and leaves core in charge while it's `undefined`. `null` is a value: a Select with `[value]="null"` selects nothing and stays controlled. Don't switch a key between controlled and uncontrolled.
 - Each `on<Key>Change` callback is two outputs: `<key>ChangeRequest` first, with `{ value, details }`, where `details.cancel()` refuses the change; then `<key>Change` with the value, unless canceled. `[(value)]` binds the input and the second output.
@@ -66,9 +66,53 @@ Checkbox, Switch, RadioGroup and Select submit, reset and validate with a `<form
 - **Reset and validation.** A form reset returns each control to its default (`defaultChecked`, `defaultValue`; through `<key>ChangeRequest`, so it can be refused). When an invalid submit focuses a hidden input, core moves focus to its control.
 - **A `<fieldset disabled>`** disables the buttons inside it natively, from the server HTML on, and leaves their inputs out of the submission. The server can't see the fieldset, so core adds `aria-disabled` and `data-disabled` to the control when it binds: style a disabled control by `:disabled` too, or the style changes at hydration.
 - **The `checked` attribute is the default.** As on a native checkbox, the input's `checked` attribute is what a reset returns to; the current state is its `checked` property.
-- **`name` without its input.** The control submits nothing; in development, a control with a `name` and no input warns once after its first render.
+- **`name` without its input.** The control submits nothing; in development, a control with a static `name="…"` attribute and no input warns once after its first render. A bound `[name]`, like the one signal forms write, doesn't warn.
 - **Keep a control and its input in one `@defer (hydrate …)` block.** An input in another block isn't connected until that block hydrates; until then it submits the server's value.
-- Angular Forms (`ControlValueAccessor`, signal forms) aren't supported yet: bind `[(checked)]` or `[(value)]` to your own signal.
+
+## Signal forms
+
+Checkbox, Switch, RadioGroup and Select bind to Angular's signal forms (`@angular/forms/signals`): put `[formField]` on the control's root element, where `[(checked)]` or `[(value)]` would go. The package doesn't depend on `@angular/forms`; your app does.
+
+```ts
+import { FormField, form, required } from "@angular/forms/signals";
+```
+
+```html
+<form>
+  <button uiCheckbox #terms="uiCheckbox" [formField]="f.terms" aria-label="Terms">
+    <span uiCheckboxIndicator>✓</span>
+  </button>
+  <!-- The hidden input only matters if the form also submits natively. -->
+  <input [uiCheckboxInput]="terms" />
+
+  <div uiRadioGroup [formField]="f.size" aria-label="Size">
+    @for (option of sizes; track option) {
+    <button uiRadio [value]="option">{{ option }}</button>
+    }
+  </div>
+</form>
+```
+
+```ts
+readonly model = signal({ terms: false, size: null as string | null });
+readonly f = form(this.model, (path) => required(path.terms), { name: "signup" });
+```
+
+- **Start every field defined**: `true` or `false` for Checkbox and Switch, a value or `null` for RadioGroup and Select. While a field is `undefined`, signal forms don't write it, so the control stays uncontrolled and shows core's default; a field that goes back to `undefined` makes core warn that it stopped being controlled and keep its last value. An optional field (`f.optional`) doesn't compile; don't force it with `!`.
+- **What the field writes**: the value, and its `disabled()`, `readonly()`, `required()` and `name` rules, to the root's inputs of the same names. Neither `[(checked)]`/`[(value)]` nor `name`, `disabled`, `readonly` or `required` go beside `[formField]`; Angular rejects them at compile time. `(checkedChangeRequest)` and `(valueChangeRequest)` still work beside it, and a canceled request leaves the field as it was.
+- **Validity isn't rendered for you.** The roots don't take `invalid`, `errors`, `touched` or the other field state; core owns their ARIA and has no invalid state. Write it on the focusable element yourself, the button, the radio group's element or the Select trigger:
+
+  ```html
+  <button uiSelectTrigger aria-label="Country" [attr.aria-invalid]="f.country().invalid()"></button>
+  ```
+
+- **Touched**: the field is touched when focus leaves the control: a Checkbox's or Switch's button, a RadioGroup's element (arrow keys between its radios don't count), a Select's trigger and popup (opening it, moving through items and closing it back to the trigger don't count). The roots emit this as their `touch` output. Touch follows focus, not presses: a press that doesn't move focus, such as a click on a button in a browser that doesn't focus buttons on click, touches nothing; `submit()` marks every field touched anyway. Focus that leaves before the control's block has set its inputs doesn't touch it.
+- **Focusing an invalid field**: `field().focusBoundControl()` focuses a Checkbox's or Switch's button, the checked radio (or the first enabled one), or the Select trigger, once the control has rendered; earlier it does nothing. Angular doesn't call it on its own: call it from `submit()`'s `onInvalid`, for example.
+- **Native submission** still needs the [hidden input](#native-forms) beside or inside each control. It submits under the field's generated name, `<form name>.<path>`: give `form()` a `name`, or Angular's per-process `ng.form<n>` can differ between the server's HTML and the browser until hydration. Under `[formField]`, a Checkbox or Switch submits `"on"`, since `value` can't go beside it; the field itself holds the boolean. An object Select submits its `itemToValue` key and keeps the object in the field.
+- **Reset with `f().reset(value)`**, which restores the controls and clears touched and dirty. A native `type="reset"` button returns each control to its first rendered value (a Select to `defaultValue`, or `null`), through the usual outputs: the field follows, turns dirty and stays touched.
+- **`[formField]` goes on the control, never on its hidden input.** On the input, Angular binds the input natively: an external write to the field changes the input and leaves the visible control as it was.
+- **Composing through `hostDirectives`**: expose `checked` or `value`, `disabled`, `readonly`, `required`, `name`, the change output and `touch`. Angular then treats your directive as the control, so a RadioGroup or Select composer forwards `focus()`; see each component's readme.
+- **Types**: the roots aren't `FormCheckboxControl` or `FormValueControl` (those require `model()`); Angular finds them by their input and output names. Checkbox accepts `boolean | "indeterminate"`; a `boolean` field can still receive `"indeterminate"` if your own controller sets it. `ControlValueAccessor`, template-driven and reactive forms aren't supported.
 
 ## Server rendering and hydration
 

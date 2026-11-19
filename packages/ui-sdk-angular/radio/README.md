@@ -21,29 +21,34 @@ import { UiRadio, UiRadioGroup, UiRadioIndicator, UiRadioInput } from "@loozo/ui
 readonly size = signal<"s" | "m" | "l" | null>("m"); // null checks none and stays controlled
 ```
 
+With signal forms, `[formField]="f.size"` takes the place of `[(value)]`; see [signal forms](../README.md#signal-forms).
+
 ## `uiRadioGroup`
 
 `exportAs: "uiRadioGroup"`, generic over the value type `T extends string` (`string` by default).
 
-| Input          | Type                                   | Core option                                                           |
-| -------------- | -------------------------------------- | --------------------------------------------------------------------- |
-| `value`        | `T \| null \| undefined`               | The checked radio's value; `null` checks none. Controls it while set. |
-| `defaultValue` | `T \| null \| undefined`               | Checked at first, when uncontrolled; what a form reset restores.      |
-| `disabled`     | `boolean \| undefined`                 | Every radio: out of the tab order, not changed, not submitted.        |
-| `readOnly`     | `boolean \| undefined`                 | Focusable and submitted, but presses and arrow keys don't change it.  |
-| `required`     | `boolean \| undefined`                 | Blocks form submission until a radio is checked.                      |
-| `name`         | `string \| undefined`                  | The name the checked radio submits under, through its input.          |
-| `form`         | `string \| undefined`                  | The id of the form it belongs to, when it isn't inside it.            |
-| `loop`         | `boolean \| undefined`                 | Whether arrow keys wrap; core's default is `true`.                    |
-| `controller`   | `RadioGroupController<T> \| undefined` | From core's `createRadioGroupController()`.                           |
-| `debug`        | `boolean \| undefined`                 | Logs state changes, in development builds.                            |
+| Input          | Type                                   | Core option                                                                     |
+| -------------- | -------------------------------------- | ------------------------------------------------------------------------------- |
+| `value`        | `T \| null \| undefined`               | The checked radio's value; `null` checks none. Controls it while set.           |
+| `defaultValue` | `T \| null \| undefined`               | Checked at first, when uncontrolled; what a form reset restores.                |
+| `disabled`     | `boolean \| undefined`                 | Every radio: out of the tab order, not changed, not submitted.                  |
+| `readonly`     | `boolean \| undefined`                 | Core's `readOnly`: focusable and submitted, presses and arrows don't change it. |
+| `required`     | `boolean \| undefined`                 | Blocks form submission until a radio is checked.                                |
+| `name`         | `string \| undefined`                  | The name the checked radio submits under, through its input.                    |
+| `form`         | `string \| undefined`                  | The id of the form it belongs to, when it isn't inside it.                      |
+| `loop`         | `boolean \| undefined`                 | Whether arrow keys wrap; core's default is `true`.                              |
+| `controller`   | `RadioGroupController<T> \| undefined` | From core's `createRadioGroupController()`.                                     |
+| `debug`        | `boolean \| undefined`                 | Logs state changes, in development builds.                                      |
 
-| Output               | Emits                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| `valueChangeRequest` | `{ value, details }` first; `details.cancel()` refuses the press, arrow key or reset. |
-| `valueChange`        | The new `value` (`T \| null`), unless a request listener canceled it.                 |
+| Output               | Emits                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `valueChangeRequest` | `{ value, details }` first; `details.cancel()` refuses the press, arrow key or reset.                                          |
+| `valueChange`        | The new `value` (`T \| null`), unless a request listener canceled it.                                                          |
+| `touch`              | Nothing (`void`), when focus leaves the group; an arrow key between radios doesn't count. Signal forms mark the field touched. |
 
 `state: Signal<RadioGroupState>` is `{ value, disabled, readOnly, required }`.
+
+`focus(options?)` focuses the checked radio, or the first enabled one when none is checked; signal forms' `focusBoundControl()` calls it. It takes effect once the radios have rendered (call it after `afterNextRender` or from an event); earlier it does nothing. Core's focus takes no options, so `options` is ignored.
 
 ## Parts
 
@@ -65,3 +70,5 @@ readonly size = signal<"s" | "m" | "l" | null>("m"); // null checks none and sta
 - **Refuse a change with `valueChangeRequest`.** Not writing a controlled `value` back isn't a cancellation.
 - **Bind `[disabled]`** on a radio rather than a static attribute.
 - Keep the group and all its radios inside one `@defer (hydrate …)` block.
+- **Under `[formField]`, bind a `string | null` field** (or a union of string literals). The compiler also accepts object fields there, which aren't supported.
+- **Composing it** through `hostDirectives` for `[formField]`: expose `value`, `disabled`, `readonly`, `required`, `name`, `valueChange` and `touch`, and forward `focus()`, since Angular calls your directive's, as [Select's](../select/README.md#composing-it) example shows.

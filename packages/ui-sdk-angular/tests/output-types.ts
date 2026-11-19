@@ -114,3 +114,10 @@ type _RadioValueRequest = [
   >,
   ɵExpect<Same<Emitted<UiRadioGroup<Size>["valueChange"]>, Size | null>>,
 ];
+
+type _Touch = [
+  ɵExpect<Same<Emitted<UiCheckbox["touch"]>, void>>,
+  ɵExpect<Same<Emitted<UiSwitch["touch"]>, void>>,
+  ɵExpect<Same<Emitted<UiRadioGroup["touch"]>, void>>,
+  ɵExpect<Same<Emitted<FruitSelect["touch"]>, void>>,
+];

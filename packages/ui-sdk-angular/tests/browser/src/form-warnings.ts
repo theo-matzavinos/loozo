@@ -4,7 +4,10 @@ import { UiRadio, UiRadioGroup } from "@loozo/ui-sdk-angular/radio";
 import { UiSelect, UiSelectTrigger } from "@loozo/ui-sdk-angular/select";
 import { UiSwitch } from "@loozo/ui-sdk-angular/switch";
 
-/** Decision W: a named control without its input warns once in development; one with it doesn't. */
+/**
+ * Decision W, narrowed by D8: a control with a static `name` and no input warns once in
+ * development; one with its input, an unnamed one and one with a bound `[name]` don't.
+ */
 @Component({
   selector: "app-form-warnings",
   imports: [
@@ -30,10 +33,12 @@ import { UiSwitch } from "@loozo/ui-sdk-angular/switch";
       <button uiCheckbox #paired="uiCheckbox" name="paired" aria-label="Paired"></button>
       <input [uiCheckboxInput]="paired" />
       <button uiCheckbox aria-label="Unnamed"></button>
+      <button uiCheckbox [name]="boundName" aria-label="Bound name"></button>
       <span data-testid="shown">shown</span>
     }
   `,
 })
 export class FormWarnings {
   protected readonly shown = signal(false);
+  protected readonly boundName = "bound-checkbox";
 }
