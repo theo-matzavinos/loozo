@@ -39,7 +39,7 @@ import {
 } from "./inputs.js";
 import { resolverStamp } from "./record.js";
 
-type Callbacks = Pick<
+export type Callbacks = Pick<
   Route,
   "canActivate" | "canActivateChild" | "canMatch" | "resolve" | "title"
 > &

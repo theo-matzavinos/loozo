@@ -784,3 +784,102 @@ try {
 console.log(
   "Translated segments: committed outputs, per-locale bundles, prerender, cross-locale SSR, hydration, extraction, the strict refresh flow and serve all passed",
 );
+
+// Sibling pathless groups with translated segments: each group's claims carry its descendants'
+// messages, so a German word reaches the group whose route it translates, and a source word
+// doesn't (it falls through to the root catchall).
+const groups = await consumer("groups");
+const groupCatalog = join(groups, "src/locale/messages.de.xlf");
+
+for (const [path, text] of [
+  [
+    "+authenticated/route.ts",
+    'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("", {}).canMatch([() => true]);\n',
+  ],
+  [
+    "+signed-in/route.ts",
+    'import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute("", {});\n',
+  ],
+]) {
+  await mkdir(dirname(join(groups, "src/routes", path)), { recursive: true });
+  await writeFile(join(groups, "src/routes", path), text);
+}
+
+for (const [directory, template] of [
+  ["+authenticated", '<section data-layout="authenticated"><router-outlet /></section>'],
+  ["+signed-in", '<section data-layout="signed-in"><router-outlet /></section>'],
+  ["+authenticated/inbox", '<p data-leaf="inbox">inbox</p>'],
+  ["+signed-in/profile", '<p data-leaf="profile">profile</p>'],
+]) {
+  let imports = "";
+  let header = "";
+
+  if (template.includes("router-outlet")) {
+    header = 'import { RouterOutlet } from "@angular/router";\n';
+    imports = "imports: [RouterOutlet], ";
+  }
+
+  await mkdir(join(groups, "src/routes", directory), { recursive: true });
+  await writeFile(
+    join(groups, "src/routes", directory, "page.ts"),
+    `import { Component } from "@angular/core";\n${header}\n@Component({ ${imports}template: '${template}' })\nexport default class Page {}\n`,
+  );
+}
+
+await writeFile(
+  groupCatalog,
+  (await readFile(groupCatalog, "utf8")).replace(
+    "    </body>",
+    `      <trans-unit id="route.segment.inbox" datatype="html">
+        <source>inbox</source>
+        <target>posteingang</target>
+      </trans-unit>
+      <trans-unit id="route.segment.profile" datatype="html">
+        <source>profile</source>
+        <target>profil</target>
+      </trans-unit>
+    </body>`,
+  ),
+);
+await succeeds(groups, "build-groups", ["build"]);
+assert.match(
+  await readFile(join(groups, "generated/routes.generated.ts"), "utf8"),
+  /\.\.\.owned\(\[\[\$localize`:URL path segment\|[^`]*@@route\.segment\.inbox:inbox`\]\], callbacks\(/,
+);
+
+const groupPort = await freePort();
+const groupServer = background(process.execPath, [join(groups, "dist/proof/server/server.mjs")], {
+  cwd: groups,
+  env: { ...process.env, PORT: String(groupPort) },
+});
+const groupRenders = {};
+
+try {
+  await listening(groupPort, groupServer);
+
+  for (const path of ["/de/posteingang", "/de/profil", "/en/inbox", "/en/profile", "/de/inbox"]) {
+    const response = await request(`http://127.0.0.1:${groupPort}${path}`);
+
+    groupRenders[path] = {
+      status: response.status,
+      rendered: [...response.body.matchAll(/data-(?:layout|leaf)="([^"]*)"/g)].map(
+        (match) => match[1],
+      ),
+      missing: inspect(response.body).missing,
+    };
+  }
+} finally {
+  await save("groups.json", groupRenders);
+  await stop(groupServer, "groups-server.log");
+}
+
+assert.deepEqual(groupRenders["/de/posteingang"].rendered, ["authenticated", "inbox"]);
+assert.deepEqual(groupRenders["/de/profil"].rendered, ["signed-in", "profile"]);
+assert.deepEqual(groupRenders["/en/inbox"].rendered, ["authenticated", "inbox"]);
+assert.deepEqual(groupRenders["/en/profile"].rendered, ["signed-in", "profile"]);
+assert.deepEqual(groupRenders["/de/inbox"].rendered, []);
+assert.equal(groupRenders["/de/inbox"].missing, true);
+
+console.log(
+  "Translated segments: sibling pathless groups route each locale's words to their group",
+);

@@ -68,11 +68,11 @@ export function authoredPath(declaration: Pick<Declaration, "branch" | "effectiv
   return `/${anchor.join("/")}/(${branch.outlet}:${group})`;
 }
 
-// Emitted order within one table: records whose own last segment isn't a catchall first, then
-// authored path, then id.
+// Emitted order within one table: records whose own last segment isn't a catchall, and groups
+// that hold no catchall, first; then authored path, then id.
 function recordOrder(a: Declaration, b: Declaration): number {
-  const catchA = a.segments.at(-1)?.kind === "catchall";
-  const catchB = b.segments.at(-1)?.kind === "catchall";
+  const catchA = a.segments.at(-1)?.kind === "catchall" || a.fallback;
+  const catchB = b.segments.at(-1)?.kind === "catchall" || b.fallback;
 
   if (catchA !== catchB) {
     if (catchA) {
@@ -177,12 +177,37 @@ function ancestor(a: Declaration, b: Declaration): boolean {
   return false;
 }
 
+// Where two declarations' chains part: the sibling pathless groups directly below their common
+// parent, when both sides part at one.
+function siblingGroups(
+  a: Declaration,
+  b: Declaration,
+): readonly [Declaration, Declaration] | undefined {
+  const left = chain(a);
+  const right = chain(b);
+  let at = 0;
+
+  while (at < left.length && at < right.length && left[at] === right[at]) {
+    at += 1;
+  }
+
+  if (at < left.length && at < right.length && left[at].group && right[at].group) {
+    return [left[at], right[at]];
+  }
+
+  return undefined;
+}
+
 /**
  * The winner of each matching position, keyed by {@link positionKey}. Sets `full` on the
  * empty leaves that match exactly, and `anchorLeaf` instead on those at a named branch's
- * anchor.
+ * anchor. Emitted order, which decides catchall shadowing, comes from `canonical`; a translated
+ * view passes the canonical sources.
  */
-export function selections(sources: Sources): Map<string, Declaration> {
+export function selections(
+  sources: Sources,
+  canonical: Sources = sources,
+): Map<string, Declaration> {
   const declarations = sources.declarations.filter(
     (declaration) => declaration.retained || declaration.target,
   );
@@ -193,11 +218,14 @@ export function selections(sources: Sources): Map<string, Declaration> {
     }
   }
 
-  for (let left = 0; left < declarations.length; left += 1) {
-    const a = declarations[left];
+  // Groups end no URL, so only their descendants' claims can collide.
+  const claims = declarations.filter((declaration) => !declaration.group);
 
-    for (let right = left + 1; right < declarations.length; right += 1) {
-      const b = declarations[right];
+  for (let left = 0; left < claims.length; left += 1) {
+    const a = claims[left];
+
+    for (let right = left + 1; right < claims.length; right += 1) {
+      const b = claims[right];
 
       if (!sameGroup(a, b)) {
         continue;
@@ -251,9 +279,56 @@ export function selections(sources: Sources): Map<string, Declaration> {
       }
 
       if (overlap && !ancestor(a, b) && !ancestor(b, a)) {
+        const groups = siblingGroups(a, b);
+        let where = "";
+
+        if (groups) {
+          where = `, in sibling pathless groups ${groups[0].id} and ${groups[1].id}`;
+        }
+
         fail(
           a.source,
-          `Ordinary route collision/overlap: ${a.id} (${authoredPath(a)}); ${b.id} (${authoredPath(b)})`,
+          `Ordinary route collision/overlap: ${a.id} (${authoredPath(a)}); ${b.id} (${authoredPath(b)})${where}`,
+        );
+      }
+    }
+  }
+
+  // A group's catchall may back its own siblings, never a route outside the group: Angular
+  // would try it first there (fallback groups sort last, so only catchall pairs remain).
+  for (const [catchall, other] of catchallShadows(sources, canonical).values()) {
+    const left = chain(catchall);
+    const right = chain(other);
+    let at = 0;
+
+    while (at < left.length && at < right.length && left[at] === right[at]) {
+      at += 1;
+    }
+
+    if (left[at]?.group) {
+      fail(
+        catchall.source,
+        `Catchall in a pathless group shadows a route outside it: ${catchall.id} (${authoredPath(catchall)}) is tried before ${other.id} (${authoredPath(other)})`,
+      );
+    }
+  }
+
+  // Angular reaches a branch at a group's own path only by piercing that group for its
+  // outlet, and can't commit it beside a page of a sibling group.
+  for (const declaration of declarations) {
+    if (declaration.outlet === undefined || !declaration.retained) {
+      continue;
+    }
+
+    for (
+      let parent = declaration.parent;
+      parent && parent.segments.length === 0;
+      parent = parent.parent
+    ) {
+      if (parent.group) {
+        fail(
+          declaration.source,
+          `A named-outlet route can't hang at a pathless group's own path while the group has pathless siblings: ${declaration.id}; give it a parent with a path, or declare it beside the groups`,
         );
       }
     }

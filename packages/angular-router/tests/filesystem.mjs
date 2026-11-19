@@ -966,9 +966,72 @@ await write("src/routes/pending/page.ts", page("pending"));
 
 await write("src/routes/+collision/page.ts", page("collision"));
 await write("src/routes/-tools/+collision/page.ts", page("collision"));
-await preflight("pathless matching collision", /Ordinary route collision\/overlap/);
+await preflight(
+  "pathless leaves at one URL still collide",
+  /Ordinary route collision\/overlap: src\/routes\/[+a-z/-]*collision\/route\.ts \(\/\); src\/routes\/[+a-z/-]*collision\/route\.ts \(\/\)(?!, in sibling)/,
+);
 await rm(join(fixture, "src/routes/+collision"), { recursive: true });
 await rm(join(fixture, "src/routes/-tools/+collision"), { recursive: true });
+
+// Sibling pathless groups under one parent generate; each one's record claims only its own
+// descendants, and seeds name their own group as parent. The pending page stays unseeded for
+// the checks after this, so it waits outside the scan root meanwhile.
+await rename(join(fixture, "src/routes/pending"), join(fixture, "pending-aside"));
+const layout = (label) => `import { Component } from "@angular/core";
+import { RouterOutlet } from "@angular/router";
+@Component({ imports: [RouterOutlet], template: '<section data-proof="${label}"><router-outlet /></section>' })
+export default class Layout {}\n`;
+
+await write(
+  "src/routes/+authenticated/route.ts",
+  `${routerImport}\nimport parent from "../route.js";\n\nexport default defineRoute("", { parent }).canMatch([() => true]);\n`,
+);
+await write("src/routes/+authenticated/page.ts", layout("authenticated"));
+await write("src/routes/+authenticated/inbox/page.ts", page("inbox"));
+await write("src/routes/+authenticated/settings/page.ts", page("settings"));
+await write("src/routes/+signed-in/page.ts", layout("signed-in"));
+await write("src/routes/+signed-in/profile/page.ts", page("profile"));
+await write("src/routes/+signed-in/account/page.ts", page("account"));
+await expectBuild();
+assert.equal(
+  await read("src/routes/+signed-in/route.ts"),
+  `${routerImport}\n${parentImport}\n\nexport default defineRoute("", { parent });\n`,
+);
+assert.equal(
+  await read("src/routes/+authenticated/inbox/route.ts"),
+  `${routerImport}\n${parentImport}\n\nexport default defineRoute("inbox", { parent });\n`,
+);
+
+assert.match(
+  await read(rootChildren),
+  /\.\.\.owned\(\[\["inbox"\], \["settings"\]\], callbacks\(route__authenticated_route\)\)/,
+);
+assert.match(await read(rootChildren), /\.\.\.owned\(\[\["account"\], \["profile"\]\]\)/);
+// The existing pathless wrapper now has pathless siblings, so it's a group too.
+assert.match(
+  await read(rootChildren),
+  /\.\.\.record\(destination__layout_route\),\n\.\.\.owned\(\[\["moved"\], \["renamed"\]\]\),/,
+);
+
+await rename(
+  join(fixture, "src/routes/+signed-in/profile"),
+  join(fixture, "src/routes/+authenticated/profile"),
+);
+await expectBuild();
+assert.match(
+  await read(rootChildren),
+  /\.\.\.owned\(\[\["inbox"\], \["profile"\], \["settings"\]\], callbacks\(route__authenticated_route\)\)/,
+);
+assert.match(await read(rootChildren), /\.\.\.owned\(\[\["account"\]\]\)/);
+assert.match(
+  await read("src/routes/+authenticated/profile/route.ts"),
+  /import parent from "\.\.\/route\.js";[\s\S]*defineRoute\("profile", \{ parent \}\)/,
+);
+await rm(join(fixture, "src/routes/+authenticated"), { recursive: true });
+await rm(join(fixture, "src/routes/+signed-in"), { recursive: true });
+await expectBuild();
+assert.doesNotMatch(await read(rootChildren), /\.\.\.owned\(/);
+await rename(join(fixture, "pending-aside"), join(fixture, "src/routes/pending"));
 
 await write("src/routes/files/$parts[]/illegal/page.ts", page("illegal-catchall-child"));
 await preflight("catchall remains a leaf", /Catchall declarations cannot have children/);

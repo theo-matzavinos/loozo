@@ -319,7 +319,7 @@ export async function validateLocales(sources: Sources, localization: Localizati
     try {
       const view = translatedView(sources, (word) => translated.get(word)!);
 
-      selections(view);
+      selections(view, sources);
 
       for (const [pair, [catchall, other]] of catchallShadows(view, sources)) {
         if (!canonicalShadows.has(pair)) {

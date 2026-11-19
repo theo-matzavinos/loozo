@@ -2602,6 +2602,181 @@ assert.deepEqual(
   ].sort(),
 );
 
+// Sibling pathless groups (SPEC §10): each URL reaches the group whose routes own it, and a group
+// that doesn't own it calls no matching guard and loads no table. Each URL opens cold, so its
+// guard calls, evaluated modules and table requests are its own.
+const {
+  buildFixture,
+  chunkSources,
+  errorCodes,
+  siblingFixture,
+  staticServer: siblingServer,
+  visitCold,
+} = await import("./sibling-groups.mjs");
+const siblings = join(evidence, "sibling-groups");
+const siblingObservations = {};
+const siblingBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+const authenticatedTable = "src/routes/+authenticated/children.generated.ts";
+const signedInTable = "src/routes/+signed-in/children.generated.ts";
+
+await mkdir(siblings);
+
+// Builds one tree and opens each URL cold; `after` runs extra steps in a URL's open tab.
+async function siblingTree(name, options, urls, after = {}) {
+  const directory = await siblingFixture(siblings, name, options);
+
+  await buildFixture(directory);
+
+  const chunks = await chunkSources(directory);
+  const server = await siblingServer(directory);
+  const result = {};
+
+  try {
+    for (const url of urls) {
+      const slug = url.replace(/[^a-z0-9]+/gi, "_") || "root";
+      const visit = await visitCold(siblingBrowser, server.base, chunks, url, {
+        screenshot: join(siblings, `${name}-${slug}.png`),
+      });
+
+      try {
+        result[url] = visit.seen;
+
+        if (after[url]) {
+          result[url].after = await after[url](visit.tab);
+        }
+      } finally {
+        await visit.close();
+      }
+    }
+  } finally {
+    await server.close();
+    siblingObservations[name] = result;
+    await writeFile(
+      join(evidence, "sibling-groups.json"),
+      JSON.stringify(siblingObservations, null, 2),
+    );
+  }
+
+  return result;
+}
+
+function authenticatedTouched(seen) {
+  return (
+    seen.calls.some((call) => call.startsWith("authenticated:")) ||
+    seen.tables.includes(authenticatedTable)
+  );
+}
+
+try {
+  const main = await siblingTree(
+    "main",
+    { products: true, initializer: true },
+    [
+      "/",
+      "/inbox",
+      "/settings",
+      "/profile",
+      "/profile?auth=redirect",
+      "/inbox?auth=redirect",
+      "/products",
+      "/products/inbox",
+    ],
+    {
+      // `..` from a page in one group renders the shared path's winner in the other.
+      "/inbox": (tab) =>
+        tab.evaluate(async () => {
+          const result = await window.proofInbox.up();
+
+          await new Promise((done) => setTimeout(done, 50));
+
+          return {
+            result,
+            url: window.proofRouter.url,
+            rendered: [...document.querySelectorAll("[data-layout], [data-leaf]")].map(
+              (node) => node.getAttribute("data-layout") ?? node.getAttribute("data-leaf"),
+            ),
+          };
+        }),
+    },
+  );
+
+  assert.deepEqual(main["/"].rendered, ["signed-in", "index"]);
+  assert.deepEqual(main["/inbox"].rendered, ["authenticated", "inbox"]);
+  assert.deepEqual(main["/settings"].rendered, ["authenticated", "settings"]);
+  assert.deepEqual(main["/profile"].rendered, ["signed-in", "profile"]);
+  assert.deepEqual(main["/inbox"].tables, [authenticatedTable]);
+
+  for (const url of ["/", "/profile", "/profile?auth=redirect"]) {
+    assert.equal(authenticatedTouched(main[url]), false, url);
+    assert.deepEqual(main[url].tables, [signedInTable], url);
+    assert.equal(main[url].evaluated.includes("authenticated:layout"), false, url);
+  }
+
+  // Authenticated's redirecting guard runs only for the URLs it owns.
+  assert.equal(main["/profile?auth=redirect"].url, "/profile?auth=redirect");
+  assert.deepEqual(main["/inbox?auth=redirect"].rendered, ["blocked"]);
+  assert.equal(main["/inbox?auth=redirect"].url, "/blocked");
+  assert.deepEqual(main["/inbox"].after, {
+    result: true,
+    url: "/",
+    rendered: ["signed-in", "index"],
+  });
+
+  // F3, native Angular behavior: Angular builds a path-matched group's route injector, running
+  // its environment initializers, before any canMatch, so the ownership guard can't stop them.
+  // Its matching guard and table stay untouched.
+  assert.ok(main["/profile"].evaluated.includes("authenticated:init"), "F3 initializer ran");
+
+  // Neither group below products ends /products, so its page renders alone.
+  assert.deepEqual(main["/products"].rendered, ["products"]);
+  assert.deepEqual(main["/products"].tables, ["src/routes/products/children.generated.ts"]);
+  assert.deepEqual(main["/products/inbox"].rendered, ["products", "products-a", "products-inbox"]);
+
+  // A group holding a catchall is tried after every other record, so it frames not-found pages
+  // without swallowing the other group's URLs, and it catches what that group's guard refuses.
+  const fallback = await siblingTree("catchall", { catchall: true }, [
+    "/",
+    "/profile",
+    "/nope",
+    "/profile?signed=deny",
+    "/blocked",
+  ]);
+
+  assert.deepEqual(fallback["/"].rendered, ["signed-in", "index"]);
+  assert.deepEqual(fallback["/profile"].rendered, ["signed-in", "profile"]);
+  assert.deepEqual(fallback["/nope"].rendered, ["authenticated", "not-found"]);
+  assert.deepEqual(fallback["/profile?signed=deny"].rendered, ["authenticated", "not-found"]);
+  assert.deepEqual(fallback["/blocked"].rendered, ["blocked"]);
+
+  for (const url of ["/", "/profile", "/blocked"]) {
+    assert.equal(authenticatedTouched(fallback[url]), false, url);
+  }
+
+  // Without an index nothing ends `/`: both groups refuse it, so it reaches a root catchall...
+  const missing = await siblingTree("no-index-catchall", { index: false, rootCatchall: true }, [
+    "/",
+    "/inbox",
+  ]);
+
+  assert.deepEqual(missing["/"].rendered, ["missing"]);
+  assert.deepEqual(missing["/"].tables, []);
+  assert.deepEqual(missing["/"].calls, ["shell"]);
+  assert.deepEqual(missing["/inbox"].rendered, ["authenticated", "inbox"]);
+
+  // ...or, without one, commits with an empty root outlet: the app shell alone, no error.
+  const empty = await siblingTree("no-index", { index: false }, ["/", "/profile"]);
+
+  assert.equal(empty["/"].url, "/");
+  assert.deepEqual(empty["/"].rendered, []);
+  assert.deepEqual(empty["/"].tables, []);
+  assert.deepEqual(empty["/"].calls, ["shell"]);
+  assert.deepEqual(errorCodes(empty["/"]), []);
+  assert.deepEqual(empty["/"].pageErrors, []);
+  assert.deepEqual(empty["/profile"].rendered, ["signed-in", "profile"]);
+} finally {
+  await siblingBrowser.close();
+}
+
 console.log(
-  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges, per-route stability and route children proof passed",
+  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges, per-route stability, route children and sibling pathless groups proof passed",
 );

@@ -2186,6 +2186,96 @@ test("onlyAtEnd canMatch adapters refuse longer URLs before building any input",
   assert.deepEqual({ inputs, seen }, { inputs: 1, seen: [true] });
 });
 
+test("owned admits only the segments a group's claims fit, ahead of adapters that refuse before building any input", async () => {
+  await import("@angular/compiler");
+
+  const { callbacks, owned, record, resolverKeys } =
+    await import("@loozo/angular-router/_generated");
+  let parsed = 0;
+  let called = 0;
+  const counted = { parse: (raw) => ((parsed += 1), raw), stringify: (value) => value };
+  const group = defineDestination("", { search: { q: counted } }, "group");
+  const copy = routeOf(defineRoute, group)
+    .canMatch([
+      () => {
+        called += 1;
+
+        return true;
+      },
+    ])
+    .canActivate([() => true])
+    .resolve({ user: () => "ada" })
+    .title("Group");
+  const base = callbacks(copy);
+  const claimed = owned([["inbox"], [], ["teams", ":"], ["docs", "**"], ["a b"]], base);
+  const snapshot = () => ({
+    routeConfig: { ...record(group) },
+    url: [],
+    queryParamMap: { getAll: () => ["x"] },
+  });
+  const segments = (...paths) => paths.map((path) => ({ path, parameters: {} }));
+  // Whether every guard admits, as Angular decides a candidate.
+  const admits = (url) => {
+    const shared = snapshot();
+    let all = true;
+
+    for (const guard of claimed.canMatch) {
+      if (guard({}, url, shared) !== true) {
+        all = false;
+      }
+    }
+
+    return all;
+  };
+
+  assert.equal(claimed.canMatch.length, base.canMatch.length + 1);
+
+  // Nothing fits: no adapter builds inputs or calls its callback.
+  for (const url of [
+    segments("profile"),
+    segments("Inbox"),
+    segments("teams"),
+    segments("teams", "1", "2"),
+    segments("doc"),
+    segments("inbox", "x"),
+  ]) {
+    assert.equal(admits(url), false, JSON.stringify(url));
+  }
+
+  assert.deepEqual({ parsed, called }, { parsed: 0, called: 0 });
+
+  // `[]` admits only the bare URL, ":" exactly one segment, "**" zero or more after its prefix;
+  // paths compare decoded and exactly, matrix params aside.
+  for (const url of [
+    [],
+    segments("inbox"),
+    [{ path: "inbox", parameters: { view: "compact" } }],
+    segments("teams", "42"),
+    segments("docs"),
+    segments("docs", "a", "b"),
+    segments("a b"),
+  ]) {
+    assert.equal(admits(url), true, JSON.stringify(url));
+  }
+
+  assert.equal(called, 7);
+
+  // Every other field passes through, the resolver stamp included.
+  assert.equal(claimed.canActivate, base.canActivate);
+  assert.equal(claimed.resolve, base.resolve);
+  assert.equal(claimed.title, "Group");
+  assert.deepEqual(resolverKeys(claimed), ["user"]);
+
+  // A group without matching callbacks still gets the ownership guard, and nothing else.
+  const bare = owned([["profile"]]);
+
+  assert.deepEqual(Object.keys(bare), ["canMatch"]);
+  assert.equal(bare.canMatch.length, 1);
+  assert.equal(bare.canMatch[0]({}, segments("profile"), snapshot()), true);
+  assert.equal(bare.canMatch[0]({}, [], snapshot()), false);
+  assert.equal(owned([]).canMatch[0]({}, [], snapshot()), false);
+});
+
 test("handles close branches by metadata and take params only in a named outlet", async () => {
   await import("@angular/compiler");
 

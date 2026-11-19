@@ -1,4 +1,5 @@
 export { callbacks, lazyRedirect, redirect } from "./callbacks.js";
+export { owned } from "./owned.js";
 export { effectivePath, nativePath } from "./native-path.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 export { provideActiveRouteHydration } from "./hydration.js";

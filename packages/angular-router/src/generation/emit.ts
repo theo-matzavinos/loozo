@@ -1,7 +1,8 @@
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import { markers, specifier } from "./files.js";
-import { resolveModule, type Declaration, type Sources } from "./sources.js";
+import { groupClaims, resolveModule, type Declaration, type Sources } from "./sources.js";
+import { segmentMessage } from "./localization.js";
 import { childTable, rootTable } from "./validate.js";
 import { parentTargets } from "./selectors.js";
 import { copies, typeImports, type LaunchCopies } from "./copies.js";
@@ -243,6 +244,46 @@ export function emit(
     return "nativePath";
   }
 
+  // A group's claims as `owned` reads them, relative to the group, deduplicated and sorted by
+  // their source text so the bytes are deterministic. Translated words are inlined per build.
+  function claims(group: Declaration): string {
+    const patterns = new Map<string, string>();
+
+    for (const claim of groupClaims(group)) {
+      const tokens: string[] = [];
+      const texts: string[] = [];
+
+      for (const segment of claim.effective.slice(group.effective.length)) {
+        if (segment.kind === "catchall") {
+          tokens.push("**");
+          texts.push('"**"');
+        } else if (segment.kind !== "static") {
+          tokens.push(":");
+          texts.push('":"');
+        } else {
+          tokens.push(segment.text);
+
+          if (translateSegments) {
+            texts.push(segmentMessage(segment.text));
+          } else {
+            texts.push(JSON.stringify(segment.text));
+          }
+        }
+      }
+
+      patterns.set(JSON.stringify(tokens), `[${texts.join(", ")}]`);
+    }
+
+    const keys = [...patterns.keys()].sort();
+    const texts: string[] = [];
+
+    for (const key of keys) {
+      texts.push(patterns.get(key)!);
+    }
+
+    return `[${texts.join(", ")}]`;
+  }
+
   // One record as written into `file`, the table that holds it.
   function record(declaration: Declaration, file: string): string {
     const parts: string[] = [];
@@ -289,7 +330,11 @@ export function emit(
         parts.push(`...extension(${name})`);
       }
 
-      if (usesCallbacks(declaration) && declaration.anchorLeaf) {
+      if (declaration.group && usesCallbacks(declaration)) {
+        parts.push(`...owned(${claims(declaration)}, callbacks(${name}))`);
+      } else if (declaration.group) {
+        parts.push(`...owned(${claims(declaration)})`);
+      } else if (usesCallbacks(declaration) && declaration.anchorLeaf) {
         parts.push(`...callbacks(${name}, { onlyAtEnd: true })`);
       } else if (usesCallbacks(declaration)) {
         parts.push(`...callbacks(${name})`);
@@ -332,6 +377,10 @@ export function emit(
 
     if (list.some(usesCallbacks)) {
       helpers.push("callbacks");
+    }
+
+    if (list.some((declaration) => declaration.group)) {
+      helpers.push("owned");
     }
 
     if (list.some((declaration) => declaration.target && !lazyRedirect(declaration))) {

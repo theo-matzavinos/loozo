@@ -1254,3 +1254,168 @@ try {
 console.log(
   `outlets proof: ${ssr.length} SSR requests, ${observations.length} browser observations`,
 );
+
+// Named outlets beside sibling pathless groups (SPEC §8): a root branch composes with either
+// group's pages, and a branch anchored below a group's page renders inside it. When every route
+// of a named outlet refuses its segments, Angular tries them against the groups too, with no
+// outlet to tell them apart from primary ones: a group whose claims fit runs its canMatch (whose
+// UrlTree redirects the navigation) or loads its table before NG04002. These rows pin that
+// native limit, so a change in either direction shows.
+const { buildFixture, chunkSources, errorCodes, siblingFixture, staticServer, visitCold } =
+  await import("./sibling-groups.mjs");
+const siblings = join(evidence, "sibling-groups");
+const siblingObservations = {};
+const siblingBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+const authenticatedTable = "src/routes/+authenticated/children.generated.ts";
+const signedInTable = "src/routes/+signed-in/children.generated.ts";
+
+await mkdir(siblings);
+
+// Builds one tree and opens each URL cold. Every row is recorded before any assertion.
+async function siblingTree(name, options, urls) {
+  const directory = await siblingFixture(siblings, name, options);
+
+  await buildFixture(directory);
+
+  const chunks = await chunkSources(directory);
+  const server = await staticServer(directory);
+  const result = {};
+
+  try {
+    for (const url of urls) {
+      const slug = url.replace(/[^a-z0-9]+/gi, "_");
+      const visit = await visitCold(siblingBrowser, server.base, chunks, url, {
+        screenshot: join(siblings, `${name}-${slug}.png`),
+      });
+
+      result[url] = visit.seen;
+      await visit.close();
+    }
+  } finally {
+    await server.close();
+    siblingObservations[name] = result;
+    await save("sibling-groups.json", siblingObservations);
+  }
+
+  return result;
+}
+
+// What a row settled to, in the terms the expectations below use.
+function row(seen) {
+  return {
+    url: seen.url,
+    rendered: seen.rendered,
+    calls: seen.calls.slice(1),
+    tables: seen.tables,
+    errors: errorCodes(seen),
+  };
+}
+
+// The refused-branch rows prototype-3 observed with ownership on, per URL: the root chat branch
+// refuses unless ?aux=allow (its guard) or for chat/nope (its numberParam codec).
+const pierced = {
+  "/profile(chat:chat/1)?auth=redirect": {
+    url: "/blocked",
+    rendered: ["blocked"],
+    calls: ["signed-in:canMatch", "chat:canMatch:false", "authenticated:canMatch"],
+    tables: [signedInTable],
+    errors: [],
+  },
+  "/profile(chat:chat/1)": {
+    url: "/",
+    rendered: [],
+    calls: ["signed-in:canMatch", "chat:canMatch:false", "authenticated:canMatch"],
+    tables: [authenticatedTable, signedInTable],
+    errors: ["NG04002"],
+  },
+  "/profile(chat:chat/nope)?aux=allow&auth=redirect": {
+    url: "/blocked",
+    rendered: ["blocked"],
+    calls: ["signed-in:canMatch", "authenticated:canMatch"],
+    tables: [signedInTable],
+    errors: [],
+  },
+  "/profile(chat:chat/nope)?aux=allow": {
+    url: "/",
+    rendered: [],
+    calls: ["signed-in:canMatch", "authenticated:canMatch"],
+    tables: [authenticatedTable, signedInTable],
+    errors: ["NG04002"],
+  },
+  "/profile(chat:chat/1)?aux=allow": {
+    url: "/profile(chat:chat/1)?aux=allow",
+    rendered: ["signed-in", "profile", "chat-panel"],
+    calls: ["signed-in:canMatch", "chat:canMatch:true"],
+    tables: [signedInTable],
+    errors: [],
+  },
+  "/profile": {
+    url: "/profile",
+    rendered: ["signed-in", "profile"],
+    calls: ["signed-in:canMatch"],
+    tables: [signedInTable],
+    errors: [],
+  },
+};
+
+try {
+  const composed = await siblingTree("anchored", { chat: "anchored" }, [
+    "/(chat:chat/1)?aux=allow",
+    "/profile(chat:chat/1)?aux=allow",
+    "/inbox(chat:chat/1)?aux=allow",
+    "/products/(detail:item/1)",
+    "/profile(chat:chat/nope)?aux=allow",
+  ]);
+
+  assert.deepEqual(composed["/(chat:chat/1)?aux=allow"].rendered, [
+    "signed-in",
+    "index",
+    "chat-panel",
+  ]);
+  assert.deepEqual(composed["/profile(chat:chat/1)?aux=allow"].rendered, [
+    "signed-in",
+    "profile",
+    "chat-panel",
+  ]);
+  assert.deepEqual(composed["/inbox(chat:chat/1)?aux=allow"].rendered, [
+    "authenticated",
+    "inbox",
+    "chat-panel",
+  ]);
+  assert.deepEqual(composed["/products/(detail:item/1)"].rendered, [
+    "authenticated",
+    "authenticated-products",
+    "detail-panel",
+  ]);
+  // No group claims chat/nope, so both ownership guards refuse it: no authored group guard
+  // runs for the refused branch, and no other table loads.
+  assert.deepEqual(row(composed["/profile(chat:chat/nope)?aux=allow"]), {
+    url: "/",
+    rendered: [],
+    calls: ["signed-in:canMatch"],
+    tables: [signedInTable],
+    errors: ["NG04002"],
+  });
+
+  // A primary +authenticated/chat/$id, then a +authenticated catchall, beside the branch. The
+  // catchall group sorts last and still receives the refused branch's segments.
+  for (const [name, options] of [
+    ["exact", { chat: "exact" }],
+    ["catchall", { chat: "branch", catchall: true }],
+  ]) {
+    const rows = await siblingTree(name, options, Object.keys(pierced));
+
+    for (const [url, expected] of Object.entries(pierced)) {
+      assert.deepEqual(row(rows[url]), expected, `${name} ${url}`);
+    }
+  }
+} catch (error) {
+  // The dev server above left Angular's uncaught-error handler installed, so set the code here.
+  process.exitCode = 1;
+
+  throw error;
+} finally {
+  await siblingBrowser.close();
+}
+
+console.log("outlets proof: named outlets beside sibling pathless groups passed");

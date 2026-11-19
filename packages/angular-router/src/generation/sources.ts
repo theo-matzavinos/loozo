@@ -48,6 +48,11 @@ export interface Declaration {
   full: boolean;
   // An empty leaf at a named branch's anchor: prefix-matched, its canMatch adapters gated.
   anchorLeaf: boolean;
+  // A sibling pathless group: an empty-path route with retained children and an empty-path
+  // sibling. It ends no URL itself; its descendants' claims decide which URLs reach it.
+  group: boolean;
+  // A group holding a catchall claim, emitted after its table's other records.
+  fallback: boolean;
 }
 
 export interface Branch {
@@ -97,6 +102,35 @@ export interface Sources {
   filesystem: boolean;
   // Launch mode: generation adds Launch's server aggregate and copy data.
   launch: boolean;
+}
+
+/**
+ * The declarations through which URLs reach a group: its retained descendants in its own outlet
+ * group, other groups excluded, in tree order. Named branch roots and their members sit in
+ * another outlet group, and redirect sources in the root table, so neither is reached through it.
+ */
+export function groupClaims(group: Declaration): Declaration[] {
+  const claims: Declaration[] = [];
+
+  function visit(declaration: Declaration): void {
+    if (!declaration.retained || declaration.outlet !== undefined) {
+      return;
+    }
+
+    if (!declaration.group) {
+      claims.push(declaration);
+    }
+
+    for (const child of declaration.children) {
+      visit(child);
+    }
+  }
+
+  for (const child of group.children) {
+    visit(child);
+  }
+
+  return claims;
 }
 
 export function fail(node: ts.Node, message: string): never {
@@ -1009,6 +1043,8 @@ export async function discover(
       retained: true,
       full: false,
       anchorLeaf: false,
+      group: false,
+      fallback: false,
     };
 
     declarations.push(declaration);
@@ -1336,6 +1372,37 @@ export async function discover(
   for (const declaration of declarations) {
     if (!declaration.parent) {
       retain(declaration);
+    }
+  }
+
+  // Group-ness is structural and final once retention is: translated views copy both flags.
+  function pathless(declaration: Declaration): boolean {
+    return declaration.retained && !declaration.target && declaration.segments.length === 0;
+  }
+
+  for (const declaration of declarations) {
+    if (!pathless(declaration) || !declaration.children.some((child) => child.retained)) {
+      continue;
+    }
+
+    for (const other of declarations) {
+      if (other !== declaration && other.parent === declaration.parent && pathless(other)) {
+        declaration.group = true;
+
+        break;
+      }
+    }
+  }
+
+  for (const declaration of declarations) {
+    if (!declaration.group) {
+      continue;
+    }
+
+    for (const claim of groupClaims(declaration)) {
+      if (claim.effective.at(-1)?.kind === "catchall") {
+        declaration.fallback = true;
+      }
     }
   }
 
