@@ -8,6 +8,8 @@ import {
   afterNextRender,
   inject,
 } from "@angular/core";
+import { UiRadioGroup } from "@loozo/ui-sdk-angular/radio";
+import { UiSelect } from "@loozo/ui-sdk-angular/select";
 
 /**
  * The observer the browser suite installs before main.js runs (tests/browser/observer.ts).
@@ -19,6 +21,15 @@ type Probe = {
   reach(instance: string, type: string): void;
   early(instance: string, event: KeyboardEvent): void;
   dispatched(instance: string, event: KeyboardEvent): void;
+  earlyFocus(instance: string, details: EarlyFocusDetails): void;
+};
+
+/** What AppEarlyFocus saw in the creation/update gap. */
+export type EarlyFocusDetails = {
+  focusUnchanged: boolean;
+  focusouts: number;
+  /** What the root's `focus()` threw, if anything. */
+  thrown: string | null;
 };
 
 declare global {
@@ -97,5 +108,59 @@ export class AppTriggerProbe {
 
   protected reach(type: string): void {
     globalThis.__uiSdkProbe?.reach(this.#instance, type);
+  }
+}
+
+/**
+ * Fixture-only, on a RadioGroup or Select root, with `?earlyFocus=1`: in a microtask after the
+ * block's creation pass, before its update pass sets any input, calls the root's `focus()` and
+ * records whether focus moved. With `appEarlyFocusSequence`, a space-separated list of test ids,
+ * it then focuses each in turn, counting the `focusout`s the package's listeners receive. It
+ * reads no Angular input: none is set yet.
+ */
+@Directive({ selector: "[appEarlyFocus]" })
+export class AppEarlyFocus {
+  readonly #instance = inject(new HostAttributeToken("appEarlyFocus"));
+  readonly #sequence = inject(new HostAttributeToken("appEarlyFocusSequence"), { optional: true });
+  readonly #root =
+    inject(UiRadioGroup, { self: true, optional: true }) ??
+    inject(UiSelect, { self: true, optional: true });
+
+  constructor() {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return;
+    }
+
+    if (!new URLSearchParams(location.search).has("earlyFocus")) {
+      return;
+    }
+
+    queueMicrotask(() => this.#run());
+  }
+
+  #run(): void {
+    const before = document.activeElement;
+    let thrown: string | null = null;
+
+    try {
+      this.#root!.focus();
+    } catch (error) {
+      thrown = String(error);
+    }
+
+    const focusUnchanged = document.activeElement === before;
+    let focusouts = 0;
+    const count = () => {
+      focusouts += 1;
+    };
+
+    document.addEventListener("focusout", count, { capture: true });
+
+    for (const testId of this.#sequence?.split(" ") ?? []) {
+      document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!.focus();
+    }
+
+    document.removeEventListener("focusout", count, { capture: true });
+    globalThis.__uiSdkProbe?.earlyFocus(this.#instance, { focusUnchanged, focusouts, thrown });
   }
 }

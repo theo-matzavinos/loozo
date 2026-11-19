@@ -38,6 +38,18 @@ export type Early = Stamp & {
   expanded: string | null;
 };
 
+export type EarlyFocus = Stamp & {
+  instance: string;
+  bounds: number;
+  ready: boolean;
+  /** `document.activeElement` was the same before and after the root's `focus()`. */
+  focusUnchanged: boolean;
+  /** Document `focusout`s while the probe moved focus around the controls. */
+  focusouts: number;
+  /** What the root's `focus()` threw, if anything. */
+  thrown: string | null;
+};
+
 export type Evidence = {
   initial: {
     instance: string;
@@ -51,6 +63,7 @@ export type Evidence = {
   reaches: Reach[];
   early: Early[];
   dispatched: Early[];
+  earlyFocus: EarlyFocus[];
   earlyPrevented: boolean | null;
   /** Reads of the early event's `defaultPrevented` from outside the suite: see `early` below. */
   earlyDelivery: { defaultPreventedReads: number };
@@ -64,6 +77,10 @@ export type Probe = {
   reach(instance: string, type: string): void;
   early(instance: string, event: KeyboardEvent): void;
   dispatched(instance: string, event: KeyboardEvent): void;
+  earlyFocus(
+    instance: string,
+    details: { focusUnchanged: boolean; focusouts: number; thrown: string | null },
+  ): void;
   /** Ends a window with no input of its own, like the order Select's, once its hydration settled. */
   settle(instance: string): void;
 };
@@ -111,6 +128,7 @@ export function observeSlots(): void {
     reaches: [],
     early: [],
     dispatched: [],
+    earlyFocus: [],
     earlyPrevented: null,
     earlyDelivery: { defaultPreventedReads: 0 },
     firstTrustedInput: null,
@@ -340,6 +358,19 @@ export function observeSlots(): void {
       if (window?.start && !window.end) {
         window.end = { ...stamp(), reason: "settled" };
       }
+    },
+    earlyFocus(
+      instance: string,
+      details: { focusUnchanged: boolean; focusouts: number; thrown: string | null },
+    ) {
+      flush();
+      evidence.earlyFocus.push({
+        ...stamp(),
+        instance,
+        bounds: boundCount(instance),
+        ready: !!evidence.instances[instance]?.ready,
+        ...details,
+      });
     },
     dispatched(instance: string, event: KeyboardEvent) {
       flush();

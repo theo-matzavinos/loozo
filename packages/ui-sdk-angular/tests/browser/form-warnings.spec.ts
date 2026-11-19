@@ -1,8 +1,9 @@
-// Decision W: a named control without its input warns once in development.
+// Decision W, narrowed by D8: a static name without its input warns once in development; a bound
+// `[name]`, like the one Signal Forms writes, doesn't.
 import { expect, test } from "@playwright/test";
 import { captureMessages } from "./harness";
 
-test("a named control without its input warns once; one with it, or unnamed, doesn't", async ({
+test("a statically named control without its input warns once; one with it, unnamed or with a bound name doesn't", async ({
   page,
 }) => {
   const messages = captureMessages(page);

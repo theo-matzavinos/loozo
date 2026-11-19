@@ -20,29 +20,33 @@ import { UiCheckbox, UiCheckboxIndicator, UiCheckboxInput } from "@loozo/ui-sdk-
 
 <!-- refuse a change: the request comes first and can cancel -->
 <button uiCheckbox (checkedChangeRequest)="$event.details.cancel()" aria-label="Locked"></button>
+
+<!-- bound to a signal form field, in place of [(checked)] -->
+<button uiCheckbox [formField]="f.terms" aria-label="Terms"></button>
 ```
 
 ## `uiCheckbox`
 
 `exportAs: "uiCheckbox"`. Put it on a `<button>`.
 
-| Input            | Type                                      | Core option                                                      |
-| ---------------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| `checked`        | `boolean \| "indeterminate" \| undefined` | Controls it while set. Leave it unset for core to own it.        |
-| `defaultChecked` | `boolean \| "indeterminate" \| undefined` | Checked at first, when uncontrolled; what a form reset restores. |
-| `disabled`       | `boolean \| undefined`                    | Not focusable, not changed, not submitted.                       |
-| `readOnly`       | `boolean \| undefined`                    | Focusable and submitted, but presses don't change it.            |
-| `required`       | `boolean \| undefined`                    | Blocks form submission until it's checked.                       |
-| `name`           | `string \| undefined`                     | The name it submits under, through its input.                    |
-| `value`          | `string \| undefined`                     | What it submits while checked; `"on"` when unset.                |
-| `form`           | `string \| undefined`                     | The id of the form it belongs to, when it isn't inside it.       |
-| `controller`     | `CheckboxController \| undefined`         | From core's `createCheckboxController()`.                        |
-| `debug`          | `boolean \| undefined`                    | Logs state changes, in development builds.                       |
+| Input            | Type                                      | Core option                                                          |
+| ---------------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| `checked`        | `boolean \| "indeterminate" \| undefined` | Controls it while set. Leave it unset for core to own it.            |
+| `defaultChecked` | `boolean \| "indeterminate" \| undefined` | Checked at first, when uncontrolled; what a form reset restores.     |
+| `disabled`       | `boolean \| undefined`                    | Not focusable, not changed, not submitted.                           |
+| `readonly`       | `boolean \| undefined`                    | Core's `readOnly`: focusable and submitted, presses don't change it. |
+| `required`       | `boolean \| undefined`                    | Blocks form submission until it's checked.                           |
+| `name`           | `string \| undefined`                     | The name it submits under, through its input.                        |
+| `value`          | `string \| undefined`                     | What it submits while checked; `"on"` when unset.                    |
+| `form`           | `string \| undefined`                     | The id of the form it belongs to, when it isn't inside it.           |
+| `controller`     | `CheckboxController \| undefined`         | From core's `createCheckboxController()`.                            |
+| `debug`          | `boolean \| undefined`                    | Logs state changes, in development builds.                           |
 
-| Output                 | Emits                                                                      |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `checkedChangeRequest` | `{ value, details }` first; `details.cancel()` refuses the press or reset. |
-| `checkedChange`        | The new `checked` (`CheckedState`), unless a request listener canceled it. |
+| Output                 | Emits                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `checkedChangeRequest` | `{ value, details }` first; `details.cancel()` refuses the press or reset.           |
+| `checkedChange`        | The new `checked` (`CheckedState`), unless a request listener canceled it.           |
+| `touch`                | Nothing (`void`), when focus leaves the button; signal forms mark the field touched. |
 
 `state: Signal<CheckboxState>` is `{ checked, indeterminate, disabled, readOnly, required }`; `checked` is `false` while indeterminate.
 
@@ -62,17 +66,22 @@ import { UiCheckbox, UiCheckboxIndicator, UiCheckboxInput } from "@loozo/ui-sdk-
 - **Refuse a change with `checkedChangeRequest`.** Not writing a controlled `checked` back isn't a cancellation, and core warns in development after a second.
 - **Bind `[disabled]`, `[required]` and `[name]`** rather than static attributes: a static attribute also stays on the `<button>` as plain HTML. That's harmless, since a `type="button"` never submits, but it isn't core's.
 - **Name it** with a `<label>` around the button, a `<label for>` with the button's `id`, or `aria-label`.
+- **Under `[formField]`**, bind a `boolean | "indeterminate"` field if anything can make it indeterminate: a `boolean` field compiles, and a press never produces `"indeterminate"`, but your own controller's `setChecked("indeterminate")` puts the string in the field. `"mixed"` is ARIA's word, not a value; it becomes `true`. See [signal forms](../README.md#signal-forms).
 - Checkbox groups and parent checkboxes aren't part of this release; `group` is core's internal option for them, and `parent` isn't an input.
 
 ## Composing it
 
-Through `hostDirectives`; a template reference to the host directive's `exportAs` still names it for the input:
+Through `hostDirectives`; a template reference to the host directive's `exportAs` still names it for the input. To bind it with `[formField]`, expose what the field writes, `disabled`, `readonly` and `required` too, and `touch`; Angular focuses the host `<button>` itself:
 
 ```ts
 @Directive({
   selector: "button[appCheckbox]",
   hostDirectives: [
-    { directive: UiCheckbox, inputs: ["checked", "name"], outputs: ["checkedChange"] },
+    {
+      directive: UiCheckbox,
+      inputs: ["checked", "name", "disabled", "readonly", "required"],
+      outputs: ["checkedChange", "touch"],
+    },
   ],
   host: { "[class.app-checkbox-on]": "checkbox.state().checked" },
 })

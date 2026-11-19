@@ -48,6 +48,7 @@ const classes = { internal: [], fixed: [], excluded: [] } as const;
   exportAs: "uiSwitch",
   host: {
     "[attr.data-ui-sdk-id]": "instanceId",
+    "(blur)": "blurred()",
     "(keydown)": 'slot.dispatch("keydown", $event)',
     "(keyup)": 'slot.dispatch("keyup", $event)',
     "(click)": 'slot.dispatch("click", $event)',
@@ -60,8 +61,8 @@ export class UiSwitch implements OnInit {
   readonly defaultChecked = input(undefined, { transform: optionalBoolean });
   /** Disables it like a native control: not focusable, not changed, not submitted. */
   readonly disabled = input(undefined, { transform: optionalBoolean });
-  /** Keeps it focusable and submitted, but stops changes. */
-  readonly readOnly = input(undefined, { transform: optionalBoolean });
+  /** Keeps it focusable and submitted, but stops changes. Written `readonly`, like a native input's. */
+  readonly readOnly = input(undefined, { alias: "readonly", transform: optionalBoolean });
   /** Blocks form submission until it's on. */
   readonly required = input(undefined, { transform: optionalBoolean });
   /** The name it submits under, through its input. Without one, it submits nothing. */
@@ -82,6 +83,11 @@ export class UiSwitch implements OnInit {
   > = output<UiSdkEvent<NonNullable<SwitchOptions["onCheckedChange"]>>>();
   /** `checked` changed, after no `checkedChangeRequest` listener canceled it. */
   readonly checkedChange = output<boolean>();
+  /**
+   * Focus left the button, so the user is done with it. Signal Forms' `[formField]` marks the field
+   * touched on it. A blur before Angular set its inputs doesn't emit.
+   */
+  readonly touch = output<void>();
 
   /** The core instance; the part directives read it. Not public API. */
   readonly ɵroot = ɵinjectRoot(
@@ -115,6 +121,14 @@ export class UiSwitch implements OnInit {
 
   /** Whether it's on, disabled, read-only and required. */
   readonly state: Signal<SwitchState> = this.slot.state;
+
+  protected blurred(): void {
+    if (!this.ɵroot.isReady()) {
+      return;
+    }
+
+    this.touch.emit();
+  }
 
   ngOnInit(): void {
     this.ɵroot.ready();

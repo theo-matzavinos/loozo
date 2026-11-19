@@ -1,6 +1,7 @@
 import { isPlatformBrowser } from "@angular/common";
 import {
   DestroyRef,
+  HostAttributeToken,
   PLATFORM_ID,
   type Signal,
   afterNextRender,
@@ -89,12 +90,14 @@ export class ɵUiSdkRoot<P extends Primitive> {
       (typeof ngDevMode === "undefined" || ngDevMode) &&
       isPlatformBrowser(inject(PLATFORM_ID))
     ) {
+      // Only an authored `name="…"` attribute warns: a bound `[name]`, like the one Signal
+      // Forms' `[formField]` writes, may submit through JavaScript and need no input.
+      const name = inject(new HostAttributeToken("name"), { optional: true });
+
       // Every part of the root's render pass has registered by then, including inputs that
       // resolve their root on their first read.
       afterNextRender(() => {
-        const name = (untracked(this.options) as { name?: string }).name;
-
-        if (name === undefined || this.#has(formInput.slot)) {
+        if (name === null || this.#has(formInput.slot)) {
           return;
         }
 
@@ -139,6 +142,15 @@ export class ɵUiSdkRoot<P extends Primitive> {
   /** Marks the root's inputs as set. The root directive calls it from `ngOnInit`. */
   ready(): void {
     this.#ready = true;
+  }
+
+  /**
+   * Whether `ready()` ran, so Angular has set the inputs on the root's element and `instance()`
+   * won't throw. A listener that runs outside its slot's `dispatch`, like a root's `touch`
+   * listeners, checks it before it reads anything.
+   */
+  isReady(): boolean {
+    return this.#ready;
   }
 
   #has(slotName: string): boolean {

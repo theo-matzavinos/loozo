@@ -271,6 +271,9 @@ function boundNames(directive, schema) {
 
 const directives = await Promise.all(files.map(readDirective));
 
+/** The host listeners a root may declare for its `touch` output, with their handler calls. */
+const touchListeners = { "(blur)": "blurred()", "(focusout)": "focusOut($event)" };
+
 for (const directive of directives) {
   test(`${directive.className}: host listeners match its events and cover core's handlers`, async () => {
     const primitive = await loadPrimitive(directive);
@@ -281,6 +284,11 @@ for (const directive of directives) {
       const match = /^\((\w+)\)$/.exec(name);
 
       if (!match) {
+        continue;
+      }
+
+      // A root's `touch` listener reads focus, not a core event, so it doesn't reach the slot.
+      if (directive.outputs.has("touch") && touchListeners[name] === expression) {
         continue;
       }
 

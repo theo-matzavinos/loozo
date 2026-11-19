@@ -1,8 +1,10 @@
 import {
   Directive,
+  ElementRef,
   type InputSignal,
   type OnInit,
   type Signal,
+  inject,
   input,
   output,
 } from "@angular/core";
@@ -42,7 +44,7 @@ const classes = { internal: [], fixed: [], excluded: [] } as const;
 @Directive({
   selector: "[uiRadioGroup]",
   exportAs: "uiRadioGroup",
-  host: { "[attr.data-ui-sdk-id]": "instanceId" },
+  host: { "[attr.data-ui-sdk-id]": "instanceId", "(focusout)": "focusOut($event)" },
 })
 export class UiRadioGroup<T extends string = string> implements OnInit {
   /** The checked radio's value; `null` checks none. Set it to control the group. */
@@ -51,8 +53,8 @@ export class UiRadioGroup<T extends string = string> implements OnInit {
   readonly defaultValue = input<T | null | undefined>(undefined);
   /** Disables every radio like native radios: not focusable, not changed, not submitted. */
   readonly disabled = input(undefined, { transform: optionalBoolean });
-  /** Keeps the radios focusable and submitted, but stops changes. */
-  readonly readOnly = input(undefined, { transform: optionalBoolean });
+  /** Keeps the radios focusable and submitted, but stops changes. Written `readonly`, like a native input's. */
+  readonly readOnly = input(undefined, { alias: "readonly", transform: optionalBoolean });
   /** Blocks form submission until a radio is checked. */
   readonly required = input(undefined, { transform: optionalBoolean });
   /** The name the checked radio submits under, through its input. */
@@ -71,6 +73,12 @@ export class UiRadioGroup<T extends string = string> implements OnInit {
     output<UiSdkEvent<NonNullable<RadioGroupOptions<T>["onValueChange"]>>>();
   /** `value` changed, after no `valueChangeRequest` listener canceled it. */
   readonly valueChange = output<T | null>();
+  /**
+   * Focus left the group, so the user is done with it; an arrow key moving between radios doesn't
+   * count. Signal Forms' `[formField]` marks the field touched on it. Focus leaving before Angular
+   * set its inputs doesn't emit.
+   */
+  readonly touch = output<void>();
 
   /** The core instance; the radio directives read it. Not public API. */
   readonly ɵroot = ɵinjectRoot(
@@ -106,6 +114,35 @@ export class UiRadioGroup<T extends string = string> implements OnInit {
 
   /** The checked value, and whether the group is disabled, read-only and required. */
   readonly state: Signal<RadioGroupState> = this.slot.state;
+
+  readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+
+  /**
+   * Focuses the checked radio, or the first enabled one when none is checked. Signal Forms'
+   * `focusBoundControl()` calls it. Core's focus takes no options, so `options` is ignored. It
+   * takes effect once the radios have rendered; earlier it does nothing.
+   */
+  focus(_options?: FocusOptions): void {
+    if (!this.ɵroot.isReady()) {
+      return;
+    }
+
+    this.ɵroot.instance().api.focus();
+  }
+
+  protected focusOut(event: FocusEvent): void {
+    if (!this.ɵroot.isReady()) {
+      return;
+    }
+
+    const next = event.relatedTarget;
+
+    if (next instanceof Node && this.#element.contains(next)) {
+      return;
+    }
+
+    this.touch.emit();
+  }
 
   ngOnInit(): void {
     this.ɵroot.ready();

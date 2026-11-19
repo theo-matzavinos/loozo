@@ -11,6 +11,10 @@ import { Lifecycle } from "./lifecycle";
 import { OpenOrder } from "./open-order";
 import { Remap } from "./remap";
 import { ReplaceItems } from "./replace-items";
+import { SignalFormsRoute } from "./signal-forms";
+import { SignalFormsComposers } from "./signal-forms-composers";
+import { SignalFormsBoolean, SignalFormsHidden, SignalFormsUndefined } from "./signal-forms-edges";
+import { SignalFormsTypes } from "./signal-forms-types";
 
 export const routes: Routes = [
   { path: "", component: Home },
@@ -25,4 +29,10 @@ export const routes: Routes = [
   { path: "form-controls", component: FormControls },
   { path: "form-warnings", component: FormWarnings },
   { path: "forms-defer", component: FormsDefer },
+  { path: "signal-forms", component: SignalFormsRoute },
+  { path: "signal-forms-composers", component: SignalFormsComposers },
+  { path: "signal-forms-undefined", component: SignalFormsUndefined },
+  { path: "signal-forms-boolean", component: SignalFormsBoolean },
+  { path: "signal-forms-hidden", component: SignalFormsHidden },
+  { path: "signal-forms-types", component: SignalFormsTypes },
 ];

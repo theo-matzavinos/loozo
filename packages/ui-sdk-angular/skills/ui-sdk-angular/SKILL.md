@@ -31,7 +31,7 @@ description: Builds Angular interfaces with ui-sdk's headless components through
   </div>
   ```
 
-- **Inputs are core's options and props, under core's names.** An unset input is "not passed". A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component while set; `null` is a value (a Select with `null` selects nothing and stays controlled). Never switch a key between set and `undefined`.
+- **Inputs are core's options and props, under core's names**, except core's `readOnly`, written `[readonly]` (or a static `readonly`) on Checkbox, Switch, RadioGroup and Select. An unset input is "not passed". A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component while set; `null` is a value (a Select with `null` selects nothing and stays controlled). Never switch a key between set and `undefined`.
 - **Two-way binding**: `[(pressed)]`, `[(checked)]`, `[(value)]`, `[(open)]` bind the input and `<key>Change`.
 - **Refuse a change** in `(<key>ChangeRequest)`, which emits `{ value, details }` before `<key>Change`: call `details.cancel()`. Not writing a controlled value back isn't a cancellation.
 - **Read state** from `state()` on the part directive (`exportAs` is the selector name), from another element or a descendant. Never from a binding on the part's own element: that throws `UiSdkError`.
@@ -68,7 +68,17 @@ export class AppToggle {
 - A Select rendered open (`[defaultOpen]="true"`) is unpositioned on the server; core positions it and moves its name from `aria-labelledby` to `aria-label` when the trigger binds. Start it closed when the server render must be final.
 - Give separate Angular applications on one page distinct `APP_ID`s.
 - Server-rendered hidden inputs submit the server's values before hydration. A control inside `<fieldset disabled>` gets `aria-disabled` and `data-disabled` only when it binds; style it by `:disabled` too.
-- Angular Forms (`ControlValueAccessor`, signal forms) aren't supported yet: bind `[(checked)]` or `[(value)]` to a signal. Select `multiple` isn't supported.
+- Select `multiple` isn't supported.
+
+## Signal forms
+
+- **`[formField]` goes on the control's root**: `<button uiCheckbox [formField]="f.terms">`, `uiSwitch`, `<div uiRadioGroup [formField]="f.size">`, `<div uiSelect [formField]="f.country">`. Never on its hidden input, and never beside `[(checked)]`, `[(value)]`, `name`, `disabled`, `readonly` or `required`: the field writes those.
+- **Start every field defined**: booleans for Checkbox and Switch, a value or `null` for RadioGroup and Select. Never `undefined`, and no optional fields.
+- **Add the hidden input only for native submission**, and give `form()` a `name` then. Checkbox and Switch submit `"on"` under `[formField]`.
+- **Render validity yourself** on the focusable element (`[attr.aria-invalid]="f.x().invalid()"` on the button, the group's element or the Select trigger); the roots don't take `invalid` or `errors`.
+- **Reset with `f().reset(value)`**, not a native reset button, to restore the value and clear touched and dirty.
+- **Focus an invalid field** with `field().focusBoundControl()` from an event, like `submit()`'s `onInvalid`; a `hostDirectives` composer of RadioGroup or Select forwards `focus()` and exposes `touch`.
+- `ControlValueAccessor`, template-driven and reactive forms aren't supported.
 
 ## Test it
 
