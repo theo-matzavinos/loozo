@@ -14,6 +14,9 @@ export interface Localization {
   polyfills: readonly string[];
 }
 
+/** Each non-source locale's text for every route word: its translation, or the source text. */
+export type LocaleWords = ReadonlyMap<string, ReadonlyMap<string, string>>;
+
 const meaning = "URL path segment";
 const description =
   'One segment of page URLs, without "/". Changing it changes links and bookmarks.';
@@ -261,8 +264,13 @@ function translatedView(sources: Sources, text: (word: string) => string): Sourc
  * collision and overlap rules as the canonical one, and no catchall may shadow a route that it
  * doesn't shadow in the canonical tree. A word a catalog doesn't translate stands as its source
  * text, as Angular's inliner ships it; completeness is Angular's to enforce.
+ *
+ * @returns Each configured locale's text for every route word, by locale code.
  */
-export async function validateLocales(sources: Sources, localization: Localization): Promise<void> {
+export async function validateLocales(
+  sources: Sources,
+  localization: Localization,
+): Promise<LocaleWords> {
   if (!localization.polyfills.includes(init)) {
     throw new Error(
       `translateSegments needs the ${init} polyfill: add it to the build's polyfills (ng add @angular/localize does)`,
@@ -280,6 +288,8 @@ export async function validateLocales(sources: Sources, localization: Localizati
       }
     }
   }
+
+  const result = new Map<string, ReadonlyMap<string, string>>();
 
   // The source locale's text is the canonical text, which the canonical check already covered.
   for (const locale of localization.locales) {
@@ -316,6 +326,8 @@ export async function validateLocales(sources: Sources, localization: Localizati
       translated.set(word, text);
     }
 
+    result.set(locale.code, translated);
+
     try {
       const view = translatedView(sources, (word) => translated.get(word)!);
 
@@ -337,4 +349,6 @@ export async function validateLocales(sources: Sources, localization: Localizati
       throw error;
     }
   }
+
+  return result;
 }

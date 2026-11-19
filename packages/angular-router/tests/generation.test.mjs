@@ -5158,10 +5158,25 @@ test("translated segments: explicit and filesystem mode emit the same messages; 
 
   const before = await outputSnapshot(filesystem);
 
+  // The returned words are the localeUrls table's input: a catalog edit changes them alone.
+  assert.deepEqual(
+    await filesystem.translate({ check: true }),
+    new Map([["de", new Map([["products", "products"]])]]),
+  );
+
   await filesystem.catalog(xliff1([["route.segment.products", "produkte"]]));
-  await filesystem.translate();
-  await filesystem.translate({ check: true });
+  assert.deepEqual(
+    await filesystem.translate(),
+    new Map([["de", new Map([["products", "produkte"]])]]),
+  );
+  assert.deepEqual(
+    await filesystem.translate({ check: true }),
+    new Map([["de", new Map([["products", "produkte"]])]]),
+  );
   assert.deepEqual(await outputSnapshot(filesystem), before);
+
+  // Without translateSegments, generation reads no catalog and returns no words.
+  assert.equal(await explicit.generate({ autoDefineRoutes: false }), undefined);
 });
 
 test("translated segments: the copy diagnostic for a missing $localize type names the fix", async () => {

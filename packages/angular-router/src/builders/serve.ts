@@ -4,10 +4,19 @@ import { Observable } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
 import { readFile } from "node:fs/promises";
 import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
+import type { LocaleWords } from "../generation/localization.js";
 import { workspacePaths, markers, ownedBy, colocatedFiles } from "../generation/files.js";
 import { CompilerState } from "../generation/compiler.js";
 import { AnchorState } from "../generation/anchor.js";
-import { buildTargetOptions, message, type JsonObject } from "./options.js";
+import {
+  changedTableWarning,
+  checkDefine,
+  localeTable,
+  localeTableWarnings,
+  withLocaleTable,
+  type LocaleTable,
+} from "./locale-table.js";
+import { buildTargetOptions, message, projectI18n, type JsonObject } from "./options.js";
 
 // Polling catches what Angular 22.2's native watcher (@parcel/watcher) misses: edits to files
 // inside a renamed directory, which otherwise leave the dev server serving stale output.
@@ -31,6 +40,12 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       let cleanup: Promise<void> | undefined;
       // Resolved from the build target before anything reads it.
       let router: GenerationOptions;
+      // The locale table of a pass, from the build target's options and that pass's words.
+      let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
+      // The table the dev server started with: its define is read once, at its start.
+      let started: LocaleTable | undefined;
+      // Each later table that differed from it, by JSON, so each is warned about once.
+      const warned = new Set<string>();
       const state: GenerationState = {
         discovery: new CompilerState(),
         overlay: new CompilerState(),
@@ -44,9 +59,9 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       }
 
       // A failed or stopped pass may leave partial state; the next pass starts fresh.
-      async function regenerate(): Promise<void> {
+      async function regenerate(): Promise<LocaleWords | undefined> {
         try {
-          await generate(context.workspaceRoot, router, () => stopped, state);
+          return await generate(context.workspaceRoot, router, () => stopped, state);
         } catch (error) {
           clear();
 
@@ -78,10 +93,29 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
 
       context.addTeardown(stop);
 
+      // A later pass whose table differs from the started one: the running dev server keeps the
+      // started table, so the developer learns to restart it.
+      function compareTable(words: LocaleWords | undefined): void {
+        const current = tableOf(words);
+
+        if (!started || !current) {
+          return;
+        }
+
+        const json = JSON.stringify(current);
+
+        if (json === JSON.stringify(started) || warned.has(json)) {
+          return;
+        }
+
+        warned.add(json);
+        context.logger.warn(changedTableWarning(started, current));
+      }
+
       // Later passes log their failures and keep serving.
       function startPass(): void {
         regeneration = "running";
-        pass = regenerate().catch((error) => context.logger.error(message(error)));
+        pass = regenerate().then(compareTable, (error) => context.logger.error(message(error)));
         void pass.then(passEnded);
       }
 
@@ -139,7 +173,30 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         // Architect already validated the dev-server options against schemas/serve.json, Angular's
         // dev-server schema with this poll. The build target is validated before the watcher and
         // generation too, so invalid options never write.
-        router = await buildTargetOptions(context, options.buildTarget);
+        checkDefine(devServer.define);
+
+        const target = await buildTargetOptions(context, options.buildTarget);
+
+        router = target.router;
+
+        if (stopped) {
+          return;
+        }
+
+        const { official } = target;
+
+        if (Array.isArray(official.localize) && official.localize.length === 1) {
+          const i18n = await projectI18n(context, target.project);
+
+          tableOf = (words) =>
+            localeTable({
+              i18n,
+              baseHref: official.baseHref,
+              localize: official.localize,
+              served: true,
+              words,
+            });
+        }
 
         if (stopped) {
           return;
@@ -195,11 +252,12 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         regeneration = "running";
 
         const initial = regenerate();
+        let words: LocaleWords | undefined;
 
         pass = initial;
 
         try {
-          await initial;
+          words = await initial;
         } catch (error) {
           // The dev server never starts on a failed initial generation; report it as a build failure.
           context.logger.error(message(error));
@@ -214,10 +272,20 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
+        // Before a queued pass can compare its table with it.
+        started = tableOf(words);
         passEnded();
 
         if (stopped) {
           return;
+        }
+
+        if (started) {
+          for (const warning of localeTableWarnings(started)) {
+            context.logger.warn(warning);
+          }
+
+          devServer.define = withLocaleTable(devServer.define, started);
         }
 
         const acquisition = context.scheduleBuilder(devServerBuilder, devServer, {

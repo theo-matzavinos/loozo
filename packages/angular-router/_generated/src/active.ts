@@ -9,7 +9,15 @@ import {
   type WritableSignal,
 } from "@angular/core";
 import { NavigationEnd, Router, type ActivatedRoute, type Route } from "@angular/router";
-import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
+import {
+  codecFallback,
+  destinationRecord,
+  localeUrls,
+  type AnyRoute,
+  type Destination,
+  type LocaleUrl,
+  type UrlValues,
+} from "@loozo/angular-router/_core";
 import { injectNavigationBase } from "./base.js";
 import { committedChain } from "./committed.js";
 import { observeRecord, seededView, type RouteView } from "./handle.js";
@@ -49,6 +57,12 @@ interface ActiveBase<Types extends RouteTypeMap> {
   contains(destination: Destination<any, keyof Types & string>): boolean;
   /** Active generated routes, top-level first, ending with this one. */
   readonly chain: readonly ActiveRoute<Types>[];
+  /**
+   * This page in every locale of a localized build, as `localeUrls` gives it for this
+   * route's current params and search: search values equal to their fallback and
+   * undeclared query keys left out, no fragment. Empty without a locale table.
+   */
+  readonly localeUrls: Signal<readonly LocaleUrl[]>;
 }
 
 /** An active route narrowed by is(): that declaration's handle, with its extension's members. */
@@ -75,6 +89,7 @@ interface ActiveEntryHandle extends Handle<AnyRoute, Destination<AnyRoute>> {
   is(destination: unknown): boolean;
   contains(destination: unknown): boolean;
   readonly chain: readonly ActiveEntryHandle[];
+  readonly localeUrls: Signal<readonly LocaleUrl[]>;
 }
 
 interface Entry {
@@ -91,6 +106,49 @@ interface SeededEntry {
   readonly source: WritableSignal<RouteView>;
   /** The entry's release list, which adoption adds the live record's release to. */
   readonly releases: (() => void)[];
+}
+
+/**
+ * The URL values of a page as `localeUrls` takes them: its current params and search, without
+ * the search values that equal their fallback, which a missing key reads as anyway, and without
+ * a fragment.
+ */
+function currentValues(destination: Destination<AnyRoute>, view: RouteView): UrlValues<AnyRoute> {
+  const { url } = destinationRecord(destination);
+  const values: Record<string, unknown> = {};
+
+  if (Object.keys(url.params).length > 0) {
+    values.params = view.params();
+  }
+
+  const keys = Object.keys(url.search);
+
+  if (keys.length === 0) {
+    return values as unknown as UrlValues<AnyRoute>;
+  }
+
+  const read = view.search();
+  // Null-prototype, as the parsed search is: a declared `__proto__` key stays an own entry.
+  const search: Record<string, unknown> = Object.create(null);
+
+  for (const key of keys) {
+    if (!Object.hasOwn(read, key)) {
+      continue;
+    }
+
+    const value = read[key];
+    const fallback = codecFallback(url.search[key]);
+
+    if (fallback && Object.is(value, fallback.value)) {
+      continue;
+    }
+
+    search[key] = value;
+  }
+
+  values.search = search;
+
+  return values as unknown as UrlValues<AnyRoute>;
 }
 
 /**
@@ -171,6 +229,7 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
         return destinations.includes(destination as Destination<AnyRoute>);
       },
       chain,
+      localeUrls: computed(() => localeUrls(own, currentValues(own, view))),
     };
 
     // After the spread: the base holds plain values only, and the members' getters must

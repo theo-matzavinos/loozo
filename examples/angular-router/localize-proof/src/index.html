@@ -50,14 +50,15 @@
   <body>
     <proof-app></proof-app>
     <script>
-      // Proof probes: the server-rendered product node and a token for this document, read
-      // after hydration and client navigation.
+      // Proof probes: the server-rendered product node and language links, and a token for this
+      // document, read after hydration and client navigation.
       window.proofErrors = [];
       window.addEventListener("error", (event) => window.proofErrors.push(event.message));
       window.addEventListener("unhandledrejection", (event) =>
         window.proofErrors.push(String(event.reason)),
       );
       window.proofServerProduct = document.getElementById("product");
+      window.proofServerSwitcher = [...document.querySelectorAll("nav[aria-label='Language'] a")];
       window.proofDocument = crypto.randomUUID();
     </script>
   </body>

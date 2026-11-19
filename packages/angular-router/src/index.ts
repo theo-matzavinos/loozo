@@ -14,6 +14,7 @@
 export {
   defineRoute,
   createUrl,
+  localeUrls,
   serverRoutePath,
   stringParam,
   numberParam,
@@ -26,6 +27,7 @@ export type {
   Route,
   ParamCodec,
   Destination,
+  LocaleUrl,
   ParamsOf,
   SearchOf,
   TargetOf,

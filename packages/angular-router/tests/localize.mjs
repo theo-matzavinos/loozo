@@ -2,7 +2,8 @@
 // `localize: true` build of examples/angular-router/localize-proof: committed outputs, per-locale
 // bundles and prerender paths, raw server rendering across locales in one process, Chromium
 // hydration and a lazy children table, extraction, the strict build → extract → translate flow,
-// and ng serve after bad catalog edits and their repair.
+// and ng serve after bad catalog edits and their repair. Each step also proves the language
+// switcher and hreflang alternates from localeUrls and the builders' locale table.
 //
 // Usage: node tests/localize.mjs /absolute/owned/absent-evidence-directory
 import assert from "node:assert/strict";
@@ -33,6 +34,7 @@ const ng = join(packageDirectory, "node_modules/@angular/cli/bin/ng.js");
 const productId = "src/routes/products/$productId/route.ts";
 const membersId = "src/routes/teams/$teamId/members/route.ts";
 const meaning = "URL path segment";
+const site = "https://example.test";
 
 async function save(name, value) {
   await writeFile(join(evidence, name), JSON.stringify(value, null, 2) + "\n");
@@ -229,6 +231,20 @@ function inspect(body) {
     membersSelf: href("members-self"),
     offers: document.querySelector("#offers") !== null,
     missing: document.querySelector("#missing") !== null,
+    productsPage: text("products-page"),
+    // The language switcher: [locale, href, aria-current] per link.
+    switcher: [...document.querySelectorAll("nav[aria-label='Language'] a")].map((link) => [
+      link.getAttribute("hreflang"),
+      link.getAttribute("href"),
+      link.getAttribute("aria-current"),
+    ]),
+    // The snippet's alternates, and how many alternate links the document has in all.
+    alternates: [...document.querySelectorAll("link[data-hreflang]")].map((link) => [
+      link.getAttribute("hreflang"),
+      link.getAttribute("href"),
+    ]),
+    alternateLinks: document.querySelectorAll("link[rel='alternate']").length,
+    lazyLocaleUrls: document.querySelector("#members")?.getAttribute("data-locale-urls") ?? null,
   };
 
   window.close();
@@ -287,10 +303,92 @@ function translatedArguments(code, id) {
   return result;
 }
 
+// The locale table objects a bundle holds: the builders' define, inlined by esbuild as an object
+// literal. Minifiers may quote keys and strings with ", ' or a backtick.
+function localeTables(code) {
+  const tables = [];
+  const start = /locales:\[\{code:/g;
+
+  for (const match of code.matchAll(start)) {
+    const open = code.lastIndexOf("{", match.index);
+    let depth = 0;
+    let quote;
+    let end = open;
+
+    for (; end < code.length; end += 1) {
+      const character = code[end];
+
+      if (quote) {
+        if (character === "\\") {
+          end += 1;
+        } else if (character === quote) {
+          quote = undefined;
+        }
+
+        continue;
+      }
+
+      if (character === '"' || character === "'" || character === "`") {
+        quote = character;
+      } else if (character === "{" || character === "[") {
+        depth += 1;
+      } else if (character === "}" || character === "]") {
+        depth -= 1;
+
+        if (depth === 0) {
+          break;
+        }
+      }
+    }
+
+    tables.push(new Function(`return (${code.slice(open, end + 1)});`)());
+  }
+
+  return tables;
+}
+
+// What a page in both locales links to: [en, de] document URLs, the current one marked.
+function expectSwitcher(html, en, de, current, label) {
+  const marks = { en: null, de: null };
+
+  marks[current] = "page";
+  assert.deepEqual(
+    html.switcher,
+    [
+      ["en", en, marks.en],
+      ["de", de, marks.de],
+    ],
+    label,
+  );
+}
+
+// The snippet's three alternates, absolute on the public origin, and no other alternate link.
+function expectAlternates(html, en, de, label) {
+  assert.deepEqual(
+    html.alternates,
+    [
+      ["en", site + en],
+      ["de", site + de],
+      ["x-default", site + en],
+    ],
+    label,
+  );
+  assert.equal(html.alternateLinks, 3, label);
+}
+
+const germanWords = [
+  ["members", "mitglieder"],
+  ["old-products", "alte-produkte"],
+  ["products", "produkte"],
+];
+
 // 1. Committed outputs are current, and the ci configuration builds them.
 const app = await consumer("app");
 const buildLog = await succeeds(app, "build-ci", ["build", "--configuration", "ci"]);
 const dist = join(app, "dist/proof");
+
+// Angular logs a page's render error during prerendering and still passes the build.
+assert.doesNotMatch(buildLog, /^ERROR/m);
 
 // 2. Build output: prerender paths, server route patterns and each locale's segment text.
 const prerendered = JSON.parse(await readFile(join(dist, "prerendered-routes.json"), "utf8"));
@@ -372,6 +470,7 @@ for (const [target, extension] of [
   ]) {
     const productTexts = [];
     const memberFiles = [];
+    const tables = [];
 
     for (const file of await files(join(dist, target, locale))) {
       if (!file.endsWith(extension)) {
@@ -383,6 +482,10 @@ for (const [target, extension] of [
       // Every $localize message was inlined: none keeps its metadata block.
       assert.equal(code.includes(meaning), false, `${file} keeps a $localize message`);
       productTexts.push(...translatedArguments(code, productId));
+
+      for (const table of localeTables(code)) {
+        tables.push({ file: basename(file), table });
+      }
 
       const memberTexts = translatedArguments(code, membersId);
 
@@ -401,11 +504,44 @@ for (const [target, extension] of [
       assert.equal(memberFiles[0], basename(childrenChunk));
     }
 
-    bundleEvidence[`${target}/${locale}`] = { products: productTexts, members: memberFiles };
+    // One shared table per locale bundle set: every configured locale, whatever this build is.
+    assert.equal(tables.length, 1, `${target}/${locale} locale tables`);
+    assert.deepEqual(
+      tables[0].table,
+      {
+        locales: [
+          { code: "en", baseHref: "/en/", words: [] },
+          { code: "de", baseHref: "/de/", words: germanWords },
+        ],
+      },
+      `${target}/${locale}`,
+    );
+
+    bundleEvidence[`${target}/${locale}`] = {
+      products: productTexts,
+      members: memberFiles,
+      tables,
+    };
   }
 }
 
 await save("bundles.json", { browserMain, childrenChunk, ...bundleEvidence });
+
+// Prerendered pages hold the switcher and the alternates before any script runs.
+const prerenderEvidence = {};
+
+for (const [locale, path] of [
+  ["en", "en/products/1"],
+  ["de", "de/produkte/1"],
+]) {
+  const html = inspect(await readFile(join(dist, "browser", path, "index.html"), "utf8"));
+
+  expectSwitcher(html, "/en/products/1", "/de/produkte/1", locale, path);
+  expectAlternates(html, "/en/products/1", "/de/produkte/1", path);
+  prerenderEvidence[path] = html;
+}
+
+await save("prerender.json", prerenderEvidence);
 
 // 3. Raw server rendering: one fresh process, requests across locales in order.
 const port = await freePort();
@@ -440,6 +576,7 @@ try {
   assert.equal(enPrerendered.status, 200);
   assert.equal(enPrerendered.html.productId, "1");
   assert.equal(enPrerendered.html.nextProduct, "/en/products/2");
+  expectSwitcher(enPrerendered.html, "/en/products/1", "/de/produkte/1", "en");
 
   const dePrerendered = await render("/de/produkte/1");
 
@@ -455,6 +592,13 @@ try {
   assert.equal(enMembers.html.membersSelf, "/en/teams/7/members");
   assert.equal(enMembers.html.teamsLink, "/en/teams/7");
   assert.equal(enMembers.html.productsLink, "/en/products");
+  // The lazy entry's switcher and alternates, and the lazy page's own localeUrls call.
+  expectSwitcher(enMembers.html, "/en/teams/7/members", "/de/teams/7/mitglieder", "en");
+  expectAlternates(enMembers.html, "/en/teams/7/members", "/de/teams/7/mitglieder");
+  assert.deepEqual(JSON.parse(enMembers.html.lazyLocaleUrls), [
+    { locale: "en", url: "/en/teams/7/members" },
+    { locale: "de", url: "/de/teams/7/mitglieder" },
+  ]);
 
   // Product 2 isn't prerendered, so these are live server renders.
   const enLive = await render("/en/products/2");
@@ -472,12 +616,34 @@ try {
   assert.equal(deLive.html.nextProduct, "/de/produkte/3");
   assert.equal(deLive.html.createUrl, "/produkte/2");
   assert.equal(deLive.html.productsLink, "/de/produkte");
+  expectSwitcher(deLive.html, "/en/products/2", "/de/produkte/2", "de");
+  expectAlternates(deLive.html, "/en/products/2", "/de/produkte/2");
 
   const deMembers = await render("/de/teams/7/mitglieder");
 
   assert.equal(deMembers.status, 200);
   assert.equal(deMembers.html.members, true);
   assert.equal(deMembers.html.membersSelf, "/de/teams/7/mitglieder");
+  expectSwitcher(deMembers.html, "/en/teams/7/members", "/de/teams/7/mitglieder", "de");
+  expectAlternates(deMembers.html, "/en/teams/7/members", "/de/teams/7/mitglieder");
+  assert.equal(deMembers.html.lazyLocaleUrls, enMembers.html.lazyLocaleUrls);
+
+  // Declared search keys carry over; a value equal to its fallback is the same page without it.
+  const secondPage = await render("/de/produkte?page=2");
+
+  assert.equal(secondPage.status, 200);
+  assert.equal(secondPage.html.productsPage, "2");
+  expectSwitcher(secondPage.html, "/en/products?page=2", "/de/produkte?page=2", "de");
+  expectAlternates(secondPage.html, "/en/products?page=2", "/de/produkte?page=2");
+
+  for (const path of ["/de/produkte", "/de/produkte?page=1"]) {
+    const firstPage = await render(path);
+
+    assert.equal(firstPage.status, 200);
+    assert.equal(firstPage.html.productsPage, "1");
+    expectSwitcher(firstPage.html, "/en/products", "/de/produkte", "de", path);
+    expectAlternates(firstPage.html, "/en/products", "/de/produkte", path);
+  }
 
   // The English word in the German build reaches the root catchall, not the product.
   const wrongWord = await render("/de/products/2");
@@ -485,6 +651,10 @@ try {
   assert.equal(wrongWord.status, 200);
   assert.equal(wrongWord.html.missing, true);
   assert.equal(wrongWord.html.product, false);
+  // The catchall keeps its captured values in every locale, and the snippet emits no alternates.
+  expectSwitcher(wrongWord.html, "/en/products/2", "/de/products/2", "de");
+  assert.deepEqual(wrongWord.html.alternates, []);
+  assert.equal(wrongWord.html.alternateLinks, 0);
 
   const redirect = await render("/de/alte-produkte/1");
 
@@ -517,14 +687,47 @@ try {
   await page.goto(`${origin}/de/produkte/2`);
   await page.waitForSelector("html[data-proof-stable='true']", { state: "attached" });
 
-  const hydrated = await page.evaluate(() => ({
-    retained:
-      window.proofServerProduct !== null &&
-      window.proofServerProduct === document.getElementById("product"),
-    token: window.proofDocument,
-    errors: window.proofErrors,
-    productId: document.getElementById("product-id")?.textContent,
-  }));
+  // The switcher's links and the head's alternates, as the browser has them now.
+  const languageState = () =>
+    page.evaluate(() => ({
+      path: location.pathname,
+      token: window.proofDocument,
+      switcher: [...document.querySelectorAll("nav[aria-label='Language'] a")].map((link) => [
+        link.getAttribute("hreflang"),
+        link.getAttribute("href"),
+        link.getAttribute("aria-current"),
+      ]),
+      alternates: [...document.head.querySelectorAll("link[data-hreflang]")].map((link) => [
+        link.getAttribute("hreflang"),
+        link.getAttribute("href"),
+      ]),
+      alternateLinks: document.head.querySelectorAll("link[rel='alternate']").length,
+      lazyLocaleUrls: document.getElementById("members")?.getAttribute("data-locale-urls") ?? null,
+    }));
+  const waitForSwitcher = (href) =>
+    page.waitForFunction(
+      (expected) => document.getElementById("locale-en")?.getAttribute("href") === expected,
+      href,
+    );
+
+  const hydrated = await page.evaluate(() => {
+    const switcher = [...document.querySelectorAll("nav[aria-label='Language'] a")];
+
+    return {
+      retained:
+        window.proofServerProduct !== null &&
+        window.proofServerProduct === document.getElementById("product"),
+      // With provideActiveRouteHydration() the seeded switcher keeps the server's anchors.
+      switcherRetained:
+        window.proofServerSwitcher.length === 2 &&
+        switcher.length === 2 &&
+        window.proofServerSwitcher.every((link, index) => link === switcher[index]),
+      token: window.proofDocument,
+      errors: window.proofErrors,
+      productId: document.getElementById("product-id")?.textContent,
+    };
+  });
+  const hydratedLanguage = await languageState();
 
   await page.screenshot({ path: join(evidence, "de-product-hydrated.png") });
   await page.waitForTimeout(600);
@@ -537,10 +740,18 @@ try {
   await page.click("#teams-link");
   await page.waitForSelector("#team");
   assert.equal(new URL(page.url()).pathname, "/de/teams/7");
+  await waitForSwitcher("/en/teams/7");
+
+  const teamLanguage = await languageState();
+
   await page.waitForTimeout(600);
   await page.click("#members-link");
   await page.waitForSelector("#members");
   assert.equal(new URL(page.url()).pathname, "/de/teams/7/mitglieder");
+  await waitForSwitcher("/en/teams/7/members");
+
+  const membersLanguage = await languageState();
+
   await page.waitForTimeout(600);
   await page.screenshot({ path: join(evidence, "de-lazy-child.png") });
 
@@ -549,8 +760,35 @@ try {
     errors: window.proofErrors,
   }));
   const documents = requests.filter((sent) => sent.type === "document");
+  const clientDocuments = documents.length;
+  // Before the English document fetches its own copy of the chunk.
+  const lazyChunkRequests = chunkRequests().length;
 
-  await save("browser.json", { hydrated, after, errors, requests });
+  // The switcher's English link is a document navigation into the English build.
+  await page.click("#locale-en");
+  await page.waitForURL("**/en/teams/7/members");
+  await page.waitForSelector("html[data-proof-stable='true']", { state: "attached" });
+  await page.waitForSelector("#members");
+  await waitForSwitcher("/en/teams/7/members");
+
+  const englishLanguage = await languageState();
+  const english = await page.evaluate(() => ({
+    locale: document.getElementById("locale")?.textContent,
+    errors: window.proofErrors,
+  }));
+
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: join(evidence, "en-after-switch.png") });
+
+  const switchedDocuments = requests.filter((sent) => sent.type === "document").length;
+  const language = {
+    hydrated: hydratedLanguage,
+    team: teamLanguage,
+    members: membersLanguage,
+    english: englishLanguage,
+  };
+
+  await save("browser.json", { hydrated, after, english, language, errors, requests });
   await context.close();
 
   const [recording] = await readdir(video);
@@ -558,12 +796,30 @@ try {
   await rename(join(video, recording), join(evidence, "de-hydration-lazy-click.webm"));
 
   assert.equal(hydrated.retained, true);
+  assert.equal(hydrated.switcherRetained, true);
   assert.equal(hydrated.productId, "2");
   assert.equal(after.token, hydrated.token);
-  assert.equal(documents.length, 1);
-  assert.equal(chunkRequests().length, 1);
+  assert.equal(clientDocuments, 1);
+  assert.equal(lazyChunkRequests, 1);
   assert.deepEqual(errors, []);
   assert.deepEqual(after.errors, []);
+
+  expectSwitcher(hydratedLanguage, "/en/products/2", "/de/produkte/2", "de", "hydrated");
+  expectAlternates(hydratedLanguage, "/en/products/2", "/de/produkte/2", "hydrated");
+  expectSwitcher(teamLanguage, "/en/teams/7", "/de/teams/7", "de", "team");
+  expectAlternates(teamLanguage, "/en/teams/7", "/de/teams/7", "team");
+  expectSwitcher(membersLanguage, "/en/teams/7/members", "/de/teams/7/mitglieder", "de", "members");
+  expectAlternates(membersLanguage, "/en/teams/7/members", "/de/teams/7/mitglieder", "members");
+  assert.equal(teamLanguage.token, hydrated.token);
+  assert.equal(membersLanguage.token, hydrated.token);
+
+  assert.equal(switchedDocuments, 2);
+  assert.notEqual(englishLanguage.token, hydrated.token);
+  assert.equal(englishLanguage.path, "/en/teams/7/members");
+  assert.equal(english.locale, "en");
+  assert.deepEqual(english.errors, []);
+  expectSwitcher(englishLanguage, "/en/teams/7/members", "/de/teams/7/mitglieder", "en", "english");
+  expectAlternates(englishLanguage, "/en/teams/7/members", "/de/teams/7/mitglieder", "english");
 } finally {
   await browser?.close();
   await stop(server, "server.log");
@@ -634,6 +890,23 @@ await writeFile(
 );
 await succeeds(strict, "strict-build", ["build"]);
 
+// The new word is in the table the passing build defined.
+const strictTables = [];
+
+for (const file of await files(join(strict, "dist/proof/browser/de"))) {
+  if (file.endsWith(".js")) {
+    strictTables.push(...localeTables(await readFile(file, "utf8")));
+  }
+}
+
+assert.equal(strictTables.length, 1);
+assert.deepEqual(strictTables[0].locales[1].words, [
+  ["members", "mitglieder"],
+  ["offers", "angebote"],
+  ["old-products", "alte-produkte"],
+  ["products", "produkte"],
+]);
+
 const strictPort = await freePort();
 const strictServer = background(process.execPath, [join(strict, "dist/proof/server/server.mjs")], {
   cwd: strict,
@@ -648,18 +921,24 @@ try {
 
   await writeFile(join(evidence, "strict-de-angebote.html"), offers.body);
   assert.equal(offers.status, 200);
-  assert.equal(inspect(offers.body).offers, true);
+
+  const offersHtml = inspect(offers.body);
+
+  assert.equal(offersHtml.offers, true);
+  expectSwitcher(offersHtml, "/en/offers", "/de/angebote", "de");
 } finally {
   await stop(strictServer, "strict-server.log");
 }
 
-// 7. ng serve (de only) after a bad catalog edit, a source save, and the repair.
+// 7. ng serve (de only) after a bad catalog edit, a source save, and the repair; then a valid
+// translation edit, which the running dev server's locale table doesn't follow until a restart.
 const served = await consumer("serve");
 const serveCatalog = join(served, "src/locale/messages.de.xlf");
 const serveCatalogText = await readFile(serveCatalog, "utf8");
 const shell = join(served, "src/app.ts");
 const shellText = await readFile(shell, "utf8");
-const dev = background(process.execPath, [ng, "serve"], { cwd: served, env: environment() });
+let dev = background(process.execPath, [ng, "serve"], { cwd: served, env: environment() });
+let devLog = "serve.log";
 const observations = [];
 
 function builds() {
@@ -694,10 +973,13 @@ async function translateTeams(target) {
   );
 }
 
+const tableWarning =
+  /Locale words changed \(([^)]*)\)\. Links from localeUrls keep the words ng serve started with until you restart it\./;
+
 try {
   await until(() => /http:\/\/127\.0\.0\.1:\d+\//.test(dev.output), "the dev server");
 
-  const base = dev.output.match(/http:\/\/127\.0\.0\.1:\d+\//)[0];
+  let base = dev.output.match(/http:\/\/127\.0\.0\.1:\d+\//)[0];
 
   async function look(step, path) {
     const response = await request(new URL(path.slice(1), base).href, 60000);
@@ -713,6 +995,8 @@ try {
 
   assert.equal(initial.status, 200);
   assert.equal(initial.html.productId, "1");
+  // The served locale's output is flat: its own link has no prefix; English keeps its build's.
+  expectSwitcher(initial.html, "/en/products/1", "/produkte/1", "de");
 
   // A collision: logged at once, and the server keeps serving the catalog it built with.
   const beforeCollision = builds();
@@ -776,13 +1060,47 @@ try {
   assert.equal(product.html.productId, "1");
   assert.equal(team.status, 200);
   assert.equal(team.html.team, true);
+  // Failed passes and the repair leave the table as it started.
+  assert.doesNotMatch(dev.output, tableWarning);
+
+  // A valid new translation: the regeneration warns, naming the word.
+  const editLog = dev.output.length;
+
+  await writeFile(
+    serveCatalog,
+    serveCatalogText.replace("<target>mitglieder</target>", "<target>mitwirkende</target>"),
+  );
+  await until(() => tableWarning.test(dev.output.slice(editLog)), "the locale table warning");
+  assert.equal(dev.output.slice(editLog).match(tableWarning)[1], "route.segment.members in de");
+  await saveSource();
+
+  // The rebuilt page has the new word; the running dev server's links keep the old one.
+  const stale = await look("new word, before a restart", "/teams/7/mitwirkende");
+
+  assert.equal(stale.status, 200);
+  assert.equal(stale.html.members, true);
+  expectSwitcher(stale.html, "/en/teams/7/members", "/teams/7/mitglieder", "de");
+
+  // A restart defines the new table.
+  await stop(dev, devLog);
+  dev = background(process.execPath, [ng, "serve"], { cwd: served, env: environment() });
+  devLog = "serve-restart.log";
+  await until(() => /http:\/\/127\.0\.0\.1:\d+\//.test(dev.output), "the restarted dev server");
+  base = dev.output.match(/http:\/\/127\.0\.0\.1:\d+\//)[0];
+
+  const restarted = await look("new word, after a restart", "/teams/7/mitwirkende");
+
+  assert.equal(restarted.status, 200);
+  assert.equal(restarted.html.members, true);
+  expectSwitcher(restarted.html, "/en/teams/7/members", "/teams/7/mitwirkende", "de");
+  assert.doesNotMatch(dev.output, tableWarning);
 } finally {
   await save("serve.json", observations);
-  await stop(dev, "serve.log");
+  await stop(dev, devLog);
 }
 
 console.log(
-  "Translated segments: committed outputs, per-locale bundles, prerender, cross-locale SSR, hydration, extraction, the strict refresh flow and serve all passed",
+  "Translated segments: committed outputs, per-locale bundles and locale tables, prerender, cross-locale SSR, the language switcher and hreflang alternates, hydration, extraction, the strict refresh flow and serve all passed",
 );
 
 // Sibling pathless groups with translated segments: each group's claims carry its descendants'

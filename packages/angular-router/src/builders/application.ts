@@ -1,6 +1,7 @@
 import { createBuilder, type BuilderRun, type BuilderOutput } from "@angular-devkit/architect";
 import { generate } from "../generation/generate.js";
-import { localization, message, split, type JsonObject } from "./options.js";
+import { localeTable, localeTableWarnings, withLocaleTable } from "./locale-table.js";
+import { localization, message, projectI18n, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
 
@@ -57,9 +58,9 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
     }
 
     generation = (async () => {
-      if (router.translateSegments === true) {
-        const project = context.target?.project;
+      const project = context.target?.project;
 
+      if (router.translateSegments === true) {
         if (!project) {
           throw new Error(
             "translateSegments needs the application builder to run as a project target",
@@ -69,7 +70,29 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
         router.localization = await localization(context, project, official.polyfills);
       }
 
-      await generate(context.workspaceRoot, router, () => stopped);
+      const words = await generate(context.workspaceRoot, router, () => stopped);
+
+      // Angular's own builder needs a project target to localize, so a build without one fails there.
+      if (!project || official.localize === undefined || official.localize === false) {
+        return;
+      }
+
+      // After generation validated the catalogs, from the same words, so the table and the
+      // inlined destination text agree.
+      const table = localeTable({
+        i18n: await projectI18n(context, project),
+        baseHref: official.baseHref,
+        localize: official.localize,
+        words,
+      });
+
+      if (table) {
+        for (const warning of localeTableWarnings(table)) {
+          context.logger.warn(warning);
+        }
+
+        official.define = withLocaleTable(official.define, table);
+      }
     })();
 
     try {

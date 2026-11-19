@@ -176,7 +176,7 @@ Parsing should be pure and deterministic. A path codec runs twice per navigation
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route`, `ParamCodec`, `Destination`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
+The package root exports exactly `defineRoute`, `createUrl`, `localeUrls`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route`, `ParamCodec`, `Destination`, `LocaleUrl`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
 
 ### Fragments
 
@@ -289,6 +289,7 @@ Until you narrow it, the active route has `params`, `search`, `data` and `title`
 
 - `is(destination)`: whether it's exactly that route, not one of its ancestors. It narrows the route to that route's handle, with its `link` and `navigate`.
 - `contains(destination)`: whether that route is this one or one of its ancestors.
+- `localeUrls`: a signal of this page's URLs in every locale, for a [language switcher and hreflang](#translated-urls) in a localized build; `[]` otherwise.
 - `chain`: the active routes, from the top-level one down to this one. `chain.find((route) => route.is(team))` finds an ancestor, already narrowed. For breadcrumbs, `chain.map((route) => route.title())` reads each route's title; a route without its own title repeats its ancestor's.
 
 The value changes only when a navigation completes. It stays the same while a navigation is pending, and when one is cancelled or fails. If it fails during activation, the routes above the failing one that stay active already have the new values, so `chain` can mix a parent's new params with the active route's old ones until the next navigation completes. While a route stays active it keeps its handle, so going from item 9 to item 10 changes that handle's `params`, not the active route. Each `injectActiveRoute()` call has its own handles, separate from the page's `injectRoute()` handle; their values are the same. A handle that's no longer active keeps its last values. `is` and `contains` compare destinations by identity, so a destination from another generated route tree is never active here. Every generated route record carries its own destination, and the active route reads those, so it sees every generated route installed in the router: install one generated tree per router.
@@ -537,7 +538,33 @@ Missing translations are Angular's to report. Its default, `i18nMissingTranslati
 3. Run `ng extract-i18n` and translate the new unit.
 4. Run `ng build` again.
 
-**URLs and links.** `createUrl` returns the build's words relative to the router root, `/produkte/42`, without the locale's `subPath`; `RouterLink` and router navigation add it, and a raw `href` doesn't. A language switcher is a plain link to the other locale's root, such as `<a href="/en/">English</a>`: each build only knows its own words, so a link to the same page in another locale isn't supported.
+**URLs and links.** `createUrl` returns the build's words relative to the router root, `/produkte/42`, without the locale's `subPath`; `RouterLink` and router navigation add it, and a raw `href` doesn't. For a document URL with its locale's base, in this locale or another, use `localeUrls`.
+
+**Language switcher and hreflang.** `localeUrls(destination, values)` gives a page's URL in every configured locale, base href included, and every [active route](#the-active-route) entry has a `localeUrls` signal for the current page. The builders compute each locale's words from your catalogs and hand them to the package at build time, so nothing in your route files or generated files changes:
+
+```ts
+import { localeUrls } from "@loozo/angular-router";
+import { destination as product } from "./routes/products/$productId/destination.generated.js";
+
+localeUrls(product, { params: { productId: 42 } });
+// [{ locale: "en", url: "/en/products/42" }, { locale: "de", url: "/de/produkte/42" }]
+```
+
+A shell renders the switcher from the active route. Use plain `href`s: each locale is its own build, so a click is a document navigation, and `RouterLink` would put the URL under this build's base (`/de/en/products/42`):
+
+[src/language-switcher.ts](snippets/src/language-switcher.ts)
+
+For `<link rel="alternate" hreflang>`, call this from the shell's constructor. It runs during server rendering and prerendering, so crawlers get the links in the HTML, and it follows client navigation. Set `origin` to your public origin: prerendering has no request, and behind a proxy the request's origin can be an internal one. It removes only its own links, so an RSS alternate stays, adds `x-default` as the source locale, and skips the not-found route:
+
+[src/alternates.ts](snippets/src/alternates.ts)
+
+- **Locales.** Every locale in `angular.json` `i18n`, whatever `localize` builds, the source locale first. Separately built locales (`localize: ["de"]`, then `["en"]`) give the same list, so hreflang stays reciprocal. A configured locale you don't ship yet gets links that 404: remove it from `i18n` until it ships, or filter it out of the list.
+- **What's carried.** The active form keeps the page's params and declared search keys, so page 2 of a list links to page 2. A search value equal to its `withFallback` value is left out (`/en/products`, not `/en/products?page=1`), and so are undeclared query keys such as `utm_source` and the fragment. To keep a fragment, narrow with `is()` and call `localeUrls(destination, { …, fragment })`. Param and catchall values aren't translated: the not-found page on `/de/products/2` links to `/en/products/2`.
+- **Base hrefs.** Each URL starts with that locale build's `<base href>`, as Angular computes it from `baseHref` and the locale's `subPath` or `baseHref`, so it's absolute when the base is. A locale whose base Angular leaves to the build (an empty `baseHref`) uses the build's `baseHref`, else `/`; an `index.html` base other than `/` isn't read. A relative base, such as `baseHref: "app/"`, gives relative URLs, and the build warns about it.
+- **No list.** Both forms give `[]` wherever no build defined the locale table: an unlocalized build, a multi-locale `ng serve`, `ng test`, a build that doesn't run the router's builders, and Launch apps, until Launch's builders define it. A switcher then renders nothing and the snippet adds no links. The values are still checked, so a wrong call fails in unit tests too.
+- **Hydrated pages.** The active route is `undefined` from hydration until the browser's first navigation completes, so the switcher re-renders its links and the snippet rewrites its head links then; crawlers and readers without JavaScript have the server's HTML either way. With [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), a page with a usable seed keeps the server's links. The provider has costs and cases without a seed, which that section lists; it's optional for a switcher.
+
+Without `translateSegments`, a localized build still gets the list, with each locale's base and your source words: `/en/products/42` and `/de/products/42`. The builders pass the list as Angular's `define.loozoRouterLocales`, so that key is reserved in your own `define`.
 
 **Server routes.** `serverRoutePath(destination)` gives a route's Angular path in the running build's words, so one server route covers every locale:
 
@@ -565,7 +592,13 @@ A server route that spells out the source words fails Angular's route check in e
 
 **Serving.** A multi-locale `localize: true` dev server serves untranslated source, so serve one locale, for example with `"localize": ["de"]` in the serve target's build configuration. Serve also watches the catalogs and checks them on every edit, logging an error at once. Angular's dev server only reads catalogs when it rebuilds, though, and usually doesn't watch them, so a catalog edit reaches the app at your next source save or restart. Until then the old words are served. (A catalog Angular already watches, because it's imported, listed as an asset or under a root watched with `NG_BUILD_WATCH_ROOT=1`, reaches the app at once instead.) After a rebuild with a broken catalog, a collided route is unreachable in that locale, and a translation that isn't one segment makes server rendering fail.
 
-Launch applications turn it on in Launch's builders; see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). [`examples/angular-router/localize-proof`](../../examples/angular-router/localize-proof/README.md) is a working en + de app with prerendering, a lazy children table and a redirect.
+In a single-locale dev server, `localeUrls` gives the served locale's URLs without its prefix (`/produkte/2`), matching the dev server's flat output, and the other locales' production URLs, which this dev server doesn't serve: they reach the served locale's not-found page, so check other locales in a production build. The dev server reads the locale words once, when it starts. After a translation edit or a new route word, pages change at the next rebuild, but `localeUrls` keeps the words it started with until you restart `ng serve`, and serve says so:
+
+```text
+Locale words changed (route.segment.members in de). Links from localeUrls keep the words ng serve started with until you restart it.
+```
+
+Launch applications turn it on in Launch's builders; see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). [`examples/angular-router/localize-proof`](../../examples/angular-router/localize-proof/README.md) is a working en + de app with prerendering, a lazy children table, a redirect, the language switcher and hreflang alternates.
 
 ## Unit tests and i18n extraction
 
@@ -677,7 +710,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - [Named outlets](#named-outlets) don't nest, have no empty-path routes, own no search or fragments, and can't hold redirect sources. One navigation opens or closes one branch. Filesystem mode has no directory convention for them: write `outlet` in the route file. Hand-written outlet routes aren't validated against generated ones, and next to a generated empty route they leave it full-match, so declare branches with `outlet`.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
-- [Translated URLs](#translated-urls) have no links to the same page in another locale, SEO alternate links, locale detection or redirects, or switching locale inside one build; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
+- [Translated URLs](#translated-urls) have no locale detection or redirects, switching locale inside one build, or translated param, catchall or search values (`localeUrls` keeps them as they are), and no built-in head manager: hreflang links are the documented snippet in your app; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 

@@ -1,6 +1,7 @@
 import {
   defineRoute,
   createUrl,
+  localeUrls,
   enumParam,
   numberParam,
   stringParam,
@@ -8,6 +9,7 @@ import {
   withFallback,
   arrayParam,
   serverRoutePath,
+  type LocaleUrl,
   type Route,
   type ParamCodec,
 } from "@loozo/angular-router";
@@ -380,6 +382,20 @@ exact<Equal<typeof translatedChild, typeof canonicalChild>>();
 createUrl(translatedChild, { params: { productId: 1 } });
 // @ts-expect-error The canonical params stay required.
 createUrl(translatedChild, {});
+
+// localeUrls takes a destination and createUrl's values, and gives each locale's URL.
+exact<Equal<ReturnType<typeof localeUrls<TargetOf<typeof translated>>>, readonly LocaleUrl[]>>();
+exact<Equal<LocaleUrl, { readonly locale: string; readonly url: string }>>();
+localeUrls(translated, { params: { productId: 1 } });
+localeUrls(translatedChild, { params: { productId: 1 } });
+// @ts-expect-error A path value is required.
+localeUrls(translated, { params: {} });
+// @ts-expect-error A path value has its codec's type.
+localeUrls(translated, { params: { productId: "1" } });
+// @ts-expect-error Values are required.
+localeUrls(translated);
+// @ts-expect-error A route isn't a destination.
+localeUrls(product, { params: { productId: 1 } });
 
 const root = defineDestination("", {}, "root");
 const unknownReplacement = { extra: "x" };
@@ -1290,6 +1306,25 @@ function findOrg() {
   return active.chain.find((route) => route.is(orgDestination));
 }
 exact<Equal<ReturnType<typeof active.contains>, boolean>>();
+// Every entry has this page's URLs in every locale: unnarrowed, narrowed and in the chain.
+exact<Equal<ReturnType<typeof active.localeUrls>, readonly LocaleUrl[]>>();
+exact<
+  Equal<
+    ReturnType<NonNullable<ReturnType<typeof active.chain.find>>["localeUrls"]>,
+    readonly LocaleUrl[]
+  >
+>();
+
+if (active.is(leafDestination)) {
+  exact<Equal<ReturnType<typeof active.localeUrls>, readonly LocaleUrl[]>>();
+}
+
+declare const maybeActive: Signal<ActiveRoute<RouteTypes> | undefined>;
+
+exact<Equal<ReturnType<typeof maybeActive>, ActiveRoute<RouteTypes> | undefined>>();
+exact<
+  Equal<ReturnType<NonNullable<ReturnType<typeof maybeActive>>["localeUrls"]>, readonly LocaleUrl[]>
+>();
 // @ts-expect-error link needs is() first.
 active.link({ params: { orgId: 1 } });
 // @ts-expect-error A destination outside RouteTypes is not one of this tree's routes.

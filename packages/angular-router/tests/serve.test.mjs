@@ -200,6 +200,7 @@ async function serve({
   holdTeardown = false,
   build = {},
   metadata = {},
+  serveOptions = {},
 } = {}) {
   scenario = createScenario();
   scenario.workspaceGate = workspaceGate;
@@ -226,6 +227,7 @@ async function serve({
   host.addTarget({ project: "proof", target: "serve" }, "@loozo/angular-router:serve", {
     buildTarget: "proof:build",
     port: 0,
+    ...serveOptions,
   });
 
   host.getOptionsForTarget = async (target) => {
@@ -816,6 +818,221 @@ test("without translated segments, serve watches no catalog and passes no locali
 
   assert.deepEqual(watcherOf(state).roots, [resolve(packageDirectory, "src/routes")]);
   assert.equal(state.passes[0].router.localization, undefined);
+
+  await run.stop();
+});
+
+function warnings(state) {
+  const messages = [];
+
+  for (const entry of state.logs) {
+    if (entry.level === "warn") {
+      messages.push(entry.message);
+    }
+  }
+
+  return messages;
+}
+
+// Starts serve like started(), resolving the initial pass with `words`.
+async function startedWith(options, words) {
+  const session = await serve(options);
+  const { scenario: state } = session;
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.passes[0].resolve(words);
+  await until(() => state.servers.length === 1, "the dev server");
+
+  return session;
+}
+
+const localized = {
+  build: {
+    translateSegments: true,
+    polyfills: ["@angular/localize/init"],
+    localize: ["de"],
+    define: { appVersion: '"1"' },
+  },
+  metadata: {
+    i18n: { sourceLocale: "en", locales: { de: "src/locale/messages.de.xlf" } },
+  },
+};
+
+function germanWords(entries) {
+  return new Map([["de", new Map(entries)]]);
+}
+
+test("a single-locale serve defines the locale table, with the served locale at its flat base", async () => {
+  const { run, scenario: state } = await startedWith(
+    localized,
+    germanWords([
+      ["products", "produkte"],
+      ["teams", "teams"],
+      ["members", "mitglieder"],
+    ]),
+  );
+  const { define } = state.servers[0].options;
+
+  // The build target's own define reaches Angular through the build options; serve adds the table
+  // to the dev server's, which Angular merges into them.
+  assert.deepEqual(Object.keys(define), ["loozoRouterLocales"]);
+  assert.deepEqual(JSON.parse(define.loozoRouterLocales), {
+    locales: [
+      { code: "en", baseHref: "/en/", words: [] },
+      {
+        code: "de",
+        baseHref: "/",
+        words: [
+          ["members", "mitglieder"],
+          ["products", "produkte"],
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(warnings(state), []);
+
+  await run.stop();
+});
+
+test("serve merges the table into its own define, and rejects the reserved key in either", async () => {
+  const merged = await startedWith(
+    {
+      ...localized,
+      build: { ...localized.build, baseHref: "/app/" },
+      serveOptions: { define: { apiUrl: '"/api"' } },
+    },
+    germanWords([]),
+  );
+  const { define } = merged.scenario.servers[0].options;
+
+  assert.equal(define.apiUrl, '"/api"');
+  // The served locale sits at the build's baseHref; the others keep their production base.
+  assert.deepEqual(JSON.parse(define.loozoRouterLocales).locales, [
+    { code: "en", baseHref: "/app/en/", words: [] },
+    { code: "de", baseHref: "/app/", words: [] },
+  ]);
+  await merged.run.stop();
+
+  for (const reserved of [
+    { ...localized, build: { ...localized.build, define: { loozoRouterLocales: "{}" } } },
+    { ...localized, serveOptions: { define: { loozoRouterLocales: "{}" } } },
+  ]) {
+    const { scenario: state } = await serve(reserved);
+
+    await until(() => state.done, "the failed serve");
+    assert.equal(state.passes.length, 0);
+    assert.equal(state.servers.length, 0);
+    assert.match(
+      String(state.errors[0]?.message ?? state.errors[0]),
+      /define\.loozoRouterLocales is reserved by @loozo\/angular-router: remove it from the build options/,
+    );
+  }
+});
+
+test("serve defines no table unless it serves exactly one locale", async () => {
+  for (const localize of [undefined, false, true, ["en", "de"]]) {
+    const build = { ...localized.build, localize };
+
+    if (localize === undefined) {
+      delete build.localize;
+    }
+
+    const { run, scenario: state } = await startedWith(
+      { ...localized, build },
+      germanWords([["products", "produkte"]]),
+    );
+
+    assert.equal(state.servers[0].options.define, undefined, String(localize));
+    await run.stop();
+  }
+});
+
+test("a later pass that changes the table warns once per distinct table; the dev server keeps its own", async () => {
+  const { run, scenario: state } = await startedWith(
+    localized,
+    germanWords([
+      ["products", "produkte"],
+      ["members", "mitglieder"],
+    ]),
+  );
+  const define = state.servers[0].options.define.loozoRouterLocales;
+
+  // Unchanged words: no warning.
+  change(state);
+  await until(() => state.passes.length === 2, "the unchanged pass");
+  state.passes[1].resolve(
+    germanWords([
+      ["products", "produkte"],
+      ["members", "mitglieder"],
+    ]),
+  );
+  await settle();
+  assert.deepEqual(warnings(state), []);
+
+  // A changed word warns, naming it.
+  change(state, "src/locale/messages.de.xlf");
+  await until(() => state.passes.length === 3, "the changed pass");
+  state.passes[2].resolve(
+    germanWords([
+      ["products", "produkte"],
+      ["members", "mitwirkende"],
+    ]),
+  );
+  await until(() => warnings(state).length === 1, "the warning");
+  assert.equal(
+    warnings(state)[0],
+    "Locale words changed (route.segment.members in de). Links from localeUrls keep the words ng serve started with until you restart it.",
+  );
+
+  // The same changed table again: no second warning. A failed pass warns nothing.
+  change(state);
+  await until(() => state.passes.length === 4, "the repeated pass");
+  state.passes[3].resolve(
+    germanWords([
+      ["products", "produkte"],
+      ["members", "mitwirkende"],
+    ]),
+  );
+  change(state);
+  await until(() => state.passes.length === 5, "the failed pass");
+  state.passes[4].reject(new Error("broken"));
+  await until(() => errors(state).length === 1, "the logged failure");
+  await settle();
+  assert.equal(warnings(state).length, 1);
+
+  // Another distinct table warns again, naming up to three words.
+  change(state);
+  await until(() => state.passes.length === 6, "the next pass");
+  state.passes[5].resolve(
+    germanWords([
+      ["products", "waren"],
+      ["members", "mitwirkende"],
+      ["offers", "angebote"],
+      ["teams", "mannschaften"],
+      ["docs", "dokumente"],
+    ]),
+  );
+  await until(() => warnings(state).length === 2, "the second warning");
+  assert.equal(
+    warnings(state)[1],
+    "Locale words changed (route.segment.docs in de, route.segment.members in de, route.segment.offers in de and 2 more). Links from localeUrls keep the words ng serve started with until you restart it.",
+  );
+
+  // Back to the started table: nothing new.
+  change(state);
+  await until(() => state.passes.length === 7, "the restoring pass");
+  state.passes[6].resolve(
+    germanWords([
+      ["products", "produkte"],
+      ["members", "mitglieder"],
+    ]),
+  );
+  await settle();
+  assert.equal(warnings(state).length, 2);
+  assert.equal(state.servers.length, 1);
+  assert.equal(state.servers[0].options.define.loozoRouterLocales, define);
 
   await run.stop();
 });
