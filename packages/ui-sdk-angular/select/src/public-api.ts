@@ -4,3 +4,6 @@ export { UiSelectItem } from "./select-item";
 export { UiSelectTrigger } from "./select-trigger";
 export { UiSelectValue } from "./select-value";
 export { UiSelectFormInput } from "./select-form-input";
+export { UiSelectLabel } from "./select-label";
+export { UiSelectGroup } from "./select-group";
+export { UiSelectGroupLabel } from "./select-group-label";

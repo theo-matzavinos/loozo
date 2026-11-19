@@ -1,13 +1,16 @@
 # Select
 
-`@loozo/ui-sdk-angular/select`: a single-value select, core's `select`, from directives on elements you write: the root, its trigger, the value, the content, each item, and the hidden input that takes part in a form.
+`@loozo/ui-sdk-angular/select`: a single-value select, core's `select`, from directives on elements you write: the root, its label, its trigger, the value, the content, item groups with their labels, each item, and the hidden input that takes part in a form.
 
 ```ts
 import {
   UiSelect,
   UiSelectContent,
   UiSelectFormInput,
+  UiSelectGroup,
+  UiSelectGroupLabel,
   UiSelectItem,
+  UiSelectLabel,
   UiSelectTrigger,
   UiSelectValue,
 } from "@loozo/ui-sdk-angular/select";
@@ -36,6 +39,21 @@ import {
 
 <!-- bound to a signal form field, in place of [(value)] -->
 <div uiSelect [formField]="f.fruit">…</div>
+
+<!-- a visible label, and items in named groups -->
+<div uiSelect [(value)]="fruit">
+  <span uiSelectLabel>Fruit</span>
+  <button uiSelectTrigger>
+    <span uiSelectValue #picked="uiSelectValue">{{ picked.state().label }}</span>
+  </button>
+  <div uiSelectContent>
+    <div uiSelectGroup>
+      <div uiSelectGroupLabel>Citrus</div>
+      <div [uiSelectItem]="'lemon'" label="Lemon">Lemon</div>
+      <div [uiSelectItem]="'lime'" label="Lime">Lime</div>
+    </div>
+  </div>
+</div>
 ```
 
 ```ts
@@ -66,13 +84,18 @@ The root has no `state`; read the value through `uiSelectValue`.
 
 ## Parts
 
-| Directive           | `exportAs`          | Inputs                                                                                                                          | `state()`                                             |
-| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `uiSelectTrigger`   | `uiSelectTrigger`   | `disabled`, `controller`                                                                                                        | `{ open, disabled, readOnly, required, placeholder }` |
-| `uiSelectValue`     | `uiSelectValue`     | `placeholder`, `maxLabels`, `getMoreLabel`                                                                                      | `{ value, label, labels, placeholder }`               |
-| `uiSelectContent`   | `uiSelectContent`   | `side`, `align`, `sideOffset`, `alignOffset`, `collisionPadding`, `arrowPadding`, `anchor`, `container`, `alignItemWithTrigger` | `{ open, presentation, items, status }`               |
-| `uiSelectItem`      | `uiSelectItem`      | `[uiSelectItem]` (its value, required, any type), `label`, `disabled`, `index`                                                  | `{ highlighted, selected, disabled }`                 |
-| `uiSelectFormInput` | `uiSelectFormInput` | none                                                                                                                            | none                                                  |
+| Directive            | `exportAs`           | Inputs                                                                                                                          | `state()`                                             |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `uiSelectLabel`      | `uiSelectLabel`      | none                                                                                                                            | none                                                  |
+| `uiSelectTrigger`    | `uiSelectTrigger`    | `disabled`, `controller`                                                                                                        | `{ open, disabled, readOnly, required, placeholder }` |
+| `uiSelectValue`      | `uiSelectValue`      | `placeholder`, `maxLabels`, `getMoreLabel`                                                                                      | `{ value, label, labels, placeholder }`               |
+| `uiSelectContent`    | `uiSelectContent`    | `side`, `align`, `sideOffset`, `alignOffset`, `collisionPadding`, `arrowPadding`, `anchor`, `container`, `alignItemWithTrigger` | `{ open, presentation, items, status }`               |
+| `uiSelectItem`       | `uiSelectItem`       | `[uiSelectItem]` (its value, required, any type), `label`, `disabled`, `index`                                                  | `{ highlighted, selected, disabled }`                 |
+| `uiSelectGroup`      | `uiSelectGroup`      | none                                                                                                                            | none                                                  |
+| `uiSelectGroupLabel` | `uiSelectGroupLabel` | none                                                                                                                            | none                                                  |
+| `uiSelectFormInput`  | `uiSelectFormInput`  | none                                                                                                                            | none                                                  |
+
+`uiSelectLabel` goes inside the root's element and names the trigger; pressing it focuses the trigger without opening the popup, like a native select's label. `uiSelectGroup` goes inside the content, around its items and one `uiSelectGroupLabel`, which names it; the group hides while none of its items shows. An item inside a group belongs to it.
 
 The content always stays in the DOM, hidden while closed; there's no exit animation before unmount yet.
 
@@ -80,7 +103,8 @@ Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it
 
 ## Rules
 
-- **Name the trigger** with a static `aria-label` or `aria-labelledby` on it. Named only by a `<label for>`, or not at all, its server HTML points `aria-labelledby` at a label that doesn't exist until it binds, and core warns about an unnamed trigger in development.
+- **Name the trigger** with a `uiSelectLabel`, or a static `aria-label` or `aria-labelledby` on it, not both a label and an attribute. With a `uiSelectLabel` alone, the server HTML already points the trigger at it. With a `uiSelectLabel` and an `aria-label`, the trigger gets its `aria-labelledby` only when it binds, and the label's name wins. Named only by a `<label for>`, or not at all, its server HTML points `aria-labelledby` at a label that doesn't exist until it binds, and core warns about an unnamed trigger in development.
+- **Some names settle at bind.** With a `uiSelectLabel`, the content is named by the trigger on the server and by the label once the label binds. A `uiSelectGroup` gets its `aria-labelledby` when its label binds, and a group whose items are written in the template renders `hidden` on the server until they bind; while the Select starts closed, both are on hidden content.
 - **Put an authored trigger `id` before the content.** With `id="fruit-trigger"` on the trigger, the content's `aria-labelledby` names it from the server only when the trigger comes first in the template. Content written before it renders `aria-labelledby` with the generated trigger id, which no element has, until the trigger binds and core repairs it. While the Select starts closed, that reference is on hidden content. When it starts open, the server serves a visible listbox with that dangling name until hydration.
 - **A Select that starts open settles when its trigger binds.** With `[defaultOpen]="true"` or `[open]="true"`, the server renders the listbox unpositioned, named by `aria-labelledby` pointing at the trigger. When the trigger binds, core positions it (`popover`, `style`, `data-side`, `data-align`, `data-starting-style`, `data-modality`) and names it with the trigger's accessible name as `aria-label` in place of `aria-labelledby`: the same name, in a different attribute. Until then the listbox sits where your CSS puts it. Start the Select closed to avoid both.
 - **Object values need `itemToValue`** on the root: core keys items, and their element ids, by it; without it, two objects share the key `[object Object]`.
@@ -140,4 +164,4 @@ A second press works. Seen in Chromium, where the window was about 60 ms in this
 
 - `multiple`: one value only.
 - `ControlValueAccessor`, template-driven and reactive forms; [signal forms](../README.md#signal-forms) are supported.
-- SelectLabel, SelectGroup, the search input and core's other Select slots, and learning labels from item text.
+- The search input and core's other Select slots, like separators, the arrow and the clear button, and learning labels from item text.

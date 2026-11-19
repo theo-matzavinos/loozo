@@ -9,13 +9,14 @@ import {
 } from "@loozo/ui-sdk-angular";
 import type { SelectItemProps, SelectItemState } from "@ui-sdk/core/select";
 import { UiSelect } from "./select";
+import { UiSelectGroup } from "./select-group";
 
 /** The event types core's `item` slot handles, declared below as static host listeners. */
 const events = ["pointermove", "pointerdown", "mousedown", "click"] as const;
 
 /**
- * How UiSelectItem passes core's props that aren't inputs. `group` is internal: core reads it
- * from a SelectGroup, which this package doesn't ship yet.
+ * How UiSelectItem passes core's props that aren't inputs. `group` is internal: the id of the
+ * `uiSelectGroup` it's inside, if any.
  */
 const classes = { internal: ["group"], fixed: [], excluded: [] } as const;
 
@@ -48,6 +49,8 @@ export class UiSelectItem<T = string> {
   /** Its position, for items that aren't all rendered. */
   readonly index = input(undefined, { transform: optionalNumber });
 
+  readonly #group = inject(UiSelectGroup, { optional: true });
+
   protected readonly slot = ɵinjectSlot<SelectItemState>(
     inject(UiSelect).ɵroot,
     "item",
@@ -56,7 +59,7 @@ export class UiSelectItem<T = string> {
       label: this.label(),
       disabled: this.disabled(),
       index: this.index(),
-      group: undefined,
+      group: this.#group?.ɵid,
     }),
     { events, keyProp: "value" },
   );

@@ -9,7 +9,17 @@ import { handlers, schemaOf } from "@ui-sdk/core/renderer";
 
 const files = [
   "toggle/src/toggle.ts",
+  "toggle/src/toggle-group.ts",
+  "toolbar/src/toolbar.ts",
+  "toolbar/src/toolbar-button.ts",
+  "toolbar/src/toolbar-link.ts",
+  "toolbar/src/toolbar-input.ts",
+  "toolbar/src/toolbar-group.ts",
+  "toolbar/src/toolbar-separator.ts",
   "select/src/select.ts",
+  "select/src/select-label.ts",
+  "select/src/select-group.ts",
+  "select/src/select-group-label.ts",
   "select/src/select-trigger.ts",
   "select/src/select-value.ts",
   "select/src/select-content.ts",
@@ -18,6 +28,8 @@ const files = [
   "checkbox/src/checkbox.ts",
   "checkbox/src/checkbox-indicator.ts",
   "checkbox/src/checkbox-input.ts",
+  "checkbox/src/checkbox-group.ts",
+  "checkbox/src/checkbox-group-input.ts",
   "switch/src/switch.ts",
   "switch/src/switch-thumb.ts",
   "switch/src/switch-input.ts",
@@ -34,6 +46,14 @@ const primitives = {
   checkbox: ["@ui-sdk/core/checkbox", "checkbox"],
   switch: ["@ui-sdk/core/switch", "switchPrimitive"],
   radio: ["@ui-sdk/core/radio", "radioGroup"],
+  toolbar: ["@ui-sdk/core/toolbar", "toolbar"],
+};
+
+/** Directives that render another primitive than their entry point's, like a group's. */
+const groupPrimitives = {
+  "toggle/src/toggle-group.ts": ["@ui-sdk/core/toggle", "toggleGroup"],
+  "checkbox/src/checkbox-group.ts": ["@ui-sdk/core/checkbox", "checkboxGroup"],
+  "checkbox/src/checkbox-group-input.ts": ["@ui-sdk/core/checkbox", "checkboxGroup"],
 };
 
 const transformByKind = {
@@ -204,7 +224,8 @@ async function readDirective(file) {
 }
 
 async function loadPrimitive(directive) {
-  const [specifier, name] = primitives[directive.file.split("/")[0]];
+  const [specifier, name] =
+    groupPrimitives[directive.file] ?? primitives[directive.file.split("/")[0]];
 
   return (await import(specifier))[name];
 }

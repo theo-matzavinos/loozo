@@ -5,9 +5,10 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 
 const components = [
-  { name: "toggle", title: "Toggle" },
+  { name: "toggle", title: "Toggle and ToggleGroup" },
+  { name: "toolbar", title: "Toolbar" },
   { name: "select", title: "Select" },
-  { name: "checkbox", title: "Checkbox" },
+  { name: "checkbox", title: "Checkbox and CheckboxGroup" },
   { name: "switch", title: "Switch" },
   { name: "radio", title: "RadioGroup" },
 ];
