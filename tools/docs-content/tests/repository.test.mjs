@@ -412,6 +412,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "install",
     "how-the-primitives-fit-together",
     "server-rendering-and-hydration",
+    "scrollable-regions",
     "limitations",
     "further-reading",
     "developing-this-package",
@@ -451,6 +452,10 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   const toggle = pageHtml(entryPoint(origami, "@loozo/origami-ui/toggle").guide);
 
   assert.match(install, /<a href="origami-ui\/guide\/popover" data-docs-link="">/);
+  assert.match(
+    pageHtml(origami.guides.find((guide) => guide.slug === "limitations")),
+    /<a href="origami-ui\/guide\/scrollable-regions" data-docs-link="">Scrollable regions/,
+  );
   assert.match(toggle, /<a href="origami-ui\/guide\/toggle-group" data-docs-link="">ToggleGroup/);
   assert.match(
     toggle,

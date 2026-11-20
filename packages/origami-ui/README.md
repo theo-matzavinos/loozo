@@ -101,9 +101,36 @@ Every primitive renders on the server and hydrates with Angular's `provideClient
 
 Explicit and static `id` bindings always take precedence over generated ones.
 
+## Scrollable regions
+
+Origami has no scroll area: native overflow scrolling covers scrollable lists, tables and panels, and CSS styles its scrollbars.
+
+```css
+.scroll-region {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
+}
+
+.scroll-region:focus-visible {
+  outline: 2px solid var(--focus-ring);
+}
+```
+
+```html
+<div class="scroll-region" tabindex="0" role="region" aria-label="Addresses">…</div>
+```
+
+- `scrollbar-width` and `scrollbar-color` set the thickness and the thumb and track colors. The platform still decides the scrollbar's shape and whether it overlays the content. CSS can't force overlay scrollbars, show them only on hover, round the thumb or set an exact width, and in Chromium a value other than `auto` for either property turns off `::-webkit-scrollbar` styling. If your design needs those, draw the scrollbars in your own components.
+- `scrollbar-gutter: stable` reserves the space of a scrollbar that takes up layout before the content overflows, so the content doesn't shift when it starts to. Overlay scrollbars take no space either way.
+- Not every engine makes a scrollable element focusable on its own. Give a region that holds no focusable content `tabindex="0"` and a visible focus style so keyboard users can scroll it, and a role and accessible name when it's a meaningful region of the page.
+- In forced colors mode, Chromium and Firefox reset `scrollbar-color` to `auto`, so native scrollbars keep their system colors and stay visible.
+- It all works in the server HTML, before hydration.
+
 ## Limitations
 
-- No styled components, themes or design tokens. No standalone listbox, menubar, context menu or focus traps. Tabs, ToggleGroup, Toolbar, RadioGroup and Calendar's grid are the only primitives with roving tabindex. [Menu](menu/README.md) moves real focus between its items too, but every item has `tabindex="-1"`, so an open menu adds no Tab stop: Tab leaves it from its Trigger. Select's arrow keys move a highlight while focus stays on its Trigger.
+- No styled components, themes or design tokens. No standalone listbox, menubar, context menu or focus traps, and no scroll area: see [Scrollable regions](#scrollable-regions). Tabs, ToggleGroup, Toolbar, RadioGroup and Calendar's grid are the only primitives with roving tabindex. [Menu](menu/README.md) moves real focus between its items too, but every item has `tabindex="-1"`, so an open menu adds no Tab stop: Tab leaves it from its Trigger. Select's arrow keys move a highlight while focus stays on its Trigger.
 - Angular 22.2.x from 22.2.2 only; tested against 22.2.6.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
 - Don't give forms or form controls names or IDs that match DOM properties, such as `<form name="body">` or `<input name="parentNode">`: the browser lets them shadow those properties, and Origami doesn't guard every read against it.

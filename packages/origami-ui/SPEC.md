@@ -1713,6 +1713,7 @@ Non-goals:
 - Styled components, themes or a design-token system.
 - A public generic overlay platform, focus-management framework or strategy extension system.
 - Speculative interaction variants.
+- A scroll area. Native overflow with `scrollbar-width`, `scrollbar-color` and `scrollbar-gutter` covers the scrolling consumers need, and scrollbars drawn in script to get a custom shape or hover-only visibility are styling. The README's "Scrollable regions" documents the native recipe.
 - Universal oversized-content containment, arbitrary native top-layer interoperability or exact Safari/iOS certification without evidence.
 - Preserving accidental private source layout, historical evaluator machinery or existing test counts as a product contract.
 
