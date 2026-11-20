@@ -42,6 +42,8 @@ jobs:
       # The docs-content tool sits outside packages/*; its tests read Origami's dist/.
       - run: pnpm --filter @loozo/docs-content run typecheck
       - run: pnpm --filter @loozo/docs-content run test
+      # The shared bench harness has no package, so nothing else runs its test.
+      - run: node --test tools/bench/budgets.test.mjs
 
   # The packages a pull request changes and every package that depends on them, from pnpm's
   # workspace graph. A change outside every package selects the root project (the lockfile,

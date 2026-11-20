@@ -17,24 +17,28 @@ pnpm --dir packages/angular-launch build      # the Launch workload also runs bu
 The benchmark checks that the package is built but not that the build is current. From `packages/angular-router`:
 
 ```sh
-pnpm run bench                                # 100, 300 and 1,000 routes
-pnpm run bench --sizes 10,100 --out /tmp/new-directory
-pnpm run bench --check                        # also compare against bench/budgets.json
-pnpm run bench --workload launch --check      # the Launch workload, against bench/launch-budgets.json
+pnpm run bench                                          # 100, 300 and 1,000 routes, every phase
+pnpm run bench --scenarios 10,100 --out /tmp/new-directory
+pnpm run bench --check                                  # also compare against bench/budgets.json
+pnpm run bench --deterministic --check                  # generate, build, tsc and bundle once each; what CI checks
+pnpm run bench --workload launch --check                # the Launch workload, against bench/launch-budgets.json
 ```
+
+The script runs under the machine-wide gate lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`): while an acceptance run or another bench holds it, it prints `origami gate: waiting for …` and starts once it's released. A full run holds the lock until it finishes.
+
+The flags, `results.json`, budgets and the `record`/`check` CLI are the shared harness's; see [`tools/bench/README.md`](../../../tools/bench/README.md). The router's own flag and defaults:
 
 | Option                | Default                                  | Meaning                                                                                                                                                                                                                                    |
 | --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--workload <name>`   | `router`                                 | `router` or `launch` (see [Launch workload](#launch-workload)).                                                                                                                                                                            |
-| `--sizes <list>`      | `100,300,1000`                           | Comma-separated route counts, each a positive multiple of 10. Each size gets its own fresh consumer.                                                                                                                                       |
-| `--out <dir>`         | a new directory under the OS temp dir    | Where consumers, logs and `results.json` go. It must not exist yet or be empty.                                                                                                                                                            |
-| `--samples <list>`    | `generate=3,edits=3,build=1,ngc=3,tsc=1` | Samples per measurement; give only the ones to change, such as `--samples build=3`. Metrics are medians.                                                                                                                                   |
+| `--scenarios <list>`  | `100,300,1000`                           | Comma-separated route counts, each a positive multiple of 10. Each gets its own fresh consumer.                                                                                                                                            |
+| `--samples <list>`    | `generate=3,edits=3,build=1,ngc=3,tsc=1` | Samples per measurement. Metrics are medians.                                                                                                                                                                                              |
 | `--timeout <seconds>` | `1200`                                   | Limit for each command and each wait. Exceeding one fails the run. A wait checks its limit between polls, so a long synchronous generation pass can overrun it; the serve process as a whole is killed at the limit times (3 + 2 × edits). |
-| `--check [file]`      | the workload's budgets file              | After the run, compare every budgeted metric against its budget and exit nonzero, listing each one exceeded. The router workload reads `bench/budgets.json`, the Launch workload `bench/launch-budgets.json`.                              |
+| `--check [file]`      | the workload's budgets file              | The router workload reads `bench/budgets.json`, the Launch workload `bench/launch-budgets.json`. Every budgeted route count must be in the run.                                                                                            |
 
-Sizes run one after another and every heavy step runs alone; don't start two runs at once on one machine. The 1,000-route size dominates: expect it to take tens of minutes. Progress goes to stderr; the results table goes to stdout at the end, ready to paste below.
+Route counts run one after another and every heavy step runs alone. The 1,000-route size dominates: expect it to take tens of minutes. Progress goes to stderr; the results table goes to stdout at the end, ready to paste below.
 
-Each run writes `<out>/results.json` and, per size, `<out>/<routes>/consumer` (the scratch app) and `<out>/<routes>/logs` (every command's output, the serve phase's edit samples and its Architect logs).
+Each run writes `<out>/results.json` and, per route count, `<out>/<routes>/consumer` (the scratch app) and `<out>/<routes>/logs` (every command's output, the serve phase's edit samples and its Architect logs).
 
 ## Fixture
 
@@ -57,7 +61,9 @@ Every page uses the generated route shape a consumer would: `injectRoute()` from
 
 ## Metrics
 
-Each metric key below is how `results.json` and the budgets file name it. Times are milliseconds, sizes bytes; the table shows times in seconds.
+Each metric key below is how `results.json` and the budgets file name it. Times are milliseconds, sizes bytes; the table formats them by the shared rule ([How values read](../../../tools/bench/README.md#how-values-read)). The registry in `bench/metrics.mjs` holds each key's class and budget rule: sizes, counts and instantiations are deterministic, so `--deterministic` measures and checks them; timings and memory aren't.
+
+The phases run in this order: `generate`, `serve` (router workload only), `build`, `ngc`, `tsc` and `bundle`. `--deterministic` skips `serve` and `ngc` and takes one sample of the others.
 
 | Key                                                    | What it measures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,22 +91,27 @@ Boundaries worth keeping in mind:
 
 ## results.json
 
-- `options` and `conditions`: workload, sizes, samples, timeout, poll interval, and each phase's setup, including the serve and build cache policies.
-- `machine`: CPU model, logical cores and available parallelism, RAM, OS, Node, pnpm, Angular, TypeScript, router and Launch versions, and the git commit with whether the checkout had changes.
-- `machine.environment`: inherited `NG_*` variables and `NODE_OPTIONS`, which can change Angular's workers, type checking or output; run without them for comparable numbers.
-- `sizes["<routes>"]`: `metrics` (each key's median), `samples` (each key's raw values), `load` (load averages and free memory before and after each phase), `fixture` (declaration counts), `generated` (hash of first generation's files), `serve` (each edit's timings and before/after hashes), `tscDiagnostics`, and `bundle` (totals plus a per-file manifest: path, initial or lazy, whether it holds the generated route tables, raw, gzip and Brotli bytes).
+The shape is the shared harness's ([results.json](../../../tools/bench/README.md#resultsjson)); scenarios are route counts. What the router adds:
+
+- `options`: the workload, poll interval and settle time next to the shared flags; `conditions`: each phase's setup, including the serve and build cache policies.
+- `machine.packages`: the router and Launch versions. `machine.environment` holds inherited `NG_*` variables and `NODE_OPTIONS`, which can change Angular's workers, type checking or output; run without them for comparable numbers.
+- `scenarios["<routes>"]`: besides `metrics`, `samples` and `load` (per phase: `generate`, `serve`, `build`, `ngc`, `tsc`, `bundle`), `routes`, `consumer`, `fixture` (declaration counts), `generated` (hash of first generation's files), `serve` (each edit's timings and before/after hashes), `tscDiagnostics`, and `bundle` (totals plus a per-file manifest: path, initial or lazy, whether it holds the generated route tables, raw, gzip and Brotli bytes).
 
 ## Budgets
 
-`--check` reads a JSON file of maximums by route count, using the metric keys above in their `results.json` units, and fails on any value above its maximum and on a budgeted metric the run didn't record, such as a serve budget in a Launch run. Sizes the run didn't measure are skipped, and the file is validated before anything runs:
+`bench/budgets.json` and `bench/launch-budgets.json` hold regression guards, not targets, keyed by route count. Each names its workload's bench (`"bench": "angular-router-router"` or `"angular-router-launch"`), so `record` and `check` refuse the other workload's results. They're written with the shared CLI from a full run, by each metric's rule in `bench/metrics.mjs`:
 
-```text
-{ "<routes>": { "<metric key>": <maximum>, … }, … }
+```sh
+node ../../tools/bench/budgets.mjs record /tmp/new-dir/results.json bench/budgets.json                   # every budgeted metric
+node ../../tools/bench/budgets.mjs record /tmp/new-dir/results.json bench/budgets.json --deterministic   # sizes, counts and instantiations only
 ```
 
-For example, `"1000": { "serve.generatedMs": …, "bundle.initial.gzip": … }` budgets two metrics at 1,000 routes.
+- timings (`generate.ms`, `serve.generatedMs`, `serve.servedMs`, `build.ms`, `typecheck.ngcMs`): median plus 30%, rounded up to the second;
+- `typecheck.instantiations`: plus 10%, rounded up to the thousand;
+- initial and lazy bytes: plus 2%, rounded up to the thousand;
+- `bundle.initial.files` and `bundle.initial.routeCopies`: their measured counts, so a change that adds an initial file or keeps one more copy in `main` re-records them in the same change.
 
-`bench/budgets.json` holds regression guards for the recorded run below, not targets: timings are its median plus 30%, rounded up to the second; `typecheck.instantiations` plus 10%; `bundle.initial.raw`, `bundle.initial.gzip` and `bundle.initial.brotli` plus 2%; byte and instantiation budgets rounded up to the thousand; `bundle.initial.files` and `bundle.initial.routeCopies` at their measured counts, since a count doesn't vary between machines, so a change that adds an initial file or keeps one more copy in `main` re-records it in the same change. They describe the machine that recorded them. A change that makes generation faster tightens them in the same change, from a new recorded run.
+The timing budgets describe the machine that recorded them. Instantiations and counts don't depend on it, and neither do bytes within one checkout. Chunk file names are content hashes that change with the checkout, though, so the initial bundle's compressed sizes and the lazy chunks' sizes can differ by up to about a hundred bytes between checkouts; the 2% rule absorbs that. A change that makes generation faster tightens them in the same change, from a new recorded run.
 
 ## Results
 
@@ -237,7 +248,7 @@ src/bench.server.ts          the timing middleware and two hand-written Standard
 
 The block root is the top-level route, as in the router fixture, so its stage is the first of its chain. Every page reads its block's query through `injectRoute().queries` with `injectQuery` and calls its block's mutation through `remote`; the pages under `$id` do the same with the item namespace. The shell narrows `injectActiveRoute()` to `g0000/$id` with `is()` and calls that route's mutation through `remote`.
 
-It records every metric above except serve's: the serve phase drives the router's serve builder, and Launch's serve builder isn't in the harness. Otherwise the keys mean the same, except that `generate.ms` times Launch's public `generate()`, which writes the router's files with Launch's additions and `server.generated.ts`; `build.ms` builds the browser and the server, including Angular's route extraction; and the bundle metrics read the browser build, whose index is `index.csr.html`. `bench/launch-budgets.json` follows the same rules as `bench/budgets.json`.
+It records every metric above except serve's: the serve phase drives the router's serve builder, and Launch's serve builder isn't in the harness. Otherwise the keys mean the same, except that `generate.ms` times Launch's public `generate()`, which writes the router's files with Launch's additions and `server.generated.ts`; `build.ms` builds the browser and the server, including Angular's route extraction; and the bundle metrics read the browser build, whose index is `index.csr.html`. `bench/launch-budgets.json` follows the same rules as `bench/budgets.json`, without serve's.
 
 ### Launch results
 

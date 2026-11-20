@@ -1,35 +1,45 @@
 {
   "100": {
-    "generate.ms": 6000,
-    "build.ms": 14000,
+    "generate.ms": 7000,
+    "build.ms": 15000,
     "typecheck.ngcMs": 5000,
-    "typecheck.instantiations": 245000,
-    "bundle.initial.raw": 350000,
-    "bundle.initial.gzip": 109000,
-    "bundle.initial.brotli": 96000,
+    "typecheck.instantiations": 247000,
+    "bundle.initial.raw": 362000,
+    "bundle.initial.gzip": 111000,
+    "bundle.initial.brotli": 98000,
+    "bundle.initial.files": 1,
     "bundle.initial.routeCopies": 10,
-    "bundle.initial.files": 2
+    "bundle.lazy.raw": 135000,
+    "bundle.lazy.gzip": 75000,
+    "bundle.lazy.brotli": 67000
   },
   "300": {
-    "generate.ms": 12000,
-    "build.ms": 27000,
+    "generate.ms": 13000,
+    "build.ms": 26000,
     "typecheck.ngcMs": 9000,
-    "typecheck.instantiations": 684000,
-    "bundle.initial.raw": 364000,
-    "bundle.initial.gzip": 111000,
-    "bundle.initial.brotli": 97000,
+    "typecheck.instantiations": 688000,
+    "bundle.initial.raw": 376000,
+    "bundle.initial.gzip": 114000,
+    "bundle.initial.brotli": 99000,
+    "bundle.initial.files": 1,
     "bundle.initial.routeCopies": 30,
-    "bundle.initial.files": 2
+    "bundle.lazy.raw": 407000,
+    "bundle.lazy.gzip": 225000,
+    "bundle.lazy.brotli": 202000
   },
   "1000": {
     "generate.ms": 34000,
-    "build.ms": 69000,
-    "typecheck.ngcMs": 25000,
-    "typecheck.instantiations": 2251000,
-    "bundle.initial.raw": 411000,
-    "bundle.initial.gzip": 118000,
-    "bundle.initial.brotli": 100000,
+    "build.ms": 73000,
+    "typecheck.ngcMs": 26000,
+    "typecheck.instantiations": 2260000,
+    "bundle.initial.raw": 424000,
+    "bundle.initial.gzip": 122000,
+    "bundle.initial.brotli": 102000,
+    "bundle.initial.files": 1,
     "bundle.initial.routeCopies": 100,
-    "bundle.initial.files": 2
-  }
+    "bundle.lazy.raw": 1356000,
+    "bundle.lazy.gzip": 753000,
+    "bundle.lazy.brotli": 668000
+  },
+  "bench": "angular-router-launch"
 }
