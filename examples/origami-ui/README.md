@@ -1,6 +1,6 @@
 # Origami UI consumer
 
-The Angular SSR application that [`@loozo/origami-ui`](../../packages/origami-ui/README.md)'s acceptance suite runs against. These are its authored sources: an ordinary Angular 22.2.6 application that imports the library only through its public entry points.
+The Angular SSR application that [`@loozo/origami-ui`](../../packages/origami-ui/README.md)'s acceptance suite runs against. These are its authored sources: an ordinary Angular 22.3.0 application that imports the library only through its public entry points.
 
 It isn't a demo or a starter. Each route is a fixture for a group of acceptance cases, with test IDs and deliberately unusual setups such as nested owners, failing parts and reordered hydration. For usage examples, read the package README.
 

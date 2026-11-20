@@ -1,6 +1,6 @@
 # Translated route segments proof
 
-A filesystem-mode Angular 22.2.6 app built in English and German with `translateSegments`, `localize: true`, `outputMode: "server"` and `i18nMissingTranslation: "error"`. Its routes, with their German words from `src/locale/messages.de.xlf`:
+A filesystem-mode Angular 22.3.0 app built in English and German with `translateSegments`, `localize: true`, `outputMode: "server"` and `i18nMissingTranslation: "error"`. Its routes, with their German words from `src/locale/messages.de.xlf`:
 
 - `products` (`produkte`), a list page with a `page` search key (`withFallback(numberParam, 1)`) and a link to page 2, and `products/$productId`, a product page showing its id, a typed handle link and its `createUrl` text.
 - `teams/$teamId`, componentless; its lazy children table holds a pathless overview and `members` (`mitglieder`). The shell links only to the team, so the members destination is first evaluated in that table's chunk. The members page renders its own `localeUrls` call into `data-locale-urls`.

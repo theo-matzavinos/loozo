@@ -16,13 +16,13 @@ npm install @loozo/origami-ui
 
 Peer dependencies:
 
-| Package           | Range     |
-| ----------------- | --------- |
-| `@angular/core`   | `~22.2.2` |
-| `@angular/common` | `~22.2.2` |
-| `@angular/forms`  | `~22.2.2` |
+| Package           | Range              |
+| ----------------- | ------------------ |
+| `@angular/core`   | `>=22.2.2 <22.4.0` |
+| `@angular/common` | `>=22.2.2 <22.4.0` |
+| `@angular/forms`  | `>=22.2.2 <22.4.0` |
 
-The package is tested against Angular 22.2.6 and supports Angular 22.2.x from 22.2.2. Popover positioning uses `@floating-ui/dom` `1.8.0`, a regular dependency. Its types and middleware aren't part of the API.
+The package is tested against Angular 22.3.0 and supports Angular 22.2.x from 22.2.2 and 22.3.x. Popover positioning uses `@floating-ui/dom` `1.8.0`, a regular dependency. Its types and middleware aren't part of the API.
 
 The root entry point `@loozo/origami-ui` is intentionally empty. Import from the secondary entry points, each documented in its own README:
 
@@ -104,7 +104,7 @@ Explicit and static `id` bindings always take precedence over generated ones.
 ## Limitations
 
 - No styled components, themes or design tokens. No standalone listbox, menubar, context menu or focus traps. Tabs, ToggleGroup, Toolbar, RadioGroup and Calendar's grid are the only primitives with roving tabindex. [Menu](menu/README.md) moves real focus between its items too, but every item has `tabindex="-1"`, so an open menu adds no Tab stop: Tab leaves it from its Trigger. Select's arrow keys move a highlight while focus stays on its Trigger.
-- Angular 22.2.x from 22.2.2 only; tested against 22.2.6.
+- Angular 22.2.x from 22.2.2 and 22.3.x only; tested against 22.3.0.
 - Browsers are tested in Playwright's Chromium, Firefox and WebKit builds, not Safari, iOS or physical devices. No formal Baseline or minimum-version claim is made.
 - Don't give forms or form controls names or IDs that match DOM properties, such as `<form name="body">` or `<input name="parentNode">`: the browser lets them shadow those properties, and Origami doesn't guard every read against it.
 - Open evidence limits (native find-in-page, mismatched pointer gestures, out-of-order geometry) are listed in [tests/acceptance/README.md](tests/acceptance/README.md#known-evidence-limits).

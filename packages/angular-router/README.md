@@ -20,7 +20,7 @@ Peer dependencies:
 | ----------------- | --------- |
 | `@angular/core`   | `^22.0.0` |
 | `@angular/router` | `^22.0.0` |
-| `@angular/build`  | `~22.2.0` |
+| `@angular/build`  | `~22.3.0` |
 
 ## Versions
 
@@ -34,7 +34,7 @@ Each release's breaking changes, features and fixes are listed in its [GitHub re
 
 ## Angular versions
 
-Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.2 and is tested against 22.2.6. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
+Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.3 and is tested against 22.3.0. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
 
 When Angular ships a new minor or major, a release built against it follows within a week. Earlier minors stay on the release that supported them; fixes aren't backported. [`@loozo/angular-launch`](../angular-launch/README.md) pins the router exactly and releases in lockstep: each router release is followed by a Launch release that pins it.
 
@@ -275,7 +275,7 @@ void this.active()?.navigate({ to: chat, close: true }); // closes chat, whateve
 - `..` inside a branch stays in the branch; a branch root has no `..`.
 - Launch's `redirect()` into a branch, with translated URLs too, is Launch's: see its [Translated URLs](../angular-launch/README.md#translated-urls).
 
-The proofs run on Angular 22.2.6. Earlier 22.x releases lack 22.2.4's fix for empty-path routes traversed through another outlet (angular/angular@ea8cdc4), which concerns hand-written empty-path routes beside named outlets and generated named routes below a pathless parent. [`examples/angular-router/outlets-proof`](../../examples/angular-router/outlets-proof/README.md) is a working SSR app with root and nested branches.
+The proofs run on Angular 22.3.0. Earlier 22.x releases lack 22.2.4's fix for empty-path routes traversed through another outlet (angular/angular@ea8cdc4), which concerns hand-written empty-path routes beside named outlets and generated named routes below a pathless parent. [`examples/angular-router/outlets-proof`](../../examples/angular-router/outlets-proof/README.md) is a working SSR app with root and nested branches.
 
 ### The active route
 

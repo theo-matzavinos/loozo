@@ -113,9 +113,9 @@ export class MenuContext {
   // Recomputed for every write that changes the effective `open`, so a close and a reopen
   // written before effects run still make a new decision, which the pending entry no longer belongs to, as Popover's
   // intent does.
-  readonly #intent: Signal<MenuIntent> = computed(
-    (): MenuIntent => ({ open: this.#root().open() }),
-  );
+  readonly #intent: Signal<MenuIntent> = computed((): MenuIntent => ({
+    open: this.#root().open(),
+  }));
 
   /** Requested open state. */
   readonly open = computed(() => this.#intent().open);

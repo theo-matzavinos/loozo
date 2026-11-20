@@ -378,7 +378,11 @@ export class CollectionObservation {
       <output data-testid="alignment-outputs">{{ alignmentOutputs() }}</output>
       <output data-testid="alignment-submits">{{ alignmentSubmits() }}</output>
 
-      <button type="button" data-testid="remove-italic-mark" (click)="markKeys.set(['bold', 'underline'])">
+      <button
+        type="button"
+        data-testid="remove-italic-mark"
+        (click)="markKeys.set(['bold', 'underline'])"
+      >
         Remove italic
       </button>
       <div
@@ -401,10 +405,18 @@ export class CollectionObservation {
 
     <section>
       <h2>Toolbar</h2>
-      <button type="button" data-testid="toolbar-redo-disable" (click)="redoDisabled.set(!redoDisabled())">
+      <button
+        type="button"
+        data-testid="toolbar-redo-disable"
+        (click)="redoDisabled.set(!redoDisabled())"
+      >
         Toggle redo disabled
       </button>
-      <button type="button" data-testid="toolbar-vertical" (click)="toolbarOrientation.set('vertical')">
+      <button
+        type="button"
+        data-testid="toolbar-vertical"
+        (click)="toolbarOrientation.set('vertical')"
+      >
         Make the toolbar vertical
       </button>
       <form (submit)="$event.preventDefault(); toolbarSubmits.update(increment)">
@@ -415,7 +427,9 @@ export class CollectionObservation {
           aria-label="Editing"
           data-testid="toolbar"
         >
-          <button ogToolbarItem data-testid="toolbar-undo" (click)="undos.update(increment)">Undo</button>
+          <button ogToolbarItem data-testid="toolbar-undo" (click)="undos.update(increment)">
+            Undo
+          </button>
           <button
             ogToolbarItem
             [disabled]="redoDisabled()"
@@ -446,10 +460,18 @@ export class CollectionObservation {
       <button type="button" data-testid="speed-standard" (click)="speed.set('standard')">
         Write standard
       </button>
-      <button type="button" data-testid="speed-disable" (click)="speedDisabled.set(!speedDisabled())">
+      <button
+        type="button"
+        data-testid="speed-disable"
+        (click)="speedDisabled.set(!speedDisabled())"
+      >
         Toggle the group disabled
       </button>
-      <button type="button" data-testid="speed-same-day" (click)="sameDayAvailable.set(!sameDayAvailable())">
+      <button
+        type="button"
+        data-testid="speed-same-day"
+        (click)="sameDayAvailable.set(!sameDayAvailable())"
+      >
         Toggle same day available
       </button>
       <form (submit)="$event.preventDefault(); speedSubmits.update(increment)">

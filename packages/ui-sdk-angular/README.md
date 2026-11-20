@@ -10,7 +10,7 @@ Angular directives for [ui-sdk.dev](https://ui-sdk.dev)'s headless core, `@ui-sd
 npm install @loozo/ui-sdk-angular @ui-sdk/core@0.1.0-beta.13
 ```
 
-- Angular `~22.2.2` (`@angular/core` and `@angular/common`).
+- Angular `~22.3.0` (`@angular/core` and `@angular/common`).
 - `@ui-sdk/core` exactly `0.1.0-beta.13`, as a peer dependency. Its renderer entry isn't public API and changes often, so each release of this package pins the one core version it was tested with. Another core version is an install-time peer conflict on purpose.
 
 No provider: import the directives where you use them.
