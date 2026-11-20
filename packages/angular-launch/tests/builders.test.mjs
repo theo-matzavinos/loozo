@@ -142,6 +142,14 @@ async function setUp() {
                   check: { check: true },
                   watch: { watch: true },
                   translated: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+                  localized: {
+                    translateSegments: true,
+                    polyfills: ["@angular/localize/init"],
+                    localize: true,
+                    define: { appVersion: '"1"' },
+                  },
+                  untranslated: { localize: ["de"] },
+                  reserved: { localize: true, define: { loozoRouterLocales: "{}" } },
                 },
               },
               official: {
@@ -913,6 +921,66 @@ await test("translateSegments reaches generation with the project's localization
   } finally {
     await put("src/locale/messages.de.xlf", catalog("aufgaben"));
   }
+});
+
+await test("a localized build gets the router's locale table in Angular's define, merged with its own", async () => {
+  await put("src/locale/messages.de.xlf", catalog("aufgaben"));
+
+  const { output, errors } = await run("build", "localized");
+
+  assert.equal(output.success, true, errors);
+
+  const { define } = callsOf("application").at(-1).options;
+
+  assert.equal(define.appVersion, '"1"');
+  assert.deepEqual(JSON.parse(define.loozoRouterLocales), {
+    locales: [
+      { code: "en", baseHref: "/en/", words: [] },
+      { code: "de", baseHref: "/de/", words: [["todos", "aufgaben"]] },
+    ],
+  });
+
+  // An unlocalized build gets none.
+  const plain = await run("build", "translated");
+
+  assert.equal(plain.output.success, true, plain.errors);
+  assert.equal(
+    Object.hasOwn(callsOf("application").at(-1).options.define ?? {}, "loozoRouterLocales"),
+    false,
+  );
+
+  // Without translateSegments, a localized build still gets each locale's base, with no words.
+  // Its generation removes redirects.generated.ts, so nothing may import it meanwhile.
+  await put("src/config.ts", "export const providers = [];\n");
+
+  try {
+    const untranslated = await run("build", "untranslated");
+
+    assert.equal(untranslated.output.success, true, untranslated.errors);
+    assert.deepEqual(
+      JSON.parse(callsOf("application").at(-1).options.define.loozoRouterLocales).locales,
+      [
+        { code: "en", baseHref: "/en/", words: [] },
+        { code: "de", baseHref: "/de/", words: [] },
+      ],
+    );
+  } finally {
+    await put("src/config.ts", providerImport);
+  }
+});
+
+await test("application rejects define.loozoRouterLocales before generating", async () => {
+  const before = await snapshot();
+  const builds = callsOf("application").length;
+  const { output, error } = await run("build", "reserved");
+
+  assert.equal(output, undefined);
+  assert.match(
+    String(error),
+    /define\.loozoRouterLocales is reserved by @loozo\/angular-router: remove it from the build options/,
+  );
+  assert.deepEqual(await snapshot(), before);
+  assert.equal(callsOf("application").length, builds);
 });
 
 await test("serve watches the catalogs with translateSegments: a bad edit is logged and serving goes on", async () => {

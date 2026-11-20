@@ -10,7 +10,17 @@ import { createRequire } from "node:module";
 import { basename, dirname, resolve } from "node:path";
 import { readFile, realpath } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { createGenerationSession, type GenerationSession } from "../generation/index.js";
+import {
+  changedTableWarning,
+  checkLocaleTableDefine,
+  localeTable,
+  localeTableWarnings,
+  projectI18n,
+  withLocaleTable,
+  type LocaleTable,
+  type LocaleWords,
+} from "@loozo/angular-router/_generation";
+import { createBuilderSession, type BuilderSession } from "../generation/run.js";
 import { forwardChannels, type DevServerMiddleware } from "./channel-forwarding.js";
 import { buildTargetOptions, message, type JsonObject } from "./options.js";
 
@@ -84,7 +94,13 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       let cleanup: Promise<void> | undefined;
       let settling: NodeJS.Timeout | undefined;
       // Resolved before the watcher starts.
-      let session: GenerationSession;
+      let session: BuilderSession;
+      // The router's locale table of a pass, from the build target's options and that pass's words.
+      let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
+      // The table the dev server started with: its define is read once, at its start.
+      let started: LocaleTable | undefined;
+      // Each later table that differed from it, by JSON, so each is warned about once.
+      const warned = new Set<string>();
 
       async function changed(path: string): Promise<void> {
         if (stopped) {
@@ -127,7 +143,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       }
 
       // A failed or stopped pass leaves the session clean; the next pass starts fresh.
-      function regenerate(): Promise<void> {
+      function regenerate(): Promise<LocaleWords | undefined> {
         return session.generate(undefined, () => stopped);
       }
 
@@ -152,10 +168,29 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
 
       context.addTeardown(stop);
 
+      // A later pass whose table differs from the started one: the running dev server keeps the
+      // started table, so the developer learns to restart it.
+      function compareTable(words: LocaleWords | undefined): void {
+        const current = tableOf(words);
+
+        if (!started || !current) {
+          return;
+        }
+
+        const json = JSON.stringify(current);
+
+        if (json === JSON.stringify(started) || warned.has(json)) {
+          return;
+        }
+
+        warned.add(json);
+        context.logger.warn(changedTableWarning(started, current));
+      }
+
       // Later passes log their failures and keep serving.
       function startPass(): void {
         regeneration = "running";
-        pass = regenerate().catch((error) => context.logger.error(message(error)));
+        pass = regenerate().then(compareTable, (error) => context.logger.error(message(error)));
         void pass.then(passEnded);
       }
 
@@ -187,7 +222,30 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         // Architect already validated the dev-server options against schemas/serve.json, Angular's
         // dev-server schema with this poll. The build target is validated before the watcher and
         // generation too, so invalid options never write.
-        const launch = await buildTargetOptions(context, options.buildTarget);
+        checkLocaleTableDefine(devServer.define);
+
+        const { launch, official, project } = await buildTargetOptions(
+          context,
+          options.buildTarget,
+        );
+
+        if (stopped) {
+          return;
+        }
+
+        // Angular's dev server localizes only a single-locale list, so only that gets a table.
+        if (Array.isArray(official.localize) && official.localize.length === 1) {
+          const i18n = await projectI18n(context, project);
+
+          tableOf = (words) =>
+            localeTable({
+              i18n,
+              baseHref: official.baseHref,
+              localize: official.localize,
+              served: true,
+              words,
+            });
+        }
 
         if (stopped) {
           return;
@@ -203,7 +261,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           dirname(resolve(application, launch.tsconfig)),
           launch.scanDirectories[0],
         );
-        session = createGenerationSession(context.workspaceRoot, launch);
+        session = createBuilderSession(context.workspaceRoot, launch);
         releases.push(() => session.dispose());
 
         // A catalog edit regenerates too: bytes stay the same, so only the per-locale check runs.
@@ -243,11 +301,12 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         regeneration = "running";
 
         const initial = regenerate();
+        let words: LocaleWords | undefined;
 
         pass = initial;
 
         try {
-          await initial;
+          words = await initial;
         } catch (error) {
           // The dev server never starts on a failed initial generation; report it as a build failure.
           context.logger.error(message(error));
@@ -262,10 +321,20 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
+        // Before a queued pass can compare its table with it.
+        started = tableOf(words);
         passEnded();
 
         if (stopped) {
           return;
+        }
+
+        if (started) {
+          for (const warning of localeTableWarnings(started)) {
+            context.logger.warn(warning);
+          }
+
+          devServer.define = withLocaleTable(devServer.define, started);
         }
 
         // Run directly, the dev server gets its options as given, so they're validated and

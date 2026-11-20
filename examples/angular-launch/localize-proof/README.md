@@ -11,10 +11,12 @@ A Launch app built in English and German with `translateSegments`, `localize: tr
 
 The root route's `probe` namespace redirects to each target from `src/routes/route.ts`; `src/urls.ts` builds the same URLs in the page's build. `src/wire.ts` is an interceptor that records every 303 body it sees, on the page in the browser and in the server log while rendering. `src/server.ts` imports `server.generated` first, serves the browser build's files and hands pages to Angular's engine; it's a proof surface, not production hosting.
 
+The shell renders the router's language switcher (`src/language-switcher.ts`) and calls its hreflang snippet (`src/alternates.ts`, origin `https://example.test`), both as the router's README gives them, over the locale table Launch's builders define. `src/config.server.ts` prerenders `manuals/start` in each locale's words and renders every other URL live.
+
 Generated files aren't committed: every build regenerates them, and the `ci` configuration checks them without writing. After building the router and Launch, run the proof from the repository root:
 
 ```sh
 pnpm --dir packages/angular-launch run test:localize /absolute/new-directory
 ```
 
-It copies this app into that directory, links the Launch example's installed dependencies, and records each step there: the build and the `ci` check, the generated word table, per-locale bundles, raw RPC frames and SSR redirects across both locales from one process, redirects into named outlets (`outlets.json`: each canonical frame, SSR 302 and the committed browser URL with what each outlet renders), Chromium redirects (screenshots and videos), and `ng serve` with a bad catalog edit.
+It copies this app into that directory, links the Launch example's installed dependencies, and records each step there: the build and the `ci` check, the generated word table, per-locale bundles, raw RPC frames and SSR redirects across both locales from one process, redirects into named outlets (`outlets.json`: each canonical frame, SSR 302 and the committed browser URL with what each outlet renders), Chromium redirects (screenshots and videos), the locale table in each bundle (`bundles.json`), the switcher and alternates on prerendered and live pages (`prerender.json`, `http.json`) and across hydration, navigation and a switch to English (`de-switcher`), and `ng serve` with a bad and a valid catalog edit (`serve-links.json`, `serve.log`).

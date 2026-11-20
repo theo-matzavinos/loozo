@@ -48,5 +48,13 @@ export { fail, properties } from "./sources.js";
 export type { Sources, Declaration } from "./sources.js";
 export type { Json, JsonRecord, LaunchCopies } from "./copies.js";
 export { segmentMessage, validateLocales } from "./localization.js";
-export type { Localization } from "./localization.js";
-export { localization as projectLocalization } from "../builders/options.js";
+export type { Localization, LocaleWords } from "./localization.js";
+export { localization as projectLocalization, projectI18n } from "../builders/options.js";
+export {
+  changedTableWarning,
+  checkDefine as checkLocaleTableDefine,
+  localeTable,
+  localeTableWarnings,
+  withLocaleTable,
+} from "../builders/locale-table.js";
+export type { LocaleTable } from "../builders/locale-table.js";

@@ -26,6 +26,7 @@ import type {
   JsonRecord,
   LaunchCopies,
   Localization,
+  LocaleWords,
   Sources,
 } from "@loozo/angular-router/_generation";
 import type { ClientMethod } from "../remote-client.js";
@@ -101,6 +102,18 @@ export interface GenerationSession {
    *
    * @returns A promise that resolves once any active call has settled.
    */
+  dispose(): Promise<void>;
+}
+
+/**
+ * The builders' session: {@link GenerationSession}, with each call resolving to the locale words
+ * that `translateSegments` validated, for the locale table.
+ */
+export interface BuilderSession {
+  generate(
+    options?: Pick<GenerationOptions, "check">,
+    stopped?: () => boolean,
+  ): Promise<LocaleWords | undefined>;
   dispose(): Promise<void>;
 }
 
@@ -724,12 +737,16 @@ function checkGeneratedDomain(
   }
 }
 
-async function runGeneration(
+/**
+ * Generation for the builders: {@link generate}, resolving to each non-source locale's text for
+ * every route word when `translateSegments` is on, and undefined otherwise.
+ */
+export async function runGeneration(
   workspace: string,
   options: GenerationOptions,
   stopped: () => boolean,
   compiler?: GenerationCompilerState,
-): Promise<void> {
+): Promise<LocaleWords | undefined> {
   // The built package root (dist/ in the workspace, the tarball root when installed).
   const root = fileURLToPath(new URL("../", import.meta.url));
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
@@ -787,13 +804,14 @@ async function runGeneration(
   }
 
   const translateSegments = options.translateSegments === true;
+  let words: LocaleWords | undefined;
 
   if (translateSegments) {
     if (!options.localization) {
       throw new Error("translateSegments needs the build's localization");
     }
 
-    await validateLocales(sources, options.localization);
+    words = await validateLocales(sources, options.localization);
   }
 
   const analysis = await analyze(sources, launchEntry);
@@ -862,6 +880,8 @@ async function runGeneration(
   checkLaunchTypes(validation, analysis);
   checkGeneratedDomain(sources, validation, desired, translateSegments ? redirects : undefined);
   publish(plan, options.check === true, stopped, new Map(), new Set());
+
+  return words;
 }
 
 /**
@@ -912,12 +932,12 @@ async function runGeneration(
  * locale's catalog fails the router's checks, or no application file imports
  * `provideRedirectTranslation`.
  */
-export function generate(
+export async function generate(
   workspace: string,
   options: GenerationOptions,
   stopped: () => boolean = () => false,
 ): Promise<void> {
-  return runGeneration(workspace, options, stopped);
+  await runGeneration(workspace, options, stopped);
 }
 
 /**
@@ -954,6 +974,21 @@ export function generate(
  */
 export function createGenerationSession(
   workspace: string,
+  options: Omit<GenerationOptions, "check">,
+): GenerationSession {
+  const session = createBuilderSession(workspace, options);
+
+  return {
+    async generate(options, stopped) {
+      await session.generate(options, stopped);
+    },
+    dispose: () => session.dispose(),
+  };
+}
+
+/** {@link createGenerationSession} for the builders, whose calls resolve to the locale words. */
+export function createBuilderSession(
+  workspace: string,
   {
     tsconfig,
     scanDirectories,
@@ -962,7 +997,7 @@ export function createGenerationSession(
     translateSegments,
     localization,
   }: Omit<GenerationOptions, "check">,
-): GenerationSession {
+): BuilderSession {
   const application = resolve(workspace);
   const fixed = {
     tsconfig,
@@ -978,7 +1013,7 @@ export function createGenerationSession(
     routerAnchor: new AnchorState(),
   };
   let closed = false;
-  let active: Promise<void> | undefined;
+  let active: Promise<unknown> | undefined;
 
   function clear(): void {
     for (const slot of Object.values(compiler)) {
@@ -986,8 +1021,8 @@ export function createGenerationSession(
     }
   }
 
-  const session: GenerationSession = {
-    async generate({ check = false } = {}, stopped = () => false): Promise<void> {
+  const session: BuilderSession = {
+    async generate({ check = false } = {}, stopped = () => false) {
       if (closed) {
         throw new Error("Generation session is disposed");
       }
@@ -1021,7 +1056,7 @@ export function createGenerationSession(
       active = work;
 
       try {
-        await work;
+        return await work;
       } catch (error) {
         clear();
 
