@@ -1,4 +1,4 @@
-// Select: controlled with null and cancellation, uncontrolled with its output.
+// Select: controlled with null and cancellation, uncontrolled with its output, and virtualFocus.
 import { type Page, expect, test } from "@playwright/test";
 import { captureMessages, expectClean } from "./harness";
 
@@ -81,5 +81,60 @@ test("uncontrolled: core owns the value; valueChange reports it", async ({ page 
   await expect(page.locator("[data-testid=picked]")).toHaveText("lime");
   await expect(page.locator(`${root} [uiSelectValue]`)).toHaveText("Lime");
   await expect(page.locator(`${root} [data-option=lime]`)).toHaveAttribute("aria-selected", "true");
+  expectClean(messages);
+});
+
+test("virtualFocus: keys move the highlight while focus stays on the trigger", async ({ page }) => {
+  const messages = captureMessages(page);
+  const response = await page.request.get("/virtual-focus");
+  const html = await response.text();
+
+  expect(html).not.toContain("aria-activedescendant");
+
+  await page.goto("/virtual-focus");
+  await page.waitForFunction(() => document.readyState === "complete");
+
+  const trigger = page.locator("[data-testid=virtual] [uiSelectTrigger]");
+
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toBeFocused();
+
+  const active = await trigger.getAttribute("aria-activedescendant");
+  const first = await page.locator("[data-testid=virtual] [data-option=apple]").getAttribute("id");
+
+  expect(active).toBe(first);
+  await page.keyboard.press("ArrowDown");
+  await expect(trigger).toHaveAttribute(
+    "aria-activedescendant",
+    (await page.locator("[data-testid=virtual] [data-option=banana]").getAttribute("id"))!,
+  );
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-testid=virtual-value]")).toHaveText("banana");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).not.toHaveAttribute("aria-activedescendant");
+  await expect(trigger).toBeFocused();
+
+  // A press on an item keeps focus on the trigger too.
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await page.locator("[data-testid=virtual] [data-option=cherry]").click();
+  await expect(page.locator("[data-testid=virtual-value]")).toHaveText("cherry");
+  await expect(trigger).toBeFocused();
+
+  // Without it, focus moves into the list.
+  const roving = page.locator("[data-testid=roving] [uiSelectTrigger]");
+
+  await roving.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(roving).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("[data-testid=roving] [data-option=apple]")).toBeFocused();
+  await expect(roving).not.toHaveAttribute("aria-activedescendant");
+  await page.keyboard.press("Escape");
+
+  await page.waitForTimeout(700);
   expectClean(messages);
 });

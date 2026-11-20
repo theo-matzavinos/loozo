@@ -62,6 +62,14 @@ function naming(records: Evidence, instance: string): Mutation[] {
       continue;
     }
 
+    // Where the browser supports CSS anchor positioning, core names the trigger as the content's
+    // anchor (since 0.1.0-beta.8): its only write to the trigger.
+    if (mutation.slot === "select-trigger" && mutation.name === "style") {
+      expect(mutation.value).toMatch(/^anchor-name: --ui-anchor-\d+;$/);
+
+      continue;
+    }
+
     expect(mutation.slot, `${mutation.name} changes only on the content`).toBe("select-content");
 
     if (positioning.has(mutation.name)) {
@@ -175,5 +183,17 @@ test("an initially open, reversed-order Select is repaired and named by aria-lab
     value: "Open order",
     phase: "init",
   });
-  expect(named[0]!.sequence).toBeGreaterThan(bind);
+  // A bind's record is core's `followId`, its last step. Since 0.1.0-beta.8 the trigger's own bind
+  // (its page-locale read) delivers the repair just before that step, after every other slot's bind.
+  for (const bound of records.bounds) {
+    if (bound.instance === "open-order" && bound.slot !== "select-trigger") {
+      expect(named[0]!.sequence, `the repair follows the ${bound.slot} bind`).toBeGreaterThan(
+        bound.sequence,
+      );
+    }
+  }
+
+  expect(named[0]!.sequence, "the repair comes with the trigger's bind").toBeGreaterThanOrEqual(
+    bind - 1,
+  );
 });
