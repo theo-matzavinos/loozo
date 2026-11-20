@@ -10,8 +10,10 @@ on:
 permissions:
   contents: read
 
+# One run at a time, and a newer push replaces a waiting one. A release commit's push only
+# skips the job, so it gets a group of its own and never replaces a waiting gate.
 concurrency:
-  group: release-gate
+  group: "${{ startsWith(github.event.head_commit.message, 'chore(release): ') && format('release-gate-{0}', github.sha) || 'release-gate' }}"
   cancel-in-progress: false
 
 jobs:

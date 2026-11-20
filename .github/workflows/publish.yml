@@ -50,19 +50,28 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ !inputs.dry_run && secrets.RELEASE_DEPLOY_KEY || '' }}
       # An Origami release needs the Release gate (test:full) green on the commit it releases.
-      # Release commits don't run the gate, so they stand for their nearest non-release ancestor.
+      # Release commits only move versions, so a gate on HEAD, on any release commit below it, or
+      # on the nearest non-release commit counts. A push of a release commit skips the gate.
       - if: inputs.package == 'origami-ui'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha=$(git log -1 --format=%H --invert-grep --grep='^chore(release): ')
+          set -o pipefail
+          shas=()
+          while read -r sha subject; do
+            shas+=("$sha")
+            case "$subject" in "chore(release): "*) ;; *) break ;; esac
+          done < <(git log --format='%H %s')
+          runs=$(for sha in "${shas[@]}"; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-gate.yml/runs?head_sha=$sha" --jq '.workflow_runs'
+          done | jq -s 'add | map(select(.conclusion != "skipped")) | sort_by(.created_at) | reverse')
           # Any passing run counts; otherwise the newest one says whether to wait or run the gate.
-          state=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-gate.yml/runs?head_sha=$sha" --jq '
-            .workflow_runs
-            | if any(.[]; .conclusion == "success") then "success"
-              elif length == 0 then "missing"
-              elif .[0].status == "completed" then .[0].conclusion
-              else .[0].status end')
+          state=$(jq -r '
+            if any(.[]; .conclusion == "success") then "success"
+            elif length == 0 then "missing"
+            elif .[0].status == "completed" then .[0].conclusion
+            else .[0].status end' <<< "$runs")
+          sha=${shas[-1]}
           case "$state" in
             success) ;;
             queued | in_progress | waiting | pending | requested)
