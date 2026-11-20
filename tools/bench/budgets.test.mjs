@@ -290,6 +290,38 @@ describe("recordBudgets", () => {
   });
 });
 
+describe("invalid values and deterministic artifacts", () => {
+  it("fails a check on a budgeted value that isn't a finite number, as saved JSON writes it", () => {
+    const saved = JSON.parse(
+      JSON.stringify(results({ 100: { ...measured, "bundle.initial.brotli": Number.NaN } })),
+    );
+    const checked = check(saved, { bench: "example", 100: before[100] }, true);
+
+    assert.equal(checked.passed, false);
+    assert.deepEqual(checked.failed, ["100: bundle.initial.brotli isn't a finite number (null)"]);
+  });
+
+  it("refuses to record a value that isn't a finite number", () => {
+    const saved = JSON.parse(
+      JSON.stringify(results({ 100: { ...measured, "bundle.initial.brotli": Number.NaN } })),
+    );
+
+    assert.throws(
+      () => recordBudgets(saved, before, { deterministic: true, file: "results.json" }),
+      /100: bundle\.initial\.brotli isn't a finite number \(null\); nothing was recorded/,
+    );
+  });
+
+  it("records and checks a deterministic run in the deterministic class without the flag", () => {
+    const run = { ...results({ 100: { ...measured, "generate.ms": 900 } }), mode: "deterministic" };
+    const file = { bench: "example", 100: { ...before[100], "generate.ms": 12000 } };
+    const { budgets } = recordBudgets(run, file, { file: "results.json" });
+
+    assert.equal(budgets[100]["generate.ms"], 12000);
+    assert.equal(check(run, file).class, "deterministic");
+  });
+});
+
 describe("D20 and step rounding", () => {
   it("records -10,000 at [1.02, 100] as -9,800 and -20 as 0", () => {
     assert.equal(maximum(-10000, [1.02, 100]), -9800);
@@ -537,6 +569,67 @@ describe("the record/check CLI", () => {
     }
   });
 
+  it("keeps timing budgets when recording a deterministic run without --deterministic", async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), "bench-cli-"));
+    const resultsFile = join(directory, "results.json");
+    const budgetsFile = join(directory, "budgets.json");
+
+    try {
+      const run = {
+        ...results({ 100: { ...measured, "generate.ms": 900 } }),
+        mode: "deterministic",
+      };
+
+      await writeFile(resultsFile, JSON.stringify(run));
+      await writeFile(
+        budgetsFile,
+        JSON.stringify({ bench: "example", 100: { ...before[100], "generate.ms": 12000 } }),
+      );
+
+      const recorded = spawnSync(process.execPath, [cli, "record", resultsFile, budgetsFile], {
+        encoding: "utf8",
+      });
+
+      assert.equal(recorded.status, 0, recorded.stderr);
+      assert.equal(JSON.parse(await readFile(budgetsFile, "utf8"))[100]["generate.ms"], 12000);
+    } finally {
+      await rm(directory, { recursive: true });
+    }
+  });
+
+  it("refuses to record a value that isn't a finite number and leaves the file alone", async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), "bench-cli-"));
+    const resultsFile = join(directory, "results.json");
+    const budgetsFile = join(directory, "budgets.json");
+    const file = JSON.stringify({ bench: "example", 100: before[100] });
+
+    try {
+      await writeFile(
+        resultsFile,
+        JSON.stringify(results({ 100: { ...measured, "bundle.initial.brotli": Number.NaN } })),
+      );
+      await writeFile(budgetsFile, file);
+
+      for (const command of ["record", "check"]) {
+        const refused = spawnSync(
+          process.execPath,
+          [cli, command, resultsFile, budgetsFile, "--deterministic"],
+          { encoding: "utf8" },
+        );
+
+        assert.equal(refused.status, 1);
+        assert.match(
+          refused.stdout + refused.stderr,
+          /100: bundle\.initial\.brotli isn't a finite number \(null\)/,
+        );
+      }
+
+      assert.equal(await readFile(budgetsFile, "utf8"), file);
+    } finally {
+      await rm(directory, { recursive: true });
+    }
+  });
+
   it("names the bench in a new file and refuses another bench's file", async () => {
     const directory = await mkdtemp(join(os.tmpdir(), "bench-cli-"));
     const resultsFile = join(directory, "results.json");
@@ -574,7 +667,10 @@ describe("the record/check CLI", () => {
 });
 
 // Runs bench() in a child process with a one-metric runner that records `key` once per scenario.
-function runBench(argv, { always = ["baseline", "empty"], options = {}, key = "example.count" }) {
+function runBench(
+  argv,
+  { always = ["baseline", "empty"], options = {}, key = "example.count", value = "1" },
+) {
   const script = `
 import { bench } from ${JSON.stringify(benchModule)};
 
@@ -597,7 +693,7 @@ await bench(
     conditions: {},
     packages: [${JSON.stringify(routerPackage)}],
     measure: async (scenario, run) => {
-      await run.phase("count", () => run.record(${JSON.stringify(key)}, [1]), {
+      await run.phase("count", () => run.record(${JSON.stringify(key)}, [${value}]), {
         deterministic: true,
       });
     },
@@ -675,6 +771,25 @@ describe("bench()", () => {
         phase: "count",
         message: "example.missing isn't in example's metric registry",
       });
+      assert.equal(saved.finishedAt, undefined);
+    } finally {
+      await rm(directory, { recursive: true });
+    }
+  });
+
+  it("fails a run that records a sample that isn't a finite number", async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), "bench-run-"));
+    const out = join(directory, "out");
+
+    try {
+      const run = runBench(["--out", out], { value: "NaN" });
+
+      assert.equal(run.status, 1);
+      assert.match(run.stderr, /example\.count has a sample that isn't a finite number: NaN/);
+
+      const saved = JSON.parse(await readFile(join(out, "results.json"), "utf8"));
+
+      assert.equal(saved.failure.phase, "count");
       assert.equal(saved.finishedAt, undefined);
     } finally {
       await rm(directory, { recursive: true });

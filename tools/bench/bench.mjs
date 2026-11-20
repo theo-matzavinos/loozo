@@ -278,6 +278,10 @@ async function run(config, argv) {
         throw new Error(`${key} has no samples`);
       }
 
+      if (!values.every(Number.isFinite)) {
+        throw new Error(`${key} has a sample that isn't a finite number: ${values.join(", ")}`);
+      }
+
       result.samples[key] = values;
 
       if (rule.statistic === "p95") {

@@ -217,10 +217,17 @@ function inClass(rule, deterministic) {
   return !deterministic || rule.deterministic;
 }
 
+// A deterministic run's timings are single samples, so its results are only ever checked or
+// recorded in the deterministic class, whatever the caller asked for.
+function isDeterministic(results, deterministic) {
+  return deterministic || results.mode === "deterministic";
+}
+
 // A check of class "all", or "deterministic" under `deterministic`, passes only when every
 // budget of the class was measured and is within its maximum, every deterministic metric the run
 // measured has a budget, no phase failed and the run finished.
-export function checkBudgets(results, budgets, { deterministic = false, file }) {
+export function checkBudgets(results, budgets, { deterministic: requested = false, file }) {
+  const deterministic = isDeterministic(results, requested);
   const rules = new Map();
 
   for (const metric of results.metrics) {
@@ -259,6 +266,11 @@ export function checkBudgets(results, budgets, { deterministic = false, file }) 
       }
 
       const value = measured.metrics[key];
+
+      if (!Number.isFinite(value)) {
+        failed.push(`${scenario}: ${key} isn't a finite number (${JSON.stringify(value)})`);
+        continue;
+      }
 
       if (value > max) {
         const rule = rules.get(key);
@@ -347,10 +359,12 @@ export function report(check) {
 // scenario in the run (only deterministic metrics under `deterministic`), and keeps every other
 // entry. Scenarios keep the file's order with new ones appended in run order; keys follow the
 // snapshot's order. `budgets` is a file validated for the run's bench, or {} for a new one.
-export function recordBudgets(results, budgets, { deterministic = false, file }) {
+export function recordBudgets(results, budgets, { deterministic: requested = false, file }) {
   if (!results.finishedAt || results.failure) {
     throw new Error(`${file} is an incomplete run; budgets are recorded only from a finished run`);
   }
+
+  const deterministic = isDeterministic(results, requested);
 
   const scenarios = [];
 
@@ -382,7 +396,15 @@ export function recordBudgets(results, budgets, { deterministic = false, file })
           continue;
         }
 
-        const max = maximum(measured.metrics[rule.key], rule.budget);
+        const value = measured.metrics[rule.key];
+
+        if (!Number.isFinite(value)) {
+          throw new Error(
+            `${file}: ${scenario}: ${rule.key} isn't a finite number (${JSON.stringify(value)}); nothing was recorded`,
+          );
+        }
+
+        const max = maximum(value, rule.budget);
         let previous = "unset";
 
         if (Object.hasOwn(limits, rule.key)) {

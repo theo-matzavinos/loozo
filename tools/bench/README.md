@@ -81,7 +81,7 @@ await bench(
 - `validate(key)` throws a usage message for a bad scenario key; it also checks the budgets file's scenario keys. `label(key)` names a scenario in the table and progress lines. `layout` is `"metric-rows"` (a metric per row, a scenario per column) or `"scenario-rows"` (the reverse).
 - `measure` gets `run = { directory, logs, samples, timeoutMs, deterministic, phase, record, result, results, shared }`. `directory` is `<out>/<scenario>`; `logs` is created in it.
 - `run.phase(name, body, { deterministic })` runs `body` and records the load before and after it. Under `--deterministic`, a phase without `deterministic: true` is skipped. `results.json` is saved after every phase, so a failed run keeps its evidence.
-- `run.record(key, values)` stores the raw samples and the key's statistic.
+- `run.record(key, values)` stores the raw samples and the key's statistic. It fails the phase on a key the registry doesn't define, on no samples, and on a sample that isn't a finite number.
 - `run.result` is the scenario's object in `results.json`; a runner adds its evidence fields there. It never writes `results.json` itself.
 - `--deterministic` with a registry that has no deterministic metric fails with "`<name>` has no deterministic metrics; run it without --deterministic".
 
@@ -128,9 +128,9 @@ A maximum is any finite number, negative included. `bench` is reserved, so no sc
 
 ### Checking
 
-A check of class `all`, or `deterministic` under `--deterministic`, passes only when all of these hold:
+A check of class `all`, or `deterministic` under `--deterministic` or for a run whose `results.mode` is `"deterministic"` (its timings are single samples), passes only when all of these hold:
 
-- every budget in the file whose metric is in the class was measured and is within its maximum; a budgeted scenario missing from the run fails the check, so narrowing `--scenarios` needs a budgets file of its own;
+- every budget in the file whose metric is in the class was measured as a finite number (anything else is listed under `failed`) and is within its maximum; a budgeted scenario missing from the run fails the check, so narrowing `--scenarios` needs a budgets file of its own;
 - every deterministic metric the run measured has a budget, so a new scenario or metric fails until its budget is recorded;
 - no phase failed, and the run finished (`finishedAt` is set), so an interrupted run's saved results can't pass; it's listed under `failed` as `(the run didn't finish)`.
 
@@ -166,7 +166,7 @@ node tools/bench/budgets.mjs check  <results.json> <budgets.json> [--determinist
 ```
 
 - Both read the rules from `results.metrics`; a results file without them was written before this harness and fails with a request to re-run the bench.
-- `record` refuses an unfinished run or one with a failed phase, and a budgets file whose `bench` isn't the run's. It writes the run's `bench` into the file, so a new file gets it. For each scenario in the run it writes the maximum of every key with a rule whose statistic was measured (only deterministic keys under `--deterministic`), and keeps every other entry, including scenarios not in the run. Scenarios keep the file's order with new ones appended in run order (JavaScript orders integer-like keys, such as route counts, numerically), keys follow the registry's order, and the file is written as 2-space JSON with a trailing newline. It prints one line per changed value: `300: bundle.initial.brotli 66500 → 65000`.
+- `record` refuses an unfinished run or one with a failed phase, a value it would record that isn't a finite number (leaving the file untouched), and a budgets file whose `bench` isn't the run's. A deterministic run (`results.mode`) is always recorded as if `--deterministic` were passed, so its single-sample timings never replace timing budgets. It writes the run's `bench` into the file, so a new file gets it. For each scenario in the run it writes the maximum of every key with a rule whose statistic was measured (only deterministic keys under `--deterministic` or for a deterministic run), and keeps every other entry, including scenarios not in the run. Scenarios keep the file's order with new ones appended in run order (JavaScript orders integer-like keys, such as route counts, numerically), keys follow the registry's order, and the file is written as 2-space JSON with a trailing newline. It prints one line per changed value: `300: bundle.initial.brotli 66500 → 65000`.
 - `check` runs the same check as `--check` and exits 1 on failure. Use it to re-check a saved run or a downloaded CI artifact without re-running.
 
 ## How values read
