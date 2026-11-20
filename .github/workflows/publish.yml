@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      checks: read
+      actions: read
     env:
       PACKAGE: ${{ inputs.package }}
     outputs:
@@ -56,11 +56,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           sha=$(git log -1 --format=%H --invert-grep --grep='^chore(release): ')
-          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?check_name=test-full" --jq '.check_runs[0].conclusion // "missing"')
-          if [ "$conclusion" != success ]; then
-            echo "::error::Release gate on $sha is $conclusion; run it from the Actions tab and wait for it to pass."
-            exit 1
-          fi
+          # Any passing run counts; otherwise the newest one says whether to wait or run the gate.
+          state=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-gate.yml/runs?head_sha=$sha" --jq '
+            .workflow_runs
+            | if any(.[]; .conclusion == "success") then "success"
+              elif length == 0 then "missing"
+              elif .[0].status == "completed" then .[0].conclusion
+              else .[0].status end')
+          case "$state" in
+            success) ;;
+            queued | in_progress | waiting | pending | requested)
+              echo "::error::Release gate on $sha is $state; wait for it to pass, then run Publish again."
+              exit 1 ;;
+            *)
+              echo "::error::Release gate on $sha is $state; run it from the Actions tab, wait for it to pass, then run Publish again."
+              exit 1 ;;
+          esac
       # Reads the pnpm version from devEngines.packageManager in package.json.
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7

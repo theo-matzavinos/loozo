@@ -36,6 +36,9 @@ jobs:
       - run: pnpm run check
       - run: pnpm run typecheck
       - run: pnpm test
+      # Publish runs each package's tests/packed.mjs; running them here fails a stale export list
+      # on its pull request instead of at release. Launch's runs in launch-browser.
+      - run: node packages/angular-router/tests/packed.mjs "$RUNNER_TEMP/packed-router"
       # The docs-content tool sits outside packages/*; its tests read Origami's dist/.
       - run: pnpm --filter @loozo/docs-content run typecheck
       - run: pnpm --filter @loozo/docs-content run test
@@ -258,6 +261,8 @@ jobs:
       - run: pnpm --filter 'angular-launch-consumer...' run build
       - run: pnpm --dir packages/angular-launch exec playwright install --with-deps chromium
       - run: pnpm --dir examples/angular-launch run verify "$RUNNER_TEMP/evidence"
+      # The packed router and Launch in a fresh consumer, as Publish runs it.
+      - run: node packages/angular-launch/tests/packed.mjs "$RUNNER_TEMP/packed-launch"
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
