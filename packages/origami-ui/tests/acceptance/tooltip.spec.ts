@@ -584,7 +584,10 @@ test("N2: an invalid effective openDelay throws RangeError when a hover open is 
 
   const point = center(await box(trigger));
 
+  // The scripted delay reaches the Tooltip's openDelay only on the scheduler's next turn; an
+  // enter before it would schedule the previous valid delay and open without throwing.
   await script(page, "hover-delay-invalid");
+  await settle(page);
   await page.mouse.move(point.x, point.y);
   await expect
     .poll(async () => {
@@ -595,6 +598,7 @@ test("N2: an invalid effective openDelay throws RangeError when a hover open is 
     .toBe(1);
   await away(page);
   await script(page, "hover-delay-nan");
+  await settle(page);
   await page.mouse.move(point.x, point.y);
   await expect
     .poll(async () => {
