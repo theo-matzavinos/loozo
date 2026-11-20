@@ -162,6 +162,16 @@ export const routes: Routes = [
       ),
   },
   {
+    path: "progress",
+    loadComponent: () =>
+      import("./fixtures/progress-deferred.js").then((module) => module.ProgressDeferred),
+  },
+  {
+    path: "progress-block",
+    loadComponent: () =>
+      import("./fixtures/progress-block.js").then((module) => module.ProgressBlockFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),
