@@ -37,6 +37,7 @@ import {
   OrigamiFileFieldDropZone,
   OrigamiFileFieldInput,
 } from "@loozo/origami-ui/file-field";
+import { OrigamiAvatar, OrigamiAvatarFallback, OrigamiAvatarImage } from "@loozo/origami-ui/avatar";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -75,6 +76,9 @@ import {
     OrigamiFileField,
     OrigamiFileFieldInput,
     OrigamiFileFieldDropZone,
+    OrigamiAvatar,
+    OrigamiAvatarImage,
+    OrigamiAvatarFallback,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -119,6 +123,9 @@ import {
         <option value="file-field-input">Duplicate file field Input</option>
         <option value="orphan-file-field-input">Orphan file field Input</option>
         <option value="orphan-file-field-drop-zone">Orphan file field drop zone</option>
+        <option value="avatar-image">Duplicate avatar Image</option>
+        <option value="orphan-avatar-image">Orphan avatar Image</option>
+        <option value="orphan-avatar-fallback">Orphan avatar Fallback</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -216,6 +223,18 @@ import {
     }
     @if (mounted() && selected() === "orphan-file-field-drop-zone") {
       <div ogFileFieldDropZone>Orphan drop zone</div>
+    }
+    <span ogAvatar>
+      <img ogAvatarImage alt="" />
+      @if (mounted() && selected() === "avatar-image") {
+        <img ogAvatarImage alt="" />
+      }
+    </span>
+    @if (mounted() && selected() === "orphan-avatar-image") {
+      <img ogAvatarImage alt="" />
+    }
+    @if (mounted() && selected() === "orphan-avatar-fallback") {
+      <span ogAvatarFallback>OA</span>
     }
     <section ogCollapsible>
       <button ogCollapsibleTrigger>First trigger</button>

@@ -172,6 +172,16 @@ export const routes: Routes = [
       import("./fixtures/progress-block.js").then((module) => module.ProgressBlockFixture),
   },
   {
+    path: "avatar",
+    loadComponent: () =>
+      import("./fixtures/avatar-deferred.js").then((module) => module.AvatarDeferred),
+  },
+  {
+    path: "avatar-split",
+    loadComponent: () =>
+      import("./fixtures/avatar-split-deferred.js").then((module) => module.AvatarSplitDeferred),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

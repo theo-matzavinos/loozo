@@ -133,6 +133,7 @@ import { OrigamiNumberFieldOptions, type OrigamiNumberFieldState } from '@loozo/
 import { OrigamiOtpFieldOptions, type OrigamiOtpFieldState, type OrigamiOtpFieldCell } from '@loozo/origami-ui/otp-field';
 import { OrigamiFileFieldOptions, type OrigamiFileFieldState } from '@loozo/origami-ui/file-field';
 import { OrigamiProgressOptions, type OrigamiProgressState } from '@loozo/origami-ui/progress';
+import { OrigamiAvatarImageOptions, type OrigamiAvatarState, type OrigamiAvatarStatus } from '@loozo/origami-ui/avatar';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -637,6 +638,21 @@ void progressValue;
 void progressPercent;
 void progressComplete;
 void progressText;
+// Positive: whole Avatar Image factories, with ordinary signals.
+OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>(null)}));
+OrigamiAvatarImageOptions.provideFactory(() => ({src: computed(() => 'data:image/png;base64,')}));
+// @ts-expect-error an Avatar Image factory must supply src
+OrigamiAvatarImageOptions.provideFactory(() => ({}));
+// @ts-expect-error an Avatar Image src is a string or null, never a number
+OrigamiAvatarImageOptions.provideFactory(() => ({src: signal(1)}));
+declare const avatarState: OrigamiAvatarState;
+// @ts-expect-error Avatar State status is readonly
+avatarState.status.set('loaded');
+const avatarStatus: OrigamiAvatarStatus = avatarState.status();
+// @ts-expect-error the Avatar status is one of four literals
+const avatarUnknownStatus: OrigamiAvatarStatus = 'pending';
+void avatarStatus;
+void avatarUnknownStatus;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
 OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
@@ -1030,6 +1046,9 @@ abstract class AbstractProgress {
   abstract readonly max: Signal<number>;
   abstract readonly valueText: Signal<string | null>;
 }
+abstract class AbstractAvatarImage {
+  abstract readonly src: Signal<string | null>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -1135,6 +1154,8 @@ export const providers: Provider[] = [
   OrigamiFileFieldOptions.provideExisting(() => AbstractFileField),
   OrigamiProgressOptions.provideFactory(() => ({value: signal<number | null>(30), max: signal(60), valueText: signal<string | null>(null)})),
   OrigamiProgressOptions.provideExisting(() => AbstractProgress),
+  OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>('/avatar.png')})),
+  OrigamiAvatarImageOptions.provideExisting(() => AbstractAvatarImage),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1466,6 +1487,15 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   textOutput(value: string | null): void { void value; }
   booleanOutput(value: boolean): void { void value; }
   observeState(state: OrigamiProgressState): void { void state; }`,
+  },
+  avatar: {
+    imports: `import { OrigamiAvatar, OrigamiAvatarImage, OrigamiAvatarFallback, OrigamiAvatarState, type OrigamiAvatarStatus } from "@loozo/origami-ui/avatar";`,
+    directives: "OrigamiAvatar, OrigamiAvatarImage, OrigamiAvatarFallback",
+    members: `
+  readonly photo = signal<string | null | undefined>(undefined);
+  readonly count = signal(1);
+  observeStatus(status: OrigamiAvatarStatus): void { void status; }
+  observeState(state: OrigamiAvatarState): void { void state; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -2477,6 +2507,31 @@ const templates = [
       code: 2345,
       span: "value",
       message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "avatar-positive",
+    family: "avatar",
+    template: `<span ogAvatar #avatar="ogAvatar" (click)="observeStatus(avatar.state.status()); observeState(avatar.state)"><span ogAvatarFallback aria-hidden="true">TM</span><img ogAvatarImage [src]="photo()" alt="" /></span><span ogAvatar><img ogAvatarImage src="/avatar.png" alt="Theo" /><img ogAvatarImage [src]="null" alt="" /></span>`,
+  },
+  {
+    name: "avatar-src-number",
+    family: "avatar",
+    template: `<span ogAvatar><img ogAvatarImage [src]="count()" alt="" /></span>`,
+    expected: {
+      code: 2322,
+      span: "src",
+      message: /Type 'number' is not assignable to type 'string'/,
+    },
+  },
+  {
+    name: "avatar-image-state",
+    family: "avatar",
+    template: `<span ogAvatar><img ogAvatarImage #image="ogAvatarImage" alt="" /></span>`,
+    expected: {
+      code: -998003,
+      span: "ogAvatarImage",
+      message: /No directive found with exportAs 'ogAvatarImage'/,
     },
   },
   {

@@ -95,6 +95,13 @@ import type {
   OrigamiFileFieldOptions,
   OrigamiFileFieldState,
 } from "@loozo/origami-ui/file-field";
+import type {
+  OrigamiAvatar,
+  OrigamiAvatarImage,
+  OrigamiAvatarImageOptions,
+  OrigamiAvatarState,
+  OrigamiAvatarStatus,
+} from "@loozo/origami-ui/avatar";
 import { OrigamiSwitch, OrigamiSwitchOptions, OrigamiSwitchState } from "@loozo/origami-ui/switch";
 
 type ExpectNever<T extends never> = T;
@@ -437,4 +444,19 @@ export function checkFileField(root: OrigamiFileField): void {
   void rootOptions;
   void rootControl;
   void value;
+}
+
+/** The Avatar root exposes its State; the Image is its own Options, with a readonly normalized `src`. */
+export function checkAvatar(root: OrigamiAvatar, image: OrigamiAvatarImage): void {
+  const rootState: OrigamiAvatarState = root.state;
+  const status: OrigamiAvatarStatus = rootState.status();
+  const imageOptions: OrigamiAvatarImageOptions = image;
+  const source: string | null = imageOptions.src();
+  // @ts-expect-error Avatar State status is readonly
+  rootState.status.set("loaded");
+  // @ts-expect-error the Image's src input is read through Angular, never written directly
+  image.src.set(null);
+
+  void status;
+  void source;
 }
