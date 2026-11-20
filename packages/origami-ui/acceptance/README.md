@@ -1,6 +1,6 @@
 # Origami UI — independent acceptance preparation
 
-**Status: handwritten public consumer seeds and explicit case definitions for the current product contract, executed by [`tests/acceptance`](../tests/acceptance/README.md) on Angular 22.2.6; `@loozo/origami-ui` 0.0.1 passed the full gate. The 22.1.5 statements below are the dated research from when this pack was prepared on 2026-10-11; see [PROVENANCE.md](../PROVENANCE.md).**
+**Status: handwritten public consumer seeds and explicit case definitions for the current product contract, executed by [`tests/acceptance`](../tests/acceptance/README.md) on Angular 22.3.0; `@loozo/origami-ui` 0.0.1 passed the full gate. The 22.1.5 statements below are the dated research from when this pack was prepared on 2026-10-11; see [PROVENANCE.md](../PROVENANCE.md).**
 
 The Popover design/API/lifecycle was approved on 2026-10-11. This pack defines acceptance from [the product contract](../SPEC.md) and [the approved Popover design](../SPEC-POPOVER.md), independently of archived implementation code or historical tests. It contains no replacement library, Angular shim, dependency installation or build setup.
 

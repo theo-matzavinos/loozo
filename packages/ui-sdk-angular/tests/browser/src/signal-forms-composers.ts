@@ -31,7 +31,12 @@ import { renderedFlag } from "./ready";
     UiSelectItem,
   ],
   template: `
-    <button appCheckbox data-testid="composed-agree" aria-label="Agree" [formField]="f.agree"></button>
+    <button
+      appCheckbox
+      data-testid="composed-agree"
+      aria-label="Agree"
+      [formField]="f.agree"
+    ></button>
     <app-country
       data-testid="composed-country"
       [formField]="f.country"
@@ -47,8 +52,12 @@ import { renderedFlag } from "./ready";
       </div>
     </div>
     <input data-testid="composers-outside" aria-label="Outside" />
-    <button data-testid="composers-disabled" (click)="isDisabled.set(!isDisabled())">Disabled</button>
-    <button data-testid="composers-readonly" (click)="isReadonly.set(!isReadonly())">Readonly</button>
+    <button data-testid="composers-disabled" (click)="isDisabled.set(!isDisabled())">
+      Disabled
+    </button>
+    <button data-testid="composers-readonly" (click)="isReadonly.set(!isReadonly())">
+      Readonly
+    </button>
     <button data-testid="composers-external" (click)="external()">model.set</button>
     <button data-testid="focus-composed-country" (click)="f.country().focusBoundControl()">
       Focus country

@@ -40,7 +40,7 @@ function text(value: unknown): string | undefined {
   return undefined;
 }
 
-// Angular's joinUrlParts (@angular/build 22.2 src/utils/url.js).
+// Angular's joinUrlParts (@angular/build 22.3 src/utils/url.js).
 function joinUrlParts(...parts: string[]): string {
   const normalized: string[] = [];
 
@@ -78,7 +78,7 @@ function joinUrlParts(...parts: string[]): string {
 }
 
 /**
- * A locale build's base href as Angular 22.2's getLocaleBaseHref computes it
+ * A locale build's base href as Angular 22.3's getLocaleBaseHref computes it
  * (src/builders/application/options.js), for output that isn't flat: the locale's `baseHref`, else
  * its `subPath` and a slash, joined under the build's `baseHref`. Undefined for an empty suffix,
  * where Angular keeps the build's own base.
@@ -105,7 +105,7 @@ export function localeBaseHref(baseHref: string, locale: LocaleBase): string | u
 }
 
 /**
- * The configured locales in Angular's order (@angular/build 22.2 createI18nOptions): the source
+ * The configured locales in Angular's order (@angular/build 22.3 createI18nOptions): the source
  * locale (a code, `{ code, baseHref, subPath }`, or en-US when omitted) first, then `i18n.locales`
  * in order, each a translation file, a list, or `{ translation, baseHref, subPath }`. Angular
  * validates the configuration when it builds; a field of the wrong type reads as absent here.

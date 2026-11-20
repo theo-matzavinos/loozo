@@ -137,7 +137,11 @@ function alternate(): Values {
         </button>
         <div uiSelectContent>
           @for (item of countries; track item.id) {
-            <div [uiSelectItem]="item" [label]="item.label" [attr.data-testid]="'country-' + item.id">
+            <div
+              [uiSelectItem]="item"
+              [label]="item.label"
+              [attr.data-testid]="'country-' + item.id"
+            >
               {{ item.label }}
             </div>
           }
@@ -149,15 +153,25 @@ function alternate(): Values {
     <button data-testid="external" (click)="model.set(alternate())">model.set</button>
     <button data-testid="clear-size" (click)="clearSize()">Clear size</button>
     <button data-testid="angular-reset" (click)="f().reset(initial())">Angular reset</button>
-    <button data-testid="alternate-reset" (click)="f().reset(alternate())">Angular reset to alternate</button>
+    <button data-testid="alternate-reset" (click)="f().reset(alternate())">
+      Angular reset to alternate
+    </button>
     <button data-testid="cancel" (click)="veto.set(!veto())">Cancel: {{ veto() }}</button>
-    <button data-testid="disabled" (click)="isDisabled.set(!isDisabled())">Disabled: {{ isDisabled() }}</button>
-    <button data-testid="required" (click)="isRequired.set(!isRequired())">Required: {{ isRequired() }}</button>
-    <button data-testid="readonly" (click)="isReadonly.set(!isReadonly())">Readonly: {{ isReadonly() }}</button>
+    <button data-testid="disabled" (click)="isDisabled.set(!isDisabled())">
+      Disabled: {{ isDisabled() }}
+    </button>
+    <button data-testid="required" (click)="isRequired.set(!isRequired())">
+      Required: {{ isRequired() }}
+    </button>
+    <button data-testid="readonly" (click)="isReadonly.set(!isReadonly())">
+      Readonly: {{ isReadonly() }}
+    </button>
     <button data-testid="portal" (click)="portal()">Move the fruit popup to body</button>
     <button data-testid="focus-terms" (click)="f.terms().focusBoundControl()">Focus terms</button>
     <button data-testid="focus-size" (click)="f.size().focusBoundControl()">Focus size</button>
-    <button data-testid="focus-country" (click)="f.country().focusBoundControl()">Focus country</button>
+    <button data-testid="focus-country" (click)="f.country().focusBoundControl()">
+      Focus country
+    </button>
     <output data-testid="model">{{ model() | json }}</output>
     <output data-testid="touched">{{ touched() | json }}</output>
     <output data-testid="field-flags">{{ flags() | json }}</output>

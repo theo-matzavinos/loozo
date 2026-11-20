@@ -56,9 +56,9 @@ import { Location, isPlatformServer } from "@angular/common";
  * ```
  */
 export type OrigamiDialogBindings<C> = {
-  [K in keyof C as C[K] extends InputSignalWithTransform<any, any> | OutputRef<any>
-    ? K
-    : never]?: C[K] extends ModelSignal<infer T>
+  [
+    K in keyof C as C[K] extends InputSignalWithTransform<any, any> | OutputRef<any> ? K : never
+  ]?: C[K] extends ModelSignal<infer T>
     ? (() => T) | WritableSignal<T>
     : C[K] extends InputSignalWithTransform<any, infer W>
       ? () => W

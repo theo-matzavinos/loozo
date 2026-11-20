@@ -128,7 +128,7 @@ function translationFiles(value: unknown, locale: string): string[] {
 
 /**
  * The project's i18n configuration and the build's polyfills, normalized as Angular's
- * application builder normalizes them (@angular/build 22.2 i18n-options): the source locale is a
+ * application builder normalizes them (@angular/build 22.3 i18n-options): the source locale is a
  * string or `{ code }` (en-US when omitted), each locale a file, a list or `{ translation }`, and
  * file paths are joined to the workspace root.
  */

@@ -133,13 +133,13 @@ type SearchValue<Codec> =
 type AlwaysReads<Codec> = HasFallback<Codec> extends true ? true : IsArray<Codec>;
 // A missing, repeated or invalid value leaves a plain key absent.
 export type SearchValues<Codecs> = {
-  readonly [Key in keyof Codecs as AlwaysReads<Codecs[Key]> extends true
-    ? Key
-    : never]: SearchValue<Codecs[Key]>;
+  readonly [
+    Key in keyof Codecs as AlwaysReads<Codecs[Key]> extends true ? Key : never
+  ]: SearchValue<Codecs[Key]>;
 } & {
-  readonly [Key in keyof Codecs as AlwaysReads<Codecs[Key]> extends true
-    ? never
-    : Key]?: SearchValue<Codecs[Key]>;
+  readonly [
+    Key in keyof Codecs as AlwaysReads<Codecs[Key]> extends true ? never : Key
+  ]?: SearchValue<Codecs[Key]>;
 };
 export type EffectiveParams<Path extends string, Codecs, Parent> = ParamsOf<Parent> &
   LocalParams<Path, Codecs>;
@@ -180,9 +180,9 @@ export type EffectiveTitle<LocalTitle, Parent> = unknown extends LocalTitle
 // JavaScript property identity: a numeric key and its string spelling are one property.
 type KeyIdentity<Key> = Key extends number ? `${Key}` : Key;
 type Unshadowed<Inherited, Local> = {
-  readonly [Key in keyof Inherited as KeyIdentity<Key> extends KeyIdentity<Local>
-    ? never
-    : Key]: Inherited[Key];
+  readonly [
+    Key in keyof Inherited as KeyIdentity<Key> extends KeyIdentity<Local> ? never : Key
+  ]: Inherited[Key];
 };
 /**
  * Shared parsed inputs supplied to typed guards and resolvers.

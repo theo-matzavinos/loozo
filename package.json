@@ -14,8 +14,8 @@
   "devDependencies": {
     "@types/node": "24.13.3",
     "typescript": "6.0.3",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.5",
-    "vite-plus": "0.2.5"
+    "vite": "npm:@voidzero-dev/vite-plus-core@8.3.8000",
+    "vite-plus": "1.7.0"
   },
   "devEngines": {
     "packageManager": {

@@ -71,7 +71,9 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
       </div>
       <div uiToolbarSeparator data-testid="separator"></div>
       <div uiToolbarGroup data-testid="toolbar-group" [disabled]="groupDisabled()">
-        <button uiToolbarButton data-testid="share" (press)="shares.set(shares() + 1)">Share</button>
+        <button uiToolbarButton data-testid="share" (press)="shares.set(shares() + 1)">
+          Share
+        </button>
         <button uiToggle data-testid="italic" aria-label="Italic">I</button>
         <div uiToggleGroup data-testid="list" aria-label="List" [multiple]="true">
           <button uiToggle value="bullets" data-testid="bullets">Bullets</button>
@@ -80,10 +82,18 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
       <a uiToolbarLink href="#help" data-testid="help">Help</a>
       <input uiToolbarInput data-testid="size" aria-label="Size" value="12" />
     </div>
-    <button type="button" data-testid="set-group-disabled" (click)="groupDisabled.set(!groupDisabled())">
+    <button
+      type="button"
+      data-testid="set-group-disabled"
+      (click)="groupDisabled.set(!groupDisabled())"
+    >
       Group disabled
     </button>
-    <button type="button" data-testid="set-toolbar-disabled" (click)="toolbarDisabled.set(!toolbarDisabled())">
+    <button
+      type="button"
+      data-testid="set-toolbar-disabled"
+      (click)="toolbarDisabled.set(!toolbarDisabled())"
+    >
       Toolbar disabled
     </button>
     <output data-testid="shares">{{ shares() }}</output>
@@ -164,8 +174,12 @@ type ValueRequest = UiSdkEvent<NonNullable<ToggleGroupOptions["onValueChange"]>>
     <button type="button" data-testid="set-chosen" (click)="chosen.set(['ham'])">Only ham</button>
 
     <div uiToolbar data-testid="off-toolbar" aria-label="Off" [disabled]="true">
-      <button uiToolbarButton data-testid="off-press" (press)="presses.set(presses() + 1)">Press</button>
-      <button uiToolbarButton data-testid="off-click" (click)="clicks.set(clicks() + 1)">Click</button>
+      <button uiToolbarButton data-testid="off-press" (press)="presses.set(presses() + 1)">
+        Press
+      </button>
+      <button uiToolbarButton data-testid="off-click" (click)="clicks.set(clicks() + 1)">
+        Click
+      </button>
     </div>
     <output data-testid="off-presses">{{ presses() }}</output>
     <output data-testid="off-clicks">{{ clicks() }}</output>

@@ -160,7 +160,9 @@ export class SignalFormsBoolean {
         <input uiSelectFormInput [formField]="f.fruit" data-testid="hidden-select-input" />
       </div>
     </form>
-    <button data-testid="external" (click)="model.set({ terms: false, fruit: '' })">model.set</button>
+    <button data-testid="external" (click)="model.set({ terms: false, fruit: '' })">
+      model.set
+    </button>
     <output data-testid="model">{{ model() | json }}</output>
     <span data-testid="app-ready" [attr.data-ready]="ready()">ready</span>
   `,
