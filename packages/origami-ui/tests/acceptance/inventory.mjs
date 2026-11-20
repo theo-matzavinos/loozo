@@ -304,6 +304,7 @@ export const inventory = {
     "OrigamiFileFieldInput",
     "OrigamiFileFieldDropZone",
   ],
+  progress: ["OrigamiProgress", "OrigamiProgressOptions", "OrigamiProgressState"],
 };
 
 export const typeOnly = new Set([

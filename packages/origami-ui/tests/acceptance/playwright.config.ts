@@ -36,12 +36,12 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // number field's server HTML in a Field (NF9) and its text typed or stepped before its block
 // hydrates (NF12), the OTP field's server HTML (OT11) and its digits typed before its block
 // hydrates (OT12), the file field's server HTML (FF2), its picks and departures before hydration
-// (FF7) and its split layouts (FF9), and the mixed Checkbox's server HTML (J10) and its click
-// replayed into a hydrating select-all parent (J13), check what hydration keeps, so they run there
-// too.
+// (FF7) and its split layouts (FF9), the mixed Checkbox's server HTML (J10) and its click
+// replayed into a hydrating select-all parent (J13), and Progress's server HTML (PR2) and its bar
+// in a dehydrated block (PR7), check what hydration keeps, so they run there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
 const hydrationAndErrorCases =
-  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b|\bJ1[03]\b/;
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b|\bJ1[03]\b|\bPR(?:2|7)\b/;
 
 let browsers = browserNames;
 

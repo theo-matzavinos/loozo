@@ -132,6 +132,7 @@ import { OrigamiSliderOptions, type OrigamiSliderState } from '@loozo/origami-ui
 import { OrigamiNumberFieldOptions, type OrigamiNumberFieldState } from '@loozo/origami-ui/number-field';
 import { OrigamiOtpFieldOptions, type OrigamiOtpFieldState, type OrigamiOtpFieldCell } from '@loozo/origami-ui/otp-field';
 import { OrigamiFileFieldOptions, type OrigamiFileFieldState } from '@loozo/origami-ui/file-field';
+import { OrigamiProgressOptions, type OrigamiProgressState } from '@loozo/origami-ui/progress';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -614,6 +615,28 @@ const fileFieldValue: File | null = fileFieldState.value();
 const fileFieldDisabled: boolean = fileFieldState.disabled();
 void fileFieldValue;
 void fileFieldDisabled;
+// Positive: whole Progress factories, with plain and computed signals; nothing is writable.
+OrigamiProgressOptions.provideFactory(() => ({value: signal<number | null>(null), max: signal(4), valueText: signal<string | null>(null)}));
+OrigamiProgressOptions.provideFactory(() => ({value: computed(() => 2), max: computed(() => 4), valueText: computed(() => 'Βήμα 2 από 4')}));
+// @ts-expect-error a Progress factory must supply valueText
+OrigamiProgressOptions.provideFactory(() => ({value: signal<number | null>(2), max: signal(4)}));
+// @ts-expect-error Progress value is a number or null, never a string
+OrigamiProgressOptions.provideFactory(() => ({value: signal('2'), max: signal(4), valueText: signal<string | null>(null)}));
+// @ts-expect-error Progress valueText is a string or null
+OrigamiProgressOptions.provideFactory(() => ({value: signal<number | null>(2), max: signal(4), valueText: signal(50)}));
+declare const progressState: OrigamiProgressState;
+// @ts-expect-error Progress State value is readonly
+progressState.value.set(2);
+// @ts-expect-error Progress State complete is readonly
+progressState.complete.update((complete) => !complete);
+const progressValue: number | null = progressState.value();
+const progressPercent: number | null = progressState.percent();
+const progressComplete: boolean = progressState.complete();
+const progressText: string | null = progressState.valueText();
+void progressValue;
+void progressPercent;
+void progressComplete;
+void progressText;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
 OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
@@ -1002,6 +1025,11 @@ abstract class AbstractFileField {
   abstract readonly value: WritableSignal<File | null>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractProgress {
+  abstract readonly value: Signal<number | null>;
+  abstract readonly max: Signal<number>;
+  abstract readonly valueText: Signal<string | null>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -1105,6 +1133,8 @@ export const providers: Provider[] = [
   OrigamiOtpFieldOptions.provideExisting(() => AbstractOtpField),
   OrigamiFileFieldOptions.provideFactory(() => ({value: signal<File | null>(null), disabled: signal(false)})),
   OrigamiFileFieldOptions.provideExisting(() => AbstractFileField),
+  OrigamiProgressOptions.provideFactory(() => ({value: signal<number | null>(30), max: signal(60), valueText: signal<string | null>(null)})),
+  OrigamiProgressOptions.provideExisting(() => AbstractProgress),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1423,6 +1453,19 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   fileOutput(value: File | null): void { void value; }
   labelOutput(value: string | null): void { void value; }
   observeState(state: OrigamiFileFieldState): void { void state; }`,
+  },
+  progress: {
+    imports: `import { OrigamiProgress, OrigamiProgressState } from "@loozo/origami-ui/progress";`,
+    directives: "OrigamiProgress",
+    members: `
+  readonly step = signal<number | null>(2);
+  readonly steps = signal(4);
+  readonly label = signal<string | null>(null);
+  readonly count = signal(1);
+  numberOutput(value: number | null): void { void value; }
+  textOutput(value: string | null): void { void value; }
+  booleanOutput(value: boolean): void { void value; }
+  observeState(state: OrigamiProgressState): void { void state; }`,
   },
   "radio-group": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
@@ -2409,6 +2452,31 @@ const templates = [
       code: 2345,
       span: "$event",
       message: /File \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "progress-positive",
+    family: "progress",
+    template: `<div ogProgress #p="ogProgress" [value]="step()" [max]="steps()" [valueText]="label()" aria-label="Steps" (click)="numberOutput(p.state.value()); numberOutput(p.state.percent()); booleanOutput(p.state.complete()); textOutput(p.state.valueText()); observeState(p.state)"></div><div ogProgress value="2" max="4" valueText="Βήμα 2 από 4" aria-label="Attributes"></div><div ogProgress [value]="null" aria-label="Loading"></div>`,
+  },
+  {
+    name: "progress-value-text-number",
+    family: "progress",
+    template: `<div ogProgress [valueText]="count()"></div>`,
+    expected: {
+      code: 2322,
+      span: "valueText",
+      message: /number.*not assignable to type 'string'/s,
+    },
+  },
+  {
+    name: "progress-state-value",
+    family: "progress",
+    template: `<div ogProgress #p="ogProgress" (click)="textOutput(p.state.value())"></div>`,
+    expected: {
+      code: 2345,
+      span: "value",
+      message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
     },
   },
   {

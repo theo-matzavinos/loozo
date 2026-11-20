@@ -341,6 +341,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/combobox",
     "@loozo/origami-ui/toast",
     "@loozo/origami-ui/slider",
+    "@loozo/origami-ui/progress",
     "@loozo/origami-ui/number-field",
     "@loozo/origami-ui/otp-field",
     "@loozo/origami-ui/file-field",
@@ -390,6 +391,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/combobox"].length, 12);
   assert.equal(names["@loozo/origami-ui/toast"].length, 11);
   assert.equal(names["@loozo/origami-ui/slider"].length, 5);
+  assert.equal(names["@loozo/origami-ui/progress"].length, 3);
   assert.equal(names["@loozo/origami-ui/number-field"].length, 6);
   assert.equal(names["@loozo/origami-ui/otp-field"].length, 5);
   assert.equal(names["@loozo/origami-ui/file-field"].length, 5);
@@ -441,6 +443,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "combobox:Combobox",
     "toast:Toast",
     "slider:Slider",
+    "progress:Progress",
     "number-field:Number field",
     "otp-field:OTP field",
     "file-field:File field",
@@ -459,7 +462,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 37 snippets that export one component", async () => {
+test("origami's guide pages run the 38 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -467,7 +470,7 @@ test("origami's guide pages run the 37 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 37);
+  assert.equal(ids.length, 38);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -543,6 +546,7 @@ test("origami's playgrounds get a control for each input and model of their comp
       "mask:input:boolean",
     ],
     "file-field/attach-document.ts": ["disabled:input:boolean"],
+    "progress/dialog-steps.ts": ["warning:model:boolean", "loading:model:boolean"],
   });
 });
 

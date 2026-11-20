@@ -144,6 +144,15 @@ export const routes: Routes = [
       import("./fixtures/file-field-split.js").then((module) => module.FileFieldSplitFixture),
   },
   {
+    path: "progress",
+    loadComponent: () => import("./fixtures/progress.js").then((module) => module.ProgressFixture),
+  },
+  {
+    path: "progress-block",
+    loadComponent: () =>
+      import("./fixtures/progress-block.js").then((module) => module.ProgressBlockFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),
