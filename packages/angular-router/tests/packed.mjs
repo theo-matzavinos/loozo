@@ -214,7 +214,7 @@ await run(
   const b = await import(${JSON.stringify(secondEntry)});
   const ac = await import(${JSON.stringify(firstCore)});
   const bc = await import(${JSON.stringify(secondCore)});
-  const publicValues = ['arrayParam','booleanParam','createUrl','defineRoute','enumParam','numberParam','stringParam','withFallback'];
+  const publicValues = ['arrayParam','booleanParam','createUrl','defineRoute','enumParam','localeUrls','numberParam','serverRoutePath','stringParam','withFallback'];
   assert.deepEqual(Object.keys(a).sort(), publicValues);
   assert.deepEqual(Object.keys(b).sort(), publicValues);
   assert.notEqual(a.defineRoute, b.defineRoute);
@@ -246,7 +246,7 @@ await run(
   assert.throws(() => a.defineRoute('alias/$id', { params: { id: a.numberParam } }).redirect({ to: local, search: { mode: 'drop' }, fragment: { mode: 'drop' } }), { name: 'TypeError', message: /^Redirect target must be a genuine destination$/ });
   const product = a.defineRoute('products/$productId', { params: { productId: a.numberParam }, search: { tab: a.withFallback(a.enumParam(['details','reviews']), 'details') }, fragments: ['summary','reviews'] });
   assert.equal(a.createUrl(product, { params: { productId: 42 }, search: { tab: 'reviews' }, fragment: 'summary' }), '/products/42?tab=reviews#summary');
-  console.log('fresh plain Node: 8 values; product URL; own core membership for routes and destinations; distinct physical instances');
+  console.log('fresh plain Node: 10 values; product URL; own core membership for routes and destinations; distinct physical instances');
 `,
   ],
   evidence,

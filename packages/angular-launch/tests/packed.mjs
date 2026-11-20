@@ -185,7 +185,7 @@ assert.equal(typeof discoverLaunchRoutes,'function');assert.equal(typeof createV
 assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedirect','defineRoute','frameworkFailures','rpcNavigationErrors']);
 // The optional peer isn't installed here: the root and server entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
-assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','redirect']);
+assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','readCookies','redirect']);
 assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer','runProcedure']);
 const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
