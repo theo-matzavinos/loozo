@@ -4,6 +4,8 @@ import { toSignal } from "@angular/core/rxjs-interop";
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
 import { filter, map } from "rxjs";
 import { createUrl } from "@loozo/angular-router";
+import { injectAlternates } from "./alternates";
+import { LanguageSwitcher } from "./language-switcher";
 import { destination as guarded } from "./routes/+authenticated/guarded/destination.generated";
 import { destination as lazyGuarded } from "./routes/+authenticated/lazy/guarded/destination.generated";
 import { destination as live } from "./routes/+authenticated/live/destination.generated";
@@ -16,7 +18,7 @@ declare global {
 
 @Component({
   selector: "proof-root",
-  imports: [RouterLink, RouterOutlet],
+  imports: [RouterLink, RouterOutlet, LanguageSwitcher],
   template: `
     <p>
       Launch translated redirects · <span id="locale">{{ locale }}</span> · at
@@ -28,6 +30,7 @@ declare global {
       <a id="live" [routerLink]="live">Live</a> ·
       <a id="manuals-start" [routerLink]="manualsStart">Manuals</a>
     </nav>
+    <app-language-switcher />
     <router-outlet />
   `,
 })
@@ -48,6 +51,8 @@ export class App {
   protected readonly manualsStart = createUrl(manualsStart, {});
 
   constructor() {
+    injectAlternates();
+
     if (isPlatformBrowser(inject(PLATFORM_ID))) {
       globalThis.proofNavigate = (url) => this.#router.navigateByUrl(url);
     }

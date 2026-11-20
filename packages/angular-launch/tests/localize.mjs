@@ -4,7 +4,9 @@
 // in one process, every probe redirect caught by a real generated client next to that build's
 // own createUrl, redirects into named outlets (canonical frame, caught RpcRedirect.to, SSR 302
 // and the committed browser URL with what each outlet renders), Chromium RPC redirects, streams
-// and channels, and ng serve with a catalog edit.
+// and channels, the router's language switcher and hreflang alternates from the locale table
+// Launch's builders define (bundles, prerender, raw SSR, hydration and a locale switch), and
+// ng serve with a bad and a valid catalog edit.
 //
 // Usage: node tests/localize.mjs /absolute/owned/absent-evidence-directory
 // `pnpm run test:localize` runs it under the machine-wide gate lock, which every build and
@@ -36,6 +38,8 @@ const { Window } = require("happy-dom");
 const exampleManifest = JSON.parse(await readFile(join(example, "package.json"), "utf8"));
 const ng = join(example, "node_modules/@angular/cli/bin/ng.js");
 const meaning = "URL path segment";
+// The alternates snippet's public origin (src/alternates.ts).
+const site = "https://example.test";
 
 async function save(name, value) {
   await writeFile(join(evidence, name), JSON.stringify(value, null, 2) + "\n");
@@ -185,6 +189,130 @@ function shown(document) {
   return result;
 }
 
+// The language switcher's links, [locale, href, aria-current], and the alternates snippet's
+// links, [hreflang, href], with how many alternate links the document has in all. Runs in Node
+// on the raw HTML and in Chromium on the live page.
+function localeLinks(document) {
+  const switcher = [];
+  const alternates = [];
+
+  for (const link of document.querySelectorAll("nav[aria-label='Language'] a")) {
+    switcher.push([
+      link.getAttribute("hreflang"),
+      link.getAttribute("href"),
+      link.getAttribute("aria-current"),
+    ]);
+  }
+
+  for (const link of document.querySelectorAll("link[data-hreflang]")) {
+    alternates.push([link.getAttribute("hreflang"), link.getAttribute("href")]);
+  }
+
+  return {
+    switcher,
+    alternates,
+    alternateLinks: document.querySelectorAll("link[rel='alternate']").length,
+  };
+}
+
+// A page in both locales: the switcher links to [en, de] document URLs with this locale's marked,
+// and the snippet adds en, de and x-default → en, absolute on the public origin, and no other.
+function expectLocaleLinks({ switcher, alternates, alternateLinks }, en, de, current, label) {
+  const marks = { en: null, de: null };
+
+  marks[current] = "page";
+  assert.deepEqual(
+    { switcher, alternates, alternateLinks },
+    {
+      switcher: [
+        ["en", en, marks.en],
+        ["de", de, marks.de],
+      ],
+      alternates: [
+        ["en", new URL(en, site).href],
+        ["de", new URL(de, site).href],
+        ["x-default", new URL(en, site).href],
+      ],
+      alternateLinks: 3,
+    },
+    label,
+  );
+}
+
+// The locale table objects a bundle holds: the builders' define, inlined by esbuild as an object
+// literal. Minifiers may quote keys and strings with ", ' or a backtick.
+function localeTables(code) {
+  const tables = [];
+  const start = /locales:\[\{code:/g;
+
+  for (const match of code.matchAll(start)) {
+    const open = code.lastIndexOf("{", match.index);
+    let depth = 0;
+    let quote;
+    let end = open;
+
+    for (; end < code.length; end += 1) {
+      const character = code[end];
+
+      if (quote) {
+        if (character === "\\") {
+          end += 1;
+        } else if (character === quote) {
+          quote = undefined;
+        }
+
+        continue;
+      }
+
+      if (character === '"' || character === "'" || character === "`") {
+        quote = character;
+      } else if (character === "{" || character === "[") {
+        depth += 1;
+      } else if (character === "}" || character === "]") {
+        depth -= 1;
+
+        if (depth === 0) {
+          break;
+        }
+      }
+    }
+
+    tables.push(new Function(`return (${code.slice(open, end + 1)});`)());
+  }
+
+  return tables;
+}
+
+// Every German word in src/locale/messages.de.xlf, by canonical word: the table's de entry.
+const germanWords = [
+  ["account", "konto"],
+  ["anmelden", "empfangen"],
+  ["chat", "plaudern"],
+  ["docs", "dokumente"],
+  ["guarded", "geschuetzt"],
+  ["help", "hilfe"],
+  ["item", "artikel"],
+  ["jump", "springen"],
+  ["lazy", "spaet"],
+  ["live", "direkt"],
+  ["manuals", "handbuecher"],
+  ["missing", "vermisst"],
+  ["not-found", "nicht-gefunden"],
+  ["old", "alt"],
+  ["probe", "sonde"],
+  ["products", "produkte"],
+  ["shelf", "regal"],
+  ["sign-in", "anmelden"],
+  ["start", "anfang"],
+  ["teams", "mannschaften"],
+];
+const localeTable = {
+  locales: [
+    { code: "en", baseHref: "/en/", words: [] },
+    { code: "de", baseHref: "/de/", words: germanWords },
+  ],
+};
+
 // Angular's own form of a URL, which it commits and writes into a Location: it unescapes some
 // encoded characters a createUrl string keeps.
 const serializer = new DefaultUrlSerializer();
@@ -298,6 +426,7 @@ function inspect(body) {
     ownLink: document.querySelector("#own-link")?.getAttribute("href") ?? null,
     guardedLink: document.querySelector("#guarded")?.getAttribute("href") ?? null,
     shown: shown(document),
+    ...localeLinks(document),
   };
 
   window.close();
@@ -326,8 +455,9 @@ assert.match(
   /words: \["account", "anmelden", "chat", "docs", "guarded", "help", "item", "jump", "lazy", "live", "manuals", "missing", "not-found", "old", "probe", "products", "shelf", "sign-in", "start", "teams"\],/,
 );
 
-// 2. Build output: no init warning; each locale's table holds its words, inlined; the host has
-// the source-text installer and no table.
+// 2. Build output: no init warning; each locale's table holds its words, inlined, and each
+// locale bundle set holds the router's locale table once; the host has the source-text installer
+// and neither table; the prerendered page has the switcher and alternates.
 assert.doesNotMatch(buildLog, /Direct import of '@angular\/localize\/init'/);
 
 const dist = join(app, "dist/proof");
@@ -368,7 +498,11 @@ for (const [target, extension] of [
       assert.ok(code.includes(`"${word}"`), `${target}/${locale} lacks ${word}`);
     }
 
-    bundles[`${target}/${locale}`] = words;
+    // One table per locale bundle set: every configured locale, whatever this build is.
+    const tables = localeTables(code);
+
+    assert.deepEqual(tables, [localeTable], `${target}/${locale} locale tables`);
+    bundles[`${target}/${locale}`] = { words, tables };
   }
 }
 
@@ -376,7 +510,29 @@ const host = await readFile(join(dist, "server/server.mjs"), "utf8");
 
 assert.ok(host.includes("Unterminated $localize metadata block"), "the host has the installer");
 assert.equal(host.includes("geschuetzt"), false, "the host has no German table");
+assert.deepEqual(localeTables(host), [], "the host has no locale table");
 await save("bundles.json", bundles);
+
+const prerendered = JSON.parse(await readFile(join(dist, "prerendered-routes.json"), "utf8"));
+const prerenderEvidence = {};
+
+assert.deepEqual(Object.keys(prerendered.routes).sort(), [
+  "/de/handbuecher/anfang",
+  "/en/manuals/start",
+]);
+
+for (const [locale, path] of [
+  ["en", "en/manuals/start"],
+  ["de", "de/handbuecher/anfang"],
+]) {
+  const html = inspect(await readFile(join(dist, "browser", path, "index.html"), "utf8"));
+
+  assert.equal(html.page, "manuals/start", path);
+  expectLocaleLinks(html, "/en/manuals/start", "/de/handbuecher/anfang", locale, path);
+  prerenderEvidence[path] = html;
+}
+
+await save("prerender.json", prerenderEvidence);
 
 // 3–5. Raw HTTP in one fresh process, locales interleaved, then Chromium.
 const server = background(process.execPath, [join(dist, "server/server.mjs")], {
@@ -506,6 +662,44 @@ try {
     assert.equal(found.status, 200, path);
     assert.equal(found.html.page, page, path);
   }
+
+  // The switcher and alternates name the same page in both locales from the source words, not by
+  // reverse lookup: German anmelden is sign-in, and the route whose source word is anmelden is
+  // empfangen. Parameter and catchall values stay as they are, even when they equal a word.
+  for (const [path, en, de, current] of [
+    ["/de/anmelden", "/en/sign-in", "/de/anmelden", "de"],
+    ["/en/sign-in", "/en/sign-in", "/de/anmelden", "en"],
+    ["/de/empfangen", "/en/anmelden", "/de/empfangen", "de"],
+    ["/de/hilfe/sign-in", "/en/help/sign-in", "/de/hilfe/sign-in", "de"],
+    [
+      "/en/account/sign-in/sign-in",
+      "/en/account/sign-in/sign-in",
+      "/de/konto/sign-in/anmelden",
+      "en",
+    ],
+    // The active route is the primary one, so an open named outlet isn't carried.
+    [
+      "/de/mannschaften/products/(detail:artikel/3)",
+      "/en/teams/products",
+      "/de/mannschaften/products",
+      "de",
+    ],
+  ]) {
+    const found = await fetchRaw(path);
+
+    assert.equal(found.status, 200, path);
+    expectLocaleLinks(found.html, en, de, current, path);
+  }
+
+  // The root catchall keeps its captured values in every locale, and the snippet skips it.
+  const unmatched = await fetchRaw("/de/nirgends/sign-in");
+
+  assert.deepEqual(unmatched.html.switcher, [
+    ["en", "/en/nirgends/sign-in", null],
+    ["de", "/de/nirgends/sign-in", "page"],
+  ]);
+  assert.deepEqual(unmatched.html.alternates, []);
+  assert.equal(unmatched.html.alternateLinks, 0);
 
   // 5. The redirect a real generated client caught equals the page's own createUrl, in both
   // locales, rendered on the server.
@@ -689,6 +883,50 @@ try {
 
   await save("outlets.json", outlets);
 
+  // The switcher and alternates after hydration follow client navigation, and the English link
+  // is a document navigation into the English build.
+  await flow("de-switcher", async (page) => {
+    const links = () => page.evaluate(`(${localeLinks.toString()})(document)`);
+    const switchedTo = (href) =>
+      page.waitForFunction(
+        (expected) =>
+          document
+            .querySelector("nav[aria-label='Language'] a[hreflang='en']")
+            ?.getAttribute("href") === expected,
+        href,
+      );
+
+    await page.goto(`${origin}/de/anmelden`);
+    await settled(page);
+    await page.waitForTimeout(400);
+
+    const hydrated = await links();
+
+    expectLocaleLinks(hydrated, "/en/sign-in", "/de/anmelden", "de", "hydrated");
+    await page.click("#manuals-start");
+    await page.waitForURL("**/de/handbuecher/anfang");
+    await switchedTo("/en/manuals/start");
+
+    const navigated = await links();
+    const navigatedPage = await marker(page);
+
+    expectLocaleLinks(navigated, "/en/manuals/start", "/de/handbuecher/anfang", "de", "navigated");
+    assert.equal(navigatedPage.document, "same");
+
+    await page.click("nav[aria-label='Language'] a[hreflang='en']");
+    await page.waitForURL("**/en/manuals/start");
+    await page.waitForSelector("#page[data-id='manuals/start']");
+
+    const switched = await links();
+    const switchedPage = await marker(page);
+
+    expectLocaleLinks(switched, "/en/manuals/start", "/de/handbuecher/anfang", "en", "switched");
+    // A new document: the token the German one set is gone.
+    assert.equal(switchedPage.document, undefined);
+
+    return { hydrated, navigated, switched, page: switchedPage };
+  });
+
   for (const [target, [german]] of Object.entries(probes)) {
     await flow(`de-probe-${target}`, async (page) => {
       await page.goto(`${origin}/de/sonde?target=${target}`);
@@ -728,8 +966,9 @@ try {
   await stop(server, "server.log");
 }
 
-// 7. ng serve: the host evaluates destinations under Vite's SSR loader; a bad catalog edit is
-// logged and the server keeps serving.
+// 7. ng serve: the host evaluates destinations under Vite's SSR loader; the switcher has the
+// served locale at its flat base; a bad catalog edit is logged and the server keeps serving; a
+// valid one warns that localeUrls keeps the started words.
 const served = await consumer("serve");
 const catalog = join(served, "src/locale/messages.de.xlf");
 const original = await readFile(catalog, "utf8");
@@ -762,6 +1001,36 @@ try {
   const still = await fetch(new URL("anmelden", base.endsWith("/") ? base : `${base}/`));
 
   assert.equal(still.status, 200);
+  await writeFile(catalog, original);
+
+  const servedLinks = inspect(await still.text());
+
+  await save("serve-links.json", servedLinks);
+  assert.deepEqual(servedLinks.switcher, [
+    ["en", "/en/sign-in", null],
+    ["de", "/anmelden", "page"],
+  ]);
+  assert.deepEqual(servedLinks.alternates, [
+    ["en", `${site}/en/sign-in`],
+    ["de", `${site}/anmelden`],
+    ["x-default", `${site}/en/sign-in`],
+  ]);
+
+  const beforeValid = serve.output.length;
+
+  await writeFile(
+    catalog,
+    original.replace("<target>geschuetzt</target>", "<target>behuetet</target>"),
+  );
+  await waitFor(
+    () =>
+      serve.output
+        .slice(beforeValid)
+        .includes(
+          "Locale words changed (route.segment.guarded in de). Links from localeUrls keep the words ng serve started with until you restart it.",
+        ),
+    `the valid catalog edit didn't warn:\n${serve.output.slice(beforeValid)}`,
+  );
   await writeFile(catalog, original);
 } finally {
   await stop(serve, "serve.log");

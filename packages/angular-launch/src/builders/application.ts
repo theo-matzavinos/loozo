@@ -4,8 +4,14 @@ import {
   type BuilderRun,
   type BuilderOutput,
 } from "@angular-devkit/architect";
-import { generate } from "../generation/index.js";
-import { projectLocalization } from "@loozo/angular-router/_generation";
+import { runGeneration } from "../generation/run.js";
+import {
+  localeTable,
+  localeTableWarnings,
+  projectI18n,
+  projectLocalization,
+  withLocaleTable,
+} from "@loozo/angular-router/_generation";
 import { message, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
@@ -65,9 +71,9 @@ const builder: Builder<JsonObject> = createBuilder<JsonObject>(
       }
 
       generation = (async () => {
-        if (launch.translateSegments === true) {
-          const project = context.target?.project;
+        const project = context.target?.project;
 
+        if (launch.translateSegments === true) {
           if (!project) {
             throw new Error(
               "translateSegments needs the application builder to run as a project target",
@@ -77,7 +83,30 @@ const builder: Builder<JsonObject> = createBuilder<JsonObject>(
           launch.localization = await projectLocalization(context, project, official.polyfills);
         }
 
-        await generate(context.workspaceRoot, launch, () => stopped);
+        const words = await runGeneration(context.workspaceRoot, launch, () => stopped);
+
+        // Angular's own builder needs a project target to localize, so a build without one fails
+        // there.
+        if (!project || official.localize === undefined || official.localize === false) {
+          return;
+        }
+
+        // The router's locale table, from the words generation just validated, so localeUrls and
+        // the inlined destination text agree.
+        const table = localeTable({
+          i18n: await projectI18n(context, project),
+          baseHref: official.baseHref,
+          localize: official.localize,
+          words,
+        });
+
+        if (table) {
+          for (const warning of localeTableWarnings(table)) {
+            context.logger.warn(warning);
+          }
+
+          official.define = withLocaleTable(official.define, table);
+        }
       })();
 
       try {

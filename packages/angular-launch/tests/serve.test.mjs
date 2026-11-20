@@ -65,9 +65,9 @@ mock.module("chokidar", {
   },
 });
 
-mock.module(new URL("../dist/generation/index.js", import.meta.url).href, {
+mock.module(new URL("../dist/generation/run.js", import.meta.url).href, {
   exports: {
-    createGenerationSession(workspace, options) {
+    createBuilderSession(workspace, options) {
       const current = scenario;
       const session = {
         workspace,
@@ -237,7 +237,15 @@ async function settle() {
 
 // Each gate holds one startup await open until the test resolves it. holdTeardown makes the
 // watchers' close, the dev server's teardown and the session's disposal wait for the test too.
-async function serve({ optionsGate, workspaceGate, devServerGate, holdTeardown = false } = {}) {
+async function serve({
+  optionsGate,
+  workspaceGate,
+  devServerGate,
+  holdTeardown = false,
+  build = {},
+  metadata = {},
+  serveOptions = {},
+} = {}) {
   scenario = createScenario();
   scenario.workspaceGate = workspaceGate;
   scenario.holdTeardown = holdTeardown;
@@ -263,10 +271,13 @@ async function serve({ optionsGate, workspaceGate, devServerGate, holdTeardown =
     scanDirectories: ["src/routes"],
     outDirectory: "generated",
     browser: "src/main.ts",
+    ...build,
   });
+  host.getProjectMetadata = async () => metadata;
   host.addTarget({ project: "app", target: "serve" }, "@loozo/angular-launch:serve", {
     buildTarget: "app:build",
     port: 0,
+    ...serveOptions,
   });
 
   host.getOptionsForTarget = async (target) => {
@@ -329,16 +340,24 @@ function change(state, path) {
   mock.timers.tick(settleDelay);
 }
 
-function errors(state) {
+function logged(state, level) {
   const messages = [];
 
   for (const entry of state.logs) {
-    if (entry.level === "error") {
+    if (entry.level === level) {
       messages.push(entry.message);
     }
   }
 
   return messages;
+}
+
+function errors(state) {
+  return logged(state, "error");
+}
+
+function warnings(state) {
+  return logged(state, "warn");
 }
 
 // Reaches the served state: watcher ready, initial generation succeeded, dev server started.
@@ -874,3 +893,178 @@ for (const last of ["pass", "watcher", "dev server", "session"]) {
     assert.equal(state.passes.length, 2);
   });
 }
+
+// Serve with the build target's options and project metadata, past an initial generation that
+// resolved to these words.
+async function startedWith(options, words) {
+  const session = await serve(options);
+  const { scenario: state } = session;
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.passes[0].resolve(words);
+  await until(() => state.servers.length === 1, "the dev server");
+
+  return session;
+}
+
+const localized = {
+  build: {
+    translateSegments: true,
+    polyfills: ["@angular/localize/init"],
+    localize: ["de"],
+    define: { appVersion: '"1"' },
+  },
+  metadata: {
+    i18n: { sourceLocale: "en", locales: { de: "src/locale/messages.de.xlf" } },
+  },
+};
+
+function germanWords(entries) {
+  return new Map([["de", new Map(entries)]]);
+}
+
+test("a single-locale serve defines the router's locale table, with the served locale at its flat base", async () => {
+  const { run, scenario: state } = await startedWith(
+    localized,
+    germanWords([
+      ["sign-in", "anmelden"],
+      ["teams", "teams"],
+      ["anmelden", "empfangen"],
+    ]),
+  );
+  const { define } = state.servers[0].options;
+
+  // The build target's own define reaches Angular through the build options; serve adds the table
+  // to the dev server's, which Angular merges into them.
+  assert.deepEqual(Object.keys(define), ["loozoRouterLocales"]);
+  assert.deepEqual(JSON.parse(define.loozoRouterLocales), {
+    locales: [
+      { code: "en", baseHref: "/en/", words: [] },
+      {
+        code: "de",
+        baseHref: "/",
+        words: [
+          ["anmelden", "empfangen"],
+          ["sign-in", "anmelden"],
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(warnings(state), []);
+
+  await run.stop();
+});
+
+test("serve merges the table into its own define, and rejects the reserved key in either", async () => {
+  const merged = await startedWith(
+    {
+      ...localized,
+      build: { ...localized.build, baseHref: "/app/" },
+      serveOptions: { define: { apiUrl: '"/api"' } },
+    },
+    germanWords([]),
+  );
+  const { define } = merged.scenario.servers[0].options;
+
+  assert.equal(define.apiUrl, '"/api"');
+  // The served locale sits at the build's baseHref; the others keep their production base.
+  assert.deepEqual(JSON.parse(define.loozoRouterLocales).locales, [
+    { code: "en", baseHref: "/app/en/", words: [] },
+    { code: "de", baseHref: "/app/", words: [] },
+  ]);
+  await merged.run.stop();
+
+  for (const reserved of [
+    { ...localized, build: { ...localized.build, define: { loozoRouterLocales: "{}" } } },
+    { ...localized, serveOptions: { define: { loozoRouterLocales: "{}" } } },
+  ]) {
+    const { scenario: state } = await serve(reserved);
+
+    await until(() => state.done, "the failed serve");
+    assert.equal(state.watchers.length, 0);
+    assert.equal(state.passes.length, 0);
+    assert.equal(state.servers.length, 0);
+    assert.match(
+      String(state.errors[0]?.message ?? state.errors[0]),
+      /define\.loozoRouterLocales is reserved by @loozo\/angular-router: remove it from the build options/,
+    );
+  }
+});
+
+test("serve defines no table unless it serves exactly one locale", async () => {
+  for (const localize of [undefined, false, true, ["en", "de"]]) {
+    const build = { ...localized.build, localize };
+
+    if (localize === undefined) {
+      delete build.localize;
+    }
+
+    const { run, scenario: state } = await startedWith(
+      { ...localized, build },
+      germanWords([["sign-in", "anmelden"]]),
+    );
+
+    assert.equal(state.servers[0].options.define, undefined, String(localize));
+    await run.stop();
+  }
+});
+
+test("a later pass that changes the table warns once per distinct table; the dev server keeps its own", async () => {
+  const startedWords = [
+    ["sign-in", "anmelden"],
+    ["guarded", "geschuetzt"],
+  ];
+  const { run, scenario: state } = await startedWith(localized, germanWords(startedWords));
+  const define = state.servers[0].options.define.loozoRouterLocales;
+
+  // Unchanged words: no warning.
+  change(state);
+  await until(() => state.passes.length === 2, "the unchanged pass");
+  state.passes[1].resolve(germanWords(startedWords));
+  await settle();
+  assert.deepEqual(warnings(state), []);
+
+  // A changed word warns, naming it.
+  change(state, "src/locale/messages.de.xlf");
+  await until(() => state.passes.length === 3, "the changed pass");
+  state.passes[2].resolve(
+    germanWords([
+      ["sign-in", "anmelden"],
+      ["guarded", "behuetet"],
+    ]),
+  );
+  await until(() => warnings(state).length === 1, "the warning");
+  assert.equal(
+    warnings(state)[0],
+    "Locale words changed (route.segment.guarded in de). Links from localeUrls keep the words ng serve started with until you restart it.",
+  );
+
+  // The same changed table again: no second warning. A failed pass warns nothing.
+  change(state);
+  await until(() => state.passes.length === 4, "the repeated pass");
+  state.passes[3].resolve(
+    germanWords([
+      ["sign-in", "anmelden"],
+      ["guarded", "behuetet"],
+    ]),
+  );
+  change(state);
+  await until(() => state.passes.length === 5, "the failed pass");
+  state.passes[4].reject(new Error("broken"));
+  await until(() => errors(state).length === 1, "the logged failure");
+  await settle();
+  assert.equal(warnings(state).length, 1);
+
+  // Back to the started table: nothing new, and the dev server still has its started table.
+  change(state);
+  await until(() => state.passes.length === 6, "the restoring pass");
+  state.passes[5].resolve(germanWords(startedWords));
+  await settle();
+  assert.equal(warnings(state).length, 1);
+  assert.equal(state.servers.length, 1);
+  assert.equal(state.servers[0].options.define.loozoRouterLocales, define);
+
+  await run.stop();
+});

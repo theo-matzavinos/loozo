@@ -1,6 +1,6 @@
 import { targetFromTargetString, type BuilderContext } from "@angular-devkit/architect";
-import { projectLocalization } from "@loozo/angular-router/_generation";
-import type { GenerationOptions } from "../generation/index.js";
+import { checkLocaleTableDefine, projectLocalization } from "@loozo/angular-router/_generation";
+import type { GenerationOptions } from "../generation/run.js";
 
 export type JsonObject = NonNullable<Parameters<BuilderContext["scheduleBuilder"]>[1]>;
 
@@ -44,7 +44,8 @@ export function message(error: unknown): string {
   return String(error);
 }
 
-// Launch options drive generation; everything else belongs to Angular's application builder.
+// Launch options drive generation; everything else belongs to Angular's application builder,
+// except define.loozoRouterLocales, which the builders set for the router's locale table.
 export function split(options: JsonObject): { launch: GenerationOptions; official: JsonObject } {
   validateLaunchOptions(options);
 
@@ -58,6 +59,8 @@ export function split(options: JsonObject): { launch: GenerationOptions; officia
     ...official
   } = options;
   const launch: GenerationOptions = { tsconfig, scanDirectories, outDirectory };
+
+  checkLocaleTableDefine(official.define);
 
   if (tanstackQuery !== undefined) {
     launch.tanstackQuery = tanstackQuery;
@@ -75,10 +78,12 @@ export function split(options: JsonObject): { launch: GenerationOptions; officia
 }
 
 // Launch options for serve come from its build target, resolved as Angular's dev server resolves it.
+// The official options give the locale table its baseHref and localize; project is the build
+// target's.
 export async function buildTargetOptions(
   context: BuilderContext,
   buildTarget: string,
-): Promise<GenerationOptions> {
+): Promise<{ launch: GenerationOptions; official: JsonObject; project: string }> {
   const project = context.target?.project;
 
   if (!project) {
@@ -108,5 +113,5 @@ export async function buildTargetOptions(
     launch.localization = await projectLocalization(context, target.project, official.polyfills);
   }
 
-  return launch;
+  return { launch, official, project: target.project };
 }

@@ -973,7 +973,9 @@ What stays in the source language:
 
 A browser still running the client of a build from before the option was turned on doesn't recognize a frame with `words` and rejects with Angular's `HttpErrorResponse` until it reloads.
 
-`ng serve` also watches the catalogs: an edit runs the router's per-locale checks again and logs a `Locale de: …` error without stopping the server. Angular's dev server applies a catalog at its next rebuild, not at the edit.
+**Language switcher and hreflang.** The router's `localeUrls(destination, values)` and the active route's `localeUrls` signal work in a Launch app as they do with the router's own builders: Launch's application and serve builders hand the router every configured locale's base href and words, from the catalogs generation just checked, so the German sign-in page `/de/anmelden` links to `/en/sign-in`. Use the router's [switcher and hreflang snippets](../angular-router/README.md#translated-urls) as they are; its rules for which locales are listed, what's carried and when the list is empty apply unchanged. Live server rendering, prerendering and the browser all see the same list. A localized build gets it without `translateSegments` too, with your source words under each locale's base. The builders pass it as Angular's `define.loozoRouterLocales`, so that key is reserved in your own `define`, in the build and the serve options.
+
+`ng serve` also watches the catalogs: an edit runs the router's per-locale checks again and logs a `Locale de: …` error without stopping the server. Angular's dev server applies a catalog at its next rebuild, not at the edit. A single-locale `ng serve` (`"localize": ["de"]`) gets the switcher's list with its own locale at the dev server's unprefixed base, `/anmelden`, and the list keeps the words `ng serve` started with: after an edit that changes them, it logs `Locale words changed (route.segment.guarded in de). Links from localeUrls keep the words ng serve started with until you restart it.` Restart it to refresh the list. The other locales' links point at builds this dev server doesn't serve, so check them in a production build.
 
 ## Testing
 
