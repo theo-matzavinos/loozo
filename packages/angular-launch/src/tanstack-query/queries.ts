@@ -162,11 +162,13 @@ export type NamespaceQueries<Namespace, Procedures> = {
    */
   $key(): NamespaceKey<Namespace>;
 } & {
-  readonly [Name in keyof Procedures as Procedures[Name] extends {
-    readonly kind: "stream" | "channel";
-  }
-    ? never
-    : Name]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
+  readonly [
+    Name in keyof Procedures as Procedures[Name] extends {
+      readonly kind: "stream" | "channel";
+    }
+      ? never
+      : Name
+  ]: ProcedureQueries<Namespace, Name, Procedures[Name]>;
 };
 
 /**

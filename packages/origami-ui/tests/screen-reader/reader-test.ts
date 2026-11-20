@@ -430,7 +430,7 @@ async function useRun(
       await expect(page.getByTestId("fixture-attached")).toHaveText("true");
       await speechReader.navigateToWebContent();
     },
-    async step(label, action, { insertion } = {}) {
+    async step(label, action, { insertion }: { insertion?: InsertionWatch } = {}) {
       if (insertion !== undefined) {
         await page.evaluate(watchInsertion, insertion);
       }

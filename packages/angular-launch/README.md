@@ -10,8 +10,8 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 
 ## Requirements
 
-- Angular 22 with SSR: `@angular/core`, `@angular/common` and `@angular/router` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.2.6.
-- `@angular/build` `~22.2.0`, for the builders. The range is narrow on purpose: the application builder's options schema is Angular's own at the version Launch was built against, so an option added in a later Angular minor is rejected until Launch is rebuilt against that minor. Launch follows the router's [Angular version policy](../angular-router/README.md#angular-versions) and releases in lockstep with it.
+- Angular 22 with SSR: `@angular/core`, `@angular/common` and `@angular/router` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.3.0.
+- `@angular/build` `~22.3.0`, for the builders. The range is narrow on purpose: the application builder's options schema is Angular's own at the version Launch was built against, so an option added in a later Angular minor is rejected until Launch is rebuilt against that minor. Launch follows the router's [Angular version policy](../angular-router/README.md#angular-versions) and releases in lockstep with it.
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
@@ -734,6 +734,7 @@ provideRouter(
 When a guard or resolver's call rejects with `RpcRedirect`, the navigation goes to its `to` instead; during server rendering Angular answers the page request with a 302 to it. When it rejects with `RpcNotFound`, the `notFound` page is rendered while the address bar keeps the requested URL; during server rendering the page is answered with status 404. Other errors are left to Angular.
 
 - Only navigation acts on outcomes. A call from a component, a click handler or a TanStack query just rejects.
+- With Angular's `withErrorBoundaries`, an outcome thrown while a page renders, such as from a resource its template reads, reaches the boundary's error component as its `error` input. `rpcNavigationErrors` never sees it, so it neither redirects nor answers 404.
 - Angular takes one navigation error handler. If your app has its own, call the function `rpcNavigationErrors` returns from it, inside that handler's injection context, and return its result.
 - The 404 needs the route's `RenderMode.Server`. While Angular prerenders a page, an outcome fails the build instead; see [Prerendering](#prerendering).
 

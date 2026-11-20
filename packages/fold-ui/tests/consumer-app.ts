@@ -232,7 +232,12 @@ export class SearchDialog {
               </div>
               <div zzField id="dialog-status-field">
                 <span zzFieldLabel>Contract status</span>
-                <div zzSelect [(value)]="dialogStatus" #dialogStatusSelect="zzSelect" id="dialog-status">
+                <div
+                  zzSelect
+                  [(value)]="dialogStatus"
+                  #dialogStatusSelect="zzSelect"
+                  id="dialog-status"
+                >
                   <button zzSelectTrigger id="dialog-status-trigger">
                     {{ dialogStatusSelect.state.selectedOption()?.label ?? "Choose a status" }}
                   </button>
@@ -503,10 +508,21 @@ export class SearchDialog {
       </div>
 
       <div class="flex items-center gap-2">
-        <button zzCheckbox aria-label="Select LC-2041" [(checked)]="selected" id="select-row"></button>
+        <button
+          zzCheckbox
+          aria-label="Select LC-2041"
+          [(checked)]="selected"
+          id="select-row"
+        ></button>
         <output id="selected">{{ selected() }}</output>
       </div>
-      <div zzRadioGroup aria-label="Density" [(value)]="density" class="flex-row gap-4" id="density">
+      <div
+        zzRadioGroup
+        aria-label="Density"
+        [(value)]="density"
+        class="flex-row gap-4"
+        id="density"
+      >
         <button zzRadioGroupItem value="compact">Compact</button>
         <button zzRadioGroupItem value="comfortable">Comfortable</button>
       </div>
@@ -538,11 +554,21 @@ export class SearchDialog {
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <button zzCheckbox aria-label="Merged checkbox" class="rounded-full" id="merged-checkbox"></button>
+        <button
+          zzCheckbox
+          aria-label="Merged checkbox"
+          class="rounded-full"
+          id="merged-checkbox"
+        ></button>
         <button zzSwitch aria-label="Merged switch" class="w-10" id="merged-switch"></button>
       </div>
       <div class="light flex items-center gap-2 bg-background p-2">
-        <button zzCheckbox aria-label="Light checkbox" [checked]="true" id="light-checkbox"></button>
+        <button
+          zzCheckbox
+          aria-label="Light checkbox"
+          [checked]="true"
+          id="light-checkbox"
+        ></button>
         <button
           zzCheckbox
           aria-label="Light mixed checkbox"
@@ -905,7 +931,12 @@ export class SearchDialog {
       <div class="grid grid-cols-3 items-start gap-8">
         <div zzField id="locked-status-field">
           <span zzFieldLabel>Locked status</span>
-          <div zzSelect [formField]="picks.lockedStatus" #lockedStatus="zzSelect" id="locked-status">
+          <div
+            zzSelect
+            [formField]="picks.lockedStatus"
+            #lockedStatus="zzSelect"
+            id="locked-status"
+          >
             <button zzSelectTrigger id="locked-status-trigger">
               {{ lockedStatus.state.selectedOption()?.label ?? "Choose a status" }}
             </button>
@@ -920,7 +951,12 @@ export class SearchDialog {
         </div>
         <div zzField id="frozen-status-field">
           <span zzFieldLabel>Frozen status</span>
-          <div zzSelect [formField]="picks.frozenStatus" #frozenStatus="zzSelect" id="frozen-status">
+          <div
+            zzSelect
+            [formField]="picks.frozenStatus"
+            #frozenStatus="zzSelect"
+            id="frozen-status"
+          >
             <button zzSelectTrigger id="frozen-status-trigger">
               {{ frozenStatus.state.selectedOption()?.label ?? "Choose a status" }}
             </button>
@@ -1202,7 +1238,12 @@ export class SearchDialog {
                     </button>
                     <span zzTooltipContent id="tip-reset-content">Clears every filter</span>
                   </span>
-                  <button zzButton variant="primary" (click)="popoverFiltersOpen.set(false)" id="filter-apply">
+                  <button
+                    zzButton
+                    variant="primary"
+                    (click)="popoverFiltersOpen.set(false)"
+                    id="filter-apply"
+                  >
                     Apply
                   </button>
                 </div>

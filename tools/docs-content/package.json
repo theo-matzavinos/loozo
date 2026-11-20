@@ -10,14 +10,14 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@angular/compiler": "22.2.6",
-    "@angular/compiler-cli": "22.2.6",
+    "@angular/compiler": "22.3.0",
+    "@angular/compiler-cli": "22.3.0",
     "markdown-it": "15.0.2",
     "shiki": "4.5.0",
     "typescript": "6.0.3"
   },
   "devDependencies": {
-    "@angular/core": "22.2.6",
+    "@angular/core": "22.3.0",
     "@types/node": "24.13.3",
     "rxjs": "7.8.2"
   },

@@ -79,29 +79,26 @@ export function callbacks(
   const children = config.canActivateChild as readonly ((...args: any[]) => any)[] | undefined;
 
   if (children) {
-    result.canActivateChild = children.map(
-      (callback): CanActivateChildFn =>
-        (child, state) => {
-          let parent: ActivatedRouteSnapshot | undefined;
+    result.canActivateChild = children.map((callback): CanActivateChildFn => (child, state) => {
+      let parent: ActivatedRouteSnapshot | undefined;
 
-          // The native ancestry includes child itself; only proper ancestors can declare this guard.
-          for (let index = child.pathFromRoot.length - 2; index >= 0; index -= 1) {
-            const ancestor = child.pathFromRoot[index];
+      // The native ancestry includes child itself; only proper ancestors can declare this guard.
+      for (let index = child.pathFromRoot.length - 2; index >= 0; index -= 1) {
+        const ancestor = child.pathFromRoot[index];
 
-            if (hasIdentity(ancestor, own)) {
-              parent = ancestor;
+        if (hasIdentity(ancestor, own)) {
+          parent = ancestor;
 
-              break;
-            }
-          }
+          break;
+        }
+      }
 
-          if (!parent) {
-            throw new Error(`Generated guard ancestor missing: ${destinationRecord(own).id}`);
-          }
+      if (!parent) {
+        throw new Error(`Generated guard ancestor missing: ${destinationRecord(own).id}`);
+      }
 
-          return callback(callbackInputs(route, parent), child, state);
-        },
-    );
+      return callback(callbackInputs(route, parent), child, state);
+    });
   }
 
   const matching = config.canMatch as readonly ((...args: any[]) => any)[] | undefined;

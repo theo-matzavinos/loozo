@@ -20,7 +20,7 @@ Peer dependencies:
 | ----------------- | --------- |
 | `@angular/core`   | `^22.0.0` |
 | `@angular/router` | `^22.0.0` |
-| `@angular/build`  | `~22.2.0` |
+| `@angular/build`  | `~22.3.0` |
 
 ## Versions
 
@@ -34,7 +34,7 @@ Each release's breaking changes, features and fixes are listed in its [GitHub re
 
 ## Angular versions
 
-Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.2 and is tested against 22.2.6. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
+Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.3 and is tested against 22.3.0. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
 
 When Angular ships a new minor or major, a release built against it follows within a week. Earlier minors stay on the release that supported them; fixes aren't backported. [`@loozo/angular-launch`](../angular-launch/README.md) pins the router exactly and releases in lockstep: each router release is followed by a Launch release that pins it.
 
@@ -207,7 +207,7 @@ Every route gets two generated files beside its declaration:
 
 [src/routes/teams/$teamId/items/$id/inputs.ts](snippets/src/routes/teams/$teamId/items/$id/inputs.ts#inputs)
 
-`params`, `search`, `data` and `title` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), they change together. When a navigation is cancelled or fails before activation (in matching, a guard or a resolver), they keep their values. When a routed component's constructor throws during activation, the pages above it that stay on screen already have the new values, and keep them until the next navigation completes. Handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
+`params`, `search`, `data` and `title` are read-only Angular signals holding the activated route's values. They have a value from the first read, even in the page's constructor, so there's no loading state to check. While a navigation is in progress they keep the values of the page that's still on screen. When a navigation reuses this route with new values (a new id, or new search params), they change together. When a navigation is cancelled or fails before activation (in matching, a guard or a resolver), they keep their values. When a routed component's constructor throws during activation, the pages above it that stay on screen already have the new values, and keep them until the next navigation completes. Handle the error where Angular reports it: the rejected `navigate` promise, the `NavigationError` event or `withNavigationErrorHandler`. With Angular's `withErrorBoundaries` (developer preview) and a `defaultErrorComponent`, the outlet catches it instead: the navigation completes and the error component renders in the page's place. To show that a navigation is pending, read Angular's `Router.currentNavigation()` signal.
 
 `data` holds the resolver results of this route and its ancestors, pathless and page-less ones included: the outermost ancestor's first, then nearer ones, then this route's own. As in Angular's own data inheritance, a nearer route's key hides an ancestor's key of the same name, and the hidden value isn't reachable through the handle. The merge is the same whatever `paramsInheritanceStrategy` you set, so under `'emptyOnly'` a route below a parent with a page still has that parent's resolver results, which Angular's own `snapshot.data` leaves out. Static `data` and the title aren't included; to read a static value through the handle, return it from a resolver, such as `.resolve({ label: () => "Teams" })`.
 
@@ -275,7 +275,7 @@ void this.active()?.navigate({ to: chat, close: true }); // closes chat, whateve
 - `..` inside a branch stays in the branch; a branch root has no `..`.
 - Launch's `redirect()` into a branch, with translated URLs too, is Launch's: see its [Translated URLs](../angular-launch/README.md#translated-urls).
 
-The proofs run on Angular 22.2.6. Earlier 22.x releases lack 22.2.4's fix for empty-path routes traversed through another outlet (angular/angular@ea8cdc4), which concerns hand-written empty-path routes beside named outlets and generated named routes below a pathless parent. [`examples/angular-router/outlets-proof`](../../examples/angular-router/outlets-proof/README.md) is a working SSR app with root and nested branches.
+The proofs run on Angular 22.3.0. Earlier 22.x releases lack 22.2.4's fix for empty-path routes traversed through another outlet (angular/angular@ea8cdc4), which concerns hand-written empty-path routes beside named outlets and generated named routes below a pathless parent. [`examples/angular-router/outlets-proof`](../../examples/angular-router/outlets-proof/README.md) is a working SSR app with root and nested branches.
 
 ### The active route
 
@@ -711,6 +711,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
 - [Translated URLs](#translated-urls) have no locale detection or redirects, switching locale inside one build, or translated param, catchall or search values (`localeUrls` keeps them as they are), and no built-in head manager: hreflang links are the documented snippet in your app; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
+- Route declarations don't take Angular's per-route `errorComponent` (developer preview). `withErrorBoundaries({ defaultErrorComponent })` in `provideRouter` works with generated routes and covers every page.
 - Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 

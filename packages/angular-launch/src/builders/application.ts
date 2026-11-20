@@ -16,7 +16,7 @@ import { message, split, type JsonObject } from "./options.js";
 
 const officialApplicationBuilder = "@angular/build:application";
 
-// The conditions @angular/build 22.2's bundler uses when none are configured, chosen from the
+// The conditions @angular/build 22.3's bundler uses when none are configured, chosen from the
 // normalized optimization as it chooses them.
 function defaultConditions(optimization: JsonObject[string] = true): string[] {
   let scripts = optimization;

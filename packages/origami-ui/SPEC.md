@@ -218,7 +218,7 @@ The Utilities entrypoint also exposes the package-private dismissal layer and pr
 
 The Utilities entrypoint also exposes the package-private civil-date functions that Calendar (section 24) and the date field (section 25) share, so neither depends on the other: `ɵparseDay` and `ɵcanonicalDay` accept only a canonical `YYYY-MM-DD` Gregorian day in years 0001–9999, `ɵformatDay` writes one from its `ɵCalendarDay` fields, `ɵleapYear` and `ɵdaysInMonth` are Gregorian, `ɵutcDate` builds a midnight-UTC `Date` only to feed `Intl` labels formatted with `timeZone: "UTC"`, and `ɵfirstYear` and `ɵlastYear` bound the years. No value passes through a local-time `Date`. None of them is an application API.
 
-`@angular/forms` `~22.2.2` is a required peer dependency, like `@angular/common` and `@angular/core`.
+`@angular/forms` `>=22.2.2 <22.4.0` is a required peer dependency, like `@angular/common` and `@angular/core`.
 
 Built packaging must support genuine Angular AOT consumers, strict templates and TypeScript package resolution, with shared token identities across entrypoints. No fake Angular decorators or shimmed framework runtime.
 
