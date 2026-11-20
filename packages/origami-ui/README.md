@@ -107,6 +107,7 @@ Origami has no scroll area: native overflow scrolling covers scrollable lists, t
 
 ```css
 .scroll-region {
+  max-block-size: 20rem;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -122,7 +123,8 @@ Origami has no scroll area: native overflow scrolling covers scrollable lists, t
 <div class="scroll-region" tabindex="0" role="region" aria-label="Addresses">…</div>
 ```
 
-- `scrollbar-width` and `scrollbar-color` set the thickness and the thumb and track colors. The platform still decides the scrollbar's shape and whether it overlays the content. CSS can't force overlay scrollbars, show them only on hover, round the thumb or set an exact width, and in Chromium a value other than `auto` for either property turns off `::-webkit-scrollbar` styling. If your design needs those, draw the scrollbars in your own components.
+- A region scrolls only when something bounds its size: a `max-block-size` like this one, or a height its layout gives it, such as a flex or grid item with `min-block-size: 0`. Without a bound it grows with its content.
+- `scrollbar-width` and `scrollbar-color`, the standard properties, set only the thickness and the thumb and track colors. The platform decides the scrollbar's shape and whether it overlays the content, and no CSS forces overlay scrollbars. Chromium and WebKit also support the nonstandard `::-webkit-scrollbar` pseudo-elements, which can set an exact width, round the thumb and change its color on hover. Firefox doesn't support them, and in Chromium a value other than `auto` for either standard property turns them off. Draw the scrollbars in your own components only when you need overlay scrollbars or the same shape in every engine.
 - `scrollbar-gutter: stable` reserves the space of a scrollbar that takes up layout before the content overflows, so the content doesn't shift when it starts to. Overlay scrollbars take no space either way.
 - Not every engine makes a scrollable element focusable on its own. Give a region that holds no focusable content `tabindex="0"` and a visible focus style so keyboard users can scroll it, and a role and accessible name when it's a meaningful region of the page.
 - In forced colors mode, Chromium and Firefox reset `scrollbar-color` to `auto`, so native scrollbars keep their system colors and stay visible.
