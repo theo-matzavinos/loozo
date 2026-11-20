@@ -734,6 +734,7 @@ provideRouter(
 When a guard or resolver's call rejects with `RpcRedirect`, the navigation goes to its `to` instead; during server rendering Angular answers the page request with a 302 to it. When it rejects with `RpcNotFound`, the `notFound` page is rendered while the address bar keeps the requested URL; during server rendering the page is answered with status 404. Other errors are left to Angular.
 
 - Only navigation acts on outcomes. A call from a component, a click handler or a TanStack query just rejects.
+- With Angular's `withErrorBoundaries`, an outcome thrown while a page renders, such as from a resource its template reads, reaches the boundary's error component as its `error` input. `rpcNavigationErrors` never sees it, so it neither redirects nor answers 404.
 - Angular takes one navigation error handler. If your app has its own, call the function `rpcNavigationErrors` returns from it, inside that handler's injection context, and return its result.
 - The 404 needs the route's `RenderMode.Server`. While Angular prerenders a page, an outcome fails the build instead; see [Prerendering](#prerendering).
 
