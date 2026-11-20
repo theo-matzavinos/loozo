@@ -547,6 +547,16 @@ test("Y5: a backdrop click dismisses the topmost dialog; a drag from inside does
   await expectModal(layered);
   await page.getByTestId("inner-popover-trigger").click();
   await expect(state).toHaveText("true true false");
+  // The Popover participates from its native show, before its coordinates commit. A gesture
+  // pressed in that window and released after the reveal is stale and dismisses nothing, so
+  // press only once Content has left preparation.
+  await expect
+    .poll(() =>
+      page
+        .getByTestId("inner-popover-content")
+        .evaluate((node) => getComputedStyle(node).pointerEvents),
+    )
+    .not.toBe("none");
   await clickBackdrop(page);
   await expect(state).toHaveText("true false false");
   await elapse(page, 100);
