@@ -16,6 +16,7 @@ import { SignalFormsRoute } from "./signal-forms";
 import { SignalFormsComposers } from "./signal-forms-composers";
 import { SignalFormsBoolean, SignalFormsHidden, SignalFormsUndefined } from "./signal-forms-edges";
 import { SignalFormsTypes } from "./signal-forms-types";
+import { VirtualFocus } from "./virtual-focus";
 
 export const routes: Routes = [
   { path: "", component: Home },
@@ -38,4 +39,5 @@ export const routes: Routes = [
   { path: "signal-forms-types", component: SignalFormsTypes },
   { path: "groups", component: Groups },
   { path: "groups-defer", component: GroupsDefer },
+  { path: "virtual-focus", component: VirtualFocus },
 ];

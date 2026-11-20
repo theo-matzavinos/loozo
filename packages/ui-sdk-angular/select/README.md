@@ -74,10 +74,10 @@ guard({ value, details }: UiSdkEvent<NonNullable<SelectOptions<string>["onValueC
 
 - **Controlled keys:** `value` (`T | null`), `open`, `query`, each with `default<Key>` for the uncontrolled start and the two outputs `<key>ChangeRequest` (`{ value, details }`, cancelable) and `<key>Change`.
 - **Items and values:** `items`, `itemToValue`, `itemToLabel`, `isItemEqualToValue`, `placeholder`.
-- **Behavior:** `loop`, `modal`, `presentation`, `disabled`, `readonly` (core's `readOnly`: opens, but doesn't change the value), `dismissible`, `controller`, `container`, `debug`.
+- **Behavior:** `loop`, `virtualFocus` (focus stays on the trigger while the list is open, as on a native select; the trigger points at the highlighted item with `aria-activedescendant`), `modal`, `presentation`, `disabled`, `readonly` (core's `readOnly`: opens, but doesn't change the value), `dismissible`, `controller`, `container`, `debug`.
 - **Forms:** `name`, `form`, `required`, `autoComplete`, submitted through `uiSelectFormInput`; see [native forms](../README.md#native-forms).
 - **Search and async lists**, for slots this release doesn't ship yet, so they have no visible effect: `filter`, `emptyItems`, `status`, `announcement`, the `query` family and the `loadMore` output.
-- **Other outputs:** `openChangeComplete` (`boolean`), `highlight` (`{ value, details }`), `dismissAttempt` (core's details), and `touch` (`void`) when focus leaves the trigger and its popup, wherever the popup renders; opening it, moving through items and closing it back to the trigger don't count. Signal forms mark the field touched on it.
+- **Other outputs:** `openChangeComplete` (`boolean`), `highlight` (`{ value, details }`; `value` is `null` when the highlighted item leaves the list), `dismissAttempt` (core's details), and `touch` (`void`) when focus leaves the trigger and its popup, wherever the popup renders; opening it, moving through items and closing it back to the trigger don't count. Signal forms mark the field touched on it.
 - **`focus(options?)`** focuses the trigger; signal forms' `focusBoundControl()` calls it. It takes effect once the trigger has rendered (call it after `afterNextRender` or from an event); earlier it does nothing. Core's focus takes no options, so `options` is ignored.
 
 The root has no `state`; read the value through `uiSelectValue`.
@@ -99,7 +99,7 @@ The root has no `state`; read the value through `uiSelectValue`.
 
 The content always stays in the DOM, hidden while closed; there's no exit animation before unmount yet.
 
-Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it a visually hidden text input whose value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill.
+Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it a visually hidden text input whose value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill. Core's own renderers use a `<textarea>` here; as a text input, it counts toward the browser's implicit submission, so Enter in a form's one other text field doesn't submit a form without a submit button. Give such a form a submit button.
 
 ## Rules
 
@@ -109,6 +109,7 @@ Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it
 - **A Select that starts open settles when its trigger binds.** With `[defaultOpen]="true"` or `[open]="true"`, the server renders the listbox unpositioned, named by `aria-labelledby` pointing at the trigger. When the trigger binds, core positions it (`popover`, `style`, `data-side`, `data-align`, `data-starting-style`, `data-modality`) and names it with the trigger's accessible name as `aria-label` in place of `aria-labelledby`: the same name, in a different attribute. Until then the listbox sits where your CSS puts it. Start the Select closed to avoid both.
 - **Object values need `itemToValue`** on the root: core keys items, and their element ids, by it; without it, two objects share the key `[object Object]`.
 - **Server-correct labels need `itemToLabel` or `items`.** Without them, `state().label` is the raw value on the server and until the items register in the browser, then the item's `label`.
+- **The open Select names its trigger as the content's anchor.** Where the browser supports CSS anchor positioning, core adds `anchor-name` to the trigger's inline style while the content is open. Bind single properties on the trigger (`[style.width]`), not the whole `[attr.style]`, which would drop it.
 - **Style by core's attributes** on each part: `[data-highlighted]`, `[aria-selected="true"]`, `[data-disabled]`, `[data-open]`. Read `state()` from descendants or other elements, not from a binding on the part's own element.
 - **Refuse a change with `valueChangeRequest`** (`details.cancel()`); not writing a controlled `value` back isn't a cancellation, and core warns in development after a second.
 - **A kept item can change.** A `[disabled]` or `[label]` change reaches core's keyboard and pointer handling at once; a new value on a kept element (`track $index`) moves it to the new item, with no lost event.

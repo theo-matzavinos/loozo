@@ -7,11 +7,11 @@ Angular directives for [ui-sdk.dev](https://ui-sdk.dev)'s headless core, `@ui-sd
 ## Install
 
 ```sh
-npm install @loozo/ui-sdk-angular @ui-sdk/core@0.1.0-beta.7
+npm install @loozo/ui-sdk-angular @ui-sdk/core@0.1.0-beta.13
 ```
 
 - Angular `~22.2.2` (`@angular/core` and `@angular/common`).
-- `@ui-sdk/core` exactly `0.1.0-beta.7`, as a peer dependency. Its renderer entry isn't public API and changes often, so each release of this package pins the one core version it was tested with. Another core version is an install-time peer conflict on purpose.
+- `@ui-sdk/core` exactly `0.1.0-beta.13`, as a peer dependency. Its renderer entry isn't public API and changes often, so each release of this package pins the one core version it was tested with. Another core version is an install-time peer conflict on purpose.
 
 No provider: import the directives where you use them.
 
@@ -82,7 +82,7 @@ Checkbox, Switch, RadioGroup and Select submit, reset and validate with a `<form
 - **Where it goes.** A checkbox's or switch's input goes beside its `<button>`, since an `<input>` inside a button isn't valid HTML, and names its control by a template reference: `[uiCheckboxInput]="terms"`, `[uiSwitchInput]="wifi"`, `[uiRadioInput]="radio"`, one input per radio. The reference is read once; pointing it at another control later has no effect. Select's `uiSelectFormInput` goes inside the Select's element.
 - **What core writes.** The input becomes visually hidden, `aria-hidden` and out of the tab order, with the control's `type`, `name`, `value`, `form`, `required` and `disabled`. Screen readers and keyboards use the control, not the input.
 - **Before hydration** the server-rendered input already submits the server's value, and `required` already blocks submission.
-- **Reset and validation.** A form reset returns each control to its default (`defaultChecked`, `defaultValue`; through `<key>ChangeRequest`, so it can be refused). When an invalid submit focuses a hidden input, core moves focus to its control.
+- **Reset and validation.** A form reset returns each control to its default (`defaultChecked`, `defaultValue`; through `<key>ChangeRequest`, so it can be refused). A controlled control with no default, like one bound with `[(checked)]` or `[formField]` alone, keeps its value, as a controlled input does in React. When an invalid submit focuses a hidden input, core moves focus to its control.
 - **A `<fieldset disabled>`** disables the buttons inside it natively, from the server HTML on, and leaves their inputs out of the submission. The server can't see the fieldset, so core adds `aria-disabled` and `data-disabled` to the control when it binds: style a disabled control by `:disabled` too, or the style changes at hydration.
 - **The `checked` attribute is the default.** As on a native checkbox, the input's `checked` attribute is what a reset returns to; the current state is its `checked` property.
 - **`name` without its input.** The control submits nothing; in development, a control with a static `name="…"` attribute and no input warns once after its first render. A bound `[name]`, like the one signal forms write, doesn't warn.
@@ -128,7 +128,7 @@ readonly f = form(this.model, (path) => required(path.terms), { name: "signup" }
 - **Touched**: the field is touched when focus leaves the control: a Checkbox's or Switch's button, a RadioGroup's element (arrow keys between its radios don't count), a Select's trigger and popup (opening it, moving through items and closing it back to the trigger don't count). The roots emit this as their `touch` output. Touch follows focus, not presses: a press that doesn't move focus, such as a click on a button in a browser that doesn't focus buttons on click, touches nothing; `submit()` marks every field touched anyway. Focus that leaves before the control's block has set its inputs doesn't touch it.
 - **Focusing an invalid field**: `field().focusBoundControl()` focuses a Checkbox's or Switch's button, the checked radio (or the first enabled one), or the Select trigger, once the control has rendered; earlier it does nothing. Angular doesn't call it on its own: call it from `submit()`'s `onInvalid`, for example.
 - **Native submission** still needs the [hidden input](#native-forms) beside or inside each control. It submits under the field's generated name, `<form name>.<path>`: give `form()` a `name`, or Angular's per-process `ng.form<n>` can differ between the server's HTML and the browser until hydration. Under `[formField]`, a Checkbox or Switch submits `"on"`, since `value` can't go beside it; the field itself holds the boolean. An object Select submits its `itemToValue` key and keeps the object in the field.
-- **Reset with `f().reset(value)`**, which restores the controls and clears touched and dirty. A native `type="reset"` button returns each control to its first rendered value (a Select to `defaultValue`, or `null`), through the usual outputs: the field follows, turns dirty and stays touched.
+- **Reset with `f().reset(value)`**, which restores the controls and clears touched and dirty. A native `type="reset"` button leaves `[formField]` controls as they are: the field writes their value, so they have no default to return to. The field, the controls and the submitted values stay as they were.
 - **`[formField]` goes on the control, never on its hidden input.** On the input, Angular binds the input natively: an external write to the field changes the input and leaves the visible control as it was.
 - **Composing through `hostDirectives`**: expose `checked` or `value`, `disabled`, `readonly`, `required`, `name`, the change output and `touch`. Angular then treats your directive as the control, so a RadioGroup or Select composer forwards `focus()`; see each component's readme.
 - **Types**: the roots aren't `FormCheckboxControl` or `FormValueControl` (those require `model()`); Angular finds them by their input and output names. Checkbox accepts `boolean | "indeterminate"`; a `boolean` field can still receive `"indeterminate"` if your own controller sets it. `ControlValueAccessor`, template-driven and reactive forms aren't supported.

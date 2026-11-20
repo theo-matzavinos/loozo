@@ -215,12 +215,15 @@ test("Angular's reset() restores the controls and clears touched (case 3)", asyn
   expectClean(messages);
 });
 
-test("hidden inputs submit under the form's field names, and a native reset writes the model (case 4)", async ({
+test("hidden inputs submit under the form's field names, and a native reset leaves the controls (case 4)", async ({
   page,
 }) => {
   const messages = captureMessages(page);
-  // D9: Checkbox, Switch and RadioGroup return to the first value they rendered, Select to null.
-  const nativeReset: Values = { ...initial, fruit: null, country: null };
+  const submitted = [
+    ["signup.size", "l"],
+    ["signup.fruit", "pear"],
+    ["signup.country", "fr"],
+  ];
 
   await open(page);
   expect(await formData(page)).toEqual([
@@ -233,28 +236,18 @@ test("hidden inputs submit under the form's field names, and a native reset writ
 
   await changeAll(page, "size-l");
   // The hidden inputs follow the model on Angular's next render, after the popup has closed.
-  await expect
-    .poll(() => formData(page))
-    .toEqual([
-      ["signup.size", "l"],
-      ["signup.fruit", "pear"],
-      ["signup.country", "fr"],
-    ]);
+  await expect.poll(() => formData(page)).toEqual(submitted);
   // The model keeps the object; the form submits its key.
   expect((await model(page)).country).toEqual(alternate.country);
 
+  // Core leaves a controlled control with no default alone on a native reset (since
+  // 0.1.0-beta.8), and [formField] binds the value only: the field, the controls and the
+  // submitted values stay together.
   await byTestId(page, "native-reset").click();
-  await expect.poll(() => model(page)).toEqual(nativeReset);
-  await expectUi(page, nativeReset);
-  await expect(byTestId(page, "fruit-input")).toHaveValue("");
-  await expect(byTestId(page, "country-input")).toHaveValue("");
-
-  // Native reset doesn't return to the last Angular reset.
-  await byTestId(page, "alternate-reset").click();
-  await expectUi(page, alternate);
-  await byTestId(page, "native-reset").click();
-  await expect.poll(() => model(page)).toEqual(nativeReset);
   await page.waitForTimeout(settle);
+  expect(await model(page)).toEqual(alternate);
+  await expectUi(page, alternate);
+  expect(await formData(page)).toEqual(submitted);
   expectClean(messages);
 });
 

@@ -80,7 +80,7 @@ export class AppToggle {
 - **Start every field defined**: booleans for Checkbox and Switch, a value or `null` for RadioGroup and Select. Never `undefined`, and no optional fields.
 - **Add the hidden input only for native submission**, and give `form()` a `name` then. Checkbox and Switch submit `"on"` under `[formField]`.
 - **Render validity yourself** on the focusable element (`[attr.aria-invalid]="f.x().invalid()"` on the button, the group's element or the Select trigger); the roots don't take `invalid` or `errors`.
-- **Reset with `f().reset(value)`**, not a native reset button, to restore the value and clear touched and dirty.
+- **Reset with `f().reset(value)`** to restore the value and clear touched and dirty. A native reset button leaves `[formField]` controls as they are.
 - **Focus an invalid field** with `field().focusBoundControl()` from an event, like `submit()`'s `onInvalid`; a `hostDirectives` composer of RadioGroup or Select forwards `focus()` and exposes `touch`.
 - `ControlValueAccessor`, template-driven and reactive forms aren't supported.
 

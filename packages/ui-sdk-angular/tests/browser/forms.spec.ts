@@ -84,13 +84,14 @@ test("the server renders each hidden input from its control's options", async ({
     checked: "",
   });
   expect(await attributes("[data-testid=size-input-s]")).not.toHaveProperty("checked");
+  // Core writes no `type` since 0.1.0-beta.8, so the input is a text input by default.
   expect(await attributes("[data-testid=fruit-input]")).toMatchObject({
     "data-slot": "select-form-input",
-    type: "text",
     name: "fruit",
     value: "pear",
     autocomplete: "off",
   });
+  expect(await attributes("[data-testid=fruit-input]")).not.toHaveProperty("type");
   expect(await attributes("[data-testid=outside-input]")).toMatchObject({
     form: "main-form",
     checked: "",

@@ -92,6 +92,11 @@ export class UiSelect<T = string> implements OnInit {
   readonly isItemEqualToValue = input<((item: T, value: T) => boolean) | undefined>(undefined);
   /** Whether arrow keys wrap around. */
   readonly loop = input(undefined, { transform: optionalBoolean });
+  /**
+   * Keeps focus on the trigger while the list is open, as on a native select: arrow keys, Home, End
+   * and typing move the highlight, which the trigger points at with `aria-activedescendant`.
+   */
+  readonly virtualFocus = input(undefined, { transform: optionalBoolean });
   /** Whether the open popup blocks the rest of the page. */
   readonly modal: InputSignal<SelectOptions<T>["modal"]> =
     input<SelectOptions<T>["modal"]>(undefined);
@@ -171,6 +176,7 @@ export class UiSelect<T = string> implements OnInit {
       itemToLabel: this.itemToLabel() as SelectOptions["itemToLabel"],
       isItemEqualToValue: this.isItemEqualToValue() as SelectOptions["isItemEqualToValue"],
       loop: this.loop(),
+      virtualFocus: this.virtualFocus(),
       modal: this.modal(),
       presentation: this.presentation(),
       disabled: this.disabled(),
@@ -212,7 +218,15 @@ export class UiSelect<T = string> implements OnInit {
         this.queryChange.emit(query);
       },
       onLoadMore: () => this.loadMore.emit(),
-      onHighlight: (value, details) => this.highlight.emit({ value: value as T | null, details }),
+      onHighlight: (value, details) => {
+        // Core reports the highlighted item leaving the list a microtask after it unbinds, which
+        // for a Select destroyed while open comes after its outputs are gone.
+        if (this.#destroyRef.destroyed) {
+          return;
+        }
+
+        this.highlight.emit({ value: value as T | null, details });
+      },
       onDismissAttempt: (details) => this.dismissAttempt.emit(details),
     }),
     "uiSelect",

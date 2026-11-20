@@ -75,9 +75,25 @@ function expectDisclosedRepair(records: Evidence, disclosed: Mutation[]): void {
   );
 
   expect(orderTriggerBound, "the order trigger binds").toBeTruthy();
-  expect(disclosed[0]!.sequence, "the repair follows the authored trigger's bind").toBeGreaterThan(
-    orderTriggerBound!.sequence,
+
+  // A bind's record is core's `followId`, the last step of its bind. Since 0.1.0-beta.8 the
+  // trigger's own bind (its page-locale read) delivers the repair just before that step, so the
+  // repair follows every other slot's bind and comes no earlier than the trigger's.
+  let lastOtherBound = -1;
+
+  for (const bound of records.bounds) {
+    if (bound.instance === "order" && bound.slot !== "select-trigger") {
+      lastOtherBound = Math.max(lastOtherBound, bound.sequence);
+    }
+  }
+
+  expect(disclosed[0]!.sequence, "the repair follows the other slots' binds").toBeGreaterThan(
+    lastOtherBound,
   );
+  expect(
+    disclosed[0]!.sequence,
+    "the repair comes with the authored trigger's bind",
+  ).toBeGreaterThanOrEqual(orderTriggerBound!.sequence - 1);
 }
 
 function expectWindows(records: Evidence, mode: string): void {
@@ -451,7 +467,7 @@ test("a live event before the first bind waits in the queue and reaches core onc
   // event, and the trigger's ArrowDown on an open list does nothing visible. So the count of
   // `defaultPrevented` reads (observer.early) tells them apart: one call is the wrapper's entry
   // check plus one read in core's development check of the open change (core's
-  // kernel/change.js, unchanged through 0.1.0-beta.7); a second call adds its own entry check, making three. A core upgrade that
+  // kernel/change.js, unchanged through 0.1.0-beta.13); a second call adds its own entry check, making three. A core upgrade that
   // changes that count fails here loudly; recount it then.
   expect(prevented).toBe(true);
   expect(records.earlyDelivery.defaultPreventedReads).toBe(2);
