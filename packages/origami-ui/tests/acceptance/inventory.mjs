@@ -305,6 +305,14 @@ export const inventory = {
     "OrigamiFileFieldDropZone",
   ],
   progress: ["OrigamiProgress", "OrigamiProgressOptions", "OrigamiProgressState"],
+  avatar: [
+    "OrigamiAvatar",
+    "OrigamiAvatarState",
+    "OrigamiAvatarStatus",
+    "OrigamiAvatarImage",
+    "OrigamiAvatarImageOptions",
+    "OrigamiAvatarFallback",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -330,4 +338,5 @@ export const typeOnly = new Set([
   "OrigamiToastAddOptions",
   "OrigamiToastRecord",
   "OrigamiOtpFieldCell",
+  "OrigamiAvatarStatus",
 ]);

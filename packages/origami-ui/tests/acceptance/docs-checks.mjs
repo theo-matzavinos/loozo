@@ -68,6 +68,7 @@ for (const directory of [
   "combobox/src",
   "file-field/src",
   "progress/src",
+  "avatar/src",
 ]) {
   await collect(directory);
 }
@@ -347,6 +348,7 @@ const directiveDefaults = {
   "OrigamiProgress.value": ["null", /\bnull\b/i],
   "OrigamiProgress.max": ["100", /\b100\b/],
   "OrigamiProgress.valueText": ["null", /\bnull\b/i],
+  "OrigamiAvatarImage.src": ["null", /\bnull\b/i],
   "OrigamiCombobox.value": ["null", /\bnull\b/i],
   "OrigamiCombobox.query": ["empty string", /""|empty/i],
   "OrigamiCombobox.open": ["false", /\bfalse\b/i],

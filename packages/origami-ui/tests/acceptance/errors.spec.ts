@@ -74,6 +74,9 @@ for (const [variant, caseId, context] of [
   ["file-field-input", "FF8", /File field supports only one mounted Input/],
   ["orphan-file-field-input", "FF8", /NG0201:[\s\S]*FileFieldContext/],
   ["orphan-file-field-drop-zone", "FF8", /NG0201:[\s\S]*FileFieldContext/],
+  ["avatar-image", "AV12", /Avatar supports only one mounted Image/],
+  ["orphan-avatar-image", "AV12", /NG0201:[\s\S]*AvatarContext/],
+  ["orphan-avatar-fallback", "AV12", /NG0201:[\s\S]*AvatarContext/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,
@@ -115,6 +118,8 @@ for (const [variant, caseId, context] of [
         "orphan-tooltip-content",
         "orphan-file-field-input",
         "orphan-file-field-drop-zone",
+        "orphan-avatar-image",
+        "orphan-avatar-fallback",
       ].includes(variant);
 
     if (nativeProductionProvider) {

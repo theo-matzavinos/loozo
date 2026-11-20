@@ -37,11 +37,14 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // hydrates (NF12), the OTP field's server HTML (OT11) and its digits typed before its block
 // hydrates (OT12), the file field's server HTML (FF2), its picks and departures before hydration
 // (FF7) and its split layouts (FF9), the mixed Checkbox's server HTML (J10) and its click
-// replayed into a hydrating select-all parent (J13), and Progress's server HTML (PR2) and its bar
-// in a dehydrated block (PR7), check what hydration keeps, so they run there too.
+// replayed into a hydrating select-all parent (J13), Progress's server HTML (PR2) and its bar in a
+// dehydrated block (PR7), and the Avatar's server HTML and first client pass (AV2), its images
+// completed before hydration (AV3), its image events while dormant (AV4), its split boundary (AV10)
+// and its fallback-delay recipe before hydration (AV11), check what hydration keeps, so they run
+// there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
 const hydrationAndErrorCases =
-  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b|\bJ1[03]\b|\bPR(?:2|7)\b/;
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b|\bJ1[03]\b|\bPR(?:2|7)\b|\bAV(?:2|3|4|10|11)\b/;
 
 let browsers = browserNames;
 
