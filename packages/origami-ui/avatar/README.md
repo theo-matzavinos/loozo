@@ -8,7 +8,7 @@ An avatar is an image of a person or an entity with a fallback, such as initials
 | ------------------ | -------------------------------------------------------------------------- |
 | `ogAvatar`         | none; exposes `state` (`exportAs: "ogAvatar"`)                             |
 | `ogAvatarImage`    | `src: string \| null \| undefined` (default `null`); a native `<img>` only |
-| `ogAvatarFallback` | none; any element                                                          |
+| `ogAvatarFallback` | none; an HTML element                                                      |
 
 ```html
 <span ogAvatar class="avatar">
@@ -18,6 +18,8 @@ An avatar is an image of a person or an entity with a fallback, such as initials
 ```
 
 `null`, `undefined` and `""` all mean "no image": the `<img>` gets no `src`, so nothing is requested, and the fallback shows. One Image per root.
+
+Put the root and the fallback on HTML elements, usually `<span>`s. Origami hides with the HTML `hidden` attribute, which doesn't hide an `<svg>` or take it out of the accessibility tree, so an icon goes inside the fallback, not on it ([below](#initials-and-other-fallback-content)).
 
 ## Stack the parts
 
@@ -61,7 +63,21 @@ The image is never hidden while it loads: it paints as soon as it has pixels, ov
 
 ## Initials and other fallback content
 
-The fallback is your content: text, an icon, or initials you compute. Origami ships no initials helper, because splitting names well is locale- and script-dependent; write the rule your product needs:
+The fallback is your content: text, an icon, or initials you compute. An icon goes inside an HTML fallback element:
+
+```html
+<span ogAvatar class="avatar">
+  <span ogAvatarFallback aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0z" />
+    </svg>
+  </span>
+  <img ogAvatarImage [src]="user().photoUrl" alt="" />
+</span>
+```
+
+Origami ships no initials helper, because splitting names well is locale- and script-dependent; write the rule your product needs:
 
 ```ts
 @Component({
@@ -153,7 +169,7 @@ The status reads `"loading"` in the render that writes a new source, also when a
 
 ## Delay the fallback
 
-A fast or cached image can still take a frame or two to decode, and the fallback shows until it has. To avoid that flash, keep the fallback invisible for a short window while the image loads:
+A fast or cached image can still take a frame or two to decode, and the fallback shows until it has. To avoid that flash, keep the fallback transparent for a short window while the image loads:
 
 ```css
 /* Wait 600 ms before showing the fallback while the image is loading.
@@ -164,10 +180,12 @@ A fast or cached image can still take a frame or two to decode, and the fallback
 
 @keyframes avatar-fallback-delay {
   from {
-    visibility: hidden;
+    opacity: 0;
   }
 }
 ```
+
+It delays only the paint, with `opacity`. Don't use `visibility: hidden` or `display: none`: they also take the fallback's text out of the accessibility tree, and while the image is loading it is `aria-hidden`, so an avatar named by its fallback text (see [Naming](#naming)) would have no name for the whole window.
 
 It's a mitigation, not a guarantee: an image that takes longer than the window to load or decode still shows the fallback first. It applies only while `"loading"`, so a failed image shows the fallback at once, and an avatar without a source shows it at once too. The window restarts each time the fallback is shown again for a loading image, not once per source. It's CSS rather than an input because a timer can't run before hydration, while this clock runs in a block that hasn't hydrated yet.
 

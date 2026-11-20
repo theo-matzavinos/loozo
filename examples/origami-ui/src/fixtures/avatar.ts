@@ -434,7 +434,7 @@ export class DirectAvatarImage {}
 
     @keyframes avatar-fallback-delay {
       from {
-        visibility: hidden;
+        opacity: 0;
       }
     }
   `,

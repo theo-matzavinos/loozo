@@ -4,10 +4,11 @@ import { OrigamiAvatarState } from "./avatar-state";
 
 /**
  * Avatar root: an image of a person or entity with a fallback shown while there's no loaded
- * image. It is usually a `<span>` holding an `img[ogAvatarImage]` and an `[ogAvatarFallback]`,
- * stacked by the consumer's CSS with the image painted over the fallback. Origami owns the image
- * status and hides whichever part shouldn't show; the consumer owns the markup, stacking, size,
- * shape, `alt`, the fallback's content (initials, an icon) and any fallback delay.
+ * image. It is an HTML element, usually a `<span>`, holding an `img[ogAvatarImage]` and an
+ * `[ogAvatarFallback]`, stacked by the consumer's CSS with the image painted over the fallback.
+ * Origami owns the image status and hides whichever part shouldn't show; the consumer owns the
+ * markup, stacking, size, shape, `alt`, the fallback's content (initials, an icon inside it) and
+ * any fallback delay.
  *
  * Host semantics: `data-status` with the effective {@link OrigamiAvatarStatus}, also in server
  * HTML, where it is `"idle"` or `"loading"`. It has no inputs, no Options token and no role: a

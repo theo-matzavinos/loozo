@@ -9,6 +9,9 @@ import { AvatarContext } from "./avatar-context";
  * rule of the consumer's outranks `[hidden]`'s; scope it with `:not([hidden])`. It has no inputs
  * and no `state`: read the root's. Requires a nearest Avatar root.
  *
+ * Put it on an HTML element, usually a `<span>`: `hidden` is the HTML attribute, which doesn't hide
+ * an `<svg>` or remove it from the accessibility tree, so an SVG icon goes inside the Fallback.
+ *
  * Naming: it is exposed while the image isn't loaded, so give it the person's name when the image's
  * `alt` names them, or `aria-hidden="true"` when the avatar is decorative or the root is named.
  *

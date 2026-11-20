@@ -49,11 +49,11 @@ declare global {
     readFixtureSource?: () => string | null;
     avatarServerNodes?: Record<string, (Element | null)[]>;
     avatarFrames?: { testid: string; imageHidden: boolean }[];
-    avatarDelay?: { time: number; visibility: string; rendered: boolean }[];
+    avatarDelay?: { time: number; opacity: string; rendered: boolean }[];
     avatarDelayWindow?: {
       playState: string;
       time: number | null;
-      visibility: string;
+      opacity: string;
       fallbackHidden: boolean;
     };
   }
@@ -1448,13 +1448,13 @@ test("AV10 an Image in its own hydrate boundary leaves its root idle until it hy
   await stopRetentionObservation(page);
 });
 
-test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydration, and an error inside a delay window shows it at once", async ({
+test("AV11 the fallback-delay recipe keeps the fallback transparent but exposed for 600 ms before hydration, and an error inside a delay window shows it at once", async ({
   page,
 }, info) => {
   await page.addInitScript(() => {
-    // Every frame: the recipe animation's own clock, the Fallback's visibility, and whether the
+    // Every frame: the recipe animation's own clock, the Fallback's opacity, and whether the
     // fixture has rendered in the browser.
-    const samples: { time: number; visibility: string; rendered: boolean }[] = [];
+    const samples: { time: number; opacity: string; rendered: boolean }[] = [];
 
     window.avatarDelay = samples;
 
@@ -1474,7 +1474,7 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
       ) {
         samples.push({
           time: now - animation.startTime,
-          visibility: getComputedStyle(fallback).visibility,
+          opacity: getComputedStyle(fallback).opacity,
           rendered: Boolean(
             document
               .querySelector("acceptance-avatar-fixture")
@@ -1516,11 +1516,11 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
 
   for (const entry of samples) {
     if (entry.time < 590) {
-      expect(entry.visibility, `at ${entry.time} ms`).toBe("hidden");
+      expect(entry.opacity, `at ${entry.time} ms`).toBe("0");
     }
 
     if (entry.time > 610) {
-      expect(entry.visibility, `at ${entry.time} ms`).toBe("visible");
+      expect(entry.opacity, `at ${entry.time} ms`).toBe("1");
     }
   }
 
@@ -1554,7 +1554,7 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
       window.avatarDelayWindow = {
         playState: animation?.playState ?? "none",
         time: typeof animation?.currentTime === "number" ? animation.currentTime : null,
-        visibility: getComputedStyle(fallback).visibility,
+        opacity: getComputedStyle(fallback).opacity,
         fallbackHidden: fallback.hasAttribute("hidden"),
       };
     });
@@ -1565,7 +1565,7 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
   await expect.poll(() => images.holding("delay-held")).toBe(1);
   await expect(page.getByTestId("delay")).toHaveAttribute("data-status", "loading");
 
-  // Preconditions: the Fallback is unhidden but invisible, inside a paused, unexpired window.
+  // Preconditions: the Fallback is unhidden but transparent, inside a paused, unexpired window.
   const delayWindow = await page.evaluate(() => window.avatarDelayWindow);
 
   await info.attach("delay-window", {
@@ -1575,7 +1575,7 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
   expect(delayWindow).toEqual({
     playState: "paused",
     time: delayWindow?.time,
-    visibility: "hidden",
+    opacity: "0",
     fallbackHidden: false,
   });
   expect(delayWindow!.time).not.toBeNull();
@@ -1583,8 +1583,18 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
   expect(
     await page
       .getByTestId("delay-fallback")
-      .evaluate((fallback) => getComputedStyle(fallback).visibility),
-  ).toBe("hidden");
+      .evaluate((fallback) => getComputedStyle(fallback).opacity),
+  ).toBe("0");
+
+  // Inside the window the Image is still `aria-hidden`, so the Fallback's text is the avatar's
+  // only content in the accessibility tree: the recipe must delay its paint, not its exposure.
+  const windowSnapshot = await page.getByTestId("delay").ariaSnapshot();
+
+  await info.attach("delay-window-accessibility", {
+    body: windowSnapshot,
+    contentType: "text/plain",
+  });
+  expect(windowSnapshot).toBe("- text: DL");
 
   // The failure, still inside that window: the Fallback shows at once.
   await page.getByTestId("delay-broken").click();
@@ -1592,6 +1602,6 @@ test("AV11 the fallback-delay recipe hides the fallback for 600 ms before hydrat
   expect(
     await page
       .getByTestId("delay-fallback")
-      .evaluate((fallback) => getComputedStyle(fallback).visibility),
-  ).toBe("visible");
+      .evaluate((fallback) => getComputedStyle(fallback).opacity),
+  ).toBe("1");
 });

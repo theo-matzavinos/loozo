@@ -1665,9 +1665,9 @@ Exclusions: no Label, Value, Track or Indicator part; no `min` input; no `locale
 
 Selectors/export names:
 
-- `[ogAvatar]`, `exportAs: 'ogAvatar'`: the root, on any element, usually a `<span>`.
+- `[ogAvatar]`, `exportAs: 'ogAvatar'`: the root, on an HTML element, usually a `<span>`.
 - `img[ogAvatarImage]`: the image, a native `<img>`.
-- `[ogAvatarFallback]`: what shows while there is no loaded image, on any element.
+- `[ogAvatarFallback]`: what shows while there is no loaded image, on an HTML element, usually a `<span>`. Its `hidden` is the HTML attribute, which doesn't hide an SVG-namespace element or remove it from the accessibility tree, so an SVG icon goes inside the Fallback, not on it.
 
 Configuration: the Image has a `src` input (`string | null | undefined`, default null; `""` and `undefined` mean none, normalized to null) through `OrigamiAvatarImageOptions`; the effective source is the Options' `src` with `""` normalized to null as well. The root and the Fallback have no inputs and no Options token. Only the root has a `state`, through `exportAs` and DI.
 
@@ -1705,7 +1705,7 @@ Server and hydration:
 - A failing server-rendered source shows the engine's broken-image rendering over the Fallback until hydration.
 - An Image in a separate, still-dehydrated hydrate boundary isn't registered: its root reads `idle` with the Fallback visible under the painted image until that boundary hydrates (section 36, associations across a hydrate boundary).
 
-The consumer supplies the markup, stacking, size and shape, `alt` and the other native image attributes, the fallback's content (initials, an icon, a name) and the avatar's naming, any opaque backdrop for transparent images, and any fallback delay, which the README gives as a CSS recipe keyed on `data-status`.
+The consumer supplies the markup, stacking, size and shape, `alt` and the other native image attributes, the fallback's content (initials, an icon, a name) and the avatar's naming, any opaque backdrop for transparent images, and any fallback delay, which the README gives as a CSS recipe keyed on `data-status` that delays only the Fallback's paint (`opacity`), so its content stays exposed while the Image is `aria-hidden`.
 
 Exclusions in this release: no status event or output, no delay input, no initials helper, no image groups or overflow count, no `srcset`- or `sizes`-only change tracking, no retry of an unchanged source, no NgOptimizedImage (`ngSrc`) on the Image, no styles. An SVG without an intrinsic width reports a `naturalWidth` of 150 (Chromium, WebKit) or 300 (Firefox) and reads `loaded`. Fringe cases follow the repository rule; nothing Avatar-specific.
 
