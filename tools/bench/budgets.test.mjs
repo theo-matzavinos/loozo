@@ -324,14 +324,18 @@ describe("invalid values and deterministic artifacts", () => {
 });
 
 describe("D20 and step rounding", () => {
-  it("doesn't count float noise as exceeding a maximum", () => {
-    assert.equal(exceeds(1.3000000045, 1.3, 0.1), false);
-    assert.equal(exceeds(1.3001, 1.3, 0.1), true);
-    assert.equal(exceeds(-9799.9999999999, -9800, 100), false);
-    assert.equal(exceeds(-9799, -9800, 100), true);
-    assert.equal(exceeds(-9800.0000000001, -9800, 100), false);
-    assert.equal(exceeds(66813, 66812, 1000), true);
-    assert.equal(exceeds(2, 2, 1), false);
+  it("gives timings a millionth of a step of slack and keeps bytes and counts exact", () => {
+    const timing = { unit: "ms", budget: [1.3, 0.1] };
+    const bytes = { unit: "bytes", budget: [1.02, 1_000_000] };
+    const count = { unit: "count", budget: [1, 1] };
+
+    assert.equal(exceeds(1.3000000045, 1.3, timing), false);
+    assert.equal(exceeds(1.3001, 1.3, timing), true);
+    assert.equal(exceeds(-9799.9999999999, -9800, { unit: "ms", budget: [1.3, 100] }), false);
+    assert.equal(exceeds(1_000_001, 1_000_000, bytes), true);
+    assert.equal(exceeds(1_000_000, 1_000_000, bytes), false);
+    assert.equal(exceeds(3, 2, count), true);
+    assert.equal(exceeds(2, 2, count), false);
 
     const run = results({ 100: { ...measured, "generate.ms": 3000.000000001 } });
 
