@@ -59,16 +59,18 @@ const routerSteps: readonly RouterStep[] = [
   "providers",
   "data",
   "runGuardsAndResolvers",
+  "errorComponent",
   "onInvalidParams",
   "redirect",
 ];
 // Any of these steps rules a redirect out.
-const guardSteps = new Set<string>([
+const redirectBlockers = new Set<string>([
   "canMatch",
   "canActivate",
   "canActivateChild",
   "canDeactivate",
   "onInvalidParams",
+  "errorComponent",
 ]);
 /**
  * Names a contributed step can't take: the router's steps, the route's own
@@ -486,6 +488,13 @@ const stepValues: Record<RouterStep, (value: unknown, route: RouteMetadata) => u
 
     return value;
   },
+  errorComponent(value) {
+    if (typeof value !== "function") {
+      throw new TypeError("errorComponent must be a component class");
+    }
+
+    return value;
+  },
   onInvalidParams(value) {
     if (typeof value !== "function") {
       throw new TypeError("onInvalidParams must be a callback");
@@ -515,18 +524,18 @@ function stage(state: Stage): AnyRoute {
   const steps = new Map<string, (...args: unknown[]) => AnyRoute>();
 
   if (!state.used.has("redirect")) {
-    let guarded = false;
+    let blocked = false;
 
     for (const name of state.used) {
-      if (guardSteps.has(name)) {
-        guarded = true;
+      if (redirectBlockers.has(name)) {
+        blocked = true;
       }
     }
 
     for (const name of routerSteps) {
       const offered =
         !state.used.has(name) &&
-        !(name === "redirect" && guarded) &&
+        !(name === "redirect" && blocked) &&
         !(name === "onInvalidParams" && Object.keys(state.metadata.localParams).length === 0);
 
       if (!offered) {
@@ -734,10 +743,11 @@ export function copyRoute(
  * catchall parent. Fragment names belong only to this declaration.
  *
  * Steps (`canMatch`, `canActivate`, `canActivateChild`, `canDeactivate`, `resolve`,
- * `title`, `providers`, `data`, `runGuardsAndResolvers`, `onInvalidParams`,
- * `redirect`) come in any order, each at most once; a used step is gone from the
- * returned value. `redirect` is terminal and isn't offered after a guard step or
- * `onInvalidParams`; `onInvalidParams` needs local path params. Each call returns a
+ * `title`, `providers`, `data`, `runGuardsAndResolvers`, `errorComponent`,
+ * `onInvalidParams`, `redirect`) come in any order, each at most once; a used step
+ * is gone from the returned value. `redirect` is terminal and isn't offered after a
+ * guard step, `onInvalidParams` or `errorComponent`; `onInvalidParams` needs local
+ * path params. Each call returns a
  * new frozen route; application codecs, callbacks, providers and opaque values
  * retain identity and are not deep-frozen.
  *

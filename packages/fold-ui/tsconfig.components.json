@@ -22,6 +22,7 @@
       "@loozo/origami-ui/field": ["../origami-ui/field/src/public-api.ts"],
       "@loozo/origami-ui/file-field": ["../origami-ui/file-field/src/public-api.ts"],
       "@loozo/origami-ui/number-field": ["../origami-ui/number-field/src/public-api.ts"],
+      "@loozo/origami-ui/otp-field": ["../origami-ui/otp-field/src/public-api.ts"],
       "@loozo/origami-ui/utils": ["../origami-ui/utils/src/public-api.ts"],
       "@loozo/origami-ui/popover": ["../origami-ui/popover/src/public-api.ts"],
       "@loozo/origami-ui/presence": ["../origami-ui/presence/src/public-api.ts"],
