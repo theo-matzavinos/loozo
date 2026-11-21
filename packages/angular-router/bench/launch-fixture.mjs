@@ -83,11 +83,11 @@ export default defineRoute("static/l${leaf}", { parent })${steps};
 
 // Every page reads its handle's title, params, search and data, builds a typed link, reads the
 // block's query through queries and calls its mutation through remote; pages under $id do the
-// same with their item's namespace.
-function pageSource({ block, sibling, outlet = false, id = false, resolved = false }) {
+// same with their item's namespace. Its h1 carries the route id, the marker the runtime phase's
+// SSR requests check for.
+function pageSource({ block, route, sibling, outlet = false, id = false, resolved = false }) {
   let imports = "RouterLink";
-  let template =
-    '<h1>{{ route.title() }}</h1><a [routerLink]="link">Sibling</a><p>{{ read.data()?.user }}</p><button (click)="write()">Write</button>';
+  let template = `<h1 data-bench-page="${route}">{{ route.title() }}</h1><a [routerLink]="link">Sibling</a><p>{{ read.data()?.user }}</p><button (click)="write()">Write</button>`;
   let members = "";
 
   if (outlet) {
@@ -185,8 +185,9 @@ export class App {
 `;
 
 // Writes src/routes, src/bench.server.ts and the shell (src/app.ts) into a Launch consumer whose
-// copied routes were excluded.
-export async function writeLaunchFixture(consumer, routes) {
+// copied routes were excluded. Without middleware, the block roots have no .use(timing), and no
+// timing import either: an unused binding to a server module fails the build.
+export async function writeLaunchFixture(consumer, routes, { middleware = true } = {}) {
   async function write(path, source) {
     const file = join(consumer, path);
 
@@ -195,6 +196,15 @@ export async function writeLaunchFixture(consumer, routes) {
   }
 
   const blocks = routes / blockSize;
+  let rootImports = "textSchema, timing";
+  let use = "\n  .use(timing)";
+  let middlewareCount = blocks;
+
+  if (!middleware) {
+    rootImports = "textSchema";
+    use = "";
+    middlewareCount = 0;
+  }
 
   await write("src/bench.server.ts", serverModule);
 
@@ -221,7 +231,7 @@ export async function writeLaunchFixture(consumer, routes) {
       `${root}/route.ts`,
       `import { defineRoute } from "@loozo/angular-launch";
 import { forbidden } from "@loozo/angular-launch/server";
-import { textSchema, timing } from "../../bench.server.js";
+import { ${rootImports} } from "../../bench.server.js";
 import { allowed } from "./guard-helper.js";
 import { value } from "./resolver-helper.js";
 
@@ -234,8 +244,7 @@ export default defineRoute("${name}", {})
     }
 
     return { user };
-  })
-  .use(timing)
+  })${use}
   .remote(({ query, mutation }) => ({
     ${name}: {
       read: query({ handler: ({ context }) => ({ user: context.user, block: "${name}" }) }),
@@ -252,7 +261,7 @@ export default defineRoute("${name}", {})
     );
     await write(
       `${root}/page.ts`,
-      pageSource({ block: name, sibling: "./static/l1", outlet: true }),
+      pageSource({ block: name, route: name, sibling: "./static/l1", outlet: true }),
     );
 
     for (let leaf = 0; leaf < leaves; leaf++) {
@@ -264,7 +273,12 @@ export default defineRoute("${name}", {})
       );
       await write(
         `${root}/static/l${leaf}/page.ts`,
-        pageSource({ block: name, sibling: "../l1", resolved: resolve }),
+        pageSource({
+          block: name,
+          route: `${name}/static/l${leaf}`,
+          sibling: "../l1",
+          resolved: resolve,
+        }),
       );
     }
 
@@ -297,7 +311,13 @@ export default defineRoute("$id", { parent, params: { id: numberParam } })
     );
     await write(
       `${root}/$id/page.ts`,
-      pageSource({ block: name, sibling: "../static/l1", outlet: true, id: true }),
+      pageSource({
+        block: name,
+        route: `${name}/$id`,
+        sibling: "../static/l1",
+        outlet: true,
+        id: true,
+      }),
     );
     await write(
       `${root}/$id/detail/route.ts`,
@@ -309,7 +329,12 @@ export default defineRoute("detail", { parent });
     );
     await write(
       `${root}/$id/detail/page.ts`,
-      pageSource({ block: name, sibling: "../../static/l1", id: true }),
+      pageSource({
+        block: name,
+        route: `${name}/$id/detail`,
+        sibling: "../../static/l1",
+        id: true,
+      }),
     );
   }
 
@@ -325,7 +350,7 @@ export default defineRoute("detail", { parent });
     titled: blocks * 3,
     resolvers: blocks * 2 + 1,
     contextStages: blocks,
-    middleware: blocks,
+    middleware: middlewareCount,
     namespaces: blocks * 2,
     procedures: blocks * 4,
     maxDepth: 3,
