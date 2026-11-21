@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import {
   ceilToStep,
   checkBudgets,
+  exceeds,
   maximum,
   readBudgets,
   recordBudgets,
@@ -323,6 +324,20 @@ describe("invalid values and deterministic artifacts", () => {
 });
 
 describe("D20 and step rounding", () => {
+  it("doesn't count float noise as exceeding a maximum", () => {
+    assert.equal(exceeds(1.3000000045, 1.3, 0.1), false);
+    assert.equal(exceeds(1.3001, 1.3, 0.1), true);
+    assert.equal(exceeds(-9799.9999999999, -9800, 100), false);
+    assert.equal(exceeds(-9799, -9800, 100), true);
+    assert.equal(exceeds(-9800.0000000001, -9800, 100), false);
+    assert.equal(exceeds(66813, 66812, 1000), true);
+    assert.equal(exceeds(2, 2, 1), false);
+
+    const run = results({ 100: { ...measured, "generate.ms": 3000.000000001 } });
+
+    assert.equal(check(run, { bench: "example", 100: before[100] }).passed, true);
+  });
+
   it("records -10,000 at [1.02, 100] as -9,800 and -20 as 0", () => {
     assert.equal(maximum(-10000, [1.02, 100]), -9800);
     assert.equal(maximum(-20, [1.02, 100]), 0);

@@ -101,6 +101,13 @@ export function ceilToStep(x, step) {
   return value;
 }
 
+// Over the maximum by more than a millionth of the rule's step. Browser timers aren't exact
+// multiples of their 0.1 ms resolution, so a median of ticks such as 1.3000000045 meets a 1.3
+// maximum; any real excess is at least a whole sample tick, far above this.
+export function exceeds(value, max, step) {
+  return value - max > step * 1e-6;
+}
+
 // D20: the growth the factor allows, on the value's magnitude, so a negative baseline isn't
 // tightened. Identical to value × factor for value ≥ 0.
 export function maximum(value, [factor, step]) {
@@ -272,8 +279,9 @@ export function checkBudgets(results, budgets, { deterministic: requested = fals
         continue;
       }
 
-      if (value > max) {
-        const rule = rules.get(key);
+      const rule = rules.get(key);
+
+      if (exceeds(value, max, rule.budget[1])) {
         const shownValue = format(rule, value);
         const shownMax = format(rule, max);
         let line = `${scenario}: ${key} = ${shownValue} exceeds ${shownMax}`;
