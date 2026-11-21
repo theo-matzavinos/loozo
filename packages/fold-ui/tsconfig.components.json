@@ -34,6 +34,7 @@
       "@loozo/origami-ui/slider": ["../origami-ui/slider/src/public-api.ts"],
       "@loozo/origami-ui/switch": ["../origami-ui/switch/src/public-api.ts"],
       "@loozo/origami-ui/tabs": ["../origami-ui/tabs/src/public-api.ts"],
+      "@loozo/origami-ui/toast": ["../origami-ui/toast/src/public-api.ts"],
       "@loozo/origami-ui/tooltip": ["../origami-ui/tooltip/src/public-api.ts"]
     }
   },

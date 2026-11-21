@@ -130,6 +130,7 @@ ng([
   "switch",
   "tabs",
   "textarea",
+  "toast",
   "tooltip",
   "scroll-area",
   "avatar",
@@ -166,6 +167,7 @@ assert.deepEqual(folders.sort(), [
   "tabs",
   "textarea",
   "theme.css",
+  "toast",
   "tooltip",
 ]);
 // The CLI runs the app's Prettier on written files, so quotes follow the app's style.

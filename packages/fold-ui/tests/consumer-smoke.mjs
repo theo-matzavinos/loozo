@@ -12,12 +12,16 @@
 // and class merging, ScrollArea's, Avatar's and Progress's server state, bounds, scrollbars,
 // naming, sizes, loading delay, sweep, dialog recipe, themes, reduced motion and forced colors,
 // the OTP field's server state, geometry, typing and paste, masking, autofill paint, validation,
-// states and forced colors, and the File field's server state, geometry, picks and sizes, long
-// names, drag and drop, keyboard focus, validation, clearing, states, themes and forced colors.
+// states and forced colors, Toast's server region, collapsed and expanded deck geometry,
+// accessibility tree, immediate keyboard focus, pointer on the peeks, action, Close, kind colors,
+// limit, timer and narrow width, and the File field's server state, geometry, picks and sizes,
+// long names, drag and drop, keyboard focus, validation, clearing, states, themes and forced
+// colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -5946,6 +5950,849 @@ try {
     height: 2,
   });
   await page.emulateMedia({ forcedColors: "none" });
+
+  // Toast. Exact geometry is a DPR-1 value at 1280px.
+  //
+  // Server rendering: the region is a named polite live region with an empty list, before any
+  // toast exists.
+  const regionStart = html.search(/<div\b[^>]*\bdata-slot="toast-region"/);
+
+  assert.ok(regionStart >= 0, "the server HTML has the toast region");
+
+  const serverRegion = html.slice(regionStart, html.indexOf("</section>", regionStart));
+  const liveRegion = /<section\b[^>]*>/.exec(serverRegion)[0];
+  const toastList = /<ol\b[^>]*>/.exec(serverRegion)[0];
+
+  assert.match(liveRegion, /\brole="region"/);
+  assert.match(liveRegion, /\baria-live="polite"/);
+  assert.match(liveRegion, /\baria-label="Notifications"/);
+  assert.match(toastList, /\brole="list"/);
+  assert.match(toastList, /\bdata-slot="toast-list"/);
+  assert.doesNotMatch(serverRegion, /<li\b/, "no toast in the server HTML");
+
+  const toastRegion = "[data-slot=toast-region]";
+  const toastCard = "[data-slot=toast]";
+  const toastEvidence = join(app, "toast-evidence");
+
+  await mkdir(toastEvidence, { recursive: true });
+
+  // Per card: layout and painted geometry, the transition, the content's opacity and each
+  // button's box and inset from the card's inline end. Per focused control: the same samples
+  // the focus checks read, with the card's inner clip in viewport pixels.
+  const installToastProbes = () =>
+    page.evaluate(() => {
+      const box = (element) => {
+        const rect = element.getBoundingClientRect();
+
+        return {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left,
+        };
+      };
+
+      window.deckMetrics = () => {
+        const region = document.querySelector("[data-slot=toast-region]");
+
+        return {
+          hover: region.matches(":hover"),
+          focusWithin: region.matches(":focus-within"),
+          regionWidth: region.offsetWidth,
+          region: box(region),
+          viewport: {
+            width: document.documentElement.clientWidth,
+            height: document.documentElement.clientHeight,
+          },
+          cards: [...region.querySelectorAll("[data-slot=toast]")].map((card) => {
+            const style = getComputedStyle(card);
+            const cardRight = card.getBoundingClientRect().right;
+
+            return {
+              title: card.querySelector("[data-slot=toast-title]").textContent.trim(),
+              leaving: card.hasAttribute("data-leaving"),
+              offsetWidth: card.offsetWidth,
+              offsetHeight: card.offsetHeight,
+              scrollHeight: card.scrollHeight,
+              clientHeight: card.clientHeight,
+              rect: box(card),
+              scale: style.scale,
+              overflow: style.overflow,
+              transitionProperty: style.transitionProperty,
+              bodyOpacity: getComputedStyle(card.querySelector(":scope > div")).opacity,
+              children: [...card.children].map((child) => {
+                const look = getComputedStyle(child);
+
+                return { opacity: look.opacity, visibility: look.visibility };
+              }),
+              controls: [...card.querySelectorAll("button")].map((button) => ({
+                text: button.textContent.trim(),
+                label: button.getAttribute("aria-label"),
+                rect: box(button),
+                inlineEndInset: cardRight - button.getBoundingClientRect().right,
+                scrollWidth: button.scrollWidth,
+                clientWidth: button.clientWidth,
+              })),
+            };
+          }),
+        };
+      };
+
+      window.focusMetrics = () => {
+        const control = document.activeElement;
+        const card = control.closest("[data-slot=toast]");
+
+        if (!card) {
+          return { outside: control.outerHTML };
+        }
+
+        const look = getComputedStyle(control);
+        const rect = control.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        const scaleX = cardRect.width / card.offsetWidth;
+        const scaleY = cardRect.height / card.offsetHeight;
+        const clip = {
+          left: cardRect.left + card.clientLeft * scaleX,
+          top: cardRect.top + card.clientTop * scaleY,
+          right: cardRect.left + (card.clientLeft + card.clientWidth) * scaleX,
+          bottom: cardRect.top + (card.clientTop + card.clientHeight) * scaleY,
+        };
+        const ring = parseFloat(look.outlineWidth) + parseFloat(look.outlineOffset);
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+
+        const list = card.parentElement;
+        const listRect = list.getBoundingClientRect();
+
+        return {
+          title: card.querySelector("[data-slot=toast-title]").textContent.trim(),
+          text: control.textContent.trim(),
+          label: control.getAttribute("aria-label"),
+          rect: box(control),
+          ring,
+          // The list's scrollport, in viewport pixels.
+          list: {
+            scrollTop: list.scrollTop,
+            scrollHeight: list.scrollHeight,
+            clientHeight: list.clientHeight,
+            clip: {
+              left: listRect.left + list.clientLeft,
+              top: listRect.top + list.clientTop,
+              right: listRect.left + list.clientLeft + list.clientWidth,
+              bottom: listRect.top + list.clientTop + list.clientHeight,
+            },
+          },
+          ownOpacity: look.opacity,
+          bodyOpacity: getComputedStyle(card.querySelector(":scope > div")).opacity,
+          transitionProperty: getComputedStyle(card).transitionProperty,
+          offsetHeight: card.offsetHeight,
+          scrollHeight: card.scrollHeight,
+          clientHeight: card.clientHeight,
+          ringInsideClip:
+            rect.left - ring >= clip.left &&
+            rect.top - ring >= clip.top &&
+            rect.right + ring <= clip.right &&
+            rect.bottom + ring <= clip.bottom,
+          hitIsControl: hit?.closest("button") === control,
+          focusVisible: control.matches(":focus-visible"),
+          outline: {
+            style: look.outlineStyle,
+            width: look.outlineWidth,
+            offset: look.outlineOffset,
+            color: look.outlineColor,
+          },
+          deck: window.deckMetrics(),
+        };
+      };
+    });
+  const deckMetrics = () => page.evaluate(() => window.deckMetrics());
+  const toastCount = () =>
+    page.evaluate(() => document.querySelectorAll("[data-slot=toast]").length);
+  // A fresh page with the fixtures' toasts, the pointer away from the region and focus just
+  // before it.
+  const freshDeck = async (...fixtures) => {
+    await fresh();
+    await installToastProbes();
+
+    for (const fixture of fixtures) {
+      await page.click(`#${fixture}`);
+    }
+
+    await page.mouse.move(10, 10);
+    await page.focus("#before-region");
+    await page.waitForTimeout(250);
+  };
+  const scaleOf = (card) => parseFloat(card.scale);
+
+  // Collapsed, three title-only toasts: every card is the region's layout width and the one-line
+  // height, painted scaled around its top centre and lifted 8px per card behind the front one.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await freshDeck("toast-successes");
+
+  const collapsedDeck = await deckMetrics();
+
+  assert.equal(collapsedDeck.regionWidth, 384);
+  assert.deepEqual(
+    collapsedDeck.cards.map((card) => card.title),
+    ["Release notes saved", "Task updated", "Checklist saved"],
+    "newest first",
+  );
+  collapsedDeck.cards.forEach((card, index) => {
+    assert.equal(card.offsetWidth, collapsedDeck.regionWidth, `card ${index} layout width`);
+    assert.equal(card.offsetHeight, 58, `card ${index} layout height`);
+    near(scaleOf(card), 1 - 0.035 * index, 1e-6, `card ${index} scale`);
+    near(card.rect.width, card.offsetWidth * scaleOf(card), 0.02, `card ${index} painted width`);
+    near(card.rect.height, 58 * scaleOf(card), 0.02, `card ${index} painted height`);
+    near(card.rect.top, collapsedDeck.cards[0].rect.top - 8 * index, 0.02, `card ${index} peek`);
+  });
+  near(collapsedDeck.viewport.width - collapsedDeck.region.right, 20, 0.5, "the region's end");
+  near(collapsedDeck.viewport.height - collapsedDeck.region.bottom, 20, 0.5, "the region's bottom");
+
+  // A tall front card keeps 8px peeks: the fourth toast takes the limit's oldest away at once,
+  // since reduced motion has no exit animation.
+  await freshDeck("toast-successes", "toast-tall");
+
+  const tallDeck = await deckMetrics();
+
+  assert.equal(tallDeck.cards.length, 3);
+  assert.equal(tallDeck.cards[0].title, "Release is ready for review");
+  assert.ok(tallDeck.cards[0].offsetHeight > 58, "the front card is taller than one line");
+  for (const index of [1, 2]) {
+    assert.equal(tallDeck.cards[index].offsetHeight, 58);
+    near(tallDeck.cards[index].rect.top, tallDeck.cards[0].rect.top - 8 * index, 0.02, "tall peek");
+  }
+
+  // Accessibility: while collapsed, the back cards' text and buttons stay in the tree, a list of
+  // three items; only their content is transparent.
+  await freshDeck("toast-successes");
+
+  const deckTree = await page.locator(`${toastRegion} > section`).ariaSnapshot();
+
+  assert.match(deckTree, /^- region "Notifications":/);
+  assert.match(deckTree, /^ {2}- list:/m);
+  assert.equal(deckTree.match(/- listitem:/g)?.length, 3, deckTree);
+  for (const title of ["Checklist saved", "Task updated", "Release notes saved"]) {
+    assert.ok(deckTree.includes(title), `${title} in the tree`);
+  }
+  assert.equal(deckTree.match(/- button "Close"/g)?.length, 3, deckTree);
+  for (const card of (await deckMetrics()).cards.slice(1)) {
+    for (const child of card.children) {
+      assert.deepEqual(child, { opacity: "0", visibility: "visible" });
+    }
+  }
+
+  // Two toasts added in one handler both render, newest first, in the tree.
+  await freshDeck("toast-pair");
+
+  const pairTree = await page.locator(`${toastRegion} > section`).ariaSnapshot();
+
+  assert.ok(
+    pairTree.indexOf("Second in handler") >= 0 &&
+      pairTree.indexOf("First in handler") > pairTree.indexOf("Second in handler"),
+    pairTree,
+  );
+
+  // Hover fans the deck out into a column, newest at the bottom: every card keeps the region's
+  // layout width and paints unscaled, the newest card's controls stay exactly where they were,
+  // and an older card's Close sits 13px in from its inline end (12px padding and the border).
+  const expansion = async (fixtures, front) => {
+    await freshDeck(...fixtures);
+
+    const collapsed = await deckMetrics();
+
+    await page.hover(toastRegion);
+    await rendered();
+
+    const expanded = await deckMetrics();
+
+    assert.equal(expanded.hover, true);
+    assert.equal(collapsed.cards[0].title, front);
+    for (const state of [collapsed, expanded]) {
+      for (const card of state.cards) {
+        assert.equal(card.offsetWidth, state.regionWidth, `${card.title} layout width`);
+      }
+    }
+    collapsed.cards.forEach((card, index) => {
+      near(card.rect.width, card.offsetWidth * (1 - 0.035 * index), 0.02, `${card.title} painted`);
+
+      if (index > 0) {
+        assert.equal(card.offsetHeight, 58, `${card.title} collapsed height`);
+      }
+    });
+    expanded.cards.forEach((card, index) => {
+      assert.equal(card.scale, "1", `${card.title} expanded scale`);
+      near(card.rect.width, card.offsetWidth, 0.02, `${card.title} expanded width`);
+
+      if (index > 0) {
+        near(card.controls.at(-1).inlineEndInset, 13, 0.02, `${card.title} Close inset`);
+        assert.equal(card.overflow, "hidden");
+        assert.equal(card.clientHeight, card.scrollHeight, `${card.title} unclipped`);
+      }
+    });
+    assert.deepEqual(
+      expanded.cards[0].controls.map((control) => control.rect),
+      collapsed.cards[0].controls.map((control) => control.rect),
+      "the newest card's controls stay put",
+    );
+
+    return expanded;
+  };
+
+  await expansion(["toast-successes"], "Release notes saved");
+
+  const reloadDeck = await expansion(
+    ["toast-successes", "toast-reload"],
+    "A new version is available",
+  );
+
+  assert.deepEqual(
+    reloadDeck.cards[0].controls.map((control) => control.text || control.label),
+    ["Reload", "Close"],
+  );
+  await page.click(`${toastCard}:first-child button:text-is("Reload")`);
+  await untilText("toast-status", "Reloaded");
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("[data-slot=toast-title]")].some(
+        (title) => title.textContent.trim() === "A new version is available",
+      ),
+  );
+  assert.equal(await toastCount(), 2);
+
+  // Keyboard focus into any card, by Tab, Shift+Tab or focus(), shows the control at once: on the
+  // focus event's task and the first frame, the deck is already expanded with no transition,
+  // nothing is clipped, and the control and its ring are inside its card and on top.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  const focusTrial = async (name, drive) => {
+    await freshDeck("toast-actions");
+    // A real Tab and Shift+Tab outside the region, so focus() counts as keyboard focus too.
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    assert.equal(await activeId(), "before-region");
+
+    if (name === "reverse") {
+      await page.focus("#after-region");
+    }
+
+    await page.evaluate(() => {
+      window.toastFocusFrame = null;
+      document.querySelector("[data-slot=toast-region]").addEventListener(
+        "focusin",
+        () => {
+          window.toastFocusTask = window.focusMetrics();
+          requestAnimationFrame(() => {
+            window.toastFocusFrame = window.focusMetrics();
+          });
+        },
+        { once: true },
+      );
+    });
+    await drive();
+    await page.waitForFunction(() => window.toastFocusFrame !== null);
+
+    const { task, frame } = await page.evaluate(() => ({
+      task: window.toastFocusTask,
+      frame: window.toastFocusFrame,
+    }));
+
+    await page.screenshot({ path: join(toastEvidence, `toast-focus-${name}-first.png`) });
+    await page.waitForTimeout(250);
+
+    const settledFocus = await page.evaluate(() => window.focusMetrics());
+
+    await page.screenshot({ path: join(toastEvidence, `toast-focus-${name}-settled.png`) });
+
+    for (const [sample, metrics] of [
+      ["task", task],
+      ["frame", frame],
+      ["settled", settledFocus],
+    ]) {
+      const label = `${name} ${sample}`;
+
+      assert.equal(metrics.ownOpacity, "1", label);
+      assert.equal(metrics.bodyOpacity, "1", label);
+      assert.equal(metrics.transitionProperty, "none", label);
+      assert.equal(metrics.clientHeight, metrics.scrollHeight, `${label} unclipped`);
+      assert.equal(metrics.ringInsideClip, true, `${label} ring inside the card`);
+      assert.equal(metrics.hitIsControl, true, `${label} on top`);
+      assert.equal(metrics.focusVisible, true, label);
+      assert.deepEqual(metrics.outline, ringOutline(darkRing), label);
+      assert.equal(metrics.deck.hover, false, `${label} pointer away`);
+      assert.equal(metrics.deck.focusWithin, true, label);
+      metrics.deck.cards.forEach((card, index) => {
+        assert.equal(card.scale, "1", `${label} ${card.title} scale`);
+        assert.equal(card.offsetWidth, metrics.deck.regionWidth, `${label} ${card.title} width`);
+
+        if (index > 0) {
+          assert.equal(card.overflow, "hidden", `${label} ${card.title} overflow`);
+        }
+      });
+    }
+
+    assert.equal(frame.offsetHeight, settledFocus.offsetHeight, `${name} final height at once`);
+
+    return frame;
+  };
+  const focusCard = (index, button) => () =>
+    page
+      .locator(toastCard)
+      .nth(index)
+      .locator("button")
+      .nth(button)
+      .evaluate((control) => control.focus());
+
+  const toastForward = await focusTrial("forward", () => page.keyboard.press("Tab"));
+
+  assert.deepEqual([toastForward.title, toastForward.text], ["Newest card", "Newest action"]);
+
+  const reverse = await focusTrial("reverse", () => page.keyboard.press("Shift+Tab"));
+
+  assert.deepEqual([reverse.title, reverse.label], ["Oldest card", "Close"]);
+  await focusTrial("newest-close", focusCard(0, 1));
+  await focusTrial("middle-action", focusCard(1, 0));
+  await focusTrial("middle-close", focusCard(1, 1));
+  await focusTrial("oldest-action", focusCard(2, 0));
+
+  const oldestClose = await focusTrial("oldest-close", focusCard(2, 1));
+
+  assert.deepEqual([oldestClose.title, oldestClose.label], ["Oldest card", "Close"]);
+
+  // Focus leaving collapses the deck again, with its transition back.
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "after-region");
+  await page.waitForTimeout(250);
+
+  const refolded = await deckMetrics();
+
+  for (const card of refolded.cards.slice(1)) {
+    assert.equal(card.offsetHeight, 58, `${card.title} collapsed again`);
+    assert.equal(card.bodyOpacity, "0");
+    assert.equal(card.transitionProperty, "height, translate, scale");
+  }
+
+  // The pointer: no point of a peek strip hits a back card's button, and clicking a peek as the
+  // pointer arrives or 100ms into the fan-out runs no action and closes no toast.
+  await freshDeck("toast-actions");
+
+  const strips = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll("[data-slot=toast]")];
+    const front = cards[0].getBoundingClientRect();
+    const hits = [];
+    const centres = [];
+
+    cards.slice(1).forEach((card, offset) => {
+      const rect = card.getBoundingClientRect();
+      const bottom = front.top - 8 * offset;
+
+      centres.push({ x: rect.left + rect.width / 2, y: (rect.top + bottom) / 2 });
+
+      for (let y = rect.top; y < bottom; y += 2) {
+        for (let x = rect.left; x <= rect.right; x += 2) {
+          const button = document.elementFromPoint(x, y)?.closest("button");
+
+          if (button && cards.slice(1).some((back) => back.contains(button))) {
+            hits.push({ x, y, button: button.textContent.trim() });
+          }
+        }
+      }
+    });
+
+    return { hits, centres };
+  });
+
+  assert.deepEqual(strips.hits, [], "a peek strip hits a back card's button");
+  assert.equal(strips.centres.length, 2);
+  for (const [index, centre] of strips.centres.entries()) {
+    for (const delay of [0, 100]) {
+      await freshDeck("toast-actions");
+      await page.mouse.move(centre.x, centre.y);
+      await page.waitForTimeout(delay);
+      await page.mouse.down();
+      await page.mouse.up();
+      await rendered();
+      assert.equal(await textOf("toast-status"), "", `peek ${index + 1} after ${delay}ms`);
+      assert.equal(
+        await page.evaluate(
+          () => document.querySelectorAll("[data-slot=toast]:not([data-leaving])").length,
+        ),
+        3,
+        `peek ${index + 1} after ${delay}ms`,
+      );
+    }
+  }
+
+  // Close by keyboard: with others open, focus goes to the region and the card leaves; the last
+  // toast gives focus back to what had it before the region.
+  const regionFocused = () =>
+    page.evaluate(
+      () => document.activeElement === document.querySelector("[data-slot=toast-region] > section"),
+    );
+  const untilGone = (title) =>
+    page.waitForFunction(
+      (title) =>
+        ![...document.querySelectorAll("[data-slot=toast-title]")].some(
+          (element) => element.textContent.trim() === title,
+        ),
+      title,
+    );
+
+  await freshDeck("toast-actions");
+  await focusCard(1, 1)();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => {
+    const card = document.querySelector("[data-slot=toast]:nth-child(2)");
+
+    return card?.hasAttribute("data-leaving") && card.hasAttribute("inert");
+  });
+  assert.equal(await regionFocused(), true, "focus on the region");
+  await untilGone("Middle card");
+  assert.equal(await toastCount(), 2);
+
+  await freshDeck("toast-reload");
+  await focusCard(0, 1)();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.activeElement?.id === "before-region");
+  await untilGone("A new version is available");
+
+  // The shadow box under the expanded deck shows only while a card is: closing the last toast by
+  // pointer, with nothing focused before, leaves focus on the empty region and no shadow.
+  await freshDeck("toast-reload");
+  await page.evaluate(() => document.activeElement.blur());
+  const blank = await page.locator("#toasts").boundingBox();
+
+  await page.mouse.click(blank.x + 2, blank.y + 2);
+  await page.locator("[data-slot=toast-close]").click();
+  await untilGone("A new version is available");
+  assert.equal(await regionFocused(), true, "focus falls back to the empty region");
+  assert.equal(
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector("[data-slot=toast-region]"), "::after").display,
+    ),
+    "none",
+    "no shadow box once the last toast is gone",
+  );
+
+  // The kind icons' tints, in both themes.
+  const kindColors = () =>
+    page.evaluate(() => {
+      const token = (name) => {
+        const probe = document.createElement("span");
+
+        probe.style.color = `var(--${name})`;
+        document.body.append(probe);
+
+        const color = getComputedStyle(probe).color;
+
+        probe.remove();
+
+        return color;
+      };
+      const icon = (kind) =>
+        getComputedStyle(document.querySelector(`[data-kind=${kind}] > [data-slot=toast-icon]`))
+          .color;
+
+      return {
+        icons: { success: icon("success"), warning: icon("warning"), error: icon("error") },
+        tokens: {
+          success: token("success"),
+          warning: token("warning"),
+          error: token("destructive-text"),
+        },
+      };
+    });
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await freshDeck("toast-pair", "toast-error");
+
+  const darkKinds = await kindColors();
+
+  assert.deepEqual(darkKinds.icons, darkKinds.tokens, "dark");
+  await page.evaluate(() => document.documentElement.classList.add("light"));
+
+  const lightKinds = await kindColors();
+
+  assert.deepEqual(lightKinds.icons, lightKinds.tokens, "light");
+  assert.notDeepEqual(lightKinds.icons, darkKinds.icons);
+
+  const infoColor = () =>
+    page.evaluate(() => {
+      const probe = document.createElement("span");
+
+      probe.style.color = "var(--muted-foreground)";
+      document.body.append(probe);
+
+      const token = getComputedStyle(probe).color;
+
+      probe.remove();
+
+      return {
+        icon: getComputedStyle(document.querySelector("[data-kind=info] > [data-slot=toast-icon]"))
+          .color,
+        token,
+      };
+    });
+
+  await freshDeck("toast-reload");
+
+  const darkInfo = await infoColor();
+
+  assert.equal(darkInfo.icon, darkInfo.token);
+  await page.evaluate(() => document.documentElement.classList.add("light"));
+
+  const lightInfo = await infoColor();
+
+  assert.equal(lightInfo.icon, lightInfo.token);
+  assert.notEqual(lightInfo.icon, darkInfo.icon);
+  await page.evaluate(() => document.documentElement.classList.remove("light"));
+
+  // The limit: a fourth toast closes the oldest, with its exit.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await freshDeck("toast-successes");
+  await page.click("#toast-error");
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("[data-slot=toast][data-leaving] [data-slot=toast-title]")].some(
+      (title) => title.textContent.trim() === "Checklist saved",
+    ),
+  );
+  await untilGone("Checklist saved");
+  assert.deepEqual(
+    (await deckMetrics()).cards.map((card) => card.title),
+    ["Couldn't save your changes", "Release notes saved", "Task updated"],
+  );
+
+  // The timer: with the pointer and focus away from the region, a default toast starts leaving
+  // within 6s (5s and scheduling jitter) and is removed after its exit.
+  await fresh();
+  await page.mouse.move(10, 10);
+  await page.focus("#toast-timed");
+
+  // When the toast's element is added and when it gets data-leaving, in page time.
+  await page.evaluate(() => {
+    const list = document.querySelector("[data-slot=toast-list]");
+
+    window.timedToast = {};
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.addedNodes.length > 0 && window.timedToast.added === undefined) {
+          window.timedToast.added = performance.now();
+        }
+
+        if (record.attributeName === "data-leaving" && window.timedToast.leaving === undefined) {
+          window.timedToast.leaving = performance.now();
+        }
+      }
+    }).observe(list, { childList: true, subtree: true, attributeFilter: ["data-leaving"] });
+  });
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.timedToast.leaving !== undefined, null, {
+    timeout: 7000,
+  });
+  await untilGone("Saved with the default duration");
+
+  const timed = await page.evaluate(() => window.timedToast);
+  const timedFor = timed.leaving - timed.added;
+
+  assert.ok(timedFor > 4900 && timedFor <= 6000, `the timed toast left after ${timedFor}ms`);
+
+  // A narrow viewport keeps 20px on each side.
+  await page.setViewportSize({ width: 390, height: 720 });
+  assert.equal(
+    await page.evaluate(() => document.querySelector("[data-slot=toast-region]").offsetWidth),
+    350,
+  );
+
+  // A short viewport: the expanded deck scrolls within it, less the region's 20px insets. Hover
+  // opens it with the newest card at the bottom and the pointer leaving folds it again; Tab
+  // reaches every control, each scrolled into view with its ring by the first frame.
+  const inside = (rect, ring, bounds, label) =>
+    assert.ok(
+      rect.left - ring >= bounds.left - 0.5 &&
+        rect.top - ring >= bounds.top - 0.5 &&
+        rect.right + ring <= bounds.right + 0.5 &&
+        rect.bottom + ring <= bounds.bottom + 0.5,
+      `${label}: ${JSON.stringify(rect)} ± ${ring} isn't inside ${JSON.stringify(bounds)}`,
+    );
+  const viewportBounds = ({ width, height }) => ({ left: 0, top: 0, right: width, bottom: height });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await freshDeck("toast-actions");
+  await page.setViewportSize({ width: 320, height: 240 });
+  await page.hover(toastRegion);
+  await page.waitForTimeout(250);
+
+  const shortOpen = await page.evaluate(() => {
+    const list = document.querySelector("[data-slot=toast-list]");
+
+    return {
+      deck: window.deckMetrics(),
+      scrollTop: list.scrollTop,
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+    };
+  });
+
+  assert.equal(shortOpen.deck.hover, true);
+  assert.ok(shortOpen.scrollHeight > shortOpen.clientHeight, "the short deck overflows");
+  assert.equal(shortOpen.scrollTop, 0, "opens at its end");
+  near(shortOpen.deck.cards[0].rect.bottom, 240 - 20, 0.5, "the newest card at the bottom");
+  inside(shortOpen.deck.cards[0].rect, 0, viewportBounds(shortOpen.deck.viewport), "newest card");
+
+  // Scrolled to either end or between, a card running into the region's 20px insets is clipped
+  // there: no point of the top or bottom 20px rows hits a toast.
+  for (const [position, scrollTop] of [
+    ["end", 0],
+    ["middle", -60],
+    ["start", -10_000],
+  ]) {
+    const insets = await page.evaluate((scrollTop) => {
+      const list = document.querySelector("[data-slot=toast-list]");
+
+      list.scrollTop = scrollTop;
+
+      const height = document.documentElement.clientHeight;
+      const width = document.documentElement.clientWidth;
+      const hits = [];
+
+      for (const y of [
+        ...Array(20).keys(),
+        ...Array.from({ length: 20 }, (_, i) => height - 20 + i),
+      ]) {
+        for (let x = 0; x < width; x += 4) {
+          if (document.elementFromPoint(x, y)?.closest("[data-slot=toast]")) {
+            hits.push([x, y]);
+          }
+        }
+      }
+
+      const cards = [...list.children].map((card) => card.getBoundingClientRect());
+
+      return {
+        hits,
+        overTop: cards.some((card) => card.top < 20 && card.bottom > 0),
+        overBottom: cards.some((card) => card.bottom > height - 20 && card.top < height),
+      };
+    }, scrollTop);
+
+    assert.deepEqual(insets.hits, [], `scrolled to the ${position}, no toast in the insets`);
+    assert.ok(
+      insets.overTop || insets.overBottom,
+      `scrolled to the ${position}, a card is clipped`,
+    );
+  }
+
+  await page.evaluate(() => (document.querySelector("[data-slot=toast-list]").scrollTop = 0));
+  await page.mouse.move(10, 10);
+  await page.waitForTimeout(250);
+  assert.equal((await deckMetrics()).hover, false, "the pointer leaves the expanded deck");
+
+  await page.focus("#before-region");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "before-region");
+
+  const shortStops = [];
+
+  for (let stop = 0; stop < 6; stop += 1) {
+    // Sampled on the first frame after focus and once settled.
+    await page.evaluate(() => {
+      window.toastFocusFrame = null;
+      document
+        .querySelector("[data-slot=toast-region]")
+        .addEventListener(
+          "focusin",
+          () => requestAnimationFrame(() => (window.toastFocusFrame = window.focusMetrics())),
+          { once: true },
+        );
+    });
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.toastFocusFrame !== null);
+
+    const frame = await page.evaluate(() => window.toastFocusFrame);
+
+    await page.waitForTimeout(250);
+
+    const settled = await page.evaluate(() => window.focusMetrics());
+
+    for (const [sample, metrics] of [
+      ["frame", frame],
+      ["settled", settled],
+    ]) {
+      const label = `short stop ${stop} ${sample}`;
+
+      inside(metrics.rect, metrics.ring, viewportBounds(metrics.deck.viewport), label);
+      inside(metrics.rect, metrics.ring, metrics.list.clip, `${label} in the list`);
+      assert.equal(metrics.ringInsideClip, true, `${label} ring inside the card`);
+      assert.equal(metrics.hitIsControl, true, `${label} on top`);
+      assert.equal(metrics.focusVisible, true, label);
+      assert.equal(metrics.transitionProperty, "none", label);
+    }
+
+    shortStops.push([settled.title, settled.text || settled.label, settled.list.scrollTop]);
+  }
+
+  await page.screenshot({ path: join(toastEvidence, "toast-short-oldest-close.png") });
+  assert.deepEqual(
+    shortStops.map(([title, control]) => [title, control]),
+    [
+      ["Newest card", "Newest action"],
+      ["Newest card", "Close"],
+      ["Middle card", "Middle action"],
+      ["Middle card", "Close"],
+      ["Oldest card", "Oldest action"],
+      ["Oldest card", "Close"],
+    ],
+  );
+  assert.ok(shortStops.at(-1)[2] < 0, "the list scrolled to the oldest card");
+
+  // A long action label wraps inside the card at 320px: the card, the action and Close stay
+  // inside the region and the viewport, collapsed and expanded.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await freshDeck("toast-long-action");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await rendered();
+  await page.screenshot({ path: join(toastEvidence, "toast-long-action.png") });
+
+  for (const state of ["collapsed", "expanded"]) {
+    if (state === "expanded") {
+      await page.hover(toastRegion);
+      await page.waitForTimeout(250);
+    }
+
+    const deck = await deckMetrics();
+    const [card] = deck.cards;
+    const [action, close] = card.controls;
+
+    assert.equal(deck.regionWidth, 280);
+    assert.equal(card.offsetWidth, 280, `${state} card width`);
+    assert.equal(action.text, "Download the updated version of the application");
+    assert.ok(action.rect.height > 28, `${state} the action wraps`);
+    assert.ok(action.scrollWidth <= action.clientWidth, `${state} the action's label fits`);
+
+    for (const [name, rect] of [
+      ["card", card.rect],
+      ["action", action.rect],
+      ["Close", close.rect],
+    ]) {
+      inside(rect, 0, deck.region, `${state} ${name} in the region`);
+      inside(rect, 0, viewportBounds(deck.viewport), `${state} ${name} in the viewport`);
+    }
+  }
+
+  // A deck that fits doesn't keep the wheel: over the open toast, it scrolls the page.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction(() => window.scrollY > 0, null, { timeout: 2000 });
+  assert.equal(
+    await page.evaluate(() => document.querySelector("[data-slot=toast-list]").scrollTop),
+    0,
+  );
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
 
   assert.deepEqual(errors, [], "console errors or warnings");
   console.log("Chromium smoke passed:", JSON.stringify(geometry));

@@ -34,6 +34,7 @@
           "switch",
           "tabs",
           "textarea",
+          "toast",
           "tooltip"
         ]
       },
