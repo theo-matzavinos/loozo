@@ -1,0 +1,29 @@
+{
+  "bench": "origami-ui-runtime",
+  "checkbox-1000": {
+    "mount.p50Ms": 63.2,
+    "hydration.p50Ms": 60,
+    "heap.retainedJsBytesPerCycle": 262144,
+    "heap.liveInstances": 0
+  },
+  "plain-1000": {
+    "mount.p50Ms": 31.1,
+    "hydration.p50Ms": 29.6,
+    "heap.retainedJsBytesPerCycle": 262144
+  },
+  "select-1000": {
+    "open.p50Ms": 37.9,
+    "open.p95Ms": 46.9
+  },
+  "menu-100": {
+    "open.p50Ms": 22.1,
+    "open.p95Ms": 28.1
+  },
+  "popover": {
+    "open.p50Ms": 20.1,
+    "open.p95Ms": 24.6
+  },
+  "tooltip": {
+    "open.p50Ms": 1.1
+  }
+}
