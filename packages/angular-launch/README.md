@@ -27,7 +27,7 @@ pnpm add @loozo/angular-launch @loozo/angular-router@0.1.0
 
 Launch follows the router's [version policy](../angular-router/README.md#versions): releases are numbered `0.MINOR.PATCH` until 1.0, a patch doesn't break the contract and a minor may, every move to a new Angular minor is a minor, and generated files aren't part of the contract byte for byte, so run `ng build` (or `ng serve`) once after upgrading and commit what it regenerates. Launch's contract is its [`SPEC.md`](SPEC.md): the entry points and their types, the builder names and options, the generated files it lists and what they export, and the behavior it specifies. It doesn't cover `@loozo/angular-launch/_server`, which only generated code imports, or the wire format between client and server, so deploy the browser and server builds of one release together.
 
-What's different for Launch is the router pin. Launch releases in lockstep with the router and pins it exactly, so every router release comes with a Launch release that pins it: a Launch patch for a router patch, a Launch minor for a router minor. Upgrade the two together, the router to the version Launch's `peerDependencies` names.
+What's different for Launch is the router pin. Launch releases in lockstep with the router and pins it exactly, so every router release comes with a Launch release that pins it. A router minor always brings a Launch minor. A router patch brings a Launch patch, or a minor when Launch's own changes since its last release break the contract. Upgrade the two together, the router to the version Launch's `peerDependencies` names.
 
 Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-launch&expanded=true).
 
