@@ -433,6 +433,7 @@ describe("add", () => {
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
+      menu: ["button", "cn", "menu", "popup"],
       "number-field": ["cn", "number-field"],
       popover: ["button", "cn", "popover", "popup"],
       popup: ["popup"],
@@ -541,6 +542,15 @@ describe("add", () => {
       readText(tree, "src/ui/popover/popover-content.ts"),
       /exportAs: "zzPopoverContent"/,
     );
+  });
+
+  test("renames Menu's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["menu"] }, await setUp(runner));
+
+    assert.match(readText(tree, "src/ui/menu/menu-item.ts"), /selector: "button\[zzMenuItem\]"/);
+    assert.match(readText(tree, "src/ui/menu/menu-content.ts"), /exportAs: "zzMenuContent"/);
+    assert.match(readText(tree, "src/ui/menu/menu-shortcut.ts"), /selector: "\[zzMenuShortcut\]"/);
   });
 
   test("skips an existing named component by default, with a warning", async () => {

@@ -7,7 +7,9 @@
 // state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
 // values, states, themes and forced colors, and Tabs', Tooltip's and Popover's server state,
 // geometry, keys, pointer and hover, guarded unavailable actions, placement and flipping, Tab
-// order and scrolling, nesting, motion and forced colors.
+// order and scrolling, nesting, motion and forced colors, and Menu's server state, placement,
+// focus highlight and ring, destructive rows, checkable and disabled rows, submenu, motion,
+// forced colors and class merging.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -3648,6 +3650,228 @@ try {
   assert.deepEqual(await outline("#notes-content"), ringOutline(systemColors.highlight));
   await page.keyboard.press("Escape");
   await dismissed("notes-content");
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // Menu. Exact geometry is a DPR-1 value.
+  //
+  // Server rendering: the Trigger announces a closed menu it controls, Content is a closed, inert
+  // menu, checkable rows carry their bound state, the destructive row its variant, a group its
+  // label, and the shortcut is hidden.
+  const rowTrigger = openingTag(html, "menu-row-trigger");
+  const rowContent = openingTag(html, "menu-row-content");
+
+  assert.match(rowTrigger, /\baria-haspopup="menu"/);
+  assert.match(rowTrigger, /\baria-expanded="false"/);
+  assert.match(rowTrigger, /\baria-controls="menu-row-content"/);
+  assert.match(rowTrigger, /\bdata-slot="menu-trigger"/);
+  assert.match(rowTrigger, /\bclass="[^"]*\bsize-8\b/);
+  assert.match(rowContent, /\brole="menu"/);
+  assert.match(rowContent, /\bpopover="manual"/);
+  assert.match(rowContent, /\sinert[\s=>]/);
+  assert.match(rowContent, /\bdata-slot="menu-content"/);
+  assert.match(openingTag(html, "menu-row"), /\bdata-slot="menu"/);
+  assert.match(openingTag(html, "menu-row-edit"), /\bdata-slot="menu-link"/);
+  assert.match(openingTag(html, "menu-row-shortcut"), /\baria-hidden="true"/);
+  assert.match(openingTag(html, "menu-row-separator"), /\brole="separator"/);
+  assert.match(openingTag(html, "menu-row-delete"), /\brole="menuitem"/);
+  assert.match(openingTag(html, "menu-row-delete"), /\bdata-variant="destructive"/);
+
+  const completed = openingTag(html, "menu-view-completed");
+  const archived = openingTag(html, "menu-view-archived");
+
+  assert.match(completed, /\brole="menuitemcheckbox"/);
+  assert.match(completed, /\baria-checked="true"/);
+  assert.match(completed, /\bdata-checked=""/);
+  assert.match(archived, /\baria-checked="false"/);
+  assert.doesNotMatch(archived, /\sdata-checked=/);
+  assert.match(openingTag(html, "menu-view-comfortable"), /\baria-checked="true"/);
+  assert.match(openingTag(html, "menu-view-compact"), /\baria-checked="false"/);
+  assert.match(openingTag(html, "menu-view-show"), /\baria-labelledby="menu-view-show-label"/);
+  assert.match(openingTag(html, "menu-view-move-trigger"), /\baria-haspopup="menu"/);
+  assert.match(openingTag(html, "menu-view-move-trigger"), /\baria-expanded="false"/);
+  assert.match(openingTag(html, "menu-view-archive"), /\bdata-disabled=""/);
+
+  // The row highlight: the theme's foreground mixed at 8% into transparent, read from a probe.
+  const menuFill = () =>
+    page.evaluate(() => {
+      const probe = document.createElement("span");
+
+      probe.style.backgroundColor = "color-mix(in oklab, var(--foreground) 8%, transparent)";
+      document.body.append(probe);
+
+      const fill = getComputedStyle(probe).backgroundColor;
+
+      probe.remove();
+
+      return fill;
+    });
+  const darkMenuFill = await menuFill();
+
+  // A click opens the row actions on the first item, 4px below the Trigger and end-aligned to
+  // it, with the floating surfaces' popup-in.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await fresh();
+  await scrollToTop("menu-row-trigger");
+  await watchAnimations("menu-row-content", "data-entering");
+  await page.click("#menu-row-trigger");
+  assert.deepEqual(await watchedAnimations(), [
+    { name: "popup-in", duration: 120, direction: "normal" },
+  ]);
+  await opened("menu-row-content");
+  await page.waitForFunction(() => document.activeElement?.id === "menu-row-edit");
+  assert.equal(await attribute("menu-row-trigger", "aria-expanded"), "true");
+
+  const menuRowTrigger = await rectOf("#menu-row-trigger");
+  const menuRow = await rectOf("#menu-row-content");
+
+  near(menuRow.top - menuRowTrigger.bottom, 4, 0.5, "the Menu's gap");
+  near(menuRow.right, menuRowTrigger.right, 0.5, "the Menu's end");
+  assert.deepEqual(
+    await styleOf("#menu-row-content", [
+      "backgroundColor",
+      "borderTopLeftRadius",
+      "borderTopWidth",
+      "paddingTop",
+    ]),
+    {
+      backgroundColor: darkSurface,
+      borderTopLeftRadius: "12px",
+      borderTopWidth: "1px",
+      paddingTop: "4px",
+    },
+  );
+  assert.ok(menuRow.width >= 192, `the Menu's width ${menuRow.width}`);
+  assert.deepEqual(await styleOf("#menu-row-edit", ["height", "borderTopLeftRadius"]), {
+    height: "32px",
+    borderTopLeftRadius: "6px",
+  });
+
+  // ArrowDown skips the separator to Delete: the neutral fill, orange text and icon, and the ring.
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await activeId(), "menu-row-delete");
+  assert.deepEqual(await styleOf("#menu-row-delete", ["backgroundColor", "color"]), {
+    backgroundColor: darkMenuFill,
+    color: darkOrange,
+  });
+  assert.equal((await styleOf("#menu-row-delete > svg", ["color"])).color, darkOrange);
+  assert.deepEqual(await outline("#menu-row-delete"), ringOutline(darkRing));
+
+  // Enter runs it: the menu closes and focus returns to the Trigger.
+  await page.keyboard.press("Enter");
+  await untilText("menu-row-status", "Deleted LC-2041");
+  await dismissed("menu-row-content");
+  assert.equal(await activeId(), "menu-row-trigger");
+  assert.equal(await attribute("menu-row-trigger", "aria-expanded"), "false");
+
+  // The View menu: captions stay start-aligned under align="end"; a click toggles a checkbox row,
+  // its check showing, and selects a radio row, with the menu kept open.
+  await page.click("#menu-view-trigger");
+  await opened("menu-view-content");
+  assert.deepEqual(
+    [
+      (await styleOf("#menu-view-content", ["textAlign"])).textAlign,
+      (await styleOf("#menu-view-show-label", ["textAlign"])).textAlign,
+      (await styleOf("#menu-view-density-label", ["textAlign"])).textAlign,
+    ],
+    ["start", "start", "start"],
+  );
+
+  const checkMark = (id, slot) =>
+    page.evaluate(
+      ([id, slot]) =>
+        getComputedStyle(document.querySelector(`#${id} > [data-slot=${slot}]`)).visibility,
+      [id, slot],
+    );
+
+  assert.equal(await checkMark("menu-view-completed", "menu-checkbox-item-indicator"), "visible");
+  assert.equal(await checkMark("menu-view-archived", "menu-checkbox-item-indicator"), "hidden");
+  await page.click("#menu-view-archived");
+  await untilText("menu-view-archived-value", "true");
+  assert.equal(await hasAttribute("menu-view-archived", "data-checked"), true);
+  assert.equal(await checkMark("menu-view-archived", "menu-checkbox-item-indicator"), "visible");
+  await page.click("#menu-view-completed");
+  await untilText("menu-view-completed-value", "false");
+  assert.equal(await hasAttribute("menu-view-completed", "data-checked"), false);
+  assert.equal(await checkMark("menu-view-completed", "menu-checkbox-item-indicator"), "hidden");
+  assert.equal(await checkMark("menu-view-comfortable", "menu-radio-item-indicator"), "visible");
+  await page.click("#menu-view-compact");
+  await untilText("menu-view-density-value", "compact");
+  assert.equal(await hasAttribute("menu-view-compact", "data-checked"), true);
+  assert.equal(await hasAttribute("menu-view-comfortable", "data-checked"), false);
+  assert.equal(await checkMark("menu-view-compact", "menu-radio-item-indicator"), "visible");
+  assert.equal(await checkMark("menu-view-comfortable", "menu-radio-item-indicator"), "hidden");
+  assert.equal(await isOpen("menu-view-content"), true);
+
+  // The mouse focuses the row it moves over: the fill without the ring, on a disabled row too,
+  // which Enter doesn't activate.
+  await page.hover("#menu-view-merged");
+  await page.waitForFunction(() => document.activeElement?.id === "menu-view-merged");
+  assert.equal(
+    (await styleOf("#menu-view-merged", ["backgroundColor"])).backgroundColor,
+    darkMenuFill,
+  );
+  assert.equal((await outline("#menu-view-merged")).style, "none");
+  await page.hover("#menu-view-archive");
+  await page.waitForFunction(() => document.activeElement?.id === "menu-view-archive");
+  assert.deepEqual(await styleOf("#menu-view-archive", ["backgroundColor", "opacity"]), {
+    backgroundColor: darkMenuFill,
+    opacity: "0.5",
+  });
+  await page.keyboard.press("Enter");
+  await rendered();
+  assert.equal(await isOpen("menu-view-content"), true);
+  assert.equal(await activeId(), "menu-view-archive");
+
+  // The submenu opens 4px beside its sub-trigger, which keeps its fill while focus is inside;
+  // ArrowLeft closes it and focuses the sub-trigger again.
+  await page.click("#menu-view-move-trigger");
+  await opened("menu-view-move-content");
+  assert.equal(await attribute("menu-view-move-content", "data-side"), "inline-end");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction(() => document.activeElement?.id === "menu-view-backlog");
+  assert.equal(await attribute("menu-view-move-trigger", "aria-expanded"), "true");
+  assert.equal(
+    (await styleOf("#menu-view-move-trigger", ["backgroundColor"])).backgroundColor,
+    darkMenuFill,
+  );
+
+  const subTrigger = await rectOf("#menu-view-move-trigger");
+  const submenu = await rectOf("#menu-view-move-content");
+
+  near(submenu.left - subTrigger.right, 4, 0.5, "the submenu's gap");
+  await page.keyboard.press("ArrowLeft");
+  await dismissed("menu-view-move-content");
+  assert.equal(await activeId(), "menu-view-move-trigger");
+  await page.keyboard.press("Escape");
+  await dismissed("menu-view-content");
+  assert.equal(await activeId(), "menu-view-trigger");
+
+  // A consumer class wins over the row's padding.
+  assert.deepEqual(await styleOf("#menu-view-merged", ["paddingLeft", "paddingRight"]), {
+    paddingLeft: "24px",
+    paddingRight: "8px",
+  });
+
+  // Forced colors: the focused row is Highlight and the separator stays a visible GrayText rule.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+  await scrollToTop("menu-row-trigger");
+  await page.focus("#menu-row-trigger");
+  await page.keyboard.press("Enter");
+  await opened("menu-row-content");
+  await page.waitForFunction(() => document.activeElement?.id === "menu-row-edit");
+  assert.deepEqual(await styleOf("#menu-row-edit", ["backgroundColor", "color"]), {
+    backgroundColor: systemColors.highlight,
+    color: systemColors.highlightText,
+  });
+
+  const forcedSeparator = (await styleOf("#menu-row-separator", ["backgroundColor"]))
+    .backgroundColor;
+
+  assert.notEqual(forcedSeparator, systemColors.canvas, "the forced separator is visible");
+  assert.equal(forcedSeparator, systemColors.grayText);
+  await page.keyboard.press("Escape");
+  await dismissed("menu-row-content");
   await page.emulateMedia({ forcedColors: "none" });
 
   assert.deepEqual(errors, [], "console errors or warnings");

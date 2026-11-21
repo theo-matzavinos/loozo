@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, Tabs, Tooltip and Popover, and Menu. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -45,9 +45,10 @@ ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names select combobox
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
+ng generate @loozo/fold-ui:add --names menu
 ```
 
-NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. Menu imports `@loozo/origami-ui/menu`, which no published Origami has yet (npm has 0.0.4). An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -78,7 +79,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; MenuTrigger is styled by `ButtonStyle` and the panel and rows come from `popup`, so adding `menu` adds `button` and `popup`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -135,9 +136,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -1055,14 +1056,103 @@ Name the panel with `aria-labelledby` or `aria-label`, and author it right after
 
 [Origami's README](../origami-ui/popover/README.md) describes positioning, dismissal, nesting and hydration.
 
+## Menu
+
+```ts
+import { Button } from "#ui/button";
+import { MenuParts } from "#ui/menu";
+import { LucideEllipsis, LucidePencil, LucideTrash } from "@lucide/angular";
+```
+
+`Menu` is a list of actions that opens from a button, such as a table row's `⋯`, over Origami's [Menu](../origami-ui/menu/README.md), which owns the behavior: opening and closing, focus, the arrows and typeahead, checkable state, submenus, positioning and server rendering. `MenuTrigger` is styled like a Button; `MenuContent` is a [floating surface](#floating-layers) at least 192px wide, 4px below the Trigger, with 32px rows:
+
+<!-- prettier-ignore -->
+```html
+<div foldMenu>
+  <button foldMenuTrigger variant="ghost" size="icon" [attr.aria-label]="'Actions for ' + todo.title">
+    <svg lucideEllipsis aria-hidden="true"></svg>
+  </button>
+  <div foldMenuContent align="end">
+    <a foldMenuLink [routerLink]="['/todos', todo.id]">
+      <svg lucidePencil aria-hidden="true"></svg> Edit <span foldMenuShortcut>⌘E</span>
+    </a>
+    <div foldMenuSeparator></div>
+    <button foldMenuItem variant="destructive" (select)="delete(todo)">
+      <svg lucideTrash aria-hidden="true"></svg> Delete
+    </button>
+  </div>
+</div>
+```
+
+Checkbox and radio items, groups and submenus go in the same Content:
+
+<!-- prettier-ignore -->
+```html
+<div foldMenu>
+  <button foldMenuTrigger>View <svg lucideChevronDown aria-hidden="true"></svg></button>
+  <div foldMenuContent align="end">
+    <div foldMenuGroup>
+      <div foldMenuGroupLabel>Show</div>
+      <button foldMenuCheckboxItem [(checked)]="showCompleted">Completed tasks</button>
+    </div>
+    <div foldMenuSeparator></div>
+    <div foldMenuRadioGroup [(value)]="density">
+      <div foldMenuGroupLabel>Density</div>
+      <button foldMenuRadioItem value="compact">Compact</button>
+      <button foldMenuRadioItem value="comfortable">Comfortable</button>
+    </div>
+    <div foldMenuSeparator></div>
+    <div foldMenuSub>
+      <button foldMenuSubTrigger>Move to</button>
+      <div foldMenuContent>
+        <button foldMenuItem (select)="move('backlog')">Backlog</button>
+        <button foldMenuItem (select)="move('done')">Done</button>
+      </div>
+    </div>
+    <button foldMenuItem disabled>Archive project</button>
+  </div>
+</div>
+```
+
+Every part takes `class`:
+
+- `Menu`: the root, layout-transparent (`display: contents`). It takes `open` (two-way) and `disabled`, and emits `openChange`. Its template reference, `#menu="foldMenu"`, has `state`, Origami's readonly observation of the menu.
+- `MenuTrigger`: a `<button>` that opens and closes it, secondary by default. It takes Button's `variant`, `size` and `class`, plus `id`, `disabled` and `focusableWhenDisabled`. Give an icon-only Trigger an `aria-label`: its name is also the menu's.
+- `MenuContent`: the panel, `role="menu"`. It takes `id`, `side` (default `block-end`, or `inline-end` inside a MenuSub), `align` (default `start`) and `gap` (default 4, in CSS pixels). Its template reference, `#view="foldMenuContent"`, has `state`, with an `open` signal that stays `true` through the closing animation.
+- `MenuItem`: a `<button>` row that runs an action. It takes `disabled`, `label` (what typeahead reads, else its text) and `variant` (`default` or `destructive`), and emits `select` once the menu has closed and focused its Trigger.
+- `MenuLink`: an `<a>` row that navigates, with your `href` or `routerLink`. It takes `label` and emits `select`.
+- `MenuCheckboxItem`: a `<button>` row with a check at its end while it's checked. It takes `checked` (two-way), `disabled` and `label`, and emits `checkedChange` and `select`.
+- `MenuRadioGroup`: the choice its MenuRadioItems share. It takes `value` (two-way, `null` for none).
+- `MenuRadioItem`: a `<button>` row with a dot at its end while it's the group's `value`. It takes `value` (required), `disabled` and `label`, and emits `select`.
+- `MenuGroup`: a group of rows, named by its MenuGroupLabels.
+- `MenuGroupLabel`: a group's muted caption, never focused. It takes `id`.
+- `MenuSeparator`: a 1px rule across the panel.
+- `MenuSub`: a submenu's root, layout-transparent, inside a MenuContent: a MenuSubTrigger and its own MenuContent. It takes `open` (two-way) and `disabled`, and emits `openChange`; its template reference, `#move="foldMenuSub"`, has `state`.
+- `MenuSubTrigger`: the `<button>` row that opens the submenu, with a chevron at its end. It takes `id`, `disabled` and `label`.
+- `MenuShortcut`: a row's muted trailing shortcut text, fold's own part. It takes nothing else.
+
+Listen to `select`, not `click`: it runs for a click, Enter or Space. A click or Space on a checkbox or radio item keeps the menu open, so several can change in a row; Enter changes it and closes the menu.
+
+- **Real focus is the highlight.** The arrows, typeahead and the mouse move real focus between the rows, and the focused row gets the 8% foreground fill, disabled rows included: they're reachable, but don't activate. Keyboard focus adds the 2px focus ring.
+- **Icons are projected `<svg>`s.** A row's direct `<svg>` children are 16px and follow its text color; put a leading icon first, with `aria-hidden="true"`.
+- **`variant="destructive"`** colors the text and icon orange, never the highlight, which stays the neutral fill.
+- **MenuShortcut is display-only.** It binds no key, and screen readers don't hear it (`aria-hidden`). When you bind the key yourself, add `aria-keyshortcuts` to the row.
+- **Submenus open beside their trigger**, 4px from it, on the inline end, flipping to the other side when that has no room. Set `side` on a submenu's Content like any Content's.
+- **Layout on the root.** Menu and MenuSub are `display: contents`, so their classes don't lay anything out; style the Trigger and Content.
+- **One button primitive per element.** Don't add `foldButton` to a MenuTrigger; it already has the Button look.
+- **Forms don't belong in a menu.** Menu rows are actions and options; for inputs, use a [Popover](#popover).
+
+[Origami's README](../origami-ui/menu/README.md) describes the [keys](../origami-ui/menu/README.md#keyboard) and typeahead, [removing the row a menu belongs to](../origami-ui/menu/README.md#removing-the-row-a-menu-belongs-to), and [server rendering and hydration](../origami-ui/menu/README.md#server-rendering-and-hydration).
+
 ## Floating layers
 
-Select, Combobox and Popover share one look from `popup`, and Tooltip shares its motion: a folder of class lists with no Angular code, which your own panels can use too:
+Select, Combobox, Popover and Menu share one look from `popup`, and Tooltip shares its motion: a folder of class lists with no Angular code, which your own panels can use too:
 
 - `popupClasses`: a floating surface: 12px radius, the surface fill, a 1px border, 4px padding, the popover shadow, and the entrance and exit animations. Width and padding beyond that are yours.
 - `popupMotionClasses`: the entrance and exit animations alone, for a floating layer with a look of its own, like Tooltip's chip. `popupClasses` includes them.
 - `popupListClasses`: a list anchored to its trigger: at least as wide as it, at most the viewport's width less 16px, and at most 20rem tall or the room left less 8px, scrolling inside itself.
 - `optionClasses`: a 32px option row with a 6px radius, an 8% foreground tint while highlighted, a check (its direct `<svg>` child) shown while selected, and 50% opacity when disabled.
+- `menuItemClasses`: a 32px menu row with a 6px radius, the 8% foreground fill on real focus (`:focus`, which the mouse moves too), the 2px focus ring on keyboard focus, and 50% opacity when disabled.
 
 ```ts
 import { cn } from "#ui/cn";
@@ -1073,7 +1163,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 
 - **Motion.** The list, panel or chip fades in and scales from 96% over 120ms once Origami has placed it, and reverses when it closes, from its center whichever side it opens on. Under reduced motion it doesn't animate, and it's hidden when Angular renders the close.
 - **Out of the Tab order.** Select's and Combobox's Content have `tabindex="-1"`: in Chromium and Firefox a scrolling list is otherwise a Tab stop, and Tab from the open list lands on it instead of the next control. If you compose `popupListClasses` over Origami's Content yourself, add it too. Popover Content has none, because its panel can hold text the keyboard needs to reach; see its [keyboard and scrolling](#popover) note.
-- **Forced colors.** In forced-colors mode, such as Windows High Contrast, the highlighted option paints `Highlight` with `HighlightText`, and a disabled one `GrayText`. Text you put in an option follows its row's system color, whatever its own color class. A descendant's own background, border or fill keeps its color, so give it `forced-colors:` classes. To keep a deliberate system color on a descendant's text, write `forced-colors:text-[Mark]!`: the `!` is required, because the shared rule has the same specificity and comes later.
+- **Forced colors.** In forced-colors mode, such as Windows High Contrast, the highlighted option or focused menu row paints `Highlight` with `HighlightText`, and a disabled one `GrayText`; a destructive menu row keeps the system text color, and a menu separator is `GrayText`. Text you put in an option or a menu row follows its row's system color, whatever its own color class. A descendant's own background, border or fill keeps its color, so give it `forced-colors:` classes. To keep a deliberate system color on a descendant's text, write `forced-colors:text-[Mark]!`: the `!` is required, because the shared rule has the same specificity and comes later.
 
 ## Limitations
 
@@ -1083,9 +1173,10 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - `ng add` adds `imports` at the top of your `package.json`.
 - Nx workspaces are untested.
 - No range, multi-thumb or vertical Slider, and no ticks or marks; no press-and-hold or wheel stepping in NumberField.
-- No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. A list wider than its trigger near the viewport's edge can overflow it: Origami flips a list but doesn't shift it.
+- No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. Near the viewport's edge, Origami flips a list's alignment or slides it along the edge to keep it in view; it overflows only along its main axis, when neither side of its trigger has room.
 - No scrolling or wrapping Tabs List, sliding underline or link tabs.
-- No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. A Tooltip or Popover near the viewport's cross-axis edge can overflow it: Origami flips them but doesn't shift them.
+- No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. Near the viewport's edge, Origami flips a Tooltip's or Popover's alignment or slides it along the edge to keep it in view; it overflows only along its main axis, when neither side of its Trigger has room.
+- No context menu, menubar, mixed checkbox item or disabled MenuLink (use a disabled MenuItem), and no keep-open on Enter for checkbox and radio items: that's Origami's contract. In a narrow viewport, a submenu that fits on neither side of its parent, such as a 200px submenu at 390px, overflows the viewport's edge.
 - A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
 - In Firefox's forced-colors mode, focus rings are `CanvasText`, the text color, rather than Chromium's `Highlight`: fold leaves the ring's forced color to the browser, as on every other fold part.
 

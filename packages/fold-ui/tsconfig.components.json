@@ -19,6 +19,7 @@
       "@loozo/origami-ui/combobox": ["../origami-ui/combobox/src/public-api.ts"],
       "@loozo/origami-ui/dialog": ["../origami-ui/dialog/src/public-api.ts"],
       "@loozo/origami-ui/field": ["../origami-ui/field/src/public-api.ts"],
+      "@loozo/origami-ui/menu": ["../origami-ui/menu/src/public-api.ts"],
       "@loozo/origami-ui/number-field": ["../origami-ui/number-field/src/public-api.ts"],
       "@loozo/origami-ui/utils": ["../origami-ui/utils/src/public-api.ts"],
       "@loozo/origami-ui/popover": ["../origami-ui/popover/src/public-api.ts"],

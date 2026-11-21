@@ -18,6 +18,7 @@
           "dialog",
           "field",
           "input",
+          "menu",
           "number-field",
           "popover",
           "popup",
