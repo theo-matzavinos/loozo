@@ -19,6 +19,7 @@
           "dialog",
           "field",
           "input",
+          "menu",
           "number-field",
           "otp-field",
           "popover",

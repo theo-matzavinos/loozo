@@ -434,6 +434,7 @@ describe("add", () => {
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
+      menu: ["button", "cn", "menu", "popup"],
       "number-field": ["cn", "number-field"],
       "otp-field": ["cn", "otp-field"],
       popover: ["button", "cn", "popover", "popup"],
@@ -558,6 +559,15 @@ describe("add", () => {
       readText(tree, "src/ui/popover/popover-content.ts"),
       /exportAs: "zzPopoverContent"/,
     );
+  });
+
+  test("renames Menu's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["menu"] }, await setUp(runner));
+
+    assert.match(readText(tree, "src/ui/menu/menu-item.ts"), /selector: "button\[zzMenuItem\]"/);
+    assert.match(readText(tree, "src/ui/menu/menu-content.ts"), /exportAs: "zzMenuContent"/);
+    assert.match(readText(tree, "src/ui/menu/menu-shortcut.ts"), /selector: "\[zzMenuShortcut\]"/);
   });
 
   test("renames ScrollArea's, Avatar's and Progress's parts and exportAs with the prefix", async () => {
