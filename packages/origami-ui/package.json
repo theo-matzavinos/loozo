@@ -181,7 +181,8 @@
     "acceptance:forensic": "ORIGAMI_FORENSIC=1 pnpm run test:full",
     "screen-reader:test": "playwright test --config tests/screen-reader/playwright.config.ts",
     "bench:build": "sh tests/acceptance/gate-lock.sh node bench/build.mjs",
-    "bench:runtime": "sh tests/acceptance/gate-lock.sh node bench/runtime.mjs"
+    "bench:runtime": "sh tests/acceptance/gate-lock.sh node bench/runtime.mjs",
+    "bench:edit": "sh tests/acceptance/gate-lock.sh node bench/edit.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "1.8.0",

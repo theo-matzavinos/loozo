@@ -1,0 +1,10 @@
+{
+  "bench": "origami-ui-edit",
+  "consumer": {
+    "edit.startupMs": 2080,
+    "edit.servedMs": 290
+  },
+  "library": {
+    "edit.syncMs": 7000
+  }
+}
