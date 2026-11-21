@@ -55,7 +55,14 @@ export class MeterContext {
       return 0;
     }
 
-    return ((this.value() - min) / (max - min)) * 100;
+    const value = this.value();
+
+    if (!Number.isFinite(max - min)) {
+      // Finite bounds whose span overflows (-1e308 to 1e308): halved operands keep it finite.
+      return ((value / 2 - min / 2) / (max / 2 - min / 2)) * 100;
+    }
+
+    return ((value - min) / (max - min)) * 100;
   });
   /** The consumer's value text, else the localized percent. */
   readonly valueText = computed(() => {

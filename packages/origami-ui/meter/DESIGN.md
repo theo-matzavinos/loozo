@@ -4,17 +4,17 @@ Ownership and read timing. Usage is in the [README](README.md); the contract is 
 
 ## Ownership
 
-| Fact                                 | Owner                                                                                                   | Readers                                             |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Options (value, min, max, valueText) | the root directive through `OrigamiMeterOptions` (`provideExisting`), or a composer's whole replacement | the Context (deferred with `injectDeferred`)        |
-| Effective min                        | the Context: Options `min` when finite, else 0                                                          | `aria-valuemin`; max, value, percent                |
-| Effective max                        | the Context: Options `max` when finite, else 100, raised to the effective min when below it             | `aria-valuemax`; value, percent                     |
-| Rendered value                       | the Context: Options `value` clamped to [min, max]; min when not finite                                 | `aria-valuenow`; percent; State `value`             |
-| Percent                              | the Context: (value − min) ÷ (max − min) × 100, 0 when max equals min                                   | `--og-meter-percent`; default text; State `percent` |
-| Value text                           | the Context: Options `valueText`, else the Intl percent of percent ÷ 100                                | `aria-valuetext`; State `valueText`                 |
-| Locale                               | `LOCALE_ID` from the root element's injector, injected once in the Context's constructor                | the default formatter, created on first use         |
-| Accessible name                      | the consumer: static, bound or composer-host `aria-label` / `aria-labelledby`                           | the browser; Origami never reads or writes it       |
-| Drawing and its `aria-hidden`        | the consumer                                                                                            | the browser                                         |
+| Fact                                 | Owner                                                                                                           | Readers                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Options (value, min, max, valueText) | the root directive through `OrigamiMeterOptions` (`provideExisting`), or a composer's whole replacement         | the Context (deferred with `injectDeferred`)        |
+| Effective min                        | the Context: Options `min` when finite, else 0                                                                  | `aria-valuemin`; max, value, percent                |
+| Effective max                        | the Context: Options `max` when finite, else 100, raised to the effective min when below it                     | `aria-valuemax`; value, percent                     |
+| Rendered value                       | the Context: Options `value` clamped to [min, max]; min when not finite                                         | `aria-valuenow`; percent; State `value`             |
+| Percent                              | the Context: (value − min) ÷ (max − min) × 100, halved operands when that span overflows, 0 when max equals min | `--og-meter-percent`; default text; State `percent` |
+| Value text                           | the Context: Options `valueText`, else the Intl percent of percent ÷ 100                                        | `aria-valuetext`; State `valueText`                 |
+| Locale                               | `LOCALE_ID` from the root element's injector, injected once in the Context's constructor                        | the default formatter, created on first use         |
+| Accessible name                      | the consumer: static, bound or composer-host `aria-label` / `aria-labelledby`                                   | the browser; Origami never reads or writes it       |
+| Drawing and its `aria-hidden`        | the consumer                                                                                                    | the browser                                         |
 
 ## Read timing
 

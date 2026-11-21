@@ -234,6 +234,9 @@ test("ME4 the root renders the policy table: the clamp, a value that isn't finit
     ["15-20-10", meter(20, 20, 20, 0, "0%", rangeLabel), ["20", "0", "0%"]],
     ["10-10-10", meter(10, 10, 10, 0, "0%", rangeLabel), ["10", "0", "0%"]],
     ["50-150-NaN", meter(150, 150, 150, 0, "0%", rangeLabel), ["150", "0", "0%"]],
+    // Finite bounds whose span overflows still place the value: no 0% midpoint or NaN% maximum.
+    ["0-wide", meter(-1e308, 1e308, 0, 50, "50%", rangeLabel), ["0", "50", "50%"]],
+    ["max-wide", meter(-1e308, 1e308, 1e308, 100, "100%", rangeLabel), ["1e+308", "100", "100%"]],
   ];
 
   expect(await attributes(range)).toEqual(rows[0]![1]);
@@ -306,13 +309,18 @@ test("ME6 replacement Options drive the root from server HTML on, never its deco
   expect(await probe(ownProbe(factory))).toEqual(["40", "50", "50%"]);
   expect(await probe(ownProbe(existing))).toEqual(["3", "75", "75%"]);
 
-  // No template reads the factory's signals: the root refreshes from its own host bindings.
-  await out(page, "factory-timer").click();
-  await expect(factory).toHaveAttribute("aria-valuenow", "55");
-  expect(await attributes(factory)).toEqual(
-    meter(10, 70, 55, 75, "75%", { "aria-label": "Factory" }),
+  // factory-alone shares no view with any other reader of its signals, so only the root's own
+  // host bindings can refresh it after the timer write.
+  const alone = out(page, "factory-alone");
+
+  expect(await attributes(alone)).toEqual(
+    meter(10, 70, 40, 50, "50%", { "aria-label": "Factory alone" }),
   );
-  expect(await probe(ownProbe(factory))).toEqual(["55", "75", "75%"]);
+  await out(page, "factory-alone-timer").click();
+  await expect(alone).toHaveAttribute("aria-valuenow", "55");
+  expect(await attributes(alone)).toEqual(
+    meter(10, 70, 55, 75, "75%", { "aria-label": "Factory alone" }),
+  );
 
   await out(page, "existing-write").click();
   await expect(existing).toHaveAttribute("aria-valuenow", "1");

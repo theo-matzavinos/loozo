@@ -114,6 +114,8 @@ Show the value as text from State, inside the root or beside it, and hide it fro
 
 To draw the meter with a chart library, wrap the chart in an `aria-hidden` element inside the root, and feed it State rather than your raw number: `percent` for its series and `valueText` for its label. The arc and its label then agree with what the meter reports, also when the raw value is out of range or isn't a number (a raw 130 draws a full arc labelled `100%`, not `130%`).
 
+Keep the chart display-only. `aria-hidden` hides it from assistive technology but doesn't take its focusable parts out of the tab order, so turn off its toolbar, legend clicks and keyboard controls, or make its wrapper `inert`, and put any control people need, such as a period picker, outside the meter.
+
 ```html
 <div ogMeter #gauge="ogMeter" [value]="arrival.percentage" aria-labelledby="arrivals-title">
   <app-arrivals-chart

@@ -97,6 +97,22 @@ export class MeterSettings {
 })
 export class FactoryMeter {}
 
+/**
+ * A factory root alone in its own view, with no probe or template binding that reads its signals,
+ * so a timer write can only refresh it through the root's own host bindings.
+ */
+@Component({
+  selector: "acceptance-meter-factory-alone",
+  imports: [MeterSettings, FactoryMeter],
+  template: `<section meterSettings #settings="meterSettings">
+    <div factoryMeter data-testid="factory-alone" decoyValue="90" aria-label="Factory alone"></div>
+    <button type="button" data-testid="factory-alone-timer" (click)="settings.writeLater(55)">
+      Write 55 from a timer
+    </button>
+  </section>`,
+})
+export class MeterFactoryAlone {}
+
 /** An abstract Options source a consumer provides; Meter resolves it by `provideExisting`. */
 export abstract class MeterSource implements OrigamiMeterOptions {
   abstract readonly value: OrigamiMeterOptions["value"];
@@ -168,6 +184,8 @@ const rangeWrites: readonly RangeWrite[] = [
   { label: "15-20-10", value: 15, min: 20, max: 10 },
   { label: "10-10-10", value: 10, min: 10, max: 10 },
   { label: "50-150-NaN", value: 50, min: 150, max: Number.NaN },
+  { label: "0-wide", value: 0, min: -1e308, max: 1e308 },
+  { label: "max-wide", value: 1e308, min: -1e308, max: 1e308 },
 ];
 
 const ringStyles = `
@@ -202,6 +220,7 @@ const ringStyles = `
     MeterFrench,
     MeterSettings,
     FactoryMeter,
+    MeterFactoryAlone,
     ExistingMeter,
   ],
   providers: [{ provide: LOCALE_ID, useValue: "el-GR" }],
@@ -349,14 +368,13 @@ const ringStyles = `
       </button>
     </section>
 
-    <section meterSettings #settings="meterSettings">
+    <acceptance-meter-factory-alone />
+
+    <section meterSettings>
       <h3>Replacements</h3>
       <div factoryMeter data-testid="factory" decoyValue="90" aria-label="Factory">
         <span meterStateProbe></span>
       </div>
-      <button type="button" data-testid="factory-timer" (click)="settings.writeLater(55)">
-        Write 55 from a timer
-      </button>
       <div
         existingMeter
         #existing="existingMeter"
