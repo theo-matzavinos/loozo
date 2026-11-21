@@ -37,7 +37,7 @@ type SingleOptions<T> = Extract<SelectOptions<T>, { multiple?: false }>;
  * `select` options. `value`, `open` and `query` control it when set; `null` selects nothing and
  * stays controlled. Each `<key>ChangeRequest` output comes first and can cancel; `<key>Change`
  * follows unless canceled, so `[(value)]` binds both. To submit it with a form, give it a `name` and
- * write `<input uiSelectFormInput />` inside it.
+ * write `<textarea uiSelectFormInput></textarea>` inside it.
  *
  * @example
  * ```html
@@ -230,7 +230,7 @@ export class UiSelect<T = string> implements OnInit {
       onDismissAttempt: (details) => this.dismissAttempt.emit(details),
     }),
     "uiSelect",
-    { slot: "form-input", markup: "<input uiSelectFormInput /> inside it" },
+    { slot: "form-input", markup: "<textarea uiSelectFormInput></textarea> inside it" },
   );
   protected readonly instanceId = this.ɵroot.id;
   protected readonly slot = ɵinjectSlot(this.ɵroot, "root", () => ({}), { events });

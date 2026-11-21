@@ -46,10 +46,11 @@ export default defineRoute("static/l${leaf}", { parent })${steps};
 `;
 }
 
-// Every page reads its handle's title, params, search and data and builds a typed link.
-function pageSource({ sibling, outlet = false, id = false, resolved = false }) {
+// Every page reads its handle's title, params, search and data and builds a typed link. Its h1
+// carries the route id, the marker the runtime phase waits for.
+function pageSource({ route, sibling, outlet = false, id = false, resolved = false }) {
   let imports = "RouterLink";
-  let template = '<h1>{{ route.title() }}</h1><a [routerLink]="link">Sibling</a>';
+  let template = `<h1 data-bench-page="${route}">{{ route.title() }}</h1><a [routerLink]="link">Sibling</a>`;
 
   if (outlet) {
     imports += ", RouterOutlet";
@@ -86,16 +87,19 @@ export default class Page {
 `;
 }
 
-// The shell reads the deepest active route and narrows it to g0000/$id with is().
-const shellSource = `import { Component, computed } from "@angular/core";
-import { RouterOutlet } from "@angular/router";
+// The shell reads the deepest active route and narrows it to g0000/$id with is(). Its bench links
+// are the runtime phase's navigations: cold to the last block's static/l1, an unvisited branch,
+// and warm between g0000's static/l0 and static/l1.
+function shellSource(lastBlock) {
+  return `import { Component, computed } from "@angular/core";
+import { RouterLink, RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as selected } from "./routes/g0000/$id/destination.generated.js";
 
 @Component({
   selector: "proof-app",
-  imports: [RouterOutlet],
-  template: \`<p>{{ id() }} {{ title() }}</p><button (click)="next()">Next</button><router-outlet />\`,
+  imports: [RouterLink, RouterOutlet],
+  template: \`<p>{{ id() }} {{ title() }}</p><button (click)="next()">Next</button><a data-bench="cold" routerLink="/${lastBlock}/static/l1">Cold</a><a data-bench="warm-a" routerLink="/g0000/static/l0">Warm A</a><a data-bench="warm-b" routerLink="/g0000/static/l1">Warm B</a><router-outlet />\`,
 })
 export default class Shell {
   readonly active = injectActiveRoute();
@@ -119,8 +123,20 @@ export default class Shell {
   }
 }
 `;
+}
 
-// Writes src/routes and src/shell.ts into a consumer whose copied routes were excluded.
+// The example's entry with the mark the runtime phase's bootstrap time starts from.
+const mainSource = `import { bootstrapApplication } from "@angular/platform-browser";
+import { provideRouter } from "@angular/router";
+import Shell from "./shell.js";
+import { routes } from "../generated/routes.generated.js";
+
+performance.mark("bench:bootstrap");
+void bootstrapApplication(Shell, { providers: [provideRouter(routes)] });
+`;
+
+// Writes src/routes, src/shell.ts and src/main.ts into a consumer whose copied routes were
+// excluded.
 export async function writeFixture(consumer, routes) {
   async function write(path, source) {
     const file = join(consumer, path);
@@ -162,7 +178,10 @@ export default defineRoute("${name}", {})
   .title(() => "${name}");
 `,
     );
-    await write(`${root}/page.ts`, pageSource({ sibling: "./static/l1", outlet: true }));
+    await write(
+      `${root}/page.ts`,
+      pageSource({ route: name, sibling: "./static/l1", outlet: true }),
+    );
 
     for (let leaf = 0; leaf < leaves; leaf++) {
       const resolve = block === 0 && leaf === 2;
@@ -173,7 +192,7 @@ export default defineRoute("${name}", {})
       );
       await write(
         `${root}/static/l${leaf}/page.ts`,
-        pageSource({ sibling: "../l1", resolved: resolve }),
+        pageSource({ route: `${name}/static/l${leaf}`, sibling: "../l1", resolved: resolve }),
       );
     }
 
@@ -187,7 +206,7 @@ export default defineRoute("$id", { parent, params: { id: numberParam } });
     );
     await write(
       `${root}/$id/page.ts`,
-      pageSource({ sibling: "../static/l1", outlet: true, id: true }),
+      pageSource({ route: `${name}/$id`, sibling: "../static/l1", outlet: true, id: true }),
     );
     await write(
       `${root}/$id/detail/route.ts`,
@@ -197,10 +216,14 @@ import parent from "../route.js";
 export default defineRoute("detail", { parent });
 `,
     );
-    await write(`${root}/$id/detail/page.ts`, pageSource({ sibling: "../../static/l1", id: true }));
+    await write(
+      `${root}/$id/detail/page.ts`,
+      pageSource({ route: `${name}/$id/detail`, sibling: "../../static/l1", id: true }),
+    );
   }
 
-  await write("src/shell.ts", shellSource);
+  await write("src/shell.ts", shellSource(blockName(blocks - 1)));
+  await write("src/main.ts", mainSource);
 
   return {
     declarations: routes,

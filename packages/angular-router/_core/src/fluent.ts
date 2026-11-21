@@ -1,4 +1,4 @@
-import type { Injector } from "@angular/core";
+import type { Injector, Type } from "@angular/core";
 import type { Route as NativeRoute, RunGuardsAndResolvers } from "@angular/router";
 import type { PathCodec, SyncCodecs } from "./codecs.js";
 import type { CatchallName, PathNames, ValidPath } from "./path.js";
@@ -99,6 +99,7 @@ export type RouterStep =
   | "providers"
   | "data"
   | "runGuardsAndResolvers"
+  | "errorComponent"
   | "onInvalidParams"
   | "redirect";
 
@@ -333,6 +334,29 @@ export interface RouteSteps<
     Remaining
   >;
   /**
+   * Angular's per-route error component (developer preview), shown in place of this
+   * route's page when the page throws while it's created or rendered; needs
+   * `withErrorBoundaries`. After it the route can no longer redirect. Typed as core's
+   * `Type<unknown>`, as Angular 22.3 declares it, so these declarations also check
+   * against routers before 22.3.
+   */
+  errorComponent(
+    component: Type<unknown>,
+  ): RouteBuilder<
+    P,
+    Parent,
+    Params,
+    Search,
+    R,
+    F,
+    T,
+    O,
+    Used | "errorComponent",
+    E,
+    Own,
+    Remaining
+  >;
+  /**
    * Decides what happens when this route's own path params fail to parse; without it
    * the route doesn't match and Angular tries its next candidate. Only offered on
    * paths with local placeholders. After it the route can no longer redirect.
@@ -355,7 +379,7 @@ export interface RouteSteps<
   >;
   /**
    * A typed native redirect to a destination. Terminal: no step follows it, and it
-   * isn't offered after any guard step or onInvalidParams.
+   * isn't offered after any guard step, onInvalidParams or errorComponent.
    */
   redirect<Target extends AnyRoute, Keys extends keyof SearchOf<NoInfer<Target>> = never>(
     redirect: Redirect<Eff<P, Params, Parent>, Target, Keys>,
@@ -445,7 +469,9 @@ export type RouteBuilder<
     Exclude<
       RouterStep,
       | Used
-      | (Extract<Used, Guard | "onInvalidParams"> extends never ? never : "redirect")
+      | (Extract<Used, Guard | "onInvalidParams" | "errorComponent"> extends never
+          ? never
+          : "redirect")
       | (PathNames<P> extends never ? "onInvalidParams" : never)
     >
   > &

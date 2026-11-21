@@ -43,7 +43,8 @@
       "@loozo/origami-ui/combobox": ["./combobox/src/public-api.ts"],
       "@loozo/origami-ui/file-field": ["./file-field/src/public-api.ts"],
       "@loozo/origami-ui/progress": ["./progress/src/public-api.ts"],
-      "@loozo/origami-ui/avatar": ["./avatar/src/public-api.ts"]
+      "@loozo/origami-ui/avatar": ["./avatar/src/public-api.ts"],
+      "@loozo/origami-ui/scroll-area": ["./scroll-area/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -82,6 +83,7 @@
     "combobox/src/**/*.ts",
     "file-field/src/**/*.ts",
     "progress/src/**/*.ts",
-    "avatar/src/**/*.ts"
+    "avatar/src/**/*.ts",
+    "scroll-area/src/**/*.ts"
   ]
 }

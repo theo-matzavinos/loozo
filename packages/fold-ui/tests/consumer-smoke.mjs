@@ -7,7 +7,10 @@
 // state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
 // values, states, themes and forced colors, and Tabs', Tooltip's and Popover's server state,
 // geometry, keys, pointer and hover, guarded unavailable actions, placement and flipping, Tab
-// order and scrolling, nesting, motion and forced colors.
+// order and scrolling, nesting, motion and forced colors, ScrollArea's, Avatar's and Progress's
+// server state, bounds, scrollbars, naming, sizes, loading delay, sweep, dialog recipe, themes,
+// reduced motion and forced colors, and the OTP field's server state, geometry, typing and paste,
+// masking, autofill paint, validation, states and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -2115,6 +2118,704 @@ try {
   );
   await page.emulateMedia({ forcedColors: "none" });
 
+  // OTP field. Exact geometry and outline widths are DPR-1 values.
+  //
+  // Server rendering: fold's slots and its decorative cells, Origami's input attributes and the
+  // Field's wiring; a readonly code shows its digits, a masked PIN no digit, and a disabled input
+  // is disabled.
+  const otpInput = openingTag(html, "otp-input");
+  const otpCellsIn = (markup) => {
+    const cells = [];
+
+    for (const match of markup.matchAll(/<span\b([^>]*)>([\s\S]*?)<\/span>/g)) {
+      if (match[1].includes('data-slot="otp-field-cell"')) {
+        cells.push({
+          tag: match[1],
+          text: match[2].replace(/<!--[\s\S]*?-->|<[^>]+>/g, "").trim(),
+        });
+      }
+    }
+
+    return cells;
+  };
+
+  assert.match(openingTag(html, "otp"), /\bdata-slot="otp-field"/);
+  assert.match(openingTag(html, "otp"), /\bdir="ltr"/);
+  assert.match(otpInput, /\bdata-slot="otp-field-input"/);
+  assert.match(otpInput, /\binputmode="numeric"/);
+  assert.match(otpInput, /\bautocomplete="one-time-code"/);
+  assert.match(otpInput, /\btype="text"/);
+  assert.match(otpInput, /\baria-describedby="otp-description"/);
+  assert.match(openingTag(html, "otp-label"), /\bfor="otp-input"/);
+
+  const serverCells = otpCellsIn(element(html, "otp"));
+
+  assert.equal(serverCells.length, 6);
+
+  for (const cell of serverCells) {
+    assert.match(cell.tag, /\baria-hidden="true"/);
+    assert.equal(cell.text, "");
+  }
+
+  const frozenCells = otpCellsIn(element(html, "otp-frozen"));
+
+  assert.deepEqual(
+    frozenCells.map((cell) => cell.text),
+    ["4", "8", "2", "9", "1", "3"],
+  );
+
+  for (const cell of frozenCells) {
+    assert.match(cell.tag, /\sdata-filled=/);
+  }
+
+  assert.match(openingTag(html, "otp-frozen-input"), /\sreadonly[\s=>]/);
+  assert.match(openingTag(html, "otp-pin-input"), /\btype="password"/);
+  assert.match(openingTag(html, "otp-pin-input"), /\bautocomplete="current-password"/);
+
+  const pinCells = otpCellsIn(element(html, "otp-pin"));
+
+  assert.deepEqual(
+    pinCells.map((cell) => cell.text),
+    ["", "", "", ""],
+  );
+  assert.doesNotMatch(element(html, "otp-pin"), /\bdata-slot="otp-field-dot"/);
+  assert.match(openingTag(html, "otp-locked-input"), /\sdisabled[\s=>]/);
+
+  // Each cell's state and look, in order.
+  const otpCells = (id) =>
+    page.evaluate((id) => {
+      const result = [];
+
+      for (const cell of document.querySelectorAll(`#${id} > [data-slot=otp-field-cell]`)) {
+        const style = getComputedStyle(cell);
+
+        result.push({
+          text: cell.textContent.trim(),
+          filled: cell.hasAttribute("data-filled"),
+          caret: cell.hasAttribute("data-caret"),
+          selected: cell.hasAttribute("data-selected"),
+          border: style.borderTopColor,
+          borderStyle: style.borderTopStyle,
+          background: style.backgroundColor,
+          color: style.color,
+          bar: cell.querySelector("[data-slot=otp-field-caret]") !== null,
+          dot: cell.querySelector("[data-slot=otp-field-dot]")
+            ? getComputedStyle(cell.querySelector("[data-slot=otp-field-dot]")).backgroundColor
+            : null,
+        });
+      }
+
+      return result;
+    }, id);
+  const otpCell = (id, index) => page.locator(`#${id} > [data-slot=otp-field-cell]`).nth(index);
+  // A click at a cell's center lands on the input over it, which maps it to that cell.
+  const clickOtpCell = async (id, index) => {
+    await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+
+    const box = await otpCell(id, index).boundingBox();
+
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  const hoverOtpCell = async (id, index) => {
+    await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+
+    const box = await otpCell(id, index).boundingBox();
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  // Copies `text` through a scratch textarea, which then goes, leaving focus on the body.
+  const copyText = async (text) => {
+    await page.evaluate((text) => {
+      const scratch = document.createElement("textarea");
+
+      scratch.id = "otp-clipboard";
+      scratch.value = text;
+      document.body.append(scratch);
+      scratch.focus();
+      scratch.select();
+    }, text);
+    await page.keyboard.press("ControlOrMeta+c");
+    await page.evaluate(() => document.getElementById("otp-clipboard").remove());
+  };
+  const blurOtp = async () => {
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.mouse.move(0, 0);
+    await rendered();
+  };
+  const otpInputColor = "rgb(107, 107, 104)";
+  const otpSurface = "rgb(28, 28, 28)";
+
+  await fresh();
+
+  // Geometry: 40px cells 8px apart, the row as wide as its cells inside a wider Field column and
+  // the input exactly over it; the 18px semibold tabular digit; 48px cells through the variable;
+  // left to right under an RTL parent.
+  const otpGeometry = await page.evaluate(() => {
+    const rect = (element) => element.getBoundingClientRect();
+    const cells = (id) => [...document.querySelectorAll(`#${id} > [data-slot=otp-field-cell]`)];
+    const row = (id) => {
+      const list = cells(id);
+      const sizes = [];
+      const gaps = [];
+
+      for (const [index, cell] of list.entries()) {
+        sizes.push(`${rect(cell).width}x${rect(cell).height}`);
+
+        if (index > 0) {
+          gaps.push(rect(cell).left - rect(list[index - 1]).right);
+        }
+      }
+
+      const root = rect(document.getElementById(id));
+      const input = rect(document.querySelector(`#${id} > input`));
+
+      return {
+        sizes,
+        gaps,
+        width: root.width,
+        overlay:
+          input.left === root.left &&
+          input.top === root.top &&
+          input.width === root.width &&
+          input.height === root.height,
+      };
+    };
+    const digit = getComputedStyle(cells("otp-frozen")[0]);
+    const rtl = cells("otp-rtl");
+
+    return {
+      dpr: window.devicePixelRatio,
+      column: rect(document.getElementById("otp-field-wrap")).width,
+      otp: row("otp"),
+      large: row("otp-large"),
+      narrow: row("otp-narrow"),
+      narrowWrap: rect(document.getElementById("otp-narrow-wrap")).width,
+      inputFont: getComputedStyle(document.getElementById("otp-input")).fontSize,
+      digit: {
+        size: digit.fontSize,
+        weight: digit.fontWeight,
+        numeric: digit.fontVariantNumeric,
+        radius: digit.borderTopLeftRadius,
+      },
+      rtl: {
+        first: rtl[0].textContent.trim(),
+        leftmost: rect(rtl[0]).left < rect(rtl[5]).left,
+        dir: document.getElementById("otp-rtl").getAttribute("dir"),
+      },
+    };
+  });
+
+  assert.equal(otpGeometry.dpr, 1);
+  assert.ok(otpGeometry.column > 300, `the Field column is ${otpGeometry.column}px`);
+  assert.deepEqual(otpGeometry.otp, {
+    sizes: Array(6).fill("40x40"),
+    gaps: Array(5).fill(8),
+    width: 280,
+    overlay: true,
+  });
+  assert.deepEqual(otpGeometry.large, {
+    sizes: Array(6).fill("48x48"),
+    gaps: Array(5).fill(8),
+    width: 328,
+    overlay: true,
+  });
+  assert.deepEqual(otpGeometry.digit, {
+    size: "18px",
+    weight: "600",
+    numeric: "tabular-nums",
+    radius: "10px",
+  });
+  assert.deepEqual(otpGeometry.rtl, { first: "4", leftmost: true, dir: "ltr" });
+  // iOS Safari zooms on focus into an input whose text is under 16px.
+  assert.equal(otpGeometry.inputFont, "16px");
+
+  // In a container narrower than six 40px cells (248px, a Dialog's body on a 320px phone) the
+  // row takes the container's width and the cells shrink equally, square, with 8px gaps.
+  const narrowCell = (248 - 5 * 8) / 6;
+
+  assert.equal(otpGeometry.narrowWrap, 248);
+  assert.equal(otpGeometry.narrow.width, 248);
+  assert.equal(otpGeometry.narrow.overlay, true);
+  assert.deepEqual(otpGeometry.narrow.gaps.map(Math.round), Array(5).fill(8));
+
+  for (const size of otpGeometry.narrow.sizes) {
+    const [width, height] = size.split("x").map(Number);
+
+    assert.ok(Math.abs(width - narrowCell) <= 0.5, `a narrow cell is ${size}`);
+    assert.ok(Math.abs(height - width) <= 0.5, `a narrow cell is ${size}`);
+  }
+
+  // A click 1px inside either edge of a shrunk cell still selects that cell's digit.
+  for (const [index, edge] of [
+    [0, "left"],
+    [2, "right"],
+    [3, "left"],
+    [5, "right"],
+  ]) {
+    await page.locator("#otp-narrow").scrollIntoViewIfNeeded();
+
+    const box = await otpCell("otp-narrow", index).boundingBox();
+    const x = edge === "left" ? box.x + 1 : box.x + box.width - 1;
+
+    await page.mouse.click(x, box.y + box.height / 2);
+    await rendered();
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const input = document.getElementById("otp-narrow-input");
+
+        return [input.selectionStart, input.selectionEnd];
+      }),
+      [index, index + 1],
+      `a click inside cell ${index}'s ${edge} edge`,
+    );
+  }
+
+  await blurOtp();
+
+  // Typing: the label focuses the input and the row shows the ring; the caret cell has the ring
+  // border and, while empty, the 1×18 bar; a full code has no caret cell but keeps the ring, and
+  // its valueChange sees it complete.
+  await page.click("#otp-label");
+  assert.equal(await activeId(), "otp-input");
+  await rendered();
+  assert.deepEqual(await outline("#otp"), ringOutline(darkRing));
+
+  let cells = await otpCells("otp");
+
+  assert.deepEqual(
+    [cells[0].caret, cells[0].border, cells[0].bar],
+    [true, darkRing, true],
+    "the first cell has the caret",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const bar = document.querySelector("#otp [data-slot=otp-field-caret]");
+      const box = bar.getBoundingClientRect();
+
+      return { size: `${box.width}x${box.height}`, color: getComputedStyle(bar).backgroundColor };
+    }),
+    { size: "1x18", color: foreground },
+  );
+
+  await page.keyboard.type("482");
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    cells.map((cell) => cell.text),
+    ["4", "8", "2", "", "", ""],
+  );
+  assert.deepEqual(
+    cells.map((cell) => cell.caret),
+    [false, false, false, true, false, false],
+  );
+  assert.equal(cells[3].border, darkRing);
+  assert.equal(cells[3].bar, true);
+  assert.equal(cells[0].border, otpInputColor);
+
+  await page.keyboard.type("913");
+  await untilText("otp-verified", "482913");
+  await rendered();
+  cells = await otpCells("otp");
+  assert.equal(cells.filter((cell) => cell.caret || cell.bar).length, 0, "no caret cell");
+  assert.deepEqual(await outline("#otp"), ringOutline(darkRing));
+
+  // Paste: a whole code, with its space, replaces the code.
+  await copyText("987 654");
+  await page.focus("#otp-input");
+  await page.keyboard.press("ControlOrMeta+v");
+  await untilValue("otp-input", "987654");
+  await untilText("otp-verified", "987654");
+
+  // A click on a filled cell selects its digit with the neutral 8% tint; typing replaces it.
+  const otpTint = await page.evaluate(() => {
+    const probe = document.createElement("span");
+
+    probe.style.backgroundColor = "color-mix(in oklab, var(--foreground) 8%, transparent)";
+    document.getElementById("otps").append(probe);
+
+    const color = getComputedStyle(probe).backgroundColor;
+
+    probe.remove();
+
+    return color;
+  });
+
+  await clickOtpCell("otp", 2);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    cells.map((cell) => cell.selected),
+    [false, false, true, false, false, false],
+  );
+  assert.equal(cells[2].background, otpTint);
+  assert.notEqual(otpTint, otpSurface);
+  assert.equal(cells[2].color, foreground);
+  // The tint is faint, so the selected cell's foreground border tells which digit typing replaces.
+  assert.equal(cells[2].border, foreground);
+  await page.keyboard.type("0");
+  await untilValue("otp-input", "980654");
+  await untilText("otp-verified", "980654");
+
+  // Masked: four typed digits are four 8px foreground dots, with no digit anywhere in the row.
+  await page.click("#otp-pin-input");
+  await page.keyboard.type("1234");
+  await untilText("otp-pin-value", "4");
+  await rendered();
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const sizes = [];
+
+      for (const dot of document.querySelectorAll("#otp-pin [data-slot=otp-field-dot]")) {
+        const box = dot.getBoundingClientRect();
+
+        sizes.push(`${box.width}x${box.height}`);
+      }
+
+      return { sizes, text: document.getElementById("otp-pin").textContent.trim() };
+    }),
+    { sizes: Array(4).fill("8x8"), text: "" },
+  );
+
+  for (const cell of await otpCells("otp-pin")) {
+    assert.equal(cell.dot, foreground);
+    assert.equal(cell.text, "");
+  }
+
+  // Autofill, in both themes: with Chromium's :autofill forced on the masked PIN, the browser's
+  // !important autofill background and text color paint nothing over the cells and dots.
+  const otpCdp = await page.context().newCDPSession(page);
+
+  await otpCdp.send("DOM.enable");
+  await otpCdp.send("CSS.enable");
+
+  const { root: documentNode } = await otpCdp.send("DOM.getDocument");
+  const { nodeId: pinNode } = await otpCdp.send("DOM.querySelector", {
+    nodeId: documentNode.nodeId,
+    selector: "#otp-pin-input",
+  });
+  const autofillLook = () =>
+    page.evaluate(() => {
+      const input = document.getElementById("otp-pin-input");
+      const style = getComputedStyle(input);
+
+      return {
+        autofill: input.matches(":autofill"),
+        opacity: style.opacity,
+        fill: style.webkitTextFillColor,
+      };
+    });
+  // The largest difference of any channel of any pixel between two same-sized PNGs, out of 255.
+  // Switching the input's opacity can re-rasterize the cells' anti-aliased edges by a level or
+  // two, while the browser's autofill paint shifts the whole row by tens.
+  const pixelDifference = (first, second) =>
+    page.evaluate(
+      async ([first, second]) => {
+        const pixels = async (base64) => {
+          const image = await createImageBitmap(
+            await (await fetch(`data:image/png;base64,${base64}`)).blob(),
+          );
+          const canvas = new OffscreenCanvas(image.width, image.height);
+          const context = canvas.getContext("2d");
+
+          context.drawImage(image, 0, 0);
+
+          return context.getImageData(0, 0, image.width, image.height).data;
+        };
+        const [a, b] = await Promise.all([pixels(first), pixels(second)]);
+
+        if (a.length !== b.length) {
+          return Infinity;
+        }
+
+        let largest = 0;
+
+        for (let index = 0; index < a.length; index++) {
+          largest = Math.max(largest, Math.abs(a[index] - b[index]));
+        }
+
+        return largest;
+      },
+      [first.toString("base64"), second.toString("base64")],
+    );
+
+  for (const theme of ["dark", "light"]) {
+    if (theme === "light") {
+      await page.evaluate(() =>
+        document.getElementById("otp-pin").parentElement.classList.add("light", "bg-background"),
+      );
+    }
+
+    await blurOtp();
+
+    const before = await shot("#otp-pin");
+
+    await otpCdp.send("CSS.forcePseudoState", {
+      nodeId: pinNode,
+      forcedPseudoClasses: ["autofill"],
+    });
+    assert.deepEqual(
+      await autofillLook(),
+      { autofill: true, opacity: "0", fill: "rgba(0, 0, 0, 0)" },
+      `${theme} autofilled`,
+    );
+    const autofilled = await pixelDifference(before, await shot("#otp-pin"));
+
+    assert.ok(
+      autofilled <= 2,
+      `${theme}: autofill paints nothing, but a pixel moved ${autofilled}`,
+    );
+    await otpCdp.send("CSS.forcePseudoState", { nodeId: pinNode, forcedPseudoClasses: [] });
+    assert.deepEqual(
+      await autofillLook(),
+      { autofill: false, opacity: "1", fill: "rgba(0, 0, 0, 0)" },
+      `${theme} not autofilled`,
+    );
+    const after = await pixelDifference(before, await shot("#otp-pin"));
+
+    assert.ok(after <= 2, `${theme}: unchanged after autofill, but a pixel moved ${after}`);
+  }
+
+  await otpCdp.detach();
+
+  // Validation, from a fresh page: Save on an empty code shows the error, marks the input invalid
+  // and focuses it; the caret cell keeps its ring border and the others turn orange, all six once
+  // focus leaves; five digits keep the pattern error and the sixth clears it.
+  await fresh();
+  await page.click("#otp-save");
+  await page.waitForSelector("#otp-error");
+  assert.equal(await textOf("otp-error"), "Enter the code");
+  assert.equal(await attribute("otp-input", "aria-invalid"), "true");
+  await until("otp-input", "aria-describedby", "otp-description otp-error");
+  await page.waitForFunction(() => document.activeElement?.id === "otp-input");
+  await page.mouse.move(0, 0);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    cells.map((cell) => cell.border),
+    [darkRing, ...Array(5).fill(darkOrange)],
+  );
+  assert.equal(await textOf("otp-saves"), "0");
+  await blurOtp();
+  assert.deepEqual(
+    (await otpCells("otp")).map((cell) => cell.border),
+    Array(6).fill(darkOrange),
+  );
+
+  await page.click("#otp-label");
+  await page.keyboard.type("12345");
+  await untilText("otp-error", "Enter all 6 digits");
+  await page.keyboard.type("6");
+  await page.waitForSelector("#otp-error", { state: "detached" });
+  await untilAbsent("otp-input", "aria-invalid");
+  await page.click("#otp-save");
+  await untilText("otp-saves", "1");
+
+  // States, from a fresh page: hover darkens every border but the caret cell's ring; disabled is
+  // dimmed, unhovered and unchanged by keys and paste; readonly is dashed and unfilled, selects a
+  // cell but keeps its code; both themes use their tokens.
+  await fresh();
+  await page.mouse.move(0, 0);
+  cells = await otpCells("otp");
+
+  for (const cell of cells) {
+    assert.deepEqual(
+      [cell.border, cell.background, cell.color],
+      [otpInputColor, otpSurface, foreground],
+      "a resting cell",
+    );
+  }
+
+  await page.click("#otp-label");
+  await hoverOtpCell("otp", 2);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.equal(cells[0].border, darkRing, "a hovered caret cell keeps its ring border");
+
+  for (const cell of cells.slice(1)) {
+    assert.notEqual(cell.border, otpInputColor, "hover changes the border");
+    assert.equal(cell.border, cells[1].border);
+  }
+
+  await blurOtp();
+
+  assert.deepEqual(await styleOf("#otp-locked", ["opacity", "cursor"]), {
+    opacity: "0.5",
+    cursor: "not-allowed",
+  });
+  await hoverOtpCell("otp-locked", 1);
+  await rendered();
+
+  for (const cell of await otpCells("otp-locked")) {
+    assert.equal(cell.border, otpInputColor, "a disabled row doesn't hover");
+  }
+
+  await copyText("123456");
+  await page.click("#otp-locked-input", { force: true });
+  await page.keyboard.type("9");
+  await page.keyboard.press("ControlOrMeta+v");
+  await rendered();
+  assert.notEqual(await activeId(), "otp-locked-input");
+  assert.equal(await valueOf("otp-locked-input"), "482");
+  assert.deepEqual(
+    (await otpCells("otp-locked")).map((cell) => cell.text),
+    ["4", "8", "2", "", "", ""],
+  );
+
+  for (const cell of await otpCells("otp-frozen")) {
+    assert.deepEqual([cell.borderStyle, cell.background], ["dashed", "rgba(0, 0, 0, 0)"]);
+  }
+
+  await clickOtpCell("otp-frozen", 1);
+  await rendered();
+  assert.equal(await activeId(), "otp-frozen-input");
+  assert.deepEqual(await outline("#otp-frozen"), ringOutline(darkRing));
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const input = document.getElementById("otp-frozen-input");
+
+      return [input.selectionStart, input.selectionEnd];
+    }),
+    [1, 2],
+  );
+  cells = await otpCells("otp-frozen");
+  assert.deepEqual(
+    cells.map((cell) => cell.selected),
+    [false, true, false, false, false, false],
+  );
+  assert.equal(cells[1].background, otpTint);
+  assert.equal(cells[1].border, foreground);
+  await page.keyboard.type("0");
+  await page.keyboard.press("ControlOrMeta+v");
+  await rendered();
+  assert.equal(await valueOf("otp-frozen-input"), "482913");
+
+  for (const cell of await otpCells("otp-light")) {
+    assert.deepEqual(
+      [cell.border, cell.background, cell.color],
+      ["rgb(133, 133, 129)", "rgb(247, 247, 246)", "rgb(27, 27, 27)"],
+      "a light cell",
+    );
+  }
+
+  await page.focus("#otp-light-input");
+  assert.deepEqual(await outline("#otp-light"), ringOutline(lightRing));
+  assert.equal((await otpCells("otp-light")).find((cell) => cell.caret)?.border, lightRing);
+
+  // Reduced motion removes the cells' transitions.
+  const cellTransition = async () =>
+    (await styleOf("#otp > [data-slot=otp-field-cell]", ["transitionDuration"])).transitionDuration;
+
+  assert.equal(await cellTransition(), "0s");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  assert.equal(await cellTransition(), "0.12s");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+
+  // Forced colors, from a fresh page: cells are Canvas with CanvasText borders and text at rest,
+  // hovered and invalid; the caret border and the selection are Highlight; readonly stays dashed;
+  // disabled is GrayText; the row's ring is drawn, and the overlay paints nothing.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+  await page.mouse.move(0, 0);
+
+  const otpSystem = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    const read = (property, value) => {
+      probe.style.cssText = `position: fixed; forced-color-adjust: none; ${property}: ${value}`;
+
+      return getComputedStyle(probe)[property === "color" ? "color" : "backgroundColor"];
+    };
+
+    document.body.append(probe);
+
+    const result = {
+      canvas: read("background", "Canvas"),
+      canvasText: read("color", "CanvasText"),
+      highlight: read("background", "Highlight"),
+      highlightText: read("color", "HighlightText"),
+      grayText: read("color", "GrayText"),
+    };
+
+    probe.remove();
+
+    return result;
+  });
+  const assertForcedRest = (cells, name) => {
+    for (const [index, cell] of cells.entries()) {
+      assert.deepEqual(
+        [cell.border, cell.background, cell.color],
+        [otpSystem.canvasText, otpSystem.canvas, otpSystem.canvasText],
+        `${name} cell ${index}`,
+      );
+    }
+  };
+
+  assertForcedRest(await otpCells("otp"), "forced rest");
+  await hoverOtpCell("otp", 2);
+  await rendered();
+  assertForcedRest(await otpCells("otp"), "forced hover");
+  await page.mouse.move(0, 0);
+
+  await page.click("#otp-save");
+  await page.waitForSelector("#otp-error");
+  await page.waitForFunction(() => document.activeElement?.id === "otp-input");
+  await rendered();
+  cells = await otpCells("otp");
+  assert.equal(cells[0].border, otpSystem.highlight, "the forced caret border");
+  assertForcedRest(cells.slice(1), "forced invalid");
+  await blurOtp();
+  assertForcedRest(await otpCells("otp"), "forced invalid, blurred");
+
+  await page.click("#otp-label");
+  await page.keyboard.type("482913");
+  await untilText("otp-verified", "482913");
+  await clickOtpCell("otp", 2);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    [cells[2].selected, cells[2].background, cells[2].color],
+    [true, otpSystem.highlight, otpSystem.highlightText],
+  );
+  assertForcedRest([...cells.slice(0, 2), ...cells.slice(3)], "forced unselected");
+
+  await page.click("#otp-pin-input");
+  await page.keyboard.type("1234");
+  await untilText("otp-pin-value", "4");
+  await clickOtpCell("otp-pin", 1);
+  await rendered();
+  assert.deepEqual(
+    (await otpCells("otp-pin")).map((cell) => cell.dot),
+    [otpSystem.canvasText, otpSystem.highlightText, otpSystem.canvasText, otpSystem.canvasText],
+  );
+
+  await blurOtp();
+
+  for (const cell of await otpCells("otp-frozen")) {
+    assert.deepEqual(
+      [cell.border, cell.borderStyle, cell.background],
+      [otpSystem.canvasText, "dashed", otpSystem.canvas],
+    );
+  }
+
+  for (const cell of await otpCells("otp-locked")) {
+    assert.deepEqual([cell.border, cell.color], [otpSystem.grayText, otpSystem.grayText]);
+  }
+
+  await page.focus("#otp-input");
+
+  const forcedOtpRing = await outline("#otp");
+
+  assert.deepEqual([forcedOtpRing.style, forcedOtpRing.width], ["solid", "2px"]);
+  assert.match(forcedOtpRing.color, /^rgb\(/, "the forced ring is opaque");
+  assert.deepEqual(
+    await styleOf("#otp-input", ["color", "webkitTextFillColor", "forcedColorAdjust"]),
+    {
+      color: "rgba(0, 0, 0, 0)",
+      webkitTextFillColor: "rgba(0, 0, 0, 0)",
+      forcedColorAdjust: "none",
+    },
+  );
+  await page.emulateMedia({ forcedColors: "none" });
+
   // Select and Combobox. Exact geometry and outline widths are DPR-1 values.
   //
   // Server rendering: the Trigger and the Input carry their roles, names, Field wiring and state,
@@ -3648,6 +4349,720 @@ try {
   assert.deepEqual(await outline("#notes-content"), ringOutline(systemColors.highlight));
   await page.keyboard.press("Escape");
   await dismissed("notes-content");
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // ScrollArea, Avatar and Progress. Server HTML first: the bars' ARIA, value and state, the
+  // avatars' status and the two component stylesheets with their keyframes.
+  const uploadBar = openingTag(html, "progress-40");
+  const unknownBar = openingTag(html, "progress-unknown");
+
+  assert.match(uploadBar, /\brole="progressbar"/);
+  assert.match(uploadBar, /\baria-valuenow="40"/);
+  assert.match(uploadBar, /--og-progress-percent:\s*40%/);
+  assert.match(uploadBar, /\bdata-slot="progress"/);
+  assert.match(openingTag(html, "progress-complete"), /\bdata-complete=""/);
+  assert.match(unknownBar, /\bdata-indeterminate=""/);
+  assert.doesNotMatch(unknownBar, /\saria-valuenow=/);
+  assert.match(html, /data-slot="progress-fill"/);
+  assert.match(openingTag(html, "avatar-circle-md"), /\bdata-status="loading"/);
+  assert.match(openingTag(html, "avatar-circle-md-idle"), /\bdata-status="idle"/);
+  assert.match(openingTag(html, "avatar-circle-md"), /\bdata-slot="avatar"/);
+  assert.match(html, /@keyframes [^{\s]*progress-indeterminate\s*\{/);
+  assert.match(html, /@keyframes [^{\s]*avatar-fallback-delay\s*\{/);
+
+  // The server's DOM: the name and the Tab stop on the viewport, none on the root, one
+  // aria-hidden rail per mounted axis, and the images' sources.
+  const displayPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+  await displayPrerendered.goto(base);
+  assert.deepEqual(
+    await displayPrerendered.evaluate(() => {
+      const viewport = (id) => document.querySelector(`#${id} > [data-slot=scroll-area-viewport]`);
+      const rails = (id) => {
+        const result = [];
+
+        for (const rail of document.querySelectorAll(
+          `#${id} > [data-slot=scroll-area-scrollbar]`,
+        )) {
+          result.push(
+            `${rail.getAttribute("data-orientation")} ${rail.getAttribute("aria-hidden")}`,
+          );
+        }
+
+        return result;
+      };
+      const root = document.getElementById("sa-both");
+
+      return {
+        tabindex: viewport("sa-both").getAttribute("tabindex"),
+        role: viewport("sa-both").getAttribute("role"),
+        labelledby: viewport("sa-both").getAttribute("aria-labelledby"),
+        label: viewport("sa-vertical").getAttribute("aria-label"),
+        rootName: [
+          root.getAttribute("role"),
+          root.getAttribute("aria-labelledby"),
+          document.getElementById("sa-vertical").getAttribute("aria-label"),
+        ],
+        both: rails("sa-both"),
+        vertical: rails("sa-vertical"),
+        horizontal: rails("sa-horizontal"),
+        photo: document.querySelector("#avatar-circle-md > img").getAttribute("src").slice(0, 18),
+        noPhoto: document.querySelector("#avatar-circle-md-idle > img").hasAttribute("src"),
+      };
+    }),
+    {
+      tabindex: "0",
+      role: "region",
+      labelledby: "sa-both-title",
+      label: "Delivery notes",
+      rootName: [null, null, null],
+      both: ["vertical true", "horizontal true"],
+      vertical: ["vertical true"],
+      horizontal: ["horizontal true"],
+      photo: "data:image/svg+xml",
+      noPhoto: false,
+    },
+  );
+  await displayPrerendered.close();
+
+  // Running CSS animation in every sample and more than 2px of rendered movement across them;
+  // the sweep animates `translate`, so the rendered position is what moves.
+  const sweepSamples = async (selector) => {
+    const samples = [];
+
+    for (let index = 0; index < 4; index++) {
+      samples.push(
+        await page.evaluate((selector) => {
+          const element = document.querySelector(selector);
+          let running = false;
+
+          for (const animation of element.getAnimations()) {
+            if (animation.playState === "running") {
+              running = true;
+            }
+          }
+
+          return { running, left: element.getBoundingClientRect().left };
+        }, selector),
+      );
+
+      if (index < 3) {
+        await page.waitForTimeout(140);
+      }
+    }
+
+    const lefts = samples.map((sample) => sample.left);
+
+    return {
+      running: samples.map((sample) => sample.running),
+      distance: Math.max(...lefts) - Math.min(...lefts),
+    };
+  };
+  const assertSweep = async (selector) => {
+    const { running, distance } = await sweepSamples(selector);
+    const everyRunning = running.every(Boolean);
+
+    assert.ok(
+      everyRunning && distance > 2,
+      `${selector}: sweep must run and move: running=${everyRunning}, distance=${distance}`,
+    );
+  };
+  // No running animation and no rendered movement.
+  const assertStill = async (selector) => {
+    const { running, distance } = await sweepSamples(selector);
+    const anyRunning = running.some(Boolean);
+
+    assert.ok(
+      !anyRunning && distance === 0,
+      `${selector}: must stay still: running=${anyRunning}, distance=${distance}`,
+    );
+  };
+  const viewportOf = (id) => `#${id} > [data-slot=scroll-area-viewport]`;
+  const railOf = (id, orientation) =>
+    `#${id} > [data-slot=scroll-area-scrollbar][data-orientation=${orientation}]`;
+  const thumbOf = (id, orientation) => `${railOf(id, orientation)} > [data-slot=scroll-area-thumb]`;
+  const visibility = (selector) =>
+    page.evaluate((selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+
+      return `${style.visibility} ${style.opacity}`;
+    }, selector);
+  const untilShown = (selector) =>
+    page.waitForFunction((selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+
+      return style.visibility === "visible" && style.opacity === "1";
+    }, selector);
+  const untilHidden = (selector) =>
+    page.waitForFunction(
+      (selector) => getComputedStyle(document.querySelector(selector)).visibility === "hidden",
+      selector,
+    );
+  const scrollOf = (selector) =>
+    page.evaluate((selector) => {
+      const viewport = document.querySelector(selector);
+
+      return { left: viewport.scrollLeft, top: viewport.scrollTop };
+    }, selector);
+  const displayInput = "rgb(107, 107, 104)";
+  const displayMutedForeground = "rgb(163, 163, 160)";
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await fresh();
+
+  // ScrollArea's bounds: the table fills its sized parent and overflows both ways, the capped
+  // list stops at 240px and scrolls, the short one hugs its three rows, and the panel's area takes
+  // what its fixed header and footer leave.
+  const bounds = await page.evaluate(() => {
+    const viewport = (id) => document.querySelector(`#${id} > [data-slot=scroll-area-viewport]`);
+    const both = viewport("sa-both");
+    const bound = document.getElementById("sa-both-bound");
+    const panelBound = document.getElementById("sa-panel-bound");
+
+    return {
+      both: [both.clientWidth, both.clientHeight],
+      bothBound: [bound.clientWidth, bound.clientHeight],
+      bothRangeX: both.scrollWidth - both.clientWidth,
+      bothRangeY: both.scrollHeight - both.clientHeight,
+      capped: viewport("sa-capped").getBoundingClientRect().height,
+      cappedScrolls: viewport("sa-capped").scrollHeight > viewport("sa-capped").clientHeight,
+      short: viewport("sa-short").getBoundingClientRect().height,
+      shortRange: viewport("sa-short").scrollHeight - viewport("sa-short").clientHeight,
+      panelBands: [
+        document.getElementById("sa-panel-header").getBoundingClientRect().height,
+        document.getElementById("sa-panel-footer").getBoundingClientRect().height,
+      ],
+      panel: viewport("sa-panel").getBoundingClientRect().height,
+      panelBound: panelBound.clientHeight,
+      panelScrolls: viewport("sa-panel").scrollHeight > viewport("sa-panel").clientHeight,
+      verticalText: [
+        document.querySelector("#sa-vertical [data-slot=scroll-area-content]").clientWidth,
+        viewport("sa-vertical").clientWidth,
+        viewport("sa-vertical").scrollWidth,
+      ],
+    };
+  });
+
+  assert.deepEqual(bounds.both, bounds.bothBound, "the table's viewport fills its parent");
+  assert.ok(bounds.bothRangeX >= 250, `the table scrolls ${bounds.bothRangeX}px sideways`);
+  assert.ok(bounds.bothRangeY >= 220, `the table scrolls ${bounds.bothRangeY}px down`);
+  assert.equal(bounds.capped, 240);
+  assert.ok(bounds.cappedScrolls, "the capped list scrolls");
+  assert.equal(bounds.short, 96);
+  assert.equal(bounds.shortRange, 0);
+  assert.deepEqual(bounds.panelBands, [48, 48]);
+  assert.equal(bounds.panel, bounds.panelBound - 96);
+  assert.ok(bounds.panelScrolls, "the panel's area scrolls");
+  // Vertical-only text wraps to the viewport instead of scrolling sideways.
+  assert.equal(bounds.verticalText[0], bounds.verticalText[1]);
+  assert.equal(bounds.verticalText[2], bounds.verticalText[1]);
+
+  // At rest the rails are hidden; hover shows both of the table's, 10px rails with 6px thumbs in
+  // the input color, each stopping 10px short of the other's corner.
+  await page.evaluate(() => document.getElementById("sa-both").scrollIntoView({ block: "center" }));
+  assert.equal(await visibility(railOf("sa-both", "vertical")), "hidden 0");
+  assert.equal(await visibility(railOf("sa-both", "horizontal")), "hidden 0");
+
+  const bothRect = await rectOf("#sa-both");
+
+  await page.mouse.move(bothRect.left + 100, bothRect.top + 100);
+  await untilShown(railOf("sa-both", "vertical"));
+  await untilShown(railOf("sa-both", "horizontal"));
+
+  const rails = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const rail = (orientation) =>
+      `#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=${orientation}]`;
+    const vertical = rect(rail("vertical"));
+    const horizontal = rect(rail("horizontal"));
+    const verticalThumb = rect(`${rail("vertical")} > [data-slot=scroll-area-thumb]`);
+    const horizontalThumb = rect(`${rail("horizontal")} > [data-slot=scroll-area-thumb]`);
+    const root = rect("#sa-both");
+
+    return {
+      vertical: vertical.width,
+      horizontal: horizontal.height,
+      verticalThumb: verticalThumb.width,
+      horizontalThumb: horizontalThumb.height,
+      thumbColor: getComputedStyle(
+        document.querySelector(`${rail("vertical")} > [data-slot=scroll-area-thumb]`),
+      ).backgroundColor,
+      horizontalEnd: root.right - horizontal.right,
+      verticalEnd: root.bottom - vertical.bottom,
+    };
+  });
+
+  assert.deepEqual(rails, {
+    vertical: 10,
+    horizontal: 10,
+    verticalThumb: 6,
+    horizontalThumb: 6,
+    thumbColor: displayInput,
+    horizontalEnd: 10,
+    verticalEnd: 10,
+  });
+
+  // The rail under the pointer darkens its thumb, and dragging the thumb scrolls.
+  const verticalThumb = await rectOf(thumbOf("sa-both", "vertical"));
+
+  await page.mouse.move(verticalThumb.left + 3, verticalThumb.top + 5);
+  await page.waitForFunction(
+    ([selector, color]) =>
+      getComputedStyle(document.querySelector(selector)).backgroundColor === color,
+    [thumbOf("sa-both", "vertical"), displayMutedForeground],
+  );
+  await page.mouse.down();
+  await page.mouse.move(verticalThumb.left + 3, verticalThumb.top + 45, { steps: 4 });
+  await page.mouse.up();
+  assert.ok((await scrollOf(viewportOf("sa-both"))).top > 0, "dragging the thumb scrolls");
+
+  // The template reference's viewport() scrolls the table.
+  await page.evaluate(
+    (selector) => document.querySelector(selector).scrollTo({ left: 0, top: 0 }),
+    viewportOf("sa-both"),
+  );
+  await page.click("#sa-scroll");
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector).scrollTop === 220,
+    viewportOf("sa-both"),
+  );
+  assert.deepEqual(await scrollOf(viewportOf("sa-both")), { left: 250, top: 220 });
+
+  // Leaving hides the rails: data-visible goes 600ms after the last scroll or hover, then the
+  // 120ms fade ends hidden.
+  await page.mouse.move(0, 0);
+  await page.waitForFunction(
+    (selector) => !document.querySelector(selector).hasAttribute("data-visible"),
+    railOf("sa-both", "vertical"),
+  );
+  await untilHidden(railOf("sa-both", "vertical"));
+  await untilHidden(railOf("sa-both", "horizontal"));
+
+  // A list shorter than its cap shows no rail, even on hover.
+  const shortRect = await rectOf("#sa-short");
+
+  await page.mouse.move(shortRect.left + 20, shortRect.top + 20);
+  await page.waitForTimeout(200);
+  assert.equal(await hasAttribute("sa-short", "data-overflow-y"), false);
+  assert.equal(
+    await page.evaluate(
+      (selector) => document.querySelector(selector).hasAttribute("data-visible"),
+      railOf("sa-short", "vertical"),
+    ),
+    false,
+  );
+  assert.equal(await visibility(railOf("sa-short", "vertical")), "hidden 0");
+  await page.mouse.move(0, 0);
+
+  // The name is the viewport's: regions named by the heading and the input, renamed by binding,
+  // and never on the root.
+  assert.equal(await page.getByRole("region", { name: "Addresses" }).count(), 1);
+  assert.equal(await page.getByRole("region", { name: "Delivery notes", exact: true }).count(), 1);
+  await page.click("#sa-rename");
+  await page.getByRole("region", { name: "Updated delivery notes" }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "Delivery notes", exact: true }).count(), 0);
+  assert.equal(await page.getAttribute("#sa-vertical", "aria-label"), null);
+  assert.equal(await page.getAttribute("#sa-vertical", "role"), null);
+
+  // Tab reaches the viewport after the button before it, with an inset 2px ring.
+  await page.focus("#sa-scroll");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.parentElement.id), "sa-vertical");
+  assert.deepEqual(await outline(viewportOf("sa-vertical")), {
+    style: "solid",
+    width: "2px",
+    offset: "-2px",
+    color: "rgb(76, 196, 111)",
+  });
+
+  // The rails fade in 120ms, and not under reduced motion.
+  assert.deepEqual(
+    await styleOf(railOf("sa-both", "vertical"), ["transitionProperty", "transitionDuration"]),
+    { transitionProperty: "opacity, visibility", transitionDuration: "0.12s" },
+  );
+
+  // Avatar: the size ladder and its text, circles and the square's stepped radius, and class
+  // sizes, which keep their size step's radius.
+  await page.waitForFunction(
+    () => document.querySelectorAll("[data-slot=avatar][data-status=loading]").length === 0,
+  );
+
+  const avatars = await page.evaluate(() => {
+    const result = {};
+
+    for (const shape of ["circle", "square"]) {
+      for (const size of ["sm", "md", "lg"]) {
+        const root = document.getElementById(`avatar-${shape}-${size}`);
+        const fallback = document.querySelector(`#avatar-${shape}-${size}-idle > span`);
+        const style = getComputedStyle(root);
+
+        result[`${shape}-${size}`] = {
+          box: `${style.width} ${style.height}`,
+          radius: style.borderTopLeftRadius,
+          ring: (({ boxShadow, width, height }) => `${boxShadow} | ${width} ${height}`)(
+            getComputedStyle(root, "::after"),
+          ),
+          text: `${getComputedStyle(fallback).fontSize} ${getComputedStyle(fallback).fontWeight}`,
+        };
+      }
+    }
+
+    for (const id of ["avatar-large", "avatar-square-large", "avatar-square-large-radius"]) {
+      const style = getComputedStyle(document.getElementById(id));
+
+      result[id] = { box: `${style.width} ${style.height}`, radius: style.borderTopLeftRadius };
+    }
+
+    return result;
+  });
+  // rounded-full computes to a large length, not 50%: a circle's radius reaches half its side.
+  for (const [size, side] of [
+    ["sm", 24],
+    ["md", 32],
+    ["lg", 40],
+  ]) {
+    const circle = avatars[`circle-${size}`];
+
+    assert.equal(circle.box, `${side}px ${side}px`, `circle ${size} box`);
+    assert.ok(parseFloat(circle.radius) >= side / 2, `circle ${size} radius ${circle.radius}`);
+  }
+
+  // The 1px inset ring is a rendered ::after box filling the root's grid cell, after the photo,
+  // so it paints over a loaded photo's edge too.
+  for (const key of [
+    "circle-sm",
+    "circle-md",
+    "circle-lg",
+    "square-sm",
+    "square-md",
+    "square-lg",
+  ]) {
+    const avatar = avatars[key];
+    const side = avatar.box.split(" ")[0];
+
+    assert.match(
+      avatar.ring,
+      new RegExp(`0px 0px 0px 1px inset \\| ${side} ${side}$`),
+      `${key} ring`,
+    );
+    delete avatar.ring;
+  }
+  assert.deepEqual(
+    {
+      sm: avatars["square-sm"],
+      md: avatars["square-md"],
+      lg: avatars["square-lg"],
+      circleText: [avatars["circle-sm"].text, avatars["circle-md"].text, avatars["circle-lg"].text],
+      large: avatars["avatar-large"].box,
+      squareLarge: avatars["avatar-square-large"],
+      squareLargeRadius: avatars["avatar-square-large-radius"],
+    },
+    {
+      sm: { box: "24px 24px", radius: "6px", text: "12px 600" },
+      md: { box: "32px 32px", radius: "8px", text: "12px 600" },
+      lg: { box: "40px 40px", radius: "10px", text: "13px 600" },
+      circleText: ["12px 600", "12px 600", "13px 600"],
+      large: "128px 128px",
+      squareLarge: { box: "128px 128px", radius: "8px" },
+      squareLargeRadius: { box: "128px 128px", radius: "10px" },
+    },
+  );
+
+  // Loaded: the photo covers the box and the fallback is hidden. Failed: the image is hidden and
+  // the fallback shows at once. No source: the fallback, also with an icon.
+  const avatarStates = await page.evaluate(() => {
+    const parts = (id) => {
+      const image = document.querySelector(`#${id} > img`);
+      const fallback = document.querySelector(`#${id} > [data-slot=avatar-fallback]`);
+
+      return {
+        status: document.getElementById(id).getAttribute("data-status"),
+        image: image && `${getComputedStyle(image).display} ${getComputedStyle(image).objectFit}`,
+        fallback: `${getComputedStyle(fallback).display} ${getComputedStyle(fallback).opacity}`,
+      };
+    };
+    const icon = document.querySelector("#avatar-square-icon svg").getBoundingClientRect();
+
+    return {
+      loaded: parts("avatar-square-lg"),
+      error: parts("avatar-circle-md-error"),
+      idle: parts("avatar-circle-md-idle"),
+      icon: `${icon.width} ${icon.height}`,
+    };
+  });
+
+  assert.deepEqual(avatarStates, {
+    loaded: { status: "loaded", image: "block cover", fallback: "none 1" },
+    error: { status: "error", image: "none cover", fallback: "grid 1" },
+    idle: { status: "idle", image: "none cover", fallback: "grid 1" },
+    icon: "22 22",
+  });
+
+  // A root-named avatar is one image, named once.
+  assert.equal(await page.getByRole("img", { name: "Grace Hopper" }).count(), 1);
+
+  // While a photo loads, the fallback waits 600ms before it paints, unless the consumer's
+  // important animate-none! removes the wait.
+  let releasePhotos;
+  const photosReleased = new Promise((release) => {
+    releasePhotos = release;
+  });
+
+  await page.route(/\/slow-avatar(-2)?\.svg$/, async (route) => {
+    await photosReleased;
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='#26803f'/></svg>",
+    });
+  });
+
+  const fallbackLook = () =>
+    page.evaluate(() => {
+      const look = (id) => {
+        const style = getComputedStyle(document.getElementById(id));
+
+        return `${style.opacity} ${style.animationName === "none" ? "none" : "delay"}`;
+      };
+
+      return {
+        status: document.getElementById("avatar-slow").getAttribute("data-status"),
+        slow: look("avatar-slow-fallback"),
+        now: look("avatar-slow-now-fallback"),
+      };
+    });
+
+  assert.equal(await attribute("avatar-slow", "data-status"), "idle");
+  await page.click("#avatar-load");
+  await until("avatar-slow", "data-status", "loading");
+
+  const loadingAt = Date.now();
+
+  await page.waitForTimeout(100);
+  assert.deepEqual(await fallbackLook(), {
+    status: "loading",
+    slow: "0 delay",
+    now: "1 none",
+  });
+  await page.waitForTimeout(Math.max(0, 750 - (Date.now() - loadingAt)));
+  assert.deepEqual(await fallbackLook(), {
+    status: "loading",
+    slow: "1 delay",
+    now: "1 none",
+  });
+  releasePhotos();
+  await until("avatar-slow", "data-status", "loaded");
+  assert.equal(
+    (await styleOf("#avatar-slow-fallback", ["display"])).display,
+    "none",
+    "the loaded photo hides the fallback",
+  );
+  await page.unroute(/\/slow-avatar(-2)?\.svg$/);
+
+  // Progress: a 2px neutral bar, filled to its value, complete at full width, and sweeping a 40%
+  // segment while its value is unknown, unless the consumer stopped it with the important class.
+  const barLooks = () =>
+    page.evaluate(() => {
+      const look = (id) => {
+        const bar = document.getElementById(id);
+        const fill = bar.querySelector("[data-slot=progress-fill]");
+        const barStyle = getComputedStyle(bar);
+        const fillStyle = getComputedStyle(fill);
+
+        return {
+          height: bar.getBoundingClientRect().height,
+          share: Math.round((fill.getBoundingClientRect().width / bar.clientWidth) * 100),
+          track: barStyle.backgroundColor,
+          fill: fillStyle.backgroundColor,
+          opacity: fillStyle.opacity,
+          animation: fillStyle.animationName === "none" ? "none" : "sweep",
+        };
+      };
+
+      return {
+        upload: look("progress-40"),
+        complete: look("progress-complete"),
+        unknown: look("progress-unknown"),
+        still: look("progress-still"),
+        campaign: look("progress-campaign"),
+      };
+    });
+  const looks = await barLooks();
+
+  assert.deepEqual(looks, {
+    upload: {
+      height: 2,
+      share: 40,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+    complete: {
+      height: 2,
+      share: 100,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+    unknown: {
+      height: 4,
+      share: 40,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "sweep",
+    },
+    still: {
+      height: 2,
+      share: 40,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+    campaign: {
+      height: 24,
+      share: 62,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+  });
+  assert.equal(await attribute("progress-complete", "data-complete"), "");
+  assert.equal(await attribute("progress-unknown", "aria-valuenow"), null);
+  await assertSweep("#progress-unknown > [data-slot=progress-fill]");
+  await assertStill("#progress-still > [data-slot=progress-fill]");
+  // The visible text beside the campaign bar is its value text.
+  assert.equal(
+    await page.textContent("#progress-campaign-text").then((text) => text.trim()),
+    await attribute("progress-campaign", "aria-valuetext"),
+  );
+  assert.equal(await attribute("progress-campaign", "aria-valuetext"), "62%");
+
+  // The dialog steps recipe: the bar runs flush to the dialog's border, 20px below the header's
+  // text and 20px above the body's, and stays 2px when the dialog runs out of height.
+  const stepsLayout = () =>
+    page.evaluate(() => {
+      const rect = (id) => document.getElementById(id).getBoundingClientRect();
+      const dialog = rect("steps-dialog");
+      const bar = rect("steps-progress");
+      const body = document.getElementById("steps-body");
+
+      return {
+        start: bar.left - dialog.left,
+        end: dialog.right - bar.right,
+        above: bar.top - rect("steps-description").bottom,
+        below: body.firstElementChild.getBoundingClientRect().top - bar.bottom,
+        height: bar.height,
+        bodyScrolls: body.scrollHeight > body.clientHeight,
+      };
+    });
+
+  await page.click("#steps-trigger");
+  await page.waitForFunction(() => {
+    const dialog = document.getElementById("steps-dialog");
+
+    return dialog.open && dialog.getAnimations().length === 0;
+  });
+
+  const steps = await stepsLayout();
+
+  near(steps.start, 1, 0.5, "the steps bar's start");
+  near(steps.end, 1, 0.5, "the steps bar's end");
+  near(steps.above, 20, 0.5, "the space above the steps bar");
+  near(steps.below, 20, 0.5, "the space below the steps bar");
+  assert.equal(steps.height, 2);
+  assert.equal(steps.bodyScrolls, false);
+  await page.setViewportSize({ width: 1280, height: 400 });
+
+  const compactSteps = await stepsLayout();
+
+  assert.equal(compactSteps.height, 2);
+  assert.equal(compactSteps.bodyScrolls, true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.getElementById("steps-dialog").open);
+
+  // Light tokens: the thumb, the avatar's fill and text, and the bar's track and fill.
+  const lightDisplay = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+
+    return {
+      thumb: style("#sa-light > [data-slot=scroll-area-scrollbar] > [data-slot=scroll-area-thumb]")
+        .backgroundColor,
+      avatar: `${style("#avatar-light").backgroundColor} ${style("#avatar-light").color}`,
+      bar: `${style("#progress-light").backgroundColor} ${style("#progress-light > span").backgroundColor}`,
+    };
+  });
+
+  assert.deepEqual(lightDisplay, {
+    thumb: "rgb(133, 133, 129)",
+    avatar: "rgb(251, 251, 250) rgb(91, 91, 88)",
+    bar: "rgb(133, 133, 129) rgb(27, 27, 27)",
+  });
+
+  // Reduced motion: no rail fade, and the unknown bar is a still, full, half-opacity bar; the
+  // sweep comes back with motion.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(
+    (await styleOf(railOf("sa-both", "vertical"), ["transitionProperty"])).transitionProperty,
+    "none",
+  );
+  await assertStill("#progress-unknown > [data-slot=progress-fill]");
+  assert.deepEqual((await barLooks()).unknown, {
+    height: 4,
+    share: 100,
+    track: displayInput,
+    fill: foreground,
+    opacity: "0.5",
+    animation: "none",
+  });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await assertSweep("#progress-unknown > [data-slot=progress-fill]");
+
+  // Forced colors: a CanvasText thumb on a Canvas rail, a CanvasText ring around the avatar, and
+  // a GrayText track with a CanvasText fill that keeps its 2px.
+  await page.emulateMedia({ forcedColors: "active" });
+
+  const forcedDisplay = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const rail = "#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=vertical]";
+
+    return {
+      thumb: style(`${rail} > [data-slot=scroll-area-thumb]`).backgroundColor,
+      rail: style(rail).backgroundColor,
+      avatar: `${style("#avatar-circle-md-idle").borderTopWidth} ${style("#avatar-circle-md-idle").borderTopColor}`,
+      track: style("#progress-40").backgroundColor,
+      fill: style("#progress-40 > span").backgroundColor,
+      height: document.getElementById("progress-40").getBoundingClientRect().height,
+    };
+  });
+
+  // Hovering the rail keeps the thumb CanvasText: the hover color applies only outside forced colors.
+  const forcedRail = "#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=vertical]";
+
+  await page.hover("#sa-both");
+  await page.waitForSelector(`${forcedRail}[data-visible]`);
+  await page.hover(forcedRail);
+  forcedDisplay.hoveredThumb = await page.evaluate(
+    (rail) =>
+      getComputedStyle(document.querySelector(`${rail} > [data-slot=scroll-area-thumb]`))
+        .backgroundColor,
+    forcedRail,
+  );
+  await page.mouse.move(0, 0);
+
+  assert.deepEqual(forcedDisplay, {
+    thumb: systemColors.canvasText,
+    hoveredThumb: systemColors.canvasText,
+    rail: systemColors.canvas,
+    avatar: `1px ${systemColors.canvasText}`,
+    track: systemColors.grayText,
+    fill: systemColors.canvasText,
+    height: 2,
+  });
   await page.emulateMedia({ forcedColors: "none" });
 
   assert.deepEqual(errors, [], "console errors or warnings");

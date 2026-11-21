@@ -69,6 +69,7 @@ for (const directory of [
   "file-field/src",
   "progress/src",
   "avatar/src",
+  "scroll-area/src",
 ]) {
   await collect(directory);
 }
@@ -349,6 +350,8 @@ const directiveDefaults = {
   "OrigamiProgress.max": ["100", /\b100\b/],
   "OrigamiProgress.valueText": ["null", /\bnull\b/i],
   "OrigamiAvatarImage.src": ["null", /\bnull\b/i],
+  "OrigamiScrollArea.hideDelay": ["600", /\b600\b/],
+  "OrigamiScrollAreaScrollbar.orientation": ["vertical", /"vertical"/],
   "OrigamiCombobox.value": ["null", /\bnull\b/i],
   "OrigamiCombobox.query": ["empty string", /""|empty/i],
   "OrigamiCombobox.open": ["false", /\bfalse\b/i],
