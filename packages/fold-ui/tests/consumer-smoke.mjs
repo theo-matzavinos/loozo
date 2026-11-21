@@ -3418,6 +3418,7 @@ try {
     ["تقرير-final.pdf", 4096, "4\u00a0KB"],
     ["\u{10E80}\u{10E81}.pdf", 5120, "5\u00a0KB"],
     ["\u200Freport.pdf", 6144, "6\u00a0KB"],
+    ["\u{1EC71}23.pdf", 7168, "7\u00a0KB"],
   ]) {
     await pick("file-narrow-input", otherName, size);
     await untilFileSize("file-narrow-value", shown);

@@ -16,13 +16,13 @@ const EXTENSION = /\.[\p{L}\p{N}]{1,5}$/u;
  * digits, punctuation and marks every script shares. A name with any other character is laid out
  * by the browser's bidirectional algorithm as one run, because a stem and an extension in separate
  * boxes can't be reordered together: `تقرير-final.pdf` would read `pdf.final`. Shared characters
- * that are right to left, such as the Arabic comma, and the direction marks and embeddings, aren't
- * split either.
+ * that are right to left, such as the Arabic comma or the Indic Siyaq numbers, and the direction
+ * marks and embeddings, aren't split either.
  */
 const SPLITTABLE =
   /^[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Common}\p{Script=Inherited}]*$/u;
 const RIGHT_TO_LEFT_OR_CONTROL =
-  /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF\u200E\u200F\u202A-\u202E\u2066-\u2069]/u;
+  /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}\u200E\u200F\u202A-\u202E\u2066-\u2069]/u;
 
 /** `bytes` in 1024-based units up to GB, with one decimal at most and a no-break space. */
 function formatSize(bytes: number, format: Intl.NumberFormat): string {
