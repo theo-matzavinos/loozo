@@ -169,6 +169,45 @@ node tools/bench/budgets.mjs check  <results.json> <budgets.json> [--determinist
 - `record` refuses an unfinished run or one with a failed phase, a value it would record that isn't a finite number (leaving the file untouched), and a budgets file whose `bench` isn't the run's. A deterministic run (`results.mode`) is always recorded as if `--deterministic` were passed, so its single-sample timings never replace timing budgets. It writes the run's `bench` into the file, so a new file gets it. For each scenario in the run it writes the maximum of every key with a rule whose statistic was measured (only deterministic keys under `--deterministic` or for a deterministic run), and keeps every other entry, including scenarios not in the run. Scenarios keep the file's order with new ones appended in run order (JavaScript orders integer-like keys, such as route counts, numerically), keys follow the registry's order, and the file is written as 2-space JSON with a trailing newline. It prints one line per changed value: `300: bundle.initial.brotli 66500 → 65000`.
 - `check` runs the same check as `--check` and exits 1 on failure. Use it to re-check a saved run or a downloaded CI artifact without re-running.
 
+## CI
+
+The `bench` job in `.github/workflows/ci.yml` checks the deterministic budgets (bytes, counts, TypeScript instantiations) on every pull request. Timings never run in CI. Each matrix entry is its own required check and runs only when the pull request reaches its package (the `affected` job); otherwise it skips its steps and passes. A change under `tools/bench/` or `.github/` reaches all three.
+
+| Check             | Runs, after installing and building the package                                                                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bench (router)`  | `pnpm --dir packages/angular-router run bench --deterministic --check --out "$RUNNER_TEMP/bench/router"`                                                                 |
+| `bench (launch)`  | `pnpm --dir packages/angular-router run bench --workload launch --deterministic --check --out "$RUNNER_TEMP/bench/launch"`                                               |
+| `bench (origami)` | `pnpm --dir packages/origami-ui run bench:build --deterministic --check --out "$RUNNER_TEMP/bench/build"`, then Chromium and `bench:runtime` the same way into `runtime` |
+
+The commands pass no `--scenarios`, so each runs its runner's default list, which is what its budgets file holds. A run can't pass incompletely: a budget left unmeasured, a deterministic metric without a budget or a failed phase fails it ([Checking](#checking)). Node comes from `engines.node` through `node-version-file`, pnpm from `devEngines`, and Angular and TypeScript from the lockfile, so CI measures with the toolchain the budgets were recorded with; `results.machine` records the versions, including Node's `zlib` and `brotli`. A toolchain bump that changes bytes or instantiations fails its own pull request, which re-records the budgets.
+
+Each entry uploads an artifact, `bench-router`, `bench-launch` or `bench-origami`, also when the check fails. It holds each run's `results.json` and logs, never the scratch `consumer/` directories:
+
+```text
+bench-origami/
+  build/results.json
+  build/<scenario>/logs/…
+  runtime/results.json
+  runtime/build.log
+  runtime/server.log
+bench-router/
+  router/results.json
+  router/<route count>/logs/…
+bench-launch/
+  launch/results.json
+  launch/<route count>/logs/…
+```
+
+To re-check or re-record from a run's artifact, from the repository root (the results carry their own rules, so no package code is loaded and the recording uses the rules of the commit CI ran):
+
+```sh
+gh run download <run-id> --name bench-origami --dir /tmp/ci-bench
+node tools/bench/budgets.mjs check  /tmp/ci-bench/build/results.json packages/origami-ui/bench/budgets/build.json --deterministic
+node tools/bench/budgets.mjs record /tmp/ci-bench/build/results.json packages/origami-ui/bench/budgets/build.json --deterministic
+```
+
+The other results go with their own budgets files: `runtime/results.json` with `packages/origami-ui/bench/budgets/runtime.json`, `router/results.json` with `packages/angular-router/bench/budgets.json`, and `launch/results.json` with `packages/angular-router/bench/launch-budgets.json`. A CI run is deterministic, so `record` writes only deterministic budgets from it and keeps the timing budgets.
+
 ## How values read
 
 The table and every budget line format a value by its unit:
