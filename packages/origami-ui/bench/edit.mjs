@@ -302,7 +302,8 @@ async function poll(run, server, url, token) {
 
     try {
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(Math.max(1, Math.min(2000, remaining))),
+        // AbortSignal.timeout takes whole milliseconds.
+        signal: AbortSignal.timeout(Math.max(1, Math.ceil(Math.min(2000, remaining)))),
       });
       const text = await response.text();
 
