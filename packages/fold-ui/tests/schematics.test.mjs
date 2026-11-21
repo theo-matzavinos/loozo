@@ -434,6 +434,7 @@ describe("add", () => {
       field: ["cn", "field"],
       input: ["cn", "input"],
       "number-field": ["cn", "number-field"],
+      "otp-field": ["cn", "otp-field"],
       popover: ["button", "cn", "popover", "popup"],
       popup: ["popup"],
       "radio-group": ["cn", "radio-group"],
@@ -499,6 +500,19 @@ describe("add", () => {
       /selector: "button\[zzNumberFieldIncrement\]"/,
     );
     assert.match(readText(tree, "src/ui/slider/slider.ts"), /exportAs: "zzSlider"/);
+  });
+
+  test("renames OtpField's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["otp-field"] }, await setUp(runner));
+    const field = readText(tree, "src/ui/otp-field/otp-field.ts");
+
+    assert.match(field, /selector: "\[zzOtpField\]"/);
+    assert.match(field, /exportAs: "zzOtpField"/);
+    assert.match(
+      readText(tree, "src/ui/otp-field/otp-field-input.ts"),
+      /selector: "input\[zzOtpFieldInput\]"/,
+    );
   });
 
   test("renames Select's and Combobox's parts and exportAs with the prefix", async () => {

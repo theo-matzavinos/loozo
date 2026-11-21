@@ -7,7 +7,8 @@
 // state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
 // values, states, themes and forced colors, and Tabs', Tooltip's and Popover's server state,
 // geometry, keys, pointer and hover, guarded unavailable actions, placement and flipping, Tab
-// order and scrolling, nesting, motion and forced colors.
+// order and scrolling, nesting, motion and forced colors, and the OTP field's server state,
+// geometry, typing and paste, masking, autofill paint, validation, states and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -2112,6 +2113,613 @@ try {
   assert.equal(
     (await styleOf("#zoom-invalid-thumb", ["borderTopColor"])).borderTopColor,
     palette.canvasText,
+  );
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // OTP field. Exact geometry and outline widths are DPR-1 values.
+  //
+  // Server rendering: fold's slots and its decorative cells, Origami's input attributes and the
+  // Field's wiring; a readonly code shows its digits, a masked PIN no digit, and a disabled input
+  // is disabled.
+  const otpInput = openingTag(html, "otp-input");
+  const otpCellsIn = (markup) => {
+    const cells = [];
+
+    for (const match of markup.matchAll(/<span\b([^>]*)>([\s\S]*?)<\/span>/g)) {
+      if (match[1].includes('data-slot="otp-field-cell"')) {
+        cells.push({
+          tag: match[1],
+          text: match[2].replace(/<!--[\s\S]*?-->|<[^>]+>/g, "").trim(),
+        });
+      }
+    }
+
+    return cells;
+  };
+
+  assert.match(openingTag(html, "otp"), /\bdata-slot="otp-field"/);
+  assert.match(openingTag(html, "otp"), /\bdir="ltr"/);
+  assert.match(otpInput, /\bdata-slot="otp-field-input"/);
+  assert.match(otpInput, /\binputmode="numeric"/);
+  assert.match(otpInput, /\bautocomplete="one-time-code"/);
+  assert.match(otpInput, /\btype="text"/);
+  assert.match(otpInput, /\baria-describedby="otp-description"/);
+  assert.match(openingTag(html, "otp-label"), /\bfor="otp-input"/);
+
+  const serverCells = otpCellsIn(element(html, "otp"));
+
+  assert.equal(serverCells.length, 6);
+
+  for (const cell of serverCells) {
+    assert.match(cell.tag, /\baria-hidden="true"/);
+    assert.equal(cell.text, "");
+  }
+
+  const frozenCells = otpCellsIn(element(html, "otp-frozen"));
+
+  assert.deepEqual(
+    frozenCells.map((cell) => cell.text),
+    ["4", "8", "2", "9", "1", "3"],
+  );
+
+  for (const cell of frozenCells) {
+    assert.match(cell.tag, /\sdata-filled=/);
+  }
+
+  assert.match(openingTag(html, "otp-frozen-input"), /\sreadonly[\s=>]/);
+  assert.match(openingTag(html, "otp-pin-input"), /\btype="password"/);
+  assert.match(openingTag(html, "otp-pin-input"), /\bautocomplete="current-password"/);
+
+  const pinCells = otpCellsIn(element(html, "otp-pin"));
+
+  assert.deepEqual(
+    pinCells.map((cell) => cell.text),
+    ["", "", "", ""],
+  );
+  assert.doesNotMatch(element(html, "otp-pin"), /\bdata-slot="otp-field-dot"/);
+  assert.match(openingTag(html, "otp-locked-input"), /\sdisabled[\s=>]/);
+
+  // Each cell's state and look, in order.
+  const otpCells = (id) =>
+    page.evaluate((id) => {
+      const result = [];
+
+      for (const cell of document.querySelectorAll(`#${id} > [data-slot=otp-field-cell]`)) {
+        const style = getComputedStyle(cell);
+
+        result.push({
+          text: cell.textContent.trim(),
+          filled: cell.hasAttribute("data-filled"),
+          caret: cell.hasAttribute("data-caret"),
+          selected: cell.hasAttribute("data-selected"),
+          border: style.borderTopColor,
+          borderStyle: style.borderTopStyle,
+          background: style.backgroundColor,
+          color: style.color,
+          bar: cell.querySelector("[data-slot=otp-field-caret]") !== null,
+          dot: cell.querySelector("[data-slot=otp-field-dot]")
+            ? getComputedStyle(cell.querySelector("[data-slot=otp-field-dot]")).backgroundColor
+            : null,
+        });
+      }
+
+      return result;
+    }, id);
+  const otpCell = (id, index) => page.locator(`#${id} > [data-slot=otp-field-cell]`).nth(index);
+  // A click at a cell's center lands on the input over it, which maps it to that cell.
+  const clickOtpCell = async (id, index) => {
+    await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+
+    const box = await otpCell(id, index).boundingBox();
+
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  const hoverOtpCell = async (id, index) => {
+    await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+
+    const box = await otpCell(id, index).boundingBox();
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  // Copies `text` through a scratch textarea, which then goes, leaving focus on the body.
+  const copyText = async (text) => {
+    await page.evaluate((text) => {
+      const scratch = document.createElement("textarea");
+
+      scratch.id = "otp-clipboard";
+      scratch.value = text;
+      document.body.append(scratch);
+      scratch.focus();
+      scratch.select();
+    }, text);
+    await page.keyboard.press("ControlOrMeta+c");
+    await page.evaluate(() => document.getElementById("otp-clipboard").remove());
+  };
+  const blurOtp = async () => {
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.mouse.move(0, 0);
+    await rendered();
+  };
+  const otpInputColor = "rgb(107, 107, 104)";
+  const otpSurface = "rgb(28, 28, 28)";
+
+  await fresh();
+
+  // Geometry: 40px cells 8px apart, the row as wide as its cells inside a wider Field column and
+  // the input exactly over it; the 18px semibold tabular digit; 48px cells through the variable;
+  // left to right under an RTL parent.
+  const otpGeometry = await page.evaluate(() => {
+    const rect = (element) => element.getBoundingClientRect();
+    const cells = (id) => [...document.querySelectorAll(`#${id} > [data-slot=otp-field-cell]`)];
+    const row = (id) => {
+      const list = cells(id);
+      const sizes = [];
+      const gaps = [];
+
+      for (const [index, cell] of list.entries()) {
+        sizes.push(`${rect(cell).width}x${rect(cell).height}`);
+
+        if (index > 0) {
+          gaps.push(rect(cell).left - rect(list[index - 1]).right);
+        }
+      }
+
+      const root = rect(document.getElementById(id));
+      const input = rect(document.querySelector(`#${id} > input`));
+
+      return {
+        sizes,
+        gaps,
+        width: root.width,
+        overlay:
+          input.left === root.left &&
+          input.top === root.top &&
+          input.width === root.width &&
+          input.height === root.height,
+      };
+    };
+    const digit = getComputedStyle(cells("otp-frozen")[0]);
+    const rtl = cells("otp-rtl");
+
+    return {
+      dpr: window.devicePixelRatio,
+      column: rect(document.getElementById("otp-field-wrap")).width,
+      otp: row("otp"),
+      large: row("otp-large"),
+      digit: {
+        size: digit.fontSize,
+        weight: digit.fontWeight,
+        numeric: digit.fontVariantNumeric,
+        radius: digit.borderTopLeftRadius,
+      },
+      rtl: {
+        first: rtl[0].textContent.trim(),
+        leftmost: rect(rtl[0]).left < rect(rtl[5]).left,
+        dir: document.getElementById("otp-rtl").getAttribute("dir"),
+      },
+    };
+  });
+
+  assert.equal(otpGeometry.dpr, 1);
+  assert.ok(otpGeometry.column > 300, `the Field column is ${otpGeometry.column}px`);
+  assert.deepEqual(otpGeometry.otp, {
+    sizes: Array(6).fill("40x40"),
+    gaps: Array(5).fill(8),
+    width: 280,
+    overlay: true,
+  });
+  assert.deepEqual(otpGeometry.large, {
+    sizes: Array(6).fill("48x48"),
+    gaps: Array(5).fill(8),
+    width: 328,
+    overlay: true,
+  });
+  assert.deepEqual(otpGeometry.digit, {
+    size: "18px",
+    weight: "600",
+    numeric: "tabular-nums",
+    radius: "10px",
+  });
+  assert.deepEqual(otpGeometry.rtl, { first: "4", leftmost: true, dir: "ltr" });
+
+  // Typing: the label focuses the input and the row shows the ring; the caret cell has the ring
+  // border and, while empty, the 1×18 bar; a full code has no caret cell but keeps the ring, and
+  // its valueChange sees it complete.
+  await page.click("#otp-label");
+  assert.equal(await activeId(), "otp-input");
+  await rendered();
+  assert.deepEqual(await outline("#otp"), ringOutline(darkRing));
+
+  let cells = await otpCells("otp");
+
+  assert.deepEqual(
+    [cells[0].caret, cells[0].border, cells[0].bar],
+    [true, darkRing, true],
+    "the first cell has the caret",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const bar = document.querySelector("#otp [data-slot=otp-field-caret]");
+      const box = bar.getBoundingClientRect();
+
+      return { size: `${box.width}x${box.height}`, color: getComputedStyle(bar).backgroundColor };
+    }),
+    { size: "1x18", color: foreground },
+  );
+
+  await page.keyboard.type("482");
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    cells.map((cell) => cell.text),
+    ["4", "8", "2", "", "", ""],
+  );
+  assert.deepEqual(
+    cells.map((cell) => cell.caret),
+    [false, false, false, true, false, false],
+  );
+  assert.equal(cells[3].border, darkRing);
+  assert.equal(cells[3].bar, true);
+  assert.equal(cells[0].border, otpInputColor);
+
+  await page.keyboard.type("913");
+  await untilText("otp-verified", "482913");
+  await rendered();
+  cells = await otpCells("otp");
+  assert.equal(cells.filter((cell) => cell.caret || cell.bar).length, 0, "no caret cell");
+  assert.deepEqual(await outline("#otp"), ringOutline(darkRing));
+
+  // Paste: a whole code, with its space, replaces the code.
+  await copyText("987 654");
+  await page.focus("#otp-input");
+  await page.keyboard.press("ControlOrMeta+v");
+  await untilValue("otp-input", "987654");
+  await untilText("otp-verified", "987654");
+
+  // A click on a filled cell selects its digit with the neutral 8% tint; typing replaces it.
+  const otpTint = await page.evaluate(() => {
+    const probe = document.createElement("span");
+
+    probe.style.backgroundColor = "color-mix(in oklab, var(--foreground) 8%, transparent)";
+    document.getElementById("otps").append(probe);
+
+    const color = getComputedStyle(probe).backgroundColor;
+
+    probe.remove();
+
+    return color;
+  });
+
+  await clickOtpCell("otp", 2);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    cells.map((cell) => cell.selected),
+    [false, false, true, false, false, false],
+  );
+  assert.equal(cells[2].background, otpTint);
+  assert.notEqual(otpTint, otpSurface);
+  assert.equal(cells[2].color, foreground);
+  await page.keyboard.type("0");
+  await untilValue("otp-input", "980654");
+  await untilText("otp-verified", "980654");
+
+  // Masked: four typed digits are four 8px foreground dots, with no digit anywhere in the row.
+  await page.click("#otp-pin-input");
+  await page.keyboard.type("1234");
+  await untilText("otp-pin-value", "4");
+  await rendered();
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const sizes = [];
+
+      for (const dot of document.querySelectorAll("#otp-pin [data-slot=otp-field-dot]")) {
+        const box = dot.getBoundingClientRect();
+
+        sizes.push(`${box.width}x${box.height}`);
+      }
+
+      return { sizes, text: document.getElementById("otp-pin").textContent.trim() };
+    }),
+    { sizes: Array(4).fill("8x8"), text: "" },
+  );
+
+  for (const cell of await otpCells("otp-pin")) {
+    assert.equal(cell.dot, foreground);
+    assert.equal(cell.text, "");
+  }
+
+  // Autofill, in both themes: with Chromium's :autofill forced on the masked PIN, the browser's
+  // !important autofill background and text color paint nothing over the cells and dots.
+  const otpCdp = await page.context().newCDPSession(page);
+
+  await otpCdp.send("DOM.enable");
+  await otpCdp.send("CSS.enable");
+
+  const { root: documentNode } = await otpCdp.send("DOM.getDocument");
+  const { nodeId: pinNode } = await otpCdp.send("DOM.querySelector", {
+    nodeId: documentNode.nodeId,
+    selector: "#otp-pin-input",
+  });
+  const autofillLook = () =>
+    page.evaluate(() => {
+      const input = document.getElementById("otp-pin-input");
+      const style = getComputedStyle(input);
+
+      return {
+        autofill: input.matches(":autofill"),
+        opacity: style.opacity,
+        fill: style.webkitTextFillColor,
+      };
+    });
+
+  for (const theme of ["dark", "light"]) {
+    if (theme === "light") {
+      await page.evaluate(() =>
+        document.getElementById("otp-pin").parentElement.classList.add("light", "bg-background"),
+      );
+    }
+
+    await blurOtp();
+
+    const before = await shot("#otp-pin");
+
+    await otpCdp.send("CSS.forcePseudoState", {
+      nodeId: pinNode,
+      forcedPseudoClasses: ["autofill"],
+    });
+    assert.deepEqual(
+      await autofillLook(),
+      { autofill: true, opacity: "0", fill: "rgba(0, 0, 0, 0)" },
+      `${theme} autofilled`,
+    );
+    assert.ok(before.equals(await shot("#otp-pin")), `${theme}: autofill paints nothing`);
+    await otpCdp.send("CSS.forcePseudoState", { nodeId: pinNode, forcedPseudoClasses: [] });
+    assert.deepEqual(
+      await autofillLook(),
+      { autofill: false, opacity: "1", fill: "rgba(0, 0, 0, 0)" },
+      `${theme} not autofilled`,
+    );
+    assert.ok(before.equals(await shot("#otp-pin")), `${theme}: unchanged after autofill`);
+  }
+
+  await otpCdp.detach();
+
+  // Validation, from a fresh page: Save on an empty code shows the error, marks the input invalid
+  // and focuses it; the caret cell keeps its ring border and the others turn orange, all six once
+  // focus leaves; five digits keep the pattern error and the sixth clears it.
+  await fresh();
+  await page.click("#otp-save");
+  await page.waitForSelector("#otp-error");
+  assert.equal(await textOf("otp-error"), "Enter the code");
+  assert.equal(await attribute("otp-input", "aria-invalid"), "true");
+  await until("otp-input", "aria-describedby", "otp-description otp-error");
+  await page.waitForFunction(() => document.activeElement?.id === "otp-input");
+  await page.mouse.move(0, 0);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    cells.map((cell) => cell.border),
+    [darkRing, ...Array(5).fill(darkOrange)],
+  );
+  assert.equal(await textOf("otp-saves"), "0");
+  await blurOtp();
+  assert.deepEqual(
+    (await otpCells("otp")).map((cell) => cell.border),
+    Array(6).fill(darkOrange),
+  );
+
+  await page.click("#otp-label");
+  await page.keyboard.type("12345");
+  await untilText("otp-error", "Enter all 6 digits");
+  await page.keyboard.type("6");
+  await page.waitForSelector("#otp-error", { state: "detached" });
+  await untilAbsent("otp-input", "aria-invalid");
+  await page.click("#otp-save");
+  await untilText("otp-saves", "1");
+
+  // States, from a fresh page: hover darkens every border but the caret cell's ring; disabled is
+  // dimmed, unhovered and unchanged by keys and paste; readonly is dashed and unfilled, selects a
+  // cell but keeps its code; both themes use their tokens.
+  await fresh();
+  await page.mouse.move(0, 0);
+  cells = await otpCells("otp");
+
+  for (const cell of cells) {
+    assert.deepEqual(
+      [cell.border, cell.background, cell.color],
+      [otpInputColor, otpSurface, foreground],
+      "a resting cell",
+    );
+  }
+
+  await page.click("#otp-label");
+  await hoverOtpCell("otp", 2);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.equal(cells[0].border, darkRing, "a hovered caret cell keeps its ring border");
+
+  for (const cell of cells.slice(1)) {
+    assert.notEqual(cell.border, otpInputColor, "hover changes the border");
+    assert.equal(cell.border, cells[1].border);
+  }
+
+  await blurOtp();
+
+  assert.deepEqual(await styleOf("#otp-locked", ["opacity", "cursor"]), {
+    opacity: "0.5",
+    cursor: "not-allowed",
+  });
+  await hoverOtpCell("otp-locked", 1);
+  await rendered();
+
+  for (const cell of await otpCells("otp-locked")) {
+    assert.equal(cell.border, otpInputColor, "a disabled row doesn't hover");
+  }
+
+  await copyText("123456");
+  await page.click("#otp-locked-input", { force: true });
+  await page.keyboard.type("9");
+  await page.keyboard.press("ControlOrMeta+v");
+  await rendered();
+  assert.notEqual(await activeId(), "otp-locked-input");
+  assert.equal(await valueOf("otp-locked-input"), "482");
+  assert.deepEqual(
+    (await otpCells("otp-locked")).map((cell) => cell.text),
+    ["4", "8", "2", "", "", ""],
+  );
+
+  for (const cell of await otpCells("otp-frozen")) {
+    assert.deepEqual([cell.borderStyle, cell.background], ["dashed", "rgba(0, 0, 0, 0)"]);
+  }
+
+  await clickOtpCell("otp-frozen", 1);
+  await rendered();
+  assert.equal(await activeId(), "otp-frozen-input");
+  assert.deepEqual(await outline("#otp-frozen"), ringOutline(darkRing));
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const input = document.getElementById("otp-frozen-input");
+
+      return [input.selectionStart, input.selectionEnd];
+    }),
+    [1, 2],
+  );
+  cells = await otpCells("otp-frozen");
+  assert.deepEqual(
+    cells.map((cell) => cell.selected),
+    [false, true, false, false, false, false],
+  );
+  assert.equal(cells[1].background, otpTint);
+  await page.keyboard.type("0");
+  await page.keyboard.press("ControlOrMeta+v");
+  await rendered();
+  assert.equal(await valueOf("otp-frozen-input"), "482913");
+
+  for (const cell of await otpCells("otp-light")) {
+    assert.deepEqual(
+      [cell.border, cell.background, cell.color],
+      ["rgb(133, 133, 129)", "rgb(247, 247, 246)", "rgb(27, 27, 27)"],
+      "a light cell",
+    );
+  }
+
+  await page.focus("#otp-light-input");
+  assert.deepEqual(await outline("#otp-light"), ringOutline(lightRing));
+  assert.equal((await otpCells("otp-light")).find((cell) => cell.caret)?.border, lightRing);
+
+  // Reduced motion removes the cells' transitions.
+  const cellTransition = async () =>
+    (await styleOf("#otp > [data-slot=otp-field-cell]", ["transitionDuration"])).transitionDuration;
+
+  assert.equal(await cellTransition(), "0s");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  assert.equal(await cellTransition(), "0.12s");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+
+  // Forced colors, from a fresh page: cells are Canvas with CanvasText borders and text at rest,
+  // hovered and invalid; the caret border and the selection are Highlight; readonly stays dashed;
+  // disabled is GrayText; the row's ring is drawn, and the overlay paints nothing.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+  await page.mouse.move(0, 0);
+
+  const otpSystem = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    const read = (property, value) => {
+      probe.style.cssText = `position: fixed; forced-color-adjust: none; ${property}: ${value}`;
+
+      return getComputedStyle(probe)[property === "color" ? "color" : "backgroundColor"];
+    };
+
+    document.body.append(probe);
+
+    const result = {
+      canvas: read("background", "Canvas"),
+      canvasText: read("color", "CanvasText"),
+      highlight: read("background", "Highlight"),
+      highlightText: read("color", "HighlightText"),
+      grayText: read("color", "GrayText"),
+    };
+
+    probe.remove();
+
+    return result;
+  });
+  const assertForcedRest = (cells, name) => {
+    for (const [index, cell] of cells.entries()) {
+      assert.deepEqual(
+        [cell.border, cell.background, cell.color],
+        [otpSystem.canvasText, otpSystem.canvas, otpSystem.canvasText],
+        `${name} cell ${index}`,
+      );
+    }
+  };
+
+  assertForcedRest(await otpCells("otp"), "forced rest");
+  await hoverOtpCell("otp", 2);
+  await rendered();
+  assertForcedRest(await otpCells("otp"), "forced hover");
+  await page.mouse.move(0, 0);
+
+  await page.click("#otp-save");
+  await page.waitForSelector("#otp-error");
+  await page.waitForFunction(() => document.activeElement?.id === "otp-input");
+  await rendered();
+  cells = await otpCells("otp");
+  assert.equal(cells[0].border, otpSystem.highlight, "the forced caret border");
+  assertForcedRest(cells.slice(1), "forced invalid");
+  await blurOtp();
+  assertForcedRest(await otpCells("otp"), "forced invalid, blurred");
+
+  await page.click("#otp-label");
+  await page.keyboard.type("482913");
+  await untilText("otp-verified", "482913");
+  await clickOtpCell("otp", 2);
+  await rendered();
+  cells = await otpCells("otp");
+  assert.deepEqual(
+    [cells[2].selected, cells[2].background, cells[2].color],
+    [true, otpSystem.highlight, otpSystem.highlightText],
+  );
+  assertForcedRest([...cells.slice(0, 2), ...cells.slice(3)], "forced unselected");
+
+  await page.click("#otp-pin-input");
+  await page.keyboard.type("1234");
+  await untilText("otp-pin-value", "4");
+  await clickOtpCell("otp-pin", 1);
+  await rendered();
+  assert.deepEqual(
+    (await otpCells("otp-pin")).map((cell) => cell.dot),
+    [otpSystem.canvasText, otpSystem.highlightText, otpSystem.canvasText, otpSystem.canvasText],
+  );
+
+  await blurOtp();
+
+  for (const cell of await otpCells("otp-frozen")) {
+    assert.deepEqual(
+      [cell.border, cell.borderStyle, cell.background],
+      [otpSystem.canvasText, "dashed", otpSystem.canvas],
+    );
+  }
+
+  for (const cell of await otpCells("otp-locked")) {
+    assert.deepEqual([cell.border, cell.color], [otpSystem.grayText, otpSystem.grayText]);
+  }
+
+  await page.focus("#otp-input");
+
+  const forcedOtpRing = await outline("#otp");
+
+  assert.deepEqual([forcedOtpRing.style, forcedOtpRing.width], ["solid", "2px"]);
+  assert.match(forcedOtpRing.color, /^rgb\(/, "the forced ring is opaque");
+  assert.deepEqual(
+    await styleOf("#otp-input", ["color", "webkitTextFillColor", "forcedColorAdjust"]),
+    {
+      color: "rgba(0, 0, 0, 0)",
+      webkitTextFillColor: "rgba(0, 0, 0, 0)",
+      forcedColorAdjust: "none",
+    },
   );
   await page.emulateMedia({ forcedColors: "none" });
 

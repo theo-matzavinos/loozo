@@ -8,6 +8,7 @@ import {
   form,
   max,
   min,
+  pattern,
   readonly,
   required,
   submit,
@@ -29,6 +30,7 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
 import { NumberFieldParts } from "#ui/number-field";
+import { OtpField, OtpFieldInput } from "#ui/otp-field";
 import { PopoverParts } from "#ui/popover";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
 import { SelectParts } from "#ui/select";
@@ -108,6 +110,111 @@ const COUNTRIES = [
   { code: "CH", name: "Switzerland" },
 ];
 
+// OTP field: a verification code in a Field, a masked PIN, disabled, readonly, larger cells, an
+// RTL parent and the light theme.
+@Component({
+  selector: "app-otp-fields",
+  imports: [
+    Button,
+    Field,
+    FieldDescription,
+    FieldError,
+    FieldLabel,
+    FormField,
+    OtpField,
+    OtpFieldInput,
+  ],
+  template: `
+    <form id="otps" class="grid w-[380px] gap-4 p-5" (submit)="save($event)">
+      <div zzField #codeField="zzField" id="otp-field-wrap">
+        <label zzFieldLabel id="otp-label">Verification code</label>
+        <div
+          zzOtpField
+          #otp="zzOtpField"
+          [formField]="codes.code"
+          (valueChange)="otp.state.complete() && verified.set($event)"
+          id="otp"
+        >
+          <input zzOtpFieldInput id="otp-input" />
+        </div>
+        <p zzFieldDescription id="otp-description">The 6-digit code we sent you</p>
+        @if (codeField.state.errorsShown()) {
+          <p zzFieldError id="otp-error">{{ codeField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <output id="otp-verified">{{ verified() }}</output>
+
+      <div class="flex items-center gap-2">
+        <div zzOtpField mask length="4" [(value)]="pin" id="otp-pin">
+          <input
+            zzOtpFieldInput
+            aria-label="PIN"
+            autocomplete="current-password"
+            id="otp-pin-input"
+          />
+        </div>
+        <output id="otp-pin-value">{{ pin().length }}</output>
+      </div>
+
+      <div zzField id="otp-locked-field">
+        <label zzFieldLabel>Locked code</label>
+        <div zzOtpField [formField]="codes.locked" id="otp-locked">
+          <input zzOtpFieldInput id="otp-locked-input" />
+        </div>
+      </div>
+      <div zzField id="otp-frozen-field">
+        <label zzFieldLabel>Saved code</label>
+        <div zzOtpField [formField]="codes.frozen" id="otp-frozen">
+          <input zzOtpFieldInput id="otp-frozen-input" />
+        </div>
+      </div>
+
+      <div zzOtpField [value]="'12'" class="[--otp-field-cell-size:3rem]" id="otp-large">
+        <input zzOtpFieldInput aria-label="Large code" id="otp-large-input" />
+      </div>
+      <div dir="rtl">
+        <div zzOtpField [value]="'482913'" id="otp-rtl">
+          <input zzOtpFieldInput aria-label="Right-to-left code" />
+        </div>
+      </div>
+      <div class="light bg-background p-2">
+        <div zzOtpField [value]="'4829'" id="otp-light">
+          <input zzOtpFieldInput aria-label="Light code" id="otp-light-input" />
+        </div>
+      </div>
+
+      <button zzButton variant="primary" type="submit" id="otp-save">Save code</button>
+      <output id="otp-saves">{{ saves() }}</output>
+    </form>
+  `,
+})
+export class OtpFields {
+  protected readonly pin = signal("");
+  protected readonly verified = signal("");
+  protected readonly saves = signal(0);
+
+  // Every rule has a message: a rule without one gives an error whose message is undefined.
+  protected readonly codes = form(signal({ code: "", locked: "482", frozen: "482913" }), (path) => {
+    required(path.code, { message: "Enter the code" });
+    pattern(path.code, /^[0-9]{6}$/, { message: "Enter all 6 digits" });
+    disabled(path.locked);
+    readonly(path.frozen);
+  });
+
+  protected async save(event: Event): Promise<void> {
+    event.preventDefault();
+    await submit(this.codes, async () => {
+      this.saves.update((count) => count + 1);
+
+      return undefined;
+    });
+
+    if (this.codes.code().invalid()) {
+      this.codes.code().focusBoundControl();
+    }
+  }
+}
+
 // A dialog opened from code: the component is the Dialog root and closes itself.
 @Component({
   selector: "app-search-dialog",
@@ -153,6 +260,7 @@ export class SearchDialog {
     LucideRotateCcw,
     LucideTriangleAlert,
     NumberFieldParts,
+    OtpFields,
     PopoverParts,
     RadioGroup,
     RadioGroupItem,
@@ -790,6 +898,8 @@ export class SearchDialog {
       </div>
       <output id="number-saves">{{ numberSaves() }}</output>
     </form>
+
+    <app-otp-fields />
 
     <!-- Select and Combobox. -->
     <section id="lists" class="grid gap-6 p-5">

@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, OtpField, Slider, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -43,11 +43,12 @@ ng generate @loozo/fold-ui:add --names button alert-dialog dialog sheet
 ng generate @loozo/fold-ui:add --names field input textarea
 ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
+ng generate @loozo/fold-ui:add --names otp-field
 ng generate @loozo/fold-ui:add --names select combobox
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
 ```
 
-NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider, Combobox and OtpField import `@loozo/origami-ui/number-field`, `/slider`, `/combobox` and `/otp-field`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -135,9 +136,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. An OtpField's cells have `data-filled`, `data-caret` and `data-selected`; like NumberField, the row reads its input's `:focus-visible`, `:disabled`, `[readonly]` and `[aria-invalid=true]` through `:has()`. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -475,7 +476,7 @@ Field lays out a label, a control, its descriptions and its errors, over Origami
 ```
 
 - `Field`: the root, a column with a 6px gap. Its template reference, `#email="foldField"` with your prefix, has `state`: Origami's Field state, with `errorsShown`, `errors`, `invalid`, `touched`, `disabled` and `required` signals. It takes `orientation`, `vertical` (default) or `horizontal`; see [Option rows](#option-rows).
-- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox, Switch and NumberField, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), or a [Slider](#slider), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
+- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox, Switch, NumberField and OtpField, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), or a [Slider](#slider), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
 - `FieldDescription`: a 12px muted hint. It takes `id`.
 - `FieldError`: a 12px message in the destructive text color, after an alert icon hidden from assistive technology. It always shows while it's mounted, so put it under `@if (field.state.errorsShown())`; the text is yours. It takes `id`.
 
@@ -728,6 +729,59 @@ Put the parts in any order. The split layout above is the usual one; `[input][�
 Give every schema rule a `message`: a `max(p.x, 1000)` without one shows an empty FieldError in the `@default` branch. Origami's own errors, `numberInvalid` and `numberIncomplete`, have no message, so the template names them.
 
 A value typed out of range stays, and the schema reports it; the buttons and keys only step inside the bounds. In Greek and other locales whose group separator is `.`, `12.50` is reported as `numberInvalid`, and `1.500` reads as 1500. Precision is a JavaScript `number`'s, about 15 significant digits. There's no `ngModel` or reactive forms support: use `[formField]` or `[(value)]`. [Origami's README](../origami-ui/number-field/README.md) describes parsing, stepping, hydration and the rest.
+
+## OtpField
+
+```ts
+import { OtpField, OtpFieldInput } from "#ui/otp-field";
+import { form, pattern, required } from "@angular/forms/signals";
+
+readonly login = form(signal({ code: "" }), (p) => {
+  required(p.code, { message: "Enter the code" });
+  pattern(p.code, /^[0-9]{6}$/, { message: "Enter all 6 digits" });
+});
+```
+
+`OtpField` is a one-time code or PIN over Origami's [OTP field](../origami-ui/otp-field/README.md), which owns the behavior: one native input holds the code, keeps only digits from typing, pasting and autofill, and maps a click to the cell under it. fold lays that input, an `OtpFieldInput`, transparently over a row of 40px cells, 8px apart, one per digit, and draws the caret, the selection and the focus on them:
+
+<!-- prettier-ignore -->
+```html
+<div foldField #code="foldField">
+  <label foldFieldLabel>Verification code</label>
+  <div
+    foldOtpField
+    #otp="foldOtpField"
+    [formField]="login.code"
+    (valueChange)="otp.state.complete() && verify($event)"
+  >
+    <input foldOtpFieldInput />
+  </div>
+  <p foldFieldDescription>The 6-digit code we sent you</p>
+  @if (code.state.errorsShown()) {
+    <p foldFieldError>{{ code.state.errors()[0]?.message }}</p>
+  }
+</div>
+
+<div foldOtpField [(value)]="pin" mask length="4" class="[--otp-field-cell-size:3rem]">
+  <input foldOtpFieldInput aria-label="PIN" autocomplete="current-password" />
+</div>
+```
+
+- `OtpField`: the row of cells. It takes `value` (two-way, a string of digits, `""` when empty), `length` (default 6), `mask` (a PIN: a dot in each filled cell, and the input a password field), `disabled`, `readonly` and `class`, and emits `valueChange` and `touch`; `[formField]` binds the value, `disabled` and `readonly`. Its template reference, `#otp="foldOtpField"` with your prefix, has `state`, with `value`, `complete`, `cells`, `focused`, `mask`, `disabled` and `readonly` signals. Its `focus()` focuses the input, so Signal Forms' `focusBoundControl()` reaches it. `--otp-field-cell-size` (default `2.5rem`) sets the cells' size.
+- `OtpFieldInput`: the native input, invisible over the cells. It takes focus and is what a screen reader reads; the cells are hidden from assistive technology. Inside a Field it's the Field's control; outside one, give it an `aria-label`. Origami reads its `id` once, as a static attribute: write `id="…"` or let the Field generate one, not `[id]`. It takes `class`.
+
+A cell has the `surface` fill, an `input` border and its digit at 18px, semibold, with tabular figures. While the input has focus, the row has the 2px ring outline, and the cell where the next digit goes has a ring border, plus a thin caret bar while it's empty; a full code with the caret at its end has only the ring. A click on a filled cell selects its digit, tinted neutral, and typing replaces it. Hovering the row darkens the borders. In an invalid field every cell but the caret's has a destructive border: the caret cell keeps its ring, so the place you type stays visible. Readonly cells are dashed and unfilled, and still show the caret and the selection; a disabled row is at 50%.
+
+- **Completion.** There's no completion event: read `state.complete()` in `valueChange`, as above. It fires for every edit that changes the code, typed, pasted or autofilled, but not for a value your app writes, such as from an on-screen keypad: check that one yourself, with `/^[0-9]{6}$/.test(code)`. See Origami's [Reacting to a complete code](../origami-ui/otp-field/README.md#reacting-to-a-complete-code).
+- **Validation.** Exact validation is `required` plus `pattern`, as above. A value your app writes is kept as written, so `minLength(6)` alone lets `1234567` through. Say how many digits in a FieldDescription: the input has no `maxlength`.
+- **PINs.** On a masked PIN, write `autocomplete="current-password"` where you ask for it and `new-password` where you set it. The default, `one-time-code`, lets phones offer a code from a message.
+- **Width.** The row is as wide as its cells, `n × size + (n − 1) × 8px`, 280px for six default cells. Don't widen it, such as with `w-full`: a click maps to equal slots of the input's width, so a wider row maps clicks to the wrong cells.
+- **Narrow screens.** Six 48px cells need 328px, more than a 320px phone's whole viewport, so the page scrolls sideways and clips the last cell. Cells don't shrink: keep the default 40px on narrow layouts, or enlarge them from a breakpoint, such as `class="sm:[--otp-field-cell-size:3rem]"`.
+- **Autofill.** A code or PIN the browser autofills fills the cells, as typing does. Browsers paint their autofill highlight with `!important`, which would cover the cells, so `OtpFieldInput` hides its own paint while `:autofill` matches (`autofill:opacity-0`, plus a transparent `-webkit-text-fill-color`); keep both if you edit your copy.
+- **Left to right.** The row has `dir="ltr"`, so a code's digits read left to right on a right-to-left page too.
+- **Forced colors.** In forced-colors mode, such as Windows High Contrast, the cells are Canvas with CanvasText borders and digits, the caret cell's border and a selected cell are Highlight, and a disabled row's cells are GrayText. An invalid cell looks like a valid one: the Field's error text carries the state.
+
+[Origami's README](../origami-ui/otp-field/README.md) describes the keys, paste, masking, hydration and the rest.
 
 ## Slider
 
@@ -1083,6 +1137,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - `ng add` adds `imports` at the top of your `package.json`.
 - Nx workspaces are untested.
 - No range, multi-thumb or vertical Slider, and no ticks or marks; no press-and-hold or wheel stepping in NumberField.
+- No grouped or separated cells, letters or reveal toggle in OtpField; its cells don't shrink.
 - No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. A list wider than its trigger near the viewport's edge can overflow it: Origami flips a list but doesn't shift it.
 - No scrolling or wrapping Tabs List, sliding underline or link tabs.
 - No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. A Tooltip or Popover near the viewport's cross-axis edge can overflow it: Origami flips them but doesn't shift them.
