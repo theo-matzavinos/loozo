@@ -180,7 +180,7 @@ The script runs under the machine-wide gate lock, like the build bench. The perf
 - **Scenarios.** `checkbox-1000`, `plain-1000`, `select-1000`, `menu-100`, `popover` and `tooltip`.
 - **Samples.** `mount=10,hydrate=10,open=20`. Heap is always one warmup plus five cycles, one sample per run.
 - **Time.** A full run takes about 18 s on a 16-core laptop, the perf app's build (about 2.4 s) included. `--deterministic` takes about 3 s.
-- **`--timeout`** limits every command and every wait: the build, the server's startup, each warmup request (one per route; a `--deterministic` run warms only the `/mount/` routes its heap phase uses), Chromium's launch, and every wait in the browser, so a stuck opening or a mount that never gets stable fails after it. The default is 1200 s; `--timeout 10` fails fast while changing the perf app. However the run ends, the runner closes Chromium, stops the server and saves its log.
+- **`--timeout`** limits every command and every wait: the build, the server's startup, each warmup request (one untimed request before the first page on each route a phase visits, so a run requests only the routes it measures), Chromium's launch, and every wait in the browser, so a stuck opening or a mount that never gets stable fails after it. The default is 1200 s; `--timeout 10` fails fast while changing the perf app. However the run ends, the runner closes Chromium, stops the server and saves its log.
 
 Each run writes `<out>/results.json`, `<out>/build.log`, `<out>/server.log` and `<out>/consumer`, the scratch app with its build under `dist/runtime`.
 

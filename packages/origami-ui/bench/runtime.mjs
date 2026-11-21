@@ -30,16 +30,6 @@ const opens = {
   tooltip: { route: "/tooltip", input: "focus" },
 };
 const scenarios = [...Object.keys(lists), ...Object.keys(opens)];
-const routes = [];
-
-for (const kind of Object.values(lists)) {
-  routes.push(`/hydrate/${kind}-1000`, `/mount/${kind}-1000`);
-}
-
-for (const { route } of Object.values(opens)) {
-  routes.push(route);
-}
-
 const contextOptions = {
   viewport: { width: 1280, height: 800 },
   deviceScaleFactor: 1,
@@ -204,7 +194,7 @@ async function withinTimeout(run, what, promise) {
   }
 }
 
-async function setup({ out, timeoutMs, deterministic }) {
+async function setup({ out, timeoutMs }) {
   const consumer = join(out, "consumer");
 
   await createRuntimeConsumer(consumer);
@@ -225,25 +215,6 @@ async function setup({ out, timeoutMs, deterministic }) {
 
   const origin = await server.listening;
 
-  // One untimed request per route, so no sample pays for the server's first render of it. The
-  // signal bounds the body read too. A deterministic run measures only the heap, on the mount
-  // routes, so it warms only those.
-  let warmed = routes;
-
-  if (deterministic) {
-    warmed = routes.filter((route) => route.startsWith("/mount/"));
-  }
-
-  for (const route of warmed) {
-    const response = await fetch(`${origin}${route}`, { signal: AbortSignal.timeout(timeoutMs) });
-
-    await response.text();
-
-    if (!response.ok) {
-      throw new Error(`Warming ${route} failed with ${response.status}`);
-    }
-  }
-
   const { chromium } = require("playwright");
   const browser = await chromium.launch({ timeout: timeoutMs });
 
@@ -252,6 +223,8 @@ async function setup({ out, timeoutMs, deterministic }) {
   return {
     origin,
     browser,
+    // Routes already requested once, untimed, so no sample pays for the server's first render.
+    warmed: new Set(),
     app: { buildMs: build.wallMs, chromium: browser.version() },
     // Mount and hydrate samples one list scenario took for its partner, by phase.
     handed: { mount: {}, hydrate: {} },
@@ -280,7 +253,29 @@ async function stop() {
 }
 
 // A fresh context and page on a route, collecting the page's errors.
+// The first page on a route is preceded by one untimed request for it, outside every timed span,
+// so only the routes a run's phases visit are ever requested. The signal bounds the body read too.
+async function warm(run, route) {
+  const { origin, warmed } = run.shared;
+
+  if (warmed.has(route)) {
+    return;
+  }
+
+  const response = await fetch(`${origin}${route}`, { signal: AbortSignal.timeout(run.timeoutMs) });
+
+  await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Warming ${route} failed with ${response.status}`);
+  }
+
+  warmed.add(route);
+}
+
 async function openPage(run, route) {
+  await warm(run, route);
+
   const { browser, origin } = run.shared;
   const context = await withinTimeout(run, "a new context", browser.newContext(contextOptions));
 
