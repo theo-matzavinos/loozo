@@ -1,7 +1,6 @@
 import { Component, signal } from "@angular/core";
 import {
   OrigamiAccordionItem,
-  OrigamiAccordionMultiple,
   OrigamiAccordionPanel,
   OrigamiAccordionSingle,
   OrigamiAccordionTrigger,
@@ -11,7 +10,6 @@ import {
   selector: "bench-root, bench-accordion",
   imports: [
     OrigamiAccordionSingle,
-    OrigamiAccordionMultiple,
     OrigamiAccordionItem,
     OrigamiAccordionTrigger,
     OrigamiAccordionPanel,
@@ -26,12 +24,6 @@ import {
           <div ogAccordionPanel role="region">{{ question.answer }}</div>
         </article>
       }
-    </section>
-    <section ogAccordionMultiple>
-      <article ogAccordionItem value="warranty">
-        <h3><button ogAccordionTrigger>Is there a warranty?</button></h3>
-        <div ogAccordionPanel role="region">Two years.</div>
-      </article>
     </section>
   `,
 })
