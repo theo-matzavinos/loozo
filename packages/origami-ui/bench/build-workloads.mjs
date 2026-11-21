@@ -80,12 +80,14 @@ export async function scanWorkloads({ packageDirectory, workloads, entries: name
     const specifiers = imports(ts, source);
     const used = new Set();
     const relative = new Set();
+    const local = [];
 
     for (const specifier of specifiers) {
       if (specifier.startsWith(origami)) {
         used.add(specifier.slice(origami.length));
-      } else if (specifier.startsWith("./")) {
-        relative.add(specifier.slice("./".length));
+      } else if (specifier.startsWith(".") || specifier.startsWith("/")) {
+        relative.add(specifier.replace(/^\.\//, ""));
+        local.push(specifier);
       }
     }
 
@@ -125,9 +127,9 @@ export async function scanWorkloads({ packageDirectory, workloads, entries: name
     // Only all composes other workloads; an isolated scenario that renders another workload no
     // longer measures its entry alone.
     if (scenario !== "all") {
-      for (const name of relative) {
+      for (const specifier of local) {
         throw new Error(
-          `workloads/${scenario}.ts imports ./${name}; only all imports other workloads`,
+          `workloads/${scenario}.ts imports ${specifier}; only all imports other workloads or local files`,
         );
       }
     }
