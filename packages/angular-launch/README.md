@@ -6,7 +6,7 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** experimental. MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on Node), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
+**Status:** pre-1.0: breaking changes come only in minor releases (see [Versions](#versions)). MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on Node), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
 
 ## Requirements
 
@@ -22,6 +22,14 @@ Install both packages:
 ```sh
 pnpm add @loozo/angular-launch @loozo/angular-router@0.1.0
 ```
+
+## Versions
+
+Launch follows the router's [version policy](../angular-router/README.md#versions): releases are numbered `0.MINOR.PATCH` until 1.0, a patch doesn't break the contract and a minor may, every move to a new Angular minor is a minor, and generated files aren't part of the contract byte for byte, so run `ng build` (or `ng serve`) once after upgrading and commit what it regenerates. Launch's contract is its [`SPEC.md`](SPEC.md): the entry points and their types, the builder names and options, the generated files it lists and what they export, and the behavior it specifies. It doesn't cover `@loozo/angular-launch/_server`, which only generated code imports, or the wire format between client and server, so deploy the browser and server builds of one release together.
+
+What's different for Launch is the router pin. Launch releases in lockstep with the router and pins it exactly, so every router release comes with a Launch release that pins it: a Launch patch for a router patch, a Launch minor for a router minor. Upgrade the two together, the router to the version Launch's `peerDependencies` names.
+
+Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-launch&expanded=true).
 
 ## How it fits together
 
