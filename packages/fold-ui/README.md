@@ -1059,7 +1059,7 @@ Name the panel with `aria-labelledby` or `aria-label`, and author it right after
 ## Menu
 
 ```ts
-import { Button } from "#ui/button";
+import { RouterLink } from "@angular/router";
 import { MenuParts } from "#ui/menu";
 import { LucideEllipsis, LucidePencil, LucideTrash } from "@lucide/angular";
 ```
