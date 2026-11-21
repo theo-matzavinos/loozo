@@ -38,6 +38,7 @@ import { Slider, SliderThumb } from "#ui/slider";
 import { Switch } from "#ui/switch";
 import { TabsParts } from "#ui/tabs";
 import { Textarea } from "#ui/textarea";
+import { ToastRegion, Toasts } from "#ui/toast";
 import { TooltipParts } from "#ui/tooltip";
 import {
   LucideArchive,
@@ -171,6 +172,7 @@ export class SearchDialog {
     Switch,
     TabsParts,
     Textarea,
+    ToastRegion,
     TooltipParts,
   ],
   template: `
@@ -1374,6 +1376,20 @@ export class SearchDialog {
       <output id="menu-view-density-value">{{ menuDensity() }}</output>
       <output id="menu-view-moved">{{ menuMoved() }}</output>
     </section>
+    <!-- Toast fixtures: every toast but the timed one stays until it's closed. -->
+    <section id="toasts" class="flex max-w-3xl flex-wrap items-start gap-2 p-5">
+      <button zzButton (click)="toastSuccesses()" id="toast-successes">Three saves</button>
+      <button zzButton (click)="toastTall()" id="toast-tall">Tall save</button>
+      <button zzButton (click)="toastError()" id="toast-error">Error</button>
+      <button zzButton (click)="toastReload()" id="toast-reload">Reload action</button>
+      <button zzButton (click)="toastActions()" id="toast-actions">Three actions</button>
+      <button zzButton (click)="toastTimed()" id="toast-timed">Timed save</button>
+      <button zzButton (click)="toastPair()" id="toast-pair">Two in one handler</button>
+      <output id="toast-status">{{ toastStatus() }}</output>
+      <a href="#before-region" id="before-region">Before</a>
+    </section>
+    <div zzToastRegion></div>
+    <a href="#after-region" id="after-region">After</a>
   `,
 })
 export class App {
@@ -1401,6 +1417,8 @@ export class App {
   protected readonly menuShowArchived = signal(false);
   protected readonly menuDensity = signal<string | null>("comfortable");
   protected readonly menuMoved = signal("");
+  protected readonly toasts = inject(Toasts);
+  protected readonly toastStatus = signal("");
   protected readonly releaseNotes = Array.from(
     { length: 14 },
     (_, index) =>
@@ -1691,5 +1709,71 @@ export class App {
       this.pending.set(false);
       this.open.set(false);
     }, 600);
+  }
+
+  protected toastSuccesses(): void {
+    for (const title of ["Checklist saved", "Task updated", "Release notes saved"]) {
+      this.toasts.add({ title, kind: "success" }, { duration: Infinity });
+    }
+  }
+
+  protected toastTall(): void {
+    this.toasts.add(
+      {
+        title: "Release is ready for review",
+        description:
+          "The checklist, release notes and onboarding changes have been saved. Share them with your team before publishing.",
+        kind: "success",
+      },
+      { duration: Infinity },
+    );
+  }
+
+  protected toastError(): void {
+    this.toasts.add(
+      {
+        title: "Couldn't save your changes",
+        description: "Your connection was interrupted. Try saving again when you're back online.",
+        kind: "error",
+      },
+      { duration: Infinity },
+    );
+  }
+
+  protected toastReload(): void {
+    this.toasts.add(
+      {
+        title: "A new version is available",
+        description: "Reload to get the latest changes.",
+        kind: "info",
+        action: { label: "Reload", run: () => this.toastStatus.set("Reloaded") },
+      },
+      { duration: Infinity },
+    );
+  }
+
+  protected toastActions(): void {
+    for (const name of ["Oldest", "Middle", "Newest"]) {
+      this.toasts.add(
+        {
+          title: `${name} card`,
+          kind: "info",
+          action: {
+            label: `${name} action`,
+            run: () => this.toastStatus.set(`${name} action ran`),
+          },
+        },
+        { duration: Infinity },
+      );
+    }
+  }
+
+  protected toastTimed(): void {
+    this.toasts.add({ title: "Saved with the default duration", kind: "success" });
+  }
+
+  protected toastPair(): void {
+    this.toasts.add({ title: "First in handler", kind: "success" }, { duration: Infinity });
+    this.toasts.add({ title: "Second in handler", kind: "warning" }, { duration: Infinity });
   }
 }

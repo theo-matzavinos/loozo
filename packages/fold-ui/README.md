@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, Tabs, Tooltip and Popover, and Menu. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, Tabs, Tooltip and Popover, Menu, and Toast. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -46,9 +46,10 @@ ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names select combobox
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
 ng generate @loozo/fold-ui:add --names menu
+ng generate @loozo/fold-ui:add --names toast
 ```
 
-NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. Menu imports `@loozo/origami-ui/menu`, which no published Origami has yet (npm has 0.0.4). An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. Menu and Toast import `@loozo/origami-ui/menu` and `/toast`, which no published Origami has yet (npm has 0.0.4). An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -79,7 +80,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; MenuTrigger is styled by `ButtonStyle` and the panel and rows come from `popup`, so adding `menu` adds `button` and `popup`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; MenuTrigger is styled by `ButtonStyle` and the panel and rows come from `popup`, so adding `menu` adds `button` and `popup`; Toast's buttons use `Button` and its cards `popup`, so adding `toast` adds `button` and `popup`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -136,9 +137,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. A toast has `data-kind`, `data-entering` and `data-leaving`, is `inert` through its exit, and sets `--toast-index`, its place in the deck, 0 for the newest. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -1144,6 +1145,63 @@ Listen to `select`, not `click`: it runs for a click, Enter or Space. A click or
 
 [Origami's README](../origami-ui/menu/README.md) describes the [keys](../origami-ui/menu/README.md#keyboard) and typeahead, [removing the row a menu belongs to](../origami-ui/menu/README.md#removing-the-row-a-menu-belongs-to), and [server rendering and hydration](../origami-ui/menu/README.md#server-rendering-and-hydration).
 
+## Toast
+
+```ts
+import { ToastRegion, Toasts } from "#ui/toast";
+```
+
+`Toast` shows short notifications your code raises from anywhere, such as "Invoice saved" after a request, over Origami's [Toast](../origami-ui/toast/README.md), which owns the behavior: the records, timers and pausing, the limit, focus when a toast closes, the live region and server rendering. `Toasts` is your app's toaster; `ToastRegion` shows its toasts as a deck in the bottom-end corner, 20px from the viewport's edges and at most 384px wide. Put the region once, in your root component:
+
+```ts
+@Component({
+  selector: "app-root",
+  imports: [RouterOutlet, ToastRegion],
+  template: `<router-outlet />
+    <div foldToastRegion></div>`,
+})
+export class App {}
+```
+
+Then inject `Toasts` anywhere, such as a component, an effect or an HTTP interceptor, and add a toast:
+
+```ts
+readonly toasts = inject(Toasts);
+
+this.toasts.add({ title: `Deleted "${todo.title}"`, kind: "success" });
+
+// A toast someone must act on stays until it's closed. Reload runs, then the toast closes.
+this.toasts.add(
+  {
+    title: "A new version is available",
+    description: "Reload to get the latest changes.",
+    kind: "info",
+    action: { label: "Reload", run: () => document.location.reload() },
+  },
+  { duration: Infinity },
+);
+```
+
+- `Toasts`: the toaster, provided in root. `add(data, { duration })` shows a toast and returns its id; `close(id)` closes it. `duration` is in milliseconds, or `Infinity` for a toast that stays until it's closed; without it, the region's applies.
+- `ToastData`: what a toast shows: a `title`, an optional `description`, an optional `kind` (`success`, `info`, `warning` or `error`), which picks a 16px icon tinted green, muted, amber or orange, and an optional `action`, `{ label, run }`, a small button that runs `run()` and then closes the toast. Every toast has a Close button.
+- `ToastRegion`: an attribute on your `<div>`. It takes `label` (the region's name, default `"Notifications"`), `closeLabel` (every Close button's name, default `"Close"`), `duration` (default 5000, in milliseconds), `limit` (the most open toasts, default 3; one more closes the oldest) and `class`.
+
+The newest toast is in front, and older ones peek 8px above it at the one-line height, their content hidden. Hovering the deck, or focus inside it, fans it out into a column with the newest at the bottom, so the front toast's buttons stay under the pointer. Toasts enter and leave with the [floating layers'](#floating-layers) motion.
+
+- **Once, in the root component.** The region must be in the server's HTML before any toast, so screen readers announce them, and a second region for the same toaster throws.
+- **Don't provide `Toasts` again**, such as in a component's `providers`: that makes a second toaster no region shows.
+- **Name it with `label`, not `aria-label`.** The live region is a `<section>` inside your `<div>`, so `aria-label` on the `<div>` names the wrong element.
+- **Bottom placements only.** `class="start-5 end-auto"` moves it to the bottom-start corner. The peeks and the fan-out grow upward, so a top placement needs an edit to the copied `toast-region.ts`.
+- **Every toast is polite**, errors included: a screen reader reads it after its current speech.
+- **Write titles that state the outcome**, such as "Couldn't save the invoice", not "Error". The kind icon is decorative (`aria-hidden`), so the title is what screen readers hear.
+- **Hover pauses the timer**, and so does focus inside the region; each toast continues with the time it had left. A toast that appears under a resting pointer waits until the pointer moves. See Origami's [timers and pausing](../origami-ui/toast/README.md#timers-and-pausing). Use `{ duration: Infinity }` for a toast someone must act on: auto-dismissal is acceptable under WCAG 2.2.1 only when the information is also available elsewhere.
+- **Modal dialogs hold new toasts** until the last one closes, so add the toast and close the dialog in the same handler; see Origami's [modal dialogs](../origami-ui/toast/README.md#modal-dialogs).
+- **It paints under floating layers.** The region isn't in the top layer, so open Popovers, Menus, Selects, Tooltips and Dialogs paint above it.
+- **The collapsed height is the one-line height**, 58px: 12px padding, the 32px Close, 12px padding and the 1px borders. If you change the card's padding or the Close's size, change `--toast-collapsed` on the region to match, and keep the 8px peek inside the card's top padding, so a back card's controls never sit under a peek.
+- **Back cards stay readable by screen readers.** Their content is transparent, not hidden. Keyboard focus in any card opens the deck at once; hover opens it with a short fan-out.
+
+[Origami's README](../origami-ui/toast/README.md) describes [closing and removal](../origami-ui/toast/README.md#closing-and-removal), [focus](../origami-ui/toast/README.md#focus) and [modal dialogs](../origami-ui/toast/README.md#modal-dialogs).
+
 ## Floating layers
 
 Select, Combobox, Popover and Menu share one look from `popup`, and Tooltip shares its motion: a folder of class lists with no Angular code, which your own panels can use too:
@@ -1177,6 +1235,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - No scrolling or wrapping Tabs List, sliding underline or link tabs.
 - No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. Near the viewport's edge, Origami flips a Tooltip's or Popover's alignment or slides it along the edge to keep it in view; it overflows only along its main axis, when neither side of its Trigger has room.
 - No context menu, menubar, mixed checkbox item or disabled MenuLink (use a disabled MenuItem), and no keep-open on Enter for checkbox and radio items: that's Origami's contract. In a narrow viewport, a submenu that fits on neither side of its parent, such as a 200px submenu at 390px, overflows the viewport's edge.
+- No replacing or deduplicating a toast by id, hotkey, promise or loading toasts, swipe, or placement other than the bottom corners. Outside Chromium, the deck's heights snap instead of animating (no `interpolate-size`; the offsets and scale still animate), and when the front toast closes, the next one snaps to its full height once the exit ends.
 - A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
 - In Firefox's forced-colors mode, focus rings are `CanvasText`, the text color, rather than Chromium's `Highlight`: fold leaves the ring's forced color to the browser, as on every other fold part.
 

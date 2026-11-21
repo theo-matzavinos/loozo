@@ -444,6 +444,7 @@ describe("add", () => {
       switch: ["cn", "switch"],
       tabs: ["cn", "tabs"],
       textarea: ["cn", "input", "textarea"],
+      toast: ["button", "cn", "popup", "toast"],
       tooltip: ["cn", "popup", "tooltip"],
     };
 
@@ -551,6 +552,17 @@ describe("add", () => {
     assert.match(readText(tree, "src/ui/menu/menu-item.ts"), /selector: "button\[zzMenuItem\]"/);
     assert.match(readText(tree, "src/ui/menu/menu-content.ts"), /exportAs: "zzMenuContent"/);
     assert.match(readText(tree, "src/ui/menu/menu-shortcut.ts"), /selector: "\[zzMenuShortcut\]"/);
+  });
+
+  test("renames Toast's region and close with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["toast"] }, await setUp(runner));
+
+    assert.match(readText(tree, "src/ui/toast/toast-region.ts"), /selector: "\[zzToastRegion\]"/);
+    assert.match(
+      readText(tree, "src/ui/toast/toast-close.ts"),
+      /selector: "button\[zzToastClose\]"/,
+    );
   });
 
   test("skips an existing named component by default, with a warning", async () => {
