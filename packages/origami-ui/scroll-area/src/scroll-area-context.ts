@@ -33,6 +33,7 @@ export interface ScrollAreaScrollbarPart extends ScrollAreaPart {
 
 /** One axis's measured geometry, in layout px, kept while its Scrollbar and Thumb are rendered. */
 interface AxisCache {
+  readonly track: HTMLElement;
   readonly thumb: HTMLElement;
   /** The track's content box along the axis: its used border-box size minus border and padding. */
   readonly rail: number;
@@ -40,6 +41,7 @@ interface AxisCache {
   readonly length: number;
   readonly travel: number;
   readonly range: number;
+  /** The Thumb's painted offset along the rail, in layout px from the rail's start. */
   offset: number;
 }
 
@@ -50,6 +52,7 @@ interface Drag {
   readonly thumb: ScrollAreaPart;
   readonly axis: ScrollAreaAxis;
   readonly pointerId: number;
+  /** The Viewport's direction, which converts a position to native coordinates. */
   readonly rtl: boolean;
   /** Where along the thumb the pointer holds it, in layout px from the thumb's start. */
   readonly grab: number;
@@ -96,13 +99,16 @@ function borderBoxLength(style: CSSStyleDeclaration, axis: ScrollAreaAxis): numb
   );
 }
 
-/** Border plus padding at the rail's start: its top, its left, or its right for RTL horizontal. */
-function startInset(style: CSSStyleDeclaration, axis: ScrollAreaAxis, rtl: boolean): number {
+/**
+ * Border plus padding at the rail's start: its top, its left, or its right for a horizontal track
+ * in right-to-left text.
+ */
+function startInset(style: CSSStyleDeclaration, axis: ScrollAreaAxis): number {
   if (axis === "y") {
     return used(style.borderTopWidth) + used(style.paddingTop);
   }
 
-  if (rtl) {
+  if (style.direction === "rtl") {
     return used(style.borderRightWidth) + used(style.paddingRight);
   }
 
@@ -130,6 +136,21 @@ function insets(style: CSSStyleDeclaration, axis: ScrollAreaAxis): number {
 
 function isRtl(element: HTMLElement): boolean {
   return getComputedStyle(element).direction === "rtl";
+}
+
+/**
+ * Whether a horizontal track's direction differs from its Viewport's (`dir` on the Viewport
+ * alone). The rail then runs against the Viewport's inline axis, so the Thumb's progress along it
+ * is flipped to keep its physical position on the visible part of the content, as the Viewport's
+ * native scrollbar would.
+ */
+function mirrored(axis: ScrollAreaAxis, track: HTMLElement, viewportRtl: boolean): boolean {
+  return axis === "x" && isRtl(track) !== viewportRtl;
+}
+
+/** Whether the element has a layout box: false under `display: none`, its own or an ancestor's. */
+function laidOut(element: HTMLElement): boolean {
+  return element.getClientRects().length > 0;
 }
 
 /** The native scroll position on the axis, as the viewport reports it. */
@@ -457,8 +478,13 @@ export class ScrollAreaContext {
 
     // Write every axis's requested length first, then read every used length back, so one style
     // and layout flush serves both axes.
-    const requested: { axis: ScrollAreaAxis; thumb: HTMLElement; rail: number; range: number }[] =
-      [];
+    const requested: {
+      axis: ScrollAreaAxis;
+      track: HTMLElement;
+      thumb: HTMLElement;
+      rail: number;
+      range: number;
+    }[] = [];
 
     for (const axis of ["y", "x"] as const) {
       this.#cache[axis] = null;
@@ -476,6 +502,12 @@ export class ScrollAreaContext {
       const thumb = scrollbar?.thumb ?? null;
 
       if (scrollbar === null || !scrollbar.rendered || thumb === null || !thumb.rendered) {
+        continue;
+      }
+
+      // A part without a layout box still computes a size it was given (the written thumb length
+      // among them), so its geometry would be stale: none until its observation reports it again.
+      if (!laidOut(scrollbar.element) || !laidOut(thumb.element)) {
         continue;
       }
 
@@ -501,10 +533,16 @@ export class ScrollAreaContext {
         thumb.element.style.width = `${length}px`;
       }
 
-      requested.push({ axis, thumb: thumb.element, rail, range: scrollRange(scroll, client) });
+      requested.push({
+        axis,
+        track: scrollbar.element,
+        thumb: thumb.element,
+        rail,
+        range: scrollRange(scroll, client),
+      });
     }
 
-    for (const { axis, thumb, rail, range } of requested) {
+    for (const { axis, track, thumb, rail, range } of requested) {
       const length = borderBoxLength(getComputedStyle(thumb), axis);
 
       if (!Number.isFinite(length)) {
@@ -512,6 +550,7 @@ export class ScrollAreaContext {
       }
 
       this.#cache[axis] = {
+        track,
         thumb,
         rail,
         length,
@@ -523,7 +562,12 @@ export class ScrollAreaContext {
     }
   }
 
-  /** Moves an axis's Thumb to the viewport's current position, from the cache. */
+  /**
+   * Moves an axis's Thumb to the viewport's current position, from the cache. The Viewport's
+   * direction (`rtl`) normalizes the position; the track's places the Thumb, which starts at the
+   * rail's right in a right-to-left track. When they differ (`dir` on the Viewport alone), the
+   * progress is flipped, so the Thumb sits physically over the visible part of the content.
+   */
   #writeOffset(axis: ScrollAreaAxis, rtl: boolean): void {
     const cache = this.#cache[axis];
     const viewport = this.#attached;
@@ -534,11 +578,17 @@ export class ScrollAreaContext {
 
     const position = normalizedPosition(axis, rtl, nativePosition(viewport.element, axis));
 
-    cache.offset = cache.travel * scrollProgress(position, cache.range);
+    let progress = scrollProgress(position, cache.range);
+
+    if (mirrored(axis, cache.track, rtl)) {
+      progress = 1 - progress;
+    }
+
+    cache.offset = cache.travel * progress;
 
     if (axis === "y") {
       cache.thumb.style.transform = `translate3d(0, ${cache.offset}px, 0)`;
-    } else if (rtl) {
+    } else if (isRtl(cache.track)) {
       cache.thumb.style.transform = `translate3d(${-cache.offset}px, 0, 0)`;
     } else {
       cache.thumb.style.transform = `translate3d(${cache.offset}px, 0, 0)`;
@@ -650,7 +700,7 @@ export class ScrollAreaContext {
     }
 
     const rtl = isRtl(viewport.element);
-    const point = this.#railPoint(scrollbar.element, axis, rtl, event);
+    const point = this.#railPoint(scrollbar.element, axis, event);
 
     if (!Number.isFinite(point)) {
       return;
@@ -718,8 +768,13 @@ export class ScrollAreaContext {
       return;
     }
 
-    const point = this.#railPoint(drag.scrollbar.element, drag.axis, drag.rtl, event);
-    const progress = clamp((point - drag.grab) / cache.travel, 0, 1);
+    const point = this.#railPoint(drag.scrollbar.element, drag.axis, event);
+    let progress = clamp((point - drag.grab) / cache.travel, 0, 1);
+
+    if (mirrored(drag.axis, cache.track, drag.rtl)) {
+      progress = 1 - progress;
+    }
+
     const position = progress * cache.range;
 
     if (!Number.isFinite(position)) {
@@ -815,10 +870,14 @@ export class ScrollAreaContext {
     return untracked(this.#overflowY);
   }
 
-  /** The pointer as layout px along the track's rail, converted through the track's own rect. */
-  #railPoint(track: HTMLElement, axis: ScrollAreaAxis, rtl: boolean, event: PointerEvent): number {
+  /**
+   * The pointer as layout px along the track's rail, converted through the track's own rect, from
+   * the rail's start in the track's direction.
+   */
+  #railPoint(track: HTMLElement, axis: ScrollAreaAxis, event: PointerEvent): number {
     const rect = track.getBoundingClientRect();
     const style = getComputedStyle(track);
+    const rtl = style.direction === "rtl";
 
     if (axis === "y") {
       return railPoint(
@@ -827,7 +886,7 @@ export class ScrollAreaContext {
         event.clientY,
         { start: rect.top, end: rect.bottom, size: rect.height },
         borderBoxLength(style, axis),
-        startInset(style, axis, rtl),
+        startInset(style, axis),
       );
     }
 
@@ -837,7 +896,7 @@ export class ScrollAreaContext {
       event.clientX,
       { start: rect.left, end: rect.right, size: rect.width },
       borderBoxLength(style, axis),
-      startInset(style, axis, rtl),
+      startInset(style, axis),
     );
   }
 }

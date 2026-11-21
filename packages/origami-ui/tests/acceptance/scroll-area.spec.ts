@@ -69,7 +69,11 @@ function incremental(info: TestInfo): boolean {
   return info.project.metadata.hydration === "incremental";
 }
 
-/** Reads an axis of an area from its `<area>-viewport` and `<area>-vbar`/`-hbar` test IDs. */
+/**
+ * Reads an axis of an area from its `<area>-viewport` and `<area>-vbar`/`-hbar` test IDs. The
+ * Viewport's direction normalizes the position; the track's places the thumb on its rail, the
+ * progress flipped when the two differ, so the thumb matches the content physically.
+ */
 async function read(
   page: Page,
   area: string,
@@ -88,6 +92,7 @@ async function read(
       const trackStyle = getComputedStyle(track);
       const thumbStyle = getComputedStyle(thumb);
       const rtl = getComputedStyle(viewport).direction === "rtl";
+      const trackRtl = trackStyle.direction === "rtl";
       let size = px(trackStyle.width);
       let start = px(trackStyle.borderLeftWidth) + px(trackStyle.paddingLeft);
       let end = px(trackStyle.borderRightWidth) + px(trackStyle.paddingRight);
@@ -106,7 +111,7 @@ async function read(
         client = viewport.clientHeight;
         scroll = viewport.scrollHeight;
         native = viewport.scrollTop;
-      } else if (rtl) {
+      } else if (trackRtl) {
         [start, end] = [end, start];
       }
 
@@ -139,11 +144,17 @@ async function read(
       }
 
       const travel = Math.max(0, rail - length);
-      let expectedOffset = 0;
+      let progress = 0;
 
       if (range > 0) {
-        expectedOffset = (travel * Math.min(range, Math.max(0, position))) / range;
+        progress = Math.min(range, Math.max(0, position)) / range;
       }
+
+      if (!vertical && trackRtl !== rtl) {
+        progress = 1 - progress;
+      }
+
+      const expectedOffset = travel * progress;
 
       const trackRect = track.getBoundingClientRect();
       const thumbRect = thumb.getBoundingClientRect();
@@ -157,7 +168,7 @@ async function read(
         paintedOffset = (thumbRect.top - trackRect.top) / scale - start;
         paintedLength = thumbRect.height / scale;
         endGap = (trackRect.bottom - thumbRect.bottom) / scale;
-      } else if (rtl) {
+      } else if (trackRtl) {
         paintedOffset = (trackRect.right - thumbRect.right) / scale - start;
         endGap = (thumbRect.left - trackRect.left) / scale;
       }
@@ -629,6 +640,7 @@ test("SA2 server HTML has the hidden native bars, the overflow Origami owns, tab
   ]);
   for (const content of ["table-content", "railed-content"]) {
     expect(declarations(server[content]!["style"]), content).toEqual([
+      "box-sizing: border-box",
       "inline-size: max-content",
       "min-inline-size: 100%",
     ]);
@@ -2596,13 +2608,20 @@ async function expectRestored(
     [viewport, content],
   );
   const viewportDeclarations = ["overflow-x: auto", "overflow-y: auto", "scrollbar-width: none"];
-  const contentDeclarations = ["inline-size: max-content", "min-inline-size: 100%"];
+  const contentDeclarations = [
+    "box-sizing: border-box",
+    "inline-size: max-content",
+    "min-inline-size: 100%",
+  ];
 
   if (styled === "viewport") {
-    viewportDeclarations.unshift("color: inherit");
+    viewportDeclarations.push("color: inherit");
   } else {
-    contentDeclarations.unshift("color: inherit");
+    contentDeclarations.push("color: inherit");
   }
+
+  viewportDeclarations.sort();
+  contentDeclarations.sort();
 
   expect(normalized, `${area}: the bindings restored Origami's declarations`).toEqual([
     viewportDeclarations,
@@ -2808,4 +2827,253 @@ test("SA19 hydration keeps each axis's policy and, styled by class, the position
   });
   await assertReferences(page, info);
   await stopRetentionObservation(page);
+});
+
+// ---------------------------------------------------------------------------------------------
+// SA20–SA22: a right-to-left Viewport alone, a padded Content and a hidden Thumb
+
+/** Records the `defaultPrevented` of the next `pointerdown`, once its own listeners ran. */
+async function recordPress(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        (window as unknown as { scrollAreaPress: boolean }).scrollAreaPress =
+          event.defaultPrevented;
+      },
+      { once: true, passive: true },
+    );
+  });
+}
+
+async function lastPress(page: Page): Promise<boolean> {
+  return page.evaluate(() => (window as unknown as { scrollAreaPress: boolean }).scrollAreaPress);
+}
+
+test("SA20 dir on the Viewport alone: the thumb matches the content physically, as the Viewport's native scrollbar would, starting at the left-to-right track's right and moving left toward the Viewport's inline end, inside its rail at the start, middle and end; drags and presses map physically and wheels follow the Viewport's direction", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await fixture(page, "scroll-area", info);
+  await settle(page);
+  await recordWheels(page);
+
+  const directions = await page.evaluate(() =>
+    ["rtlport", "rtlport-viewport", "rtlport-hbar"].map(
+      (testid) => getComputedStyle(document.querySelector(`[data-testid="${testid}"]`)!).direction,
+    ),
+  );
+
+  expect(directions).toEqual(["ltr", "rtl", "ltr"]);
+  await showBars(page, "rtlport", ["y", "x"]);
+  await settle(page);
+
+  // The start is the Viewport's right edge, so the thumb sits at the track's right; the middle and
+  // the end move it left, inside the rail.
+  const range = (await read(page, "rtlport", "x")).range;
+
+  expect(range).toBeGreaterThan(100);
+
+  for (const [label, left] of [
+    ["start", 0],
+    ["middle", -range / 2],
+    ["end", -1e6],
+  ] as const) {
+    await scrollViewport(page, "rtlport", { left });
+    await settle(page);
+    await expectPlaced(page, "rtlport", "x", label);
+
+    const reading = await read(page, "rtlport", "x");
+
+    if (label === "start") {
+      expect(
+        Math.abs(reading.paintedOffset - reading.travel),
+        "start: at the right",
+      ).toBeLessThanOrEqual(0.5);
+    }
+
+    // At the end it is at the left, less one scroll pixel's worth where the engine stops a pixel
+    // short of a fractional range (as SA4).
+    if (label === "end") {
+      expect(reading.paintedOffset, "end: at the left").toBeLessThanOrEqual(
+        0.5 + reading.travel / reading.range,
+      );
+    }
+  }
+
+  await expectPlaced(page, "rtlport", "y", "vertical");
+
+  // A drag to the left reveals the content's left part: toward the Viewport's inline end, a
+  // negative scrollLeft of the range less the rail's progress.
+  await scrollViewport(page, "rtlport", { left: 0 });
+  await showBars(page, "rtlport", ["x"]);
+  await settle(page);
+
+  const from = await thumbCenter(page, "rtlport", "x");
+  const start = await dragThumb(page, "rtlport", "x", -100);
+
+  await expectScrolledTo(page, "rtlport", "x", -(start.range - dragged(start, -100)), "drag");
+  await settle(page);
+  expect(
+    Math.abs((await thumbCenter(page, "rtlport", "x")).x - (from.x - 100)),
+  ).toBeLessThanOrEqual(1);
+  await page.mouse.up();
+  await expectPlaced(page, "rtlport", "x", "dragged");
+
+  // A press left of the thumb, which sits at the track's right, where the thumb can center on it:
+  // midway between half its length and its start. It centers the thumb there and shows the
+  // content under it.
+  await scrollViewport(page, "rtlport", { left: 0 });
+  await showBars(page, "rtlport", ["x"]);
+  await settle(page);
+
+  const reading = await read(page, "rtlport", "x");
+  const press = await railAt(
+    page,
+    "rtlport",
+    "x",
+    (reading.length / 2 + reading.paintedOffset) / 2 / reading.rail,
+  );
+
+  expect(press.local, "press: past half the thumb").toBeGreaterThan(reading.length / 2 + 1);
+  expect(press.local, "press: off the thumb").toBeLessThan(reading.paintedOffset - 1);
+
+  await page.mouse.move(press.x, press.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expectScrolledTo(
+    page,
+    "rtlport",
+    "x",
+    -(reading.range - pressedAt(reading, press.local)),
+    "press",
+  );
+  await settle(page);
+  expect(Math.abs((await thumbCenter(page, "rtlport", "x")).x - press.x)).toBeLessThanOrEqual(1);
+  await expectPlaced(page, "rtlport", "x", "pressed");
+
+  // Wheels follow the Viewport's direction: at its start a rightward deltaX moves outward and
+  // chains; a leftward one and a vertical wheel move toward its inline end.
+  await scrollViewport(page, "rtlport", { left: 0 });
+  await showBars(page, "rtlport", ["x"]);
+
+  const horizontal = await railAt(page, "rtlport", "x", 0.5);
+  let record = await wheel(page, horizontal, 40, 0);
+
+  expect(record.prevented).toBe(false);
+  expect((await scrollPosition(page, "rtlport")).left).toBe(0);
+  await showBars(page, "rtlport", ["x"]);
+  record = await wheel(page, horizontal, -40, 0);
+  expect(record.prevented).toBe(true);
+  expect((await scrollPosition(page, "rtlport")).left).toBe(-40);
+  await showBars(page, "rtlport", ["x"]);
+  record = await wheel(page, horizontal, 0, 60);
+  expect(record.prevented).toBe(true);
+  expect((await scrollPosition(page, "rtlport")).left).toBe(-100);
+  await expectPlaced(page, "rtlport", "x", "wheeled");
+});
+
+test("SA21 a padded, bordered Content fills the Viewport without a sideways range while its content fits, and scrolls to its full width, padding and border included, when its content is wider", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await fixture(page, "scroll-area", info);
+  await settle(page);
+
+  /** The Content's border box, the child's width and the Viewport's sizes. */
+  async function measured(): Promise<{
+    boxSizing: string;
+    content: number;
+    child: number;
+    clientWidth: number;
+    scrollWidth: number;
+    endGap: number;
+  }> {
+    return page.evaluate(() => {
+      const viewport = document.querySelector<HTMLElement>('[data-testid="padded-viewport"]')!;
+      const content = document.querySelector<HTMLElement>('[data-testid="padded-content"]')!;
+      const child = document.querySelector<HTMLElement>('[data-testid="padded-child"]')!;
+
+      return {
+        boxSizing: getComputedStyle(content).boxSizing,
+        content: content.getBoundingClientRect().width,
+        child: child.getBoundingClientRect().width,
+        clientWidth: viewport.clientWidth,
+        scrollWidth: viewport.scrollWidth,
+        endGap: viewport.getBoundingClientRect().right - child.getBoundingClientRect().right,
+      };
+    });
+  }
+
+  // 300 px of content, 16 px padding and 2 px border on each side, in a 360 px Viewport.
+  let sizes = await measured();
+
+  expect(sizes.boxSizing).toBe("border-box");
+  expect(sizes.content).toBeCloseTo(sizes.clientWidth, 1);
+  expect(sizes.scrollWidth).toBe(sizes.clientWidth);
+  await expect(out(page, "padded")).not.toHaveAttribute("data-overflow-x");
+  await expect(out(page, "padded")).toHaveAttribute("data-overflow-y", "");
+  await showBars(page, "padded", ["y"]);
+  await settle(page);
+  await expect(out(page, "padded-hbar")).not.toHaveAttribute("data-visible");
+
+  // 1200 px of content: the Content is its max-content width plus padding and border, and the end
+  // shows the child's last pixel 18 px (padding and border) before the Viewport's edge.
+  await out(page, "padded-wide").click();
+  await expect(out(page, "padded")).toHaveAttribute("data-overflow-x", "");
+  sizes = await measured();
+  expect(sizes.child).toBe(1200);
+  expect(sizes.content).toBeCloseTo(1200 + 2 * 16 + 2 * 2, 1);
+  expect(Math.abs(sizes.scrollWidth - sizes.content)).toBeLessThanOrEqual(1);
+  await scrollViewport(page, "padded", { left: 1e6 });
+  sizes = await measured();
+  expect(Math.abs(sizes.endGap - 18)).toBeLessThanOrEqual(1);
+  await showBars(page, "padded", ["x", "y"]);
+  await settle(page);
+  await expectPlaced(page, "padded", "x", "wide, at the end");
+});
+
+test("SA22 a Thumb under display: none has no geometry, so a press on its track neither scrolls nor is prevented; shown again it is measured in the next frame and drags", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await fixture(page, "scroll-area", info);
+  await settle(page);
+  await showBars(page, "hiding", ["y"]);
+  await settle(page);
+  await expectPlaced(page, "hiding", "y", "shown");
+
+  // Hidden by script, so the pointer stays over the area and the track stays visible.
+  await out(page, "hiding-thumb").evaluate((button: HTMLButtonElement) => {
+    button.click();
+  });
+  await settle(page);
+  expect(await out(page, "hiding-vthumb").evaluate((thumb) => thumb.getClientRects().length)).toBe(
+    0,
+  );
+  await expect(out(page, "hiding-vbar")).toHaveAttribute("data-visible", "");
+
+  const track = await box(out(page, "hiding-vbar"));
+
+  await recordPress(page);
+  await page.mouse.move(track.x + track.width / 2, Math.round(track.y + track.height * 0.75));
+  await page.mouse.down();
+  await page.mouse.move(track.x + track.width / 2, Math.round(track.y + track.height * 0.85));
+  await page.mouse.up();
+  await settle(page);
+  expect(await lastPress(page)).toBe(false);
+  expect((await scrollPosition(page, "hiding")).top).toBe(0);
+
+  // Shown again: its border-box observation re-measures it, and it drags by the formula.
+  await out(page, "hiding-thumb").evaluate((button: HTMLButtonElement) => {
+    button.click();
+  });
+  await settle(page);
+  await showBars(page, "hiding", ["y"]);
+  await expectPlaced(page, "hiding", "y", "shown again");
+
+  const start = await dragThumb(page, "hiding", "y", 70);
+
+  await expectScrolledTo(page, "hiding", "y", dragged(start, 70), "drag after showing");
+  await page.mouse.up();
 });

@@ -297,6 +297,21 @@ function range(count: number): number[] {
       block-size: 40px;
       background: #1f2937;
     }
+    .sa-padded {
+      padding: 8px 16px;
+      border: 2px solid #404040;
+    }
+    .sa-padded-child {
+      inline-size: 300px;
+      block-size: 400px;
+      background: #1f2937;
+    }
+    .sa-padded-child.wide {
+      inline-size: 1200px;
+    }
+    .sa-gone {
+      display: none;
+    }
   `,
   template: `
     <button type="button" data-testid="sa-before">Before</button>
@@ -422,6 +437,88 @@ function range(count: number): number[] {
         </div>
         <div ogScrollAreaScrollbar orientation="horizontal" class="sa-bar" data-testid="rtl-hbar">
           <div ogScrollAreaThumb class="sa-thumb" data-testid="rtl-hthumb"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div ogScrollArea class="sa" data-testid="rtlport">
+        <div ogScrollAreaViewport dir="rtl" class="sa-viewport" data-testid="rtlport-viewport">
+          <div ogScrollAreaContent>
+            <table>
+              <tbody>
+                @for (row of rtlRows; track row) {
+                  <tr>
+                    @for (column of columns; track column) {
+                      <td>خلية {{ row }}:{{ column }}</td>
+                    }
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div ogScrollAreaScrollbar orientation="vertical" class="sa-bar" data-testid="rtlport-vbar">
+          <div ogScrollAreaThumb class="sa-thumb" data-testid="rtlport-vthumb"></div>
+        </div>
+        <div
+          ogScrollAreaScrollbar
+          orientation="horizontal"
+          class="sa-bar"
+          data-testid="rtlport-hbar"
+        >
+          <div ogScrollAreaThumb class="sa-thumb" data-testid="rtlport-hthumb"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <button type="button" data-testid="padded-wide" (click)="paddedWide.set(!paddedWide())">
+        Toggle the padded content's width
+      </button>
+      <div ogScrollArea class="sa" data-testid="padded">
+        <div ogScrollAreaViewport class="sa-viewport" data-testid="padded-viewport">
+          <div ogScrollAreaContent class="sa-padded" data-testid="padded-content">
+            <div
+              class="sa-padded-child"
+              [class.wide]="paddedWide()"
+              data-testid="padded-child"
+            ></div>
+          </div>
+        </div>
+        <div ogScrollAreaScrollbar orientation="vertical" class="sa-bar" data-testid="padded-vbar">
+          <div ogScrollAreaThumb class="sa-thumb"></div>
+        </div>
+        <div
+          ogScrollAreaScrollbar
+          orientation="horizontal"
+          class="sa-bar"
+          data-testid="padded-hbar"
+        >
+          <div ogScrollAreaThumb class="sa-thumb" data-testid="padded-hthumb"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <button type="button" data-testid="hiding-thumb" (click)="thumbHidden.set(!thumbHidden())">
+        Toggle the thumb's display
+      </button>
+      <div ogScrollArea class="sa sa-panel" data-testid="hiding">
+        <div ogScrollAreaViewport class="sa-viewport" data-testid="hiding-viewport">
+          <div ogScrollAreaContent>
+            @for (line of panelLines; track line) {
+              <p class="sa-text">Hiding {{ line }}</p>
+            }
+          </div>
+        </div>
+        <div ogScrollAreaScrollbar class="sa-bar" data-testid="hiding-vbar">
+          <div
+            ogScrollAreaThumb
+            class="sa-thumb"
+            [class.sa-gone]="thumbHidden()"
+            data-testid="hiding-vthumb"
+          ></div>
         </div>
       </div>
     </section>
@@ -729,6 +826,8 @@ export class ScrollAreaFixture {
   readonly bigMin = signal(false);
   readonly narrow = signal(false);
   readonly grown = signal(false);
+  readonly paddedWide = signal(false);
+  readonly thumbHidden = signal(false);
   readonly barMounted = signal(true);
   readonly thumbMounted = signal(true);
   readonly viewportB = signal(false);
