@@ -12,9 +12,11 @@
 // and class merging, ScrollArea's, Avatar's and Progress's server state, bounds, scrollbars,
 // naming, sizes, loading delay, sweep, dialog recipe, themes, reduced motion and forced colors,
 // the OTP field's server state, geometry, typing and paste, masking, autofill paint, validation,
-// states and forced colors, and Toast's server region, collapsed and expanded deck geometry,
+// states and forced colors, Toast's server region, collapsed and expanded deck geometry,
 // accessibility tree, immediate keyboard focus, pointer on the peeks, action, Close, kind colors,
-// limit, timer and narrow width.
+// limit, timer and narrow width, and Calendar's server state, hydration against another clock,
+// geometry, colors, names, keys, pointer, the pending range, the focus ring's pixels, Field
+// states, right to left and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -22,6 +24,7 @@ import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { inflateSync } from "node:zlib";
 import { chromium } from "playwright";
 
 const app = process.argv[2];
@@ -6134,6 +6137,1062 @@ try {
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  // Calendar, in its own block. Exact geometry and pixels are DPR-1 values. Every day root pins
+  // today to 27 October 2026 and the Monday week start: October's rows are 28 September–4
+  // October, 5–11, 12–18, 19–25 and 26 October–1 November.
+  {
+    const dayLabel = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+    const day = (id, date) =>
+      `#${id} td[aria-label="${dayLabel.format(new Date(`${date}T00:00:00Z`))}"]`;
+    const chip = (id, date) => `${day(id, date)} > [data-slot=calendar-cell-label]`;
+    const grid = (id) => `#${id} > [data-slot=calendar-grid]`;
+    const slot = (id, name) => `#${id} [data-slot=calendar-${name}]`;
+    const october = (from, to) => {
+      const dates = [];
+
+      for (let date = from; date <= to; date += 1) {
+        dates.push(`2026-10-${String(date).padStart(2, "0")}`);
+      }
+
+      return dates;
+    };
+    const rect = (selector) =>
+      page.evaluate((selector) => {
+        const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+
+        return { x, y, width, height };
+      }, selector);
+    const pseudo = (selector, which, properties) =>
+      page.evaluate(
+        ([selector, which, properties]) => {
+          const style = getComputedStyle(document.querySelector(selector), which);
+
+          return Object.fromEntries(properties.map((property) => [property, style[property]]));
+        },
+        [selector, which, properties],
+      );
+    // The band's computed color inside an element's subtree, so it follows a `.light` ancestor:
+    // what `bg-foreground/8` computes to.
+    const bandIn = (selector) =>
+      page.evaluate((selector) => {
+        const probe = document.createElement("span");
+
+        probe.style.backgroundColor = "color-mix(in oklab, var(--foreground) 8%, transparent)";
+        document.querySelector(selector).append(probe);
+
+        const color = getComputedStyle(probe).backgroundColor;
+
+        probe.remove();
+
+        return color;
+      }, selector);
+    const pending = (id) =>
+      page.evaluate((selector) => {
+        const table = document.querySelector(selector);
+
+        return {
+          has: table.hasAttribute("data-pending"),
+          value: table.getAttribute("data-pending"),
+        };
+      }, grid(id));
+    const anyPending = () =>
+      page.evaluate(() => document.querySelectorAll("[data-pending], [data-anchor]").length);
+    const previewDays = (id) =>
+      page.evaluate(
+        (id) =>
+          [...document.querySelectorAll(`#${id} td[data-preview]`)].map((cell) =>
+            cell.getAttribute("aria-label"),
+          ),
+        id,
+      );
+    const radii = (selector) =>
+      styleOf(selector, [
+        "borderTopLeftRadius",
+        "borderTopRightRadius",
+        "borderBottomRightRadius",
+        "borderBottomLeftRadius",
+      ]);
+    const square = {
+      borderTopLeftRadius: "0px",
+      borderTopRightRadius: "0px",
+      borderBottomRightRadius: "0px",
+      borderBottomLeftRadius: "0px",
+    };
+    const startRounded = { ...square, borderTopLeftRadius: "8px", borderBottomLeftRadius: "8px" };
+    const endRounded = { ...square, borderTopRightRadius: "8px", borderBottomRightRadius: "8px" };
+    const writes = async () => Number(await textOf("cal-stay-writes"));
+    const transparent = "rgba(0, 0, 0, 0)";
+    const dark = {
+      foreground: "rgb(237, 237, 235)",
+      background: "rgb(20, 20, 20)",
+      muted: "rgb(163, 163, 160)",
+      input: "rgb(107, 107, 104)",
+      ring: "rgb(76, 196, 111)",
+      orange: "rgb(224, 144, 111)",
+    };
+    const light = { foreground: "rgb(27, 27, 27)", background: "rgb(233, 233, 231)" };
+
+    // Decodes one of Chromium's 8-bit RGB or RGBA screenshots into rows of [r, g, b].
+    const decodePng = (png) => {
+      const data = [];
+      let offset = 8;
+      let width = 0;
+      let height = 0;
+      let channels = 0;
+
+      while (offset < png.length) {
+        const length = png.readUInt32BE(offset);
+        const type = png.toString("ascii", offset + 4, offset + 8);
+        const body = png.subarray(offset + 8, offset + 8 + length);
+
+        if (type === "IHDR") {
+          width = body.readUInt32BE(0);
+          height = body.readUInt32BE(4);
+          assert.equal(body[8], 8, "8-bit PNG");
+          assert.equal(body[12], 0, "non-interlaced PNG");
+          assert.ok(body[9] === 2 || body[9] === 6, "RGB or RGBA PNG");
+          channels = body[9] === 6 ? 4 : 3;
+        }
+
+        if (type === "IDAT") {
+          data.push(body);
+        }
+
+        offset += length + 12;
+      }
+
+      const raw = inflateSync(Buffer.concat(data));
+      const stride = width * channels;
+      const pixels = Buffer.alloc(height * stride);
+
+      for (let y = 0; y < height; y += 1) {
+        const filter = raw[y * (stride + 1)];
+
+        for (let x = 0; x < stride; x += 1) {
+          const value = raw[y * (stride + 1) + 1 + x];
+          const left = x >= channels ? pixels[y * stride + x - channels] : 0;
+          const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+          const upLeft = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
+          let predictor = 0;
+
+          if (filter === 1) {
+            predictor = left;
+          } else if (filter === 2) {
+            predictor = up;
+          } else if (filter === 3) {
+            predictor = Math.floor((left + up) / 2);
+          } else if (filter === 4) {
+            const estimate = left + up - upLeft;
+            const toLeft = Math.abs(estimate - left);
+            const toUp = Math.abs(estimate - up);
+            const toUpLeft = Math.abs(estimate - upLeft);
+
+            if (toLeft <= toUp && toLeft <= toUpLeft) {
+              predictor = left;
+            } else if (toUp <= toUpLeft) {
+              predictor = up;
+            } else {
+              predictor = upLeft;
+            }
+          }
+
+          pixels[y * stride + x] = (value + predictor) & 0xff;
+        }
+      }
+
+      return (x, y) => {
+        const index = y * stride + x * channels;
+
+        return [pixels[index], pixels[index + 1], pixels[index + 2]];
+      };
+    };
+    // The viewport's pixels at whole CSS (DPR 1) coordinates, from one screenshot. Points are
+    // offsets from layout edges, which can be fractional; Chromium paints boxes and outlines at
+    // edges rounded to the nearest pixel, so the point is rounded the same way.
+    const screenPixels = async (points) => {
+      await rendered();
+
+      const read = decodePng(await page.screenshot({ animations: "disabled" }));
+
+      return points.map(([x, y]) => read(Math.round(x), Math.round(y)));
+    };
+    // The same, with the pointer out of the way.
+    const pixelsAt = async (points) => {
+      await page.mouse.move(0, 0);
+
+      return screenPixels(points);
+    };
+    const channels = (color) => color.match(/[\d.]+/g).map(Number);
+    // `color` painted over the opaque `ground`, as the compositor rounds it.
+    const over = (color, ground) => {
+      const [red, green, blue, alpha = 1] = channels(color);
+      const under = Array.isArray(ground) ? ground : channels(ground);
+
+      return [red, green, blue].map((value, index) =>
+        Math.round(value * alpha + under[index] * (1 - alpha)),
+      );
+    };
+    // Focuses a cell the way a keyboard user does, so it matches :focus-visible.
+    const focusCell = async (selector) => {
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await page.keyboard.press("Shift");
+      await page.focus(selector);
+      await rendered();
+      assert.ok(
+        await page.evaluate(
+          (selector) => document.querySelector(selector).matches(":focus-visible"),
+          selector,
+        ),
+        `${selector} has :focus-visible`,
+      );
+    };
+
+    // Server HTML, parsed by a page without scripts: the attributes are on the elements, and fold's
+    // presence attributes are on none (their names appear only inside the cells' class lists).
+    const calendarsPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await calendarsPrerendered.goto(base);
+
+    const calendarServer = await calendarsPrerendered.evaluate(() => {
+      const root = (id) => document.getElementById(id);
+      const gridOf = (id) => root(id).querySelector(":scope > [data-slot=calendar-grid]");
+      const dueGrid = gridOf("cal-due");
+      const label = dueGrid.getAttribute("aria-labelledby");
+      const heading = root("cal-due").querySelector("[data-slot=calendar-heading]");
+      const sibling = root("cal-due").nextElementSibling;
+      const rootSlots = [];
+
+      for (const id of [
+        "cal-due",
+        "cal-holidays",
+        "cal-stay",
+        "cal-billing",
+        "cal-readonly",
+        "cal-disabled",
+        "cal-range-readonly",
+        "cal-range-disabled",
+        "cal-rtl",
+        "cal-light",
+        "cal-el",
+        "cal-seed",
+      ]) {
+        rootSlots.push(root(id).dataset.slot);
+      }
+
+      return {
+        rootSlots,
+        role: dueGrid.getAttribute("role"),
+        dueCells: dueGrid.querySelectorAll("tbody > tr > td[role=gridcell]").length,
+        holidayCells: gridOf("cal-holidays").querySelectorAll("td[role=gridcell]").length,
+        sections: [...dueGrid.children].map((child) => child.localName),
+        weekday: dueGrid.querySelector("th").getAttribute("abbr"),
+        today: dueGrid.querySelector("td[data-today]")?.getAttribute("aria-label"),
+        labelledBy: label,
+        headingId: heading.id,
+        heading: heading.textContent.trim(),
+        stayStart: gridOf("cal-stay")
+          .querySelector("td[data-range-start]")
+          ?.getAttribute("aria-label"),
+        prompt: root("cal-stay").querySelector("[data-slot=calendar-prompt]").textContent.trim(),
+        sibling: {
+          name: sibling.localName,
+          hidden: sibling.hidden,
+          text: sibling.textContent,
+        },
+        presence: document.querySelectorAll("[data-pending], [data-anchor]").length,
+        gridsWithFalse: [...document.querySelectorAll("[data-slot=calendar-grid]")].filter(
+          (table) => table.getAttribute("data-pending") === "false",
+        ).length,
+        seed: root("cal-seed").getAttribute("data-today"),
+        seedHeading: root("cal-seed")
+          .querySelector("[data-slot=calendar-heading]")
+          .textContent.trim(),
+        seedToday: gridOf("cal-seed").querySelector("td[data-today]")?.getAttribute("aria-label"),
+      };
+    });
+
+    await calendarsPrerendered.close();
+    assert.deepEqual(calendarServer.rootSlots, Array(12).fill("calendar"));
+    assert.equal(calendarServer.role, "grid");
+    assert.equal(calendarServer.dueCells, 35, "October 2026 from Monday is 5 weeks");
+    assert.equal(calendarServer.holidayCells, 42, "fixedWeeks renders 6 weeks");
+    assert.deepEqual(calendarServer.sections, ["thead", "tbody"]);
+    assert.equal(calendarServer.weekday, "Monday");
+    assert.equal(calendarServer.today, "Tuesday, October 27, 2026");
+    assert.equal(calendarServer.labelledBy, `cal-due-label ${calendarServer.headingId}`);
+    assert.equal(calendarServer.heading, "October 2026");
+    assert.equal(calendarServer.stayStart, "Wednesday, October 14, 2026");
+    assert.equal(calendarServer.prompt, "Choose the first day");
+    assert.deepEqual(calendarServer.sibling, { name: "span", hidden: true, text: "selected" });
+    assert.equal(
+      calendarServer.presence,
+      0,
+      "no data-pending or data-anchor attribute on the server",
+    );
+    assert.equal(calendarServer.gridsWithFalse, 0);
+    assert.match(calendarServer.seed, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(calendarServer.seedToday, "the server marks its today");
+
+    // Hydration with the browser's clock 45 days past the server's: the seeded Calendar keeps the
+    // server's month and today.
+    const seedContext = await browser.newContext({ deviceScaleFactor: 1 });
+    const seedPage = await seedContext.newPage();
+    const seedErrors = [];
+    const browserToday = new Date(`${calendarServer.seed}T12:00:00Z`);
+
+    browserToday.setUTCDate(browserToday.getUTCDate() + 45);
+    seedPage.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") {
+        seedErrors.push(message.text());
+      }
+    });
+    seedPage.on("pageerror", (error) => seedErrors.push(String(error)));
+    await seedPage.clock.setFixedTime(browserToday);
+    await seedPage.goto(base, { waitUntil: "networkidle" });
+    await seedPage.waitForFunction(
+      () => document.querySelector("app-root") && !document.querySelector("[ngh]"),
+    );
+    assert.equal(
+      await seedPage.evaluate(() => new Date().toISOString().slice(0, 10)),
+      browserToday.toISOString().slice(0, 10),
+    );
+    assert.deepEqual(
+      await seedPage.evaluate(() => {
+        const root = document.getElementById("cal-seed");
+
+        return {
+          seed: root.getAttribute("data-today"),
+          heading: root.querySelector("[data-slot=calendar-heading]").textContent.trim(),
+          today: root.querySelector("td[data-today]")?.getAttribute("aria-label"),
+        };
+      }),
+      {
+        seed: calendarServer.seed,
+        heading: calendarServer.seedHeading,
+        today: calendarServer.seedToday,
+      },
+    );
+    assert.deepEqual(seedErrors, [], "Calendar hydration errors or warnings");
+    await seedContext.close();
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+    assert.equal(await anyPending(), 0, "no presence attribute after hydration");
+
+    // Geometry: 32px day cells holding 28px chips 2px inside, chosen neighbours 4px apart, a
+    // 224px grid in a 250px box under a 32px header; 48px month cells holding 36px chips 6px
+    // inside.
+    const dueCell = await rect(day("cal-due", "2026-10-14"));
+    const dueChip = await rect(chip("cal-due", "2026-10-14"));
+    const seventh = await rect(chip("cal-holidays", "2026-10-07"));
+    const eighth = await rect(chip("cal-holidays", "2026-10-08"));
+    const monthCell = await rect(`#cal-billing td[aria-label="April 2026"]`);
+    const monthChip = await rect(`#cal-billing td[aria-label="April 2026"] > span`);
+
+    assert.deepEqual([dueCell.width, dueCell.height], [32, 32]);
+    assert.deepEqual([dueChip.width, dueChip.height], [28, 28]);
+    assert.deepEqual([dueChip.x - dueCell.x, dueChip.y - dueCell.y], [2, 2]);
+    assert.equal(eighth.x - (seventh.x + seventh.width), 4, "chosen neighbours are 4px apart");
+    assert.equal((await rect(grid("cal-due"))).width, 224);
+    assert.equal((await rect("#cal-due")).width, 250);
+    assert.equal((await rect(slot("cal-due", "header"))).height, 32);
+    assert.equal(monthCell.height, 48);
+    assert.equal(monthChip.height, 36);
+
+    for (const inset of [
+      monthChip.x - monthCell.x,
+      monthChip.y - monthCell.y,
+      monthCell.x + monthCell.width - monthChip.x - monthChip.width,
+    ]) {
+      assert.ok(Math.abs(inset - 6) < 0.05, `month chip inset ${inset}`);
+    }
+
+    // Colors and type per state, dark.
+    const band = await bandIn("#cal-stay");
+
+    assert.deepEqual(
+      await styleOf(chip("cal-stay", "2026-10-14"), ["backgroundColor", "color", "fontWeight"]),
+      {
+        backgroundColor: dark.foreground,
+        color: dark.background,
+        fontWeight: "600",
+      },
+    );
+    assert.equal(
+      (await styleOf(day("cal-stay", "2026-10-20"), ["backgroundColor"])).backgroundColor,
+      band,
+    );
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-20"), ["backgroundColor"])).backgroundColor,
+      transparent,
+    );
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-14")), startRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-18")), endRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-19")), startRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-23")), endRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-20")), square);
+    // A chosen day is filled; so is one outside the month (3 November), which isn't muted.
+    for (const date of ["2026-10-08", "2026-11-03"]) {
+      assert.deepEqual(
+        await styleOf(chip("cal-holidays", date), ["backgroundColor", "color"]),
+        {
+          backgroundColor: dark.foreground,
+          color: dark.background,
+        },
+        `chosen ${date}`,
+      );
+    }
+    assert.equal(
+      (await pseudo(chip("cal-due", "2026-10-27"), "::after", ["backgroundColor"])).backgroundColor,
+      dark.ring,
+    );
+    assert.deepEqual(await pseudo(chip("cal-due", "2026-10-27"), "::after", ["width", "bottom"]), {
+      width: "4px",
+      bottom: "2px",
+    });
+    assert.equal((await styleOf(chip("cal-due", "2026-09-28"), ["color"])).color, dark.muted);
+    assert.deepEqual(
+      await styleOf(chip("cal-due", "2026-10-17"), ["opacity", "textDecorationLine"]),
+      {
+        opacity: "0.5",
+        textDecorationLine: "line-through",
+      },
+    );
+    assert.deepEqual(
+      await styleOf(`#cal-billing td[aria-label="October 2026"] > span`, [
+        "backgroundColor",
+        "color",
+      ]),
+      {
+        backgroundColor: dark.foreground,
+        color: dark.background,
+      },
+    );
+    assert.deepEqual(
+      await styleOf(`${slot("cal-due", "weekday")}`, ["fontSize", "fontWeight", "color"]),
+      {
+        fontSize: "12px",
+        fontWeight: "600",
+        color: dark.muted,
+      },
+    );
+
+    // Light: the same states in the light tokens.
+    const lightBand = await bandIn("#cal-light");
+
+    assert.notEqual(lightBand, band);
+    assert.deepEqual(await styleOf(chip("cal-light", "2026-10-23"), ["backgroundColor", "color"]), {
+      backgroundColor: light.foreground,
+      color: light.background,
+    });
+    assert.equal(
+      (await styleOf(day("cal-light", "2026-10-20"), ["backgroundColor"])).backgroundColor,
+      lightBand,
+    );
+
+    // The view switch: its exact name per view, the cycle days → months → years → days keeping
+    // focus, and Previous and Next named per view.
+    const viewSwitch = slot("cal-due", "view-switch");
+    const names = async (id) => ({
+      previous: await page.getAttribute(`#${id} [data-slot=calendar-previous]`, "aria-label"),
+      view: await page.getAttribute(`#${id} [data-slot=calendar-view-switch]`, "aria-label"),
+      next: await page.getAttribute(`#${id} [data-slot=calendar-next]`, "aria-label"),
+    });
+
+    assert.deepEqual(await names("cal-due"), {
+      previous: "Previous month",
+      view: "October 2026, show the months",
+      next: "Next month",
+    });
+    assert.equal(
+      await page
+        .locator("#cal-due")
+        .getByRole("button", { name: "October 2026, show the months", exact: true })
+        .count(),
+      1,
+    );
+    await page.click(viewSwitch);
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector).querySelectorAll("td").length === 12,
+      grid("cal-due"),
+    );
+    assert.equal(
+      await page.evaluate(
+        (selector) => document.activeElement === document.querySelector(selector),
+        viewSwitch,
+      ),
+      true,
+    );
+    assert.deepEqual(await names("cal-due"), {
+      previous: "Previous year",
+      view: "2026, show the years",
+      next: "Next year",
+    });
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.deepEqual(await names("cal-due"), {
+      previous: "Previous 12 years",
+      view: "2016 – 2027, show the days",
+      next: "Next 12 years",
+    });
+    assert.equal((await styleOf(`${viewSwitch} > svg`, ["rotate"])).rotate, "180deg");
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.equal(
+      await page.getAttribute(viewSwitch, "aria-label"),
+      "October 2026, show the months",
+    );
+    assert.equal(
+      await page.evaluate(
+        (selector) => document.activeElement === document.querySelector(selector),
+        viewSwitch,
+      ),
+      true,
+    );
+    assert.equal(
+      await page.getAttribute(slot("cal-billing", "view-switch"), "aria-label"),
+      "2026, show the years",
+    );
+    await page.click(slot("cal-billing", "view-switch"));
+    await rendered();
+    assert.equal(
+      await page.getAttribute(slot("cal-billing", "view-switch"), "aria-label"),
+      "2016 – 2027, show the months",
+    );
+
+    const greekHeading = (await page.textContent(slot("cal-el", "heading"))).trim();
+
+    assert.equal(greekHeading, "Σεπτέμβριος 2026");
+    assert.deepEqual(await names("cal-el"), {
+      previous: "Προηγούμενος μήνας",
+      view: "Σεπτέμβριος 2026, εμφάνιση μηνών",
+      next: "Επόμενος μήνας",
+    });
+
+    // Touch and the Field, from a fresh page, since the clicks above left cal-due and touched it:
+    // Tab and Shift+Tab between the header and the grid don't touch the required field; leaving
+    // the Calendar does, and the error shows with an orange border.
+    await fresh();
+    assert.equal(await page.locator("#cal-due-error").count(), 0);
+    await page.focus(slot("cal-due", "next"));
+    await page.keyboard.press("Tab");
+    assert.equal(
+      await page.evaluate(() => document.activeElement.getAttribute("aria-label")),
+      "Tuesday, October 27, 2026",
+    );
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await rendered();
+    assert.equal(
+      await page.locator("#cal-due-error").count(),
+      0,
+      "moves inside the Calendar don't touch it",
+    );
+    await page.keyboard.press("Tab");
+    await page.waitForSelector("#cal-due-error");
+    assert.equal(await textOf("cal-due-error"), "Choose an appeal date.");
+    assert.equal(await page.getAttribute(grid("cal-due"), "aria-invalid"), "true");
+    assert.equal((await styleOf("#cal-due", ["borderTopColor"])).borderTopColor, dark.orange);
+
+    // Keys: back into the grid on its tab stop, arrows and PageDown move across months, Enter
+    // chooses.
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(
+      await page.evaluate(() => document.activeElement.getAttribute("aria-label")),
+      "Tuesday, October 27, 2026",
+    );
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector)?.getAttribute("aria-selected") === "true",
+      day("cal-due", "2026-10-26"),
+    );
+    await page.keyboard.press("PageDown");
+    await rendered();
+    assert.equal(
+      await page.evaluate(() => document.activeElement.getAttribute("aria-label")),
+      "Thursday, November 26, 2026",
+    );
+    assert.equal((await page.textContent(slot("cal-due", "heading"))).trim(), "November 2026");
+    await page.keyboard.press("PageUp");
+    await rendered();
+    assert.equal(
+      await page.evaluate(() => document.activeElement.getAttribute("aria-label")),
+      "Monday, October 26, 2026",
+    );
+    await page.keyboard.press("ArrowDown");
+    await rendered();
+    assert.equal(
+      await page.evaluate(() => document.activeElement.getAttribute("aria-label")),
+      "Monday, November 2, 2026",
+    );
+    assert.equal(await page.locator("#cal-due-error").count(), 0, "a chosen day clears the error");
+
+    // A range by pointer over the committed 14–23: no presence attribute before the first click;
+    // the first click marks the anchor and the grid, and hovering 26 previews 12–26 as square
+    // cells, the committed band, ends and rounding stepping back with no seam at 13|14 and 23|24;
+    // nothing is written until the second click. Escape restores the committed range.
+    await fresh();
+    assert.deepEqual(await pending("cal-stay"), { has: false, value: null });
+    await page.locator("#cal-stay").scrollIntoViewIfNeeded();
+    await page.click(day("cal-stay", "2026-10-12"));
+    await page.hover(day("cal-stay", "2026-10-26"));
+    await rendered();
+    assert.deepEqual(await pending("cal-stay"), { has: true, value: "" });
+    const anchorAttribute = await page.getAttribute(day("cal-stay", "2026-10-12"), "data-anchor");
+
+    assert.equal(anchorAttribute, "");
+    assert.equal(
+      (await page.textContent(slot("cal-stay", "prompt"))).trim(),
+      "Choose the last day",
+    );
+
+    for (const id of ["cal-due", "cal-holidays", "cal-billing", "cal-rtl"]) {
+      assert.equal((await pending(id)).has, false, `${id} isn't pending`);
+    }
+
+    const overlap = october(12, 26);
+
+    assert.deepEqual(
+      await previewDays("cal-stay"),
+      overlap.map((date) => dayLabel.format(new Date(`${date}T00:00:00Z`))),
+    );
+
+    for (const date of overlap) {
+      assert.deepEqual(
+        await radii(day("cal-stay", date)),
+        square,
+        `${date} is square while pending`,
+      );
+      assert.equal(
+        (await styleOf(day("cal-stay", date), ["backgroundColor"])).backgroundColor,
+        band,
+        date,
+      );
+    }
+
+    for (const date of ["2026-10-14", "2026-10-23"]) {
+      assert.deepEqual(await styleOf(chip("cal-stay", date), ["backgroundColor", "fontWeight"]), {
+        backgroundColor: transparent,
+        fontWeight: "400",
+      });
+    }
+
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-12"), ["backgroundColor"])).backgroundColor,
+      dark.foreground,
+    );
+    // The far end isn't filled; under the pointer it has the hover tint.
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-26"), ["backgroundColor"])).backgroundColor,
+      band,
+    );
+
+    const seams = [];
+
+    for (const [before, after] of [
+      ["2026-10-13", "2026-10-14"],
+      ["2026-10-23", "2026-10-24"],
+    ]) {
+      const left = await rect(day("cal-stay", before));
+      const right = await rect(day("cal-stay", after));
+      const y = left.y + 1;
+
+      seams.push(
+        [left.x + left.width - 2, y],
+        [left.x + left.width - 1, y],
+        [right.x, y],
+        [right.x + 1, y],
+      );
+    }
+
+    // Corners of 14's and 23's cells, 1px inside: the band, not the box.
+    for (const date of ["2026-10-14", "2026-10-23"]) {
+      const cell = await rect(day("cal-stay", date));
+
+      seams.push(
+        [cell.x + 1, cell.y + 1],
+        [cell.x + cell.width - 2, cell.y + 1],
+        [cell.x + 1, cell.y + cell.height - 2],
+        [cell.x + cell.width - 2, cell.y + cell.height - 2],
+      );
+    }
+
+    // Read with the pointer still on 26: without it, the preview shrinks to the focused 12.
+    const seamPixels = await screenPixels(seams);
+
+    for (const pixel of seamPixels) {
+      assert.deepEqual(pixel, seamPixels[0], "the preview band has no seam or rounded corner");
+    }
+
+    assert.equal(await writes(), 0);
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.deepEqual(await pending("cal-stay"), { has: false, value: null });
+    assert.equal(await anyPending(), 0);
+    assert.deepEqual(await previewDays("cal-stay"), []);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-14")), startRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-18")), endRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-19")), startRounded);
+    assert.deepEqual(await radii(day("cal-stay", "2026-10-23")), endRounded);
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-14"), ["backgroundColor"])).backgroundColor,
+      dark.foreground,
+    );
+    assert.equal(await writes(), 0);
+    assert.equal(
+      (await page.textContent(slot("cal-stay", "prompt"))).trim(),
+      "Choose the first day",
+    );
+
+    // The second click writes 12–26 once and clears the pending state.
+    await page.click(day("cal-stay", "2026-10-12"));
+    await page.click(day("cal-stay", "2026-10-26"));
+    await rendered();
+    assert.equal(await writes(), 1);
+    assert.deepEqual(await pending("cal-stay"), { has: false, value: null });
+    assert.equal(await page.getAttribute(day("cal-stay", "2026-10-12"), "data-range-start"), "");
+    assert.equal(await page.getAttribute(day("cal-stay", "2026-10-26"), "data-range-end"), "");
+
+    // By keys: Enter on 26 sets the anchor, two ArrowRights preview, Enter writes 26–28. The
+    // pointer leaves first, since a hovered day wins over the focused one.
+    await page.mouse.move(0, 0);
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.deepEqual(await pending("cal-stay"), { has: true, value: "" });
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await rendered();
+    assert.equal((await previewDays("cal-stay")).length, 3);
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.equal(await writes(), 2);
+    assert.equal(await page.getAttribute(day("cal-stay", "2026-10-28"), "data-range-end"), "");
+    assert.deepEqual(await pending("cal-stay"), { has: false, value: null });
+
+    // Across months: with the anchor in October and November shown, nothing in view is previewed
+    // and the committed band stays hidden; Escape from Next clears the anchor and the band returns.
+    await page.mouse.move(0, 0);
+    await page.click(day("cal-stay", "2026-10-05"));
+    await page.click(slot("cal-stay", "next"));
+    await rendered();
+    assert.equal((await page.textContent(slot("cal-stay", "heading"))).trim(), "November 2026");
+    assert.deepEqual(await pending("cal-stay"), { has: true, value: "" });
+    assert.deepEqual(await previewDays("cal-stay"), []);
+
+    for (const date of ["2026-10-26", "2026-10-27", "2026-10-28"]) {
+      assert.equal(
+        (await styleOf(day("cal-stay", date), ["backgroundColor"])).backgroundColor,
+        transparent,
+        `${date} band while pending`,
+      );
+    }
+
+    assert.equal(
+      (await page.textContent(slot("cal-stay", "prompt"))).trim(),
+      "Choose the last day",
+    );
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.deepEqual(await pending("cal-stay"), { has: false, value: null });
+    assert.equal(
+      (await styleOf(day("cal-stay", "2026-10-27"), ["backgroundColor"])).backgroundColor,
+      band,
+    );
+    // November's leading October days: the range's interior stays muted, its filled end doesn't.
+    assert.equal((await styleOf(chip("cal-stay", "2026-10-27"), ["color"])).color, dark.muted);
+    assert.equal((await styleOf(chip("cal-stay", "2026-10-28"), ["color"])).color, dark.background);
+    assert.equal(await writes(), 2);
+
+    // The focus ring: 2px, the ring color, on a day cell's edge and 4px inside a month cell, on
+    // the raised cell; drawn whole beside a chosen neighbour's chip (8 October between 7 and 9).
+    await fresh();
+    await focusCell(day("cal-holidays", "2026-10-08"));
+    assert.deepEqual(await outline(day("cal-holidays", "2026-10-08")), {
+      style: "solid",
+      width: "2px",
+      offset: "0px",
+      color: dark.ring,
+    });
+    assert.deepEqual(await styleOf(day("cal-holidays", "2026-10-08"), ["position", "zIndex"]), {
+      position: "relative",
+      zIndex: "1",
+    });
+
+    const focused = await rect(day("cal-holidays", "2026-10-08"));
+    const middleX = focused.x + focused.width / 2;
+    const middleY = focused.y + focused.height / 2;
+    const ringPixels = await pixelsAt([
+      [middleX, focused.y - 2],
+      [middleX, focused.y - 1],
+      [focused.x + focused.width, middleY],
+      [focused.x + focused.width + 1, middleY],
+      [middleX, focused.y + focused.height],
+      [middleX, focused.y + focused.height + 1],
+      [focused.x - 2, middleY],
+      [focused.x - 1, middleY],
+    ]);
+
+    ringPixels.forEach((pixel, index) => {
+      assert.deepEqual(
+        pixel,
+        channels(dark.ring),
+        `the ring is whole beside chosen neighbours: sample ${index} of the cell at ${JSON.stringify(focused)}`,
+      );
+    });
+
+    await focusCell(`#cal-billing td[aria-label="April 2026"]`);
+    assert.deepEqual(await outline(`#cal-billing td[aria-label="April 2026"]`), {
+      style: "solid",
+      width: "2px",
+      offset: "-4px",
+      color: dark.ring,
+    });
+
+    // The coarser views: the month holding a day root's value is tinted and, when displayed,
+    // outlined, without the chosen fill.
+    await page.click(slot("cal-holidays", "view-switch"));
+    await rendered();
+    assert.deepEqual(
+      await styleOf(`#cal-holidays td[aria-label="October 2026"] > span`, [
+        "backgroundColor",
+        "borderTopWidth",
+        "borderTopColor",
+        "fontWeight",
+      ]),
+      {
+        backgroundColor: band,
+        borderTopWidth: "1px",
+        borderTopColor: dark.input,
+        fontWeight: "600",
+      },
+    );
+
+    // Readonly and disabled Fields; the range prompt hides while readonly or disabled.
+    assert.deepEqual(await styleOf("#cal-readonly", ["borderTopStyle", "backgroundColor"]), {
+      borderTopStyle: "dashed",
+      backgroundColor: transparent,
+    });
+    assert.equal((await styleOf("#cal-disabled", ["opacity"])).opacity, "0.5");
+    assert.equal(
+      (await styleOf(slot("cal-range-readonly", "prompt"), ["display"])).display,
+      "none",
+    );
+    assert.equal(
+      (await styleOf(slot("cal-range-disabled", "prompt"), ["display"])).display,
+      "none",
+    );
+    assert.equal((await styleOf(slot("cal-stay", "prompt"), ["display"])).display, "block");
+
+    // Right to left: the chevrons point to the inline start and end, and the band rounds on the
+    // physical right at its start.
+    assert.equal(
+      (await styleOf(`${slot("cal-rtl", "previous")} > svg`, ["rotate"])).rotate,
+      "180deg",
+    );
+    assert.equal(
+      (await styleOf(`${slot("cal-stay", "previous")} > svg`, ["rotate"])).rotate,
+      "none",
+    );
+    // A left-to-right Calendar inside a right-to-left page follows its own direction.
+    for (const part of ["previous", "next"]) {
+      assert.equal(
+        (await styleOf(`${slot("cal-ltr-in-rtl", part)} > svg`, ["rotate"])).rotate,
+        "none",
+        `ltr-in-rtl ${part}`,
+      );
+    }
+    assert.deepEqual(await radii(day("cal-rtl", "2026-10-14")), endRounded);
+    assert.deepEqual(await radii(day("cal-rtl", "2026-10-23")), startRounded);
+
+    // Forced colors: the chips' system colors, the Highlight rail across a range's interior,
+    // uncapped while pending and capped at the committed ends again after Escape; the focused
+    // interior cell's ring stays whole where its neighbours' rails cross it.
+    await page.emulateMedia({ forcedColors: "active" });
+    await fresh();
+
+    const forcedColors = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      const read = (value) => {
+        probe.style.cssText = `position: fixed; forced-color-adjust: none; color: ${value}`;
+
+        return getComputedStyle(probe).color;
+      };
+
+      document.body.append(probe);
+
+      const result = {
+        canvas: read("Canvas"),
+        canvasText: read("CanvasText"),
+        highlight: read("Highlight"),
+        highlightText: read("HighlightText"),
+        grayText: read("GrayText"),
+      };
+
+      probe.remove();
+
+      return result;
+    });
+    const rail = (date) =>
+      pseudo(chip("cal-stay", date), "::before", [
+        "content",
+        "left",
+        "right",
+        "borderTopWidth",
+        "borderTopColor",
+      ]);
+
+    assert.deepEqual(await styleOf(chip("cal-stay", "2026-10-14"), ["backgroundColor", "color"]), {
+      backgroundColor: forcedColors.highlight,
+      color: forcedColors.highlightText,
+    });
+    assert.deepEqual(await rail("2026-10-20"), {
+      content: '""',
+      left: "-2px",
+      right: "-2px",
+      borderTopWidth: "1px",
+      borderTopColor: forcedColors.highlight,
+    });
+    assert.equal((await rail("2026-10-14")).left, "0px");
+    assert.equal((await rail("2026-10-23")).right, "0px");
+    assert.equal((await rail("2026-10-26")).content, "none");
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-20"), ["color"])).color,
+      forcedColors.canvasText,
+    );
+    // An outside day is CanvasText while choosable, and GrayText when it's also disabled (by
+    // cal-due's minDate).
+    assert.equal(
+      await page.locator(day("cal-holidays", "2026-09-28")).getAttribute("data-disabled"),
+      null,
+    );
+    assert.equal(
+      (await styleOf(chip("cal-holidays", "2026-09-28"), ["color"])).color,
+      forcedColors.canvasText,
+    );
+    assert.equal(
+      await page.locator(day("cal-due", "2026-09-28")).getAttribute("data-disabled"),
+      "",
+    );
+    assert.equal(
+      (await styleOf(chip("cal-due", "2026-09-28"), ["color"])).color,
+      forcedColors.grayText,
+    );
+    assert.equal(
+      (await styleOf(chip("cal-due", "2026-10-17"), ["color"])).color,
+      forcedColors.grayText,
+    );
+    assert.equal(
+      (await pseudo(chip("cal-due", "2026-10-27"), "::after", ["backgroundColor"])).backgroundColor,
+      forcedColors.canvasText,
+    );
+    for (const date of ["2026-10-08", "2026-11-03"]) {
+      assert.deepEqual(
+        await styleOf(chip("cal-holidays", date), ["backgroundColor", "color"]),
+        {
+          backgroundColor: forcedColors.highlight,
+          color: forcedColors.highlightText,
+        },
+        `forced chosen ${date}`,
+      );
+    }
+
+    // The interior cell's ring where the rails of 19 and 21 cross it: the outline painted over the
+    // rail, and the rail itself over Canvas.
+    await focusCell(day("cal-stay", "2026-10-20"));
+
+    const forcedRing = await outline(day("cal-stay", "2026-10-20"));
+    const interior = await rect(day("cal-stay", "2026-10-20"));
+    const interiorChip = await rect(chip("cal-stay", "2026-10-20"));
+    const railColor = over(forcedColors.highlight, forcedColors.canvas);
+    const crossings = [];
+
+    assert.equal(forcedRing.style, "solid");
+    assert.equal(forcedRing.width, "2px");
+
+    for (const x of [interior.x - 2, interior.x - 1, interior.x + 32, interior.x + 33]) {
+      for (const y of [interiorChip.y, interiorChip.y + interiorChip.height - 1]) {
+        crossings.push([x, y]);
+      }
+    }
+
+    const crossingPixels = await pixelsAt([
+      ...crossings,
+      [interiorChip.x + interiorChip.width / 2, interiorChip.y],
+      [interiorChip.x + interiorChip.width / 2, interiorChip.y + interiorChip.height - 1],
+    ]);
+
+    for (const pixel of crossingPixels.slice(0, crossings.length)) {
+      assert.deepEqual(pixel, over(forcedRing.color, railColor), "the ring paints over the rails");
+    }
+
+    for (const pixel of crossingPixels.slice(crossings.length)) {
+      assert.deepEqual(pixel, railColor, "the rail is drawn");
+    }
+
+    // Pending, forward over the committed range: every preview chip's rail reaches 2px past it on
+    // both sides, the old ends and the anchor included; Escape restores the caps.
+    await page.keyboard.press("Escape");
+    await page.mouse.move(0, 0);
+    await page.click(day("cal-stay", "2026-10-12"));
+    await page.hover(day("cal-stay", "2026-10-26"));
+    await rendered();
+
+    for (const date of overlap) {
+      const { content, left, right } = await rail(date);
+
+      assert.deepEqual(
+        { content, left, right },
+        { content: '""', left: "-2px", right: "-2px" },
+        date,
+      );
+    }
+
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-12"), ["backgroundColor"])).backgroundColor,
+      forcedColors.highlight,
+    );
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-14"), ["backgroundColor"])).backgroundColor,
+      transparent,
+    );
+    assert.equal(
+      (await styleOf(chip("cal-stay", "2026-10-23"), ["backgroundColor"])).backgroundColor,
+      transparent,
+    );
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal((await rail("2026-10-14")).left, "0px");
+    assert.equal((await rail("2026-10-23")).right, "0px");
+    assert.equal(await writes(), 0);
+
+    // In the months view, the displayed month holding the value keeps a CanvasText border and gets
+    // a 2px Highlight ring inside the chip.
+    await page.click(slot("cal-holidays", "view-switch"));
+    await rendered();
+
+    const forcedMonth = await styleOf(`#cal-holidays td[aria-label="October 2026"] > span`, [
+      "borderTopColor",
+      "boxShadow",
+      "backgroundColor",
+    ]);
+
+    assert.equal(forcedMonth.borderTopColor, forcedColors.canvasText);
+    assert.equal(forcedMonth.backgroundColor, transparent);
+    assert.ok(
+      forcedMonth.boxShadow.includes("inset") &&
+        forcedMonth.boxShadow.includes(forcedColors.highlight),
+      `forced month ring ${forcedMonth.boxShadow}`,
+    );
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
 
   assert.deepEqual(errors, [], "console errors or warnings");
   console.log("Chromium smoke passed:", JSON.stringify(geometry));
