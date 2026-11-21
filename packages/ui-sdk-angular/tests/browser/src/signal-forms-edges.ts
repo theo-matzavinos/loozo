@@ -157,7 +157,11 @@ export class SignalFormsBoolean {
         <div uiSelectContent>
           <div [uiSelectItem]="'apple'" label="Apple" data-testid="hidden-apple">Apple</div>
         </div>
-        <input uiSelectFormInput [formField]="f.fruit" data-testid="hidden-select-input" />
+        <textarea
+          uiSelectFormInput
+          [formField]="f.fruit"
+          data-testid="hidden-select-input"
+        ></textarea>
       </div>
     </form>
     <button data-testid="external" (click)="model.set({ terms: false, fruit: '' })">
