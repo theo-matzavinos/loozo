@@ -14,9 +14,11 @@
 // the OTP field's server state, geometry, typing and paste, masking, autofill paint, validation,
 // states and forced colors, Toast's server region, collapsed and expanded deck geometry,
 // accessibility tree, immediate keyboard focus, pointer on the peeks, action, Close, kind colors,
-// limit, timer and narrow width, and Calendar's server state, hydration against another clock,
+// limit, timer and narrow width, Calendar's server state, hydration against another clock,
 // geometry, colors, names, keys, pointer, the pending range, the focus ring's pixels, Field
-// states, right to left and forced colors.
+// states, right to left and forced colors, and the File field's server state, geometry, picks and
+// sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
+// forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -3758,6 +3760,663 @@ try {
   assert.equal(await emailColor(3), systemColors.grayText, "a disabled row's email");
   await page.keyboard.press("Escape");
   await hidden("customer-content");
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // File field. Exact geometry and outline widths are DPR-1 values.
+  //
+  // Server rendering: the hidden Input is a file input named by the Field's label, the looks carry
+  // their slots and the disabled ones their state; no file or drag-over shows yet.
+  const fileButtonInput = openingTag(html, "file-button-input");
+  const fileZoneTag = openingTag(html, "file-zone");
+  const fileButtonValue = element(html, "file-button-value");
+
+  assert.match(fileButtonInput, /\btype="file"/);
+  assert.match(fileButtonInput, /\bclass="[^"]*\bsr-only\b/);
+  assert.match(fileButtonInput, /\bdata-slot="file-field-input"/);
+  assert.match(fileButtonInput, /\baccept="\.pdf,\.jpg,\.jpeg,\.png"/);
+  assert.match(fileButtonInput, /\baria-describedby="[^"]+"/);
+  assert.match(openingTag(html, "file-button-label"), /\bfor="file-button-input"/);
+  assert.match(openingTag(html, "file-button-root"), /\bdata-slot="file-field"/);
+  assert.match(openingTag(html, "file-button"), /\bdata-slot="file-field-button"/);
+  assert.match(openingTag(html, "file-button"), /\bclass="[^"]*\bh-8\b/);
+  assert.doesNotMatch(openingTag(html, "file-button"), /\sdata-disabled=/);
+  assert.match(openingTag(html, "file-locked-button"), /\bdata-disabled=""/);
+  assert.match(openingTag(html, "file-locked-button-input"), /\sdisabled[\s=>]/);
+  assert.match(openingTag(html, "file-locked-zone-input"), /\sdisabled[\s=>]/);
+  assert.match(fileZoneTag, /\bdata-slot="file-field-drop-zone"/);
+  assert.doesNotMatch(fileZoneTag, /\sdata-drag-over=/);
+  assert.match(openingTag(html, "file-zone-label"), /\bfor="file-zone-input"/);
+  assert.ok(
+    tagsIn(element(html, "file-zone"), "svg").some(
+      (tag) =>
+        tag.includes('aria-hidden="true"') && tag.includes('data-slot="file-field-drop-zone-icon"'),
+    ),
+    "the zone's icon is hidden",
+  );
+  assert.match(fileButtonValue, /\bdata-slot="file-field-value"/);
+  assert.equal(
+    fileButtonValue
+      .slice(openingTag(html, "file-button-value").length)
+      .replace(/<!--[^]*?-->/g, "")
+      .trim(),
+    "",
+    "no file on the server",
+  );
+
+  // Chooses a page-made file in an Input, as the picker does: its one file, then `change`.
+  const pick = (id, name, size) =>
+    page.evaluate(
+      ([id, name, size]) => {
+        const input = document.getElementById(id);
+        const transfer = new DataTransfer();
+
+        transfer.items.add(new File([new Uint8Array(size)], name));
+        input.files = transfer.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      },
+      [id, name, size],
+    );
+  // A drag event carrying one page-made file, as Origami's Firefox and WebKit acceptance drives
+  // the zone; reports whether the page cancelled it. A page-made DataTransfer outside a real drag
+  // doesn't keep the dropEffect the zone sets, so that isn't observable here.
+  const drag = (selector, type, name = "drop.pdf", size = 2048) =>
+    page.evaluate(
+      ([selector, type, name, size]) => {
+        const transfer = new DataTransfer();
+
+        transfer.items.add(new File([new Uint8Array(size)], name));
+
+        const event = new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer,
+        });
+
+        document.querySelector(selector).dispatchEvent(event);
+
+        return event.defaultPrevented;
+      },
+      [selector, type, name, size],
+    );
+  const chooseFrom = async (selector, file) => {
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click(selector)]);
+    const input = await chooser.element().evaluate((input) => input.id);
+
+    await chooser.setFiles(file);
+
+    return { input, multiple: chooser.isMultiple() };
+  };
+  const fileText = (id) =>
+    page.evaluate((id) => {
+      const value = document.getElementById(id);
+      const name = value.querySelector("[data-slot=file-field-name]");
+
+      return {
+        name: name?.textContent ?? null,
+        title: name?.title ?? null,
+        size: value.querySelector("[data-slot=file-field-size]")?.textContent ?? null,
+      };
+    }, id);
+  const untilFileSize = (id, size) =>
+    page.waitForFunction(
+      ([id, size]) =>
+        document.querySelector(`#${id} [data-slot=file-field-size]`)?.textContent === size,
+      [id, size],
+    );
+  const untilPresent = (id, name) =>
+    page.waitForFunction(
+      ([id, name]) => document.getElementById(id).hasAttribute(name),
+      [id, name],
+    );
+  const MB = 1024 * 1024;
+
+  await fresh();
+  assert.equal(await page.evaluate(() => window.devicePixelRatio), 1);
+
+  // Geometry: the button look is fold's secondary Button and the primary one a small primary
+  // Button; the zone spans the Field with a 1px dashed input border; the Input is a focusable
+  // 1×1 clipped box.
+  const fileGeometry = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const look = (selector) => {
+      const css = style(selector);
+
+      return {
+        height: css.height,
+        radius: css.borderTopLeftRadius,
+        ground: css.backgroundColor,
+        border: `${css.borderTopWidth} ${css.borderTopStyle} ${css.borderTopColor}`,
+        shadow: css.boxShadow,
+        text: `${css.fontSize} ${css.fontWeight} ${css.color}`,
+      };
+    };
+    const zone = style("#file-zone");
+    const input = document.getElementById("file-button-input");
+
+    input.focus();
+
+    return {
+      button: look("#file-button"),
+      secondary: look("#focus-zoom"),
+      primary: look("#file-primary"),
+      primaryButton: style("#md").backgroundColor,
+      zone: {
+        width: rect("#file-zone").width,
+        field: rect("#file-zone-field").width,
+        border: `${zone.borderTopWidth} ${zone.borderTopStyle} ${zone.borderTopColor}`,
+        radius: zone.borderTopLeftRadius,
+        ground: zone.backgroundColor,
+        padding: zone.paddingTop,
+        text: `${zone.fontSize} ${zone.color}`,
+        icon: `${rect("#file-zone [data-slot=file-field-drop-zone-icon]").width} ${style("#file-zone [data-slot=file-field-drop-zone-icon]").color}`,
+      },
+      input: {
+        size: `${rect("#file-button-input").width}x${rect("#file-button-input").height}`,
+        clip: style("#file-button-input").clipPath,
+        focused: document.activeElement === input,
+      },
+    };
+  });
+
+  assert.deepEqual(fileGeometry.button, fileGeometry.secondary, "the button look is a Button");
+  assert.equal(fileGeometry.button.height, "32px");
+  assert.equal(fileGeometry.primary.height, "28px");
+  assert.equal(fileGeometry.primary.ground, fileGeometry.primaryButton);
+  const { width: zoneWidth, field: zoneField, ...zoneLook } = fileGeometry.zone;
+
+  assert.ok(Math.abs(zoneWidth - zoneField) <= 0.5, `zone ${zoneWidth} vs field ${zoneField}`);
+  assert.deepEqual(zoneLook, {
+    border: `1px dashed ${darkInput}`,
+    radius: "10px",
+    ground: "rgb(28, 28, 28)",
+    padding: "24px",
+    text: "13px rgb(163, 163, 160)",
+    icon: "24 rgb(163, 163, 160)",
+  });
+  assert.deepEqual(fileGeometry.input, { size: "1x1", clip: "inset(50%)", focused: true });
+
+  // Picks: the button look, the zone and the Field's label each open the picker for their
+  // Input; the value shows the name and the size, in 1024-based units with a no-break space.
+  assert.deepEqual(
+    await chooseFrom("#file-button", {
+      name: "report.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.alloc(1536),
+    }),
+    { input: "file-button-input", multiple: false },
+  );
+  await untilFileSize("file-button-value", "1.5 KB");
+  assert.deepEqual(await fileText("file-button-value"), {
+    name: "report.pdf",
+    title: "report.pdf",
+    size: "1.5 KB",
+  });
+  assert.deepEqual(
+    await chooseFrom("#file-zone", { name: "empty.pdf", mimeType: "", buffer: Buffer.alloc(0) }),
+    { input: "file-zone-input", multiple: false },
+  );
+  await untilFileSize("file-zone-value", "0 B");
+  assert.deepEqual(
+    await chooseFrom("#file-button-label", {
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.alloc(999),
+    }),
+    { input: "file-button-input", multiple: false },
+  );
+  await untilFileSize("file-button-value", "999 B");
+  await pick("file-button-input", "scan.pdf", 25 * MB);
+  await untilFileSize("file-button-value", "25 MB");
+  await pick("file-greek-input", "αναφορά.pdf", 1536);
+  await untilFileSize("file-greek-value", "1,5 KB");
+
+  // The value sits 12px after the button look on its row, and 8px under the zone; a 16px muted
+  // file icon, the name in foreground body text, the size muted with tabular figures, 6px apart.
+  const valueLayout = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const middle = (box) => box.top + box.height / 2;
+    const part = (slot) => `#file-button-value [data-slot=${slot}]`;
+
+    return {
+      afterButton: rect("#file-button-value").left - rect("#file-button").right,
+      rowOffset: middle(rect("#file-button-value")) - middle(rect("#file-button")),
+      underZone: rect("#file-zone-value").top - rect("#file-zone").bottom,
+      icon: `${rect(part("file-field-value-icon")).width} ${style(part("file-field-value-icon")).color}`,
+      iconGap: rect(part("file-field-name")).left - rect(part("file-field-value-icon")).right,
+      sizeGap: rect(part("file-field-size")).left - rect(part("file-field-name")).right,
+      name: `${style(part("file-field-name")).fontSize} ${style(part("file-field-name")).color}`,
+      size: `${style(part("file-field-size")).color} ${style(part("file-field-size")).fontVariantNumeric}`,
+    };
+  });
+
+  assert.ok(Math.abs(valueLayout.afterButton - 12) <= 0.5, `after ${valueLayout.afterButton}`);
+  assert.ok(Math.abs(valueLayout.rowOffset) <= 1, `row offset ${valueLayout.rowOffset}`);
+  assert.ok(Math.abs(valueLayout.underZone - 8) <= 0.5, `under ${valueLayout.underZone}`);
+  assert.ok(Math.abs(valueLayout.iconGap - 6) <= 0.5, `icon gap ${valueLayout.iconGap}`);
+  assert.ok(Math.abs(valueLayout.sizeGap - 6) <= 0.5, `size gap ${valueLayout.sizeGap}`);
+  assert.equal(valueLayout.icon, "16 rgb(163, 163, 160)");
+  assert.equal(valueLayout.name, `13px ${foreground}`);
+  assert.equal(valueLayout.size, "rgb(163, 163, 160) tabular-nums");
+
+  // A long name truncates its stem and keeps its extension, inside the 240px root, with the full
+  // name in its title.
+  const longName = "a-very-long-statement-of-account-for-november-2026.pdf";
+
+  await pick("file-narrow-input", longName, 25 * MB);
+  await untilFileSize("file-narrow-value", "25 MB");
+
+  const longLook = await page.evaluate(() => {
+    const root = document.getElementById("file-narrow");
+    const value = document.getElementById("file-narrow-value");
+    const name = value.querySelector("[data-slot=file-field-name]");
+    const [stem, extension] = name.children;
+    const middle = (box) => box.top + box.height / 2;
+
+    return {
+      root: root.getBoundingClientRect().width,
+      rootOverflow: root.scrollWidth - root.clientWidth,
+      valueRight: value.getBoundingClientRect().right - root.getBoundingClientRect().right,
+      stemClipped: stem.scrollWidth > stem.clientWidth,
+      stemEllipsis: getComputedStyle(stem).textOverflow,
+      extension: extension.textContent,
+      extensionClipped: extension.scrollWidth > extension.clientWidth,
+      extensionRight: extension.getBoundingClientRect().right - value.getBoundingClientRect().right,
+      // Centered on the button's row, not wrapped under it.
+      sameRow:
+        Math.abs(
+          middle(value.getBoundingClientRect()) -
+            middle(document.getElementById("file-narrow-button").getBoundingClientRect()),
+        ) <= 1,
+      title: name.title,
+    };
+  });
+
+  const { valueRight, extensionRight, ...longRest } = longLook;
+
+  assert.ok(valueRight <= 0.5, `the value ends ${valueRight}px past the root`);
+  assert.ok(extensionRight <= 0.5, `the extension ends ${extensionRight}px past the value`);
+  assert.deepEqual(longRest, {
+    root: 240,
+    rootOverflow: 0,
+    stemClipped: true,
+    stemEllipsis: "ellipsis",
+    extension: ".pdf",
+    extensionClipped: false,
+    sameRow: true,
+    title: longName,
+  });
+
+  // What follows the last dot is kept visible only when it's a short extension: a long unbroken
+  // suffix, or one with spaces, truncates with the rest of the name and stays inside the root.
+  const nameParts = () =>
+    page.evaluate(() => {
+      const root = document.getElementById("file-narrow");
+      const value = document.getElementById("file-narrow-value");
+      const name = value.querySelector("[data-slot=file-field-name]");
+      const size = value.querySelector("[data-slot=file-field-size]");
+      // A split name has a stem and an extension; a whole one is a single text run.
+      const [stem = name, extension] = name.children;
+
+      return {
+        rootOverflow: root.scrollWidth - root.clientWidth,
+        valueRight: value.getBoundingClientRect().right - root.getBoundingClientRect().right,
+        // How far the name runs into the size after it.
+        nameOverlap: name.getBoundingClientRect().right - size.getBoundingClientRect().left,
+        stemClipped: stem.scrollWidth > stem.clientWidth,
+        stemWidth: stem.getBoundingClientRect().width,
+        extensionClipped: extension ? extension.scrollWidth > extension.clientWidth : null,
+        extension: extension?.textContent ?? "",
+        stemLeft: stem.getBoundingClientRect().left,
+        extensionLeft: extension?.getBoundingClientRect().left ?? null,
+        dir: name.getAttribute("dir"),
+        text: name.textContent,
+        title: name.title,
+      };
+    });
+
+  for (const [suffixName, size, shown] of [
+    [`report.${"w".repeat(45)}`, 1536, "1.5 KB"],
+    ["november statement.final version for the client", 2048, "2 KB"],
+  ]) {
+    await pick("file-narrow-input", suffixName, size);
+    await untilFileSize("file-narrow-value", shown);
+
+    const { rootOverflow, valueRight, stemClipped, extension, title } = await nameParts();
+
+    assert.ok(valueRight <= 0.5, `${suffixName}: the value ends ${valueRight}px past the root`);
+    assert.deepEqual(
+      { rootOverflow, stemClipped, extension, title },
+      { rootOverflow: 0, stemClipped: true, extension: "", title: suffixName },
+    );
+  }
+
+  // A short name that fits shows its extension whole.
+  await pick("file-narrow-input", "a.docx", 1024);
+  await untilFileSize("file-narrow-value", "1\u00a0KB");
+
+  const short = await nameParts();
+
+  assert.deepEqual(
+    { extension: short.extension, stem: short.stemClipped, ext: short.extensionClipped },
+    { extension: ".docx", stem: false, ext: false },
+  );
+
+  // A 5-character extension, the longest kept, leaves the stem visible in the 240px root and
+  // doesn't run into the size; a longer suffix truncates with the name.
+  const wideExtension = `report-for-the-client.${"W".repeat(5)}`;
+
+  await pick("file-narrow-input", wideExtension, 3072);
+  await untilFileSize("file-narrow-value", "3\u00a0KB");
+
+  const wide = await nameParts();
+
+  assert.equal(wide.extension, ".WWWWW");
+  assert.equal(wide.extensionClipped, false);
+  assert.ok(wide.stemWidth >= 24, `the stem shows ${wide.stemWidth}px`);
+  assert.ok(wide.nameOverlap <= 0.5, `the name runs ${wide.nameOverlap}px into the size`);
+  assert.ok(wide.valueRight <= 0.5, `the value ends ${wide.valueRight}px past the root`);
+  assert.equal(wide.rootOverflow, 0);
+
+  // Only Latin, Greek and Cyrillic names without direction marks are split. Any other, such as
+  // `تقرير-final.pdf`, a Yezidi one or one starting with a right-to-left mark, is one run the browser orders in its own direction, so `final.pdf` stays together.
+  for (const [otherName, size, shown] of [
+    ["تقرير-final.pdf", 4096, "4\u00a0KB"],
+    ["\u{10E80}\u{10E81}.pdf", 5120, "5\u00a0KB"],
+    ["\u200Freport.pdf", 6144, "6\u00a0KB"],
+    ["\u{1EC71}23.pdf", 7168, "7\u00a0KB"],
+  ]) {
+    await pick("file-narrow-input", otherName, size);
+    await untilFileSize("file-narrow-value", shown);
+
+    const other = await nameParts();
+
+    assert.deepEqual(
+      { extension: other.extension, dir: other.dir, text: other.text },
+      { extension: "", dir: "auto", text: otherName },
+    );
+  }
+
+  // On a right-to-left page a left-to-right name keeps its order: the extension after the stem.
+  await page.evaluate(() => document.getElementById("file-narrow").setAttribute("dir", "rtl"));
+  await pick("file-narrow-input", "report.pdf", 512);
+  await untilFileSize("file-narrow-value", "512 B");
+
+  const rtlName = await nameParts();
+
+  assert.equal(rtlName.extension, ".pdf");
+  assert.equal(rtlName.dir, "ltr");
+  assert.ok(
+    rtlName.stemLeft < rtlName.extensionLeft,
+    `stem at ${rtlName.stemLeft}, extension at ${rtlName.extensionLeft}`,
+  );
+  await page.evaluate(() => document.getElementById("file-narrow").removeAttribute("dir"));
+
+  // Drag and drop, from a fresh page: a file drag marks the zone, crossing its icon keeps the
+  // mark, leaving clears it, and a drop chooses the file and touches the field. The button look
+  // isn't a zone, and the disabled zone refuses the drop.
+  await fresh();
+
+  const icon = "#file-zone [data-slot=file-field-drop-zone-icon]";
+
+  await drag("#file-zone", "dragenter");
+  await untilPresent("file-zone", "data-drag-over");
+
+  const dragLook = await styleOf("#file-zone", [
+    "borderTopStyle",
+    "borderTopColor",
+    "backgroundColor",
+  ]);
+
+  assert.equal(dragLook.borderTopStyle, "solid");
+  assert.equal(dragLook.borderTopColor, foreground);
+  assert.notEqual(dragLook.backgroundColor, "rgb(28, 28, 28)", "the drag tint");
+  assert.match(dragLook.backgroundColor, /\/ 0\.08\)$/, `drag tint ${dragLook.backgroundColor}`);
+  await drag(icon, "dragenter");
+  await drag("#file-zone", "dragleave");
+  await rendered();
+  assert.equal(await attribute("file-zone", "data-drag-over"), "", "crossing the icon");
+  await drag(icon, "dragleave");
+  await untilAbsent("file-zone", "data-drag-over");
+  assert.equal(await textOf("file-zone-touched"), "false");
+  await drag("#file-zone", "dragenter", "dropped.pdf");
+  assert.equal(await drag("#file-zone", "dragover", "dropped.pdf"), true, "dragover accepted");
+  assert.equal(await drag("#file-zone", "drop", "dropped.pdf"), true, "the browser opens nothing");
+  await untilFileSize("file-zone-value", "2 KB");
+  await untilAbsent("file-zone", "data-drag-over");
+  assert.equal((await fileText("file-zone-value")).name, "dropped.pdf");
+  await untilText("file-zone-touched", "true");
+
+  await drag("#file-button", "dragenter");
+  assert.equal(await drag("#file-button", "dragover"), false, "the button look");
+  await rendered();
+  assert.equal(await attribute("file-button", "data-drag-over"), null);
+
+  await drag("#file-locked-zone", "dragenter");
+  // A disabled zone still cancels dragover, so the browser delivers no drop and opens nothing.
+  assert.equal(await drag("#file-locked-zone", "dragover"), true, "disabled dragover");
+  await drag("#file-locked-zone", "drop");
+  await rendered();
+  assert.equal(await attribute("file-locked-zone", "data-drag-over"), null);
+  assert.equal(
+    await page.evaluate(() => document.getElementById("file-locked-zone-value").childElementCount),
+    0,
+    "a disabled zone takes no drop",
+  );
+
+  // Keyboard focus, from a fresh page: Tab to a hidden Input rings the look around it, and the
+  // zone's border turns the ring color too; a mouse click rings neither.
+  await fresh();
+  await page.focus("#file-button-save");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await activeId(), "file-button-input");
+  assert.deepEqual(await outline("#file-button"), ringOutline(darkRing));
+  await page.focus("#file-zone-save");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await activeId(), "file-zone-input");
+  assert.deepEqual(await outline("#file-zone"), ringOutline(darkRing));
+  assert.equal((await styleOf("#file-zone", ["borderTopColor"])).borderTopColor, darkRing);
+
+  for (const selector of ["#file-button", "#file-zone"]) {
+    await chooseFrom(selector, []);
+    assert.equal((await outline(selector)).style, "none", `${selector} after a click`);
+  }
+
+  // Validation, from a fresh page: a pick touches the field, so a file over the limit shows its
+  // error at once. Saving with no file shows the error, marks the Input invalid, turns the looks'
+  // borders orange and focuses the Input.
+  await fresh();
+  await pick("file-button-input", "scan.pdf", 26 * MB);
+  await page.waitForFunction(
+    () => document.getElementById("file-button-error")?.textContent.trim() === "Up to 25 MB",
+  );
+  assert.equal((await fileText("file-button-value")).size, "26 MB");
+
+  await fresh();
+  await page.click("#file-button-save");
+  await page.waitForFunction(
+    () => document.getElementById("file-button-error")?.textContent.trim() === "Choose the invoice",
+  );
+  assert.equal(await activeId(), "file-button-input");
+  assert.equal(await attribute("file-button-input", "aria-invalid"), "true");
+  await page.click("#file-zone-save");
+  await page.waitForFunction(
+    () => document.getElementById("file-zone-error")?.textContent.trim() === "Choose an attachment",
+  );
+  assert.equal(await activeId(), "file-zone-input");
+  assert.equal(await attribute("file-zone-input", "aria-invalid"), "true");
+  await page.evaluate(() => document.activeElement.blur());
+  assert.equal((await styleOf("#file-button", ["borderTopColor"])).borderTopColor, darkOrange);
+  assert.deepEqual(await styleOf("#file-zone", ["borderTopColor", "borderTopStyle"]), {
+    borderTopColor: darkOrange,
+    borderTopStyle: "dashed",
+  });
+
+  // Clearing writes null: the value line goes, leaving no gap, and the Input holds no file.
+  await pick("file-primary-input", "logo.png", 1536);
+  await untilFileSize("file-primary-value", "1.5 KB");
+
+  const rootWidth = () =>
+    page.evaluate(() => ({
+      root: document.getElementById("file-primary-root").getBoundingClientRect().width,
+      button: document.getElementById("file-primary").getBoundingClientRect().width,
+    }));
+
+  assert.ok((await rootWidth()).root > (await rootWidth()).button + 12, "the value is shown");
+  await page.click("#file-primary-clear");
+  await page.waitForFunction(
+    () => document.getElementById("file-primary-value").childElementCount === 0,
+  );
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      display: getComputedStyle(document.getElementById("file-primary-value")).display,
+      files: document.getElementById("file-primary-input").files.length,
+    })),
+    { display: "none", files: 0 },
+  );
+  assert.ok(
+    Math.abs((await rootWidth()).root - (await rootWidth()).button) <= 0.5,
+    "no gap after clearing",
+  );
+
+  // Disabled: dimmed, not-allowed, no hover change, no picker; the app can still write a file,
+  // and its value line dims too.
+  const lockedButtonLook = await styleOf("#file-locked-button", [
+    "opacity",
+    "cursor",
+    "backgroundColor",
+  ]);
+
+  await page.hover("#file-locked-button", { force: true });
+  assert.equal(
+    (await styleOf("#file-locked-button", ["backgroundColor"])).backgroundColor,
+    lockedButtonLook.backgroundColor,
+    "no hover on the disabled button look",
+  );
+  await page.hover("#file-locked-zone", { force: true });
+  assert.deepEqual(
+    await styleOf("#file-locked-zone", ["opacity", "cursor", "borderTopColor"]),
+    { opacity: "0.5", cursor: "not-allowed", borderTopColor: darkInput },
+    "no hover on the disabled zone",
+  );
+  await page.mouse.move(0, 0);
+  assert.deepEqual(
+    { opacity: lockedButtonLook.opacity, cursor: lockedButtonLook.cursor },
+    { opacity: "0.5", cursor: "not-allowed" },
+  );
+
+  for (const selector of ["#file-locked-button", "#file-locked-zone"]) {
+    const chooser = page.waitForEvent("filechooser", { timeout: 500 }).then(
+      () => true,
+      () => false,
+    );
+
+    await page.click(selector, { force: true });
+    assert.equal(await chooser, false, `${selector} opened the picker`);
+  }
+
+  await page.click("#file-locked-fill");
+  await untilFileSize("file-locked-button-value", "1.5 KB");
+  assert.equal((await styleOf("#file-locked-button-value", ["opacity"])).opacity, "0.5");
+
+  // Themes, from a fresh page: the light subtree's tokens, against the dark document's.
+  await fresh();
+  await pick("file-light-input", "report.pdf", 1536);
+  await untilFileSize("file-light-value", "1.5 KB");
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+      const colors = (selector) =>
+        `${style(selector).backgroundColor} ${style(selector).borderTopColor} ${style(selector).color}`;
+
+      return {
+        darkButton: colors("#file-button"),
+        darkZone: colors("#file-zone"),
+        lightButton: colors("#file-light-button"),
+        lightZone: colors("#file-light-zone"),
+        lightName: style("#file-light-value [data-slot=file-field-name]").color,
+        lightSize: style("#file-light-value [data-slot=file-field-size]").color,
+      };
+    }),
+    {
+      darkButton: `rgb(42, 42, 42) ${darkInput} ${foreground}`,
+      darkZone: `rgb(28, 28, 28) ${darkInput} rgb(163, 163, 160)`,
+      lightButton: "rgb(251, 251, 250) rgb(133, 133, 129) rgb(27, 27, 27)",
+      lightZone: "rgb(247, 247, 246) rgb(133, 133, 129) rgb(91, 91, 88)",
+      lightName: "rgb(27, 27, 27)",
+      lightSize: "rgb(91, 91, 88)",
+    },
+  );
+
+  // Reduced motion removes the button look's and the zone's transitions.
+  assert.deepEqual(
+    await page.evaluate(() =>
+      ["#file-button", "#file-zone"].map(
+        (selector) => getComputedStyle(document.querySelector(selector)).transitionProperty,
+      ),
+    ),
+    ["none", "none"],
+  );
+
+  // Forced colors, from a fresh page: the zone's border is a dashed system color at rest and
+  // under the pointer, and a solid Highlight on drag-over, also while keyboard-focused or
+  // invalid; the looks' focus outlines are drawn.
+  await page.emulateMedia({ forcedColors: "active" });
+  await fresh();
+
+  const forcedZone = () => styleOf("#file-zone", ["borderTopColor", "borderTopStyle"]);
+  const zoneRest = await forcedZone();
+  const dragOver = async () => {
+    await drag("#file-zone", "dragenter");
+    await untilPresent("file-zone", "data-drag-over");
+
+    const look = await forcedZone();
+
+    await drag("#file-zone", "dragleave");
+    await untilAbsent("file-zone", "data-drag-over");
+
+    return look;
+  };
+  const highlighted = { borderTopColor: systemColors.highlight, borderTopStyle: "solid" };
+
+  assert.equal(zoneRest.borderTopStyle, "dashed");
+  assert.ok(
+    Object.values(systemColors).includes(zoneRest.borderTopColor) &&
+      zoneRest.borderTopColor !== darkInput,
+    `forced zone border ${zoneRest.borderTopColor}`,
+  );
+  await page.hover("#file-zone");
+  assert.deepEqual(await forcedZone(), zoneRest, "a hovered forced zone");
+  await page.mouse.move(0, 0);
+  assert.deepEqual(await dragOver(), highlighted, "a forced drag-over");
+
+  await page.focus("#file-zone-save");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await activeId(), "file-zone-input");
+  await drag("#file-zone", "dragenter");
+  await untilPresent("file-zone", "data-drag-over");
+  assert.deepEqual(await forcedZone(), highlighted, "a forced drag-over while focused");
+  assert.deepEqual(
+    { ...(await outline("#file-zone")), color: undefined },
+    { ...ringOutline(), color: undefined },
+  );
+  await drag("#file-zone", "dragleave");
+  await untilAbsent("file-zone", "data-drag-over");
+
+  await page.click("#file-zone-save");
+  await until("file-zone-input", "aria-invalid", "true");
+  await page.evaluate(() => document.activeElement.blur());
+  assert.deepEqual(await dragOver(), highlighted, "a forced drag-over while invalid");
+  assert.deepEqual(await forcedZone(), zoneRest, "a forced invalid zone after the drag");
+
+  await page.focus("#file-button-save");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await activeId(), "file-button-input");
+  assert.deepEqual(
+    { ...(await outline("#file-button")), color: undefined },
+    { ...ringOutline(), color: undefined },
+  );
   await page.emulateMedia({ forcedColors: "none" });
 
   // Tabs, Tooltip and Popover. Exact geometry and outline widths are DPR-1 values.
