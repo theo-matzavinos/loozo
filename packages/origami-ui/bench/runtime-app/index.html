@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Origami runtime bench</title>
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      The open predicate reads the popups' computed opacity, pointer-events, visibility and display
+      to tell a revealed opening from Floating's preparation. Don't author any of them, or an
+      animation, on a popup here; see bench/README.md.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui;
+      }
+
+      body {
+        padding: 48px;
+      }
+
+      button {
+        padding: 8px;
+      }
+
+      [ogPopoverContent],
+      [ogTooltipContent],
+      [ogSelectContent],
+      [ogMenuContent] {
+        margin: 0;
+        padding: 12px;
+        border: 1px solid #888;
+        background: #242424;
+        color: #eee;
+      }
+
+      /* Long lists stay compact and anchored: the content scrolls, every item stays mounted. */
+      [ogSelectContent],
+      [ogMenuContent] {
+        max-height: 320px;
+        overflow: auto;
+      }
+
+      [ogMenuItem] {
+        display: block;
+      }
+
+      #items {
+        display: grid;
+        grid-template-columns: repeat(20, 1fr);
+        gap: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <bench-app></bench-app>
+  </body>
+</html>
