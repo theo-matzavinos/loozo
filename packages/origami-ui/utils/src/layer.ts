@@ -58,7 +58,7 @@ type BranchMember = {
   readonly children: ReadonlySet<ɵOrigamiLayer>;
   readonly activation: object | null;
   presentationEpoch: number;
-  readonly ready: boolean;
+  ready: boolean;
 };
 type Branch = { readonly owner: ɵOrigamiLayer; readonly members: BranchMember[] };
 type Gesture = { readonly event: PointerEvent; readonly branches: Branch[]; cancelled: boolean };
@@ -170,15 +170,40 @@ export class ɵOrigamiLayer {
     return { owner: this, members };
   }
 
+  /**
+   * Whether `member` still describes this owner: its intent, revision, branch children and
+   * activation are the captured ones and its presentation hasn't changed readiness since, except
+   * by its opening flip: captured shown but not ready, ready now, one epoch later. Through that
+   * flip the snapshot advances to it, so `acceptCloseEpoch` expects the close flip next.
+   */
   matches(member: BranchMember): boolean {
-    return (
-      !this.#destroyed &&
-      this.#host.intent() === member.intent &&
-      this.#host.revision() === member.revision &&
-      this.#branchChildren() === member.children &&
-      this.#host.presentation.activation() === member.activation &&
-      this.#host.presentation.epoch() === member.presentationEpoch
-    );
+    if (
+      this.#destroyed ||
+      this.#host.intent() !== member.intent ||
+      this.#host.revision() !== member.revision ||
+      this.#branchChildren() !== member.children ||
+      this.#host.presentation.activation() !== member.activation
+    ) {
+      return false;
+    }
+
+    const epoch = this.#host.presentation.epoch();
+
+    if (epoch === member.presentationEpoch) {
+      return true;
+    }
+
+    const opened =
+      !member.ready && this.#host.presentation.ready() && epoch === member.presentationEpoch + 1;
+
+    if (!opened) {
+      return false;
+    }
+
+    member.presentationEpoch = epoch;
+    member.ready = true;
+
+    return true;
   }
 
   acceptCloseEpoch(member: BranchMember): boolean {

@@ -17,7 +17,8 @@ export interface ɵOrigamiPresentation {
    * Increments by exactly one each time readiness flips, and at no other time. A presentation child
    * folds it into its attempt revision. The layer's close check relies on it: when the owner's
    * `closeFromInteraction` closes a ready presentation, readiness is false (one increment) before it
-   * returns.
+   * returns. The layer's freshness check relies on it too: a branch snapshot taken while not ready
+   * stays current through exactly one increment to ready within the same activation.
    */
   epoch(): number;
   /** Revealed and positioned; a presentation child activates only after it. Tracked. */
