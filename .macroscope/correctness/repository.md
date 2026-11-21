@@ -7,6 +7,6 @@ The packages publish pre-1.0 versions: origami-ui, fold-ui and ui-sdk-angular on
 - a missing deprecation, compatibility shim, alias or fallback for an old shape
 - a missing migration note or migration path
 - stale output left behind by an earlier version, such as generated files a removed generator used to write, or the lack of cleanup for them
-- a breaking change that ships without a major or minor version bump
+- a breaking change that doesn't bump a package version, since Publish picks the bump (do report a release that ships a router or Launch break as a patch)
 
 Do report an in-repo caller, example, doc or spec that the change left out of date.
