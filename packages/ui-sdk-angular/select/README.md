@@ -33,7 +33,7 @@ import {
     </div>
     }
   </div>
-  <input uiSelectFormInput />
+  <textarea uiSelectFormInput></textarea>
 </div>
 <button (click)="fruit.set(null)">Clear</button>
 
@@ -99,7 +99,7 @@ The root has no `state`; read the value through `uiSelectValue`.
 
 The content always stays in the DOM, hidden while closed; there's no exit animation before unmount yet.
 
-Put `uiSelectFormInput` on an `<input>` inside the root's element. Core makes it a visually hidden text input whose value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill. Core's own renderers use a `<textarea>` here; as a text input, it counts toward the browser's implicit submission, so Enter in a form's one other text field doesn't submit a form without a submit button. Give such a form a submit button.
+Put `uiSelectFormInput` on an empty `<textarea>` inside the root's element, as core's own renderers do. Core makes it visually hidden; its value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill. The server renders the key as its text, so it submits before hydration. A textarea doesn't count toward the browser's implicit submission, so Enter in a form's one text field submits it without a submit button.
 
 ## Rules
 

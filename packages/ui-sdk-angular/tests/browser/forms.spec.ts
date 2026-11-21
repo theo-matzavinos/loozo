@@ -84,14 +84,22 @@ test("the server renders each hidden input from its control's options", async ({
     checked: "",
   });
   expect(await attributes("[data-testid=size-input-s]")).not.toHaveProperty("checked");
-  // Core writes no `type` since 0.1.0-beta.8, so the input is a text input by default.
+  // Select's part is a textarea, whose server value is its text. Core also writes a `value`
+  // attribute, which a textarea ignores, so it isn't asserted either way.
   expect(await attributes("[data-testid=fruit-input]")).toMatchObject({
     "data-slot": "select-form-input",
     name: "fruit",
-    value: "pear",
     autocomplete: "off",
   });
-  expect(await attributes("[data-testid=fruit-input]")).not.toHaveProperty("type");
+  expect(
+    await page.evaluate(
+      (html) =>
+        new DOMParser()
+          .parseFromString(html, "text/html")
+          .querySelector("[data-testid=fruit-input]")!.textContent,
+      html,
+    ),
+  ).toBe("pear");
   expect(await attributes("[data-testid=outside-input]")).toMatchObject({
     form: "main-form",
     checked: "",
@@ -132,7 +140,35 @@ test("before hydration, the form submits the server's values and validates", asy
 
   expect(await formData(page, "main-form")).toEqual(initial);
   expect(await validity(page, "required-form")).toBe(false);
+  expect(
+    await page
+      .getByTestId("colour-input")
+      .evaluate((element: HTMLTextAreaElement) => element.validity.valueMissing),
+  ).toBe(true);
   await context.close();
+});
+
+test("Enter in a form's one text field submits it with the Select's key, before and after hydration", async ({
+  browser,
+  page,
+}, testInfo) => {
+  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL });
+  const before = await context.newPage();
+
+  // The Select's textarea doesn't count toward implicit submission, so the note is the form's one
+  // text field and Enter in it submits the form, which has no submit button.
+  await before.route("**/main.js", (route) => route.abort());
+  await before.goto("/forms");
+  await before.getByTestId("enter-note").press("Enter");
+  await before.waitForURL(/\/forms\?note=hello&pick=pear$/);
+  await context.close();
+
+  const messages = captureMessages(page);
+
+  await hydrated(page);
+  await page.getByTestId("enter-note").press("Enter");
+  await page.waitForURL(/\/forms\?note=hello&pick=pear$/);
+  expectClean(messages);
 });
 
 test("hydration rewrites no server attribute, and every input binds", async ({
@@ -213,6 +249,37 @@ test("changes reach the form, and a reset returns every control to its default",
   expectClean(messages);
 });
 
+test("a reset in the same task as a selection resets the Select's part to the new key, then core restores its default", async ({
+  page,
+}) => {
+  const messages = captureMessages(page);
+
+  await hydrated(page);
+  await page.locator("[data-testid=fruit] [uiSelectTrigger]").click();
+  await expect(page.locator("[data-option=apple]")).toBeVisible();
+
+  // One task, no yield: the item's click selects in core, the slot writes the textarea's value and
+  // its default, and the native reset returns it to that default, so the form submits the new key,
+  // as an input's reflected `value` attribute did. Core's own reset task then restores the default.
+  const sameTask = await page.evaluate(() => {
+    const form = document.querySelector<HTMLFormElement>("[data-testid=main-form]")!;
+    const part = document.querySelector<HTMLTextAreaElement>("[data-testid=fruit-input]")!;
+
+    document.querySelector<HTMLElement>("[data-option=apple]")!.click();
+
+    const changed = part.value;
+
+    form.reset();
+
+    return [changed, new FormData(form).get("fruit")];
+  });
+
+  expect(sameTask).toEqual(["apple", "apple"]);
+  await expect(page.locator("[data-testid=fruit-input]")).toHaveValue("pear");
+  expect(await formData(page, "main-form")).toEqual(initial);
+  expectClean(messages);
+});
+
 test("an indeterminate checkbox reaches its input, and a press checks it", async ({ page }) => {
   const messages = captureMessages(page);
   const input = page.locator("[data-testid=partial-input]");
@@ -263,7 +330,7 @@ test("required controls block submission, and an invalid submit focuses the cont
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("[data-option=red]")).toHaveAttribute("data-highlighted", "");
   await page.keyboard.press("Enter");
-  await expect(page.locator("[data-testid=colour] input")).toHaveValue("red");
+  await expect(page.getByTestId("colour-input")).toHaveValue("red");
   expect(await validity(page, "required-form")).toBe(true);
   expect(await formData(page, "required-form")).toEqual([
     ["agree", "on"],
