@@ -134,6 +134,7 @@ ng([
   "scroll-area",
   "avatar",
   "progress",
+  "calendar",
 ]);
 
 const installed = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -144,6 +145,7 @@ assert.deepEqual(folders.sort(), [
   "alert-dialog",
   "avatar",
   "button",
+  "calendar",
   "checkbox",
   "cn",
   "combobox",

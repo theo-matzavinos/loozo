@@ -15,6 +15,7 @@
     "paths": {
       "@loozo/origami-ui/avatar": ["../origami-ui/avatar/src/public-api.ts"],
       "@loozo/origami-ui/button": ["../origami-ui/button/src/public-api.ts"],
+      "@loozo/origami-ui/calendar": ["../origami-ui/calendar/src/public-api.ts"],
       "@loozo/origami-ui/checkbox": ["../origami-ui/checkbox/src/public-api.ts"],
       "@loozo/origami-ui/collection": ["../origami-ui/collection/src/public-api.ts"],
       "@loozo/origami-ui/combobox": ["../origami-ui/combobox/src/public-api.ts"],
