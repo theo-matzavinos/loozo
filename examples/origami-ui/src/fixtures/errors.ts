@@ -38,6 +38,13 @@ import {
   OrigamiFileFieldInput,
 } from "@loozo/origami-ui/file-field";
 import { OrigamiAvatar, OrigamiAvatarFallback, OrigamiAvatarImage } from "@loozo/origami-ui/avatar";
+import {
+  OrigamiScrollArea,
+  OrigamiScrollAreaContent,
+  OrigamiScrollAreaScrollbar,
+  OrigamiScrollAreaThumb,
+  OrigamiScrollAreaViewport,
+} from "@loozo/origami-ui/scroll-area";
 
 /** Errors are mounted by genuine client actions; the server renders a valid starting page. */
 @Component({
@@ -79,6 +86,11 @@ import { OrigamiAvatar, OrigamiAvatarFallback, OrigamiAvatarImage } from "@loozo
     OrigamiAvatar,
     OrigamiAvatarImage,
     OrigamiAvatarFallback,
+    OrigamiScrollArea,
+    OrigamiScrollAreaViewport,
+    OrigamiScrollAreaContent,
+    OrigamiScrollAreaScrollbar,
+    OrigamiScrollAreaThumb,
   ],
   template: `
     <h1>Clear ownership and configuration errors</h1>
@@ -126,6 +138,14 @@ import { OrigamiAvatar, OrigamiAvatarFallback, OrigamiAvatarImage } from "@loozo
         <option value="avatar-image">Duplicate avatar Image</option>
         <option value="orphan-avatar-image">Orphan avatar Image</option>
         <option value="orphan-avatar-fallback">Orphan avatar Fallback</option>
+        <option value="scroll-area-viewport">Duplicate scroll area Viewport</option>
+        <option value="scroll-area-content">Duplicate scroll area Content</option>
+        <option value="scroll-area-vertical">Duplicate vertical scroll area Scrollbar</option>
+        <option value="scroll-area-horizontal">Duplicate horizontal scroll area Scrollbar</option>
+        <option value="scroll-area-thumb">Duplicate scroll area Thumb</option>
+        <option value="orphan-scroll-area-viewport">Orphan scroll area Viewport</option>
+        <option value="orphan-scroll-area-scrollbar">Orphan scroll area Scrollbar</option>
+        <option value="orphan-scroll-area-thumb">Scroll area Thumb outside a Scrollbar</option>
       </select></label
     >
     <button type="button" data-testid="mount-error" (click)="mount()">Mount invalid case</button>
@@ -235,6 +255,39 @@ import { OrigamiAvatar, OrigamiAvatarFallback, OrigamiAvatarImage } from "@loozo
     }
     @if (mounted() && selected() === "orphan-avatar-fallback") {
       <span ogAvatarFallback>OA</span>
+    }
+    <div ogScrollArea>
+      <div ogScrollAreaViewport>
+        <div ogScrollAreaContent>Scroll area</div>
+      </div>
+      <div ogScrollAreaScrollbar orientation="vertical"><div ogScrollAreaThumb></div></div>
+      <div ogScrollAreaScrollbar orientation="horizontal">
+        <div ogScrollAreaThumb></div>
+        @if (mounted() && selected() === "scroll-area-thumb") {
+          <div ogScrollAreaThumb></div>
+        }
+      </div>
+      @if (mounted() && selected() === "scroll-area-viewport") {
+        <div ogScrollAreaViewport>Second viewport</div>
+      }
+      @if (mounted() && selected() === "scroll-area-content") {
+        <div ogScrollAreaContent>Second content</div>
+      }
+      @if (mounted() && selected() === "scroll-area-vertical") {
+        <div ogScrollAreaScrollbar orientation="vertical"></div>
+      }
+      @if (mounted() && selected() === "scroll-area-horizontal") {
+        <div ogScrollAreaScrollbar orientation="horizontal"></div>
+      }
+      @if (mounted() && selected() === "orphan-scroll-area-thumb") {
+        <div ogScrollAreaThumb></div>
+      }
+    </div>
+    @if (mounted() && selected() === "orphan-scroll-area-viewport") {
+      <div ogScrollAreaViewport>Orphan viewport</div>
+    }
+    @if (mounted() && selected() === "orphan-scroll-area-scrollbar") {
+      <div ogScrollAreaScrollbar></div>
     }
     <section ogCollapsible>
       <button ogCollapsibleTrigger>First trigger</button>
