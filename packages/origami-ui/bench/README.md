@@ -277,3 +277,120 @@ Recorded 2026-11-21 on top of `55e9815` (run B of three; every run passes the ot
 | Open p95 (unbudgeted)            |               |            |             |          |          | 1.500 ms |
 | Retained JS heap per mount cycle |     149,394 B |  148,945 B |             |          |          |          |
 | Live checkboxes after destroy    |             0 |            |             |          |          |          |
+
+## Edit bench
+
+How long the two inner development loops take: a consumer template edit until the dev server serves it, and a library source edit until `acceptance:sync` has rebuilt, packed and installed it in acceptance's scratch consumer. Both are timings, so they're local only; the bench has no deterministic metric, and `--deterministic` refuses with "origami-ui-edit has no deterministic metrics".
+
+### Running
+
+Prerequisites, once per checkout and again after changing the library's source:
+
+```sh
+pnpm install --frozen-lockfile                            # at the repo root
+pnpm --dir packages/origami-ui build                      # the consumer scenario links the built dist/ (and builds it itself when it can't)
+pnpm --dir packages/origami-ui run acceptance:prepare     # once: the library scenario needs a verified install
+```
+
+From `packages/origami-ui`:
+
+```sh
+pnpm run bench:edit                                       # both scenarios
+pnpm run bench:edit --scenarios consumer --samples edits=10
+pnpm run bench:edit --check                               # also compare against bench/budgets/edit.json
+```
+
+The script runs under the machine-wide gate lock, like the other benches. The library scenario spawns `pnpm run acceptance:sync`, which builds and prepares without taking the lock, and never a step that takes it (`acceptance:aot`, `acceptance:test`).
+
+- **Scenarios.** `consumer` and `library`, in that order.
+- **Samples.** `edits=5` (consumer) and `syncs=5` (library). With five, one slow sample can't move the median.
+- **Time.** A full run takes about 45 s on a 16-core laptop: about 10 s for the consumer (startup, then five edits with a 1.5 s settle after each) and about 35 s for the library (seven syncs of about 5 s: a warmup, five samples and a final one).
+- **`--timeout`** limits the dev server's startup, each served edit's wait and each sync. A dev-server build that fails after an edit fails the run at once, with the server's log in `<out>/consumer/logs/serve.log`.
+
+Each run writes `<out>/results.json`, `<out>/consumer/app` (the scratch app), `<out>/consumer/logs/serve.log` (and `build.log` when the consumer scenario built `dist/`), and per sync `<out>/library/logs/<warmup|sync-n|restore-sync>.log`.
+
+### The library scenario owns `checkbox/src/checkbox.ts`
+
+From its precondition check until it prints `bench:edit: checkbox/src/checkbox.ts restored`, the library scenario owns `packages/origami-ui/checkbox/src/checkbox.ts` exclusively. It prints the rule when it starts:
+
+```text
+bench:edit: owning checkbox/src/checkbox.ts until it's restored; don't edit, save or check it out meanwhile
+```
+
+Nothing else may write the file during the run: no editor save, formatter or watcher, no `git checkout`, `restore` or `stash` of it, no other tool. The gate lock serializes locked commands, not editors, so the runner checks ownership itself: before every write, it compares the file with the bytes it last wrote, reads it back after writing, and stops instead of overwriting anything it didn't write.
+
+It also rewrites acceptance's own `.scratch/consumer` (stage and warm APF refresh), which `prepare-consumer.mjs`, `consumer-install.mjs` and acceptance's Playwright config all use. Don't run it while an acceptance run uses the same checkout; the gate lock serializes it only against other locked steps.
+
+The procedure:
+
+1. **Preconditions.** `.scratch/consumer` has a verified install stamp and `git status --porcelain -- checkbox/src/checkbox.ts` is empty; otherwise the runner refuses and says what to run (`acceptance:prepare`, or restore the file). It saves the file's bytes and sha256. Ownership starts here.
+2. **Warmup.** One untimed `acceptance:sync` with the original source.
+3. **Samples.** Each appends `// bench edit <run id>-A` (odd samples) or `-B` (even ones) to the original bytes, writes them through the ownership check and times `pnpm run acceptance:sync`, in its own process group, from spawn to a zero exit.
+4. **Token check**, outside the span. The installed package (`realpath(.scratch/consumer/node_modules/@loozo/origami-ui)`, an installed copy, never a link to `dist`) must hold the new token, must not hold the other one anywhere, and every file holding it must equal its counterpart in `dist`. The token is a comment, so only `fesm2022/loozo-origami-ui-checkbox.mjs.map` holds it, in `sourcesContent`.
+5. **Restore.** The original bytes go back through the ownership check, their sha256 is checked, and one untimed `acceptance:sync` puts original-source bytes back in `dist` and the scratch consumer. Then it prints `restored`, and ownership ends.
+
+**Interrupts.** On SIGINT or SIGTERM the runner forwards the signal to the active child's process group (the dev server, a sync or the consumer scenario's build), waits for it to close, restores the source through the same check without the final sync, saves `results.json` without `finishedAt` and exits 130 or 143. A signal that arrives between children, during a token check or a settle, ends the run the same way once cleanup is done. `dist` may then be partly built and the scratch consumer may hold the last token build, which differs from the original only in that source map's `sourcesContent`. Just run the bench again: the library scenario's warmup sync rebuilds both, and the consumer scenario first builds `dist/` itself, untimed, when it's missing, partial or holds a token build. SIGKILL, a machine failure or an interrupt inside the APF replacement can leave the source edited or the consumer partly refreshed: the precondition refuses a dirty source file, and `acceptance:prepare` repairs the consumer. Nothing here is crash-proof.
+
+**Conflicts.** When the file holds anything other than what the bench last wrote, before a write, right after one, or before restoring, the bench leaves the file alone and never writes it again in that run, skips the final sync, saves both versions and stops. The run is incomplete: no `finishedAt`, `--check` fails and `record` refuses it. It exits 1 (or 130/143 when a signal stopped it), with this on stderr and in `results.scenarios.library.failures`:
+
+```text
+bench:edit: checkbox/src/checkbox.ts changed while the bench owned it (found before sample 3's write).
+The bench left the file as it is now and stopped. This run is incomplete: it can't pass --check or be recorded.
+  in the file now:           <out>/library/conflict/current.ts   sha256 8e91…
+  what the bench last wrote: <out>/library/conflict/expected.ts  sha256 6215…  (the original + "// bench edit e1294b32-B")
+If an editor saved the file, it may also contain that "// bench edit" line; remove it by hand.
+Then run `pnpm run acceptance:sync`: dist and .scratch/consumer may still hold the bench's last token build.
+Re-run bench:edit without touching the file.
+```
+
+To recover, do what it says: remove a `// bench edit` line an editor saved along with its change, run `pnpm run acceptance:sync`, and re-run without touching the file. A write that lands before ng-packagr reads the file during a sync also fails that sample's token check, since the build then holds the other write instead of the token; the conflict is reported when the bench next writes or restores.
+
+### The consumer scenario
+
+The build bench's consumer (`bench/consumer.mjs`) with the `all` workload, in a development configuration: optimization off, source maps, no output hashing, licenses not extracted. It's served by `ng serve` on a free loopback port with HMR off, as the example app and acceptance serve, and Angular's disk cache on in the new app's own `.angular/cache`. It links `dist/`. When `dist/` is missing, partly built (`build` starts with `rm -rf dist`) or holds the library scenario's last token build, which an interrupted run leaves behind, the scenario first runs one `pnpm run build`, untimed and outside every span, and logs it. Before the server starts, the Checkbox workload's template gets `data-bench-edit="<token>"`; each edit writes a new token, and the workload is restored when the scenario ends.
+
+With HMR off, a template edit rebuilds and serves the whole `main.js`, which inlines the token in the workload's compiled template, so polling `GET /main.js` sees exactly when the edit is served.
+
+### Metrics
+
+Times are milliseconds from Node's `performance.now()`. `bench/edit-metrics.mjs` holds each key's budget rule.
+
+| Key              | Scenario   | What it measures                                                                                                                                                                                                                          |
+| ---------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edit.startupMs` | `consumer` | From spawning `ng serve` to the first `GET /main.js` (polled every 20 ms) that returns 200 and holds the initial token. One sample per run.                                                                                               |
+| `edit.servedMs`  | `consumer` | From the edited workload's `writeFile` resolving to the first `GET /main.js` (polled every 20 ms) that holds the new token; then a 1.5 s settle before the next edit.                                                                     |
+| `edit.syncMs`    | `library`  | One `pnpm run acceptance:sync` after an edit of `checkbox/src/checkbox.ts`: ng-packagr build, finish-package, `npm pack`, stage, warm APF refresh, installed-byte and export verification. From spawn to the process closing with exit 0. |
+
+Boundaries worth keeping in mind:
+
+- `edit.servedMs` is served-update latency: the 20 ms polling quantization and reading the response are inside it. It isn't compile time or repaint.
+- The library edit is a comment, so it proves edited bytes reached the installed package, not a change in runtime behavior. It's a sync-loop measurement, not an application or HMR one.
+- `edit.syncMs` is load-sensitive: ng-packagr is most of a warm sync and keeps several cores busy. Each sync's load before and after is in `results.json`. Before investigating a single exceeded `edit.syncMs`, look at the recorded load and re-run once.
+- The ownership check is detection, not a lock: a write that lands between the runner's read and its write (two small-file operations, well under a millisecond each, six times a run) is still overwritten. The ownership rule is the contract.
+- An editor with the file open may reload the bench's token version, so its next save includes the `// bench edit …` line along with your change. The bench keeps that content; the conflict report says to remove the line by hand.
+
+### results.json
+
+What the edit bench adds, besides `metrics`, `samples` and `load` (per phase): `options.runId`, the id in this run's tokens, and per scenario:
+
+- `consumer`: `url`, the served file; `build`, only when the scenario built `dist/` first, with its `reason`, `ms`, `log` and `load`; `startup` and every `edits` entry with its `token`, `ms`, the served file's `sha256`, `bytes` and `polls`;
+- `library`: `originalSha256` and `restoredSha256`; `writes`, each owned write's `at` (`sample <n>` or `restore`) and `sha256`; `warmup` and `restoreSync` with their `ms`, `log` and `load` before and after; `syncs`, per sample its `token`, `ms`, `log`, `load`, the `installed` directory and the token-bearing installed files with their `sha256`; `failures`, empty on a passing run; and on a conflict, `conflict`: `{ at, current, expected, currentSha256, expectedSha256, originalSha256 }` with the two saved files' paths.
+
+### Budgets
+
+`bench/budgets/edit.json` (`"bench": "origami-ui-edit"`) is written with the shared CLI from a full run, by each metric's rule in `bench/edit-metrics.mjs`:
+
+- `edit.startupMs`, `edit.servedMs`: median plus 30%, rounded up to 10 ms;
+- `edit.syncMs`: median plus 30%, rounded up to the second.
+
+They describe the machine that recorded them.
+
+### Results
+
+Recorded 2026-11-21 on top of `a15547e` (run 2 of three; every run passes the others' budgets): 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, pnpm 12.9.1, Angular 22.3.0, TypeScript 6.0.3, Origami 0.0.4. The one-minute load average stayed between 3.0 and 4.1, most of it the syncs' own.
+
+| Metric                         |  consumer | library |
+| ------------------------------ | --------: | ------: |
+| Dev server startup             |    1.59 s |         |
+| Template edit → served         | 220.35 ms |         |
+| Library edit → acceptance:sync |           |  4.98 s |
