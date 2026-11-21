@@ -3356,6 +3356,7 @@ try {
         // How far the name runs into the size after it.
         nameOverlap: name.getBoundingClientRect().right - size.getBoundingClientRect().left,
         stemClipped: stem.scrollWidth > stem.clientWidth,
+        extensionClipped: extension ? extension.scrollWidth > extension.clientWidth : null,
         extension: extension?.textContent ?? "",
         stemLeft: stem.getBoundingClientRect().left,
         extensionLeft: extension?.getBoundingClientRect().left ?? null,
@@ -3381,8 +3382,19 @@ try {
     );
   }
 
-  // A 10-character extension is kept but takes at most half the name, so it neither hides the
-  // whole stem nor runs into the size.
+  // A short name that fits shows its extension whole.
+  await pick("file-narrow-input", "a.docx", 1024);
+  await untilFileSize("file-narrow-value", "1\u00a0KB");
+
+  const short = await nameParts();
+
+  assert.deepEqual(
+    { extension: short.extension, stem: short.stemClipped, ext: short.extensionClipped },
+    { extension: ".docx", stem: false, ext: false },
+  );
+
+  // A 10-character extension is kept but never wider than the name, so it doesn't run into the
+  // size.
   const wideExtension = `report.${"W".repeat(10)}`;
 
   await pick("file-narrow-input", wideExtension, 3072);
@@ -3395,19 +3407,22 @@ try {
   assert.ok(wide.valueRight <= 0.5, `the value ends ${wide.valueRight}px past the root`);
   assert.equal(wide.rootOverflow, 0);
 
-  // A name with right-to-left text isn't split, so the browser orders it as one run in its own
-  // direction: `تقرير-final.pdf` keeps `final.pdf` together.
-  const mixedName = "تقرير-final.pdf";
+  // Only Latin, Greek and Cyrillic names are split. Any other, such as `تقرير-final.pdf` or a
+  // Yezidi one, is one run the browser orders in its own direction, so `final.pdf` stays together.
+  for (const [otherName, size, shown] of [
+    ["تقرير-final.pdf", 4096, "4\u00a0KB"],
+    ["\u{10E80}\u{10E81}.pdf", 5120, "5\u00a0KB"],
+  ]) {
+    await pick("file-narrow-input", otherName, size);
+    await untilFileSize("file-narrow-value", shown);
 
-  await pick("file-narrow-input", mixedName, 4096);
-  await untilFileSize("file-narrow-value", "4\u00a0KB");
+    const other = await nameParts();
 
-  const mixed = await nameParts();
-
-  assert.deepEqual(
-    { extension: mixed.extension, dir: mixed.dir, text: mixed.text, clipped: mixed.stemClipped },
-    { extension: "", dir: "auto", text: mixedName, clipped: false },
-  );
+    assert.deepEqual(
+      { extension: other.extension, dir: other.dir, text: other.text },
+      { extension: "", dir: "auto", text: otherName },
+    );
+  }
 
   // On a right-to-left page a left-to-right name keeps its order: the extension after the stem.
   await page.evaluate(() => document.getElementById("file-narrow").setAttribute("dir", "rtl"));
