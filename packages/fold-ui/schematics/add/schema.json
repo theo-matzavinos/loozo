@@ -21,6 +21,7 @@
           "input",
           "menu",
           "number-field",
+          "otp-field",
           "popover",
           "popup",
           "progress",

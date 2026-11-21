@@ -155,14 +155,20 @@ input.toUpperCase();
 return {length:input.length};
 }})}})`,
       {
-        before: `import { middleware, type MiddlewareArgs } from '@loozo/angular-launch/server'; import {schema} from '../../schema';
+        before: `import { middleware, type MiddlewareArgs } from '@loozo/angular-launch/server'; import {schema} from '../../schema'; import { LeftError } from './error';
 const checked = middleware(async ({context,request,input,signal,next}: MiddlewareArgs<{value:number}, {length:number}>) => {
 if (!(request instanceof Request) || signal.aborted || input.length === 0 || context.value === 0) { throw new Error('unexpected'); }
 return next();
 });`,
-        after: `.resolve({ session: ({ remote }) => remote.session.current(), length: ({ remote }) => remote.todos.length('abc') })`,
+        // A router step after the contributed ones: its import stays in the browser copy.
+        after: `.resolve({ session: ({ remote }) => remote.session.current(), length: ({ remote }) => remote.todos.length('abc') }).errorComponent(LeftError)`,
       },
     ),
+  );
+  await put(
+    root,
+    "src/routes/left/error.ts",
+    `import { Component } from '@angular/core'; @Component({selector:'fixture-left-error',template:'failed'}) export class LeftError {}`,
   );
   await put(
     root,
@@ -237,6 +243,8 @@ void result; void session; void resolved; void length; void context; void remote
   // The copy keeps only the router steps: the server's imports are gone with their steps.
   assert.doesNotMatch(left, /@loozo\/angular-launch\/server|\.\.\/\.\.\/schema/);
   assert.match(left, /\.resolve\(\{ session: \(\{ remote \}\) => remote\.session\.current\(\)/);
+  assert.match(left, /import \{ LeftError \} from '\.\/error';/);
+  assert.match(left, /\.errorComponent\(LeftError\)/);
 
   const id = appIdPattern.exec(server)[1];
 
@@ -269,6 +277,8 @@ void result; void session; void resolved; void length; void context; void remote
 
   assert.equal(tables.match(/\.\.\.extension\(route_\w+\)/g).length, 4);
   assert.match(routes, /readonly remote: routegen\$t0<typeof route_left_route>/);
+  // The error component reaches left's record through the native options of its copy.
+  assert.match(tables, /\{ \.\.\.nativeOptions\(route_left_route\),\npath: "left",/);
 
   await generate(root, options);
   assert.deepEqual(await snapshot(root), first);

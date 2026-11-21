@@ -393,16 +393,18 @@ export const routerSteps: ReadonlySet<string> = new Set([
   "providers",
   "data",
   "runGuardsAndResolvers",
+  "errorComponent",
   "onInvalidParams",
   "redirect",
 ]);
 // Any of these steps rules a redirect out.
-const guardSteps = new Set([
+const redirectBlockers = new Set([
   "canMatch",
   "canActivate",
   "canActivateChild",
   "canDeactivate",
   "onInvalidParams",
+  "errorComponent",
 ]);
 const reservedStepNames = new Set([
   ...routerSteps,
@@ -685,9 +687,9 @@ function analyzeSteps(
     }
 
     if (name === "redirect") {
-      for (const guard of used) {
-        if (guardSteps.has(guard)) {
-          fail(nameNode, `Redirect cannot follow ${guard}`);
+      for (const blocked of used) {
+        if (redirectBlockers.has(blocked)) {
+          fail(nameNode, `Redirect cannot follow ${blocked}`);
         }
       }
     }
@@ -1089,6 +1091,12 @@ export async function discover(
     byDirectory.set(directory, declaration);
     byFile.set(declaration.file, declaration);
     declaration.page = pages.get(directory);
+
+    const errorComponent = declaration.config.get("errorComponent");
+
+    if (errorComponent && !declaration.page) {
+      fail(errorComponent, "errorComponent requires a colocated page");
+    }
   }
 
   for (const [directory, page] of pages) {
