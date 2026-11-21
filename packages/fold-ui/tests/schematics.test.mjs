@@ -432,6 +432,7 @@ describe("add", () => {
       combobox: ["cn", "combobox", "input", "popup"],
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
+      "file-field": ["button", "cn", "file-field"],
       input: ["cn", "input"],
       "number-field": ["cn", "number-field"],
       popover: ["button", "cn", "popover", "popup"],
@@ -474,6 +475,21 @@ describe("add", () => {
 
     assert.match(field, /selector: "\[zzField\]"/);
     assert.match(field, /exportAs: "zzField"/);
+  });
+
+  test("renames FileField's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["file-field"] }, await setUp(runner));
+
+    assert.match(readText(tree, "src/ui/file-field/file-field.ts"), /exportAs: "zzFileField"/);
+    assert.match(
+      readText(tree, "src/ui/file-field/file-field-button.ts"),
+      /selector: "label\[zzFileFieldButton\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/file-field/file-field-drop-zone.ts"),
+      /selector: "label\[zzFileFieldDropZone\]"/,
+    );
   });
 
   test("renames RadioGroupItem's selector with the prefix", async () => {

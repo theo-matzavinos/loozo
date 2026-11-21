@@ -1,6 +1,6 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
-import { Component, computed, inject, signal } from "@angular/core";
+import { Component, LOCALE_ID, computed, inject, signal } from "@angular/core";
 import {
   FormField,
   disabled,
@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "#ui/dialog";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
+import { FileFieldParts } from "#ui/file-field";
 import { Input } from "#ui/input";
 import { NumberFieldParts } from "#ui/number-field";
 import { PopoverParts } from "#ui/popover";
@@ -44,6 +45,7 @@ import {
   LucideLink,
   LucideRotateCcw,
   LucideTriangleAlert,
+  LucideUpload,
 } from "@lucide/angular";
 
 const PLANETS = [
@@ -132,6 +134,188 @@ export class SearchDialog {
   }
 }
 
+// The FileField's size in Greek: the value part formats it in its injector's LOCALE_ID.
+@Component({
+  selector: "app-greek-file",
+  imports: [FileFieldParts],
+  providers: [{ provide: LOCALE_ID, useValue: "el-GR" }],
+  template: `
+    <div zzFileField [(value)]="file" id="file-greek">
+      <label zzFileFieldButton id="file-greek-button">
+        Επιλογή αρχείου <input zzFileFieldInput id="file-greek-input" />
+      </label>
+      <p zzFileFieldValue id="file-greek-value"></p>
+    </div>
+  `,
+})
+export class GreekFileField {
+  protected readonly file = signal<File | null>(null);
+}
+
+const MB = 1024 * 1024;
+
+// File field: both looks in Fields, disabled, standalone, narrow, Greek and light.
+@Component({
+  selector: "app-file-fields",
+  imports: [
+    Button,
+    Field,
+    FieldDescription,
+    FieldError,
+    FieldLabel,
+    FileFieldParts,
+    FormField,
+    GreekFileField,
+    LucideUpload,
+  ],
+  template: `
+    <section id="files" class="grid w-[410px] gap-4 p-5">
+      <div zzField #invoiceField="zzField" id="file-button-field">
+        <label zzFieldLabel id="file-button-label">Invoice</label>
+        <div zzFileField [formField]="files.invoice" id="file-button-root">
+          <label zzFileFieldButton id="file-button">
+            <svg lucideUpload></svg> Choose file
+            <input zzFileFieldInput accept=".pdf,.jpg,.jpeg,.png" id="file-button-input" />
+          </label>
+          <p zzFileFieldValue id="file-button-value"></p>
+        </div>
+        <p zzFieldDescription>PDF, JPG or PNG, up to 25 MB</p>
+        @if (invoiceField.state.errorsShown()) {
+          <p zzFieldError id="file-button-error">{{ invoiceField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <button zzButton type="button" (click)="saveInvoice()" id="file-button-save">
+        Save invoice
+      </button>
+
+      <div zzField #attachmentField="zzField" id="file-zone-field">
+        <label zzFieldLabel id="file-zone-label">Attachment</label>
+        <div zzFileField [formField]="files.attachment" id="file-zone-root">
+          <label zzFileFieldDropZone id="file-zone">
+            <span
+              ><span class="font-semibold text-foreground">Choose a file</span> or drag it
+              here</span
+            >
+            <input zzFileFieldInput id="file-zone-input" />
+          </label>
+          <p zzFileFieldValue id="file-zone-value"></p>
+        </div>
+        @if (attachmentField.state.errorsShown()) {
+          <p zzFieldError id="file-zone-error">{{ attachmentField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <output id="file-zone-touched">{{ files.attachment().touched() }}</output>
+      <button zzButton type="button" (click)="saveAttachment()" id="file-zone-save">
+        Save attachment
+      </button>
+
+      <div zzField id="file-locked">
+        <label zzFieldLabel>Locked attachment</label>
+        <div zzFileField [formField]="files.locked" id="file-locked-zone-root">
+          <label zzFileFieldDropZone id="file-locked-zone">
+            Choose a file or drag it here <input zzFileFieldInput id="file-locked-zone-input" />
+          </label>
+          <p zzFileFieldValue id="file-locked-zone-value"></p>
+        </div>
+      </div>
+      <div zzFileField [(value)]="lockedFile" disabled id="file-locked-button-root">
+        <label zzFileFieldButton id="file-locked-button">
+          Choose file <input zzFileFieldInput id="file-locked-button-input" />
+        </label>
+        <p zzFileFieldValue id="file-locked-button-value"></p>
+      </div>
+      <button zzButton type="button" (click)="fillLocked()" id="file-locked-fill">
+        Fill the locked field
+      </button>
+
+      <div class="flex items-center gap-2">
+        <div zzFileField [(value)]="logo" id="file-primary-root">
+          <label zzFileFieldButton variant="primary" size="sm" id="file-primary">
+            Upload logo <input zzFileFieldInput accept="image/*" id="file-primary-input" />
+          </label>
+          <p zzFileFieldValue id="file-primary-value"></p>
+        </div>
+        <button
+          zzButton
+          variant="ghost"
+          type="button"
+          (click)="logo.set(null)"
+          id="file-primary-clear"
+        >
+          Clear
+        </button>
+      </div>
+
+      <div zzFileField [(value)]="statement" class="w-60" id="file-narrow">
+        <label zzFileFieldButton size="sm" id="file-narrow-button">
+          Choose <input zzFileFieldInput id="file-narrow-input" />
+        </label>
+        <p zzFileFieldValue id="file-narrow-value"></p>
+      </div>
+
+      <app-greek-file />
+
+      <div class="light grid gap-4 bg-background p-4">
+        <div zzFileField [(value)]="lightFile" id="file-light">
+          <label zzFileFieldButton id="file-light-button">
+            Choose file <input zzFileFieldInput id="file-light-input" />
+          </label>
+          <p zzFileFieldValue id="file-light-value"></p>
+        </div>
+        <div zzFileField id="file-light-zone-root">
+          <label zzFileFieldDropZone id="file-light-zone">
+            Choose a file or drag it here <input zzFileFieldInput id="file-light-zone-input" />
+          </label>
+        </div>
+      </div>
+    </section>
+  `,
+})
+export class FileFields {
+  protected readonly lockedFile = signal<File | null>(null);
+  protected readonly logo = signal<File | null>(null);
+  protected readonly statement = signal<File | null>(null);
+  protected readonly lightFile = signal<File | null>(null);
+  protected readonly files = form(
+    signal({
+      invoice: null as File | null,
+      attachment: null as File | null,
+      locked: null as File | null,
+    }),
+    (path) => {
+      required(path.invoice, { message: "Choose the invoice" });
+      validate(path.invoice, ({ value }) => {
+        const file = value();
+
+        return file !== null && file.size > 25 * MB
+          ? { kind: "fileTooLarge", message: "Up to 25 MB" }
+          : undefined;
+      });
+      required(path.attachment, { message: "Choose an attachment" });
+      disabled(path.locked);
+    },
+  );
+
+  protected async saveInvoice(): Promise<void> {
+    await submit(this.files.invoice, {
+      action: async () => undefined,
+      onInvalid: (field) => field().focusBoundControl(),
+    });
+  }
+
+  protected async saveAttachment(): Promise<void> {
+    await submit(this.files.attachment, {
+      action: async () => undefined,
+      onInvalid: (field) => field().focusBoundControl(),
+    });
+  }
+
+  // A disabled field still takes the app's own writes.
+  protected fillLocked(): void {
+    this.lockedFile.set(new File([new Uint8Array(1536)], "contract-2026.pdf"));
+  }
+}
+
 @Component({
   selector: "app-root",
   imports: [
@@ -145,6 +329,7 @@ export class SearchDialog {
     FieldDescription,
     FieldError,
     FieldLabel,
+    FileFields,
     FormField,
     Input,
     LucideArchive,
@@ -1116,6 +1301,7 @@ export class SearchDialog {
         </div>
       </div>
     </section>
+    <app-file-fields />
     <section id="layers" class="grid gap-8 p-5">
       <section zzTabs [(value)]="view" #tabs="zzTabs" id="tabs">
         <div zzTabsList aria-label="Contract lists" id="tabs-list">

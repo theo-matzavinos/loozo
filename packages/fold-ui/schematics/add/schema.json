@@ -17,6 +17,7 @@
           "combobox",
           "dialog",
           "field",
+          "file-field",
           "input",
           "number-field",
           "popover",

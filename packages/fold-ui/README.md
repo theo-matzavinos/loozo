@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, FileField, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -41,13 +41,14 @@ ng add @loozo/fold-ui
 ```sh
 ng generate @loozo/fold-ui:add --names button alert-dialog dialog sheet
 ng generate @loozo/fold-ui:add --names field input textarea
+ng generate @loozo/fold-ui:add --names file-field
 ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names select combobox
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
 ```
 
-NumberField, Slider and Combobox import `@loozo/origami-ui/number-field`, `/slider` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider, FileField and Combobox import `@loozo/origami-ui/number-field`, `/slider`, `/file-field` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -78,7 +79,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; FileFieldButton is styled by Button's `buttonVariants`, so adding `file-field` adds `button`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -135,9 +136,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name` and `file-field-size`). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton `data-disabled` while its field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -475,7 +476,7 @@ Field lays out a label, a control, its descriptions and its errors, over Origami
 ```
 
 - `Field`: the root, a column with a 6px gap. Its template reference, `#email="foldField"` with your prefix, has `state`: Origami's Field state, with `errorsShown`, `errors`, `invalid`, `touched`, `disabled` and `required` signals. It takes `orientation`, `vertical` (default) or `horizontal`; see [Option rows](#option-rows).
-- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox, Switch and NumberField, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), or a [Slider](#slider), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
+- `FieldLabel`: in body text at weight 600, or 400 in a horizontal Field. On a `<label>` it names the control: use a `<label>` for Input, Textarea, Checkbox, Switch, NumberField and FileField, or they're left unnamed. On another element, such as a `<span>`, it names a group, such as a [RadioGroup](#radiogroup), or a [Slider](#slider), which Origami points `aria-labelledby` at; that label isn't clickable. It dims while the Field is disabled. It takes `id`.
 - `FieldDescription`: a 12px muted hint. It takes `id`.
 - `FieldError`: a 12px message in the destructive text color, after an alert icon hidden from assistive technology. It always shows while it's mounted, so put it under `@if (field.state.errorsShown())`; the text is yours. It takes `id`.
 
@@ -766,6 +767,82 @@ There's no value part: show the value in an `<output>` beside the label, as abov
 - **Forced colors.** In forced-colors mode, such as Windows High Contrast, the rail, fill and thumb keep system colors, and an invalid thumb looks like a valid one: the Field's error text carries the state.
 
 [Origami's README](../origami-ui/slider/README.md) describes the keys, pointer handling, hydration and the rest.
+
+## FileField
+
+```ts
+import { FileFieldParts } from "#ui/file-field";
+import { LucideUpload } from "@lucide/angular";
+import { form, required, validate } from "@angular/forms/signals";
+
+const MB = 1024 * 1024;
+
+readonly billing = form(signal({ invoice: null as File | null }), (p) => {
+  required(p.invoice, { message: "Choose the invoice" });
+  validate(p.invoice, ({ value }) =>
+    (value()?.size ?? 0) > 25 * MB ? { kind: "fileTooLarge", message: "Up to 25 MB" } : undefined,
+  );
+});
+```
+
+`FileField` takes one file, over Origami's [File field](../origami-ui/file-field/README.md), which owns the behavior: the browser's own picker, drops, the value, Field membership and server rendering. It has two looks over the same hidden native `<input type="file">`: a `<label>` styled as a fold [Button](#button), or a dashed drop zone with an upload icon above your text. A `FileFieldValue` shows the chosen file's name and size:
+
+<!-- prettier-ignore -->
+```html
+<div foldField #invoice="foldField">
+  <label foldFieldLabel>Invoice</label>
+  <div foldFileField [formField]="billing.invoice">
+    <label foldFileFieldButton>
+      <svg lucideUpload></svg> Choose file
+      <input foldFileFieldInput accept=".pdf,.jpg,.jpeg,.png" />
+    </label>
+    <p foldFileFieldValue></p>
+  </div>
+  <p foldFieldDescription>PDF, JPG or PNG, up to 25 MB</p>
+  @if (invoice.state.errorsShown()) {
+    <p foldFieldError>{{ invoice.state.errors()[0]?.message }}</p>
+  }
+</div>
+
+<div foldField>
+  <label foldFieldLabel>Attachment</label>
+  <div foldFileField [formField]="attachment.file">
+    <label foldFileFieldDropZone>
+      <span><span class="font-semibold text-foreground">Choose a file</span> or drag it here</span>
+      <input foldFileFieldInput />
+    </label>
+    <p foldFileFieldValue></p>
+  </div>
+</div>
+
+<div foldFileField [(value)]="logo" #picker="foldFileField">
+  <label foldFileFieldButton variant="ghost" size="sm">
+    Upload logo <input foldFileFieldInput accept="image/*" />
+  </label>
+  <p foldFileFieldValue></p>
+</div>
+```
+
+- `FileField`: the root, a wrapping row with a 12px gap, so a button look and its value share a line, and a full-width zone puts the value 8px under it. It takes `value` (two-way, `File | null`), `disabled` and `class`, and emits `valueChange` and `touch`; `[formField]` binds the value and `disabled`. Its template reference, `#picker="foldFileField"` with your prefix, has `state`, with `value` and `disabled` signals, for a preview of your own. Its `focus()` focuses the Input, so Signal Forms' `focusBoundControl()` reaches it.
+- `FileFieldInput`: the native file input, visually hidden but still focusable, and the field's one control: it takes the Tab stop, opens the picker on Enter and Space, and is what assistive technology reads. Origami makes it `type="file"`; add `accept`. Origami reads its `id` once, as a static attribute: write `id="…"` or let the Field generate one, not `[id]`. It takes `class`.
+- `FileFieldButton`: a `<label>` around the Input, with Button's `variant` (default `secondary`) and `size` (default `md`), and `class`. A click opens the picker. It doesn't take drops.
+- `FileFieldDropZone`: a full-width `<label>` around the Input, with a 24px upload icon above your text. A click opens the picker, and a dropped file is chosen as a picked one is. It takes `class`.
+- `FileFieldValue`: a file icon, the name and the size, or nothing while no file is chosen. A long name truncates before its extension, as in `statement-of-acc….pdf`, with the full name in its `title`. Keep it inside the FileField, which it reads; it takes `class`.
+
+The looks follow the Input's state. Keyboard focus on it draws the green ring around the look you see, and turns the zone's border green too; a mouse click draws no ring. While the Field shows errors, the look's border is orange. A disabled field dims the look and the value to 50%, with no hover, no picker and no drops. While a file drag is over the zone, its border turns solid in the foreground color over an 8% foreground tint; green stays for focus. In forced-colors mode, such as Windows High Contrast, the looks take system colors, an invalid look looks like a valid one, as on other fold controls, so the FieldError carries the state, and the zone's drag-over border is `Highlight`.
+
+The size is in 1024-based units up to GB, with at most one decimal, formatted in your app's `LOCALE_ID` with a no-break space before the unit: `0 B`, `999 B`, `1.5 KB`, `25 MB` and `1.3 GB`, or `1,5 KB` in Greek. Provide another `LOCALE_ID` on a component to format the sizes inside it.
+
+- **Validation is yours.** Size, type and name rules are Signal Forms `validate()` rules over the `File`, as above; fold and Origami ship none. `accept` is only a hint to the picker: browsers don't apply it to drops or to the picker's "All files" choice, so check the type in the form and on the server. A pick or a drop touches the field, so its errors show at once. Give every rule a `message`.
+- **Size text at limits.** The shown size is rounded, so a file 1 byte over 25 MB reads `25 MB` while your check rejects it. Name the limit in the error, as in "Up to 25 MB", not the file's size, and compare bytes, not the shown text.
+- **Clearing.** There's no clear button yet: write `null` through your model, `billing.invoice().value.set(null)`, or `reset({ invoice: null })`. A bare `reset()` keeps the file. Writing `null` also empties the native input, so the same file can be chosen again.
+- **Rejecting a pick.** With `[formField]`, don't write the field back to `null` inside the pick's own `valueChange`: Angular Signal Forms 22.2.6 doesn't push that write to the picker, so the form holds `null` while the picker keeps the file. Write it after the next render instead; Origami's [Clearing and choosing again](../origami-ui/file-field/README.md#clearing-and-choosing-again) has the details.
+- **Drops outside the zone.** A file dropped outside every zone, or before the zone hydrates, gets the browser's default, which may open the file in place of your page. To prevent that, add the one guard from Origami's [Drops](../origami-ui/file-field/README.md#drops) to your app shell.
+- **The Field's label opens the picker.** A `<label foldFieldLabel>` names the Input with `for`, so a click on its text opens the picker too, and the Input's name joins both labels, as in "Invoice Choose file".
+- **One look per field.** A FileField has one Input, so use one look in it. Don't put a FileFieldButton inside a FileFieldDropZone: both are `<label>`s, which can't nest.
+- **No readonly.** A form's `readonly()` rule doesn't reach the field; use `disabled()`.
+
+[Origami's README](../origami-ui/file-field/README.md) describes picks, drops, hydration and the rest.
 
 ## Select
 
@@ -1084,6 +1161,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - Nx workspaces are untested.
 - No range, multi-thumb or vertical Slider, and no ticks or marks; no press-and-hold or wheel stepping in NumberField.
 - No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. A list wider than its trigger near the viewport's edge can overflow it: Origami flips a list but doesn't shift it.
+- No multiple files, clear action, upload progress or previews in FileField.
 - No scrolling or wrapping Tabs List, sliding underline or link tabs.
 - No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. A Tooltip or Popover near the viewport's cross-axis edge can overflow it: Origami flips them but doesn't shift them.
 - A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
