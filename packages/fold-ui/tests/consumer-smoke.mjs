@@ -4187,14 +4187,13 @@ try {
         campaign: look("progress-campaign"),
       };
     });
-  const displayBorder = "rgb(46, 46, 46)";
   const looks = await barLooks();
 
   assert.deepEqual(looks, {
     upload: {
       height: 2,
       share: 40,
-      track: displayBorder,
+      track: displayInput,
       fill: foreground,
       opacity: "1",
       animation: "none",
@@ -4202,7 +4201,7 @@ try {
     complete: {
       height: 2,
       share: 100,
-      track: displayBorder,
+      track: displayInput,
       fill: foreground,
       opacity: "1",
       animation: "none",
@@ -4210,7 +4209,7 @@ try {
     unknown: {
       height: 4,
       share: 40,
-      track: displayBorder,
+      track: displayInput,
       fill: foreground,
       opacity: "1",
       animation: "sweep",
@@ -4218,7 +4217,7 @@ try {
     still: {
       height: 2,
       share: 40,
-      track: displayBorder,
+      track: displayInput,
       fill: foreground,
       opacity: "1",
       animation: "none",
@@ -4226,7 +4225,7 @@ try {
     campaign: {
       height: 24,
       share: 62,
-      track: displayBorder,
+      track: displayInput,
       fill: foreground,
       opacity: "1",
       animation: "none",
@@ -4302,7 +4301,7 @@ try {
   assert.deepEqual(lightDisplay, {
     thumb: "rgb(133, 133, 129)",
     avatar: "rgb(251, 251, 250) rgb(91, 91, 88)",
-    bar: "rgb(211, 211, 208) rgb(27, 27, 27)",
+    bar: "rgb(133, 133, 129) rgb(27, 27, 27)",
   });
 
   // Reduced motion: no rail fade, and the unknown bar is a still, full, half-opacity bar; the
@@ -4316,7 +4315,7 @@ try {
   assert.deepEqual((await barLooks()).unknown, {
     height: 4,
     share: 100,
-    track: displayBorder,
+    track: displayInput,
     fill: foreground,
     opacity: "0.5",
     animation: "none",
@@ -4342,8 +4341,23 @@ try {
     };
   });
 
+  // Hovering the rail keeps the thumb CanvasText: the hover color applies only outside forced colors.
+  const forcedRail = "#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=vertical]";
+
+  await page.hover("#sa-both");
+  await page.waitForSelector(`${forcedRail}[data-visible]`);
+  await page.hover(forcedRail);
+  forcedDisplay.hoveredThumb = await page.evaluate(
+    (rail) =>
+      getComputedStyle(document.querySelector(`${rail} > [data-slot=scroll-area-thumb]`))
+        .backgroundColor,
+    forcedRail,
+  );
+  await page.mouse.move(0, 0);
+
   assert.deepEqual(forcedDisplay, {
     thumb: systemColors.canvasText,
+    hoveredThumb: systemColors.canvasText,
     rail: systemColors.canvas,
     avatar: `1px ${systemColors.canvasText}`,
     track: systemColors.grayText,

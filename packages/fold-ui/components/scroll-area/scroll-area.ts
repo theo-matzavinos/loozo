@@ -15,9 +15,10 @@ const VIEWPORT =
 // rail from taking clicks and, transitioned, keeps a hiding one painted until its fade ends.
 const TRACK =
   "absolute box-border overflow-clip p-0.5 touch-none invisible opacity-0 transition-[opacity,visibility] duration-120 ease-out data-visible:visible data-visible:opacity-100 motion-reduce:transition-none forced-color-adjust-none forced-colors:bg-[Canvas]";
-// A 6px pill, darker while its rail is hovered. Origami writes its length and position.
+// A 6px pill, darker while its rail is hovered, except in forced colors, where it stays CanvasText.
+// Origami writes its length and position.
 const THUMB =
-  "box-border rounded-full bg-input [[data-slot=scroll-area-scrollbar]:hover>&]:bg-muted-foreground forced-color-adjust-none forced-colors:border forced-colors:border-[Canvas] forced-colors:bg-[CanvasText]";
+  "box-border rounded-full bg-input not-forced-colors:[[data-slot=scroll-area-scrollbar]:hover>&]:bg-muted-foreground forced-color-adjust-none forced-colors:border forced-colors:border-[Canvas] forced-colors:bg-[CanvasText]";
 
 /**
  * A scrolling box over Origami's ScrollArea: native scrolling with the browser's scrollbars

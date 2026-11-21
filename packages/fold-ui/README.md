@@ -1197,7 +1197,7 @@ Replacing a still-loading source with another doesn't restart the 600ms window, 
 import { Progress } from "#ui/progress";
 ```
 
-`Progress` shows how much of a task is done, over Origami's [Progress](../origami-ui/progress/README.md), which owns the value, its range, the value text and the ARIA. fold draws a 2px neutral bar, a `border` track that fills with the foreground color, and sweeps a segment across it while the progress is unknown:
+`Progress` shows how much of a task is done, over Origami's [Progress](../origami-ui/progress/README.md), which owns the value, its range, the value text and the ARIA. fold draws a 2px neutral bar, an `input` track, as visible as a control's border, that fills with the foreground color, and sweeps a segment across it while the progress is unknown:
 
 <!-- prettier-ignore -->
 ```html

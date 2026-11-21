@@ -58,7 +58,9 @@ export class Progress {
 
   protected readonly classes = computed(() =>
     cn(
-      "relative block h-0.5 w-full overflow-hidden rounded-full bg-border",
+      // The `input` track reaches 3:1 against the page and surfaces, so an empty bar still shows its
+      // full length; the foreground fill stays 4.5:1 against it.
+      "relative block h-0.5 w-full overflow-hidden rounded-full bg-input",
       // Opted out of forced colors (inherited by the fill) so the track and the fill both paint.
       "forced-color-adjust-none forced-colors:bg-[GrayText]",
       this.class(),
