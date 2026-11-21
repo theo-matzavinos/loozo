@@ -1,7 +1,9 @@
 // The scale benchmark: node bench/run.mjs [--workload router|launch] plus the shared flags
-// ([--scenarios 100,300,1000] [--out <dir>] [--samples generate=3,edits=3,build=1,ngc=3,tsc=1]
-// [--timeout <seconds>] [--check [file]] [--deterministic]). The package's bench script runs it
-// under the machine-wide gate lock. See bench/README.md for what each number means and
+// ([--scenarios 100,300,1000] [--out <dir>] [--samples <name>=<count>,…] [--timeout <seconds>]
+// [--check [file]] [--deterministic]). The router workload's samples are
+// generate=3,edits=3,build=1,ngc=3,tsc=1,boot=10,cold=10,warm=30, the Launch workload's
+// generate=3,build=1,ngc=3,tsc=1,ssr=1000,rpc=1000. The package's bench script runs it under the
+// machine-wide gate lock. See bench/README.md for what each number means and
 // tools/bench/README.md for the shared contract.
 import { createHash } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -25,6 +27,13 @@ import { blockSize, editedRoute, writeFixture } from "./fixture.mjs";
 import { createLaunchConsumer, launchDirectory } from "./launch-consumer.mjs";
 import { writeLaunchFixture } from "./launch-fixture.mjs";
 import { metrics } from "./metrics.mjs";
+import {
+  measureNavigation,
+  measureRequests,
+  requireChromium,
+  runtimeConditions,
+  startServer,
+} from "./runtime.mjs";
 
 const here = fileURLToPath(new URL("./", import.meta.url));
 const require = createRequire(join(packageDirectory, "package.json"));
@@ -32,7 +41,9 @@ const pollMs = 20;
 const settleMs = 1500;
 
 // What each workload measures with. The router workload is the default; the Launch workload
-// measures Launch's route extension on the same block of routes, without the serve phase.
+// measures Launch's route extension on the same block of routes, without the serve phase. Each
+// has its own runtime phase: browser bootstrap and navigation for the router, SSR and RPC
+// latency for Launch.
 const workloads = {
   router: {
     name: "router",
@@ -41,6 +52,14 @@ const workloads = {
     generator: "generate.mjs",
     budgets: "budgets.json",
     serve: true,
+    samples: { generate: 3, edits: 3, build: 1, ngc: 3, tsc: 1, boot: 10, cold: 10, warm: 30 },
+    runtime: measureRouterRuntime,
+    // Only the runtime phase needs a browser, so a deterministic run doesn't check for one.
+    setup: async ({ deterministic }) => {
+      if (!deterministic) {
+        await requireChromium();
+      }
+    },
     built: [
       join(packageDirectory, "node/src/generation/generate.js"),
       join(packageDirectory, "node/src/builders/serve.js"),
@@ -54,6 +73,7 @@ const workloads = {
       serveCache: cachePolicy.serve,
       build:
         "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
+      runtime: runtimeConditions.router,
     },
   },
   launch: {
@@ -63,6 +83,8 @@ const workloads = {
     generator: "launch-generate.mjs",
     budgets: "launch-budgets.json",
     serve: false,
+    samples: { generate: 3, build: 1, ngc: 3, tsc: 1, ssr: 1000, rpc: 1000 },
+    runtime: measureLaunchRuntime,
     built: [
       join(packageDirectory, "node/src/generation/generate.js"),
       join(packageDirectory, "dist/fesm2022/loozo-angular-router.mjs"),
@@ -75,6 +97,7 @@ const workloads = {
         "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited public Launch generate() (tanstackQuery on) without persistent compiler state.",
       build:
         "ng build through the Launch application target (generation preflight included): browser and server builds with SSR (outputMode server), scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
+      runtime: runtimeConditions.launch,
     },
   },
 };
@@ -189,6 +212,112 @@ async function removeGenerated(consumer) {
 
 function duration(ms) {
   return format({ unit: "ms" }, ms);
+}
+
+// The production build's output directory, as the build phase left it.
+async function buildOutput(consumer) {
+  const workspace = await readWorkspace(consumer);
+
+  return join(consumer, workspace.projects.proof.architect.build.options.outputPath);
+}
+
+// Bootstrap, cold and warm navigation in Chromium against the router build's browser files.
+async function measureRouterRuntime({ consumer, run }) {
+  const { samples, timeoutMs, record, result } = run;
+  const output = await buildOutput(consumer);
+  const navigation = await measureNavigation(join(output, "browser"), { samples, timeoutMs });
+  const { values } = navigation;
+
+  record("runtime.bootstrapMs", values.bootstrapMs);
+  record("runtime.bootstrapP95Ms", values.bootstrapMs);
+  record("runtime.navigateColdMs", values.navigateColdMs);
+  record("runtime.navigateWarmMs", values.navigateWarmMs);
+  record("runtime.navigateWarmP95Ms", values.navigateWarmMs);
+  result.runtime = {
+    chromium: navigation.chromium,
+    coldTarget: navigation.coldTarget,
+    documentToBootstrapMs: values.documentToBootstrapMs,
+  };
+  progress(
+    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${duration(result.metrics["runtime.navigateColdMs"])}, warm ${duration(result.metrics["runtime.navigateWarmMs"])} (medians)`,
+  );
+}
+
+// SSR, query and mutation against the built server, then SSR against the same route count built
+// without the block roots' middleware.
+async function measureLaunchRuntime({ consumer, routes, run }) {
+  const { directory, logs, samples, timeoutMs, record, result } = run;
+  const bare = join(directory, "consumer-bare");
+  const ng = await bin(require, "@angular/cli", "ng");
+
+  await createLaunchConsumer(bare);
+  await writeLaunchFixture(bare, routes, { middleware: false });
+  await setCache(bare, cachePolicy.build);
+
+  // Untimed: the bare build only gives the without-middleware server.
+  const bareBuild = await node([ng, "build", "proof"], {
+    cwd: bare,
+    log: join(logs, "build-bare.log"),
+    timeoutMs,
+  });
+
+  result.runtime = { bareConsumer: bare, bareBuildMs: bareBuild.wallMs };
+
+  const withMiddleware = await startServer(join(await buildOutput(consumer), "server/server.mjs"), {
+    cwd: consumer,
+    log: join(logs, "server.log"),
+    timeoutMs,
+  });
+
+  try {
+    const ssr = await measureRequests(withMiddleware.origin, "ssr", {
+      count: samples.ssr,
+      timeoutMs,
+    });
+
+    record("ssr.p50Ms", ssr);
+    record("ssr.p95Ms", ssr);
+
+    const query = await measureRequests(withMiddleware.origin, "query", {
+      count: samples.rpc,
+      timeoutMs,
+    });
+
+    record("rpc.queryP50Ms", query);
+    record("rpc.queryP95Ms", query);
+
+    const mutation = await measureRequests(withMiddleware.origin, "mutation", {
+      count: samples.rpc,
+      timeoutMs,
+    });
+
+    record("rpc.mutationP50Ms", mutation);
+    record("rpc.mutationP95Ms", mutation);
+  } finally {
+    await withMiddleware.stop();
+  }
+
+  const withoutMiddleware = await startServer(join(await buildOutput(bare), "server/server.mjs"), {
+    cwd: bare,
+    log: join(logs, "server-bare.log"),
+    timeoutMs,
+  });
+
+  try {
+    const ssr = await measureRequests(withoutMiddleware.origin, "ssr", {
+      count: samples.ssr,
+      timeoutMs,
+    });
+
+    record("ssr.bareP50Ms", ssr);
+    record("ssr.bareP95Ms", ssr);
+  } finally {
+    await withoutMiddleware.stop();
+  }
+
+  progress(
+    `  SSR ${duration(result.metrics["ssr.p50Ms"])}, without middleware ${duration(result.metrics["ssr.bareP50Ms"])}, query ${duration(result.metrics["rpc.queryP50Ms"])}, mutation ${duration(result.metrics["rpc.mutationP50Ms"])} (medians)`,
+  );
 }
 
 // Fills run.result phase by phase; the shared harness saves after each.
@@ -405,6 +534,9 @@ async function measure(scenario, run, workload) {
     },
     { deterministic: true },
   );
+
+  // Timing only, so --deterministic skips it. It reuses the build phase's production output.
+  await phase("runtime", () => workload.runtime({ consumer, routes, run }));
 }
 
 const { workload, argv } = takeWorkload(process.argv.slice(2));
@@ -419,7 +551,7 @@ await bench(
       label: (key) => `${key} routes`,
       layout: "metric-rows",
     },
-    samples: { generate: 3, edits: 3, build: 1, ngc: 3, tsc: 1 },
+    samples: workload.samples,
     budgets: join(here, workload.budgets),
     options: { workload: workload.name, pollMs, settleMs },
     conditions: {
@@ -431,6 +563,7 @@ await bench(
     },
     packages: [packageDirectory, launchDirectory],
     prerequisites: () => prerequisites(workload),
+    setup: workload.setup,
     measure: (scenario, run) => measure(scenario, run, workload),
   },
   argv,

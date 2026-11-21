@@ -1,6 +1,6 @@
 # Scale benchmark
 
-Measures how `@loozo/angular-router` scales with the number of routes: first generation, regeneration while serving, `ng build`, type-checking and bundle size, each on a generated fixture of 100, 300 and 1,000 routes by default. A second workload measures the same routes declared through `@loozo/angular-launch`'s route extension; see [Launch workload](#launch-workload).
+Measures how `@loozo/angular-router` scales with the number of routes: first generation, regeneration while serving, `ng build`, type-checking, bundle size and the built app's bootstrap and navigation in Chromium, each on a generated fixture of 100, 300 and 1,000 routes by default. A second workload measures the same routes declared through `@loozo/angular-launch`'s route extension, with SSR and RPC latency in place of the browser; see [Launch workload](#launch-workload).
 
 It runs on demand only, not in CI. Timings depend on the machine and on whatever else it's running, so compare numbers from one machine under similar load, and read them next to the machine and load averages recorded with them.
 
@@ -12,6 +12,7 @@ Prerequisites, once per checkout and again after changing the package's source:
 pnpm install --frozen-lockfile                # at the repo root
 pnpm --dir packages/angular-router build      # the benchmark runs the built package
 pnpm --dir packages/angular-launch build      # the Launch workload also runs built Launch
+pnpm --dir packages/angular-router exec playwright install chromium   # the router workload's runtime phase
 ```
 
 The benchmark checks that the package is built but not that the build is current. From `packages/angular-router`:
@@ -19,6 +20,7 @@ The benchmark checks that the package is built but not that the build is current
 ```sh
 pnpm run bench                                          # 100, 300 and 1,000 routes, every phase
 pnpm run bench --scenarios 10,100 --out /tmp/new-directory
+pnpm run bench --scenarios 300 --samples boot=20,warm=60
 pnpm run bench --check                                  # also compare against bench/budgets.json
 pnpm run bench --deterministic --check                  # generate, build, tsc and bundle once each; what CI checks
 pnpm run bench --workload launch --check                # the Launch workload, against bench/launch-budgets.json
@@ -28,17 +30,24 @@ The script runs under the machine-wide gate lock (`packages/origami-ui/tests/acc
 
 The flags, `results.json`, budgets and the `record`/`check` CLI are the shared harness's; see [`tools/bench/README.md`](../../../tools/bench/README.md). The router's own flag and defaults:
 
-| Option                | Default                                  | Meaning                                                                                                                                                                                                                                    |
-| --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--workload <name>`   | `router`                                 | `router` or `launch` (see [Launch workload](#launch-workload)).                                                                                                                                                                            |
-| `--scenarios <list>`  | `100,300,1000`                           | Comma-separated route counts, each a positive multiple of 10. Each gets its own fresh consumer.                                                                                                                                            |
-| `--samples <list>`    | `generate=3,edits=3,build=1,ngc=3,tsc=1` | Samples per measurement. Metrics are medians.                                                                                                                                                                                              |
-| `--timeout <seconds>` | `1200`                                   | Limit for each command and each wait. Exceeding one fails the run. A wait checks its limit between polls, so a long synchronous generation pass can overrun it; the serve process as a whole is killed at the limit times (3 + 2 × edits). |
-| `--check [file]`      | the workload's budgets file              | The router workload reads `bench/budgets.json`, the Launch workload `bench/launch-budgets.json`. Every budgeted route count must be in the run.                                                                                            |
+| Option                | Default                     | Meaning                                                                                                                                                                                                                                                                                       |
+| --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--workload <name>`   | `router`                    | `router` or `launch` (see [Launch workload](#launch-workload)).                                                                                                                                                                                                                               |
+| `--scenarios <list>`  | `100,300,1000`              | Comma-separated route counts, each a positive multiple of 10. Each gets its own fresh consumer.                                                                                                                                                                                               |
+| `--samples <list>`    | by workload, below          | Samples per measurement. Metrics are medians unless their label says p95.                                                                                                                                                                                                                     |
+| `--timeout <seconds>` | `1200`                      | Limit for each command and each wait, including each runtime sample's wait for its page. Exceeding one fails the run. A wait checks its limit between polls, so a long synchronous generation pass can overrun it; the serve process as a whole is killed at the limit times (3 + 2 × edits). |
+| `--check [file]`      | the workload's budgets file | The router workload reads `bench/budgets.json`, the Launch workload `bench/launch-budgets.json`. Every budgeted route count must be in the run.                                                                                                                                               |
+
+Sample names and defaults:
+
+- router: `generate=3,edits=3,build=1,ngc=3,tsc=1,boot=10,cold=10,warm=30`;
+- Launch: `generate=3,build=1,ngc=3,tsc=1,ssr=1000,rpc=1000`.
+
+A name the workload doesn't have is a usage error.
 
 Route counts run one after another and every heavy step runs alone. The 1,000-route size dominates: expect it to take tens of minutes. Progress goes to stderr; the results table goes to stdout at the end, ready to paste below.
 
-Each run writes `<out>/results.json` and, per route count, `<out>/<routes>/consumer` (the scratch app) and `<out>/<routes>/logs` (every command's output, the serve phase's edit samples and its Architect logs).
+Each run writes `<out>/results.json` and, per route count, `<out>/<routes>/consumer` (the scratch app) and `<out>/<routes>/logs` (every command's output, the serve phase's edit samples and its Architect logs, and the Launch runtime phase's server output). The Launch workload's runtime phase adds `<out>/<routes>/consumer-bare`, the same app without middleware.
 
 ## Fixture
 
@@ -57,13 +66,15 @@ src/routes/gNNNN/            layout page with a RouterOutlet; canMatch, resolve 
 
 `gNNNN` and `gNNNN/$id` have children, so both are route groups: their children's records load from their `children.generated.ts` (two per block). The root callbacks keep each block's root copy and its two helpers in the startup bundle, the edge that split it into a file per block before route groups.
 
+Each page's `h1` carries its route id as `data-bench-page` (`g0000/static/l0`, `g0000/$id`, …), the marker the runtime phase waits for. The shell has three bench links, `cold` to the last block's `static/l1` and `warm-a`/`warm-b` to `g0000/static/l0` and `static/l1`, and `src/main.ts` marks `bench:bootstrap` just before `bootstrapApplication`.
+
 Every page uses the generated route shape a consumer would: `injectRoute()` from its colocated `route.generated.ts`, `title()` read in its template (and `params().id` or `data()` where it has them), its `params`, `search` and `data` signals, and a typed `link({ to })` to a sibling's `destination` from that sibling's `destination.generated.ts`. The shell uses `injectActiveRoute()` from `generated/routes.generated.ts`, reads the active title and narrows with `is()` to read and navigate with `g0000/$id`'s typed `id`.
 
 ## Metrics
 
 Each metric key below is how `results.json` and the budgets file name it. Times are milliseconds, sizes bytes; the table formats them by the shared rule ([How values read](../../../tools/bench/README.md#how-values-read)). The registry in `bench/metrics.mjs` holds each key's class and budget rule: sizes, counts and instantiations are deterministic, so `--deterministic` measures and checks them; timings and memory aren't.
 
-The phases run in this order: `generate`, `serve` (router workload only), `build`, `ngc`, `tsc` and `bundle`. `--deterministic` skips `serve` and `ngc` and takes one sample of the others.
+The phases run in this order: `generate`, `serve` (router workload only), `build`, `ngc`, `tsc`, `bundle` and `runtime`. `--deterministic` skips `serve`, `ngc` and `runtime` and takes one sample of the others.
 
 | Key                                                    | What it measures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -80,6 +91,7 @@ The phases run in this order: `generate`, `serve` (router workload only), `build
 | `bundle.initial.files`                                 | Initial bundle: the number of those JS/CSS files. A small constant count relies on Angular's chunk optimizer, which runs in optimized production builds; `results.json` also lists every input module with bytes in them (`bundle.initial.inputs`).                                                                                                                                                                                                                                                                                                                                                       |
 | `bundle.initial.routeCopies`                           | Initial bundle: the distinct `route.generated.ts` modules with bytes in those initial files, each counted once across them. It guards that `main` loads only the route copies its records' native options, callbacks and redirects read, not every copy. Counted by file name, so a rename of the route copies would need its pattern in `bundle.mjs` updated.                                                                                                                                                                                                                                            |
 | `bundle.lazy.raw`, `.gzip`, `.brotli`                  | Every other emitted JS/CSS file, summed the same way.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `runtime.*`                                            | The built app's bootstrap and navigation in Chromium; see [Runtime](#runtime).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Boundaries worth keeping in mind:
 
@@ -87,7 +99,69 @@ Boundaries worth keeping in mind:
 - The serve phase runs Architect in the benchmark's own process, polling every 20 ms. Generation blocks that process's event loop, which can delay an observation; there's no "generation settled" event to wait for. Each edit waits for the served change and 1.5 s more before the next.
 - Serve uses Angular's disk cache, on for every environment, in the consumer's fresh `.angular/cache`: a developer's first `ng serve` with dependency prebundling. `ng build` runs with the disk cache off, so every build is cold.
 - After the serve phase the edited route is restored, so the build, type-check and bundle measure the same fixture first generation did; the build's generated files must match first generation's.
-- No browser loads the app; correctness stays with the package's own tests.
+- The runtime phase loads the app only to time it; correctness stays with the package's own tests.
+
+## Runtime
+
+The `runtime` phase runs last, at each route count, on the production build the `build` phase left. It's timing only, so `--deterministic` skips it, and it runs inside the bench's one gate lock: it launches Chromium through Playwright's library and the Launch server with Node, never through a `pnpm run` script. `conditions.runtime` in `results.json` restates the setup below.
+
+Router workload, in headless Chromium, one browser process per route count, against a static loopback server for `dist/proof/browser` (no caching, `index.html` for every path that isn't a `.js` or `.css` file):
+
+| Key                                                   | What it measures                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtime.bootstrapMs`, `runtime.bootstrapP95Ms`       | A fresh browser context per sample opens `/g0000/static/l0`. From the `bench:bootstrap` mark just before `bootstrapApplication` to the first time a `MutationObserver`, installed before the page's scripts, sees `[data-bench-page="g0000/static/l0"]`. Includes router initialization, the initial navigation and its lazy chunks; excludes fetching and parsing the HTML and JavaScript, kept per sample as `documentToBootstrapMs`. With 10 samples the p95 is their maximum. |
+| `runtime.navigateColdMs`                              | The same page then clicks the shell's `cold` link to the last block's `static/l1`, a branch nothing has loaded yet, so its children table and page chunks load. From a capture-phase `click` listener's `performance.now()` to the destination's marker first being seen.                                                                                                                                                                                                         |
+| `runtime.navigateWarmMs`, `runtime.navigateWarmP95Ms` | One more fresh context; after 3 discarded round trips (6 navigations), clicks alternate between `warm-b` and `warm-a` (`g0000/static/l0` ↔ `static/l1`, both already loaded). Timed like a cold navigation.                                                                                                                                                                                                                                                                       |
+
+Launch workload, against the built server `dist/proof/server/server.mjs` (the example's `server.ts`), started with `PORT=0` and ready when it prints `LAUNCH_READY`. Each endpoint gets 20 discarded requests per server start, then sequential requests at concurrency 1 over keep-alive loopback, each sending `x-bench-user: bench` and timed from just before `fetch` to the response body read in full. Each request, discarded or timed, has `--timeout` to answer in full, body included:
+
+| Key                                      | What it measures                                                                                                                                                                                                             |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ssr.p50Ms`, `ssr.p95Ms`                 | `GET /g0000/1`, which must answer 200 with `data-bench-page="g0000/$id"` in its HTML. It runs the item namespace's guard, resolver and title, and the block root's query through `.use(timing)`: the fixture's richest page. |
+| `ssr.bareP50Ms`, `ssr.bareP95Ms`         | The same, against the same route count built without the block roots' `.use(timing)`: a second, untimed build in `<routes>/consumer-bare`, whose log is `logs/build-bare.log`.                                               |
+| `rpc.queryP50Ms`, `rpc.queryP95Ms`       | `POST /_rpc/g0000/read` with `{"input":null}`, `content-type: application/json` and `origin` set to the server's origin; the JSON answer must be `{ "user": "bench", "block": "g0000" }`.                                    |
+| `rpc.mutationP50Ms`, `rpc.mutationP95Ms` | `POST /_rpc/g0000/write` with `{"input":{"text":"bench"}}`, which runs the input schema and the mutation; the answer must be `{ "user": "bench", "text": "bench" }`.                                                         |
+
+The middleware server runs SSR, query and mutation, in that order; then it stops and the bare server runs SSR. RPC isn't measured without middleware.
+
+A sample that fails fails the run; none is dropped. A request fails on a status other than 200, an answer without the expected marker or JSON, or an answer that doesn't arrive in full within `--timeout`; a failed request stops the server it ran against. A navigation fails on a page error or when its marker doesn't appear within `--timeout`, which is how a cancelled or failed navigation shows.
+
+What these numbers are and aren't:
+
+- The with/without-middleware SSR pair bounds end-to-end latency with and without the middleware chain; it doesn't isolate the middleware's cost. When the runtime phase was designed, the two medians differed by 0.1 ms, inside their run-to-run spread, and the difference changed sign in one of three paired runs. The middleware also writes a `Server-Timing` header, so the pair includes that work.
+- The SSR server is the example's real wiring: request scope, RPC dispatch and abort handling. Its proof-only work per page is one pathname comparison and one `String.replace` on the HTML, small next to a render of about 5.5 ms.
+- A fresh browser context isn't a cold OS, disk or JIT: the browser process stays warm between samples, and the OS file cache is warm.
+- Pages count as arrived when their marker is in the DOM, not when they're painted.
+- Chromium coarsens `performance.now()` to 0.1 ms, so a warm navigation of about 1.2 ms is a dozen ticks and its budget a few more; one bad local run can exceed it. Re-run before reading anything into it.
+- Another load profile can move the tails. Read the numbers next to the load averages recorded per phase.
+- Launch's browser navigation and hydration aren't measured, and neither is throughput under concurrency.
+
+### Runtime results
+
+Recorded 2026-11-21 on top of `21e455c` with this phase's working-tree changes, default samples, from the full runs every timing budget was recorded from, each run alone under the gate lock: 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, Angular 22.3.0, Playwright 1.63.0 with Chromium 153.0.8010.12, router 0.1.0, Launch 0.1.0. The one-minute load average stayed between 1.4 and 6.5 during the runtime phases (6.5 at 100 routes, after the serve phase's workers).
+
+| Metric                                 | 100 routes | 300 routes | 1000 routes |
+| -------------------------------------- | ---------: | ---------: | ----------: |
+| Runtime: bootstrap → first page        |   33.65 ms |   31.65 ms |    30.75 ms |
+| Runtime: bootstrap → first page (p95)  |   40.60 ms |   36.40 ms |    34.00 ms |
+| Runtime: cold navigation               |   21.65 ms |   22.40 ms |    21.95 ms |
+| Runtime: warm navigation               |   1.100 ms |   1.000 ms |    1.000 ms |
+| Runtime: warm navigation (p95)         |   1.600 ms |   1.700 ms |    1.500 ms |
+| SSR: GET /g0000/1                      |   5.502 ms |   5.470 ms |    5.586 ms |
+| SSR: GET /g0000/1 (p95)                |   6.785 ms |   6.679 ms |    6.898 ms |
+| SSR: GET /g0000/1, no middleware       |   5.458 ms |   5.579 ms |    5.474 ms |
+| SSR: GET /g0000/1, no middleware (p95) |   6.420 ms |   6.954 ms |    6.665 ms |
+| RPC: query                             |   0.411 ms |   0.288 ms |    0.414 ms |
+| RPC: query (p95)                       |   0.624 ms |   0.475 ms |    0.582 ms |
+| RPC: mutation                          |   0.254 ms |   0.262 ms |    0.315 ms |
+| RPC: mutation (p95)                    |   0.446 ms |   0.440 ms |    0.514 ms |
+
+What it shows:
+
+- None of them grows with the route count: bootstrap loads one block's chunks, a cold navigation one more block's, and SSR and RPC run one block's steps, whatever the number of blocks.
+- With and without middleware, SSR medians differ by about 0.1 ms or less, and not always in the same direction, as expected from the caveat above.
+- Three `--scenarios 300` runs of each workload fit each other's recorded budgets for every budgeted runtime key. Their largest mean-relative deviations were bootstrap 11.85%, warm navigation 9.09% and its p95 17.65%, and the RPC mutation median 19.69%; every SSR statistic stayed within 1.6%.
+- Sub-millisecond keys sit a few 0.1 ms steps under their budgets: warm navigation is about ten Chromium ticks, and the RPC medians, recorded at 0.25 to 0.41 ms, get budgets of 0.4 to 0.7 ms. A local run that exceeds one of those by a tick or two is noise until a re-run repeats it.
 
 ## results.json
 
@@ -95,7 +169,7 @@ The shape is the shared harness's ([results.json](../../../tools/bench/README.md
 
 - `options`: the workload, poll interval and settle time next to the shared flags; `conditions`: each phase's setup, including the serve and build cache policies.
 - `machine.packages`: the router and Launch versions. `machine.environment` holds inherited `NG_*` variables and `NODE_OPTIONS`, which can change Angular's workers, type checking or output; run without them for comparable numbers.
-- `scenarios["<routes>"]`: besides `metrics`, `samples` and `load` (per phase: `generate`, `serve`, `build`, `ngc`, `tsc`, `bundle`), `routes`, `consumer`, `fixture` (declaration counts), `generated` (hash of first generation's files), `serve` (each edit's timings and before/after hashes), `tscDiagnostics`, and `bundle` (totals plus a per-file manifest: path, initial or lazy, whether it holds the generated route tables, raw, gzip and Brotli bytes).
+- `scenarios["<routes>"]`: besides `metrics`, `samples` and `load` (per phase: `generate`, `serve`, `build`, `ngc`, `tsc`, `bundle`, `runtime`), `routes`, `consumer`, `fixture` (declaration counts), `generated` (hash of first generation's files), `serve` (each edit's timings and before/after hashes), `tscDiagnostics`, `bundle` (totals plus a per-file manifest: path, initial or lazy, whether it holds the generated route tables, raw, gzip and Brotli bytes) and `runtime`: for the router workload the Chromium version, the cold link's destination and each bootstrap sample's `documentToBootstrapMs`; for Launch the bare consumer's path and its build time.
 
 ## Budgets
 
@@ -109,7 +183,8 @@ node ../../tools/bench/budgets.mjs record /tmp/new-dir/results.json bench/budget
 - timings (`generate.ms`, `serve.generatedMs`, `serve.servedMs`, `build.ms`, `typecheck.ngcMs`): median plus 30%, rounded up to the second;
 - `typecheck.instantiations`: plus 10%, rounded up to the thousand;
 - initial and lazy bytes: plus 2%, rounded up to the thousand;
-- `bundle.initial.files` and `bundle.initial.routeCopies`: their measured counts, so a change that adds an initial file or keeps one more copy in `main` re-records them in the same change.
+- `bundle.initial.files` and `bundle.initial.routeCopies`: their measured counts, so a change that adds an initial file or keeps one more copy in `main` re-records them in the same change;
+- runtime medians (`runtime.*Ms`, `ssr.p50Ms`, `ssr.bareP50Ms`): plus 30%, rounded up to 0.1 ms; the RPC medians (`rpc.queryP50Ms`, `rpc.mutationP50Ms`) and every runtime p95 plus 50%, rounded up to 0.1 ms. An RPC median is about 0.3 ms, so 30% of it is less than its 0.1 ms step, while run-to-run spread reaches a step. `runtime.bootstrapP95Ms` is the maximum of its 10 samples, so it's recorded but never budgeted.
 
 The timing budgets describe the machine that recorded them. Instantiations and counts don't depend on it, and neither do bytes within one checkout. Chunk file names are content hashes that change with the checkout, though, so the initial bundle's compressed sizes and the lazy chunks' sizes can differ by up to about a hundred bytes between checkouts; the 2% rule absorbs that. A change that makes generation faster tightens them in the same change, from a new recorded run.
 
@@ -248,7 +323,7 @@ src/bench.server.ts          the timing middleware and two hand-written Standard
 
 The block root is the top-level route, as in the router fixture, so its stage is the first of its chain. Every page reads its block's query through `injectRoute().queries` with `injectQuery` and calls its block's mutation through `remote`; the pages under `$id` do the same with the item namespace. The shell narrows `injectActiveRoute()` to `g0000/$id` with `is()` and calls that route's mutation through `remote`.
 
-It records every metric above except serve's: the serve phase drives the router's serve builder, and Launch's serve builder isn't in the harness. Otherwise the keys mean the same, except that `generate.ms` times Launch's public `generate()`, which writes the router's files with Launch's additions and `server.generated.ts`; `build.ms` builds the browser and the server, including Angular's route extraction; and the bundle metrics read the browser build, whose index is `index.csr.html`. `bench/launch-budgets.json` follows the same rules as `bench/budgets.json`, without serve's.
+It records every metric above except serve's and the router workload's `runtime.*`: the serve phase drives the router's serve builder, and Launch's serve builder isn't in the harness. Its runtime phase measures SSR and RPC instead (see [Runtime](#runtime)). Otherwise the keys mean the same, except that `generate.ms` times Launch's public `generate()`, which writes the router's files with Launch's additions and `server.generated.ts`; `build.ms` builds the browser and the server, including Angular's route extraction; and the bundle metrics read the browser build, whose index is `index.csr.html`. `bench/launch-budgets.json` follows the same rules as `bench/budgets.json`, without serve's.
 
 ### Launch results
 
