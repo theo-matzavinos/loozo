@@ -119,6 +119,7 @@ Explicit and static `id` bindings always take precedence over generated ones.
 - [acceptance/](acceptance/): case definitions (`CASES.md`), public type checks and handwritten consumers.
 - [`examples/origami-ui`](../../examples/origami-ui/): the consumer application the acceptance suite runs.
 - [PROVENANCE.md](PROVENANCE.md): where this package came from.
+- [bench/README.md](bench/README.md): performance benches, such as each primitive's initial-bundle cost.
 
 ## Developing this package
 

@@ -1845,9 +1845,25 @@ for (const [directory, module, name] of [
 await build({ statsJson: true });
 
 const { measureBundle } = await import(
+  pathToFileURL(join(repository, "tools/bench/bundle.mjs")).href
+);
+const { routeBundle } = await import(
   pathToFileURL(join(packageDirectory, "bench/bundle.mjs")).href
 );
-const groupsBundle = await measureBundle(fixture);
+
+// The bench's bundle measurement of a fixture's browser build (no server, so index.html).
+async function measureFixture(directory) {
+  const { outputPath, browser } = configuration.projects.proof.architect.build.options;
+  const measured = await measureBundle({
+    output: join(directory, outputPath),
+    entryPoint: browser,
+    index: "index.html",
+  });
+
+  return routeBundle(measured);
+}
+
+const groupsBundle = await measureFixture(fixture);
 const groupsOutput = join(fixture, "dist/proof");
 const groupsStats = JSON.parse(await readFile(join(groupsOutput, "browser-stats.json"), "utf8"));
 
@@ -2584,7 +2600,7 @@ for (const [directory, expression, parent] of [
 
 await build({ statsJson: true }, catalog);
 
-const catalogBundle = await measureBundle(catalog);
+const catalogBundle = await measureFixture(catalog);
 const catalogInputs = catalogBundle.initial.inputs.map((input) => input.replace(/^\.\//, ""));
 
 await writeFile(join(evidence, "catalog-bundle.json"), JSON.stringify(catalogBundle, null, 2));

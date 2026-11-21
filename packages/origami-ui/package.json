@@ -183,7 +183,8 @@
     "acceptance:matrix": "node tests/acceptance/matrix-summary.mjs --reset && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=development-eager pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=development-incremental pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=production-eager pnpm run acceptance:test && ORIGAMI_SUITE=product ORIGAMI_MATRIX_TARGET=production-incremental pnpm run acceptance:test && node tests/acceptance/matrix-summary.mjs",
     "acceptance:webkit-setup": "python3 tests/acceptance/setup-webkit.py",
     "acceptance:forensic": "ORIGAMI_FORENSIC=1 pnpm run test:full",
-    "screen-reader:test": "playwright test --config tests/screen-reader/playwright.config.ts"
+    "screen-reader:test": "playwright test --config tests/screen-reader/playwright.config.ts",
+    "bench:build": "sh tests/acceptance/gate-lock.sh node bench/build.mjs"
   },
   "dependencies": {
     "@floating-ui/dom": "1.8.0",
