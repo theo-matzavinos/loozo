@@ -204,7 +204,7 @@ async function withinTimeout(run, what, promise) {
   }
 }
 
-async function setup({ out, timeoutMs }) {
+async function setup({ out, timeoutMs, deterministic }) {
   const consumer = join(out, "consumer");
 
   await createRuntimeConsumer(consumer);
@@ -226,8 +226,15 @@ async function setup({ out, timeoutMs }) {
   const origin = await server.listening;
 
   // One untimed request per route, so no sample pays for the server's first render of it. The
-  // signal bounds the body read too.
-  for (const route of routes) {
+  // signal bounds the body read too. A deterministic run measures only the heap, on the mount
+  // routes, so it warms only those.
+  let warmed = routes;
+
+  if (deterministic) {
+    warmed = routes.filter((route) => route.startsWith("/mount/"));
+  }
+
+  for (const route of warmed) {
     const response = await fetch(`${origin}${route}`, { signal: AbortSignal.timeout(timeoutMs) });
 
     await response.text();
@@ -625,6 +632,14 @@ async function heap(scenario, run) {
 
     if (kind === "checkbox") {
       record("heap.liveInstances", [result.heap.liveInstances]);
+
+      // A leak fails the run outright, whatever the budgets say, so a re-record can't make it the
+      // baseline.
+      if (result.heap.liveInstances !== 0) {
+        throw new Error(
+          `${scenario} heap: ${result.heap.liveInstances} destroyed checkboxes are still alive after GC; expected 0`,
+        );
+      }
     }
   } finally {
     await context.close();
