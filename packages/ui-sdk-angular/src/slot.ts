@@ -12,7 +12,7 @@ import {
   signal,
   untracked,
 } from "@angular/core";
-import type { Part, Primitive } from "@ui-sdk/core";
+import type { Attrs, Part, Primitive } from "@ui-sdk/core";
 import {
   applyAttrs,
   attrs,
@@ -33,6 +33,13 @@ export type ɵUiSdkSlotOptions = {
   readonly events: readonly string[];
   /** The prop of kind `key`, which core keys the part by, through `api.internal.keyOf`. */
   readonly keyProp?: string;
+  /**
+   * Runs after each write of core's attributes to the host, on the server and in the browser, in
+   * the same run, with what was written: for a native property core's attributes don't carry.
+   * It touches only its own element's properties and never writes signals, since it can run
+   * inside core's notification.
+   */
+  readonly afterWrite?: (written: Attrs) => void;
 };
 
 /**
@@ -65,7 +72,7 @@ export class ɵUiSdkSlot<S extends object> {
     rootRef: ɵUiSdkRootRef,
     slot: string,
     readProps: () => object,
-    { events, keyProp }: ɵUiSdkSlotOptions,
+    { events, keyProp, afterWrite }: ɵUiSdkSlotOptions,
   ) {
     const element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
     const authoredId = inject(new HostAttributeToken("id"), { optional: true });
@@ -143,7 +150,12 @@ export class ɵUiSdkSlot<S extends object> {
 
       root().revision();
       version();
-      untracked(() => applyAttrs(element, attrs(record, values), `ng:${root().id}:${slot}`));
+      untracked(() => {
+        const written = attrs(record, values);
+
+        applyAttrs(element, written, `ng:${root().id}:${slot}`);
+        afterWrite?.(written);
+      });
     };
 
     effect(write);

@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, FileField, Select and Combobox, and Tabs, Tooltip and Popover. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, Slider, FileField, Select and Combobox, Tabs, Tooltip and Popover, and ScrollArea, Avatar and Progress. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -46,9 +46,10 @@ ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names select combobox
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
+ng generate @loozo/fold-ui:add --names scroll-area avatar progress
 ```
 
-NumberField, Slider, FileField and Combobox import `@loozo/origami-ui/number-field`, `/slider`, `/file-field` and `/combobox`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider, FileField, Combobox, ScrollArea, Avatar and Progress import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/scroll-area`, `/avatar` and `/progress`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -115,6 +116,8 @@ Every part except the AlertDialog, Dialog and Sheet roots and TooltipTrigger tak
 <button foldButton class="px-6">Wider</button>
 ```
 
+One exception: AvatarFallback's loading delay and Progress's unknown sweep are component styles, which an ordinary `animate-*` utility doesn't override. Use Tailwind's important form, `animate-none!`, as their sections show, or edit the motion rule in your copy. ScrollArea's `class` is on its root, whose layout is fold's; see [ScrollArea](#scrollarea).
+
 The merging comes from `cn`, a component like the others. `cn/cn.ts` exports `tv`, `tailwind-variants`' variant builder, and `cn(...classes)`, which joins classes and keeps the last of conflicting utilities. Both are configured with the theme's text sizes, radii, shadows and animations, which Tailwind's defaults don't have: without them, `text-title` would count as a text color and cancel `text-foreground`. Use them for your own components too:
 
 ```ts
@@ -136,9 +139,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name` and `file-field-size`). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name` and `file-field-size`). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton `data-disabled` while its field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton `data-disabled` while its field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. A ScrollArea has `data-overflow-x` and `data-overflow-y` while its viewport overflows that way, and each scrollbar `data-orientation` and, while shown, `data-visible`. An Avatar has `data-status`: `idle`, `loading`, `loaded` or `error`. A Progress has `data-complete` or `data-indeterminate`, and the `--og-progress-percent` custom property while its value is known. fold's Field adds `data-orientation`.
 
 ## Button
 
@@ -1132,6 +1135,215 @@ Name the panel with `aria-labelledby` or `aria-label`, and author it right after
 
 [Origami's README](../origami-ui/popover/README.md) describes positioning, dismissal, nesting and hydration.
 
+## ScrollArea
+
+```ts
+import { ScrollArea } from "#ui/scroll-area";
+```
+
+`ScrollArea` is a scrolling box over Origami's [ScrollArea](../origami-ui/scroll-area/README.md), which owns the behavior: native scrolling with the browser's scrollbars hidden, the thumbs' size and position, dragging, wheel and track presses over them, when they show, and hydration. fold renders the viewport, the content and a scrollbar per axis in its template, and projects your content into it. The scrollbars are thin rounded thumbs over the box's edge that fade in on hover, scroll or drag:
+
+<!-- prettier-ignore -->
+```html
+<!-- Both axes, bounded by a sized parent: a wide table. -->
+<section class="h-80 rounded-surface border border-border">
+  <div foldScrollArea orientation="both" aria-labelledby="addresses-title" class="size-full rounded-[inherit]" #area="foldScrollArea">
+    <table>…</table>
+  </div>
+</section>
+<button foldButton (click)="area.viewport().scrollTo({ top: 0 })">Back to top</button>
+
+<!-- Vertical (the default), bounded by its own max height: grows until 240px, then scrolls.
+     Padding and gaps go on a wrapper of your own inside, not on the root. -->
+<div foldScrollArea aria-label="Delivery notes" class="max-h-60">
+  <ul class="grid gap-2 p-3">…</ul>
+</div>
+
+<!-- Between a header and a footer in a fixed-height panel. -->
+<aside class="flex h-80 flex-col">
+  <header class="h-12 shrink-0">…</header>
+  <div foldScrollArea aria-label="Filters" class="grow">…</div>
+  <footer class="h-12 shrink-0">…</footer>
+</aside>
+
+<!-- A changing name binds the input, not the attribute. -->
+<div foldScrollArea [aria-label]="panelName()" class="h-60">…</div>
+```
+
+`ScrollArea` takes `orientation` (`vertical` by default, `horizontal` or `both`), `aria-label`, `aria-labelledby` and `class`. Its template reference, `#area="foldScrollArea"`, has `viewport()`, the scrolling `HTMLElement`, and `state`, with `overflowX`, `overflowY` and `active` signals.
+
+- **Size it.** Give the root a definite height (`h-*`, or `size-full` of a sized parent, with `min-h-0` in flex and grid parents), a `max-h-*` (it grows with its content up to the cap, then scrolls), or `grow` in a flex column. Without one, it grows with its content instead of scrolling. Between fixed bands in a flex column, give the bands `shrink-0`, as above, or long content shrinks them.
+- **Lay out inside.** The root is a flex column fold relies on, and the scrollbars sit on its edge. Put padding, `gap`, grid or flex on an element of your own inside it. On the root, `grid` stops it scrolling, padding moves the content away from the scrollbar, and `gap` does nothing.
+- **Naming.** `aria-label` and `aria-labelledby` name the viewport, the focusable scroller, which is then a `region`. Bind a changing name as `[aria-label]`, not `[attr.aria-label]`, which names the root instead. Unnamed, it's a focusable scroller without the region role.
+- **The viewport.** `area.viewport()` is the native scroller, for `scrollTo()`, `scrollTop` and listeners. Call it from events and effects: during the first render it throws, since the view doesn't exist yet. It's a Tab stop, so the keyboard can scroll text and tables in every browser; when its content is all controls, set `tabindex="-1"` on the viewport in your copy of `scroll-area.ts` to remove the extra stop.
+- **CDK overlays.** Origami doesn't register the viewport with the CDK. If a CDK overlay anchored inside it must follow its scrolling, add `cdkScrollable` (from `@angular/cdk/scrolling`) to the viewport in your copy. fold's own floating layers don't need it.
+- **Orientation.** `vertical` wraps text to the box's width; `horizontal` and `both` let wide content scroll sideways. Changing it mounts or removes only the affected scrollbar.
+- **Visibility** is Origami's: the scrollbars show on hover, scroll, drag and keyboard or script scrolling, and hide 600ms after the last of those, then fade out over 120ms. Under reduced motion they don't fade. In forced-colors mode the thumb is `CanvasText` on a `Canvas` rail. Before hydration the viewport scrolls natively and no thumbs are drawn; they appear once measured.
+
+[Origami's README](../origami-ui/scroll-area/README.md) describes dragging, wheels over the scrollbars, geometry and hydration.
+
+## Avatar
+
+```ts
+import { AvatarParts } from "#ui/avatar";
+```
+
+`Avatar` is an image of a person or an entity with a fallback, over Origami's [Avatar](../origami-ui/avatar/README.md), which tracks the image's status and hides whichever of the two shouldn't show. fold stacks them in one box: a 24, 32 or 40px circle, or a rounded square for entities, with a 1px inset ring, and grey initials or an icon until the photo paints. Write the fallback first and the image after it, so the image paints over it:
+
+<!-- prettier-ignore -->
+```html
+<!-- A person, named on the root: a 32px circle. -->
+<span foldAvatar role="img" [attr.aria-label]="user().name">
+  <span foldAvatarFallback aria-hidden="true">{{ initials(user().name) }}</span>
+  <img foldAvatarImage [src]="user().photoUrl" alt="" />
+</span>
+
+<!-- An entity tile: a 40px rounded square, decorative inside a named button, with an icon fallback. -->
+<button foldButton variant="ghost" aria-label="Account">
+  <span foldAvatar shape="square" size="lg">
+    <span foldAvatarFallback aria-hidden="true"><svg lucideStore></svg></span>
+    <img foldAvatarImage [src]="store().logoUrl" alt="" />
+  </span>
+</button>
+```
+
+- `Avatar`: the root. It takes `shape` (`circle` by default, or `square`), `size` (`sm` 24px, `md` 32px by default, `lg` 40px) and `class`. Its template reference, `#avatar="foldAvatar"`, has `state`, with a `status` signal: `idle` (no source), `loading`, `loaded` or `error`. A square's corners step down with its size: 6, 8 and 10px.
+- `AvatarImage`: a native `<img>`. It takes `src` (`null`, `undefined` or `""` mean no image) and `class`; `alt` and every other attribute are yours.
+- `AvatarFallback`: an HTML element, usually a `<span>`, holding your text or icon, 12px at `sm` and `md` and 13px at `lg`. Put an icon inside it, never the directive on an `<svg>`. It takes `class`.
+
+Name it one of three ways, as [Origami's Naming](../origami-ui/avatar/README.md#naming) describes: the person's name as `alt` and as the fallback text; `role="img"` and `aria-label` on the root with both parts decorative, as above; or decorative (`alt=""` and an `aria-hidden` fallback) inside a control that names itself.
+
+- **The loading delay.** While an image loads, the fallback stays transparent for 600ms, so a fast photo doesn't flash the initials first; without a source or after an error it shows at once. It's opacity only, so its text stays in the accessibility tree. The clock is CSS, so it also runs before hydration. To show the fallback at once, write `class="animate-none!"` on it (see [Class merging](#class-merging-and-slots)).
+- **Bigger.** Size it with a class and give it a text size: `class="size-32 text-headline"`, with `border border-input` for a ring. A class-sized square keeps its `size` step's radius (8px for `md`), so add the radius too: `shape="square" class="size-32 rounded-control"`.
+- **A failing server-rendered photo** shows the browser's broken-image icon over the fallback until the avatar hydrates. Hydration writes the source again, and Chromium and Firefox retry it: the icon stays until that retry fails too, and then Origami hides the image. See Origami's [Server rendering and hydration](../origami-ui/avatar/README.md#server-rendering-and-hydration).
+- **Keep the parts in one hydrate boundary.** An image in its own `@defer` block that hasn't hydrated leaves the avatar `idle`, with the fallback under the painted photo.
+
+### Initials
+
+fold ships no initials helper, because splitting names well depends on the locale and the script. Write the rule your product needs, such as:
+
+```ts
+@Component({
+  selector: "app-user-avatar",
+  imports: [AvatarParts],
+  template: `
+    <span foldAvatar role="img" [attr.aria-label]="user().name">
+      <span foldAvatarFallback aria-hidden="true">{{ initials(user().name) }}</span>
+      <img foldAvatarImage [src]="user().photoUrl" alt="" />
+    </span>
+  `,
+})
+export class UserAvatar {
+  readonly user = input.required<{ name: string; photoUrl: string | null }>();
+
+  /** "Theo Matzavinos" → "TM": the first letter of the first and the last word. */
+  protected initials(name: string): string {
+    const words = name.trim().split(/\s+/);
+    let letters = words[0]?.[0] ?? "";
+
+    if (words.length > 1) {
+      letters += words.at(-1)?.[0] ?? "";
+    }
+
+    return letters.toLocaleUpperCase();
+  }
+}
+```
+
+`[0]` takes one UTF-16 code unit, which suits Latin, Greek and Cyrillic names; for other scripts or emoji, split with `Intl.Segmenter`.
+
+### Changing the person
+
+A new `src` keeps the previous photo's pixels until the new one has decoded. If a reused avatar must never show one person's photo for another, re-create it per person:
+
+<!-- prettier-ignore -->
+```html
+@for (id of [user().id]; track id) {
+  <span foldAvatar role="img" [attr.aria-label]="user().name">
+    <span foldAvatarFallback aria-hidden="true">{{ initials(user().name) }}</span>
+    <img foldAvatarImage [src]="user().photoUrl" alt="" />
+  </span>
+}
+```
+
+Replacing a still-loading source with another doesn't restart the 600ms window, since the status stays `loading`. [Origami's README](../origami-ui/avatar/README.md) describes the status, retries and hydration.
+
+## Progress
+
+```ts
+import { Progress } from "#ui/progress";
+```
+
+`Progress` shows how much of a task is done, over Origami's [Progress](../origami-ui/progress/README.md), which owns the value, its range, the value text and the ARIA. fold draws a 2px neutral bar, an `input` track, as visible as a control's border, that fills with the foreground color, and sweeps a segment across it while the progress is unknown:
+
+<!-- prettier-ignore -->
+```html
+<div foldProgress [value]="sent()" [max]="total()" aria-labelledby="upload-name"></div>
+<div foldProgress aria-label="Loading reservations"></div> <!-- unknown progress -->
+<div foldProgress value="3" max="3" aria-label="Import"></div> <!-- complete -->
+<div foldProgress [value]="620" [max]="1000" aria-label="Campaign" class="h-6"></div> <!-- thicker -->
+```
+
+`Progress` takes `value` (`null` or unset means unknown), `max` (100 by default), `valueText` and `class`; make it thicker with a height class. Its template reference, `#bar="foldProgress"`, has `state`, with `value`, `percent`, `complete` and `valueText` signals.
+
+**Name it.** ARIA requires a progress bar to have a name, and neither fold nor Origami gives one or warns without it. Write `aria-label` or `aria-labelledby` on the bar itself, statically or bound with `[attr.aria-label]`: the bar is the `progressbar`.
+
+### Dialog steps
+
+A step bar between a [Dialog](#dialog)'s header and body, flush to its edges, with no change to the Dialog:
+
+<!-- prettier-ignore -->
+```html
+<div foldDialog>
+  <button foldDialogTrigger>New deposit</button>
+  <dialog foldDialogContent class="gap-0">
+    <div foldDialogHeader class="pb-5">
+      <h2 foldDialogTitle>New deposit</h2>
+      <p foldDialogDescription>Step 2 of 3 · Review details</p>
+    </div>
+    <div foldProgress value="2" max="3" aria-label="Deposit steps" class="-mx-5 w-auto shrink-0 rounded-none"></div>
+    <div foldDialogBody class="my-0 py-5">…</div>
+    <div foldDialogFooter>…</div>
+  </dialog>
+</div>
+```
+
+- `gap-0` on the Content removes the 20px gaps that would otherwise sit around the bar; `pb-5` on the Header and `py-5` on the Body put that space back inside them.
+- `-mx-5 w-auto` stretches the bar across the Content's 20px padding to its border, and `rounded-none` squares its ends there.
+- `shrink-0` keeps it 2px when the dialog runs out of height and its Body scrolls.
+- `my-0` cancels the Body's own negative margins, which make room for focus rings, so it starts right under the bar.
+
+### Page loader
+
+An unknown-progress bar across the top of the page while it loads:
+
+<!-- prettier-ignore -->
+```html
+@if (loading()) {
+  <div foldProgress aria-label="Loading page" class="fixed inset-x-0 top-0 z-50 h-1 rounded-none"></div>
+}
+```
+
+Tune the `z-50` to your shell: a sticky header with a higher one covers the bar.
+
+### Visible text
+
+The bar renders no text. Show its value text beside it through the template reference, hidden from assistive technology, which already reads the bar's own value text:
+
+<!-- prettier-ignore -->
+```html
+<div class="flex items-center gap-3">
+  <div foldProgress #bar="foldProgress" [value]="sent()" [max]="total()" aria-label="Campaign" class="h-6"></div>
+  <span aria-hidden="true" class="tabular-nums">{{ bar.state.valueText() }}</span>
+</div>
+```
+
+- **Complete is neutral**: a full foreground bar, since a finished dialog step isn't a success. Style the end through `data-complete`, such as `class="data-complete:[&>*]:bg-success"`.
+- **Unknown progress** sweeps a 40% segment across the bar every 1.2s; under reduced motion it's a still, full, half-opacity bar. To stop the sweep deliberately, write `class="[&>[data-slot=progress-fill]]:animate-none!"` on the bar (see [Class merging](#class-merging-and-slots)); it then looks like a still segment, so do it only when something else says the work is ongoing.
+- **Value changes** jump; the fill doesn't animate between values.
+- **Forced colors.** In forced-colors mode the track is `GrayText` and the fill `CanvasText`.
+- **Values** clamp to `[0, max]`, and a `max` of 0 makes the bar unknown, so show your own "nothing to do" state for a count that can be 0; see [Origami's values table](../origami-ui/progress/README.md#values).
+
 ## Floating layers
 
 Select, Combobox and Popover share one look from `popup`, and Tooltip shares its motion: a folder of class lists with no Angular code, which your own panels can use too:
@@ -1164,6 +1376,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - No multiple files, clear action, upload progress or previews in FileField.
 - No scrolling or wrapping Tabs List, sliding underline or link tabs.
 - No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. A Tooltip or Popover near the viewport's cross-axis edge can overflow it: Origami flips them but doesn't shift them.
+- No ScrollArea hide-delay input, corner, scroll shadows or `cdkScrollable`; its root's layout is fold's. No Avatar groups, "+N" or initials helper; a class-sized avatar doesn't pick its radius from its size. No Progress label or value part, buffer, segments, vertical bar or animated value; the unknown sweep runs left to right in right-to-left text. Avatar's delay and Progress's sweep override only with an important utility.
 - A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
 - In Firefox's forced-colors mode, focus rings are `CanvasText`, the text color, rather than Chromium's `Highlight`: fold leaves the ring's forced color to the browser, as on every other fold part.
 

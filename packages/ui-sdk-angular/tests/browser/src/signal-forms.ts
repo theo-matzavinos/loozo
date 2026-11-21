@@ -118,7 +118,7 @@ function alternate(): Values {
           <div [uiSelectItem]="'apple'" label="Apple" data-testid="fruit-apple">Apple</div>
           <div [uiSelectItem]="'pear'" label="Pear" data-testid="fruit-pear">Pear</div>
         </div>
-        <input uiSelectFormInput data-testid="fruit-input" />
+        <textarea uiSelectFormInput data-testid="fruit-input"></textarea>
       </div>
       <div
         uiSelect
@@ -146,7 +146,7 @@ function alternate(): Values {
             </div>
           }
         </div>
-        <input uiSelectFormInput data-testid="country-input" />
+        <textarea uiSelectFormInput data-testid="country-input"></textarea>
       </div>
       <button type="reset" data-testid="native-reset">Native reset</button>
     </form>
