@@ -122,6 +122,16 @@ export async function scanWorkloads({ packageDirectory, workloads, entries: name
       }
     }
 
+    // Only all composes other workloads; an isolated scenario that renders another workload no
+    // longer measures its entry alone.
+    if (scenario !== "all") {
+      for (const name of relative) {
+        throw new Error(
+          `workloads/${scenario}.ts imports ./${name}; only all imports other workloads`,
+        );
+      }
+    }
+
     if (scenario === "all") {
       for (const name of names) {
         if (!relative.has(name)) {

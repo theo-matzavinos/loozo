@@ -194,6 +194,20 @@ async function measure(scenario, run) {
         );
       }
 
+      // An entry's library code can be retained by another primitive (Date Picker keeps Calendar's),
+      // so all also needs each workload module itself: a fixture dropped from its template is gone.
+      if (scenario === "all") {
+        const inputs = new Set(bundle.initial.inputs.map((input) => input.replace(/^\.\//, "")));
+
+        for (const entry of names) {
+          if (!inputs.has(`src/workloads/${entry}.ts`)) {
+            throw new Error(
+              `all's initial bundle doesn't include the ${entry} workload: workloads/all.ts imports it without rendering it`,
+            );
+          }
+        }
+      }
+
       if (scenario !== "baseline") {
         for (const entry of retained(scenario)) {
           const bytes = origami.byEntry[entry] ?? 0;
