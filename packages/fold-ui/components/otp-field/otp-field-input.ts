@@ -20,8 +20,9 @@ export class OtpFieldInput {
     cn(
       // Origami's overlay: exactly the row's box, so a click maps to the cell under it, and no
       // text, caret, selection or outline of its own. It's over the cells, and opted out of forced
-      // colors so its 1px glyphs and selection stay unpainted.
-      "absolute inset-0 z-1 m-0 size-full cursor-text border-0 bg-transparent p-0 text-[1px] text-transparent caret-transparent outline-none",
+      // colors so its glyphs and selection stay unpainted. Its text is 16px, not Origami's 1px,
+      // because iOS Safari zooms the page on focus into an input whose text is smaller.
+      "absolute inset-0 z-1 m-0 size-full cursor-text border-0 bg-transparent p-0 text-[16px] text-transparent caret-transparent outline-none",
       "selection:bg-transparent selection:text-transparent forced-color-adjust-none disabled:cursor-not-allowed",
       // The browsers' autofill styles set the background and text color with !important, which no
       // author rule beats: hide the whole paint while it's autofilled, and never fill the glyphs.

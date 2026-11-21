@@ -172,6 +172,11 @@ const COUNTRIES = [
       <div zzOtpField [value]="'12'" class="[--otp-field-cell-size:3rem]" id="otp-large">
         <input zzOtpFieldInput aria-label="Large code" id="otp-large-input" />
       </div>
+      <div class="w-[248px]" id="otp-narrow-wrap">
+        <div zzOtpField [value]="'482913'" id="otp-narrow">
+          <input zzOtpFieldInput aria-label="Narrow code" id="otp-narrow-input" />
+        </div>
+      </div>
       <div dir="rtl">
         <div zzOtpField [value]="'482913'" id="otp-rtl">
           <input zzOtpFieldInput aria-label="Right-to-left code" />

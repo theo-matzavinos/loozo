@@ -2286,6 +2286,9 @@ try {
       column: rect(document.getElementById("otp-field-wrap")).width,
       otp: row("otp"),
       large: row("otp-large"),
+      narrow: row("otp-narrow"),
+      narrowWrap: rect(document.getElementById("otp-narrow-wrap")).width,
+      inputFont: getComputedStyle(document.getElementById("otp-input")).fontSize,
       digit: {
         size: digit.fontSize,
         weight: digit.fontWeight,
@@ -2321,6 +2324,51 @@ try {
     radius: "10px",
   });
   assert.deepEqual(otpGeometry.rtl, { first: "4", leftmost: true, dir: "ltr" });
+  // iOS Safari zooms on focus into an input whose text is under 16px.
+  assert.equal(otpGeometry.inputFont, "16px");
+
+  // In a container narrower than six 40px cells (248px, a Dialog's body on a 320px phone) the
+  // row takes the container's width and the cells shrink equally, square, with 8px gaps.
+  const narrowCell = (248 - 5 * 8) / 6;
+
+  assert.equal(otpGeometry.narrowWrap, 248);
+  assert.equal(otpGeometry.narrow.width, 248);
+  assert.equal(otpGeometry.narrow.overlay, true);
+  assert.deepEqual(otpGeometry.narrow.gaps.map(Math.round), Array(5).fill(8));
+
+  for (const size of otpGeometry.narrow.sizes) {
+    const [width, height] = size.split("x").map(Number);
+
+    assert.ok(Math.abs(width - narrowCell) <= 0.5, `a narrow cell is ${size}`);
+    assert.ok(Math.abs(height - width) <= 0.5, `a narrow cell is ${size}`);
+  }
+
+  // A click 1px inside either edge of a shrunk cell still selects that cell's digit.
+  for (const [index, edge] of [
+    [0, "left"],
+    [2, "right"],
+    [3, "left"],
+    [5, "right"],
+  ]) {
+    await page.locator("#otp-narrow").scrollIntoViewIfNeeded();
+
+    const box = await otpCell("otp-narrow", index).boundingBox();
+    const x = edge === "left" ? box.x + 1 : box.x + box.width - 1;
+
+    await page.mouse.click(x, box.y + box.height / 2);
+    await rendered();
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const input = document.getElementById("otp-narrow-input");
+
+        return [input.selectionStart, input.selectionEnd];
+      }),
+      [index, index + 1],
+      `a click inside cell ${index}'s ${edge} edge`,
+    );
+  }
+
+  await blurOtp();
 
   // Typing: the label focuses the input and the row shows the ring; the caret cell has the ring
   // border and, while empty, the 1×18 bar; a full code has no caret cell but keeps the ring, and
@@ -2400,6 +2448,8 @@ try {
   assert.equal(cells[2].background, otpTint);
   assert.notEqual(otpTint, otpSurface);
   assert.equal(cells[2].color, foreground);
+  // The tint is faint, so the selected cell's foreground border tells which digit typing replaces.
+  assert.equal(cells[2].border, foreground);
   await page.keyboard.type("0");
   await untilValue("otp-input", "980654");
   await untilText("otp-verified", "980654");
@@ -2452,6 +2502,39 @@ try {
         fill: style.webkitTextFillColor,
       };
     });
+  // The largest difference of any channel of any pixel between two same-sized PNGs, out of 255.
+  // Switching the input's opacity can re-rasterize the cells' anti-aliased edges by a level or
+  // two, while the browser's autofill paint shifts the whole row by tens.
+  const pixelDifference = (first, second) =>
+    page.evaluate(
+      async ([first, second]) => {
+        const pixels = async (base64) => {
+          const image = await createImageBitmap(
+            await (await fetch(`data:image/png;base64,${base64}`)).blob(),
+          );
+          const canvas = new OffscreenCanvas(image.width, image.height);
+          const context = canvas.getContext("2d");
+
+          context.drawImage(image, 0, 0);
+
+          return context.getImageData(0, 0, image.width, image.height).data;
+        };
+        const [a, b] = await Promise.all([pixels(first), pixels(second)]);
+
+        if (a.length !== b.length) {
+          return Infinity;
+        }
+
+        let largest = 0;
+
+        for (let index = 0; index < a.length; index++) {
+          largest = Math.max(largest, Math.abs(a[index] - b[index]));
+        }
+
+        return largest;
+      },
+      [first.toString("base64"), second.toString("base64")],
+    );
 
   for (const theme of ["dark", "light"]) {
     if (theme === "light") {
@@ -2473,14 +2556,21 @@ try {
       { autofill: true, opacity: "0", fill: "rgba(0, 0, 0, 0)" },
       `${theme} autofilled`,
     );
-    assert.ok(before.equals(await shot("#otp-pin")), `${theme}: autofill paints nothing`);
+    const autofilled = await pixelDifference(before, await shot("#otp-pin"));
+
+    assert.ok(
+      autofilled <= 2,
+      `${theme}: autofill paints nothing, but a pixel moved ${autofilled}`,
+    );
     await otpCdp.send("CSS.forcePseudoState", { nodeId: pinNode, forcedPseudoClasses: [] });
     assert.deepEqual(
       await autofillLook(),
       { autofill: false, opacity: "1", fill: "rgba(0, 0, 0, 0)" },
       `${theme} not autofilled`,
     );
-    assert.ok(before.equals(await shot("#otp-pin")), `${theme}: unchanged after autofill`);
+    const after = await pixelDifference(before, await shot("#otp-pin"));
+
+    assert.ok(after <= 2, `${theme}: unchanged after autofill, but a pixel moved ${after}`);
   }
 
   await otpCdp.detach();
@@ -2591,6 +2681,7 @@ try {
     [false, true, false, false, false, false],
   );
   assert.equal(cells[1].background, otpTint);
+  assert.equal(cells[1].border, foreground);
   await page.keyboard.type("0");
   await page.keyboard.press("ControlOrMeta+v");
   await rendered();

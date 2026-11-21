@@ -5,8 +5,8 @@ import { cn } from "../cn";
 /**
  * A one-time code or PIN over Origami's OTP field: a row of 40px cells, one per digit, drawn from
  * Origami's cell records, with its OtpFieldInput laid transparently over them. The row's width is
- * its cells', so don't stretch it: a click maps to equal slots of the input's width. Set
- * `--otp-field-cell-size` through `class` for larger cells. Digits always run left to right.
+ * its cells', up to its container's, where the cells shrink equally; don't stretch it: a click maps
+ * to equal slots of the input's width. Set `--otp-field-cell-size` through `class` for larger cells. Digits always run left to right.
  *
  * @example
  * ```html
@@ -74,7 +74,9 @@ export class OtpField {
 
   protected readonly classes = computed(() =>
     cn(
-      "group/otp-field relative flex w-max shrink-0 gap-2 rounded-control [--otp-field-cell-size:2.5rem]",
+      // At most its container's width: the cells then shrink equally, which keeps each inside its
+      // click slot, since a slot is a cell plus part of the gaps on each side.
+      "group/otp-field relative flex w-max max-w-full shrink-0 gap-2 rounded-control [--otp-field-cell-size:2.5rem]",
       // No base outline-none, so the ring's outline-style stays solid. A focused input draws it
       // round the whole row, also in a full code, where no cell has the caret.
       "has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring",
@@ -86,16 +88,19 @@ export class OtpField {
   // The cells are opted out of forced colors so their borders and fills paint, so each ordinary
   // state color is kept out of forced colors, where only system colors apply.
   protected readonly cellClasses = [
-    "group/otp-cell grid size-(--otp-field-cell-size) shrink-0 place-items-center rounded-control border border-input bg-surface",
+    "group/otp-cell grid aspect-square w-(--otp-field-cell-size) min-w-0 shrink place-items-center rounded-control border border-input bg-surface",
     "text-[18px] leading-none font-semibold tabular-nums text-foreground",
     "transition-[border-color,background-color] duration-120 ease-out motion-reduce:transition-none motion-reduce:duration-0",
     "group-has-[input[readonly]]/otp-field:border-dashed",
     "not-forced-colors:group-hover/otp-field:border-[color-mix(in_oklab,var(--input),var(--foreground)_35%)]",
     "not-forced-colors:group-has-[input:disabled]/otp-field:border-input",
     "not-forced-colors:group-has-[input[readonly]]/otp-field:not-data-selected:bg-transparent",
-    // The caret cell keeps its ring border in an invalid field, so the position stays visible.
-    "not-forced-colors:group-has-[input[aria-invalid=true]]/otp-field:not-data-caret:border-destructive-text",
-    "not-forced-colors:data-caret:border-ring not-forced-colors:data-selected:bg-foreground/8",
+    // The caret cell keeps its ring border and a selected cell its foreground border in an invalid
+    // field, so where the next digit goes stays visible.
+    "not-forced-colors:group-has-[input[aria-invalid=true]]/otp-field:not-data-caret:not-data-selected:border-destructive-text",
+    "not-forced-colors:data-caret:border-ring",
+    // The tint alone is too faint to tell which digit typing replaces: the border carries it.
+    "not-forced-colors:data-selected:border-foreground not-forced-colors:data-selected:bg-foreground/8",
     "forced-color-adjust-none forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:text-[CanvasText]",
     "forced-colors:data-caret:border-[Highlight] forced-colors:data-selected:bg-[Highlight] forced-colors:data-selected:text-[HighlightText]",
     "forced-colors:group-has-[input:disabled]/otp-field:border-[GrayText] forced-colors:group-has-[input:disabled]/otp-field:text-[GrayText]",
