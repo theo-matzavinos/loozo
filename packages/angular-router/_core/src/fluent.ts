@@ -99,6 +99,7 @@ export type RouterStep =
   | "providers"
   | "data"
   | "runGuardsAndResolvers"
+  | "errorComponent"
   | "onInvalidParams"
   | "redirect";
 
@@ -333,6 +334,27 @@ export interface RouteSteps<
     Remaining
   >;
   /**
+   * Angular's per-route error component (developer preview), shown in place of this
+   * route's page when the page throws during activation; needs `withErrorBoundaries`.
+   * After it the route can no longer redirect.
+   */
+  errorComponent(
+    component: NonNullable<NativeRoute["errorComponent"]>,
+  ): RouteBuilder<
+    P,
+    Parent,
+    Params,
+    Search,
+    R,
+    F,
+    T,
+    O,
+    Used | "errorComponent",
+    E,
+    Own,
+    Remaining
+  >;
+  /**
    * Decides what happens when this route's own path params fail to parse; without it
    * the route doesn't match and Angular tries its next candidate. Only offered on
    * paths with local placeholders. After it the route can no longer redirect.
@@ -355,7 +377,7 @@ export interface RouteSteps<
   >;
   /**
    * A typed native redirect to a destination. Terminal: no step follows it, and it
-   * isn't offered after any guard step or onInvalidParams.
+   * isn't offered after any guard step, onInvalidParams or errorComponent.
    */
   redirect<Target extends AnyRoute, Keys extends keyof SearchOf<NoInfer<Target>> = never>(
     redirect: Redirect<Eff<P, Params, Parent>, Target, Keys>,
@@ -445,7 +467,9 @@ export type RouteBuilder<
     Exclude<
       RouterStep,
       | Used
-      | (Extract<Used, Guard | "onInvalidParams"> extends never ? never : "redirect")
+      | (Extract<Used, Guard | "onInvalidParams" | "errorComponent"> extends never
+          ? never
+          : "redirect")
       | (PathNames<P> extends never ? "onInvalidParams" : never)
     >
   > &

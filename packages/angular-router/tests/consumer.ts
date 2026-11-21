@@ -30,7 +30,7 @@ import type {
   UrlValues,
 } from "@loozo/angular-router/_core";
 import type { ActiveRoute, Handle } from "@loozo/angular-router/_generated";
-import type { Signal } from "@angular/core";
+import { Component, type Signal } from "@angular/core";
 import type {
   ActivatedRouteSnapshot,
   RouterStateSnapshot,
@@ -127,6 +127,9 @@ const nativeDeactivate: CanDeactivateFn<{ changed: boolean }> = (
   return !component.changed;
 };
 const nativeTitle: ResolveFn<string> = (snapshot) => String(snapshot.url.length);
+// Angular's per-route error component takes a component class.
+@Component({ template: "Couldn't show this item." })
+class ItemError {}
 const child = defineRoute("items/$id", {
   parent: layout,
   params: { id: objectCodec },
@@ -148,6 +151,7 @@ const child = defineRoute("items/$id", {
 
     return from !== to;
   })
+  .errorComponent(ItemError)
   .canActivate([
     (inputs, snapshot, state) => {
       exact<Equal<typeof inputs.params.teamId, number>>();
@@ -250,6 +254,10 @@ exact<Equal<SpelledData["1"], string>>();
 exact<Equal<RenumberedData[1], boolean>>();
 exact<Equal<keyof RenumberedData, 1>>();
 defineRoute("static-title", {}).title("Static");
+// @ts-expect-error An error component is a class, not a string.
+defineRoute("string-error", {}).errorComponent("ItemError");
+// @ts-expect-error An error component is a class, not a callback returning one.
+defineRoute("arrow-error", {}).errorComponent(() => ItemError);
 defineRoute("promised-title", { parent }).title(async ({ params }) => `Team ${params.teamId}`);
 // @ts-expect-error A title callback takes parsed inputs, not a snapshot-first native ResolveFn.
 defineRoute("native-title", {}).title(nativeTitle);
@@ -1047,6 +1055,8 @@ once.data({}).data({});
 once.runGuardsAndResolvers("always").runGuardsAndResolvers("always");
 // @ts-expect-error onInvalidParams is used.
 once.onInvalidParams(() => false).onInvalidParams(() => false);
+// @ts-expect-error errorComponent is used.
+once.errorComponent(ItemError).errorComponent(ItemError);
 // @ts-expect-error redirect is used, and nothing follows it.
 once.redirect(drop).redirect(drop);
 // @ts-expect-error No step follows a redirect.
@@ -1061,6 +1071,8 @@ once.canActivateChild([]).redirect(drop);
 once.canDeactivate([]).redirect(drop);
 // @ts-expect-error onInvalidParams rules a redirect out.
 once.onInvalidParams(() => false).redirect(drop);
+// @ts-expect-error errorComponent rules a redirect out.
+once.errorComponent(ItemError).redirect(drop);
 // Steps that don't guard may precede a redirect.
 once.resolve({}).title("t").data({}).providers([]).runGuardsAndResolvers("always").redirect(drop);
 // Order is free.
