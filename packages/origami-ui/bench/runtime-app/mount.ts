@@ -58,6 +58,10 @@ export class Mount {
       return;
     }
 
+    // Negative probe: keep the destroyed checkboxes alive.
+    (window as unknown as { retained: unknown[] }).retained = [
+      ...(this.checkboxList()?.checkboxes() ?? []),
+    ];
     this.shown.set(false);
     await this.#app.whenStable();
 
