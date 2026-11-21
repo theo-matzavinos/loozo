@@ -3339,6 +3339,56 @@ try {
     title: longName,
   });
 
+  // What follows the last dot is kept visible only when it's a short extension: a long unbroken
+  // suffix, or one with spaces, truncates with the rest of the name and stays inside the root.
+  const nameParts = () =>
+    page.evaluate(() => {
+      const root = document.getElementById("file-narrow");
+      const value = document.getElementById("file-narrow-value");
+      const name = value.querySelector("[data-slot=file-field-name]");
+      const [stem, extension] = name.children;
+
+      return {
+        rootOverflow: root.scrollWidth - root.clientWidth,
+        valueRight: value.getBoundingClientRect().right - root.getBoundingClientRect().right,
+        stemClipped: stem.scrollWidth > stem.clientWidth,
+        extension: extension.textContent,
+        stemLeft: stem.getBoundingClientRect().left,
+        extensionLeft: extension.getBoundingClientRect().left,
+        title: name.title,
+      };
+    });
+
+  for (const [suffixName, size, shown] of [
+    [`report.${"w".repeat(45)}`, 1536, "1.5 KB"],
+    ["november statement.final version for the client", 2048, "2 KB"],
+  ]) {
+    await pick("file-narrow-input", suffixName, size);
+    await untilFileSize("file-narrow-value", shown);
+
+    const { rootOverflow, valueRight, stemClipped, extension, title } = await nameParts();
+
+    assert.ok(valueRight <= 0.5, `${suffixName}: the value ends ${valueRight}px past the root`);
+    assert.deepEqual(
+      { rootOverflow, stemClipped, extension, title },
+      { rootOverflow: 0, stemClipped: true, extension: "", title: suffixName },
+    );
+  }
+
+  // On a right-to-left page a left-to-right name keeps its order: the extension after the stem.
+  await page.evaluate(() => document.getElementById("file-narrow").setAttribute("dir", "rtl"));
+  await pick("file-narrow-input", "report.pdf", 512);
+  await untilFileSize("file-narrow-value", "512 B");
+
+  const rtlName = await nameParts();
+
+  assert.equal(rtlName.extension, ".pdf");
+  assert.ok(
+    rtlName.stemLeft < rtlName.extensionLeft,
+    `stem at ${rtlName.stemLeft}, extension at ${rtlName.extensionLeft}`,
+  );
+  await page.evaluate(() => document.getElementById("file-narrow").removeAttribute("dir"));
+
   // Drag and drop, from a fresh page: a file drag marks the zone, crossing its icon keeps the
   // mark, leaving clears it, and a drop chooses the file and touches the field. The button look
   // isn't a zone, and the disabled zone refuses the drop.

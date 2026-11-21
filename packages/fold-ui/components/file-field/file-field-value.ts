@@ -5,6 +5,9 @@ import { cn } from "../cn";
 
 const UNITS = ["B", "KB", "MB", "GB"];
 
+/** What counts as an extension to keep visible: up to 10 letters or digits after the last dot. */
+const EXTENSION = /\.[\p{L}\p{N}]{1,10}$/u;
+
 /** `bytes` in 1024-based units up to GB, with one decimal at most and a no-break space. */
 function formatSize(bytes: number, format: Intl.NumberFormat): string {
   let value = bytes;
@@ -31,7 +34,7 @@ function formatSize(bytes: number, format: Intl.NumberFormat): string {
   template: `
     @if (state.value(); as file) {
       <svg lucideFile aria-hidden="true" data-slot="file-field-value-icon"></svg>
-      <span data-slot="file-field-name" class="flex min-w-0" [title]="file.name"
+      <span data-slot="file-field-name" dir="auto" class="flex min-w-0" [title]="file.name"
         ><span class="truncate">{{ name().stem }}</span
         ><span class="shrink-0">{{ name().extension }}</span></span
       >
@@ -48,16 +51,20 @@ export class FileFieldValue {
 
   readonly #format = new Intl.NumberFormat(inject(LOCALE_ID), { maximumFractionDigits: 1 });
 
-  /** The name split before its last dot, unless that's its first character, as in `.env`. */
+  /**
+   * The name split before a short extension, which stays visible while the stem truncates. A name
+   * that is only an extension, as `.env`, or whose last dot starts something longer or with spaces,
+   * as `notes.final version`, truncates as a whole.
+   */
   protected readonly name = computed(() => {
     const name = this.state.value()?.name ?? "";
-    const dot = name.lastIndexOf(".");
+    const extension = EXTENSION.exec(name);
 
-    if (dot <= 0) {
+    if (extension === null || extension.index === 0) {
       return { stem: name, extension: "" };
     }
 
-    return { stem: name.slice(0, dot), extension: name.slice(dot) };
+    return { stem: name.slice(0, extension.index), extension: extension[0] };
   });
 
   protected readonly size = computed(() => formatSize(this.state.value()?.size ?? 0, this.#format));
