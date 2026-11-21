@@ -3356,6 +3356,7 @@ try {
         // How far the name runs into the size after it.
         nameOverlap: name.getBoundingClientRect().right - size.getBoundingClientRect().left,
         stemClipped: stem.scrollWidth > stem.clientWidth,
+        stemWidth: stem.getBoundingClientRect().width,
         extensionClipped: extension ? extension.scrollWidth > extension.clientWidth : null,
         extension: extension?.textContent ?? "",
         stemLeft: stem.getBoundingClientRect().left,
@@ -3393,25 +3394,28 @@ try {
     { extension: ".docx", stem: false, ext: false },
   );
 
-  // A 10-character extension is kept but never wider than the name, so it doesn't run into the
-  // size.
-  const wideExtension = `report.${"W".repeat(10)}`;
+  // A 5-character extension, the longest kept, leaves the stem visible in the 240px root and
+  // doesn't run into the size; a longer suffix truncates with the name.
+  const wideExtension = `report-for-the-client.${"W".repeat(5)}`;
 
   await pick("file-narrow-input", wideExtension, 3072);
   await untilFileSize("file-narrow-value", "3\u00a0KB");
 
   const wide = await nameParts();
 
-  assert.equal(wide.extension.startsWith(".W"), true);
+  assert.equal(wide.extension, ".WWWWW");
+  assert.equal(wide.extensionClipped, false);
+  assert.ok(wide.stemWidth >= 24, `the stem shows ${wide.stemWidth}px`);
   assert.ok(wide.nameOverlap <= 0.5, `the name runs ${wide.nameOverlap}px into the size`);
   assert.ok(wide.valueRight <= 0.5, `the value ends ${wide.valueRight}px past the root`);
   assert.equal(wide.rootOverflow, 0);
 
-  // Only Latin, Greek and Cyrillic names are split. Any other, such as `تقرير-final.pdf` or a
-  // Yezidi one, is one run the browser orders in its own direction, so `final.pdf` stays together.
+  // Only Latin, Greek and Cyrillic names without direction marks are split. Any other, such as
+  // `تقرير-final.pdf`, a Yezidi one or one starting with a right-to-left mark, is one run the browser orders in its own direction, so `final.pdf` stays together.
   for (const [otherName, size, shown] of [
     ["تقرير-final.pdf", 4096, "4\u00a0KB"],
     ["\u{10E80}\u{10E81}.pdf", 5120, "5\u00a0KB"],
+    ["\u200Freport.pdf", 6144, "6\u00a0KB"],
   ]) {
     await pick("file-narrow-input", otherName, size);
     await untilFileSize("file-narrow-value", shown);

@@ -5,17 +5,24 @@ import { cn } from "../cn";
 
 const UNITS = ["B", "KB", "MB", "GB"];
 
-/** What counts as an extension to keep visible: up to 10 letters or digits after the last dot. */
-const EXTENSION = /\.[\p{L}\p{N}]{1,10}$/u;
+/**
+ * What counts as an extension to keep visible: up to 5 letters or digits after the last dot, as
+ * `.pdf` or `.docx`. A longer one would leave the stem no room in a narrow row.
+ */
+const EXTENSION = /\.[\p{L}\p{N}]{1,5}$/u;
 
 /**
  * Names in these scripts are split, as they run left to right: Latin, Greek and Cyrillic, with the
  * digits, punctuation and marks every script shares. A name with any other character is laid out
  * by the browser's bidirectional algorithm as one run, because a stem and an extension in separate
- * boxes can't be reordered together: `تقرير-final.pdf` would read `pdf.final`.
+ * boxes can't be reordered together: `تقرير-final.pdf` would read `pdf.final`. Shared characters
+ * that are right to left, such as the Arabic comma, and the direction marks and embeddings, aren't
+ * split either.
  */
 const SPLITTABLE =
   /^[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Common}\p{Script=Inherited}]*$/u;
+const RIGHT_TO_LEFT_OR_CONTROL =
+  /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF\u200E\u200F\u202A-\u202E\u2066-\u2069]/u;
 
 /** `bytes` in 1024-based units up to GB, with one decimal at most and a no-break space. */
 function formatSize(bytes: number, format: Intl.NumberFormat): string {
@@ -76,7 +83,12 @@ export class FileFieldValue {
     const name = this.state.value()?.name ?? "";
     const extension = EXTENSION.exec(name);
 
-    if (extension === null || extension.index === 0 || !SPLITTABLE.test(name)) {
+    if (
+      extension === null ||
+      extension.index === 0 ||
+      !SPLITTABLE.test(name) ||
+      RIGHT_TO_LEFT_OR_CONTROL.test(name)
+    ) {
       return { stem: name, extension: "" };
     }
 
