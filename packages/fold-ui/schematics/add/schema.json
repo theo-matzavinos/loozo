@@ -11,6 +11,7 @@
         "type": "string",
         "enum": [
           "alert-dialog",
+          "avatar",
           "button",
           "checkbox",
           "cn",
@@ -22,7 +23,9 @@
           "otp-field",
           "popover",
           "popup",
+          "progress",
           "radio-group",
+          "scroll-area",
           "select",
           "sheet",
           "slider",
