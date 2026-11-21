@@ -151,3 +151,129 @@ Recorded 2026-11-21 on top of `ba0bcfe`: 13th Gen Intel Core i7-13620H (16 logic
 | avatar                   |    113,504 B |      37,904 B |        34,048 B |   22,838 B |     7,777 B |       6,804 B |      2,572 B |          |                 |                                |
 | utils                    |     94,514 B |      31,512 B |        28,470 B |    3,848 B |     1,385 B |       1,226 B |        599 B |          |                 |                                |
 | all                      |    479,825 B |     137,292 B |       114,469 B |  389,159 B |   107,165 B |      87,225 B |    233,664 B |   2.49 s |          1.32 s |                          4,927 |
+
+## Runtime bench
+
+What Origami costs in a browser: mounting and hydrating 1,000 checkboxes next to 1,000 plain buttons, opening a Select with 1,000 options, a Menu with 100 items, a Popover and a Tooltip, and the JavaScript heap a checkbox list leaves behind. It measures a production server-rendered build of a dedicated perf app in Chromium. Timings are local only; the count of checkboxes still alive after they're destroyed is deterministic and is what CI checks.
+
+### Running
+
+Prerequisites, once per checkout and again after changing the library's source:
+
+```sh
+pnpm install --frozen-lockfile                          # at the repo root; also installs the example app's express
+pnpm --dir packages/origami-ui build                    # the bench links the built dist/
+pnpm --dir packages/origami-ui exec playwright install chromium   # once
+```
+
+From `packages/origami-ui`:
+
+```sh
+pnpm run bench:runtime                                         # every scenario
+pnpm run bench:runtime --scenarios popover,tooltip --samples open=50
+pnpm run bench:runtime --check                                 # also compare against bench/budgets/runtime.json
+pnpm run bench:runtime --deterministic --check                 # checkbox-1000's heap only; what CI checks
+```
+
+The script runs under the machine-wide gate lock, like the build bench. The perf app's server listens on a free loopback port, never acceptance's fixed ones.
+
+- **Scenarios.** `checkbox-1000`, `plain-1000`, `select-1000`, `menu-100`, `popover` and `tooltip`.
+- **Samples.** `mount=10,hydrate=10,open=20`. Heap is always one warmup plus five cycles, one sample per run.
+- **Time.** A full run takes about 18 s on a 16-core laptop, the perf app's build (about 2.4 s) included. `--deterministic` takes about 3 s.
+- **`--timeout`** limits every command and every wait: the build, the server's startup, each warmup request, Chromium's launch, and every wait in the browser, so a stuck opening or a mount that never gets stable fails after it. The default is 1200 s; `--timeout 10` fails fast while changing the perf app. However the run ends, the runner closes Chromium, stops the server and saves its log.
+
+Each run writes `<out>/results.json`, `<out>/build.log`, `<out>/server.log` and `<out>/consumer`, the scratch app with its build under `dist/runtime`.
+
+### The perf app
+
+`bench/runtime-app/` is an authored Angular app, built once per run on the build bench's consumer links (`bench/consumer.mjs`): Angular from this package's `node_modules`, `@loozo/origami-ui` from `dist/`, and `express` for its server from the example app's `node_modules`. It's one production server-rendered build (scripts and styles optimization, fonts off, no source maps, hashed names, the disk cache off) with eager routes, eager hydration and event replay off: the bench never sends input before hydration, so replay would only add its own setup to the hydration span.
+
+| File                                               | What it holds                                                                                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `index.html`                                       | The host page and the only styles: the popups' box, Menu items as blocks, and Select and Menu content capped at 320 px and scrolling, so long lists stay compact and anchored. |
+| `main.ts`                                          | Waits for `DOMContentLoaded`, keeps the server-rendered `#items button`s, marks `bench:bootstrap`, then bootstraps and sets `window.__benchReady` once stable.                 |
+| `main.server.ts`, `server.ts`                      | The server bootstrap, and the example app's express server, listening on `PORT` (0 picks a free port) and printing its address.                                                |
+| `app.ts`, `app-config.ts`, `routes.ts`             | The root, the providers and one eager route per page.                                                                                                                          |
+| `checkbox-list.ts`, `plain-list.ts`                | 1,000 `button[ogCheckbox]` with a bound `checked`, and 1,000 plain buttons bound the same way through a signal.                                                                |
+| `mount.ts`                                         | The mount routes: a shell whose `#bench-mount` renders a list once, timed, and `window.__benchCycle`, which mounts or destroys it for the heap.                                |
+| `select.ts`, `menu.ts`, `popover.ts`, `tooltip.ts` | One open scenario each: content on `block-end`, aligned `start`, 8 px from its anchor. Select's options and Menu's items render only while open.                               |
+| `readiness.ts`                                     | The lists' readiness probe and interactivity check (see [Metrics](#metrics-1)).                                                                                                |
+| `bench-probe.ts`                                   | Every window hook the runner reads or calls, and the open predicate.                                                                                                           |
+
+The runner reads the window hooks and the public DOM only. The probes read public APIs: the lists' child queries and models, the DOM and computed styles, never Origami's classes, private state or hooks. The one class reference is `window.__benchTypes.checkbox`, the prototype the heap phase counts instances of.
+
+**Styling rule for open scenarios.** The open predicate tells a revealed opening from Floating's preparation by the content's computed `opacity`, `pointer-events`, `visibility` and `display`, so the perf app authors none of them, and no animation, on any popup. A future open scenario that adds an opacity animation, disables pointer events, or opens on another side or alignment needs a matching predicate. A predicate that doesn't match shows as a timeout with a diagnostic snapshot, never as an early end.
+
+### Metrics
+
+Times are milliseconds from `performance.now()`, which Chromium ticks at 0.1 ms; heap sizes are bytes. `bench/runtime-metrics.mjs` holds each key's class and budget rule. Medians are midpoint medians and p95s nearest rank ([statistics](../../../tools/bench/README.md#metric-registry)).
+
+| Key                                  | Scenarios                            | What it measures                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hydration.p50Ms`, `.p95Ms`          | `checkbox-1000`, `plain-1000`        | A fresh context per sample on `/hydrate/<list>`, server-rendered with the 1,000 controls. From the `bench:bootstrap` mark, immediately before `bootstrapApplication`, to the list's first `afterNextRender`, timestamped only once its snapshot holds: 1,000 buttons, 1,000 server-rendered, 1,000 initialized, every model at its initial `false`, and every current button the identical server-rendered node in the same position. |
+| `mount.p50Ms`, `.p95Ms`              | `checkbox-1000`, `plain-1000`        | A fresh context per sample on `/mount/<list>`, whose server render has no list. Once the shell has hydrated with no controls, a click on `#bench-mount`: from its handler, immediately before it renders the list, to the list's first `afterNextRender`, timestamped only once 1,000 buttons are connected and initialized, every model is `false` and none was server-rendered.                                                     |
+| `heap.retainedJsBytesPerCycle`       | `checkbox-1000`, `plain-1000`        | One page on `/mount/<list>`: a warmup mount and destroy; `HeapProfiler.collectGarbage` twice; `Runtime.getHeapUsage().usedSize`; five more mounts and destroys, each mount checked by its snapshot; the parent's child query read again and the probe's results cleared; garbage collection twice; `usedSize` again. The value is the growth divided by five.                                                                         |
+| `heap.liveInstances`                 | `checkbox-1000`                      | The same page after the last collection: `Runtime.queryObjects` on the checkbox class's prototype, the length of the array it returns, then `Runtime.releaseObjectGroup`. Expected 0. Deterministic.                                                                                                                                                                                                                                  |
+| `open.p50Ms`, `open.p95Ms`           | `select-1000`, `menu-100`, `popover` | One page: three discarded openings, then 20 timed ones, each from a capture-phase `click` on the trigger to the revealed and placed state below; then Escape, the content natively closed, and two animation frames.                                                                                                                                                                                                                  |
+| `open.p50Ms`, `open.p95UnbudgetedMs` | `tooltip`                            | The same, with `openDelay` 0, opened by focusing the trigger (a capture-phase `focusin` is the start) and closed by focusing another button: positioning and reveal, not the configured delay. Its p95 moves by several 0.1 ms ticks between runs over an identical median, so it's shown and never budgeted.                                                                                                                         |
+
+**The open endpoint.** Each input arms a new opening: it records the start and the content's `data-side`, `top` and `left` before the opening, the previous opening's. A `MutationObserver` on the body watches `childList` and the `data-side` and `style` attributes. On each callback for an armed opening it evaluates the whole predicate, and the first one where every condition holds timestamps the end:
+
+- natively `:popover-open`, and not `inert`;
+- computed `opacity` exactly `1`, `pointer-events` `auto`, `visibility` `visible`, and `display` not `none`: Floating's preparation shows the content transparent and unclickable at the previous coordinates, so this is what tells a revealed opening from a prepared one;
+- `data-side` `block-end` and a positive width and height;
+- the content's top at the anchor's **current** bottom plus 8 px, and its left at the anchor's current left, each within 1 px;
+- every item rendered: 1,000 `[role="option"]` for Select, 100 `[role="menuitem"]` for Menu.
+
+An opening that doesn't get there within `--timeout` fails the run, after the runner saves a diagnostic to the scenario's `failures`: the predicate's inputs, the content's `outerHTML`, and the content's and anchor's rects.
+
+**Interactivity**, after every mount and hydrate span and outside it: the first and last controls are clicked. Each model must go from `false` to `true` and each fixture-owned change counter from 0 to 1 during the dispatch; an `afterNextRender` registered before the clicks must see `aria-checked="true"`, `data-checked` and the same nodes; and once the app is stable, models and counters must still hold. A zoneless click doesn't update the DOM within its dispatch, so the attributes during it are recorded but not checked. Any failed snapshot, check or page error fails the run.
+
+**Pairs.** With both lists in the run, mount and hydrate samples alternate between them by pair, the first list going first in odd pairs, so neither always gets the warmer browser. The list scenario that runs first takes both lists' samples and hands its partner its own; `<phase>PairedWith` in `results.json` names the partner.
+
+Boundaries worth keeping in mind:
+
+- The plain list is the framework floor: checkbox minus plain is what Origami adds on this fixture, not pure Origami CPU time, since both spans include the probe's reads.
+- Hydration and mount spans are "eager fixture readiness", not global quiescence: pending cleanup, unrelated tasks, paint and later input latency are outside them. The probes are eager-hydration-only; Angular doesn't promise components are hydrated in `afterNextRender`, which is why the probe checks identity and initialization rather than trusting the hook, so a deferred child would fail the run, not end it early.
+- Only the first and last controls are clicked; all 1,000 are counted, read and checked for identity or connection.
+- The open endpoint's style and geometry reads are inside its span, and `select-1000` and `menu-100` include rendering their items: the metric is "revealed and placed with every item present".
+- `heap.retainedJsBytesPerCycle` is the whole isolate's JavaScript `usedSize`: JIT and framework caches move it, and the plain list's can exceed the checkbox list's, so it isn't a per-control cost. `heap.liveInstances` is the leak signal; the bytes are context. Instrumentation can retain destroyed objects too: a child query keeps a destroyed list until it's read again, so each destroy reads it and clears the probe's results.
+- Tooltip's median sits near the timer's resolution, so its budget is a few ticks; a loaded machine can exceed it. Re-run.
+- Chromium only; another machine or browser version changes timing and heap spread. Only `heap.liveInstances` runs in CI.
+
+### results.json
+
+What the runtime bench adds per scenario, besides `metrics`, `samples` and `load` (per phase):
+
+- `conditions`: the perf app's build time, Chromium's version, and the scenario's routes;
+- `hydrate`, `mount` (lists): every sample's `pair`, `ms`, readiness `snapshot`, and its interactivity results (`dispatched`, `rendered`, `settled`) and page errors; and `hydratePairedWith`, `mountPairedWith` when both lists ran. When a sample fails, `hydrateFailure` or `mountFailure` on the scenario that took the samples names the failing `workload` and `pair`, gives the `message`, and keeps every sample both lists took so far under `samples`, by workload;
+- `heap` (lists): the CDP fields (`before` and `after` from `Runtime.getHeapUsage`), each mount's snapshot result, the controls remaining after the last destroy, and for `checkbox-1000` `liveInstances`;
+- `openings` (open scenarios): per timed opening, `ms`, the placement `before` it and the predicate's values at the `end`; `warmups` the same for the discarded three; `failures`, empty on a passing run.
+
+### Budgets
+
+`bench/budgets/runtime.json` (`"bench": "origami-ui-runtime"`) is written with the shared CLI from a full run, by each metric's rule in `bench/runtime-metrics.mjs`:
+
+- `mount.p50Ms`, `hydration.p50Ms`, `open.p50Ms`: plus 30%, rounded up to 0.1 ms;
+- `open.p95Ms` (Select, Menu, Popover): plus 50%, rounded up to 0.1 ms;
+- `mount.p95Ms`, `hydration.p95Ms` (the maximum of 10 samples) and Tooltip's `open.p95UnbudgetedMs`: never budgeted;
+- `heap.retainedJsBytesPerCycle`: plus 50%, rounded up to 64 KiB;
+- `heap.liveInstances`: exactly its value, 0.
+
+The timing and heap-byte budgets describe the machine that recorded them; `heap.liveInstances` doesn't depend on it.
+
+### Results
+
+Recorded 2026-11-21 on top of `55e9815` (run B of three; every run passes the others' budgets): 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, Angular 22.3.0, Origami 0.0.4, Playwright 1.63.0 with Chromium 153.0.8010.12. The one-minute load average stayed between 0.7 and 1.8.
+
+| Metric                           | checkbox-1000 | plain-1000 | select-1000 | menu-100 |  popover |  tooltip |
+| -------------------------------- | ------------: | ---------: | ----------: | -------: | -------: | -------: |
+| Mount                            |      48.60 ms |   23.90 ms |             |          |          |          |
+| Mount p95                        |      53.00 ms |   26.10 ms |             |          |          |          |
+| Hydration                        |      46.10 ms |   22.75 ms |             |          |          |          |
+| Hydration p95                    |      57.30 ms |   25.00 ms |             |          |          |          |
+| Open                             |               |            |    29.15 ms | 16.95 ms | 15.40 ms | 0.800 ms |
+| Open p95                         |               |            |    31.20 ms | 18.70 ms | 16.40 ms |          |
+| Open p95 (unbudgeted)            |               |            |             |          |          | 1.500 ms |
+| Retained JS heap per mount cycle |     149,394 B |  148,945 B |             |          |          |          |
+| Live checkboxes after destroy    |             0 |            |             |          |          |          |
