@@ -46,6 +46,11 @@ const stamp = join(scratchConsumer, ".runtime/consumer-install.json");
 const exitCodes = { SIGINT: 130, SIGTERM: 143 };
 let active;
 let interrupted;
+// The harness's results object, from the first scenario on. A signal marks it failed at once, so a
+// run interrupted after its last phase, while the harness finalizes it, can't pass --check or be
+// recorded.
+let results;
+let current;
 
 function signalGroup(child, signal) {
   try {
@@ -63,6 +68,14 @@ for (const signal of Object.keys(exitCodes)) {
     if (interrupted === undefined) {
       interrupted = signal;
       progress(`${signal}: stopping, then cleaning up`);
+
+      if (results && !results.failure) {
+        results.failure = {
+          scenario: current,
+          phase: "interrupted",
+          message: `Interrupted by ${signal}`,
+        };
+      }
     }
 
     if (active) {
@@ -283,14 +296,30 @@ async function poll(run, server, url, token) {
 
     polls++;
 
+    // Each request gets at most what's left of --timeout, and a token read after the deadline
+    // doesn't count.
+    const remaining = run.timeoutMs - (performance.now() - started);
+
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(Math.max(1, Math.min(2000, remaining))),
+      });
       const text = await response.text();
+
+      if (performance.now() - started > run.timeoutMs) {
+        throw new Error(`${url} didn't serve ${token} within ${run.timeoutMs / 1000} s`);
+      }
 
       if (response.ok && text.includes(token)) {
         return { polls, bytes: Buffer.byteLength(text), sha256: sha256(text) };
       }
-    } catch {
+    } catch (error) {
+      if (performance.now() - started > run.timeoutMs) {
+        throw new Error(`${url} didn't serve ${token} within ${run.timeoutMs / 1000} s`, {
+          cause: error,
+        });
+      }
+
       // Not listening yet, or the response took too long; the next poll asks again.
     }
 
@@ -698,6 +727,9 @@ async function librarySyncs(run) {
 
 async function measure(scenario, run) {
   checkInterrupted();
+
+  results = run.results;
+  current = scenario;
 
   if (scenario === "consumer") {
     await run.phase("edit", () => {
