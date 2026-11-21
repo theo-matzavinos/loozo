@@ -40,13 +40,14 @@ assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit 
 // replayed into a hydrating select-all parent (J13), Progress's server HTML (PR2) and its bar in a
 // dehydrated block (PR7), and the Avatar's server HTML and first client pass (AV2), its images
 // completed before hydration (AV3), its image events while dormant (AV4), its split boundary (AV10)
-// and its fallback-delay recipe before hydration (AV11), and the ScrollArea's server HTML and first
+// and its fallback-delay recipe before hydration (AV11), the ScrollArea's server HTML and first
 // client pass (SA2), its input and a resting pointer before hydration (SA3), its split boundaries
 // (SA12), its authored hydrate triggers (SA18) and what hydration keeps between its passes
-// (SA19), check what hydration keeps, so they run there too.
+// (SA19), and the Meter's server HTML (ME2) and its gauge in a dehydrated block (ME7), check what
+// hydration keeps, so they run there too.
 const presenceSpecs = /\b(?:core|composition|popover|tooltip|lifetimes|hydration)\.spec\.ts\b/;
 const hydrationAndErrorCases =
-  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b|\bJ1[03]\b|\bPR(?:2|7)\b|\bAV(?:2|3|4|10|11)\b|\bSA(?:2|3|12|18|19)\b/;
+  /\b(?:hydration|errors)\.spec\.ts\b|\bH\d+\b|\bCA(?:1[0-2]|2[13]|44)\b|\bDF(?:1[23]|3[23]|4[78])\b|\bMN(?:8|23|33)\b|\bTO[17]\b|\bSL(?:1|12)\b|\bNF(?:9|12)\b|\bOT(?:11|12)\b|\bY26\b|\bFF(?:2|7|9)\b|\bJ1[03]\b|\bPR(?:2|7)\b|\bAV(?:2|3|4|10|11)\b|\bSA(?:2|3|12|18|19)\b|\bME(?:2|7)\b/;
 
 let browsers = browserNames;
 
