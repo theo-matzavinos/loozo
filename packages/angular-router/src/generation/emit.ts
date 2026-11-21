@@ -138,8 +138,8 @@ export function emit(
 
   // Options Angular takes as they are, read from the route copy itself.
   function usesNative(declaration: Declaration): boolean {
-    return ["providers", "data", "canDeactivate", "runGuardsAndResolvers"].some((key) =>
-      declaration.config.has(key),
+    return ["providers", "data", "canDeactivate", "runGuardsAndResolvers", "errorComponent"].some(
+      (key) => declaration.config.has(key),
     );
   }
 

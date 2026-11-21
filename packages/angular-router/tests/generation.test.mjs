@@ -1967,6 +1967,14 @@ test("route chains: shape, URL facts and router step rules", async () => {
       /No step may follow redirect: title$/,
     ],
     [
+      `import { destination as target } from "../target/destination.generated.js";\nclass E {}\nexport default defineRoute("x", {}).errorComponent(E).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } });`,
+      /Redirect cannot follow errorComponent$/,
+    ],
+    [
+      `import { destination as target } from "../target/destination.generated.js";\nclass E {}\nexport default defineRoute("x", {}).redirect({ to: target, search: { mode: "drop" }, fragment: { mode: "drop" } }).errorComponent(E);`,
+      /No step may follow redirect: errorComponent$/,
+    ],
+    [
       `export default defineRoute("x", {}).onInvalidParams(() => false);`,
       /onInvalidParams requires local path placeholders$/,
     ],
@@ -1988,7 +1996,7 @@ test("route chains: shape, URL facts and router step rules", async () => {
   // Step arguments stay opaque: identifiers are fine.
   const accepted = await project.analyze({
     target,
-    x: `${header}const decide = () => false as const;\nconst TITLE = "t";\nexport default defineRoute("x/$id", { params: { id: numberParam } }).onInvalidParams(decide).title(TITLE).providers([]);\n`,
+    x: `${header}const decide = () => false as const;\nconst TITLE = "t";\nclass E {}\nexport default defineRoute("x/$id", { params: { id: numberParam } }).onInvalidParams(decide).title(TITLE).providers([]).errorComponent(E);\n`,
   });
 
   assert.deepEqual(
@@ -1997,7 +2005,7 @@ test("route chains: shape, URL facts and router step rules", async () => {
         .find((declaration) => declaration.path === "x/$id")
         .config.keys(),
     ],
-    ["params", "onInvalidParams", "title", "providers"],
+    ["params", "onInvalidParams", "title", "providers", "errorComponent"],
   );
 });
 
@@ -2010,6 +2018,9 @@ const markerOf = {
 };
 const componentPage = (name) =>
   `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport default class Page {}\n`;
+// A named export, so discovery doesn't take it for the directory's page.
+const errorComponentModule = (name) =>
+  `import { Component } from "@angular/core";\n\n@Component({ template: "${name}" })\nexport class ${name} {}\n`;
 
 // A router project in explicit mode: each route is a directory under src/routes holding
 // route.ts and, unless it's listed as componentless, a page. Analysis discovers, emits and
@@ -3878,7 +3889,8 @@ test("route children: each route with retained children keeps its record and loa
       shell: `${header}\nexport default defineRoute("shell", {}).canMatch([() => true]).canActivateChild([() => true]).providers([]).data({ a: 1 });\n`,
       // A terminal empty-path child is the canonical /shell: a ".." winner inside the group.
       "shell/+index": `${child("../route.js")}\nexport default defineRoute("", { parent });\n`,
-      "shell/docs/$slug": `${child("../../route.js")}\nexport default defineRoute("docs/$slug", { parent, params: { slug: stringParam } });\n`,
+      // An error component is the docs record's only native option.
+      "shell/docs/$slug": `${child("../../route.js")}import { DocsError } from "./error.js";\n\nexport default defineRoute("docs/$slug", { parent, params: { slug: stringParam } }).errorComponent(DocsError);\n`,
       "shell/native": `${child("../route.js")}\nexport default defineRoute("native", { parent }).providers([]).data({ b: 2 });\n`,
       "shell/$rest[]": `${child("../route.js")}\nexport default defineRoute("$rest[]", { parent, params: { rest: stringParam } });\n`,
       // A param root; its child's ".." winner is the root, outside the children table.
@@ -3889,8 +3901,9 @@ test("route children: each route with retained children keeps its record and loa
       "a/+b": `${child("../route.js")}\nexport default defineRoute("", { parent });\n`,
       "a/+b/+c": `${child("../route.js")}\nexport default defineRoute("", { parent });\n`,
       "a/+b/+c/leaf": `${child("../route.js")}\nexport default defineRoute("leaf", { parent });\n`,
-      // A page whose only children are redirects stays a plain record.
-      plain: `${header}\nexport default defineRoute("plain", {});\n`,
+      // A page whose only children are redirects stays a plain record. Its error component is
+      // its only native option.
+      plain: `${header}import { PlainError } from "./error.js";\n\nexport default defineRoute("plain", {}).errorComponent(PlainError);\n`,
       "plain/old": `${child("../route.js")}import { destination as to } from "../../+home/destination.generated.js";\n\nexport default defineRoute("old", { parent }).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
       // A page-less parent of redirects alone is pruned and emits nothing.
       legacy: `${header}\nexport default defineRoute("legacy", {});\n`,
@@ -3900,6 +3913,10 @@ test("route children: each route with retained children keeps its record and loa
     },
     {
       componentless: ["a/+b", "a/+b/+c", "plain/old", "legacy", "legacy/x", "old"],
+      files: {
+        "src/routes/plain/error.ts": errorComponentModule("PlainError"),
+        "src/routes/shell/docs/$slug/error.ts": errorComponentModule("DocsError"),
+      },
     },
   );
   const read = (path) => result.desired.get(resolve(project.root, path));
@@ -3943,8 +3960,19 @@ test("route children: each route with retained children keeps its record and loa
   );
   assert.match(
     routes,
-    /path: "plain",\n\.\.\.record\(destination_plain_route, destination__home_route\),\nloadComponent: [^\n]+ \}/,
+    /\{ \.\.\.nativeOptions\(route_plain_route\),\npath: "plain",\n\.\.\.record\(destination_plain_route, destination__home_route\),\nloadComponent: [^\n]+ \}/,
   );
+
+  // The route copies keep the error component's step and import.
+  for (const [directory, name] of [
+    ["plain", "PlainError"],
+    ["shell/docs/$slug", "DocsError"],
+  ]) {
+    const copy = result.copy(directory, "route");
+
+    assert.ok(copy.includes(`import { ${name} } from "./error.js";`), directory);
+    assert.ok(copy.includes(`.errorComponent(${name})`), directory);
+  }
   assert.doesNotMatch(routes, /path: "legacy",/);
   assert.match(
     routes,
@@ -3973,6 +4001,7 @@ test("route children: each route with retained children keeps its record and loa
     'import { destination as destination_shell_route } from "../src/routes/shell/destination.generated.js";',
     'import { destination as destination_teams_$teamId_route } from "../src/routes/teams/$teamId/destination.generated.js";',
     'import { route as route_old_route } from "../src/routes/old/route.generated.js";',
+    'import { route as route_plain_route } from "../src/routes/plain/route.generated.js";',
     'import { route as route_shell_route } from "../src/routes/shell/route.generated.js";',
     'import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";',
   ]);
@@ -4016,6 +4045,10 @@ test("route children: each route with retained children keeps its record and loa
   assert.match(
     shell,
     /The generated records of the children of src\/routes\/shell\/route\.ts, loaded lazily by its record\./,
+  );
+  assert.match(
+    shell,
+    /\{ \.\.\.nativeOptions\(route_shell_docs_\$slug_route\),\npath: "docs\/:slug",\n/,
   );
   assert.match(
     shell,
@@ -4075,6 +4108,67 @@ test("route children: a tree without parents has no children table and no loader
   );
   assert.doesNotMatch(routes, /loadChildren|lazyRedirect/);
   assert.match(routes, /import \{ record, callbacks, redirect, injectGeneratedActiveRoute,/);
+});
+
+test("errorComponent requires a colocated page, on every page-less declaration", async () => {
+  const project = await copyProject();
+  const header = 'import { defineRoute, numberParam } from "@loozo/angular-router";\n';
+  const child = `${header}import parent from "../route.js";\n`;
+  const home = `${header}\nexport default defineRoute("", {});\n`;
+  const fixtures = [
+    // A componentless layout with a page-bearing child.
+    {
+      directory: "teams/$teamId",
+      routes: (step) => ({
+        "+home": home,
+        "teams/$teamId": `${header}import { E } from "./error.js";\n\nexport default defineRoute("teams/$teamId", { params: { teamId: numberParam } })${step};\n`,
+        "teams/$teamId/items/$id": `${header}import parent from "../../route.js";\n\nexport default defineRoute("items/$id", { parent, params: { id: numberParam } });\n`,
+      }),
+    },
+    // A page-less parent of redirects alone, which generation later prunes.
+    {
+      directory: "legacy",
+      routes: (step) => ({
+        "+home": home,
+        legacy: `${header}import { E } from "./error.js";\n\nexport default defineRoute("legacy", {})${step};\n`,
+        "legacy/x": `${child}import { destination as to } from "../../+home/destination.generated.js";\n\nexport default defineRoute("x", { parent }).redirect({ to, search: { mode: "drop" }, fragment: { mode: "drop" } });\n`,
+      }),
+      componentless: ["legacy/x"],
+    },
+    // A page-less named-outlet branch root, although Angular gives it an outlet component.
+    {
+      directory: "chat",
+      routes: (step) => ({
+        "+home": home,
+        chat: `${header}import { E } from "./error.js";\n\nexport default defineRoute("chat", { outlet: "chat" })${step};\n`,
+        "chat/$id": `${child}\nexport default defineRoute("$id", { parent, params: { id: numberParam } });\n`,
+      }),
+    },
+  ];
+
+  for (const { directory, routes, componentless = [] } of fixtures) {
+    const settings = {
+      componentless: [directory, ...componentless],
+      files: { [`src/routes/${directory}/error.ts`]: errorComponentModule("E") },
+    };
+
+    // Without the step the tree generates.
+    await project.author(routes(""), settings);
+    await project.generate();
+
+    const published = await project.read("generated/routes.generated.ts");
+
+    await project.author(routes(".errorComponent(E)"), settings);
+    await assert.rejects(
+      project.generate(),
+      new RegExp(
+        `${directory.replaceAll("$", "\\$").replaceAll("/", "[\\\\/]")}[\\\\/]route\\.ts:\\d+:\\d+: errorComponent requires a colocated page$`,
+      ),
+      directory,
+    );
+    // Preflight: nothing was published.
+    assert.equal(await project.read("generated/routes.generated.ts"), published, directory);
+  }
 });
 
 test("route children: a redirect with a parent can't use native options; a top-level one can", async () => {
