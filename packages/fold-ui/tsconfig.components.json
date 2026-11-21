@@ -13,6 +13,7 @@
     "types": [],
     "noEmit": true,
     "paths": {
+      "@loozo/origami-ui/avatar": ["../origami-ui/avatar/src/public-api.ts"],
       "@loozo/origami-ui/button": ["../origami-ui/button/src/public-api.ts"],
       "@loozo/origami-ui/checkbox": ["../origami-ui/checkbox/src/public-api.ts"],
       "@loozo/origami-ui/collection": ["../origami-ui/collection/src/public-api.ts"],
@@ -24,7 +25,9 @@
       "@loozo/origami-ui/utils": ["../origami-ui/utils/src/public-api.ts"],
       "@loozo/origami-ui/popover": ["../origami-ui/popover/src/public-api.ts"],
       "@loozo/origami-ui/presence": ["../origami-ui/presence/src/public-api.ts"],
+      "@loozo/origami-ui/progress": ["../origami-ui/progress/src/public-api.ts"],
       "@loozo/origami-ui/radio-group": ["../origami-ui/radio-group/src/public-api.ts"],
+      "@loozo/origami-ui/scroll-area": ["../origami-ui/scroll-area/src/public-api.ts"],
       "@loozo/origami-ui/select": ["../origami-ui/select/src/public-api.ts"],
       "@loozo/origami-ui/slider": ["../origami-ui/slider/src/public-api.ts"],
       "@loozo/origami-ui/switch": ["../origami-ui/switch/src/public-api.ts"],

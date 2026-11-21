@@ -7,11 +7,12 @@
 // state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
 // values, states, themes and forced colors, and Tabs', Tooltip's and Popover's server state,
 // geometry, keys, pointer and hover, guarded unavailable actions, placement and flipping, Tab
-// order and scrolling, nesting, motion and forced colors, and Menu's server state, placement,
-// focus highlight and ring, destructive rows, checkable and disabled rows, submenu, motion,
-// forced colors and class merging, and Toast's server region, collapsed and expanded deck
-// geometry, accessibility tree, immediate keyboard focus, pointer on the peeks, action, Close,
-// kind colors, limit, timer and narrow width.
+// order and scrolling, nesting, motion and forced colors, Menu's server state, placement, focus
+// highlight and ring, destructive rows, checkable and disabled rows, submenu, motion, forced colors
+// and class merging, ScrollArea's, Avatar's and Progress's server state, bounds, scrollbars,
+// naming, sizes, loading delay, sweep, dialog recipe, themes, reduced motion and forced colors, and
+// Toast's server region, collapsed and expanded deck geometry, accessibility tree, immediate
+// keyboard focus, pointer on the peeks, action, Close, kind colors, limit, timer and narrow width.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -3875,6 +3876,720 @@ try {
   assert.equal(forcedSeparator, systemColors.grayText);
   await page.keyboard.press("Escape");
   await dismissed("menu-row-content");
+  await page.emulateMedia({ forcedColors: "none" });
+
+  // ScrollArea, Avatar and Progress. Server HTML first: the bars' ARIA, value and state, the
+  // avatars' status and the two component stylesheets with their keyframes.
+  const uploadBar = openingTag(html, "progress-40");
+  const unknownBar = openingTag(html, "progress-unknown");
+
+  assert.match(uploadBar, /\brole="progressbar"/);
+  assert.match(uploadBar, /\baria-valuenow="40"/);
+  assert.match(uploadBar, /--og-progress-percent:\s*40%/);
+  assert.match(uploadBar, /\bdata-slot="progress"/);
+  assert.match(openingTag(html, "progress-complete"), /\bdata-complete=""/);
+  assert.match(unknownBar, /\bdata-indeterminate=""/);
+  assert.doesNotMatch(unknownBar, /\saria-valuenow=/);
+  assert.match(html, /data-slot="progress-fill"/);
+  assert.match(openingTag(html, "avatar-circle-md"), /\bdata-status="loading"/);
+  assert.match(openingTag(html, "avatar-circle-md-idle"), /\bdata-status="idle"/);
+  assert.match(openingTag(html, "avatar-circle-md"), /\bdata-slot="avatar"/);
+  assert.match(html, /@keyframes [^{\s]*progress-indeterminate\s*\{/);
+  assert.match(html, /@keyframes [^{\s]*avatar-fallback-delay\s*\{/);
+
+  // The server's DOM: the name and the Tab stop on the viewport, none on the root, one
+  // aria-hidden rail per mounted axis, and the images' sources.
+  const displayPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+  await displayPrerendered.goto(base);
+  assert.deepEqual(
+    await displayPrerendered.evaluate(() => {
+      const viewport = (id) => document.querySelector(`#${id} > [data-slot=scroll-area-viewport]`);
+      const rails = (id) => {
+        const result = [];
+
+        for (const rail of document.querySelectorAll(
+          `#${id} > [data-slot=scroll-area-scrollbar]`,
+        )) {
+          result.push(
+            `${rail.getAttribute("data-orientation")} ${rail.getAttribute("aria-hidden")}`,
+          );
+        }
+
+        return result;
+      };
+      const root = document.getElementById("sa-both");
+
+      return {
+        tabindex: viewport("sa-both").getAttribute("tabindex"),
+        role: viewport("sa-both").getAttribute("role"),
+        labelledby: viewport("sa-both").getAttribute("aria-labelledby"),
+        label: viewport("sa-vertical").getAttribute("aria-label"),
+        rootName: [
+          root.getAttribute("role"),
+          root.getAttribute("aria-labelledby"),
+          document.getElementById("sa-vertical").getAttribute("aria-label"),
+        ],
+        both: rails("sa-both"),
+        vertical: rails("sa-vertical"),
+        horizontal: rails("sa-horizontal"),
+        photo: document.querySelector("#avatar-circle-md > img").getAttribute("src").slice(0, 18),
+        noPhoto: document.querySelector("#avatar-circle-md-idle > img").hasAttribute("src"),
+      };
+    }),
+    {
+      tabindex: "0",
+      role: "region",
+      labelledby: "sa-both-title",
+      label: "Delivery notes",
+      rootName: [null, null, null],
+      both: ["vertical true", "horizontal true"],
+      vertical: ["vertical true"],
+      horizontal: ["horizontal true"],
+      photo: "data:image/svg+xml",
+      noPhoto: false,
+    },
+  );
+  await displayPrerendered.close();
+
+  // Running CSS animation in every sample and more than 2px of rendered movement across them;
+  // the sweep animates `translate`, so the rendered position is what moves.
+  const sweepSamples = async (selector) => {
+    const samples = [];
+
+    for (let index = 0; index < 4; index++) {
+      samples.push(
+        await page.evaluate((selector) => {
+          const element = document.querySelector(selector);
+          let running = false;
+
+          for (const animation of element.getAnimations()) {
+            if (animation.playState === "running") {
+              running = true;
+            }
+          }
+
+          return { running, left: element.getBoundingClientRect().left };
+        }, selector),
+      );
+
+      if (index < 3) {
+        await page.waitForTimeout(140);
+      }
+    }
+
+    const lefts = samples.map((sample) => sample.left);
+
+    return {
+      running: samples.map((sample) => sample.running),
+      distance: Math.max(...lefts) - Math.min(...lefts),
+    };
+  };
+  const assertSweep = async (selector) => {
+    const { running, distance } = await sweepSamples(selector);
+    const everyRunning = running.every(Boolean);
+
+    assert.ok(
+      everyRunning && distance > 2,
+      `${selector}: sweep must run and move: running=${everyRunning}, distance=${distance}`,
+    );
+  };
+  // No running animation and no rendered movement.
+  const assertStill = async (selector) => {
+    const { running, distance } = await sweepSamples(selector);
+    const anyRunning = running.some(Boolean);
+
+    assert.ok(
+      !anyRunning && distance === 0,
+      `${selector}: must stay still: running=${anyRunning}, distance=${distance}`,
+    );
+  };
+  const viewportOf = (id) => `#${id} > [data-slot=scroll-area-viewport]`;
+  const railOf = (id, orientation) =>
+    `#${id} > [data-slot=scroll-area-scrollbar][data-orientation=${orientation}]`;
+  const thumbOf = (id, orientation) => `${railOf(id, orientation)} > [data-slot=scroll-area-thumb]`;
+  const visibility = (selector) =>
+    page.evaluate((selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+
+      return `${style.visibility} ${style.opacity}`;
+    }, selector);
+  const untilShown = (selector) =>
+    page.waitForFunction((selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+
+      return style.visibility === "visible" && style.opacity === "1";
+    }, selector);
+  const untilHidden = (selector) =>
+    page.waitForFunction(
+      (selector) => getComputedStyle(document.querySelector(selector)).visibility === "hidden",
+      selector,
+    );
+  const scrollOf = (selector) =>
+    page.evaluate((selector) => {
+      const viewport = document.querySelector(selector);
+
+      return { left: viewport.scrollLeft, top: viewport.scrollTop };
+    }, selector);
+  const displayInput = "rgb(107, 107, 104)";
+  const displayMutedForeground = "rgb(163, 163, 160)";
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await fresh();
+
+  // ScrollArea's bounds: the table fills its sized parent and overflows both ways, the capped
+  // list stops at 240px and scrolls, the short one hugs its three rows, and the panel's area takes
+  // what its fixed header and footer leave.
+  const bounds = await page.evaluate(() => {
+    const viewport = (id) => document.querySelector(`#${id} > [data-slot=scroll-area-viewport]`);
+    const both = viewport("sa-both");
+    const bound = document.getElementById("sa-both-bound");
+    const panelBound = document.getElementById("sa-panel-bound");
+
+    return {
+      both: [both.clientWidth, both.clientHeight],
+      bothBound: [bound.clientWidth, bound.clientHeight],
+      bothRangeX: both.scrollWidth - both.clientWidth,
+      bothRangeY: both.scrollHeight - both.clientHeight,
+      capped: viewport("sa-capped").getBoundingClientRect().height,
+      cappedScrolls: viewport("sa-capped").scrollHeight > viewport("sa-capped").clientHeight,
+      short: viewport("sa-short").getBoundingClientRect().height,
+      shortRange: viewport("sa-short").scrollHeight - viewport("sa-short").clientHeight,
+      panelBands: [
+        document.getElementById("sa-panel-header").getBoundingClientRect().height,
+        document.getElementById("sa-panel-footer").getBoundingClientRect().height,
+      ],
+      panel: viewport("sa-panel").getBoundingClientRect().height,
+      panelBound: panelBound.clientHeight,
+      panelScrolls: viewport("sa-panel").scrollHeight > viewport("sa-panel").clientHeight,
+      verticalText: [
+        document.querySelector("#sa-vertical [data-slot=scroll-area-content]").clientWidth,
+        viewport("sa-vertical").clientWidth,
+        viewport("sa-vertical").scrollWidth,
+      ],
+    };
+  });
+
+  assert.deepEqual(bounds.both, bounds.bothBound, "the table's viewport fills its parent");
+  assert.ok(bounds.bothRangeX >= 250, `the table scrolls ${bounds.bothRangeX}px sideways`);
+  assert.ok(bounds.bothRangeY >= 220, `the table scrolls ${bounds.bothRangeY}px down`);
+  assert.equal(bounds.capped, 240);
+  assert.ok(bounds.cappedScrolls, "the capped list scrolls");
+  assert.equal(bounds.short, 96);
+  assert.equal(bounds.shortRange, 0);
+  assert.deepEqual(bounds.panelBands, [48, 48]);
+  assert.equal(bounds.panel, bounds.panelBound - 96);
+  assert.ok(bounds.panelScrolls, "the panel's area scrolls");
+  // Vertical-only text wraps to the viewport instead of scrolling sideways.
+  assert.equal(bounds.verticalText[0], bounds.verticalText[1]);
+  assert.equal(bounds.verticalText[2], bounds.verticalText[1]);
+
+  // At rest the rails are hidden; hover shows both of the table's, 10px rails with 6px thumbs in
+  // the input color, each stopping 10px short of the other's corner.
+  await page.evaluate(() => document.getElementById("sa-both").scrollIntoView({ block: "center" }));
+  assert.equal(await visibility(railOf("sa-both", "vertical")), "hidden 0");
+  assert.equal(await visibility(railOf("sa-both", "horizontal")), "hidden 0");
+
+  const bothRect = await rectOf("#sa-both");
+
+  await page.mouse.move(bothRect.left + 100, bothRect.top + 100);
+  await untilShown(railOf("sa-both", "vertical"));
+  await untilShown(railOf("sa-both", "horizontal"));
+
+  const rails = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const rail = (orientation) =>
+      `#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=${orientation}]`;
+    const vertical = rect(rail("vertical"));
+    const horizontal = rect(rail("horizontal"));
+    const verticalThumb = rect(`${rail("vertical")} > [data-slot=scroll-area-thumb]`);
+    const horizontalThumb = rect(`${rail("horizontal")} > [data-slot=scroll-area-thumb]`);
+    const root = rect("#sa-both");
+
+    return {
+      vertical: vertical.width,
+      horizontal: horizontal.height,
+      verticalThumb: verticalThumb.width,
+      horizontalThumb: horizontalThumb.height,
+      thumbColor: getComputedStyle(
+        document.querySelector(`${rail("vertical")} > [data-slot=scroll-area-thumb]`),
+      ).backgroundColor,
+      horizontalEnd: root.right - horizontal.right,
+      verticalEnd: root.bottom - vertical.bottom,
+    };
+  });
+
+  assert.deepEqual(rails, {
+    vertical: 10,
+    horizontal: 10,
+    verticalThumb: 6,
+    horizontalThumb: 6,
+    thumbColor: displayInput,
+    horizontalEnd: 10,
+    verticalEnd: 10,
+  });
+
+  // The rail under the pointer darkens its thumb, and dragging the thumb scrolls.
+  const verticalThumb = await rectOf(thumbOf("sa-both", "vertical"));
+
+  await page.mouse.move(verticalThumb.left + 3, verticalThumb.top + 5);
+  await page.waitForFunction(
+    ([selector, color]) =>
+      getComputedStyle(document.querySelector(selector)).backgroundColor === color,
+    [thumbOf("sa-both", "vertical"), displayMutedForeground],
+  );
+  await page.mouse.down();
+  await page.mouse.move(verticalThumb.left + 3, verticalThumb.top + 45, { steps: 4 });
+  await page.mouse.up();
+  assert.ok((await scrollOf(viewportOf("sa-both"))).top > 0, "dragging the thumb scrolls");
+
+  // The template reference's viewport() scrolls the table.
+  await page.evaluate(
+    (selector) => document.querySelector(selector).scrollTo({ left: 0, top: 0 }),
+    viewportOf("sa-both"),
+  );
+  await page.click("#sa-scroll");
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector).scrollTop === 220,
+    viewportOf("sa-both"),
+  );
+  assert.deepEqual(await scrollOf(viewportOf("sa-both")), { left: 250, top: 220 });
+
+  // Leaving hides the rails: data-visible goes 600ms after the last scroll or hover, then the
+  // 120ms fade ends hidden.
+  await page.mouse.move(0, 0);
+  await page.waitForFunction(
+    (selector) => !document.querySelector(selector).hasAttribute("data-visible"),
+    railOf("sa-both", "vertical"),
+  );
+  await untilHidden(railOf("sa-both", "vertical"));
+  await untilHidden(railOf("sa-both", "horizontal"));
+
+  // A list shorter than its cap shows no rail, even on hover.
+  const shortRect = await rectOf("#sa-short");
+
+  await page.mouse.move(shortRect.left + 20, shortRect.top + 20);
+  await page.waitForTimeout(200);
+  assert.equal(await hasAttribute("sa-short", "data-overflow-y"), false);
+  assert.equal(
+    await page.evaluate(
+      (selector) => document.querySelector(selector).hasAttribute("data-visible"),
+      railOf("sa-short", "vertical"),
+    ),
+    false,
+  );
+  assert.equal(await visibility(railOf("sa-short", "vertical")), "hidden 0");
+  await page.mouse.move(0, 0);
+
+  // The name is the viewport's: regions named by the heading and the input, renamed by binding,
+  // and never on the root.
+  assert.equal(await page.getByRole("region", { name: "Addresses" }).count(), 1);
+  assert.equal(await page.getByRole("region", { name: "Delivery notes", exact: true }).count(), 1);
+  await page.click("#sa-rename");
+  await page.getByRole("region", { name: "Updated delivery notes" }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "Delivery notes", exact: true }).count(), 0);
+  assert.equal(await page.getAttribute("#sa-vertical", "aria-label"), null);
+  assert.equal(await page.getAttribute("#sa-vertical", "role"), null);
+
+  // Tab reaches the viewport after the button before it, with an inset 2px ring.
+  await page.focus("#sa-scroll");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.parentElement.id), "sa-vertical");
+  assert.deepEqual(await outline(viewportOf("sa-vertical")), {
+    style: "solid",
+    width: "2px",
+    offset: "-2px",
+    color: "rgb(76, 196, 111)",
+  });
+
+  // The rails fade in 120ms, and not under reduced motion.
+  assert.deepEqual(
+    await styleOf(railOf("sa-both", "vertical"), ["transitionProperty", "transitionDuration"]),
+    { transitionProperty: "opacity, visibility", transitionDuration: "0.12s" },
+  );
+
+  // Avatar: the size ladder and its text, circles and the square's stepped radius, and class
+  // sizes, which keep their size step's radius.
+  await page.waitForFunction(
+    () => document.querySelectorAll("[data-slot=avatar][data-status=loading]").length === 0,
+  );
+
+  const avatars = await page.evaluate(() => {
+    const result = {};
+
+    for (const shape of ["circle", "square"]) {
+      for (const size of ["sm", "md", "lg"]) {
+        const root = document.getElementById(`avatar-${shape}-${size}`);
+        const fallback = document.querySelector(`#avatar-${shape}-${size}-idle > span`);
+        const style = getComputedStyle(root);
+
+        result[`${shape}-${size}`] = {
+          box: `${style.width} ${style.height}`,
+          radius: style.borderTopLeftRadius,
+          ring: (({ boxShadow, width, height }) => `${boxShadow} | ${width} ${height}`)(
+            getComputedStyle(root, "::after"),
+          ),
+          text: `${getComputedStyle(fallback).fontSize} ${getComputedStyle(fallback).fontWeight}`,
+        };
+      }
+    }
+
+    for (const id of ["avatar-large", "avatar-square-large", "avatar-square-large-radius"]) {
+      const style = getComputedStyle(document.getElementById(id));
+
+      result[id] = { box: `${style.width} ${style.height}`, radius: style.borderTopLeftRadius };
+    }
+
+    return result;
+  });
+  // rounded-full computes to a large length, not 50%: a circle's radius reaches half its side.
+  for (const [size, side] of [
+    ["sm", 24],
+    ["md", 32],
+    ["lg", 40],
+  ]) {
+    const circle = avatars[`circle-${size}`];
+
+    assert.equal(circle.box, `${side}px ${side}px`, `circle ${size} box`);
+    assert.ok(parseFloat(circle.radius) >= side / 2, `circle ${size} radius ${circle.radius}`);
+  }
+
+  // The 1px inset ring is a rendered ::after box filling the root's grid cell, after the photo,
+  // so it paints over a loaded photo's edge too.
+  for (const key of [
+    "circle-sm",
+    "circle-md",
+    "circle-lg",
+    "square-sm",
+    "square-md",
+    "square-lg",
+  ]) {
+    const avatar = avatars[key];
+    const side = avatar.box.split(" ")[0];
+
+    assert.match(
+      avatar.ring,
+      new RegExp(`0px 0px 0px 1px inset \\| ${side} ${side}$`),
+      `${key} ring`,
+    );
+    delete avatar.ring;
+  }
+  assert.deepEqual(
+    {
+      sm: avatars["square-sm"],
+      md: avatars["square-md"],
+      lg: avatars["square-lg"],
+      circleText: [avatars["circle-sm"].text, avatars["circle-md"].text, avatars["circle-lg"].text],
+      large: avatars["avatar-large"].box,
+      squareLarge: avatars["avatar-square-large"],
+      squareLargeRadius: avatars["avatar-square-large-radius"],
+    },
+    {
+      sm: { box: "24px 24px", radius: "6px", text: "12px 600" },
+      md: { box: "32px 32px", radius: "8px", text: "12px 600" },
+      lg: { box: "40px 40px", radius: "10px", text: "13px 600" },
+      circleText: ["12px 600", "12px 600", "13px 600"],
+      large: "128px 128px",
+      squareLarge: { box: "128px 128px", radius: "8px" },
+      squareLargeRadius: { box: "128px 128px", radius: "10px" },
+    },
+  );
+
+  // Loaded: the photo covers the box and the fallback is hidden. Failed: the image is hidden and
+  // the fallback shows at once. No source: the fallback, also with an icon.
+  const avatarStates = await page.evaluate(() => {
+    const parts = (id) => {
+      const image = document.querySelector(`#${id} > img`);
+      const fallback = document.querySelector(`#${id} > [data-slot=avatar-fallback]`);
+
+      return {
+        status: document.getElementById(id).getAttribute("data-status"),
+        image: image && `${getComputedStyle(image).display} ${getComputedStyle(image).objectFit}`,
+        fallback: `${getComputedStyle(fallback).display} ${getComputedStyle(fallback).opacity}`,
+      };
+    };
+    const icon = document.querySelector("#avatar-square-icon svg").getBoundingClientRect();
+
+    return {
+      loaded: parts("avatar-square-lg"),
+      error: parts("avatar-circle-md-error"),
+      idle: parts("avatar-circle-md-idle"),
+      icon: `${icon.width} ${icon.height}`,
+    };
+  });
+
+  assert.deepEqual(avatarStates, {
+    loaded: { status: "loaded", image: "block cover", fallback: "none 1" },
+    error: { status: "error", image: "none cover", fallback: "grid 1" },
+    idle: { status: "idle", image: "none cover", fallback: "grid 1" },
+    icon: "22 22",
+  });
+
+  // A root-named avatar is one image, named once.
+  assert.equal(await page.getByRole("img", { name: "Grace Hopper" }).count(), 1);
+
+  // While a photo loads, the fallback waits 600ms before it paints, unless the consumer's
+  // important animate-none! removes the wait.
+  let releasePhotos;
+  const photosReleased = new Promise((release) => {
+    releasePhotos = release;
+  });
+
+  await page.route(/\/slow-avatar(-2)?\.svg$/, async (route) => {
+    await photosReleased;
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='#26803f'/></svg>",
+    });
+  });
+
+  const fallbackLook = () =>
+    page.evaluate(() => {
+      const look = (id) => {
+        const style = getComputedStyle(document.getElementById(id));
+
+        return `${style.opacity} ${style.animationName === "none" ? "none" : "delay"}`;
+      };
+
+      return {
+        status: document.getElementById("avatar-slow").getAttribute("data-status"),
+        slow: look("avatar-slow-fallback"),
+        now: look("avatar-slow-now-fallback"),
+      };
+    });
+
+  assert.equal(await attribute("avatar-slow", "data-status"), "idle");
+  await page.click("#avatar-load");
+  await until("avatar-slow", "data-status", "loading");
+
+  const loadingAt = Date.now();
+
+  await page.waitForTimeout(100);
+  assert.deepEqual(await fallbackLook(), {
+    status: "loading",
+    slow: "0 delay",
+    now: "1 none",
+  });
+  await page.waitForTimeout(Math.max(0, 750 - (Date.now() - loadingAt)));
+  assert.deepEqual(await fallbackLook(), {
+    status: "loading",
+    slow: "1 delay",
+    now: "1 none",
+  });
+  releasePhotos();
+  await until("avatar-slow", "data-status", "loaded");
+  assert.equal(
+    (await styleOf("#avatar-slow-fallback", ["display"])).display,
+    "none",
+    "the loaded photo hides the fallback",
+  );
+  await page.unroute(/\/slow-avatar(-2)?\.svg$/);
+
+  // Progress: a 2px neutral bar, filled to its value, complete at full width, and sweeping a 40%
+  // segment while its value is unknown, unless the consumer stopped it with the important class.
+  const barLooks = () =>
+    page.evaluate(() => {
+      const look = (id) => {
+        const bar = document.getElementById(id);
+        const fill = bar.querySelector("[data-slot=progress-fill]");
+        const barStyle = getComputedStyle(bar);
+        const fillStyle = getComputedStyle(fill);
+
+        return {
+          height: bar.getBoundingClientRect().height,
+          share: Math.round((fill.getBoundingClientRect().width / bar.clientWidth) * 100),
+          track: barStyle.backgroundColor,
+          fill: fillStyle.backgroundColor,
+          opacity: fillStyle.opacity,
+          animation: fillStyle.animationName === "none" ? "none" : "sweep",
+        };
+      };
+
+      return {
+        upload: look("progress-40"),
+        complete: look("progress-complete"),
+        unknown: look("progress-unknown"),
+        still: look("progress-still"),
+        campaign: look("progress-campaign"),
+      };
+    });
+  const looks = await barLooks();
+
+  assert.deepEqual(looks, {
+    upload: {
+      height: 2,
+      share: 40,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+    complete: {
+      height: 2,
+      share: 100,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+    unknown: {
+      height: 4,
+      share: 40,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "sweep",
+    },
+    still: {
+      height: 2,
+      share: 40,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+    campaign: {
+      height: 24,
+      share: 62,
+      track: displayInput,
+      fill: foreground,
+      opacity: "1",
+      animation: "none",
+    },
+  });
+  assert.equal(await attribute("progress-complete", "data-complete"), "");
+  assert.equal(await attribute("progress-unknown", "aria-valuenow"), null);
+  await assertSweep("#progress-unknown > [data-slot=progress-fill]");
+  await assertStill("#progress-still > [data-slot=progress-fill]");
+  // The visible text beside the campaign bar is its value text.
+  assert.equal(
+    await page.textContent("#progress-campaign-text").then((text) => text.trim()),
+    await attribute("progress-campaign", "aria-valuetext"),
+  );
+  assert.equal(await attribute("progress-campaign", "aria-valuetext"), "62%");
+
+  // The dialog steps recipe: the bar runs flush to the dialog's border, 20px below the header's
+  // text and 20px above the body's, and stays 2px when the dialog runs out of height.
+  const stepsLayout = () =>
+    page.evaluate(() => {
+      const rect = (id) => document.getElementById(id).getBoundingClientRect();
+      const dialog = rect("steps-dialog");
+      const bar = rect("steps-progress");
+      const body = document.getElementById("steps-body");
+
+      return {
+        start: bar.left - dialog.left,
+        end: dialog.right - bar.right,
+        above: bar.top - rect("steps-description").bottom,
+        below: body.firstElementChild.getBoundingClientRect().top - bar.bottom,
+        height: bar.height,
+        bodyScrolls: body.scrollHeight > body.clientHeight,
+      };
+    });
+
+  await page.click("#steps-trigger");
+  await page.waitForFunction(() => {
+    const dialog = document.getElementById("steps-dialog");
+
+    return dialog.open && dialog.getAnimations().length === 0;
+  });
+
+  const steps = await stepsLayout();
+
+  near(steps.start, 1, 0.5, "the steps bar's start");
+  near(steps.end, 1, 0.5, "the steps bar's end");
+  near(steps.above, 20, 0.5, "the space above the steps bar");
+  near(steps.below, 20, 0.5, "the space below the steps bar");
+  assert.equal(steps.height, 2);
+  assert.equal(steps.bodyScrolls, false);
+  await page.setViewportSize({ width: 1280, height: 400 });
+
+  const compactSteps = await stepsLayout();
+
+  assert.equal(compactSteps.height, 2);
+  assert.equal(compactSteps.bodyScrolls, true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.getElementById("steps-dialog").open);
+
+  // Light tokens: the thumb, the avatar's fill and text, and the bar's track and fill.
+  const lightDisplay = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+
+    return {
+      thumb: style("#sa-light > [data-slot=scroll-area-scrollbar] > [data-slot=scroll-area-thumb]")
+        .backgroundColor,
+      avatar: `${style("#avatar-light").backgroundColor} ${style("#avatar-light").color}`,
+      bar: `${style("#progress-light").backgroundColor} ${style("#progress-light > span").backgroundColor}`,
+    };
+  });
+
+  assert.deepEqual(lightDisplay, {
+    thumb: "rgb(133, 133, 129)",
+    avatar: "rgb(251, 251, 250) rgb(91, 91, 88)",
+    bar: "rgb(133, 133, 129) rgb(27, 27, 27)",
+  });
+
+  // Reduced motion: no rail fade, and the unknown bar is a still, full, half-opacity bar; the
+  // sweep comes back with motion.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(
+    (await styleOf(railOf("sa-both", "vertical"), ["transitionProperty"])).transitionProperty,
+    "none",
+  );
+  await assertStill("#progress-unknown > [data-slot=progress-fill]");
+  assert.deepEqual((await barLooks()).unknown, {
+    height: 4,
+    share: 100,
+    track: displayInput,
+    fill: foreground,
+    opacity: "0.5",
+    animation: "none",
+  });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await assertSweep("#progress-unknown > [data-slot=progress-fill]");
+
+  // Forced colors: a CanvasText thumb on a Canvas rail, a CanvasText ring around the avatar, and
+  // a GrayText track with a CanvasText fill that keeps its 2px.
+  await page.emulateMedia({ forcedColors: "active" });
+
+  const forcedDisplay = await page.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const rail = "#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=vertical]";
+
+    return {
+      thumb: style(`${rail} > [data-slot=scroll-area-thumb]`).backgroundColor,
+      rail: style(rail).backgroundColor,
+      avatar: `${style("#avatar-circle-md-idle").borderTopWidth} ${style("#avatar-circle-md-idle").borderTopColor}`,
+      track: style("#progress-40").backgroundColor,
+      fill: style("#progress-40 > span").backgroundColor,
+      height: document.getElementById("progress-40").getBoundingClientRect().height,
+    };
+  });
+
+  // Hovering the rail keeps the thumb CanvasText: the hover color applies only outside forced colors.
+  const forcedRail = "#sa-both > [data-slot=scroll-area-scrollbar][data-orientation=vertical]";
+
+  await page.hover("#sa-both");
+  await page.waitForSelector(`${forcedRail}[data-visible]`);
+  await page.hover(forcedRail);
+  forcedDisplay.hoveredThumb = await page.evaluate(
+    (rail) =>
+      getComputedStyle(document.querySelector(`${rail} > [data-slot=scroll-area-thumb]`))
+        .backgroundColor,
+    forcedRail,
+  );
+  await page.mouse.move(0, 0);
+
+  assert.deepEqual(forcedDisplay, {
+    thumb: systemColors.canvasText,
+    hoveredThumb: systemColors.canvasText,
+    rail: systemColors.canvas,
+    avatar: `1px ${systemColors.canvasText}`,
+    track: systemColors.grayText,
+    fill: systemColors.canvasText,
+    height: 2,
+  });
   await page.emulateMedia({ forcedColors: "none" });
 
   // Toast. Exact geometry is a DPR-1 value at 1280px.

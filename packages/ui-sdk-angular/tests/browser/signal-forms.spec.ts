@@ -240,6 +240,21 @@ test("hidden inputs submit under the form's field names, and a native reset leav
   // The model keeps the object; the form submits its key.
   expect((await model(page)).country).toEqual(alternate.country);
 
+  // A native reset puts each hidden part back to its default at once. The Select's textarea's
+  // default follows its value, as an input's `value` attribute does, so the form never submits the
+  // server's key.
+  const afterReset = await page.evaluate(() => {
+    const form = document.querySelector<HTMLFormElement>("[data-testid=native-form]")!;
+
+    form.reset();
+
+    const data = new FormData(form);
+
+    return [data.get("signup.fruit"), data.get("signup.country")];
+  });
+
+  expect(afterReset).toEqual(["pear", "fr"]);
+
   // Core leaves a controlled control with no default alone on a native reset (since
   // 0.1.0-beta.8), and [formField] binds the value only: the field, the controls and the
   // submitted values stay together.

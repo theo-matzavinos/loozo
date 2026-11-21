@@ -19,7 +19,7 @@ import { menuItemClasses } from "../popup";
       lucideChevronRight
       data-slot="menu-sub-trigger-icon"
       aria-hidden="true"
-      class="ms-auto rtl:rotate-180"
+      class="ms-auto [&:dir(rtl)]:rotate-180 not-supports-[selector(:dir(rtl))]:rtl:rotate-180"
     ></svg>
   `,
 })

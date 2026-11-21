@@ -130,6 +130,9 @@ ng([
   "textarea",
   "toast",
   "tooltip",
+  "scroll-area",
+  "avatar",
+  "progress",
 ]);
 
 const installed = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -138,6 +141,7 @@ const folders = await readdir(join(app, "src/ui"));
 assert.deepEqual(installed.imports, { "#ui/*": "./src/ui/*/index.ts" });
 assert.deepEqual(folders.sort(), [
   "alert-dialog",
+  "avatar",
   "button",
   "checkbox",
   "cn",
@@ -149,7 +153,9 @@ assert.deepEqual(folders.sort(), [
   "number-field",
   "popover",
   "popup",
+  "progress",
   "radio-group",
+  "scroll-area",
   "select",
   "sheet",
   "slider",
