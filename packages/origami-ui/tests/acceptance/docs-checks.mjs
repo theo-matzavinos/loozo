@@ -70,6 +70,7 @@ for (const directory of [
   "progress/src",
   "avatar/src",
   "scroll-area/src",
+  "meter/src",
 ]) {
   await collect(directory);
 }
@@ -351,6 +352,10 @@ const directiveDefaults = {
   "OrigamiProgress.valueText": ["null", /\bnull\b/i],
   "OrigamiAvatarImage.src": ["null", /\bnull\b/i],
   "OrigamiScrollArea.hideDelay": ["600", /\b600\b/],
+  "OrigamiMeter.value": ["required", /required/i],
+  "OrigamiMeter.min": ["0", /\b0\b/],
+  "OrigamiMeter.max": ["100", /\b100\b/],
+  "OrigamiMeter.valueText": ["null", /\bnull\b/i],
   "OrigamiScrollAreaScrollbar.orientation": ["vertical", /"vertical"/],
   "OrigamiCombobox.value": ["null", /\bnull\b/i],
   "OrigamiCombobox.query": ["empty string", /""|empty/i],

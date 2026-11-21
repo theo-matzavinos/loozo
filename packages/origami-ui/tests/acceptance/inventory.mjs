@@ -324,6 +324,7 @@ export const inventory = {
     "OrigamiScrollAreaOrientation",
     "OrigamiScrollAreaThumb",
   ],
+  meter: ["OrigamiMeter", "OrigamiMeterOptions", "OrigamiMeterState"],
 };
 
 export const typeOnly = new Set([

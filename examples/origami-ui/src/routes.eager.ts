@@ -191,6 +191,15 @@ export const routes: Routes = [
       import("./fixtures/scroll-area-appeal.js").then((module) => module.ScrollAreaAppealFixture),
   },
   {
+    path: "meter",
+    loadComponent: () => import("./fixtures/meter.js").then((module) => module.MeterFixture),
+  },
+  {
+    path: "meter-block",
+    loadComponent: () =>
+      import("./fixtures/meter-block.js").then((module) => module.MeterBlockFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),
