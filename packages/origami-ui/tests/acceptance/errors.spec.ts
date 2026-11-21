@@ -77,6 +77,14 @@ for (const [variant, caseId, context] of [
   ["avatar-image", "AV12", /Avatar supports only one mounted Image/],
   ["orphan-avatar-image", "AV12", /NG0201:[\s\S]*AvatarContext/],
   ["orphan-avatar-fallback", "AV12", /NG0201:[\s\S]*AvatarContext/],
+  ["scroll-area-viewport", "SA13", /ScrollArea supports only one mounted Viewport/],
+  ["scroll-area-content", "SA13", /ScrollArea supports only one mounted Content/],
+  ["scroll-area-vertical", "SA13", /ScrollArea supports only one vertical Scrollbar/],
+  ["scroll-area-horizontal", "SA13", /ScrollArea supports only one horizontal Scrollbar/],
+  ["scroll-area-thumb", "SA13", /ScrollArea supports only one Thumb per Scrollbar/],
+  ["orphan-scroll-area-viewport", "SA13", /NG0201:[\s\S]*ScrollAreaContext/],
+  ["orphan-scroll-area-scrollbar", "SA13", /NG0201:[\s\S]*ScrollAreaContext/],
+  ["orphan-scroll-area-thumb", "SA13", /NG0201:[\s\S]*ScrollAreaScrollbarContext/],
 ] as const) {
   test(`${caseId}: ${variant} fails clearly, not via missing imports or arbitrary hydration errors`, async ({
     page,
@@ -120,6 +128,9 @@ for (const [variant, caseId, context] of [
         "orphan-file-field-drop-zone",
         "orphan-avatar-image",
         "orphan-avatar-fallback",
+        "orphan-scroll-area-viewport",
+        "orphan-scroll-area-scrollbar",
+        "orphan-scroll-area-thumb",
       ].includes(variant);
 
     if (nativeProductionProvider) {

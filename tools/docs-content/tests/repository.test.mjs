@@ -346,6 +346,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/otp-field",
     "@loozo/origami-ui/file-field",
     "@loozo/origami-ui/avatar",
+    "@loozo/origami-ui/scroll-area",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -397,6 +398,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/otp-field"].length, 5);
   assert.equal(names["@loozo/origami-ui/file-field"].length, 5);
   assert.equal(names["@loozo/origami-ui/avatar"].length, 6);
+  assert.equal(names["@loozo/origami-ui/scroll-area"].length, 9);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -450,6 +452,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "otp-field:OTP field",
     "file-field:File field",
     "avatar:Avatar",
+    "scroll-area:Scroll area",
     "utils:Utilities",
   ]);
 
@@ -465,7 +468,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 39 snippets that export one component", async () => {
+test("origami's guide pages run the 40 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -473,7 +476,7 @@ test("origami's guide pages run the 39 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 39);
+  assert.equal(ids.length, 40);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -551,6 +554,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "file-field/attach-document.ts": ["disabled:input:boolean"],
     "progress/dialog-steps.ts": ["warning:model:boolean", "loading:model:boolean"],
     "avatar/profile-picture.ts": ["source:input:options"],
+    "scroll-area/address-table.ts": ["hideDelay:input:number"],
   });
 });
 
