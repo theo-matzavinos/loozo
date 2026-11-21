@@ -8,6 +8,14 @@ const UNITS = ["B", "KB", "MB", "GB"];
 /** What counts as an extension to keep visible: up to 10 letters or digits after the last dot. */
 const EXTENSION = /\.[\p{L}\p{N}]{1,10}$/u;
 
+/**
+ * Right-to-left scripts. A name with any of them is laid out by the browser's bidirectional
+ * algorithm as one run, because a stem and an extension in separate boxes can't be reordered
+ * together: `تقرير-final.pdf` would read `pdf.final`.
+ */
+const RIGHT_TO_LEFT =
+  /[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Samaritan}\p{Script=Mandaic}\p{Script=Adlam}\p{Script=Hanifi_Rohingya}]/u;
+
 /** `bytes` in 1024-based units up to GB, with one decimal at most and a no-break space. */
 function formatSize(bytes: number, format: Intl.NumberFormat): string {
   let value = bytes;
@@ -23,7 +31,8 @@ function formatSize(bytes: number, format: Intl.NumberFormat): string {
 
 /**
  * The chosen file's name and size, after a file icon; nothing while no file is chosen. A long name
- * truncates before its extension, with the full name in `title`. The size is in 1024-based units,
+ * truncates before its extension, which takes at most half the name's width, with the full name
+ * in `title`; a name with right-to-left text truncates as a whole, in its own direction. The size is in 1024-based units,
  * formatted in your app's `LOCALE_ID`: `1.5 KB`, or `1,5 KB` in Greek. Write it inside the
  * FileField.
  */
@@ -34,10 +43,16 @@ function formatSize(bytes: number, format: Intl.NumberFormat): string {
   template: `
     @if (state.value(); as file) {
       <svg lucideFile aria-hidden="true" data-slot="file-field-value-icon"></svg>
-      <span data-slot="file-field-name" dir="auto" class="flex min-w-0" [title]="file.name"
-        ><span class="truncate">{{ name().stem }}</span
-        ><span class="shrink-0">{{ name().extension }}</span></span
-      >
+      @if (name().extension) {
+        <span data-slot="file-field-name" dir="ltr" class="flex min-w-0" [title]="file.name"
+          ><span class="truncate">{{ name().stem }}</span
+          ><span class="max-w-1/2 shrink-0 truncate">{{ name().extension }}</span></span
+        >
+      } @else {
+        <span data-slot="file-field-name" dir="auto" class="min-w-0 truncate" [title]="file.name">{{
+          file.name
+        }}</span>
+      }
       <span data-slot="file-field-size" class="shrink-0 tabular-nums text-muted-foreground">{{
         size()
       }}</span>
@@ -53,14 +68,14 @@ export class FileFieldValue {
 
   /**
    * The name split before a short extension, which stays visible while the stem truncates. A name
-   * that is only an extension, as `.env`, or whose last dot starts something longer or with spaces,
-   * as `notes.final version`, truncates as a whole.
+   * that is only an extension, as `.env`, whose last dot starts something longer or with spaces, as
+   * `notes.final version`, or with right-to-left text isn't split: it truncates as a whole.
    */
   protected readonly name = computed(() => {
     const name = this.state.value()?.name ?? "";
     const extension = EXTENSION.exec(name);
 
-    if (extension === null || extension.index === 0) {
+    if (extension === null || extension.index === 0 || RIGHT_TO_LEFT.test(name)) {
       return { stem: name, extension: "" };
     }
 
