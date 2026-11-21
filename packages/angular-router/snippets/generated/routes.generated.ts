@@ -1,7 +1,7 @@
 // @loozo/angular-router routegen: owned routes.generated.ts
 import type { Signal } from '@angular/core';
 import type { Routes } from '@angular/router';
-import { record, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
+import { record, nativeOptions, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
 import { route as route_products_$productId_route } from "../src/routes/products/$productId/route.generated.js";
 import { route as route_reports_$reportId_route } from "../src/routes/reports/$reportId/route.generated.js";
@@ -26,7 +26,8 @@ redirectTo: lazyRedirect(() => import("../src/routes/teams/$teamId/old-items/$id
 ...record(destination_products_$productId_route),
 ...callbacks(route_products_$productId_route),
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/products/$productId/page") },
-{ path: "reports/:reportId",
+{ ...nativeOptions(route_reports_$reportId_route),
+path: "reports/:reportId",
 ...record(destination_reports_$reportId_route),
 ...callbacks(route_reports_$reportId_route),
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/reports/$reportId/page") },
