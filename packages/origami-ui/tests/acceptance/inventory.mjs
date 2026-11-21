@@ -313,6 +313,17 @@ export const inventory = {
     "OrigamiAvatarImageOptions",
     "OrigamiAvatarFallback",
   ],
+  "scroll-area": [
+    "OrigamiScrollArea",
+    "OrigamiScrollAreaOptions",
+    "OrigamiScrollAreaState",
+    "OrigamiScrollAreaViewport",
+    "OrigamiScrollAreaContent",
+    "OrigamiScrollAreaScrollbar",
+    "OrigamiScrollAreaScrollbarOptions",
+    "OrigamiScrollAreaOrientation",
+    "OrigamiScrollAreaThumb",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -339,4 +350,5 @@ export const typeOnly = new Set([
   "OrigamiToastRecord",
   "OrigamiOtpFieldCell",
   "OrigamiAvatarStatus",
+  "OrigamiScrollAreaOrientation",
 ]);

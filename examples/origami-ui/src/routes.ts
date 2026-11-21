@@ -182,6 +182,37 @@ export const routes: Routes = [
       import("./fixtures/avatar-split-deferred.js").then((module) => module.AvatarSplitDeferred),
   },
   {
+    path: "scroll-area",
+    loadComponent: () =>
+      import("./fixtures/scroll-area-deferred.js").then((module) => module.ScrollAreaDeferred),
+  },
+  {
+    path: "scroll-area-split",
+    loadComponent: () =>
+      import("./fixtures/scroll-area-split-deferred.js").then(
+        (module) => module.ScrollAreaSplitDeferred,
+      ),
+  },
+  {
+    path: "scroll-area-triggers",
+    loadComponent: () =>
+      import("./fixtures/scroll-area-triggers.js").then(
+        (module) => module.ScrollAreaTriggersFixture,
+      ),
+  },
+  {
+    path: "scroll-area-hydration",
+    loadComponent: () =>
+      import("./fixtures/scroll-area-hydration.js").then(
+        (module) => module.ScrollAreaHydrationFixture,
+      ),
+  },
+  {
+    path: "scroll-area-appeal",
+    loadComponent: () =>
+      import("./fixtures/scroll-area-appeal.js").then((module) => module.ScrollAreaAppealFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),
