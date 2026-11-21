@@ -225,14 +225,19 @@ async function buildOutput(consumer) {
 async function measureRouterRuntime({ consumer, run }) {
   const { samples, timeoutMs, record, result } = run;
   const output = await buildOutput(consumer);
-  const navigation = await measureNavigation(join(output, "browser"), { samples, timeoutMs });
+  const singleBlock = result.fixture.blocks === 1;
+  // With one block the cold link stays in the block bootstrap loaded, so it isn't sampled.
+  const navigationSamples = singleBlock ? { ...samples, cold: 0 } : samples;
+  const navigation = await measureNavigation(join(output, "browser"), {
+    samples: navigationSamples,
+    timeoutMs,
+  });
   const { values } = navigation;
 
   record("runtime.bootstrapMs", values.bootstrapMs);
   record("runtime.bootstrapP95Ms", values.bootstrapMs);
-  // With one block the cold link stays in the block bootstrap loaded: a cold leaf, not the new
-  // branch and children table the metric measures, so it isn't recorded.
-  if (result.fixture.blocks > 1) {
+  // A cold leaf in the bootstrap block isn't the new branch and children table the metric measures.
+  if (!singleBlock) {
     record("runtime.navigateColdMs", values.navigateColdMs);
   }
 
@@ -244,7 +249,7 @@ async function measureRouterRuntime({ consumer, run }) {
     documentToBootstrapMs: values.documentToBootstrapMs,
   };
   progress(
-    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${result.fixture.blocks > 1 ? duration(result.metrics["runtime.navigateColdMs"]) : "not recorded (one block)"}, warm ${duration(result.metrics["runtime.navigateWarmMs"])} (medians)`,
+    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${singleBlock ? "not sampled (one block)" : duration(result.metrics["runtime.navigateColdMs"])}, warm ${duration(result.metrics["runtime.navigateWarmMs"])} (medians)`,
   );
 }
 
