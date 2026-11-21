@@ -8,7 +8,6 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { exists } from "../../../tools/bench/process.mjs";
 import { packageDirectory } from "./consumer.mjs";
 
 const require = createRequire(join(packageDirectory, "package.json"));
@@ -28,14 +27,22 @@ export const runtimeConditions = {
   launch: `The built server (dist/proof/server/server.mjs from the example's server.ts: request scope, RPC dispatch and abort handling, plus one pathname comparison and one String.replace on each page's HTML), PORT=0, ready on LAUNCH_READY. Per server start and endpoint, ${warmupRequests} discarded requests, then sequential keep-alive loopback requests at concurrency 1 with x-bench-user: bench, each timed from just before fetch to the body read in full, then asserted. SSR: GET /g0000/1 (200 and the page marker). RPC: POST /_rpc/g0000/read and /_rpc/g0000/write with a JSON envelope and the server's origin. The middleware server runs SSR, query and mutation in that order; then a second, untimed build of the same route count without the block roots' .use(timing) (consumer-bare) runs SSR only. The with/without pair bounds end-to-end latency with and without the middleware chain; it doesn't isolate the middleware's cost.`,
 };
 
-// Fails before a long run when the router workload's browser isn't installed.
-export async function requireChromium() {
-  const installed = await exists(chromium.executablePath());
+// The runtime phase's browser: Playwright's headless Chromium (the headless shell).
+const launchOptions = { headless: true, args: ["--no-sandbox"] };
 
-  if (!installed) {
+// Fails before a long run when the browser the runtime phase launches can't start.
+export async function requireChromium() {
+  let browser;
+
+  try {
+    browser = await chromium.launch(launchOptions);
+  } catch (error) {
     throw new Error(
-      "Chromium isn't installed for the runtime phase: run pnpm --dir packages/angular-router exec playwright install chromium.",
+      "Playwright's headless Chromium doesn't start for the runtime phase: run pnpm --dir packages/angular-router exec playwright install chromium.",
+      { cause: error },
     );
+  } finally {
+    await browser?.close();
   }
 }
 
@@ -208,7 +215,7 @@ export async function measureNavigation(browserDirectory, { samples, timeoutMs }
   let coldTarget;
 
   try {
-    browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+    browser = await chromium.launch(launchOptions);
 
     // Each fresh context boots; the first `boot` record it, the first `cold` then navigate.
     const fresh = Math.max(samples.boot, samples.cold);
@@ -356,7 +363,8 @@ function rpc(origin, input) {
 async function request(origin, name, timeoutMs) {
   const endpoint = endpoints[name];
   const signal = AbortSignal.timeout(timeoutMs);
-  const init = { ...endpoint.init(origin), signal };
+  // A redirect would measure another URL than the endpoint's, so it fails the 200 check below.
+  const init = { ...endpoint.init(origin), signal, redirect: "manual" };
   const start = performance.now();
   let response;
   let body;

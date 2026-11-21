@@ -230,7 +230,12 @@ async function measureRouterRuntime({ consumer, run }) {
 
   record("runtime.bootstrapMs", values.bootstrapMs);
   record("runtime.bootstrapP95Ms", values.bootstrapMs);
-  record("runtime.navigateColdMs", values.navigateColdMs);
+  // With one block the cold link stays in the block bootstrap loaded: a cold leaf, not the new
+  // branch and children table the metric measures, so it isn't recorded.
+  if (result.fixture.blocks > 1) {
+    record("runtime.navigateColdMs", values.navigateColdMs);
+  }
+
   record("runtime.navigateWarmMs", values.navigateWarmMs);
   record("runtime.navigateWarmP95Ms", values.navigateWarmMs);
   result.runtime = {
@@ -239,7 +244,7 @@ async function measureRouterRuntime({ consumer, run }) {
     documentToBootstrapMs: values.documentToBootstrapMs,
   };
   progress(
-    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${duration(result.metrics["runtime.navigateColdMs"])}, warm ${duration(result.metrics["runtime.navigateWarmMs"])} (medians)`,
+    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${result.fixture.blocks > 1 ? duration(result.metrics["runtime.navigateColdMs"]) : "not recorded (one block)"}, warm ${duration(result.metrics["runtime.navigateWarmMs"])} (medians)`,
   );
 }
 
