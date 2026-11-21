@@ -38,6 +38,12 @@ interface PresentationBatch {
   native: boolean;
 }
 
+interface RevealHold {
+  armed: string | null;
+  held: boolean;
+  release(): void;
+}
+
 declare global {
   interface Window {
     presentationProof: {
@@ -55,6 +61,7 @@ declare global {
       path: (string | null)[];
       pointerId: number;
     } | null;
+    revealHold?: RevealHold;
   }
 }
 
@@ -2568,6 +2575,221 @@ test("V7 V8: a child Popover mounted in the branch during an acquired outside pr
   await expect(page.getByTestId("native-press-child-intent")).toHaveText("false");
   await closed(page);
   await expect.poll(pressChildOpen).toBe(false);
+});
+
+/**
+ * Holds the page's timers and frames from `testId`'s next opening `beforetoggle` until
+ * `releaseReveal`, so a Popover shown there waits, unpositioned, for its reveal.
+ */
+async function holdNextReveal(page: Page, testId: string): Promise<void> {
+  await page.evaluate((testId) => {
+    function install(): RevealHold {
+      const setTimeout = window.setTimeout.bind(window);
+      const clearTimeout = window.clearTimeout.bind(window);
+      const requestAnimationFrame = window.requestAnimationFrame.bind(window);
+      const cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+      let queued: { id: number; run: () => void }[] = [];
+      // Held IDs can't collide with the engine's own.
+      let next = 1e9;
+
+      function queue(run: () => void): number {
+        const id = next++;
+
+        queued.push({ id, run });
+
+        return id;
+      }
+
+      /** Drops a held callback; false for an ID the engine issued. */
+      function dequeue(id: unknown): boolean {
+        if (typeof id !== "number" || id < 1e9) {
+          return false;
+        }
+
+        queued = queued.filter((entry) => entry.id !== id);
+
+        return true;
+      }
+
+      const hold: RevealHold = {
+        armed: null,
+        held: false,
+        release() {
+          hold.held = false;
+
+          // Each stays queued, so still cancellable by its held ID, until its replay starts.
+          for (const entry of queued) {
+            setTimeout(() => {
+              if (queued.includes(entry)) {
+                queued = queued.filter((other) => other !== entry);
+                entry.run();
+              }
+            }, 0);
+          }
+        },
+      };
+
+      window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+        hold.held && typeof handler === "function"
+          ? queue(() => handler(...args))
+          : setTimeout(handler, timeout, ...args)) as typeof window.setTimeout;
+      window.clearTimeout = (id: Parameters<typeof window.clearTimeout>[0]) => {
+        if (!dequeue(id)) {
+          clearTimeout(id);
+        }
+      };
+      window.requestAnimationFrame = (callback) =>
+        hold.held ? queue(() => callback(performance.now())) : requestAnimationFrame(callback);
+      window.cancelAnimationFrame = (id: number) => {
+        if (!dequeue(id)) {
+          cancelAnimationFrame(id);
+        }
+      };
+      document.addEventListener(
+        "beforetoggle",
+        (event) => {
+          if (
+            event instanceof ToggleEvent &&
+            event.newState === "open" &&
+            event.target instanceof HTMLElement &&
+            event.target.dataset["testid"] === hold.armed
+          ) {
+            hold.armed = null;
+            hold.held = true;
+          }
+        },
+        true,
+      );
+      window.revealHold = hold;
+
+      return hold;
+    }
+
+    (window.revealHold ?? install()).armed = testId;
+  }, testId);
+}
+
+/** Ends the hold and replays what it queued, each in its own real task. */
+async function releaseReveal(page: Page): Promise<void> {
+  await page.evaluate(() => window.revealHold?.release());
+}
+
+/** Shown natively but held before its reveal: still unpositioned and inert to pointers. */
+async function revealHeld(page: Page, testId: string): Promise<void> {
+  const content = page.getByTestId(testId);
+
+  await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+  expect(await page.evaluate(() => window.revealHold?.held)).toBe(true);
+  expect(await content.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe("none");
+}
+
+/** Shown and positioned: open natively and its preparation released, read in one evaluation. */
+async function revealed(page: Page, testId: string): Promise<void> {
+  await expect
+    .poll(() =>
+      page
+        .getByTestId(testId)
+        .evaluate(
+          (node) =>
+            node.matches(":popover-open") && getComputedStyle(node).pointerEvents !== "none",
+        ),
+    )
+    .toBe(true);
+}
+
+/** A point inside the fixture's outside target. */
+async function outsidePoint(page: Page): Promise<{ x: number; y: number }> {
+  const outside = await page.getByTestId("pointer-outside").boundingBox();
+
+  if (!outside) {
+    throw new Error("Outside pointer target is missing");
+  }
+
+  return { x: outside.x + 4, y: outside.y + 4 };
+}
+
+test("V29 V8: an outside press made during a Popover's reveal dismisses it once the reveal finishes", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+
+  const point = await outsidePoint(page);
+
+  await holdNextReveal(page, "native-content");
+  await scriptControl(page, "native-open");
+  await revealHeld(page, "native-content");
+
+  // The baseline is taken once the opening write has journaled.
+  const journal = await page.getByTestId("native-journal").textContent();
+
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await releaseReveal(page);
+  await revealed(page, "native-content");
+  await page.mouse.up();
+  await afterPointerTasks(page);
+  await closed(page);
+  await expect(page.getByTestId("native-journal")).toHaveText(`${journal}|parent:false`);
+});
+
+test("V29 V8: an outside press made during a child Popover's reveal under a positioned parent closes the branch, child first", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+
+  const point = await outsidePoint(page);
+
+  await nativeOpen(page);
+  await holdNextReveal(page, "native-child-content");
+  await page.getByTestId("native-child-trigger").click();
+  await revealHeld(page, "native-child-content");
+
+  const journal = await page.getByTestId("native-journal").textContent();
+
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await releaseReveal(page);
+  await revealed(page, "native-child-content");
+  await page.mouse.up();
+  await afterPointerTasks(page);
+  await expect(page.getByTestId("native-child-intent")).toHaveText("false");
+  await expect(page.getByTestId("native-journal")).toHaveText(
+    `${journal}|child:false|parent:false`,
+  );
+  await closed(page);
+});
+
+test("V29 V8: an outside press made during a reveal can't dismiss a Popover closed and reopened before its release", async ({
+  page,
+}, info) => {
+  await fixture(page, "popover", info);
+
+  const point = await outsidePoint(page);
+
+  await holdNextReveal(page, "native-content");
+  await scriptControl(page, "native-open");
+  await revealHeld(page, "native-content");
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await scriptControl(page, "native-close");
+  await releaseReveal(page);
+  await closed(page);
+  await scriptControl(page, "native-open");
+  // The replacement is shown, positioned and requested open before the acquired pointer is released.
+  await revealed(page, "native-content");
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+
+  const replaced = await page.getByTestId("native-journal").textContent();
+
+  await page.mouse.up();
+  await afterPointerTasks(page);
+  await expect(page.getByTestId("native-intent")).toHaveText("true");
+  expect(
+    await page.getByTestId("native-content").evaluate((node) => node.matches(":popover-open")),
+  ).toBe(true);
+  await expect(page.getByTestId("native-journal")).toHaveText(replaced ?? "");
+  await page.getByTestId("pointer-outside").click();
+  await closed(page);
 });
 
 test("V9: Escape restores once; outside-pointer/script-outside preserve focus; nested script suppression retains intent", async ({

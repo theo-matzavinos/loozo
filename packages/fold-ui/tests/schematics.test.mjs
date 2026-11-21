@@ -426,17 +426,21 @@ describe("add", () => {
     }
   });
 
-  test("copies the form controls, the lists, the floating layers, Tabs, Dialog and Sheet with only what they import", async () => {
+  test("copies the form controls, the lists, the floating layers, Tabs, Dialog, Sheet and the display components with only what they import", async () => {
     const cases = {
+      avatar: ["avatar", "cn"],
       checkbox: ["checkbox", "cn"],
       combobox: ["cn", "combobox", "input", "popup"],
       dialog: ["button", "cn", "dialog"],
       field: ["cn", "field"],
       input: ["cn", "input"],
       "number-field": ["cn", "number-field"],
+      "otp-field": ["cn", "otp-field"],
       popover: ["button", "cn", "popover", "popup"],
       popup: ["popup"],
+      progress: ["cn", "progress"],
       "radio-group": ["cn", "radio-group"],
+      "scroll-area": ["cn", "scroll-area"],
       select: ["cn", "popup", "select"],
       sheet: ["button", "cn", "sheet"],
       slider: ["cn", "slider"],
@@ -501,6 +505,19 @@ describe("add", () => {
     assert.match(readText(tree, "src/ui/slider/slider.ts"), /exportAs: "zzSlider"/);
   });
 
+  test("renames OtpField's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["otp-field"] }, await setUp(runner));
+    const field = readText(tree, "src/ui/otp-field/otp-field.ts");
+
+    assert.match(field, /selector: "\[zzOtpField\]"/);
+    assert.match(field, /exportAs: "zzOtpField"/);
+    assert.match(
+      readText(tree, "src/ui/otp-field/otp-field-input.ts"),
+      /selector: "input\[zzOtpFieldInput\]"/,
+    );
+  });
+
   test("renames Select's and Combobox's parts and exportAs with the prefix", async () => {
     const { runner } = createRunner();
     const tree = await runner.runSchematic(
@@ -541,6 +558,26 @@ describe("add", () => {
       readText(tree, "src/ui/popover/popover-content.ts"),
       /exportAs: "zzPopoverContent"/,
     );
+  });
+
+  test("renames ScrollArea's, Avatar's and Progress's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["scroll-area", "avatar", "progress"] },
+      await setUp(runner),
+    );
+
+    assert.match(readText(tree, "src/ui/scroll-area/scroll-area.ts"), /exportAs: "zzScrollArea"/);
+    assert.match(
+      readText(tree, "src/ui/avatar/avatar-image.ts"),
+      /selector: "img\[zzAvatarImage\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/avatar/avatar-fallback.ts"),
+      /selector: "\[zzAvatarFallback\]"/,
+    );
+    assert.match(readText(tree, "src/ui/progress/progress.ts"), /exportAs: "zzProgress"/);
   });
 
   test("skips an existing named component by default, with a warning", async () => {

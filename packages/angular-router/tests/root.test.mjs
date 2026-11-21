@@ -176,13 +176,15 @@ test("snapshot containers preserve mutable codecs, callbacks and opaque logical 
   const provider = { provide: "token", useFactory: resolver };
   const opaque = { label: "x", nested: { count: 1 } };
   const fragments = ["first"];
+  class Fallback {}
   const route = defineRoute("$id", { params, search, fragments })
     .resolve(resolve)
     .runGuardsAndResolvers(predicate)
     .canActivate([guard])
     .providers([provider])
     .title(resolver)
-    .data({ opaque });
+    .data({ opaque })
+    .errorComponent(Fallback);
 
   params.id = stringParam;
   search.q = stringParam;
@@ -192,6 +194,7 @@ test("snapshot containers preserve mutable codecs, callbacks and opaque logical 
 
   assert.equal(config.resolve.value, resolver);
   assert.equal(config.runGuardsAndResolvers, predicate);
+  assert.equal(config.errorComponent, Fallback);
   assert.equal(Object.isFrozen(config.resolve), true);
   assert.equal(
     createUrl(route, { params: { id: opaque }, search: { q: opaque }, fragment: "first" }),
@@ -212,6 +215,7 @@ test("snapshot containers preserve mutable codecs, callbacks and opaque logical 
     search,
     resolve,
     fragments,
+    Fallback,
   ]) {
     assert.equal(Object.isFrozen(value), false);
   }
@@ -251,6 +255,12 @@ test("the old generated identity key name is ordinary native data", async () => 
   assert.equal(config.data.__loozoAngularRouterRouteId, "mine");
   // Generated records forward the stored data object itself, with no key added.
   assert.equal(nativeOptions(route).data, config.data);
+
+  class Fallback {}
+  const fallible = defineRoute("fallible", {}).errorComponent(Fallback);
+
+  assert.equal(nativeOptions(fallible).errorComponent, Fallback);
+  assert.equal(Object.hasOwn(nativeOptions(route), "errorComponent"), false);
   assert.equal(routeMetadata(resolved).config.resolve.__loozoAngularRouterRouteId(), 1);
 });
 
@@ -600,6 +610,29 @@ test("onInvalidParams is a callback on routes with local path params only", () =
 
   assert.equal("redirect" in handled, false);
   assert.equal(typeof target.path, "string");
+});
+
+test("errorComponent takes a component class and rules a redirect out", () => {
+  class Fallback {}
+
+  for (const value of [undefined, null, "Fallback", {}, new Fallback()]) {
+    assert.throws(
+      () => defineRoute("items", {}).errorComponent(value),
+      /^TypeError: errorComponent must be a component class$/,
+    );
+  }
+
+  const fallible = defineRoute("items", {}).errorComponent(Fallback);
+
+  assert.equal("errorComponent" in fallible, false);
+  assert.equal("redirect" in fallible, false);
+  // Any order among the other steps.
+  assert.equal("title" in fallible, true);
+  assert.equal(
+    routeMetadata(defineRoute("items", {}).data({}).errorComponent(Fallback).title("t")).config
+      .errorComponent,
+    Fallback,
+  );
 });
 
 test("every search key may be omitted when writing a URL or redirect", () => {
@@ -969,6 +1002,7 @@ test("createRouteFactory validates its manifest", () => {
   for (const name of [
     "redirect",
     "title",
+    "errorComponent",
     "path",
     "then",
     "__params",

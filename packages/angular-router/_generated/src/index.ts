@@ -310,7 +310,13 @@ export function nativeOptions(route: AnyRoute): Record<string, unknown> {
   const config = routeMetadata(route).config;
   const options: Record<string, unknown> = {};
 
-  for (const key of ["providers", "data", "canDeactivate", "runGuardsAndResolvers"]) {
+  for (const key of [
+    "providers",
+    "data",
+    "canDeactivate",
+    "runGuardsAndResolvers",
+    "errorComponent",
+  ]) {
     if (Object.hasOwn(config, key)) {
       options[key] = config[key];
     }

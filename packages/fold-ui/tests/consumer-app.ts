@@ -8,6 +8,7 @@ import {
   form,
   max,
   min,
+  pattern,
   readonly,
   required,
   submit,
@@ -15,6 +16,7 @@ import {
 } from "@angular/forms/signals";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
 import { AlertDialogParts } from "#ui/alert-dialog";
+import { AvatarParts } from "#ui/avatar";
 import { Button, ButtonLink } from "#ui/button";
 import { Checkbox } from "#ui/checkbox";
 import { ComboboxParts } from "#ui/combobox";
@@ -29,8 +31,11 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { Input } from "#ui/input";
 import { NumberFieldParts } from "#ui/number-field";
+import { OtpField, OtpFieldInput } from "#ui/otp-field";
 import { PopoverParts } from "#ui/popover";
+import { Progress } from "#ui/progress";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
+import { ScrollArea } from "#ui/scroll-area";
 import { SelectParts } from "#ui/select";
 import { SheetParts } from "#ui/sheet";
 import { Slider, SliderThumb } from "#ui/slider";
@@ -43,6 +48,7 @@ import {
   LucideChevronDown,
   LucideLink,
   LucideRotateCcw,
+  LucideStore,
   LucideTriangleAlert,
 } from "@lucide/angular";
 
@@ -108,6 +114,116 @@ const COUNTRIES = [
   { code: "CH", name: "Switzerland" },
 ];
 
+// OTP field: a verification code in a Field, a masked PIN, disabled, readonly, larger cells, an
+// RTL parent and the light theme.
+@Component({
+  selector: "app-otp-fields",
+  imports: [
+    Button,
+    Field,
+    FieldDescription,
+    FieldError,
+    FieldLabel,
+    FormField,
+    OtpField,
+    OtpFieldInput,
+  ],
+  template: `
+    <form id="otps" class="grid w-[380px] gap-4 p-5" (submit)="save($event)">
+      <div zzField #codeField="zzField" id="otp-field-wrap">
+        <label zzFieldLabel id="otp-label">Verification code</label>
+        <div
+          zzOtpField
+          #otp="zzOtpField"
+          [formField]="codes.code"
+          (valueChange)="otp.state.complete() && verified.set($event)"
+          id="otp"
+        >
+          <input zzOtpFieldInput id="otp-input" />
+        </div>
+        <p zzFieldDescription id="otp-description">The 6-digit code we sent you</p>
+        @if (codeField.state.errorsShown()) {
+          <p zzFieldError id="otp-error">{{ codeField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <output id="otp-verified">{{ verified() }}</output>
+
+      <div class="flex items-center gap-2">
+        <div zzOtpField mask length="4" [(value)]="pin" id="otp-pin">
+          <input
+            zzOtpFieldInput
+            aria-label="PIN"
+            autocomplete="current-password"
+            id="otp-pin-input"
+          />
+        </div>
+        <output id="otp-pin-value">{{ pin().length }}</output>
+      </div>
+
+      <div zzField id="otp-locked-field">
+        <label zzFieldLabel>Locked code</label>
+        <div zzOtpField [formField]="codes.locked" id="otp-locked">
+          <input zzOtpFieldInput id="otp-locked-input" />
+        </div>
+      </div>
+      <div zzField id="otp-frozen-field">
+        <label zzFieldLabel>Saved code</label>
+        <div zzOtpField [formField]="codes.frozen" id="otp-frozen">
+          <input zzOtpFieldInput id="otp-frozen-input" />
+        </div>
+      </div>
+
+      <div zzOtpField [value]="'12'" class="[--otp-field-cell-size:3rem]" id="otp-large">
+        <input zzOtpFieldInput aria-label="Large code" id="otp-large-input" />
+      </div>
+      <div class="w-[248px]" id="otp-narrow-wrap">
+        <div zzOtpField [value]="'482913'" id="otp-narrow">
+          <input zzOtpFieldInput aria-label="Narrow code" id="otp-narrow-input" />
+        </div>
+      </div>
+      <div dir="rtl">
+        <div zzOtpField [value]="'482913'" id="otp-rtl">
+          <input zzOtpFieldInput aria-label="Right-to-left code" />
+        </div>
+      </div>
+      <div class="light bg-background p-2">
+        <div zzOtpField [value]="'4829'" id="otp-light">
+          <input zzOtpFieldInput aria-label="Light code" id="otp-light-input" />
+        </div>
+      </div>
+
+      <button zzButton variant="primary" type="submit" id="otp-save">Save code</button>
+      <output id="otp-saves">{{ saves() }}</output>
+    </form>
+  `,
+})
+export class OtpFields {
+  protected readonly pin = signal("");
+  protected readonly verified = signal("");
+  protected readonly saves = signal(0);
+
+  // Every rule has a message: a rule without one gives an error whose message is undefined.
+  protected readonly codes = form(signal({ code: "", locked: "482", frozen: "482913" }), (path) => {
+    required(path.code, { message: "Enter the code" });
+    pattern(path.code, /^[0-9]{6}$/, { message: "Enter all 6 digits" });
+    disabled(path.locked);
+    readonly(path.frozen);
+  });
+
+  protected async save(event: Event): Promise<void> {
+    event.preventDefault();
+    await submit(this.codes, async () => {
+      this.saves.update((count) => count + 1);
+
+      return undefined;
+    });
+
+    if (this.codes.code().invalid()) {
+      this.codes.code().focusBoundControl();
+    }
+  }
+}
+
 // A dialog opened from code: the component is the Dialog root and closes itself.
 @Component({
   selector: "app-search-dialog",
@@ -138,6 +254,7 @@ export class SearchDialog {
     Button,
     ButtonLink,
     AlertDialogParts,
+    AvatarParts,
     Checkbox,
     ComboboxParts,
     DialogParts,
@@ -151,11 +268,15 @@ export class SearchDialog {
     LucideChevronDown,
     LucideLink,
     LucideRotateCcw,
+    LucideStore,
     LucideTriangleAlert,
     NumberFieldParts,
+    OtpFields,
     PopoverParts,
+    Progress,
     RadioGroup,
     RadioGroupItem,
+    ScrollArea,
     SelectParts,
     SheetParts,
     Slider,
@@ -791,6 +912,8 @@ export class SearchDialog {
       <output id="number-saves">{{ numberSaves() }}</output>
     </form>
 
+    <app-otp-fields />
+
     <!-- Select and Combobox. -->
     <section id="lists" class="grid gap-6 p-5">
       <form id="picks" class="grid gap-4" (submit)="savePicks($event)">
@@ -1294,6 +1417,245 @@ export class SearchDialog {
         <p zzFieldDescription id="tip-status-description">Sets the invoice currency.</p>
       </div>
     </section>
+    <section id="display" class="grid gap-8 p-5">
+      <div class="grid gap-2">
+        <h2 id="sa-both-title" class="text-title">Addresses</h2>
+        <div
+          class="h-56 w-[626px] max-w-full rounded-surface border border-border"
+          id="sa-both-bound"
+        >
+          <div
+            zzScrollArea
+            orientation="both"
+            aria-labelledby="sa-both-title"
+            class="size-full rounded-[inherit]"
+            #area="zzScrollArea"
+            id="sa-both"
+          >
+            <table class="w-[940px] text-left">
+              <tbody>
+                @for (row of displayRows; track row) {
+                  <tr class="h-9 border-b border-border">
+                    <td class="px-3">{{ row + 1 }}</td>
+                    <td class="px-3">Ada Lovelace</td>
+                    <td class="px-3">12 Marylebone Road</td>
+                    <td class="px-3">London</td>
+                    <td class="px-3">NW1 5LR</td>
+                    <td class="px-3">United Kingdom</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <button
+          zzButton
+          class="justify-self-start"
+          (click)="area.viewport().scrollTo({ left: 250, top: 220 })"
+          id="sa-scroll"
+        >
+          Scroll to the middle
+        </button>
+      </div>
+
+      <div class="grid grid-cols-3 items-start gap-6">
+        <div class="grid gap-2">
+          <div zzScrollArea [aria-label]="notesName()" class="h-56" id="sa-vertical">
+            <div class="grid gap-3 p-3">
+              @for (row of noteRows; track row) {
+                <p>
+                  Deliveries before nine go to the loading bay on the north side; after nine, ring
+                  the front desk and wait for the porter. Note {{ row + 1 }}.
+                </p>
+              }
+            </div>
+          </div>
+          <button
+            zzButton
+            class="justify-self-start"
+            (click)="notesName.set('Updated delivery notes')"
+            id="sa-rename"
+          >
+            Rename notes
+          </button>
+        </div>
+
+        <div zzScrollArea orientation="horizontal" aria-label="Columns" id="sa-horizontal">
+          <div class="flex w-max gap-2 p-3">
+            @for (column of displayColumns; track column) {
+              <div class="w-32 rounded-control border border-border p-3">{{ column }}</div>
+            }
+          </div>
+        </div>
+
+        <div class="flex h-80 flex-col rounded-surface border border-border" id="sa-panel-bound">
+          <header class="flex h-12 shrink-0 items-center px-3 text-title" id="sa-panel-header">
+            Filters
+          </header>
+          <div zzScrollArea aria-label="Filters" class="grow" id="sa-panel">
+            @for (row of displayRows; track row) {
+              <div class="flex h-8 items-center px-3">Filter {{ row + 1 }}</div>
+            }
+          </div>
+          <footer class="flex h-12 shrink-0 items-center px-3" id="sa-panel-footer">Apply</footer>
+        </div>
+
+        <div zzScrollArea aria-label="Delivery notes list" class="max-h-60" id="sa-capped">
+          <ul class="grid gap-2 p-3">
+            @for (row of displayRows; track row) {
+              <li class="flex h-8 items-center">Delivery {{ row + 1 }}</li>
+            }
+          </ul>
+        </div>
+
+        <div zzScrollArea aria-label="Recent deliveries" class="max-h-60" id="sa-short">
+          @for (row of shortRows; track row) {
+            <div class="flex h-8 items-center px-3">Delivery {{ row + 1 }}</div>
+          }
+        </div>
+      </div>
+
+      <div class="grid gap-3" id="avatars">
+        @for (shape of avatarShapes; track shape) {
+          <div class="flex items-center gap-3">
+            @for (size of avatarSizes; track size) {
+              <span zzAvatar [shape]="shape" [size]="size" [id]="'avatar-' + shape + '-' + size">
+                <span zzAvatarFallback aria-hidden="true">TM</span>
+                <img zzAvatarImage [src]="loadedPhoto" alt="" />
+              </span>
+              <span
+                zzAvatar
+                [shape]="shape"
+                [size]="size"
+                [id]="'avatar-' + shape + '-' + size + '-idle'"
+              >
+                <span zzAvatarFallback aria-hidden="true">TM</span>
+                <img zzAvatarImage [src]="null" alt="" />
+              </span>
+              <span
+                zzAvatar
+                [shape]="shape"
+                [size]="size"
+                [id]="'avatar-' + shape + '-' + size + '-error'"
+              >
+                <span zzAvatarFallback aria-hidden="true">TM</span>
+                <img zzAvatarImage [src]="brokenPhoto" alt="" />
+              </span>
+            }
+            <span zzAvatar [shape]="shape" size="lg" [id]="'avatar-' + shape + '-icon'">
+              <span zzAvatarFallback aria-hidden="true"><svg lucideStore></svg></span>
+              <img zzAvatarImage [src]="null" alt="" />
+            </span>
+          </div>
+        }
+        <div class="flex items-center gap-3">
+          <span zzAvatar class="size-32 border border-input text-headline" id="avatar-large">
+            <span zzAvatarFallback aria-hidden="true">TM</span>
+            <img zzAvatarImage [src]="null" alt="" />
+          </span>
+          <span zzAvatar shape="square" class="size-32 text-headline" id="avatar-square-large">
+            <span zzAvatarFallback aria-hidden="true">TM</span>
+          </span>
+          <span
+            zzAvatar
+            shape="square"
+            class="size-32 rounded-control text-headline"
+            id="avatar-square-large-radius"
+          >
+            <span zzAvatarFallback aria-hidden="true">TM</span>
+          </span>
+          <span zzAvatar size="lg" id="avatar-slow">
+            <span zzAvatarFallback aria-hidden="true" id="avatar-slow-fallback">AL</span>
+            <img zzAvatarImage [src]="slowPhoto()" alt="" />
+          </span>
+          <span zzAvatar size="lg" id="avatar-slow-now">
+            <span
+              zzAvatarFallback
+              aria-hidden="true"
+              class="animate-none!"
+              id="avatar-slow-now-fallback"
+            >
+              AL
+            </span>
+            <img zzAvatarImage [src]="slowPhotoNow()" alt="" />
+          </span>
+          <button zzButton (click)="loadSlowPhotos()" id="avatar-load">Load photos</button>
+          <span zzAvatar role="img" aria-label="Grace Hopper" id="avatar-named">
+            <span zzAvatarFallback aria-hidden="true">GH</span>
+            <img zzAvatarImage [src]="loadedPhoto" alt="" />
+          </span>
+        </div>
+      </div>
+
+      <div class="grid w-[626px] max-w-full gap-4" id="bars">
+        <div zzProgress [value]="40" aria-label="Upload" id="progress-40"></div>
+        <div zzProgress value="3" max="3" aria-label="Import" id="progress-complete"></div>
+        <div zzProgress aria-label="Loading reservations" class="h-1" id="progress-unknown"></div>
+        <div
+          zzProgress
+          aria-label="Syncing"
+          class="[&>[data-slot=progress-fill]]:animate-none!"
+          id="progress-still"
+        ></div>
+        <div class="flex items-center gap-3">
+          <div
+            zzProgress
+            [value]="620"
+            [max]="1000"
+            aria-label="Campaign"
+            class="h-6"
+            #campaign="zzProgress"
+            id="progress-campaign"
+          ></div>
+          <span aria-hidden="true" class="tabular-nums" id="progress-campaign-text">
+            {{ campaign.state.valueText() }}
+          </span>
+        </div>
+
+        <div zzDialog>
+          <button zzDialogTrigger class="justify-self-start" id="steps-trigger">New deposit</button>
+          <dialog zzDialogContent class="gap-0" id="steps-dialog">
+            <div zzDialogHeader class="pb-5">
+              <h2 zzDialogTitle>New deposit</h2>
+              <p zzDialogDescription id="steps-description">Step 2 of 3 · Review details</p>
+            </div>
+            <div
+              zzProgress
+              value="2"
+              max="3"
+              aria-label="Deposit steps"
+              class="-mx-5 w-auto shrink-0 rounded-none"
+              id="steps-progress"
+            ></div>
+            <div zzDialogBody class="my-0 grid gap-4 py-5" id="steps-body">
+              <p>Confirm the amount and the account before you continue.</p>
+              @for (line of stepFields; track line) {
+                <div zzField>
+                  <label zzFieldLabel>{{ line }}</label>
+                  <input zzInput />
+                </div>
+              }
+            </div>
+            <div zzDialogFooter>
+              <button zzDialogClose>Back</button>
+              <button zzButton variant="primary">Confirm deposit</button>
+            </div>
+          </dialog>
+        </div>
+      </div>
+
+      <div class="light grid w-80 gap-4 bg-background p-2 text-foreground">
+        <div zzScrollArea aria-label="Light notes" class="h-24" id="sa-light">
+          @for (row of noteRows; track row) {
+            <div class="flex h-8 items-center px-3">Light note {{ row + 1 }}</div>
+          }
+        </div>
+        <span zzAvatar id="avatar-light">
+          <span zzAvatarFallback aria-hidden="true">TM</span>
+        </span>
+        <div zzProgress [value]="40" aria-label="Light upload" id="progress-light"></div>
+      </div>
+    </section>
   `,
 })
 export class App {
@@ -1373,6 +1735,31 @@ export class App {
     { value: "quarterly", label: "Quarterly", locked: false },
     { value: "yearly", label: "Yearly", locked: false },
   ];
+  protected readonly displayRows = Array.from({ length: 24 }, (_, index) => index);
+  protected readonly noteRows = this.displayRows.slice(0, 8);
+  protected readonly shortRows = this.displayRows.slice(0, 3);
+  protected readonly displayColumns = [
+    "Number",
+    "Name",
+    "Street",
+    "City",
+    "Postal code",
+    "Country",
+    "Phone",
+    "Email",
+  ];
+  protected readonly notesName = signal("Delivery notes");
+  protected readonly stepFields = ["Amount", "Account", "Reference"];
+  protected readonly avatarShapes = ["circle", "square"] as const;
+  protected readonly avatarSizes = ["sm", "md", "lg"] as const;
+  // A sized SVG, so it loads with a natural width, and a PNG that fails to decode; neither is a
+  // network request.
+  protected readonly loadedPhoto =
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' fill='%2326803f'/%3E%3C/svg%3E";
+  protected readonly brokenPhoto = "data:image/png;base64,AAAA";
+  // The smoke holds these requests to watch the fallback's delay.
+  protected readonly slowPhoto = signal<string | null>(null);
+  protected readonly slowPhotoNow = signal<string | null>(null);
   readonly #search = injectOrigamiDialogOpener(SearchDialog);
   protected readonly contact = form(
     signal({ email: "", notes: "", account: "ACC-0042" }),
@@ -1592,6 +1979,11 @@ export class App {
     }
 
     this.publishes.update((count) => count + 1);
+  }
+
+  protected loadSlowPhotos(): void {
+    this.slowPhoto.set("/slow-avatar.svg");
+    this.slowPhotoNow.set("/slow-avatar-2.svg");
   }
 
   protected terminate(): void {

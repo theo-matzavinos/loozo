@@ -276,15 +276,24 @@
     "bundle.origami.raw": 700
   },
   "all": {
-    "bundle.initial.raw": 489500,
-    "bundle.initial.gzip": 140100,
-    "bundle.initial.brotli": 116800,
-    "bundle.added.raw": 397000,
-    "bundle.added.gzip": 109400,
-    "bundle.added.brotli": 89000,
-    "bundle.origami.raw": 238400,
+    "bundle.initial.raw": 503100,
+    "bundle.initial.gzip": 143700,
+    "bundle.initial.brotli": 119700,
+    "bundle.added.raw": 410700,
+    "bundle.added.gzip": 113000,
+    "bundle.added.brotli": 91900,
+    "bundle.origami.raw": 251200,
     "build.ms": 3000,
     "typecheck.ngcMs": 1600,
     "typecheck.instantiations": 5500
+  },
+  "scroll-area": {
+    "bundle.initial.raw": 132000,
+    "bundle.initial.gzip": 43700,
+    "bundle.initial.brotli": 39200,
+    "bundle.added.raw": 39500,
+    "bundle.added.gzip": 12900,
+    "bundle.added.brotli": 11400,
+    "bundle.origami.raw": 12900
   }
 }

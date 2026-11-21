@@ -2072,6 +2072,45 @@ export default class Fail {
 }
 `,
 );
+// Pages whose constructors throw, each with its own error component: a top-level route, and a
+// child of the crew, whose outlet already exists when the crew is on screen.
+const errorComponent = (name, id) => `import { Component, computed, input } from '@angular/core';
+
+@Component({ template: '<p id="${id}">{{ message() }}</p>' })
+export class ${name} {
+  readonly error = input<unknown>();
+  readonly message = computed(() => {
+    const error = this.error();
+
+    return error instanceof Error ? error.message : String(error);
+  });
+}
+`;
+const throwingPage = (message) => `import { Component } from '@angular/core';
+
+@Component({ template: '<p id="unreachable">unreachable</p>' })
+export default class Page {
+  constructor() {
+    throw new Error('${message}');
+  }
+}
+`;
+
+await write(
+  "src/routes/fallen/definition.ts",
+  "import { defineRoute } from '@loozo/angular-router';\nimport { Fallen } from './fallen.js';\nexport default defineRoute('fallen', {}).errorComponent(Fallen);\n",
+);
+await write("src/routes/fallen/fallen.ts", errorComponent("Fallen", "fallen-error"));
+await write("src/routes/fallen/page.ts", throwingPage("deliberate fallen failure"));
+await write(
+  "src/routes/crew-fallen/definition.ts",
+  "import { defineRoute } from '@loozo/angular-router';\nimport crew from '../crew/definition.js';\nimport { FallenChild } from './fallen-child.js';\nexport default defineRoute('fallen', { parent: crew }).errorComponent(FallenChild);\n",
+);
+await write(
+  "src/routes/crew-fallen/fallen-child.ts",
+  errorComponent("FallenChild", "fallen-child-error"),
+);
+await write("src/routes/crew-fallen/page.ts", throwingPage("deliberate fallen child failure"));
 await write(
   "src/native.ts",
   "import { Component } from '@angular/core';\n\n@Component({ template: '<p id=\"native\">native</p>' })\nexport default class Native {}\n",
@@ -2813,12 +2852,13 @@ export const seedProofProvider = provideEnvironmentInitializer(() => {
 
 const main = await readFile(join(fixture, "src/main.ts"), "utf8");
 
-// The inheritance strategy comes from the tab, so one build runs under both.
+// The inheritance strategy and Angular's error boundaries come from the tab, so one build runs
+// under each.
 await write(
   "src/main.ts",
-  `import { withRouterConfig } from '@angular/router';\nimport { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\nimport { copiesProofProvider } from './copies-proof.js';\nimport { nativeWrappers } from './native-wrappers.js';\nimport { seedProofProvider } from './seed-proof.js';\nimport { provideActiveRouteHydration } from '../generated/routes.generated.js';\n${main.replace(
+  `import { withErrorBoundaries, withRouterConfig } from '@angular/router';\nimport { proofProvider } from './proof.js';\nimport { activeProofProvider } from './active-proof.js';\nimport { extensionProofProvider } from './extension-proof.js';\nimport { copiesProofProvider } from './copies-proof.js';\nimport { nativeWrappers } from './native-wrappers.js';\nimport { seedProofProvider } from './seed-proof.js';\nimport { provideActiveRouteHydration } from '../generated/routes.generated.js';\n${main.replace(
     "provideRouter(routes)",
-    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...nativeWrappers(routes), ...routes], withRouterConfig({ paramsInheritanceStrategy: (window as any).inheritance ?? 'emptyOnly' })), proofProvider, activeProofProvider, extensionProofProvider, copiesProofProvider, seedProofProvider, provideActiveRouteHydration()",
+    "provideRouter([{ path: 'native', loadComponent: () => import('./native.js') }, ...nativeWrappers(routes), ...routes], withRouterConfig({ paramsInheritanceStrategy: (window as any).inheritance ?? 'emptyOnly' }), ...((window as any).errorBoundaries ? [withErrorBoundaries()] : [])), proofProvider, activeProofProvider, extensionProofProvider, copiesProofProvider, seedProofProvider, provideActiveRouteHydration()",
   )}`,
 );
 
@@ -2990,6 +3030,110 @@ try {
     active[name] = await page.evaluate((key) => window[key](), proof);
     await page.close();
   }
+
+  // Error components, each case a fresh application: with Angular's error boundaries, a
+  // top-level page and a child of a crew already on screen render their own error component
+  // in place of the throwing page; without them, the navigation rejects as before.
+  const fallen = {};
+  const fallenErrors = {};
+
+  for (const [name, boundaries, start, path, shown] of [
+    ["top", true, undefined, "/fallen", "#fallen-error"],
+    ["top without boundaries", false, undefined, "/fallen", undefined],
+    ["child of a shown crew", true, "/crews/8", "/crews/8/fallen", "#fallen-child-error"],
+  ]) {
+    const page = await browser.newPage();
+
+    fallenErrors[name] = [];
+    page.on("pageerror", (error) => fallenErrors[name].push(String(error)));
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        fallenErrors[name].push(message.text());
+      }
+    });
+    await page.addInitScript((value) => {
+      window.errorBoundaries = value;
+    }, boundaries);
+    await page.goto(output.baseUrl);
+    await page.waitForFunction(() => window.shell !== undefined);
+
+    if (start) {
+      await page.evaluate((url) => window.shell.router.navigateByUrl(url), start);
+      await page.locator("#page-crew").waitFor();
+    }
+
+    fallen[name] = await page.evaluate(async (url) => {
+      const router = window.shell.router;
+      let navigated;
+
+      try {
+        navigated = await router.navigateByUrl(url);
+      } catch (error) {
+        navigated = `rejected: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      // One frame for the boundary's component to render.
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+
+      const text = (id) => document.getElementById(id)?.textContent ?? null;
+
+      return {
+        navigated,
+        url: router.url,
+        crew: text("page-crew"),
+        fallen: text("fallen-error"),
+        child: text("fallen-child-error"),
+        unreachable: text("unreachable"),
+      };
+    }, path);
+
+    if (shown) {
+      await page.locator(shown).screenshot({
+        path: join(evidence, `error-component-${name.replaceAll(" ", "-")}.png`),
+      });
+      await page.screenshot({
+        path: join(evidence, `error-component-${name.replaceAll(" ", "-")}-page.png`),
+      });
+    }
+
+    await page.close();
+  }
+
+  await writeFile(
+    join(evidence, "error-component-observations.json"),
+    JSON.stringify({ fallen, fallenErrors }, null, 2),
+  );
+  assert.deepEqual(fallen, {
+    top: {
+      navigated: true,
+      url: "/fallen",
+      crew: null,
+      fallen: "deliberate fallen failure",
+      child: null,
+      unreachable: null,
+    },
+    "top without boundaries": {
+      navigated: "rejected: deliberate fallen failure",
+      url: "/",
+      crew: null,
+      fallen: null,
+      child: null,
+      unreachable: null,
+    },
+    "child of a shown crew": {
+      navigated: true,
+      url: "/crews/8/fallen",
+      crew: "crew",
+      fallen: null,
+      child: "deliberate fallen child failure",
+      unreachable: null,
+    },
+  });
+  assert.deepEqual(fallenErrors, {
+    top: [],
+    "top without boundaries": [],
+    "child of a shown crew": [],
+  });
 
   // The seed's walk (T1–T3), each a fresh application: a segment-consuming native wrapper
   // over the org with a generated empty-path child, a top-level route after the native lazy

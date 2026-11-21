@@ -134,6 +134,7 @@ import { OrigamiOtpFieldOptions, type OrigamiOtpFieldState, type OrigamiOtpField
 import { OrigamiFileFieldOptions, type OrigamiFileFieldState } from '@loozo/origami-ui/file-field';
 import { OrigamiProgressOptions, type OrigamiProgressState } from '@loozo/origami-ui/progress';
 import { OrigamiAvatarImageOptions, type OrigamiAvatarState, type OrigamiAvatarStatus } from '@loozo/origami-ui/avatar';
+import { OrigamiScrollAreaOptions, OrigamiScrollAreaScrollbarOptions, type OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from '@loozo/origami-ui/scroll-area';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -653,6 +654,24 @@ const avatarStatus: OrigamiAvatarStatus = avatarState.status();
 const avatarUnknownStatus: OrigamiAvatarStatus = 'pending';
 void avatarStatus;
 void avatarUnknownStatus;
+// Positive: whole ScrollArea factories, with ordinary signals.
+OrigamiScrollAreaOptions.provideFactory(() => ({hideDelay: signal(300)}));
+OrigamiScrollAreaOptions.provideFactory(() => ({hideDelay: computed(() => 600)}));
+OrigamiScrollAreaScrollbarOptions.provideFactory(() => ({orientation: signal<OrigamiScrollAreaOrientation>('horizontal')}));
+// @ts-expect-error a ScrollArea factory must supply hideDelay
+OrigamiScrollAreaOptions.provideFactory(() => ({}));
+// @ts-expect-error a ScrollArea Scrollbar orientation is vertical or horizontal
+OrigamiScrollAreaScrollbarOptions.provideFactory(() => ({orientation: signal<'diagonal'>('diagonal')}));
+declare const scrollAreaState: OrigamiScrollAreaState;
+// @ts-expect-error ScrollArea State overflowX is readonly
+scrollAreaState.overflowX.set(true);
+// @ts-expect-error ScrollArea State active is readonly
+scrollAreaState.active.set(true);
+const scrollAreaOverflowY: boolean = scrollAreaState.overflowY();
+// @ts-expect-error the orientation is one of two literals
+const scrollAreaDiagonal: OrigamiScrollAreaOrientation = 'diagonal';
+void scrollAreaOverflowY;
+void scrollAreaDiagonal;
 // Positive: whole date picker factories, with ordinary signals.
 OrigamiDatePickerOptions.provideFactory(() => ({value: signal<string | null>(null), open: signal(false), disabled: computed(() => false), readonly: signal(false), locale: signal('en-GB')}));
 OrigamiDatePickerTriggerOptions.provideFactory(() => ({id: signal('valid-from'), disabled: signal(false), focusableWhenDisabled: computed(() => false)}));
@@ -1049,6 +1068,12 @@ abstract class AbstractProgress {
 abstract class AbstractAvatarImage {
   abstract readonly src: Signal<string | null>;
 }
+abstract class AbstractScrollArea {
+  abstract readonly hideDelay: Signal<number>;
+}
+abstract class AbstractScrollAreaScrollbar {
+  abstract readonly orientation: Signal<OrigamiScrollAreaOrientation>;
+}
 export const providers: Provider[] = [
   OrigamiPresenceOptions.provideFactory(() => ({present: signal(true)})),
   OrigamiCollapsibleOptions.provideFactory(() => ({expanded: signal(true), disabled: signal(false), hiding: signal<OrigamiCollapsibleHiding>('hidden')})),
@@ -1156,6 +1181,10 @@ export const providers: Provider[] = [
   OrigamiProgressOptions.provideExisting(() => AbstractProgress),
   OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>('/avatar.png')})),
   OrigamiAvatarImageOptions.provideExisting(() => AbstractAvatarImage),
+  OrigamiScrollAreaOptions.provideFactory(() => ({hideDelay: signal(600)})),
+  OrigamiScrollAreaOptions.provideExisting(() => AbstractScrollArea),
+  OrigamiScrollAreaScrollbarOptions.provideFactory(() => ({orientation: signal<OrigamiScrollAreaOrientation>('vertical')})),
+  OrigamiScrollAreaScrollbarOptions.provideExisting(() => AbstractScrollAreaScrollbar),
 ];
 export function deferredCollapsible(): () => OrigamiCollapsibleOptions { return injectDeferred(OrigamiCollapsibleOptions); }
 `;
@@ -1487,6 +1516,17 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   textOutput(value: string | null): void { void value; }
   booleanOutput(value: boolean): void { void value; }
   observeState(state: OrigamiProgressState): void { void state; }`,
+  },
+  "scroll-area": {
+    imports: `import { OrigamiScrollArea, OrigamiScrollAreaViewport, OrigamiScrollAreaContent, OrigamiScrollAreaScrollbar, OrigamiScrollAreaThumb, OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from "@loozo/origami-ui/scroll-area";`,
+    directives:
+      "OrigamiScrollArea, OrigamiScrollAreaViewport, OrigamiScrollAreaContent, OrigamiScrollAreaScrollbar, OrigamiScrollAreaThumb",
+    members: `
+  readonly axis = signal<OrigamiScrollAreaOrientation>("horizontal");
+  readonly delay = signal(300);
+  readonly diagonal = signal("diagonal");
+  observeOverflow(overflow: boolean): void { void overflow; }
+  observeState(state: OrigamiScrollAreaState): void { void state; }`,
   },
   avatar: {
     imports: `import { OrigamiAvatar, OrigamiAvatarImage, OrigamiAvatarFallback, OrigamiAvatarState, type OrigamiAvatarStatus } from "@loozo/origami-ui/avatar";`,
@@ -2507,6 +2547,31 @@ const templates = [
       code: 2345,
       span: "value",
       message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "scroll-area-positive",
+    family: "scroll-area",
+    template: `<div ogScrollArea #area="ogScrollArea" [hideDelay]="delay()" (click)="observeOverflow(area.state.overflowY()); observeState(area.state)"><div ogScrollAreaViewport><div ogScrollAreaContent>Text</div></div><div ogScrollAreaScrollbar [orientation]="axis()"><div ogScrollAreaThumb></div></div><div ogScrollAreaScrollbar orientation="vertical"><div ogScrollAreaThumb></div></div></div><div ogScrollArea hideDelay="300"></div>`,
+  },
+  {
+    name: "scroll-area-orientation",
+    family: "scroll-area",
+    template: `<div ogScrollArea><div ogScrollAreaScrollbar [orientation]="diagonal()"></div></div>`,
+    expected: {
+      code: 2322,
+      span: "orientation",
+      message: /Type 'string' is not assignable to type 'OrigamiScrollAreaOrientation'/,
+    },
+  },
+  {
+    name: "scroll-area-scrollbar-state",
+    family: "scroll-area",
+    template: `<div ogScrollArea><div ogScrollAreaScrollbar #bar="ogScrollAreaScrollbar"></div></div>`,
+    expected: {
+      code: -998003,
+      span: "ogScrollAreaScrollbar",
+      message: /No directive found with exportAs 'ogScrollAreaScrollbar'/,
     },
   },
   {

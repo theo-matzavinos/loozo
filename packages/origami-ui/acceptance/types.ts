@@ -102,6 +102,14 @@ import type {
   OrigamiAvatarState,
   OrigamiAvatarStatus,
 } from "@loozo/origami-ui/avatar";
+import type {
+  OrigamiScrollArea,
+  OrigamiScrollAreaOptions,
+  OrigamiScrollAreaOrientation,
+  OrigamiScrollAreaScrollbar,
+  OrigamiScrollAreaScrollbarOptions,
+  OrigamiScrollAreaState,
+} from "@loozo/origami-ui/scroll-area";
 import { OrigamiSwitch, OrigamiSwitchOptions, OrigamiSwitchState } from "@loozo/origami-ui/switch";
 
 type ExpectNever<T extends never> = T;
@@ -459,4 +467,22 @@ export function checkAvatar(root: OrigamiAvatar, image: OrigamiAvatarImage): voi
 
   void status;
   void source;
+}
+
+/** The ScrollArea root and Scrollbar are their own Options; the root exposes readonly State. */
+export function checkScrollArea(root: OrigamiScrollArea, scrollbar: OrigamiScrollAreaScrollbar): void {
+  const rootOptions: OrigamiScrollAreaOptions = root;
+  const hideDelay: number = rootOptions.hideDelay();
+  const scrollbarOptions: OrigamiScrollAreaScrollbarOptions = scrollbar;
+  const orientation: OrigamiScrollAreaOrientation = scrollbarOptions.orientation();
+  const state: OrigamiScrollAreaState = root.state;
+  const overflow: boolean = state.overflowX() || state.overflowY() || state.active();
+  // @ts-expect-error ScrollArea State overflowY is readonly
+  state.overflowY.set(false);
+  // @ts-expect-error the Scrollbar has no state
+  void scrollbar.state;
+
+  void hideDelay;
+  void orientation;
+  void overflow;
 }

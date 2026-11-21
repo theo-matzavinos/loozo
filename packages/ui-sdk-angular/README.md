@@ -64,7 +64,7 @@ Each component's readme has its directives, inputs, outputs and rules.
 
 ## Native forms
 
-Checkbox, Switch, RadioGroup and Select submit, reset and validate with a `<form>` through a hidden native input that you write, one directive on an `<input>`:
+Checkbox, Switch, RadioGroup and Select submit, reset and validate with a `<form>` through a hidden native input that you write, one directive on an `<input>`, or on a `<textarea>` for Select:
 
 ```html
 <form>
@@ -73,14 +73,14 @@ Checkbox, Switch, RadioGroup and Select submit, reset and validate with a `<form
 
   <div uiSelect name="fruit">
     …
-    <input uiSelectFormInput />
+    <textarea uiSelectFormInput></textarea>
   </div>
 </form>
 ```
 
 - **Checkbox groups.** Each checkbox in a `uiCheckboxGroup` submits through its own `uiCheckboxInput`, under the group's `name`; the group's `<input uiCheckboxGroupInput />`, inside it, only makes `required` block submission. A named group whose checkboxes have no inputs submits nothing and doesn't warn.
 - **Where it goes.** A checkbox's or switch's input goes beside its `<button>`, since an `<input>` inside a button isn't valid HTML, and names its control by a template reference: `[uiCheckboxInput]="terms"`, `[uiSwitchInput]="wifi"`, `[uiRadioInput]="radio"`, one input per radio. The reference is read once; pointing it at another control later has no effect. Select's `uiSelectFormInput` goes inside the Select's element.
-- **What core writes.** The input becomes visually hidden, `aria-hidden` and out of the tab order, with the control's `type`, `name`, `value`, `form`, `required` and `disabled`. Screen readers and keyboards use the control, not the input.
+- **What core writes.** The input becomes visually hidden, `aria-hidden` and out of the tab order, with the control's `type` (none on Select's textarea), `name`, `value`, `form`, `required` and `disabled`. Screen readers and keyboards use the control, not the input.
 - **Before hydration** the server-rendered input already submits the server's value, and `required` already blocks submission.
 - **Reset and validation.** A form reset returns each control to its default (`defaultChecked`, `defaultValue`; through `<key>ChangeRequest`, so it can be refused). A controlled control with no default, like one bound with `[(checked)]` or `[formField]` alone, keeps its value, as a controlled input does in React. When an invalid submit focuses a hidden input, core moves focus to its control.
 - **A `<fieldset disabled>`** disables the buttons inside it natively, from the server HTML on, and leaves their inputs out of the submission. The server can't see the fieldset, so core adds `aria-disabled` and `data-disabled` to the control when it binds: style a disabled control by `:disabled` too, or the style changes at hydration.
