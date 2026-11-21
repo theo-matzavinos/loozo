@@ -16,8 +16,9 @@ import { renderedFlag } from "./ready";
 /**
  * Native form participation (D14-B): every control's hidden input, written by the author, in one
  * form with a reset button; an input written before its checkbox; an indeterminate checkbox; a
- * checkbox outside the form that joins it by `form`; a composed checkbox; and a second form whose
- * controls are all required and empty. `data-probe-instance` tells the observer which control a
+ * checkbox outside the form that joins it by `form`; a composed checkbox; a second form whose
+ * controls are all required and empty; and a form with one text field, a Select and no submit
+ * button. `data-probe-instance` tells the observer which control a
  * sibling input belongs to.
  */
 @Component({
@@ -103,7 +104,7 @@ import { renderedFlag } from "./ready";
           <div [uiSelectItem]="'apple'" label="Apple" data-option="apple">Apple</div>
           <div [uiSelectItem]="'pear'" label="Pear" data-option="pear">Pear</div>
         </div>
-        <input uiSelectFormInput data-testid="fruit-input" />
+        <textarea uiSelectFormInput data-testid="fruit-input"></textarea>
       </div>
 
       <button
@@ -163,7 +164,19 @@ import { renderedFlag } from "./ready";
         <div uiSelectContent>
           <div [uiSelectItem]="'red'" label="Red" data-option="red">Red</div>
         </div>
-        <input uiSelectFormInput />
+        <textarea uiSelectFormInput data-testid="colour-input"></textarea>
+      </div>
+    </form>
+
+    <form data-testid="enter-form" action="/forms">
+      <input name="note" value="hello" data-testid="enter-note" />
+      <div uiSelect data-testid="pick" name="pick" defaultValue="pear">
+        <button type="button" uiSelectTrigger aria-label="Pick">Pick</button>
+        <div uiSelectContent>
+          <div [uiSelectItem]="'pear'" label="Pear">Pear</div>
+          <div [uiSelectItem]="'apple'" label="Apple">Apple</div>
+        </div>
+        <textarea uiSelectFormInput data-testid="pick-input"></textarea>
       </div>
     </form>
 
@@ -188,6 +201,7 @@ export class Forms {
       "alerts",
       "plan",
       "colour",
+      "pick",
     );
   }
 }
