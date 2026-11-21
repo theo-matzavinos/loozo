@@ -137,10 +137,6 @@
       "types": "./dist/types/loozo-origami-ui-utils.d.ts",
       "default": "./dist/fesm2022/loozo-origami-ui-utils.mjs"
     },
-    "./fake": {
-      "types": "./dist/types/loozo-origami-ui-fake.d.ts",
-      "default": "./dist/fesm2022/loozo-origami-ui-fake.mjs"
-    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
