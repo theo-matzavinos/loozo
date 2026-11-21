@@ -429,6 +429,7 @@ describe("add", () => {
   test("copies the form controls, the lists, the floating layers, Tabs, Dialog, Sheet and the display components with only what they import", async () => {
     const cases = {
       avatar: ["avatar", "cn"],
+      calendar: ["button", "calendar", "cn"],
       checkbox: ["checkbox", "cn"],
       combobox: ["cn", "combobox", "input", "popup"],
       dialog: ["button", "cn", "dialog"],
@@ -616,6 +617,25 @@ describe("add", () => {
       /selector: "\[zzAvatarFallback\]"/,
     );
     assert.match(readText(tree, "src/ui/progress/progress.ts"), /exportAs: "zzProgress"/);
+  });
+
+  test("renames Calendar's roots, exportAs and internal parts with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["calendar"] }, await setUp(runner));
+
+    assert.match(
+      readText(tree, "src/ui/calendar/calendar-range.ts"),
+      /selector: "\[zzCalendarRange\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/calendar/month-calendar.ts"),
+      /exportAs: "zzMonthCalendar"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/calendar/calendar-grid.ts"),
+      /selector: "table\[zzCalendarGrid\]"/,
+    );
+    assert.match(readText(tree, "src/ui/calendar/calendar.ts"), /<table zzCalendarGrid>/);
   });
 
   test("skips an existing named component by default, with a warning", async () => {

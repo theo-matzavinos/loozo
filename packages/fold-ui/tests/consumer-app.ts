@@ -18,6 +18,13 @@ import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dial
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
 import { Button, ButtonLink } from "#ui/button";
+import {
+  Calendar,
+  CalendarMultiple,
+  CalendarRange,
+  MonthCalendar,
+  provideCalendarLabels,
+} from "#ui/calendar";
 import { Checkbox } from "#ui/checkbox";
 import { ComboboxParts } from "#ui/combobox";
 import {
@@ -255,6 +262,182 @@ export class SearchDialog {
   }
 }
 
+// Calendar: every day root pins today and the Monday week start, so the grids are the same on any
+// day (October 2026 from Monday has 5 weeks: 28 September to 1 November). Greek strings come from a
+// component-level provider, so they stay in this subtree.
+@Component({
+  selector: "app-greek-calendar",
+  imports: [Calendar],
+  providers: [
+    provideCalendarLabels({
+      previous: {
+        days: "Προηγούμενος μήνας",
+        months: "Προηγούμενο έτος",
+        years: "Προηγούμενα 12 έτη",
+      },
+      next: { days: "Επόμενος μήνας", months: "Επόμενο έτος", years: "Επόμενα 12 έτη" },
+      show: { days: "εμφάνιση ημερών", months: "εμφάνιση μηνών", years: "εμφάνιση ετών" },
+      chooseFirstDay: "Επιλέξτε την πρώτη ημέρα",
+      chooseLastDay: "Επιλέξτε την τελευταία ημέρα",
+    }),
+  ],
+  template: `
+    <div
+      zzCalendar
+      value="2026-09-14"
+      today="2026-10-27"
+      [weekStart]="1"
+      locale="el"
+      selectedDescription="επιλεγμένη"
+      id="cal-el"
+    ></div>
+  `,
+})
+export class GreekCalendar {}
+
+@Component({
+  selector: "app-calendars",
+  imports: [
+    Calendar,
+    CalendarMultiple,
+    CalendarRange,
+    Field,
+    FieldError,
+    FieldLabel,
+    FormField,
+    GreekCalendar,
+    MonthCalendar,
+  ],
+  template: `
+    <section id="calendars" class="flex flex-wrap items-start gap-6 p-5">
+      <div zzField #dueField="zzField" id="cal-due-field" class="w-fit">
+        <span zzFieldLabel id="cal-due-label">Appeal date</span>
+        <div
+          zzCalendar
+          [formField]="calendars.due"
+          minDate="2026-10-05"
+          [dateDisabled]="isWeekendDay"
+          today="2026-10-27"
+          [weekStart]="1"
+          selectedDescription="selected"
+          id="cal-due"
+        ></div>
+        @if (dueField.state.errorsShown()) {
+          <p zzFieldError id="cal-due-error">{{ dueField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div
+        zzCalendarMultiple
+        [(value)]="holidays"
+        today="2026-10-27"
+        [weekStart]="1"
+        fixedWeeks
+        selectedDescription="selected"
+        id="cal-holidays"
+      ></div>
+      <div zzField id="cal-stay-field" class="w-fit">
+        <span zzFieldLabel>Stay</span>
+        <div
+          zzCalendarRange
+          [formField]="calendars.stay"
+          (valueChange)="stayWrites.set(stayWrites() + 1)"
+          today="2026-10-27"
+          [weekStart]="1"
+          selectedDescription="selected"
+          id="cal-stay"
+        ></div>
+      </div>
+      <output id="cal-stay-writes">{{ stayWrites() }}</output>
+      <div
+        zzMonthCalendar
+        [(value)]="billingMonth"
+        maxMonth="2026-12"
+        today="2026-10-27"
+        selectedDescription="selected"
+        id="cal-billing"
+      ></div>
+      <div zzField id="cal-readonly-field" class="w-fit">
+        <span zzFieldLabel>Frozen date</span>
+        <div
+          zzCalendar
+          [formField]="calendars.frozen"
+          today="2026-10-27"
+          [weekStart]="1"
+          id="cal-readonly"
+        ></div>
+      </div>
+      <div zzField id="cal-disabled-field" class="w-fit">
+        <span zzFieldLabel>Locked date</span>
+        <div
+          zzCalendar
+          [formField]="calendars.locked"
+          today="2026-10-27"
+          [weekStart]="1"
+          id="cal-disabled"
+        ></div>
+      </div>
+      <div
+        zzCalendarRange
+        readonly
+        [value]="stay"
+        today="2026-10-27"
+        [weekStart]="1"
+        id="cal-range-readonly"
+      ></div>
+      <div
+        zzCalendarRange
+        disabled
+        [value]="stay"
+        today="2026-10-27"
+        [weekStart]="1"
+        id="cal-range-disabled"
+      ></div>
+      <div dir="rtl">
+        <div zzCalendarRange [value]="stay" today="2026-10-27" [weekStart]="1" id="cal-rtl"></div>
+        <div dir="ltr">
+          <div zzCalendar today="2026-10-27" [weekStart]="1" id="cal-ltr-in-rtl"></div>
+        </div>
+      </div>
+      <div class="light bg-background p-2">
+        <div zzCalendarRange [value]="stay" today="2026-10-27" [weekStart]="1" id="cal-light"></div>
+      </div>
+      <app-greek-calendar />
+      <div zzCalendar [weekStart]="1" id="cal-seed"></div>
+    </section>
+  `,
+})
+export class Calendars {
+  protected readonly stay = { start: "2026-10-14", end: "2026-10-23" };
+  protected readonly holidays = signal<readonly string[]>([
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-20",
+    "2026-11-03",
+  ]);
+  protected readonly billingMonth = signal<string | null>("2026-10");
+  protected readonly stayWrites = signal(0);
+  protected readonly calendars = form(
+    signal({
+      due: null as string | null,
+      stay: this.stay as { start: string; end: string } | null,
+      frozen: "2026-10-14" as string | null,
+      locked: "2026-10-14" as string | null,
+    }),
+    (path) => {
+      required(path.due, { message: "Choose an appeal date." });
+      readonly(path.frozen);
+      disabled(path.locked);
+    },
+  );
+
+  protected isWeekendDay(date: string): boolean {
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+
+    return day === 0 || day === 6;
+  }
+}
+
 // The FileField's size in Greek: the value part formats it in its injector's LOCALE_ID.
 @Component({
   selector: "app-greek-file",
@@ -444,6 +627,7 @@ export class FileFields {
     ButtonLink,
     AlertDialogParts,
     AvatarParts,
+    Calendars,
     Checkbox,
     ComboboxParts,
     DialogParts,
@@ -1939,6 +2123,8 @@ export class FileFields {
     </section>
     <div zzToastRegion></div>
     <a href="#after-region" id="after-region">After</a>
+
+    <app-calendars />
   `,
 })
 export class App {

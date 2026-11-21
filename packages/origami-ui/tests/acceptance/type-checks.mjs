@@ -135,6 +135,7 @@ import { OrigamiFileFieldOptions, type OrigamiFileFieldState } from '@loozo/orig
 import { OrigamiProgressOptions, type OrigamiProgressState } from '@loozo/origami-ui/progress';
 import { OrigamiAvatarImageOptions, type OrigamiAvatarState, type OrigamiAvatarStatus } from '@loozo/origami-ui/avatar';
 import { OrigamiScrollAreaOptions, OrigamiScrollAreaScrollbarOptions, type OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from '@loozo/origami-ui/scroll-area';
+import { OrigamiMeterOptions, type OrigamiMeterState } from '@loozo/origami-ui/meter';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -639,6 +640,26 @@ void progressValue;
 void progressPercent;
 void progressComplete;
 void progressText;
+// Positive: whole Meter factories, with plain and computed signals; nothing is writable.
+OrigamiMeterOptions.provideFactory(() => ({value: signal(40), min: signal(10), max: signal(70), valueText: signal<string | null>(null)}));
+OrigamiMeterOptions.provideFactory(() => ({value: computed(() => 3), min: computed(() => 0), max: computed(() => 4), valueText: computed(() => '3 από 4')}));
+// @ts-expect-error a Meter factory must supply min
+OrigamiMeterOptions.provideFactory(() => ({value: signal(40), max: signal(70), valueText: signal<string | null>(null)}));
+// @ts-expect-error a Meter factory must supply valueText
+OrigamiMeterOptions.provideFactory(() => ({value: signal(40), min: signal(10), max: signal(70)}));
+// @ts-expect-error Meter value is a number, never a string
+OrigamiMeterOptions.provideFactory(() => ({value: signal('40'), min: signal(10), max: signal(70), valueText: signal<string | null>(null)}));
+// @ts-expect-error Meter value is a number, never null: a meter has no unknown state
+OrigamiMeterOptions.provideFactory(() => ({value: signal<number | null>(null), min: signal(10), max: signal(70), valueText: signal<string | null>(null)}));
+declare const meterState: OrigamiMeterState;
+// @ts-expect-error Meter State value is readonly
+meterState.value.set(2);
+const meterValue: number = meterState.value();
+const meterPercent: number = meterState.percent();
+const meterText: string = meterState.valueText();
+void meterValue;
+void meterPercent;
+void meterText;
 // Positive: whole Avatar Image factories, with ordinary signals.
 OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>(null)}));
 OrigamiAvatarImageOptions.provideFactory(() => ({src: computed(() => 'data:image/png;base64,')}));
@@ -1065,6 +1086,12 @@ abstract class AbstractProgress {
   abstract readonly max: Signal<number>;
   abstract readonly valueText: Signal<string | null>;
 }
+abstract class AbstractMeter {
+  abstract readonly value: Signal<number>;
+  abstract readonly min: Signal<number>;
+  abstract readonly max: Signal<number>;
+  abstract readonly valueText: Signal<string | null>;
+}
 abstract class AbstractAvatarImage {
   abstract readonly src: Signal<string | null>;
 }
@@ -1179,6 +1206,8 @@ export const providers: Provider[] = [
   OrigamiFileFieldOptions.provideExisting(() => AbstractFileField),
   OrigamiProgressOptions.provideFactory(() => ({value: signal<number | null>(30), max: signal(60), valueText: signal<string | null>(null)})),
   OrigamiProgressOptions.provideExisting(() => AbstractProgress),
+  OrigamiMeterOptions.provideFactory(() => ({value: signal(40), min: signal(10), max: signal(70), valueText: signal<string | null>(null)})),
+  OrigamiMeterOptions.provideExisting(() => AbstractMeter),
   OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>('/avatar.png')})),
   OrigamiAvatarImageOptions.provideExisting(() => AbstractAvatarImage),
   OrigamiScrollAreaOptions.provideFactory(() => ({hideDelay: signal(600)})),
@@ -1516,6 +1545,27 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   textOutput(value: string | null): void { void value; }
   booleanOutput(value: boolean): void { void value; }
   observeState(state: OrigamiProgressState): void { void state; }`,
+  },
+  meter: {
+    imports: `import { OrigamiMeter, OrigamiMeterState } from "@loozo/origami-ui/meter";`,
+    directives: "OrigamiMeter",
+    members: `
+  readonly percentage = signal(75);
+  readonly maybe = signal<number | undefined>(75);
+  readonly lower = signal(10);
+  readonly upper = signal(20);
+  readonly label = signal<string | null>(null);
+  numberOutput(value: number): void { void value; }
+  textOutput(value: string): void { void value; }
+  observeState(state: OrigamiMeterState): void { void state; }`,
+  },
+  "meter-composer": {
+    imports: `import { Directive } from "@angular/core";
+import { OrigamiMeter } from "@loozo/origami-ui/meter";
+@Directive({ selector: "[appGauge]", hostDirectives: [{ directive: OrigamiMeter, inputs: ["min", "max"] }] })
+export class AppGauge {}`,
+    directives: "AppGauge",
+    members: "",
   },
   "scroll-area": {
     imports: `import { OrigamiScrollArea, OrigamiScrollAreaViewport, OrigamiScrollAreaContent, OrigamiScrollAreaScrollbar, OrigamiScrollAreaThumb, OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from "@loozo/origami-ui/scroll-area";`,
@@ -2550,6 +2600,62 @@ const templates = [
     },
   },
   {
+    name: "meter-positive",
+    family: "meter",
+    template: `<div ogMeter #m="ogMeter" [value]="percentage()" [min]="lower()" [max]="upper()" [valueText]="label()" aria-label="Arrivals" (click)="numberOutput(m.state.value()); numberOutput(m.state.percent()); textOutput(m.state.valueText()); observeState(m.state)"></div><div ogMeter value="15" min="10" max="20" valueText="15 από 20" aria-label="Attributes"></div>`,
+  },
+  {
+    name: "meter-value-missing",
+    family: "meter",
+    template: `<div ogMeter aria-label="Arrivals"></div>`,
+    expected: {
+      code: -998008,
+      span: "div",
+      message: /Required input 'value' from directive OrigamiMeter must be specified/,
+    },
+  },
+  {
+    name: "meter-value-undefined",
+    family: "meter",
+    template: `<div ogMeter [value]="maybe()"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /undefined.*not assignable to type 'string \| number'/s,
+    },
+  },
+  {
+    name: "meter-value-null",
+    family: "meter",
+    template: `<div ogMeter [value]="null"></div>`,
+    expected: {
+      code: 2322,
+      span: "value",
+      message: /null.*not assignable to type 'string \| number'/s,
+    },
+  },
+  {
+    name: "meter-state-value-text",
+    family: "meter",
+    template: `<div ogMeter #m="ogMeter" [value]="percentage()" (click)="numberOutput(m.state.valueText())"></div>`,
+    expected: {
+      code: 2345,
+      span: "valueText",
+      message: /string.*not assignable to parameter of type 'number'/s,
+    },
+  },
+  {
+    name: "meter-composer-unexposed-value",
+    family: "meter-composer",
+    template: `<div appGauge></div>`,
+    expected: {
+      code: -992019,
+      span: "OrigamiMeter",
+      message: /Required input 'value' from host directive OrigamiMeter must be exposed/,
+      inImports: true,
+    },
+  },
+  {
     name: "scroll-area-positive",
     family: "scroll-area",
     template: `<div ogScrollArea #area="ogScrollArea" [hideDelay]="delay()" (click)="observeOverflow(area.state.overflowY()); observeState(area.state)"><div ogScrollAreaViewport><div ogScrollAreaContent>Text</div></div><div ogScrollAreaScrollbar [orientation]="axis()"><div ogScrollAreaThumb></div></div><div ogScrollAreaScrollbar orientation="vertical"><div ogScrollAreaThumb></div></div></div><div ogScrollArea hideDelay="300"></div>`,
@@ -2870,7 +2976,14 @@ ${family.imports}
 export class StrictModeProof {${family.members}
 }
 `;
-  const templateStart = source.indexOf(variant.template);
+  // A composer's own declaration error points into the family's imports, not the template.
+  let region = variant.template;
+
+  if (variant.expected?.inImports) {
+    region = family.imports;
+  }
+
+  const regionStart = source.indexOf(region);
 
   await writeFile(templateFile, source);
 
@@ -2920,9 +3033,8 @@ export class StrictModeProof {${family.members}
     assert.equal(actual.span.fileName, templateFile);
     assert.equal(actual.span.text, variant.expected.span);
     assert.ok(
-      actual.span.start >= templateStart &&
-        actual.span.start < templateStart + variant.template.length,
-      `${variant.name}: diagnostic must point into the intended template`,
+      actual.span.start >= regionStart && actual.span.start < regionStart + region.length,
+      `${variant.name}: diagnostic must point into the intended template or composer`,
     );
   } else {
     assert.deepEqual(diagnostics, [], `${variant.name}: valid control must compile`);

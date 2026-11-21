@@ -44,7 +44,8 @@
       "@loozo/origami-ui/file-field": ["./file-field/src/public-api.ts"],
       "@loozo/origami-ui/progress": ["./progress/src/public-api.ts"],
       "@loozo/origami-ui/avatar": ["./avatar/src/public-api.ts"],
-      "@loozo/origami-ui/scroll-area": ["./scroll-area/src/public-api.ts"]
+      "@loozo/origami-ui/scroll-area": ["./scroll-area/src/public-api.ts"],
+      "@loozo/origami-ui/meter": ["./meter/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -84,6 +85,7 @@
     "file-field/src/**/*.ts",
     "progress/src/**/*.ts",
     "avatar/src/**/*.ts",
-    "scroll-area/src/**/*.ts"
+    "scroll-area/src/**/*.ts",
+    "meter/src/**/*.ts"
   ]
 }
