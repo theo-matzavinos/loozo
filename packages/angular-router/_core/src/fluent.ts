@@ -1,4 +1,4 @@
-import type { Injector } from "@angular/core";
+import type { Injector, Type } from "@angular/core";
 import type { Route as NativeRoute, RunGuardsAndResolvers } from "@angular/router";
 import type { PathCodec, SyncCodecs } from "./codecs.js";
 import type { CatchallName, PathNames, ValidPath } from "./path.js";
@@ -335,11 +335,13 @@ export interface RouteSteps<
   >;
   /**
    * Angular's per-route error component (developer preview), shown in place of this
-   * route's page when the page throws during activation; needs `withErrorBoundaries`.
-   * After it the route can no longer redirect.
+   * route's page when the page throws while it's created or rendered; needs
+   * `withErrorBoundaries`. After it the route can no longer redirect. Typed as core's
+   * `Type<unknown>`, as Angular 22.3 declares it, so these declarations also check
+   * against routers before 22.3.
    */
   errorComponent(
-    component: NonNullable<NativeRoute["errorComponent"]>,
+    component: Type<unknown>,
   ): RouteBuilder<
     P,
     Parent,

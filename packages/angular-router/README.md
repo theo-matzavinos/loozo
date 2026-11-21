@@ -341,7 +341,7 @@ Params with the same name and compatible types are forwarded automatically; othe
 
 ## Error components
 
-`.errorComponent` gives a route Angular's per-route error component, which Angular shows in place of the route's page when the page throws while it's created. It does nothing unless you add Angular's `withErrorBoundaries()` to `provideRouter`. Angular sets the component's `error` input to the thrown value:
+`.errorComponent` gives a route Angular's per-route error component, which Angular shows in place of the route's page when the page throws while it's created or rendered. It does nothing unless you add Angular's `withErrorBoundaries()` to `provideRouter`. Angular sets the component's `error` input to the thrown value:
 
 [src/routes/reports/$reportId/report-error.ts](snippets/src/routes/reports/$reportId/report-error.ts)
 
@@ -351,7 +351,8 @@ The report route above chains `.errorComponent(ReportError)`, and the app adds `
 - The error component loads with the table that holds the route's record, not with the lazy page: at startup for a top-level route, with the parent's children table for a nested one.
 - When the throwing route has its own error component, or you set a `defaultErrorComponent`, that component renders in the page's place (the route's own wins), the pages above stay, and the navigation completes.
 - A route's error component doesn't cover its children. When a child page throws and has neither its own nor a default to use, the outcome depends on whether the outlet showing that child already existed. If the page holding that outlet was already showing, the navigation rejects and the pages above stay. If the navigation creates that page too, the child's error goes up to the nearest page above it with its own error component, which can be a layout that was already showing, and that component replaces that page. If no page above has one, the error reaches Angular's `ErrorHandler`. Either way the navigation completes. This is Angular's view error handling, not inheritance.
-- Errors in loaders, guards and resolvers aren't caught; handle them where Angular reports navigation errors.
+- Errors in `loadComponent`, `loadChildren`, guards and resolvers aren't caught; handle them where Angular reports navigation errors.
+- While the error component is showing, the route's `.canDeactivate` guards receive it instead of the page, so a guard that calls a page method must check the instance first.
 - Without `withErrorBoundaries`, Angular ignores the component and warns once in development.
 - Server rendering renders the error component, with status 200.
 - `errorComponent` is developer preview in Angular 22.3.
