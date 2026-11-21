@@ -420,7 +420,8 @@ jobs:
         run: |
           pnpm --dir packages/origami-ui exec playwright install --with-deps chromium
           pnpm --dir packages/origami-ui run bench:runtime --deterministic --check --out "$RUNNER_TEMP/bench/runtime"
-      # Results and logs only: each run's consumer/ links the workspace's node_modules. The runtime
+      # Results and logs only, by exact depth: each run's consumer/ links the workspace's node_modules,
+      # which a recursive glob would walk. Scenario logs sit in <out>/<scenario>/logs/. The runtime
       # bench writes its build and server logs next to its results.
       - if: always() && env.REACHED == 'true'
         uses: actions/upload-artifact@v7
@@ -429,5 +430,5 @@ jobs:
           path: |
             ${{ runner.temp }}/bench/*/results.json
             ${{ runner.temp }}/bench/*/*.log
-            ${{ runner.temp }}/bench/*/**/logs/
+            ${{ runner.temp }}/bench/*/*/logs/
           if-no-files-found: ignore
