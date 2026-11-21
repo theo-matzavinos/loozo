@@ -1,23 +1,32 @@
-// The scale benchmark: node bench/run.mjs [--workload router|launch] [--sizes 100,300,1000]
-// [--out <dir>] [--samples generate=3,edits=3,build=1,ngc=3,tsc=1] [--timeout <seconds>]
-// [--check [file]]
-// See bench/README.md for what each number means.
-import { spawn } from "node:child_process";
+// The scale benchmark: node bench/run.mjs [--workload router|launch] plus the shared flags
+// ([--scenarios 100,300,1000] [--out <dir>] [--samples generate=3,edits=3,build=1,ngc=3,tsc=1]
+// [--timeout <seconds>] [--check [file]] [--deterministic]). The package's bench script runs it
+// under the machine-wide gate lock. See bench/README.md for what each number means and
+// tools/bench/README.md for the shared contract.
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import os from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { measureBundle } from "./bundle.mjs";
-import { cachePolicy, createConsumer, packageDirectory, setCache } from "./consumer.mjs";
+import { bench, progress } from "../../../tools/bench/bench.mjs";
+import { measureBundle } from "../../../tools/bench/bundle.mjs";
+import { bin, exists, files, node } from "../../../tools/bench/process.mjs";
+import { format } from "../../../tools/bench/table.mjs";
+import { parseDiagnostics } from "../../../tools/bench/typescript.mjs";
+import { routeBundle } from "./bundle.mjs";
+import {
+  cachePolicy,
+  createConsumer,
+  packageDirectory,
+  readWorkspace,
+  setCache,
+} from "./consumer.mjs";
 import { blockSize, editedRoute, writeFixture } from "./fixture.mjs";
 import { createLaunchConsumer, launchDirectory } from "./launch-consumer.mjs";
 import { writeLaunchFixture } from "./launch-fixture.mjs";
-import { load, machine } from "./machine.mjs";
-import { checkBudgets, median, readBudgets, table } from "./metrics.mjs";
+import { metrics } from "./metrics.mjs";
 
-const bench = fileURLToPath(new URL("./", import.meta.url));
+const here = fileURLToPath(new URL("./", import.meta.url));
 const require = createRequire(join(packageDirectory, "package.json"));
 const pollMs = 20;
 const settleMs = 1500;
@@ -26,6 +35,7 @@ const settleMs = 1500;
 // measures Launch's route extension on the same block of routes, without the serve phase.
 const workloads = {
   router: {
+    name: "router",
     createConsumer,
     writeFixture,
     generator: "generate.mjs",
@@ -47,6 +57,7 @@ const workloads = {
     },
   },
   launch: {
+    name: "launch",
     createConsumer: createLaunchConsumer,
     writeFixture: writeLaunchFixture,
     generator: "launch-generate.mjs",
@@ -68,118 +79,45 @@ const workloads = {
   },
 };
 
-function usage(message) {
-  console.error(`${message}
-
-Usage: node bench/run.mjs [--workload router|launch] [--sizes 100,300,1000] [--out <dir>]
-         [--samples generate=3,edits=3,build=1,ngc=3,tsc=1] [--timeout <seconds>] [--check [file]]`);
-  process.exit(2);
-}
-
-function parseArguments(argv) {
-  const options = {
-    workload: "router",
-    sizes: [100, 300, 1000],
-    out: undefined,
-    samples: { generate: 3, edits: 3, build: 1, ngc: 3, tsc: 1 },
-    timeoutMs: 1200 * 1000,
-    check: undefined,
-  };
+// Takes the router-local --workload flag out of argv; the rest are the shared flags.
+function takeWorkload(argv) {
+  const rest = [];
+  let name = "router";
 
   for (let index = 0; index < argv.length; index++) {
-    const argument = argv[index];
-
-    // pnpm forwards a separating "--" to the script.
-    if (argument === "--") {
-      continue;
-    }
-
-    // The workload's own budgets file unless one is given; resolved once the workload is known.
-    if (argument === "--check") {
-      options.check = true;
-
-      const next = argv[index + 1];
-
-      if (next !== undefined && !next.startsWith("--")) {
-        options.check = resolve(next);
-        index++;
-      }
-
+    if (argv[index] !== "--workload") {
+      rest.push(argv[index]);
       continue;
     }
 
     const value = argv[index + 1];
 
-    if (value === undefined) {
-      usage(`Missing a value for ${argument}`);
+    if (!Object.hasOwn(workloads, value ?? "")) {
+      console.error(
+        `--workload takes ${Object.keys(workloads).join(" or ")}, got "${value}"
+
+Usage: node bench/run.mjs [--workload router|launch] [shared flags; see tools/bench/README.md]`,
+      );
+      process.exit(2);
     }
 
+    name = value;
     index++;
-
-    if (argument === "--workload") {
-      if (!Object.hasOwn(workloads, value)) {
-        usage(`--workload takes ${Object.keys(workloads).join(" or ")}, got "${value}"`);
-      }
-
-      options.workload = value;
-    } else if (argument === "--sizes") {
-      options.sizes = [];
-
-      for (const part of value.split(",")) {
-        const size = Number(part);
-
-        if (!Number.isInteger(size) || size <= 0 || size % blockSize !== 0) {
-          usage(`--sizes takes positive multiples of ${blockSize}, got "${part}"`);
-        }
-
-        if (options.sizes.includes(size)) {
-          usage(`--sizes lists ${size} twice`);
-        }
-
-        options.sizes.push(size);
-      }
-    } else if (argument === "--out") {
-      options.out = resolve(value);
-    } else if (argument === "--samples") {
-      for (const part of value.split(",")) {
-        const [name, count] = part.split("=");
-        const samples = Number(count);
-
-        if (!Object.hasOwn(options.samples, name) || !Number.isInteger(samples) || samples < 1) {
-          usage(
-            `--samples takes name=count with a count of at least 1 for ${Object.keys(options.samples).join(", ")}, got "${part}"`,
-          );
-        }
-
-        options.samples[name] = samples;
-      }
-    } else if (argument === "--timeout") {
-      const seconds = Number(value);
-
-      if (!Number.isFinite(seconds) || seconds <= 0) {
-        usage(`--timeout takes a positive number of seconds, got "${value}"`);
-      }
-
-      options.timeoutMs = seconds * 1000;
-    } else {
-      usage(`Unknown argument ${argument}`);
-    }
   }
 
-  if (options.check === true) {
-    options.check = join(bench, workloads[options.workload].budgets);
-  }
-
-  return options;
+  return { workload: workloads[name], argv: rest };
 }
 
-async function exists(path) {
-  try {
-    await access(path);
+// A scenario key is a route count: a positive multiple of the fixture's block, written plainly.
+function routeCount(key) {
+  const routes = Number(key);
+  const isRouteCount =
+    String(routes) === key && Number.isInteger(routes) && routes > 0 && routes % blockSize === 0;
 
-    return true;
-  } catch {
-    return false;
+  if (!isRouteCount) {
+    throw new Error(
+      `--scenarios takes route counts, positive multiples of ${blockSize}, got "${key}"`,
+    );
   }
 }
 
@@ -201,93 +139,6 @@ async function prerequisites(workload) {
       );
     }
   }
-}
-
-async function outputDirectory(out) {
-  if (out === undefined) {
-    return mkdtemp(join(os.tmpdir(), "angular-router-bench-"));
-  }
-
-  const present = await exists(out);
-
-  if (present) {
-    const entries = await readdir(out);
-
-    if (entries.length > 0) {
-      throw new Error(`--out ${out} isn't empty; pass a new or empty directory.`);
-    }
-  }
-
-  await mkdir(out, { recursive: true });
-
-  return out;
-}
-
-async function bin(name, command) {
-  const manifestPath = require.resolve(`${name}/package.json`);
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  let entry = manifest.bin;
-
-  if (typeof entry === "object") {
-    entry = entry[command];
-  }
-
-  return join(dirname(manifestPath), entry);
-}
-
-// Runs a Node script, keeps its combined output in a log, and fails on a nonzero exit or once it
-// outlives the timeout.
-async function node(args, { cwd, log, timeoutMs }) {
-  const started = performance.now();
-  const child = spawn(process.execPath, args, {
-    cwd,
-    env: { ...process.env, NG_CLI_ANALYTICS: "false" },
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: timeoutMs,
-    killSignal: "SIGKILL",
-  });
-  let output = "";
-
-  child.stdout.on("data", (data) => {
-    output += data;
-  });
-  child.stderr.on("data", (data) => {
-    output += data;
-  });
-
-  const { code, signal } = await new Promise((resolvePromise, reject) => {
-    child.on("error", reject);
-    child.on("close", (exitCode, exitSignal) => {
-      resolvePromise({ code: exitCode, signal: exitSignal });
-    });
-  });
-  const wallMs = performance.now() - started;
-
-  await writeFile(log, output);
-
-  if (signal && wallMs >= timeoutMs) {
-    throw new Error(`Timed out after ${timeoutMs / 1000} s: node ${args.join(" ")}; see ${log}`);
-  }
-
-  if (code !== 0) {
-    throw new Error(`Failed (${signal ?? `exit ${code}`}): node ${args.join(" ")}; see ${log}`);
-  }
-
-  return { wallMs, output };
-}
-
-async function files(directory, predicate, found = []) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-
-    if (entry.isDirectory()) {
-      await files(path, predicate, found);
-    } else if (predicate(entry.name)) {
-      found.push(path);
-    }
-  }
-
-  return found;
 }
 
 function isGenerated(name) {
@@ -336,99 +187,63 @@ async function removeGenerated(consumer) {
   }
 }
 
-function parseDiagnostics(output) {
-  const diagnostics = {};
-
-  for (const line of output.split("\n")) {
-    const match = line.match(/^([A-Z][\w ./-]*?):\s+(\S+)\s*$/);
-
-    if (match) {
-      diagnostics[match[1]] = match[2];
-    }
-  }
-
-  for (const name of ["Check time", "Instantiations", "Memory used"]) {
-    if (!Object.hasOwn(diagnostics, name)) {
-      throw new Error(`tsc --extendedDiagnostics printed no "${name}"`);
-    }
-  }
-
-  return diagnostics;
+function duration(ms) {
+  return format({ unit: "ms" }, ms);
 }
 
-function progress(message) {
-  console.error(`[bench] ${message}`);
-}
-
-function seconds(ms) {
-  return `${(ms / 1000).toFixed(2)} s`;
-}
-
-// Fills result (already in results.json) phase by phase, saving after each.
-async function measure(result, options, directory, save) {
-  const { routes } = result;
+// Fills run.result phase by phase; the shared harness saves after each.
+async function measure(scenario, run, workload) {
+  const routes = Number(scenario);
+  const { directory, logs, samples, timeoutMs, phase, record, result } = run;
   const consumer = join(directory, "consumer");
-  const logs = join(directory, "logs");
-  const { samples, timeoutMs } = options;
-  const workload = workloads[options.workload];
 
+  result.routes = routes;
   result.consumer = consumer;
 
-  function record(key, values) {
-    result.samples[key] = values;
-    result.metrics[key] = median(values);
-  }
-
-  async function phase(name, body) {
-    const before = load();
-
-    progress(`${routes} routes: ${name}`);
-    await body();
-    result.load[name] = { before, after: load() };
-    await save();
-  }
-
-  await mkdir(logs, { recursive: true });
   await workload.createConsumer(consumer);
   result.fixture = await workload.writeFixture(consumer, routes);
 
   const authored = await digest(consumer, isAuthored);
 
-  await phase("generate", async () => {
-    const generateMs = [];
-    const processMs = [];
-    let first;
+  await phase(
+    "generate",
+    async () => {
+      const generateMs = [];
+      const processMs = [];
+      let first;
 
-    for (let sample = 1; sample <= samples.generate; sample++) {
-      await removeGenerated(consumer);
+      for (let sample = 1; sample <= samples.generate; sample++) {
+        await removeGenerated(consumer);
 
-      const { wallMs, output } = await node([join(bench, workload.generator), consumer], {
-        cwd: consumer,
-        log: join(logs, `generate-${sample}.log`),
-        timeoutMs,
-      });
-      const timing = JSON.parse(output.trim().split("\n").at(-1));
-      const generated = await digest(consumer, isGenerated);
-      const sources = await digest(consumer, isAuthored);
+        const { wallMs, output } = await node([join(here, workload.generator), consumer], {
+          cwd: consumer,
+          log: join(logs, `generate-${sample}.log`),
+          timeoutMs,
+        });
+        const timing = JSON.parse(output.trim().split("\n").at(-1));
+        const generated = await digest(consumer, isGenerated);
+        const sources = await digest(consumer, isAuthored);
 
-      if (sources.sha256 !== authored.sha256) {
-        throw new Error("First generation rewrote authored route files; the fixture is stale.");
+        if (sources.sha256 !== authored.sha256) {
+          throw new Error("First generation rewrote authored route files; the fixture is stale.");
+        }
+
+        if (first && generated.sha256 !== first.sha256) {
+          throw new Error(`First generation sample ${sample} published different files.`);
+        }
+
+        first = generated;
+        generateMs.push(timing.generateMs);
+        processMs.push(wallMs);
+        progress(`  sample ${sample}: generate() ${duration(timing.generateMs)}`);
       }
 
-      if (first && generated.sha256 !== first.sha256) {
-        throw new Error(`First generation sample ${sample} published different files.`);
-      }
-
-      first = generated;
-      generateMs.push(timing.generateMs);
-      processMs.push(wallMs);
-      progress(`  sample ${sample}: generate() ${seconds(timing.generateMs)}`);
-    }
-
-    record("generate.ms", generateMs);
-    record("generate.processMs", processMs);
-    result.generated = first;
-  });
+      record("generate.ms", generateMs);
+      record("generate.processMs", processMs);
+      result.generated = first;
+    },
+    { deterministic: true },
+  );
 
   // The serve phase drives the router's serve builder, so only the router workload has it.
   if (workload.serve) {
@@ -438,7 +253,7 @@ async function measure(result, options, directory, save) {
       await setCache(consumer, cachePolicy.serve);
       await node(
         [
-          join(bench, "serve.mjs"),
+          join(here, "serve.mjs"),
           consumer,
           resultPath,
           join(logs, "serve-architect.json"),
@@ -464,46 +279,46 @@ async function measure(result, options, directory, save) {
       record("serve.generatedMs", generatedMs);
       record("serve.servedMs", servedMs);
       result.serve = serve;
-      progress(`  edit → generated ${seconds(result.metrics["serve.generatedMs"])} (median)`);
+      progress(`  edit → generated ${duration(result.metrics["serve.generatedMs"])} (median)`);
       // Later phases measure the first-generation fixture again; the build's preflight republishes.
       await writeFile(join(consumer, editedRoute.path), editedRoute.source(false));
     });
   }
 
-  await phase("build", async () => {
-    const ng = await bin("@angular/cli", "ng");
-    const buildMs = [];
+  await phase(
+    "build",
+    async () => {
+      const ng = await bin(require, "@angular/cli", "ng");
+      const buildMs = [];
 
-    await setCache(consumer, cachePolicy.build);
+      await setCache(consumer, cachePolicy.build);
 
-    for (let sample = 1; sample <= samples.build; sample++) {
-      const { wallMs } = await node([ng, "build", "proof"], {
-        cwd: consumer,
-        log: join(logs, `build-${sample}.log`),
-        timeoutMs,
-      });
+      for (let sample = 1; sample <= samples.build; sample++) {
+        const { wallMs } = await node([ng, "build", "proof"], {
+          cwd: consumer,
+          log: join(logs, `build-${sample}.log`),
+          timeoutMs,
+        });
 
-      buildMs.push(wallMs);
-      progress(`  sample ${sample}: ${seconds(wallMs)}`);
-    }
+        buildMs.push(wallMs);
+        progress(`  sample ${sample}: ${duration(wallMs)}`);
+      }
 
-    const generated = await digest(consumer, isGenerated);
+      const generated = await digest(consumer, isGenerated);
 
-    if (generated.sha256 !== result.generated.sha256) {
-      throw new Error("The build's generated files differ from first generation's.");
-    }
+      if (generated.sha256 !== result.generated.sha256) {
+        throw new Error("The build's generated files differ from first generation's.");
+      }
 
-    record("build.ms", buildMs);
-  });
+      record("build.ms", buildMs);
+    },
+    { deterministic: true },
+  );
 
-  await phase("typecheck", async () => {
-    const ngc = await bin("@angular/compiler-cli", "ngc");
-    const tsc = await bin("typescript", "tsc");
+  // ngc is timing only, so --deterministic skips it; tsc gives the instantiations.
+  await phase("ngc", async () => {
+    const ngc = await bin(require, "@angular/compiler-cli", "ngc");
     const ngcMs = [];
-    const tscMs = [];
-    const checkMs = [];
-    const instantiations = [];
-    const memoryKB = [];
 
     for (let sample = 1; sample <= samples.ngc; sample++) {
       const { wallMs } = await node([ngc, "-p", "tsconfig.app.json", "--noEmit"], {
@@ -513,81 +328,100 @@ async function measure(result, options, directory, save) {
       });
 
       ngcMs.push(wallMs);
-      progress(`  ngc sample ${sample}: ${seconds(wallMs)}`);
-    }
-
-    for (let sample = 1; sample <= samples.tsc; sample++) {
-      const { wallMs, output } = await node(
-        [
-          tsc,
-          "-p",
-          "tsconfig.app.json",
-          "--noEmit",
-          "--extendedDiagnostics",
-          "--incremental",
-          "false",
-        ],
-        { cwd: consumer, log: join(logs, `tsc-${sample}.log`), timeoutMs },
-      );
-      const diagnostics = parseDiagnostics(output);
-
-      tscMs.push(wallMs);
-      checkMs.push(Number.parseFloat(diagnostics["Check time"]) * 1000);
-      instantiations.push(Number.parseInt(diagnostics.Instantiations, 10));
-      memoryKB.push(Number.parseInt(diagnostics["Memory used"], 10));
-      result.tscDiagnostics = diagnostics;
+      progress(`  ngc sample ${sample}: ${duration(wallMs)}`);
     }
 
     record("typecheck.ngcMs", ngcMs);
-    record("typecheck.tscMs", tscMs);
-    record("typecheck.tscCheckMs", checkMs);
-    record("typecheck.instantiations", instantiations);
-    record("typecheck.memoryKB", memoryKB);
   });
 
-  await phase("bundle", async () => {
-    const bundle = await measureBundle(consumer);
+  await phase(
+    "tsc",
+    async () => {
+      const tsc = await bin(require, "typescript", "tsc");
+      const tscMs = [];
+      const checkMs = [];
+      const instantiations = [];
+      const memoryKB = [];
 
-    for (const kind of ["initial", "lazy"]) {
-      for (const size of ["raw", "gzip", "brotli"]) {
-        record(`bundle.${kind}.${size}`, [bundle[kind][size]]);
+      for (let sample = 1; sample <= samples.tsc; sample++) {
+        const { wallMs, output } = await node(
+          [
+            tsc,
+            "-p",
+            "tsconfig.app.json",
+            "--noEmit",
+            "--extendedDiagnostics",
+            "--incremental",
+            "false",
+          ],
+          { cwd: consumer, log: join(logs, `tsc-${sample}.log`), timeoutMs },
+        );
+        const diagnostics = parseDiagnostics(output);
+
+        tscMs.push(wallMs);
+        checkMs.push(Number.parseFloat(diagnostics["Check time"]) * 1000);
+        instantiations.push(Number.parseInt(diagnostics.Instantiations, 10));
+        memoryKB.push(Number.parseInt(diagnostics["Memory used"], 10));
+        result.tscDiagnostics = diagnostics;
       }
-    }
 
-    record("bundle.initial.files", [bundle.initial.files]);
-    record("bundle.initial.routeCopies", [bundle.initial.routeCopies]);
+      record("typecheck.tscMs", tscMs);
+      record("typecheck.tscCheckMs", checkMs);
+      record("typecheck.instantiations", instantiations);
+      record("typecheck.memoryKB", memoryKB);
+    },
+    { deterministic: true },
+  );
 
-    result.bundle = bundle;
-  });
+  await phase(
+    "bundle",
+    async () => {
+      const workspace = await readWorkspace(consumer);
+      const { outputPath, browser, server } = workspace.projects.proof.architect.build.options;
+      // A server build writes the browser's index as index.csr.html.
+      let index = "index.html";
+
+      if (server) {
+        index = "index.csr.html";
+      }
+
+      const measured = await measureBundle({
+        output: join(consumer, outputPath),
+        entryPoint: browser,
+        index,
+      });
+      const bundle = routeBundle(measured);
+
+      for (const kind of ["initial", "lazy"]) {
+        for (const size of ["raw", "gzip", "brotli"]) {
+          record(`bundle.${kind}.${size}`, [bundle[kind][size]]);
+        }
+      }
+
+      record("bundle.initial.files", [bundle.initial.files]);
+      record("bundle.initial.routeCopies", [bundle.initial.routeCopies]);
+
+      result.bundle = bundle;
+    },
+    { deterministic: true },
+  );
 }
 
-async function main() {
-  const options = parseArguments(process.argv.slice(2));
-  let budgets;
+const { workload, argv } = takeWorkload(process.argv.slice(2));
 
-  // Fail on a missing or invalid budgets file before anything runs.
-  if (options.check) {
-    budgets = await readBudgets(options.check);
-  }
-
-  const workload = workloads[options.workload];
-
-  await prerequisites(workload);
-
-  const out = await outputDirectory(options.out);
-  const resultsPath = join(out, "results.json");
-  const results = {
-    startedAt: new Date().toISOString(),
-    finishedAt: undefined,
-    out,
-    options: {
-      workload: options.workload,
-      sizes: options.sizes,
-      samples: options.samples,
-      timeoutMs: options.timeoutMs,
-      pollMs,
-      settleMs,
+await bench(
+  {
+    name: `angular-router-${workload.name}`,
+    metrics,
+    scenarios: {
+      default: ["100", "300", "1000"],
+      validate: routeCount,
+      label: (key) => `${key} routes`,
+      layout: "metric-rows",
     },
+    samples: { generate: 3, edits: 3, build: 1, ngc: 3, tsc: 1 },
+    budgets: join(here, workload.budgets),
+    options: { workload: workload.name, pollMs, settleMs },
     conditions: {
       ...workload.conditions,
       buildCache: cachePolicy.build,
@@ -595,51 +429,9 @@ async function main() {
         "ngc -p tsconfig.app.json --noEmit, and tsc -p tsconfig.app.json --noEmit --extendedDiagnostics --incremental false; no untyped baseline.",
       compression: "Per file, then summed: gzip level 9, Brotli quality 11.",
     },
-    machine: await machine(),
-    sizes: {},
-  };
-
-  async function save() {
-    await writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`);
-  }
-
-  progress(`writing to ${out}`);
-  await save();
-
-  for (const routes of options.sizes) {
-    const directory = join(out, String(routes));
-    const sizeResults = { routes, metrics: {}, samples: {}, load: {} };
-
-    results.sizes[routes] = sizeResults;
-    await measure(sizeResults, options, directory, save);
-  }
-
-  results.finishedAt = new Date().toISOString();
-  await save();
-  progress(`results: ${resultsPath}`);
-  console.log(table(results));
-
-  if (budgets) {
-    const { exceeded, skipped } = checkBudgets(results, budgets);
-
-    for (const size of skipped) {
-      console.error(`Budget check skipped ${size} routes: not measured in this run.`);
-    }
-
-    if (exceeded.length > 0) {
-      console.error(`Budgets exceeded (${options.check}):\n- ${exceeded.join("\n- ")}`);
-      process.exitCode = 1;
-
-      return;
-    }
-
-    console.error(`Budgets met (${options.check}).`);
-  }
-}
-
-try {
-  await main();
-} catch (error) {
-  console.error(`[bench] ${error.message}`);
-  process.exitCode = 1;
-}
+    packages: [packageDirectory, launchDirectory],
+    prerequisites: () => prerequisites(workload),
+    measure: (scenario, run) => measure(scenario, run, workload),
+  },
+  argv,
+);
