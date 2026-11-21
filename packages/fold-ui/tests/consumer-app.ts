@@ -1632,6 +1632,7 @@ export class SearchDialog {
       <button zzButton (click)="toastActions()" id="toast-actions">Three actions</button>
       <button zzButton (click)="toastTimed()" id="toast-timed">Timed save</button>
       <button zzButton (click)="toastPair()" id="toast-pair">Two in one handler</button>
+      <button zzButton (click)="toastLongAction()" id="toast-long-action">Long action</button>
       <output id="toast-status">{{ toastStatus() }}</output>
       <a href="#before-region" id="before-region">Before</a>
     </section>
@@ -2047,6 +2048,20 @@ export class App {
 
   protected toastTimed(): void {
     this.toasts.add({ title: "Saved with the default duration", kind: "success" });
+  }
+
+  protected toastLongAction(): void {
+    this.toasts.add(
+      {
+        title: "An update is ready",
+        kind: "info",
+        action: {
+          label: "Download the updated version of the application",
+          run: () => this.toastStatus.set("Download started"),
+        },
+      },
+      { duration: Infinity },
+    );
   }
 
   protected toastPair(): void {

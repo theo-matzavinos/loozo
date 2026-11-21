@@ -16,8 +16,9 @@ import { Toasts, type ToastData } from "./toasts";
 /**
  * Shows the app's `Toasts` in the bottom-end corner, once, in the root component. A collapsed
  * deck: the newest card in front, older cards peeking 8px above it at its one-line height. Hover
- * or focus inside fans the deck into a column with the newest at the bottom. Named by `label`,
- * each Close by `closeLabel`; `duration` and `limit` are the region's defaults.
+ * or focus inside fans the deck into a column with the newest at the bottom, scrolling within the
+ * viewport when it is taller. Named by `label`, each Close by `closeLabel`; `duration` and
+ * `limit` are the region's defaults.
  */
 @Component({
   selector: "[fold__ToastRegion]",
@@ -43,11 +44,7 @@ import { Toasts, type ToastData } from "./toasts";
       class="outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
       <!-- role="list" keeps the list role Safari drops from a list without markers. -->
-      <ol
-        role="list"
-        data-slot="toast-list"
-        class="isolate grid group-hover/toasts:flex group-hover/toasts:flex-col-reverse group-hover/toasts:gap-2 group-focus-within/toasts:flex group-focus-within/toasts:flex-col-reverse group-focus-within/toasts:gap-2"
-      >
+      <ol role="list" data-slot="toast-list" [class]="listClasses">
         @for (toast of region.state.toasts(); track toast.id; let index = $index) {
           <li
             [ogToast]="toast"
@@ -103,7 +100,13 @@ import { Toasts, type ToastData } from "./toasts";
                 </p>
               }
               @if (toast.data.action; as action) {
-                <button fold__Button size="sm" class="mt-2" (click)="act(action, toast.id)">
+                <!-- A long label wraps inside the card instead of widening it. -->
+                <button
+                  fold__Button
+                  size="sm"
+                  class="mt-2 h-auto min-h-7 max-w-full py-1 text-start whitespace-normal [overflow-wrap:anywhere]"
+                  (click)="act(action, toast.id)"
+                >
                   {{ action.label }}
                 </button>
               }
@@ -136,12 +139,30 @@ export class ToastRegion {
     ),
   );
 
+  // One column, never wider than the region. Expanded, the list scrolls within the viewport less
+  // the region's 20px insets: a column-reverse scroller starts at its end, so the newest card shows
+  // first, and focus scrolls an older control into view. The 2rem padding, taken back by the
+  // negative margin, keeps the cards' shadows inside the scroller, and the scroll padding keeps a
+  // control scrolled into view out of it; the max height is 100dvh less the 2.5rem of insets plus
+  // that 4rem of padding. The list itself takes no pointer, so that padding doesn't cover the
+  // page; the cards do, and the section's box covers the gaps between them. No scrollbar, so the
+  // cards keep the region's width.
+  protected readonly listClasses = cn(
+    "pointer-events-none isolate grid grid-cols-1 overscroll-contain [scrollbar-width:none]",
+    "group-hover/toasts:flex group-hover/toasts:flex-col-reverse group-hover/toasts:gap-2",
+    "group-hover/toasts:-m-8 group-hover/toasts:p-8 group-hover/toasts:scroll-p-8",
+    "group-hover/toasts:max-h-[calc(100dvh_+_1.5rem)] group-hover/toasts:overflow-y-auto",
+    "group-focus-within/toasts:flex group-focus-within/toasts:flex-col-reverse group-focus-within/toasts:gap-2",
+    "group-focus-within/toasts:-m-8 group-focus-within/toasts:p-8 group-focus-within/toasts:scroll-p-8",
+    "group-focus-within/toasts:max-h-[calc(100dvh_+_1.5rem)] group-focus-within/toasts:overflow-y-auto",
+  );
+
   // Origami lists the newest first, so `first` is the front card. Older cards stack behind it,
   // clamped to the collapsed height with their content transparent but still read. Hover fans
   // the deck out; focus inside snaps it open, with no transition, so a focused control shows at once.
   protected readonly toastClasses = cn(
     popupClasses,
-    "[grid-area:1/1] self-start w-full flex items-start gap-2 p-3 min-h-(--toast-collapsed)",
+    "pointer-events-auto [grid-area:1/1] self-start w-full shrink-0 flex items-start gap-2 p-3 min-h-(--toast-collapsed)",
     "z-[calc(var(--toast-index)*-1)] origin-top",
     "translate-y-[calc(var(--toast-index)*-8px)] scale-[calc(1-var(--toast-index)*0.035)]",
     "transition-[height,translate,scale] duration-180 ease-out motion-reduce:transition-none",

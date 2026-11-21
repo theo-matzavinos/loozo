@@ -4675,6 +4675,8 @@ try {
                 label: button.getAttribute("aria-label"),
                 rect: box(button),
                 inlineEndInset: cardRight - button.getBoundingClientRect().right,
+                scrollWidth: button.scrollWidth,
+                clientWidth: button.clientWidth,
               })),
             };
           }),
@@ -4703,10 +4705,27 @@ try {
         const ring = parseFloat(look.outlineWidth) + parseFloat(look.outlineOffset);
         const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
 
+        const list = card.parentElement;
+        const listRect = list.getBoundingClientRect();
+
         return {
           title: card.querySelector("[data-slot=toast-title]").textContent.trim(),
           text: control.textContent.trim(),
           label: control.getAttribute("aria-label"),
+          rect: box(control),
+          ring,
+          // The list's scrollport, in viewport pixels.
+          list: {
+            scrollTop: list.scrollTop,
+            scrollHeight: list.scrollHeight,
+            clientHeight: list.clientHeight,
+            clip: {
+              left: listRect.left + list.clientLeft,
+              top: listRect.top + list.clientTop,
+              right: listRect.left + list.clientLeft + list.clientWidth,
+              bottom: listRect.top + list.clientTop + list.clientHeight,
+            },
+          },
           ownOpacity: look.opacity,
           bodyOpacity: getComputedStyle(card.querySelector(":scope > div")).opacity,
           transitionProperty: getComputedStyle(card).transitionProperty,
@@ -5208,6 +5227,139 @@ try {
     await page.evaluate(() => document.querySelector("[data-slot=toast-region]").offsetWidth),
     350,
   );
+
+  // A short viewport: the expanded deck scrolls within it, less the region's 20px insets. Hover
+  // opens it with the newest card at the bottom and the pointer leaving folds it again; Tab
+  // reaches every control, each scrolled into view with its ring by the first frame.
+  const inside = (rect, ring, bounds, label) =>
+    assert.ok(
+      rect.left - ring >= bounds.left - 0.5 &&
+        rect.top - ring >= bounds.top - 0.5 &&
+        rect.right + ring <= bounds.right + 0.5 &&
+        rect.bottom + ring <= bounds.bottom + 0.5,
+      `${label}: ${JSON.stringify(rect)} ± ${ring} isn't inside ${JSON.stringify(bounds)}`,
+    );
+  const viewportBounds = ({ width, height }) => ({ left: 0, top: 0, right: width, bottom: height });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await freshDeck("toast-actions");
+  await page.setViewportSize({ width: 320, height: 240 });
+  await page.hover(toastRegion);
+  await page.waitForTimeout(250);
+
+  const shortOpen = await page.evaluate(() => {
+    const list = document.querySelector("[data-slot=toast-list]");
+
+    return {
+      deck: window.deckMetrics(),
+      scrollTop: list.scrollTop,
+      scrollHeight: list.scrollHeight,
+      clientHeight: list.clientHeight,
+    };
+  });
+
+  assert.equal(shortOpen.deck.hover, true);
+  assert.ok(shortOpen.scrollHeight > shortOpen.clientHeight, "the short deck overflows");
+  assert.equal(shortOpen.scrollTop, 0, "opens at its end");
+  near(shortOpen.deck.cards[0].rect.bottom, 240 - 20, 0.5, "the newest card at the bottom");
+  inside(shortOpen.deck.cards[0].rect, 0, viewportBounds(shortOpen.deck.viewport), "newest card");
+  await page.mouse.move(10, 10);
+  await page.waitForTimeout(250);
+  assert.equal((await deckMetrics()).hover, false, "the pointer leaves the expanded deck");
+
+  await page.focus("#before-region");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  assert.equal(await activeId(), "before-region");
+
+  const shortStops = [];
+
+  for (let stop = 0; stop < 6; stop += 1) {
+    // Sampled on the first frame after focus and once settled.
+    await page.evaluate(() => {
+      window.toastFocusFrame = null;
+      document
+        .querySelector("[data-slot=toast-region]")
+        .addEventListener(
+          "focusin",
+          () => requestAnimationFrame(() => (window.toastFocusFrame = window.focusMetrics())),
+          { once: true },
+        );
+    });
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => window.toastFocusFrame !== null);
+
+    const frame = await page.evaluate(() => window.toastFocusFrame);
+
+    await page.waitForTimeout(250);
+
+    const settled = await page.evaluate(() => window.focusMetrics());
+
+    for (const [sample, metrics] of [
+      ["frame", frame],
+      ["settled", settled],
+    ]) {
+      const label = `short stop ${stop} ${sample}`;
+
+      inside(metrics.rect, metrics.ring, viewportBounds(metrics.deck.viewport), label);
+      inside(metrics.rect, metrics.ring, metrics.list.clip, `${label} in the list`);
+      assert.equal(metrics.ringInsideClip, true, `${label} ring inside the card`);
+      assert.equal(metrics.hitIsControl, true, `${label} on top`);
+      assert.equal(metrics.focusVisible, true, label);
+      assert.equal(metrics.transitionProperty, "none", label);
+    }
+
+    shortStops.push([settled.title, settled.text || settled.label, settled.list.scrollTop]);
+  }
+
+  await page.screenshot({ path: join(toastEvidence, "toast-short-oldest-close.png") });
+  assert.deepEqual(
+    shortStops.map(([title, control]) => [title, control]),
+    [
+      ["Newest card", "Newest action"],
+      ["Newest card", "Close"],
+      ["Middle card", "Middle action"],
+      ["Middle card", "Close"],
+      ["Oldest card", "Oldest action"],
+      ["Oldest card", "Close"],
+    ],
+  );
+  assert.ok(shortStops.at(-1)[2] < 0, "the list scrolled to the oldest card");
+
+  // A long action label wraps inside the card at 320px: the card, the action and Close stay
+  // inside the region and the viewport, collapsed and expanded.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await freshDeck("toast-long-action");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await rendered();
+  await page.screenshot({ path: join(toastEvidence, "toast-long-action.png") });
+
+  for (const state of ["collapsed", "expanded"]) {
+    if (state === "expanded") {
+      await page.hover(toastRegion);
+      await page.waitForTimeout(250);
+    }
+
+    const deck = await deckMetrics();
+    const [card] = deck.cards;
+    const [action, close] = card.controls;
+
+    assert.equal(deck.regionWidth, 280);
+    assert.equal(card.offsetWidth, 280, `${state} card width`);
+    assert.equal(action.text, "Download the updated version of the application");
+    assert.ok(action.rect.height > 28, `${state} the action wraps`);
+    assert.ok(action.scrollWidth <= action.clientWidth, `${state} the action's label fits`);
+
+    for (const [name, rect] of [
+      ["card", card.rect],
+      ["action", action.rect],
+      ["Close", close.rect],
+    ]) {
+      inside(rect, 0, deck.region, `${state} ${name} in the region`);
+      inside(rect, 0, viewportBounds(deck.viewport), `${state} ${name} in the viewport`);
+    }
+  }
+
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
 
