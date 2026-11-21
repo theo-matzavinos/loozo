@@ -5799,6 +5799,24 @@ try {
   await page.waitForFunction(() => document.activeElement?.id === "before-region");
   await untilGone("A new version is available");
 
+  // The shadow box under the expanded deck shows only while a card is: closing the last toast by
+  // pointer, with nothing focused before, leaves focus on the empty region and no shadow.
+  await freshDeck("toast-reload");
+  await page.evaluate(() => document.activeElement.blur());
+  const blank = await page.locator("#toasts").boundingBox();
+
+  await page.mouse.click(blank.x + 2, blank.y + 2);
+  await page.locator("[data-slot=toast-close]").click();
+  await untilGone("A new version is available");
+  assert.equal(await regionFocused(), true, "focus falls back to the empty region");
+  assert.equal(
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector("[data-slot=toast-region]"), "::after").display,
+    ),
+    "none",
+    "no shadow box once the last toast is gone",
+  );
+
   // The kind icons' tints, in both themes.
   const kindColors = () =>
     page.evaluate(() => {

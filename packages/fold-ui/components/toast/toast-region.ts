@@ -136,9 +136,10 @@ export class ToastRegion {
       // card's control sits under a peek.
       "group/toasts fixed bottom-5 end-5 z-50 block w-[min(24rem,calc(100vw_-_2.5rem))] [--toast-collapsed:58px] [interpolate-size:allow-keywords]",
       // Expanded, the list's scroller ends at the region's bottom and clips the newest card's
-      // shadow there. This box paints that shadow below the region instead, and nothing else.
+      // shadow there. This box paints that shadow below the region instead, and nothing else, only
+      // while a card that isn't leaving is shown: focus can rest on the empty region.
       "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-(--toast-collapsed) after:rounded-menu after:shadow-popover after:[clip-path:inset(100%_-2rem_-2rem)]",
-      "hover:after:block focus-within:after:block",
+      "has-[[data-slot=toast]:not([data-leaving])]:hover:after:block has-[[data-slot=toast]:not([data-leaving])]:focus-within:after:block",
       this.class(),
     ),
   );
