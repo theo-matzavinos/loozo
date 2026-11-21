@@ -20,6 +20,7 @@
           "field",
           "file-field",
           "input",
+          "menu",
           "number-field",
           "otp-field",
           "popover",

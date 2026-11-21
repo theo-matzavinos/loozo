@@ -1,7 +1,8 @@
-// A scratch consumer for Origami's benches: one browser application project, `bench`, that
-// bootstraps a workload, with one build configuration per workload. Angular comes from this
-// package's dependencies and `@loozo/origami-ui` is the built dist/, linked as the router bench
-// links its package.
+// A scratch consumer for Origami's benches. Angular comes from this package's dependencies and
+// `@loozo/origami-ui` is the built dist/, linked as the router bench links its package. The build
+// bench's consumer is one browser application project, `bench`, that bootstraps a workload, with
+// one build configuration per workload; the runtime bench writes its own server-rendered project on
+// the same links.
 import { cp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,10 +77,9 @@ async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-// Creates the consumer with a configuration per workload name, each replacing src/workload.ts
-// with src/workloads/<name>.ts and writing to dist/<name>. The default configuration builds the
-// first workload.
-export async function createConsumer(consumer, workloads) {
+// Links the consumer's dependencies (this package's own, and @loozo/origami-ui to dist/) and
+// writes its package.json and strict tsconfig.json. Every Origami bench's consumer starts here.
+export async function linkConsumer(consumer) {
   const metadata = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
 
   for (const name of new Set([
@@ -97,6 +97,20 @@ export async function createConsumer(consumer, workloads) {
     await mkdir(dirname(link), { recursive: true });
     await symlink(target, link, "dir");
   }
+
+  await writeJson(join(consumer, "package.json"), {
+    name: "origami-bench-consumer",
+    private: true,
+    type: "module",
+  });
+  await writeJson(join(consumer, "tsconfig.json"), tsconfig);
+}
+
+// Creates the consumer with a configuration per workload name, each replacing src/workload.ts
+// with src/workloads/<name>.ts and writing to dist/<name>. The default configuration builds the
+// first workload.
+export async function createConsumer(consumer, workloads) {
+  await linkConsumer(consumer);
 
   const source = join(consumer, "src");
 
@@ -132,11 +146,5 @@ export async function createConsumer(consumer, workloads) {
       },
     },
   });
-  await writeJson(join(consumer, "package.json"), {
-    name: "origami-bench-consumer",
-    private: true,
-    type: "module",
-  });
-  await writeJson(join(consumer, "tsconfig.json"), tsconfig);
   await writeJson(join(consumer, "tsconfig.app.json"), tsconfigApp);
 }

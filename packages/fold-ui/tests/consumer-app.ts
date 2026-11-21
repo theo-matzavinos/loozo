@@ -31,6 +31,7 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { FileFieldParts } from "#ui/file-field";
 import { Input } from "#ui/input";
+import { MenuParts } from "#ui/menu";
 import { NumberFieldParts } from "#ui/number-field";
 import { OtpField, OtpFieldInput } from "#ui/otp-field";
 import { PopoverParts } from "#ui/popover";
@@ -47,9 +48,12 @@ import { TooltipParts } from "#ui/tooltip";
 import {
   LucideArchive,
   LucideChevronDown,
+  LucideEllipsis,
   LucideLink,
+  LucidePencil,
   LucideRotateCcw,
   LucideStore,
+  LucideTrash,
   LucideTriangleAlert,
   LucideUpload,
 } from "@lucide/angular";
@@ -451,10 +455,14 @@ export class FileFields {
     Input,
     LucideArchive,
     LucideChevronDown,
+    LucideEllipsis,
     LucideLink,
+    LucidePencil,
     LucideRotateCcw,
     LucideStore,
+    LucideTrash,
     LucideTriangleAlert,
+    MenuParts,
     NumberFieldParts,
     OtpFields,
     PopoverParts,
@@ -1603,6 +1611,78 @@ export class FileFields {
         <p zzFieldDescription id="tip-status-description">Sets the invoice currency.</p>
       </div>
     </section>
+    <!-- Room before the triggers, so an end-aligned panel and the View submenu fit at 1280px. -->
+    <section id="menus" class="flex items-start gap-4 p-5 ps-80">
+      <div zzMenu id="menu-row">
+        <button
+          zzMenuTrigger
+          variant="ghost"
+          size="icon"
+          aria-label="Actions for LC-2041"
+          id="menu-row-trigger"
+        >
+          <svg lucideEllipsis aria-hidden="true"></svg>
+        </button>
+        <div zzMenuContent align="end" id="menu-row-content">
+          <a zzMenuLink href="#edit" id="menu-row-edit">
+            <svg lucidePencil aria-hidden="true"></svg> Edit
+            <span zzMenuShortcut id="menu-row-shortcut">⌘E</span>
+          </a>
+          <div zzMenuSeparator id="menu-row-separator"></div>
+          <button
+            zzMenuItem
+            variant="destructive"
+            (select)="menuStatus.set('Deleted LC-2041')"
+            id="menu-row-delete"
+          >
+            <svg lucideTrash aria-hidden="true"></svg> Delete
+          </button>
+        </div>
+      </div>
+      <output id="menu-row-status">{{ menuStatus() }}</output>
+
+      <div zzMenu id="menu-view">
+        <button zzMenuTrigger id="menu-view-trigger">
+          View <svg lucideChevronDown aria-hidden="true"></svg>
+        </button>
+        <div zzMenuContent align="end" id="menu-view-content">
+          <div zzMenuGroup id="menu-view-show">
+            <div zzMenuGroupLabel id="menu-view-show-label">Show</div>
+            <button zzMenuCheckboxItem [(checked)]="menuShowCompleted" id="menu-view-completed">
+              Completed tasks
+            </button>
+            <button zzMenuCheckboxItem [(checked)]="menuShowArchived" id="menu-view-archived">
+              Archived tasks
+            </button>
+          </div>
+          <div zzMenuSeparator></div>
+          <div zzMenuRadioGroup [(value)]="menuDensity" id="menu-view-density">
+            <div zzMenuGroupLabel id="menu-view-density-label">Density</div>
+            <button zzMenuRadioItem value="compact" id="menu-view-compact">Compact</button>
+            <button zzMenuRadioItem value="comfortable" id="menu-view-comfortable">
+              Comfortable
+            </button>
+          </div>
+          <div zzMenuSeparator></div>
+          <div zzMenuSub id="menu-view-move">
+            <button zzMenuSubTrigger id="menu-view-move-trigger">Move to</button>
+            <div zzMenuContent id="menu-view-move-content">
+              <button zzMenuItem (select)="menuMoved.set('backlog')" id="menu-view-backlog">
+                Backlog
+              </button>
+              <button zzMenuItem (select)="menuMoved.set('doing')">Doing</button>
+              <button zzMenuItem (select)="menuMoved.set('done')">Done</button>
+            </div>
+          </div>
+          <button zzMenuItem disabled id="menu-view-archive">Archive project</button>
+          <button zzMenuItem class="ps-6" id="menu-view-merged">Print</button>
+        </div>
+      </div>
+      <output id="menu-view-completed-value">{{ menuShowCompleted() }}</output>
+      <output id="menu-view-archived-value">{{ menuShowArchived() }}</output>
+      <output id="menu-view-density-value">{{ menuDensity() }}</output>
+      <output id="menu-view-moved">{{ menuMoved() }}</output>
+    </section>
     <section id="display" class="grid gap-8 p-5">
       <div class="grid gap-2">
         <h2 id="sa-both-title" class="text-title">Addresses</h2>
@@ -1864,6 +1944,11 @@ export class App {
   protected readonly view = signal<string | null>("all");
   protected readonly dirty = signal(false);
   protected readonly publishes = signal(0);
+  protected readonly menuStatus = signal("");
+  protected readonly menuShowCompleted = signal(true);
+  protected readonly menuShowArchived = signal(false);
+  protected readonly menuDensity = signal<string | null>("comfortable");
+  protected readonly menuMoved = signal("");
   protected readonly releaseNotes = Array.from(
     { length: 14 },
     (_, index) =>
