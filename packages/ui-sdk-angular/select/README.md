@@ -101,6 +101,8 @@ The content always stays in the DOM, hidden while closed; there's no exit animat
 
 Put `uiSelectFormInput` on an empty `<textarea>` inside the root's element, as core's own renderers do. Core makes it visually hidden; its value is the selected item's key (`itemToValue`, or the value itself), so it submits, resets, validates `required` and takes browser autofill. The server renders the key as its text, so it submits before hydration. A textarea doesn't count toward the browser's implicit submission, so Enter in a form's one text field submits it without a submit button.
 
+Autofill selects the item whose key or label equals the filled text, ignoring case only. A textarea keeps a filled value's line breaks, so a multiline `street-address` fill (Chromium) matches no single-line label and leaves the selection as it was.
+
 ## Rules
 
 - **Name the trigger** with a `uiSelectLabel`, or a static `aria-label` or `aria-labelledby` on it, not both a label and an attribute. With a `uiSelectLabel` alone, the server HTML already points the trigger at it. With a `uiSelectLabel` and an `aria-label`, the trigger gets its `aria-labelledby` only when it binds, and the label's name wins. Named only by a `<label for>`, or not at all, its server HTML points `aria-labelledby` at a label that doesn't exist until it binds, and core warns about an unnamed trigger in development.
