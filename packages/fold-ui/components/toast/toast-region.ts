@@ -135,26 +135,30 @@ export class ToastRegion {
       // padding and the 2px border. Keep the 8px peek inside the 12px top padding, so no back
       // card's control sits under a peek.
       "group/toasts fixed bottom-5 end-5 z-50 block w-[min(24rem,calc(100vw_-_2.5rem))] [--toast-collapsed:58px] [interpolate-size:allow-keywords]",
+      // Expanded, the list's scroller ends at the region's bottom and clips the newest card's
+      // shadow there. This box paints that shadow below the region instead, and nothing else.
+      "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-(--toast-collapsed) after:rounded-menu after:shadow-popover after:[clip-path:inset(100%_-2rem_-2rem)]",
+      "hover:after:block focus-within:after:block",
       this.class(),
     ),
   );
 
   // One column, never wider than the region. Expanded, the list scrolls within the viewport less
-  // the region's 20px insets: a column-reverse scroller starts at its end, so the newest card shows
-  // first, and focus scrolls an older control into view. The 2rem padding, taken back by the
-  // negative margin, keeps the cards' shadows inside the scroller, and the scroll padding keeps a
-  // control scrolled into view out of it; the max height is 100dvh less the 2.5rem of insets plus
-  // that 4rem of padding. The list itself takes no pointer, so that padding doesn't cover the
-  // page; the cards do, and the section's box covers the gaps between them. No scrollbar, so the
-  // cards keep the region's width.
+  // the region's 20px insets, so a scrolled card never covers the page in them: a column-reverse
+  // scroller starts at its end, so the newest card shows first, and focus scrolls an older control
+  // into view, 12px in from the edge with its ring. The inline 2rem padding and the top 1rem, each
+  // taken back by a negative margin, keep the cards' shadows unclipped at the sides and above;
+  // below, the scroller ends at the newest card. The list itself takes no pointer, so that padding
+  // doesn't cover the page; the cards do, and the section's box covers the gaps between them. No
+  // scrollbar, so the cards keep the region's width.
   protected readonly listClasses = cn(
-    "pointer-events-none isolate grid grid-cols-1 overscroll-contain [scrollbar-width:none]",
+    "pointer-events-none isolate grid grid-cols-1 [scrollbar-width:none]",
     "group-hover/toasts:flex group-hover/toasts:flex-col-reverse group-hover/toasts:gap-2",
-    "group-hover/toasts:-m-8 group-hover/toasts:p-8 group-hover/toasts:scroll-p-8",
-    "group-hover/toasts:max-h-[calc(100dvh_+_1.5rem)] group-hover/toasts:overflow-y-auto",
+    "group-hover/toasts:-mx-8 group-hover/toasts:px-8 group-hover/toasts:-mt-4 group-hover/toasts:pt-4",
+    "group-hover/toasts:max-h-[calc(100dvh_-_2.5rem)] group-hover/toasts:overflow-y-auto group-hover/toasts:scroll-py-3",
     "group-focus-within/toasts:flex group-focus-within/toasts:flex-col-reverse group-focus-within/toasts:gap-2",
-    "group-focus-within/toasts:-m-8 group-focus-within/toasts:p-8 group-focus-within/toasts:scroll-p-8",
-    "group-focus-within/toasts:max-h-[calc(100dvh_+_1.5rem)] group-focus-within/toasts:overflow-y-auto",
+    "group-focus-within/toasts:-mx-8 group-focus-within/toasts:px-8 group-focus-within/toasts:-mt-4 group-focus-within/toasts:pt-4",
+    "group-focus-within/toasts:max-h-[calc(100dvh_-_2.5rem)] group-focus-within/toasts:overflow-y-auto group-focus-within/toasts:scroll-py-3",
   );
 
   // Origami lists the newest first, so `first` is the front card. Older cards stack behind it,

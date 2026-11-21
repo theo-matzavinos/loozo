@@ -5963,6 +5963,51 @@ try {
   assert.equal(shortOpen.scrollTop, 0, "opens at its end");
   near(shortOpen.deck.cards[0].rect.bottom, 240 - 20, 0.5, "the newest card at the bottom");
   inside(shortOpen.deck.cards[0].rect, 0, viewportBounds(shortOpen.deck.viewport), "newest card");
+
+  // Scrolled to either end or between, a card running into the region's 20px insets is clipped
+  // there: no point of the top or bottom 20px rows hits a toast.
+  for (const [position, scrollTop] of [
+    ["end", 0],
+    ["middle", -60],
+    ["start", -10_000],
+  ]) {
+    const insets = await page.evaluate((scrollTop) => {
+      const list = document.querySelector("[data-slot=toast-list]");
+
+      list.scrollTop = scrollTop;
+
+      const height = document.documentElement.clientHeight;
+      const width = document.documentElement.clientWidth;
+      const hits = [];
+
+      for (const y of [
+        ...Array(20).keys(),
+        ...Array.from({ length: 20 }, (_, i) => height - 20 + i),
+      ]) {
+        for (let x = 0; x < width; x += 4) {
+          if (document.elementFromPoint(x, y)?.closest("[data-slot=toast]")) {
+            hits.push([x, y]);
+          }
+        }
+      }
+
+      const cards = [...list.children].map((card) => card.getBoundingClientRect());
+
+      return {
+        hits,
+        overTop: cards.some((card) => card.top < 20 && card.bottom > 0),
+        overBottom: cards.some((card) => card.bottom > height - 20 && card.top < height),
+      };
+    }, scrollTop);
+
+    assert.deepEqual(insets.hits, [], `scrolled to the ${position}, no toast in the insets`);
+    assert.ok(
+      insets.overTop || insets.overBottom,
+      `scrolled to the ${position}, a card is clipped`,
+    );
+  }
+
+  await page.evaluate(() => (document.querySelector("[data-slot=toast-list]").scrollTop = 0));
   await page.mouse.move(10, 10);
   await page.waitForTimeout(250);
   assert.equal((await deckMetrics()).hover, false, "the pointer leaves the expanded deck");
@@ -6059,6 +6104,15 @@ try {
       inside(rect, 0, viewportBounds(deck.viewport), `${state} ${name} in the viewport`);
     }
   }
+
+  // A deck that fits doesn't keep the wheel: over the open toast, it scrolls the page.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction(() => window.scrollY > 0, null, { timeout: 2000 });
+  assert.equal(
+    await page.evaluate(() => document.querySelector("[data-slot=toast-list]").scrollTop),
+    0,
+  );
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
