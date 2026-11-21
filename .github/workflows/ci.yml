@@ -3,8 +3,9 @@ name: CI
 # Required checks for pull requests into main: every package's build, check, typecheck
 # and test, the docs-content tool's typecheck and test, Origami's commit gate
 # (test:commit), the router's browser tests, its Windows and macOS runs, Launch's example proof,
-# fold's consumer check and ui-sdk-angular's browser suite in each engine. The jobs after checks run only for the packages a pull request
-# reaches (see affected); a skipped one passes its required check.
+# fold's consumer check, ui-sdk-angular's browser suite in each engine, and the router's, Launch's
+# and Origami's deterministic bench budgets (bench). The jobs after checks run only for the packages
+# a pull request reaches (see affected); a skipped one passes its required check.
 on:
   pull_request:
   workflow_dispatch:
@@ -371,3 +372,63 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       # Builds Origami and fold, packs them into a fresh `ng new` app, builds it and runs the smoke.
       - run: pnpm run test:consumer
+
+  # Deterministic bench budgets (bytes, counts, instantiations); timings stay local. Matrix entries
+  # skip their steps instead of the job, so each entry reports its required check by name.
+  bench:
+    needs: affected
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        workload: [router, launch, origami]
+    env:
+      REACHED: ${{ (matrix.workload == 'router' && needs.affected.outputs.router != 'false') || (matrix.workload == 'launch' && needs.affected.outputs.launch != 'false') || (matrix.workload == 'origami' && needs.affected.outputs.origami != 'false') }}
+    steps:
+      - if: env.REACHED != 'true'
+        run: echo "This pull request doesn't reach ${{ matrix.workload }}; skipped."
+      - if: env.REACHED == 'true'
+        uses: actions/checkout@v7
+      - if: env.REACHED == 'true'
+        uses: pnpm/action-setup@v6
+      - if: env.REACHED == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - if: env.REACHED == 'true'
+        run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - if: env.REACHED == 'true' && matrix.workload == 'router'
+        run: |
+          pnpm --filter @loozo/angular-router run build
+          pnpm --dir packages/angular-router run bench --deterministic --check --out "$RUNNER_TEMP/bench/router"
+      - if: env.REACHED == 'true' && matrix.workload == 'launch'
+        run: |
+          pnpm --filter @loozo/angular-router --filter @loozo/angular-launch run build
+          pnpm --dir packages/angular-router run bench --workload launch --deterministic --check --out "$RUNNER_TEMP/bench/launch"
+      - if: env.REACHED == 'true' && matrix.workload == 'origami'
+        run: |
+          pnpm --dir packages/origami-ui run build
+          pnpm --dir packages/origami-ui run bench:build --deterministic --check --out "$RUNNER_TEMP/bench/build"
+      # The heap phase's count of checkboxes left alive; the rest of the runtime suite is timings.
+      - if: env.REACHED == 'true' && matrix.workload == 'origami'
+        run: |
+          pnpm --dir packages/origami-ui exec playwright install --with-deps chromium
+          pnpm --dir packages/origami-ui run bench:runtime --deterministic --check --out "$RUNNER_TEMP/bench/runtime"
+      # Results and logs only, by exact depth: each run's consumer/ links the workspace's node_modules,
+      # which a recursive glob would walk. Scenario logs sit in <out>/<scenario>/logs/. The runtime
+      # bench writes its build and server logs next to its results.
+      - if: always() && env.REACHED == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-${{ matrix.workload }}
+          path: |
+            ${{ runner.temp }}/bench/*/results.json
+            ${{ runner.temp }}/bench/*/*.log
+            ${{ runner.temp }}/bench/*/*/logs/
+          if-no-files-found: ignore
