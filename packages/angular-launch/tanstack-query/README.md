@@ -238,12 +238,15 @@ The limits follow from TanStack's hydration:
 
 ## Defaults
 
-| Option           | Default                                                                                                                                                                               |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `retry`          | No retry for an `RpcError` (a framework failure or declared error), an `RpcRedirect` or an `RpcNotFound`; for anything else, your `QueryClient` default for the key, or three retries |
-| `refetchOnMount` | `false` while hydrating; then your `QueryClient` default for the key, or `true`                                                                                                       |
+| Option              | Default                                                                                                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retry`             | No retry for an `RpcError` (a framework failure or declared error), an `RpcRedirect` or an `RpcNotFound`; for anything else, your `QueryClient` default for the key, or three retries         |
+| `refetchOnMount`    | `false` while hydrating; then your `QueryClient` default for the key, or `true`                                                                                                               |
+| `structuralSharing` | Your `QueryClient` default for the key; if it's unset or `true`, TanStack's structural sharing, except that a result with a `"__proto__"` key in any plain object replaces the old data whole |
 
-Everything else is TanStack's or your `QueryClient`'s. Overrides replace either default per call. Your `QueryClient` defaults still apply through them: a default `retry` decides retries for errors other than those three, and a default `refetchOnMount` applies after hydration. On the server, TanStack's adapter defaults `retry` to `false`, so a failed query doesn't retry during server rendering.
+Everything else is TanStack's or your `QueryClient`'s. Overrides replace any of these defaults per call. Your `QueryClient` defaults still apply through them: a default `retry` decides retries for errors other than those three, a default `refetchOnMount` applies after hydration, and a default `structuralSharing` of `false` or a function replaces the generated one. On the server, TanStack's adapter defaults `retry` to `false`, so a failed query doesn't retry during server rendering.
+
+TanStack's own structural sharing turns a `"__proto__"` key in a refetched result into the object's prototype, and the key disappears from your data ([TanStack/query#12303](https://github.com/TanStack/query/issues/12303), closed as not planned). `JSON.parse` keeps such a key as ordinary data, so a procedure that returns user-chosen keys could change what your page reads from an object. The generated default keeps the key as data by skipping sharing for those results only. It checks what TanStack would copy, plain objects and arrays, whether they come from the server, `select` or placeholder data, and cyclic data included; TanStack returns class instances as they are, so it leaves those alone. A `structuralSharing` function of your own, as a `QueryClient` default or an override, replaces that guard, so it must handle such keys itself.
 
 ## Limitations
 

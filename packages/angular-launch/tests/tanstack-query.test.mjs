@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { Worker } from "node:worker_threads";
 import {
   Component,
   PLATFORM_ID,
@@ -11,7 +12,12 @@ import {
 } from "@angular/core";
 import { HttpClient, HttpErrorResponse } from "@angular/common/http";
 import { Observable } from "rxjs";
-import { QueryClient, provideTanStackQuery, skipToken } from "@tanstack/angular-query";
+import {
+  QueryClient,
+  QueryObserver,
+  provideTanStackQuery,
+  skipToken,
+} from "@tanstack/angular-query";
 import { provideLaunchQueries } from "../dist/tanstack-query/index.js";
 import { createQueries } from "../dist/tanstack-query/create-queries.js";
 import { hydrationWindow } from "../dist/tanstack-query/hydration-window.js";
@@ -290,6 +296,328 @@ test("retry skips RpcErrors and otherwise follows the client default, else three
     parent.destroy();
   }
 });
+
+test("structural sharing keeps __proto__ result keys as data and shares equal data; overrides win", async () => {
+  // What Angular's HTTP backends do with a JSON response: JSON.parse keeps "__proto__" as an
+  // own key. TanStack only corrupts a key whose object replaces an object in the old data.
+  const bodies = [
+    '{"a":{},"b":[1]}',
+    '{"a":{"__proto__":{"x":1}},"b":[1],"__proto__":{"canDelete":true}}',
+    '{"a":{},"b":[{}]}',
+    '{"a":{},"b":[{"__proto__":{"y":1}}]}',
+    '{"a":{},"b":[1]}',
+    '{"a":{},"b":[1]}',
+    '{"a":{},"b":[2]}',
+  ];
+  const rpc = {
+    profile: {
+      read: () => Promise.resolve(JSON.parse(bodies.shift())),
+      byId: () => Promise.resolve(null),
+    },
+  };
+  const parent = createEnvironmentInjector([]);
+  const client = new QueryClient();
+  const injector = createEnvironmentInjector(
+    [
+      { provide: PLATFORM_ID, useValue: "browser" },
+      { provide: QueryClient, useValue: client },
+      provideLaunchQueries(),
+    ],
+    parent,
+  );
+  const queries = runInInjectionContext(injector, () =>
+    createQueries(rpc, {
+      profile: {
+        read: { kind: "query", input: false },
+        byId: { kind: "query", input: true },
+      },
+    }),
+  );
+  // What injectQuery reads.
+  const observer = new QueryObserver(client, queries.profile.read.queryOptions());
+
+  async function refetch() {
+    const result = await observer.refetch();
+
+    return result.data;
+  }
+
+  try {
+    await refetch();
+
+    // Top level and nested: the prototype stays Object's and the key stays own data.
+    const own = await refetch();
+
+    assert.equal(Object.getPrototypeOf(own), Object.prototype);
+    assert.equal(own.canDelete, undefined);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(own, "__proto__").value, { canDelete: true });
+    assert.equal(Object.getPrototypeOf(own.a), Object.prototype);
+    assert.equal(own.a.x, undefined);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(own.a, "__proto__").value, { x: 1 });
+
+    // Only nested, inside an array.
+    await refetch();
+
+    const nested = await refetch();
+
+    assert.equal(Object.getPrototypeOf(nested.b[0]), Object.prototype);
+    assert.equal(nested.b[0].y, undefined);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(nested.b[0], "__proto__").value, { y: 1 });
+
+    // The global prototype was never written.
+    assert.equal({}.canDelete, undefined);
+    assert.equal({}.x, undefined);
+    assert.equal({}.y, undefined);
+
+    // Equal data keeps its identity, and unchanged parts of changed data are shared.
+    const before = await refetch();
+    const equal = await refetch();
+    const changed = await refetch();
+
+    assert.equal(equal, before);
+    assert.notEqual(changed, equal);
+    assert.equal(changed.a, equal.a);
+    assert.deepEqual(changed.b, [2]);
+
+    // Queries with input, and disabled ones, get the same default.
+    const old = { a: {} };
+    const proto = JSON.parse('{"a":{"__proto__":{"x":1}}}');
+
+    for (const options of [
+      queries.profile.byId.queryOptions("1"),
+      queries.profile.byId.queryOptions(skipToken),
+    ]) {
+      assert.equal(options.structuralSharing(old, { a: {} }), old);
+      assert.equal(options.structuralSharing(old, proto), proto);
+    }
+
+    const replace = (old, data) => data;
+
+    assert.equal(
+      queries.profile.read.queryOptions({ structuralSharing: false }).structuralSharing,
+      false,
+    );
+    assert.equal(
+      queries.profile.read.queryOptions({ structuralSharing: replace }).structuralSharing,
+      replace,
+    );
+  } finally {
+    injector.destroy();
+    parent.destroy();
+  }
+});
+
+test("structuralSharing follows the client default for the key, else the guard; overrides win", () => {
+  const client = new QueryClient();
+  const { queries, destroy } = setup({ client });
+  const old = { a: {} };
+  const equal = { a: {} };
+  const proto = JSON.parse('{"a":{"__proto__":{"x":1}}}');
+
+  try {
+    const { structuralSharing } = queries.todos.list.queryOptions();
+    const byIdSharing = queries.todos.byId.queryOptions({ id: "1" }).structuralSharing;
+
+    // No client default: TanStack's sharing, guarded.
+    assert.equal(structuralSharing(old, equal), old);
+    assert.equal(structuralSharing(old, proto), proto);
+
+    client.setDefaultOptions({ queries: { structuralSharing: true } });
+    assert.equal(structuralSharing(old, equal), old);
+    assert.equal(structuralSharing(old, proto), proto);
+
+    client.setDefaultOptions({ queries: { structuralSharing: false } });
+    assert.equal(structuralSharing(old, equal), equal);
+
+    const seen = [];
+    const marker = { shared: true };
+
+    client.setDefaultOptions({
+      queries: {
+        structuralSharing: (previous, data) => {
+          seen.push({ previous, data });
+
+          return marker;
+        },
+      },
+    });
+    assert.equal(structuralSharing(old, proto), marker);
+    assert.deepEqual(seen, [{ previous: old, data: proto }]);
+
+    // Query defaults for the key take precedence over the client's, and only for that key.
+    client.setDefaultOptions({ queries: { structuralSharing: true } });
+    client.setQueryDefaults(["launch", "todos", "list"], { structuralSharing: false });
+    assert.equal(structuralSharing(old, equal), equal);
+    assert.equal(byIdSharing(old, equal), old);
+
+    // An override replaces the generated default entirely.
+    assert.equal(
+      queries.todos.list.queryOptions({ structuralSharing: true }).structuralSharing,
+      true,
+    );
+  } finally {
+    destroy();
+  }
+});
+
+// Runs `scenario` on a worker thread, so a structural-sharing walk that never ends fails the
+// test after `bound` milliseconds instead of blocking the suite. `scenario` is serialized, so
+// it uses only what it receives: assert, QueryObserver and setup(read), which gives a
+// QueryClient and the queries of a no-input `profile.read` query calling `read`.
+function inWorker(scenario, bound = 10_000) {
+  const modules = {
+    compiler: import.meta.resolve("@angular/compiler"),
+    core: import.meta.resolve("@angular/core"),
+    query: import.meta.resolve("@tanstack/angular-query"),
+    launch: new URL("../dist/tanstack-query/index.js", import.meta.url).href,
+    createQueries: new URL("../dist/tanstack-query/create-queries.js", import.meta.url).href,
+  };
+  const source = `
+    const { parentPort, workerData: modules } = require("node:worker_threads");
+
+    (async () => {
+      await import(modules.compiler);
+      const assert = (await import("node:assert/strict")).default;
+      const { PLATFORM_ID, createEnvironmentInjector, runInInjectionContext } = await import(modules.core);
+      const { QueryClient, QueryObserver } = await import(modules.query);
+      const { provideLaunchQueries } = await import(modules.launch);
+      const { createQueries } = await import(modules.createQueries);
+
+      function setup(read) {
+        const client = new QueryClient();
+        const injector = createEnvironmentInjector(
+          [
+            { provide: PLATFORM_ID, useValue: "browser" },
+            { provide: QueryClient, useValue: client },
+            provideLaunchQueries(),
+          ],
+          createEnvironmentInjector([]),
+        );
+        const queries = runInInjectionContext(injector, () =>
+          createQueries({ profile: { read } }, { profile: { read: { kind: "query", input: false } } }),
+        );
+
+        return { client, queries };
+      }
+
+      await (${scenario})({ assert, QueryObserver, setup });
+      parentPort.postMessage("done");
+    })();
+  `;
+
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(source, { eval: true, workerData: modules });
+    // Ends a walk stuck in a loop too: terminate() stops the running script.
+    const timer = setTimeout(() => {
+      worker.terminate();
+      reject(new Error(`the scenario didn't finish within ${bound} ms`));
+    }, bound);
+
+    worker.once("message", () => {
+      clearTimeout(timer);
+      // The QueryClient's timers would keep the worker alive.
+      worker.terminate().then(() => resolve());
+    });
+    worker.once("error", (error) => {
+      clearTimeout(timer);
+      worker.terminate();
+      reject(error);
+    });
+  });
+}
+
+test("structural sharing returns a cyclic class instance from select as it is", () =>
+  inWorker(async ({ assert, QueryObserver, setup }) => {
+    class View {
+      constructor(n) {
+        this.n = n;
+        this.self = this;
+      }
+    }
+
+    let n = 0;
+    const { client, queries } = setup(() => Promise.resolve({ n: ++n }));
+    const observer = new QueryObserver(
+      client,
+      queries.profile.read.queryOptions({ select: (data) => new View(data.n) }),
+    );
+
+    for (const expected of [1, 2]) {
+      const { data } = await observer.refetch();
+
+      assert.ok(data instanceof View);
+      assert.equal(data.n, expected);
+      assert.equal(data.self, data);
+    }
+  }));
+
+test("structural sharing shares a cyclic plain object from select, and guards it", () =>
+  inWorker(async ({ assert, QueryObserver, setup }) => {
+    const selected = [];
+    let n = 0;
+    const { client, queries } = setup(() => Promise.resolve({ n: ++n }));
+    const observer = new QueryObserver(
+      client,
+      queries.profile.read.queryOptions({
+        select: (data) => {
+          const view = JSON.parse(data.n === 3 ? '{"__proto__":{"x":1}}' : "{}");
+
+          view.n = data.n;
+          view.self = view;
+          selected.push(view);
+
+          return view;
+        },
+      }),
+    );
+
+    // Nothing to share with yet.
+    const first = (await observer.refetch()).data;
+
+    assert.equal(first, selected[0]);
+
+    // TanStack's sharing, which ends at its depth limit.
+    const second = (await observer.refetch()).data;
+
+    assert.equal(second.n, 2);
+    assert.equal(Object.getPrototypeOf(second), Object.prototype);
+
+    // The key is found through the cycle, so the selected object replaces the old one whole.
+    const third = (await observer.refetch()).data;
+
+    assert.equal(third, selected[2]);
+    assert.equal(Object.getPrototypeOf(third), Object.prototype);
+    assert.equal(third.x, undefined);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(third, "__proto__").value, { x: 1 });
+  }));
+
+test("structural sharing reads a selected array by index, as TanStack copies it", () =>
+  inWorker(async ({ assert, QueryObserver, setup }) => {
+    let n = 0;
+    const { client, queries } = setup(() => Promise.resolve({ n: ++n }));
+    const observer = new QueryObserver(
+      client,
+      queries.profile.read.queryOptions({
+        select: (data) => {
+          const rows = JSON.parse(data.n === 2 ? '[{"__proto__":{"x":1}}]' : "[{}]");
+
+          // An iterator that yields nothing hides the row from a walk that iterates.
+          Object.defineProperty(rows, Symbol.iterator, { value: function* () {} });
+
+          return rows;
+        },
+      }),
+    );
+
+    await observer.refetch();
+
+    // Indexed, not destructured: destructuring would use the empty iterator.
+    const row = (await observer.refetch()).data[0];
+
+    assert.equal(Object.getPrototypeOf(row), Object.prototype);
+    assert.equal(row.x, undefined);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(row, "__proto__").value, { x: 1 });
+  }));
 
 test("refetchOnMount is false while hydrating, then the client default, else true; overrides win", () => {
   const client = new QueryClient();
