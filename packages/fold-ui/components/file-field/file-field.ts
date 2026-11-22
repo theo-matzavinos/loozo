@@ -4,9 +4,10 @@ import { cn } from "../cn";
 
 /**
  * A one-file picker over Origami's File field: write a FileFieldButton or a FileFieldDropZone
- * around a hidden FileFieldInput, and a FileFieldValue for the chosen file's name and size. It
- * lays them out in a wrapping row, so a button and its value share a line and a full-width zone
- * puts the value under it.
+ * around a hidden FileFieldInput, and a FileFieldValue for the chosen file's name and size,
+ * optionally with a FileFieldClear inside it to empty the field. It lays them out in a wrapping
+ * row, so a button and its value share a line, a narrow row puts the value under the button, and a
+ * full-width zone puts it under the zone.
  *
  * @example
  * ```html
@@ -16,7 +17,9 @@ import { cn } from "../cn";
  *     <label fold__FileFieldButton>
  *       Choose file <input fold__FileFieldInput accept=".pdf,.jpg,.jpeg,.png" />
  *     </label>
- *     <p fold__FileFieldValue></p>
+ *     <p fold__FileFieldValue>
+ *       <button fold__FileFieldClear aria-label="Remove the invoice"></button>
+ *     </p>
  *   </div>
  * </div>
  * ```
