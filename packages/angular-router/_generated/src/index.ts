@@ -3,7 +3,8 @@ export { owned } from "./owned.js";
 export { effectivePath, nativePath } from "./native-path.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 export { provideActiveRouteHydration } from "./hydration.js";
-export { injectNavigationBase } from "./base.js";
+export { injectNavigationState } from "./base.js";
+export type { NavigationState } from "./base.js";
 export { compose } from "./compose.js";
 export type { Composition } from "./compose.js";
 export type { ActiveHandle, ActiveRoute, RouteTypeEntry, RouteTypeMap } from "./active.js";
@@ -38,10 +39,11 @@ import {
   type FragmentsOf,
   type TitleOf,
 } from "@loozo/angular-router/_core";
-import { injectNavigationBase } from "./base.js";
+import { injectNavigationState, type NavigationState } from "./base.js";
 import { compose, type Composition } from "./compose.js";
 import { observeRecord, type RouteView } from "./handle.js";
 import { destinationOf } from "./inputs.js";
+import { retainedValues } from "./retain.js";
 
 type DataOf<Target> = Target extends { readonly __data?: infer Data } ? Readonly<Data> : never;
 type IsUnion<Value, Whole = Value> = Value extends unknown
@@ -197,8 +199,10 @@ export interface DestinationNavigation {
  * in the branch; a branch root has none), as generation resolved it; or a genuine
  * destination imported from any `destination.generated.ts`, never a string path.
  * `params`, `search` and `fragment` are the destination's complete explicit
- * values; a destination in a named outlet takes params only, and its query and
- * fragment stay the page's. `close: true`, with no values, closes the named-outlet
+ * values, except that a retained search key the `search` record leaves out keeps
+ * its current value while the current URL is inside the key's owner; an explicit
+ * `undefined` drops it. A destination in a named outlet takes params only, and its
+ * query and fragment stay the page's. `close: true`, with no values, closes the named-outlet
  * branch of this declaration or of the `to` destination.
  *
  * The URL is composed with the current one: navigating the primary path keeps each
@@ -338,12 +342,12 @@ export function injectGeneratedRoute<
 >(route: Target, up?: Parent): Handle<Target, Parent> & Members {
   const router = inject(Router);
   const destroy = inject(DestroyRef);
-  const base = injectNavigationBase();
+  const current = injectNavigationState();
   const own = destinationOf(route);
   const view = observeRecord(own, inject(ActivatedRoute), router, (release) => {
     destroy.onDestroy(release);
   });
-  const handle = createDestinationHandle(own, up, router, view, base);
+  const handle = createDestinationHandle(own, up, router, view, current);
   const slot = routeMetadata(route).extension;
 
   if (slot?.declared) {
@@ -369,11 +373,18 @@ export function addMembers(
   );
 }
 
+/** A primary or branch destination to open, its caller's URL values, and their validated URL. */
+interface Opened {
+  readonly destination: Destination<AnyRoute>;
+  readonly values: Readonly<Record<string, unknown>>;
+  readonly url: string;
+}
+
 /**
  * The handle of the declaration whose destination is `own`, over the signals of one
- * activated record. `up` is the destination of its `..` target, when it has one. `base`
- * returns the URL link and navigate compose with; it injects nothing, so the handle works
- * outside an injection context.
+ * activated record. `up` is the destination of its `..` target, when it has one. `current`
+ * returns the URL link and navigate compose with and retain from, with that URL's owners;
+ * it injects nothing, so the handle works outside an injection context.
  */
 export function createDestinationHandle<
   Target extends AnyRoute,
@@ -383,12 +394,13 @@ export function createDestinationHandle<
   up: Parent | undefined,
   router: Router,
   view: RouteView,
-  base: () => UrlTree,
+  current: () => NavigationState,
 ): Handle<Target, Parent> {
-  // Splits the one target record into the destination's URL, or the branch it closes, and
-  // behavior options. Validates everything before Angular is called.
+  // Splits the one target record into the destination with its URL values, or the branch it
+  // closes, and behavior options. Validates everything, the URL values through createUrl,
+  // without reading the router.
   function resolve(args: readonly unknown[]): {
-    target: { readonly url: string } | { readonly close: Branch };
+    target: Opened | { readonly close: Branch };
     options: Record<string, unknown>;
   } {
     const record = args[0];
@@ -440,10 +452,9 @@ export function createDestinationHandle<
     }
 
     if (!close) {
-      return {
-        target: { url: createUrl(target, values as unknown as UrlValues<AnyRoute>) },
-        options,
-      };
+      const url = createUrl(target, values as unknown as UrlValues<AnyRoute>);
+
+      return { target: { destination: target, values, url }, options };
     }
 
     if (Object.keys(values).length > 0) {
@@ -459,16 +470,26 @@ export function createDestinationHandle<
     return { target: { close: url.branch }, options };
   }
 
-  function composed(target: { readonly url: string } | { readonly close: Branch }): UrlTree {
+  // Reads the current URL and its owners once: retention and composition share that read.
+  function composed(target: Opened | { readonly close: Branch }): UrlTree {
+    const state = current();
     let input: Composition;
 
     if ("close" in target) {
       input = target;
     } else {
-      input = { open: router.parseUrl(target.url) };
+      const retained = retainedValues(target.destination, target.values, state);
+      let url = target.url;
+
+      // Only when a retained key was copied: its parsed value is written like a caller's.
+      if (retained !== target.values) {
+        url = createUrl(target.destination, retained as unknown as UrlValues<AnyRoute>);
+      }
+
+      input = { open: router.parseUrl(url) };
     }
 
-    return compose(base(), input);
+    return compose(state.tree, input);
   }
 
   return {

@@ -5,8 +5,10 @@ export {
   enumParam,
   withFallback,
   arrayParam,
+  retained,
   codecFallback,
   isArrayCodec,
+  isRetained,
 } from "./codecs.js";
 export type { ParamCodec } from "./codecs.js";
 export { defineDestination, defineRoute, routeMetadata } from "./route.js";

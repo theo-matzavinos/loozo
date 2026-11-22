@@ -9,7 +9,7 @@
 //     +index (index), profile
 //   outside, blocked
 import assert from "node:assert/strict";
-import { cp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -212,6 +212,9 @@ export default class Shell {
       }
     }
   }
+
+  // The shell replaces the app's own root component, which may link to routes this tree drops.
+  await rm(join(directory, "src/app.ts"), { force: true });
 
   const providers = initializer
     ? ".providers([provideEnvironmentInitializer(() => mark('authenticated:init'))])"

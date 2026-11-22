@@ -6,9 +6,12 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import {
   authoredRouteOf,
+  codecFallback,
   createRouteFactory,
   defineDestination,
   destinationRecord,
+  isArrayCodec,
+  isRetained,
   routeContributions,
   routeMetadata,
   routeOf,
@@ -35,6 +38,7 @@ test("plain Node public namespace and concrete product consumer", () => {
     "enumParam",
     "localeUrls",
     "numberParam",
+    "retained",
     "serverRoutePath",
     "stringParam",
     "withFallback",
@@ -1761,7 +1765,7 @@ test("generated callbacks and handles run on route copies without a route set", 
     parseUrl: (url) => serializer.parse(url),
     navigateByUrl: (tree, options) => Promise.resolve({ url: serializer.serialize(tree), options }),
   };
-  const base = () => serializer.parse("/");
+  const base = () => ({ tree: serializer.parse("/"), owners: new Set() });
   const view = { params: null, search: null, data: null, title: null };
   const handle = createDestinationHandle(item, layout, router, view, base);
   const href = (tree) => serializer.serialize(tree);
@@ -1792,6 +1796,211 @@ test("generated callbacks and handles run on route copies without a route set", 
       /^TypeError: Expected a genuine destination$/,
     );
   }
+});
+
+test("retained wraps a search codec outermost and keeps its fallback and array behavior", () => {
+  const { retained } = root;
+  const tags = retained(arrayParam(enumParam(["a", "b"])));
+  const page = retained(withFallback(numberParam, 1));
+  const workspace = retained(stringParam);
+  const list = defineRoute("list", { search: { tags, page, workspace } });
+
+  // Reads are the wrapped codec's: an array key reads every value, a fallback key its fallback.
+  assert.equal(codecFallback(page)?.value, 1);
+  assert.equal(isArrayCodec(tags), true);
+  assert.equal(isArrayCodec(page), false);
+  assert.equal(isRetained(tags) && isRetained(page) && isRetained(workspace), true);
+  assert.equal(isRetained(stringParam), false);
+  assert.equal(page.parse("3"), 3);
+  assert.equal(workspace.stringify("acme"), "acme");
+  // createUrl is pure: it writes what it's given, arrays one pair per element.
+  assert.equal(
+    createUrl(list, { search: { tags: ["a", "b"], page: 2, workspace: "acme" } }),
+    "/list?page=2&tags=a&tags=b&workspace=acme",
+  );
+  assert.equal(createUrl(list, {}), "/list");
+  assert.throws(
+    () => createUrl(list, { search: { tags: "a" } }),
+    /Search array requires an array: tags/,
+  );
+
+  assert.throws(() => retained(workspace), {
+    name: "TypeError",
+    message: "retained cannot wrap a codec that is already retained",
+  });
+  assert.throws(() => withFallback(workspace, "x"), {
+    name: "TypeError",
+    message: "withFallback cannot wrap a retained codec",
+  });
+  assert.throws(() => arrayParam(workspace), {
+    name: "TypeError",
+    message: "arrayParam cannot wrap a retained codec",
+  });
+  assert.throws(() => defineRoute("items/$id", { params: { id: retained(numberParam) } }), {
+    name: "TypeError",
+    message: "retained codecs are search-only",
+  });
+  assert.throws(() => retained({ parse: () => 1 }), {
+    name: "TypeError",
+    message: "Codec must have callable parse and stringify methods",
+  });
+});
+
+test("link and navigate copy an omitted retained key from the current URL inside its owner", async () => {
+  await import("@angular/compiler");
+
+  const { createDestinationHandle } = await import("@loozo/angular-router/_generated");
+  const { DefaultUrlSerializer } = await import("@angular/router");
+  const { retained } = root;
+  const serializer = new DefaultUrlSerializer();
+  const workspace = defineDestination(
+    "",
+    {
+      search: {
+        workspace: retained(stringParam),
+        tags: retained(arrayParam(stringParam)),
+        page: retained(withFallback(numberParam, 1)),
+        plain: stringParam,
+      },
+    },
+    "retain-workspace",
+  );
+  const orders = defineDestination("orders", { parent: workspace }, "retain-orders");
+  const order = defineDestination(
+    "orders/$id",
+    { parent: workspace, params: { id: numberParam }, search: { tab: retained(stringParam) } },
+    "retain-order",
+  );
+  const login = defineDestination("login", {}, "retain-login");
+  // An unrelated owner of a same-named retained key.
+  const other = defineDestination(
+    "other",
+    { search: { workspace: retained(stringParam) } },
+    "retain-other",
+  );
+  const otherChild = defineDestination("child", { parent: other }, "retain-other-child");
+  let state = {
+    tree: serializer.parse("/orders?workspace=acme&tags=a&tags=b&page=3&plain=p"),
+    owners: new Set([orders, workspace]),
+  };
+  const calls = [];
+  const router = {
+    parseUrl: (url) => serializer.parse(url),
+    navigateByUrl: (tree, options) => {
+      calls.push([serializer.serialize(tree), options]);
+
+      return Promise.resolve(true);
+    },
+  };
+  const view = { params: null, search: null, data: null, title: null };
+  const page = createDestinationHandle(orders, undefined, router, view, () => state);
+  // An ancestor's handle: which handle calls doesn't matter.
+  const layout = createDestinationHandle(workspace, undefined, router, view, () => state);
+  const href = (tree) => serializer.serialize(tree);
+
+  assert.equal(
+    href(page.link({ to: order, params: { id: 7 } })),
+    "/orders/7?page=3&tags=a&tags=b&workspace=acme",
+  );
+  assert.equal(
+    href(layout.link({ to: order, params: { id: 7 } })),
+    "/orders/7?page=3&tags=a&tags=b&workspace=acme",
+  );
+  assert.equal(href(page.link({})), "/orders?page=3&tags=a&tags=b&workspace=acme");
+  // Own entries are the caller's: a value replaces, undefined drops; unretained keys aren't copied.
+  assert.equal(
+    href(page.link({ search: { workspace: "beta", tags: undefined, page: undefined } })),
+    "/orders?workspace=beta",
+  );
+  assert.equal(
+    href(page.link({ search: { plain: "q" } })),
+    "/orders?page=3&plain=q&tags=a&tags=b&workspace=acme",
+  );
+  // A destination outside the owner, or under an unrelated owner of the same name, has none.
+  assert.equal(href(page.link({ to: login })), "/login");
+  assert.equal(href(page.link({ to: otherChild })), "/other/child");
+  // navigate retains like link, with its behavior options passed on.
+  await page.navigate({ to: order, params: { id: 8 }, search: { tab: "x" }, replaceUrl: true });
+  assert.deepEqual(calls.at(-1), [
+    "/orders/8?page=3&tab=x&tags=a&tags=b&workspace=acme",
+    { replaceUrl: true },
+  ]);
+
+  // Only present valid values: a repeated scalar or an invalid value copies nothing; a
+  // fallback is never copied. `tags` holds strings, so `x` is valid and copied.
+  state = {
+    tree: serializer.parse("/orders?workspace=a&workspace=b&tags=x&page=abc"),
+    owners: state.owners,
+  };
+  assert.equal(href(page.link({ to: order, params: { id: 7 } })), "/orders/7?tags=x");
+  state = { tree: serializer.parse("/orders"), owners: state.owners };
+  assert.equal(href(page.link({ to: order, params: { id: 7 } })), "/orders/7");
+
+  // An array is all or nothing: one invalid element drops the whole key, without a throw,
+  // while another retained key still copies.
+  const board = defineDestination(
+    "board",
+    {
+      search: {
+        lanes: retained(arrayParam(enumParam(["a", "b"]))),
+        view: retained(stringParam),
+      },
+    },
+    "retain-board",
+  );
+  const card = defineDestination("card", { parent: board }, "retain-board-card");
+  const boardPage = createDestinationHandle(board, undefined, router, view, () => state);
+
+  state = { tree: serializer.parse("/board?lanes=a&lanes=b&view=v"), owners: new Set([board]) };
+  assert.equal(href(boardPage.link({ to: card })), "/board/card?lanes=a&lanes=b&view=v");
+  state = {
+    tree: serializer.parse("/board?lanes=a&lanes=invalid&view=v"),
+    owners: new Set([board]),
+  };
+  assert.equal(href(boardPage.link({ to: card })), "/board/card?view=v");
+  await boardPage.navigate({ to: card });
+  assert.deepEqual(calls.at(-1), ["/board/card?view=v", {}]);
+
+  // Values never pair with owners of another URL: no owners, nothing retained.
+  state = { tree: serializer.parse("/orders?workspace=acme"), owners: new Set() };
+  assert.equal(href(page.link({ to: order, params: { id: 7 } })), "/orders/7");
+
+  // The unrelated owner's key is copied only inside that owner.
+  state = { tree: serializer.parse("/other?workspace=beta"), owners: new Set([other]) };
+  assert.equal(href(page.link({ to: otherChild })), "/other/child?workspace=beta");
+  assert.equal(href(page.link({ to: order, params: { id: 7 } })), "/orders/7");
+
+  // The caller's record keeps createUrl's checks.
+  state = {
+    tree: serializer.parse("/orders?workspace=acme"),
+    owners: new Set([orders, workspace]),
+  };
+  assert.throws(
+    () => page.link({ search: { unknown: 1 } }),
+    /^TypeError: Unknown search values key: unknown$/,
+  );
+  assert.throws(
+    () => page.link({ search: [] }),
+    /^TypeError: Search values must be an own record$/,
+  );
+  assert.throws(
+    () => page.link({ search: Object.create({ workspace: "x" }) }),
+    /^TypeError: Search values cannot contain inherited entries$/,
+  );
+
+  // Invalid values throw before the current URL is read: nothing reaches the router.
+  let reads = 0;
+  const counted = createDestinationHandle(orders, undefined, router, view, () => {
+    reads += 1;
+
+    return state;
+  });
+
+  assert.throws(() => counted.link({ search: { unknown: 1 } }), TypeError);
+  assert.throws(() => counted.link({ to: order, params: { id: "x" } }), Error);
+  assert.equal(reads, 0);
+  counted.link({ to: order, params: { id: 7 } });
+  assert.equal(reads, 1);
 });
 
 test("extension record stamps carry the copy's runtime and chain, and handle members stay lazy", async () => {
@@ -2327,7 +2536,7 @@ test("handles close branches by metadata and take params only in a named outlet"
     },
   };
   let current = "/products/(list//detail:item/3)(chat:chat/7)?sort=price";
-  const base = () => serializer.parse(current);
+  const base = () => ({ tree: serializer.parse(current), owners: new Set() });
   const view = { params: null, search: null, data: null, title: null };
   const products = defineDestination("products", { search: { sort: stringParam } }, "products");
   const list = defineDestination("list", { parent: products }, "list");
@@ -2418,7 +2627,7 @@ test("handle writes reject a zero-segment group before navigating and take [] in
       return Promise.resolve(true);
     },
   };
-  const base = () => serializer.parse("/products/list?sort=price");
+  const base = () => ({ tree: serializer.parse("/products/list?sort=price"), owners: new Set() });
   const view = { params: null, search: null, data: null, title: null };
   const products = defineDestination("products", { search: { sort: stringParam } }, "products");
   const list = defineDestination("list", { parent: products }, "list");
@@ -2497,24 +2706,47 @@ test("handle writes reject a zero-segment group before navigating and take [] in
   }
 });
 
-test("the navigation base reads the browser URL before the first success, the router state after", async () => {
+test("the navigation state reads the browser URL before the first success, the router state after, with owners of that same URL", async () => {
   await import("@angular/compiler");
 
-  const { injectNavigationBase } = await import("@loozo/angular-router/_generated");
+  const { injectNavigationState, record } = await import("@loozo/angular-router/_generated");
   const { Injector, PLATFORM_ID, runInInjectionContext, signal } = await import("@angular/core");
   const { Location } = await import("@angular/common");
   const { DefaultUrlSerializer, Router } = await import("@angular/router");
   const serializer = new DefaultUrlSerializer();
+  const layout = defineDestination(
+    "",
+    { search: { workspace: root.retained(stringParam) } },
+    "state-layout",
+  );
+  const orders = defineDestination("orders", { parent: layout }, "state-orders");
+  const other = defineDestination("other", {}, "state-other");
+  // A native wrapper between generated records, as a pathless group's emitted table has none.
+  const snapshotOf = (...destinations) => {
+    let child;
+
+    for (const destination of destinations.reverse()) {
+      child = {
+        outlet: "primary",
+        routeConfig: destination ? { ...record(destination) } : {},
+        children: child ? [child] : [],
+      };
+    }
+
+    return { outlet: "primary", routeConfig: null, children: [child] };
+  };
   const success = signal(null);
   const router = {
     lastSuccessfulNavigation: success,
     parseUrl: (url) => serializer.parse(url),
     serializeUrl: (tree) => serializer.serialize(tree),
-    routerState: { snapshot: { url: "" } },
+    routerState: {
+      snapshot: { url: "", root: { outlet: "primary", routeConfig: null, children: [] } },
+    },
   };
+  let browserPath = "/orders?workspace=acme#f";
   const location = {
-    path: (fragment) =>
-      fragment ? "/products/(list//detail:item/3)?a=1#f" : "/products/(list//detail:item/3)?a=1",
+    path: (fragment) => (fragment ? browserPath : browserPath.replace(/#.*$/, "")),
   };
   const make = (platform) =>
     runInInjectionContext(
@@ -2525,21 +2757,37 @@ test("the navigation base reads the browser URL before the first success, the ro
           { provide: PLATFORM_ID, useValue: platform },
         ],
       }),
-      injectNavigationBase,
+      injectNavigationState,
     );
   const browser = make("browser");
   const server = make("server");
+  const read = (state) => ({ url: serializer.serialize(state.tree), owners: [...state.owners] });
 
-  assert.equal(serializer.serialize(browser()), "/products/(list//detail:item/3)?a=1#f");
-  assert.equal(serializer.serialize(server()), "/");
+  // Angular's initial state: no owners in the browser without a seed; the router state on the server.
+  assert.deepEqual(read(browser()), { url: "/orders?workspace=acme#f", owners: [] });
+  assert.deepEqual(read(server()), { url: "/", owners: [] });
 
-  router.routerState.snapshot.url = "/plain(chat:chat/7)";
+  // The first navigation installed the state of the browser URL (fragment ignored): its owners.
+  router.routerState.snapshot = {
+    url: "/orders?workspace=acme#g",
+    root: snapshotOf(layout, undefined, orders),
+  };
+  assert.deepEqual(read(browser()), { url: "/orders?workspace=acme#f", owners: [orders, layout] });
+
+  // The browser URL moved on (eager updates) while that state stays: values and owners never mix.
+  browserPath = "/other?workspace=beta";
+  assert.deepEqual(read(browser()), { url: "/other?workspace=beta", owners: [] });
+
+  // After the first success, the router state's URL and owners, whatever the browser shows.
+  router.routerState.snapshot = { url: "/other?workspace=beta", root: snapshotOf(other) };
   success.set({ id: 1 });
-  assert.equal(serializer.serialize(browser()), "/plain(chat:chat/7)");
-  assert.equal(serializer.serialize(server()), "/plain(chat:chat/7)");
+  assert.deepEqual(read(browser()), { url: "/other?workspace=beta", owners: [other] });
+  assert.deepEqual(read(server()), { url: "/other?workspace=beta", owners: [other] });
+  // One owner walk per state.
+  assert.equal(browser().owners, server().owners);
 
   // The function injects nothing; creating it needs an injection context.
-  assert.throws(() => injectNavigationBase(), /NG0203/);
+  assert.throws(() => injectNavigationState(), /NG0203/);
 });
 
 test("without a locale table, localeUrls checks its values and returns an empty list", () => {

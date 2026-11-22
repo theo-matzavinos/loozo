@@ -2618,6 +2618,215 @@ assert.deepEqual(
   ].sort(),
 );
 
+// Retained search keys (SPEC §6) in a built browser app: +workspace owns retained `workspace`
+// and `tags`; other, unrelated, owns a retained `workspace` of its own. Pages and the shell
+// expose their handles, so every handle and target form is read in the browser.
+const retainedApp = join(evidence, "retained");
+
+await cp(join(repository, "examples/angular-router"), retainedApp, {
+  recursive: true,
+  filter: (path) =>
+    !/(?:^|\/)(?:node_modules|dist|\.angular|generated|\+home)(?:\/|$)/.test(path) &&
+    !path.endsWith("route.generated.ts") &&
+    !path.endsWith("destination.generated.ts"),
+});
+await writeFile(join(retainedApp, "angular.json"), JSON.stringify(configuration));
+await symlink(join(fixture, "node_modules"), join(retainedApp, "node_modules"), "dir");
+
+const retainedPage = (name) => `import { Component } from "@angular/core";
+import { RouterOutlet } from "@angular/router";
+import { injectRoute } from "./route.generated.js";
+
+@Component({ imports: [RouterOutlet], template: '<p id="${name}">${name}</p><router-outlet />' })
+export default class Page {
+  constructor() {
+    const proof = ((window as any).retained ??= {});
+
+    (proof.handles ??= {})["${name}"] = injectRoute();
+  }
+}
+`;
+
+for (const [directory, expression, parent] of [
+  [
+    "+workspace",
+    "defineRoute('', { search: { workspace: retained(stringParam), tags: retained(arrayParam(stringParam)) } })",
+    undefined,
+  ],
+  ["+workspace/orders", "defineRoute('orders', { parent })", "../definition.js"],
+  [
+    "+workspace/orders/$id",
+    "defineRoute('$id', { parent, params: { id: numberParam } })",
+    "../definition.js",
+  ],
+  ["login", "defineRoute('login', {})", undefined],
+  ["other", "defineRoute('other', { search: { workspace: retained(stringParam) } })", undefined],
+  ["other/child", "defineRoute('child', { parent })", "../definition.js"],
+]) {
+  await mkdir(join(retainedApp, "src/routes", directory), { recursive: true });
+  await writeFile(
+    join(retainedApp, "src/routes", directory, "definition.ts"),
+    `import { arrayParam, defineRoute, numberParam, retained, stringParam } from '@loozo/angular-router';\n${parent ? `import parent from '${parent}';\n` : ""}export default ${expression};\n`,
+  );
+  await writeFile(
+    join(retainedApp, "src/routes", directory, "page.ts"),
+    retainedPage(directory.replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "")),
+  );
+}
+
+await writeFile(
+  join(retainedApp, "src/shell.ts"),
+  `import { Component, inject } from "@angular/core";
+import { Router, RouterOutlet } from "@angular/router";
+import { injectActiveRoute } from "../generated/routes.generated.js";
+import { destination as order } from "./routes/+workspace/orders/$id/destination.generated.js";
+import { destination as login } from "./routes/login/destination.generated.js";
+import { destination as otherChild } from "./routes/other/child/destination.generated.js";
+
+@Component({ selector: "proof-app", imports: [RouterOutlet], template: "<router-outlet />" })
+export default class Shell {
+  constructor() {
+    const proof = ((window as any).retained ??= {});
+
+    proof.router = inject(Router);
+    proof.active = injectActiveRoute();
+    proof.destinations = { order, login, otherChild };
+  }
+}
+`,
+);
+await build({}, retainedApp);
+
+const { staticServer: retainedServer } = await import("./sibling-groups.mjs");
+const retainedHost = await retainedServer(retainedApp);
+const retainedBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+const retainedObservations = {};
+
+try {
+  const tab = await (await retainedBrowser.newContext({ colorScheme: "dark" })).newPage();
+  const retainedErrors = [];
+
+  tab.on("pageerror", (error) => retainedErrors.push(String(error)));
+
+  // Navigates by URL and waits for the commit and the page that exposes `handle`.
+  async function open(url, handle) {
+    await tab.evaluate((target) => window.retained.router.navigateByUrl(target), url);
+    await tab.waitForFunction(
+      ([target, name]) =>
+        window.retained.router.url === target && window.retained.handles?.[name] !== undefined,
+      [url, handle],
+    );
+  }
+
+  // Every href a case reads, from the named handle, the layout's and the shell's active handle.
+  function read(from) {
+    return tab.evaluate((name) => {
+      const { router, active, destinations, handles } = window.retained;
+      const href = (tree) => router.serializeUrl(tree);
+      const handle = handles[name];
+
+      return {
+        page: href(handle.link({ to: destinations.order, params: { id: 7 } })),
+        layout: href(handles.workspace.link({ to: destinations.order, params: { id: 7 } })),
+        active: href(active().link({ to: destinations.order, params: { id: 7 } })),
+        login: href(handle.link({ to: destinations.login })),
+        otherChild: href(handle.link({ to: destinations.otherChild })),
+      };
+    }, from);
+  }
+
+  await tab.goto(`${retainedHost.base}/login`);
+  await tab.waitForFunction(() => window.retained?.handles?.login !== undefined);
+
+  await open("/orders?workspace=acme&tags=a&tags=b", "workspace-orders");
+
+  const inside = await read("workspace-orders");
+  const own = await tab.evaluate(() => {
+    const { router, handles } = window.retained;
+    const orders = handles["workspace-orders"];
+
+    return {
+      own: router.serializeUrl(orders.link({})),
+      replaced: router.serializeUrl(orders.link({ search: { workspace: "beta" } })),
+      dropped: router.serializeUrl(orders.link({ search: { workspace: undefined, tags: [] } })),
+    };
+  });
+
+  // navigate retains like link; the detail's ".." keeps both keys too.
+  await tab.evaluate(() => {
+    const { destinations, handles } = window.retained;
+
+    return handles["workspace-orders"].navigate({ to: destinations.order, params: { id: 7 } });
+  });
+  await tab.waitForFunction(() => window.retained.handles["workspace-orders-id"] !== undefined);
+
+  const detail = await tab.evaluate(() => {
+    const { router, handles } = window.retained;
+
+    return {
+      url: router.url,
+      up: router.serializeUrl(handles["workspace-orders-id"].link({ to: ".." })),
+    };
+  });
+
+  // A repeated scalar copies nothing; a valid key alone is copied (`tags` holds strings, so
+  // `x` is valid). The all-or-nothing array rule is covered in tests/root.test.mjs.
+  await open("/orders?workspace=a&workspace=b&tags=x", "workspace-orders");
+
+  const repeated = await read("workspace-orders");
+
+  // Inside other, only other's own workspace follows, and only into its subtree.
+  await open("/other?workspace=beta", "other");
+
+  const unrelated = await tab.evaluate(() => {
+    const { router, active, destinations, handles } = window.retained;
+    const href = (tree) => router.serializeUrl(tree);
+
+    return {
+      page: href(handles.other.link({ to: destinations.order, params: { id: 7 } })),
+      active: href(active().link({ to: destinations.order, params: { id: 7 } })),
+      otherChild: href(handles.other.link({ to: destinations.otherChild })),
+    };
+  });
+
+  Object.assign(retainedObservations, { inside, own, detail, repeated, unrelated, retainedErrors });
+  await tab.screenshot({ path: join(evidence, "retained.png") });
+
+  assert.deepEqual(inside, {
+    page: "/orders/7?tags=a&tags=b&workspace=acme",
+    layout: "/orders/7?tags=a&tags=b&workspace=acme",
+    active: "/orders/7?tags=a&tags=b&workspace=acme",
+    login: "/login",
+    otherChild: "/other/child",
+  });
+  assert.deepEqual(own, {
+    own: "/orders?tags=a&tags=b&workspace=acme",
+    replaced: "/orders?tags=a&tags=b&workspace=beta",
+    dropped: "/orders",
+  });
+  assert.deepEqual(detail, {
+    url: "/orders/7?tags=a&tags=b&workspace=acme",
+    up: "/orders?tags=a&tags=b&workspace=acme",
+  });
+  assert.deepEqual(repeated, {
+    page: "/orders/7?tags=x",
+    layout: "/orders/7?tags=x",
+    active: "/orders/7?tags=x",
+    login: "/login",
+    otherChild: "/other/child",
+  });
+  assert.deepEqual(unrelated, {
+    page: "/orders/7",
+    active: "/orders/7",
+    otherChild: "/other/child?workspace=beta",
+  });
+  assert.deepEqual(retainedErrors, []);
+} finally {
+  await writeFile(join(evidence, "retained.json"), JSON.stringify(retainedObservations, null, 2));
+  await retainedBrowser.close();
+  await retainedHost.close();
+}
+
 // Sibling pathless groups (SPEC §10): each URL reaches the group whose routes own it, and a group
 // that doesn't own it calls no matching guard and loads no table. Each URL opens cold, so its
 // guard calls, evaluated modules and table requests are its own.

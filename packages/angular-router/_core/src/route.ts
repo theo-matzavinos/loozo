@@ -1,6 +1,7 @@
 import {
   codecFallback,
   isArrayCodec,
+  isRetained,
   validateCodec,
   type ParamCodec,
   type PathCodec,
@@ -130,6 +131,10 @@ function copyCodecs(value: unknown, path: boolean): Readonly<Record<string, Para
 
     if (path && isArrayCodec(codec)) {
       throw new TypeError("arrayParam codecs are search-only");
+    }
+
+    if (path && isRetained(codec)) {
+      throw new TypeError("retained codecs are search-only");
     }
 
     result[key] = codec;
