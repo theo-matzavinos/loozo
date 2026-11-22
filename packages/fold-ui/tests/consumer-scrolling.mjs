@@ -672,10 +672,15 @@ async function run(browser, base, engine) {
       const seen = await page.evaluate(look, root);
 
       // Origami also measures on pointer entry: tell a missing resize measurement from none at all.
-      await page.hover(viewport, { position: { x: 20, y: 20 } });
-      await page.waitForTimeout(300);
+      let hovered;
 
-      const hovered = await page.evaluate(look, root);
+      try {
+        await page.hover(viewport, { position: { x: 20, y: 20 }, timeout: 1000 });
+        await page.waitForTimeout(300);
+        hovered = await page.evaluate(look, root);
+      } catch (error) {
+        hovered = { hoverFailed: String(error).split("\n")[0] };
+      }
 
       assert.fail(`${label} overflows: ${JSON.stringify({ seen, hovered })}`);
     });
