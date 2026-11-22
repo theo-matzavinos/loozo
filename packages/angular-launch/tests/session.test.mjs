@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, readFile, readdir, writeFile, stat, rm, rename } from "node:fs/promises";
-import { dirname, resolve, relative } from "node:path";
+import { dirname, resolve, relative, sep } from "node:path";
 import { generate, createGenerationSession } from "../dist/generation/index.js";
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
@@ -113,7 +113,8 @@ async function snapshot(root) {
           stat(path, { bigint: true }),
         ]);
 
-        files[relative(root, path)] = { bytes, mtime: String(info.mtimeNs) };
+        // Keyed with / on every platform, as the tests look files up.
+        files[relative(root, path).split(sep).join("/")] = { bytes, mtime: String(info.mtimeNs) };
       }
     }
   }

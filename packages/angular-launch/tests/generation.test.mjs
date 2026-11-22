@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import ts from "typescript";
 import { mkdir, writeFile, readFile, readdir, stat, rm, rename, symlink } from "node:fs/promises";
-import { resolve, dirname, relative } from "node:path";
+import { resolve, dirname, join, relative, sep } from "node:path";
 import { generate, createGenerationSession } from "../dist/generation/index.js";
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
@@ -99,7 +99,8 @@ async function snapshot(root) {
       if (entry.isDirectory()) {
         await visit(path);
       } else if (entry.isFile() && entry.name.includes(".generated.")) {
-        result[relative(root, path)] = {
+        // Keyed with / on every platform, as the tests look files up.
+        result[relative(root, path).split(sep).join("/")] = {
           bytes: await readFile(path, "utf8"),
           mtime: (await stat(path, { bigint: true })).mtimeNs.toString(),
         };
@@ -492,8 +493,10 @@ test("only __proto__ namespace/procedure is reserved before cold publication, up
   ]) {
     const root = await fixture();
     const authored = leaf("left", remote);
+    // Diagnostics name the file by its native path.
     const expected = (error) =>
-      error.message.includes("src/routes/left/route.ts:") && error.message.includes(diagnostic);
+      error.message.includes(`${join("src", "routes", "left", "route.ts")}:`) &&
+      error.message.includes(diagnostic);
 
     await put(root, "src/routes/left/route.ts", authored);
     await rejectUnchanged(root, expected);
@@ -604,7 +607,7 @@ export const optionalSchema:Schema<string,string>|undefined=Math.random()>0.5?sc
   assert.deepEqual(ts.getPreEmitDiagnostics(consumer), []);
 
   const expected = (error) =>
-    error.message.includes("src/routes/left/route.ts:") &&
+    error.message.includes(`${join("src", "routes", "left", "route.ts")}:`) &&
     error.message.includes("Explicit query input must have a concrete Standard Schema type");
 
   await rejectUnchanged(root, expected);
@@ -628,7 +631,7 @@ test("namespaces are unique across the app, and a route from another extension f
           "src/routes/left/route.ts",
           leaf("left", `({query}) => ({session: {x: query({handler: () => 7})}})`),
         ),
-      /Duplicate RPC namespace: session; also declared in .*\+auth\/route\.ts/,
+      /Duplicate RPC namespace: session; also declared in .*\+auth[\\/]route\.ts/,
     ],
     [
       "sibling",
@@ -706,7 +709,7 @@ export const defineRoute = createRouteFactory({ steps: [{ name: 'tag', serverOnl
           `import { Component } from '@angular/core'; @Component({selector:'fixture-tagged',template:'ok'}) export default class Page {}`,
         );
       },
-      /src\/routes\/tagged\/route\.ts:.*Route uses a route extension that isn't Launch's defineRoute/,
+      /src[\\/]routes[\\/]tagged[\\/]route\.ts:.*Route uses a route extension that isn't Launch's defineRoute/,
     ],
   ];
 

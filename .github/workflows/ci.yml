@@ -278,17 +278,8 @@ jobs:
           pnpm_config_verify_deps_before_run: error
       - if: env.REACHED == 'true'
         run: pnpm --filter @loozo/angular-router --filter @loozo/angular-launch run build
-      # DIAGNOSTIC (temporary): one file at a time, so a file that never exits names itself.
       - if: env.REACHED == 'true'
-        run: |
-          status=0
-          for f in tests/*.test.mjs; do
-            echo "=== $f"
-            start=$SECONDS
-            timeout 300 node --test --experimental-test-module-mocks --test-timeout=240000 "$f" || { code=$?; status=1; echo "=== $f FAILED exit $code"; }
-            echo "=== $f took $((SECONDS - start))s"
-          done
-          exit $status
+        run: pnpm test
 
   # Launch's example, built and served, proven in Chromium: SSR, hydration without a second RPC,
   # outcomes, streams and channels, then its prerender builds. verify.mjs starts and stops the

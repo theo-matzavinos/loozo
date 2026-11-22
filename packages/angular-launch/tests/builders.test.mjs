@@ -7,7 +7,7 @@ import { createServer, get } from "node:http";
 import { test } from "node:test";
 import { mkdir, readFile, readdir, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 const packageDirectory = resolve(import.meta.dirname, "..");
 const scratch = resolve(packageDirectory, "../../examples/angular-launch/.scratch");
@@ -69,7 +69,11 @@ async function snapshot() {
           stat(path, { bigint: true }),
         ]);
 
-        files[relative(fixture, path)] = { bytes, mtime: String(info.mtimeNs) };
+        // Keyed with / on every platform, as the tests look files up.
+        files[relative(fixture, path).split(sep).join("/")] = {
+          bytes,
+          mtime: String(info.mtimeNs),
+        };
       }
     }
   }
