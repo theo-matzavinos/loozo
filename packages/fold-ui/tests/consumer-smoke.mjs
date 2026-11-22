@@ -8055,10 +8055,11 @@ try {
   // October 2026.
   {
     const box = (id) => `#${id} [data-slot=date-field-input]`;
+    const row = (id) => `${box(id)} > [data-slot=date-field-segments]`;
     // Every specimen's units alternate with literals, starting with a unit, so unit `index` is
-    // the box's child 2 × index + 1.
+    // the row's child 2 × index + 1.
     const segment = (id, index) =>
-      `${box(id)} > :nth-child(${2 * index + 1}) > [data-slot=date-field-segment]`;
+      `${row(id)} > :nth-child(${2 * index + 1}) > [data-slot=date-field-segment]`;
     const trigger = (id) => `#${id} [data-slot=date-picker-trigger]`;
     const content = (id) => `#${id} [data-slot=date-picker-content]`;
     const rect = (selector) =>
@@ -8132,8 +8133,8 @@ try {
       orange: "rgb(224, 144, 111)",
     };
 
-    // Each cell and literal of a box, its x and width at 0.5px, and the text gaps on either side
-    // of every literal between two units, from the text's own Range rects.
+    // Each cell and literal of a box's row, its x and width at 0.5px, and the text gaps on either
+    // side of every literal between two units, from the text's own Range rects.
     const boxGeometry = (id) =>
       page.evaluate((selector) => {
         const round = (value) => Math.round(value * 2) / 2;
@@ -8199,7 +8200,7 @@ try {
         }
 
         return { parts, cells, literals };
-      }, box(id));
+      }, row(id));
 
     // Server HTML, parsed by a page without scripts: the boxes, their cells and sizer lines, the
     // placeholder tokens, the closed pickers with no Calendar, and fold's two trigger markers.
@@ -8224,6 +8225,12 @@ try {
         );
       }
 
+      const rowTabIndexes = [];
+
+      for (const element of document.querySelectorAll("[data-slot=date-field-segments]")) {
+        rowTabIndexes.push(element.getAttribute("tabindex"));
+      }
+
       const triggers = {};
 
       for (const element of document.querySelectorAll("[data-slot=date-picker-trigger]")) {
@@ -8245,6 +8252,8 @@ try {
         units,
         sizers,
         tokens,
+        boxes: document.querySelectorAll("[data-slot=date-field-input]").length,
+        rowTabIndexes,
         triggers,
         haspopup: dueTrigger.getAttribute("aria-haspopup"),
         expanded: dueTrigger.getAttribute("aria-expanded"),
@@ -8265,6 +8274,9 @@ try {
 
     assert.deepEqual(dateServer.roles, ["group", "group", "group", "group"]);
     assert.deepEqual(dateServer.layouts, [true, true, true]);
+    // Every box's scrolling row is out of the Tab order from the server on.
+    assert.ok(dateServer.boxes > 0, "the server HTML has date field boxes");
+    assert.deepEqual(dateServer.rowTabIndexes, Array(dateServer.boxes).fill("-1"));
     assert.deepEqual(dateServer.units, {
       "df-birth": 3,
       "df-en-us": 3,
@@ -8419,6 +8431,41 @@ try {
     const filledBirth = await typeAndWatch("df-birth", "27102026");
 
     assert.deepEqual(await segmentTexts("df-birth"), ["27", "10", "2026"]);
+
+    // A focused digit unit's chip hugs its text with 2px each side, centred in its cell, so it
+    // stays clear of both separators; focusing it moves nothing.
+    for (let index = 0; index < 3; index += 1) {
+      await keyboardFocus(segment("df-birth", index));
+
+      const chip = await page.evaluate(
+        (selector) => {
+          const element = document.querySelector(selector);
+          const range = document.createRange();
+
+          range.selectNodeContents(element);
+
+          const own = element.getBoundingClientRect();
+          const cell = element.parentElement.getBoundingClientRect();
+          const text = range.getBoundingClientRect();
+
+          return {
+            width: own.width,
+            textWidth: text.width,
+            before: own.left - cell.left,
+            after: cell.right - own.right,
+          };
+        },
+        segment("df-birth", index),
+      );
+
+      assert.ok(Math.abs(chip.width - chip.textWidth - 4) <= 0.5, `df-birth ${index} chip width`);
+      assert.ok(
+        Math.abs(chip.before - chip.after) <= 0.5,
+        `df-birth ${index} chip off centre: ${chip.before}/${chip.after}`,
+      );
+      assert.ok(chip.before >= 3, `df-birth ${index} chip ${chip.before}px from its cell's start`);
+      assert.deepEqual((await boxGeometry("df-birth")).parts, filledBirth.parts);
+    }
 
     for (const literal of filledBirth.literals) {
       assert.ok(
@@ -8804,10 +8851,236 @@ try {
     assert.equal((usTree.match(/spinbutton/g) ?? []).length, 3, usTree);
     assert.doesNotMatch(usTree, /00/, usTree);
 
-    // Forced colors, split by region: a focused digit cell is Highlight wherever its glyphs
-    // aren't; a focused day period is Highlight over its text's width and the field's ground over
-    // the rest of its cell; unfocused filled, placeholder and disabled cells paint the ground. A
-    // painted sizer would break one of these.
+    // A short viewport, with motion: Origami focuses the chosen day before the popup's height
+    // settles, so the popup's snap scrolls it into view. After the opening animation the day
+    // is wholly inside the popup's visible box and the page hasn't scrolled.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 844, height: 390 });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(
+      (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
+      trigger("dp-field"),
+    );
+    await keyboardFocus(trigger("dp-field"));
+
+    const pageBeforeOpen = await page.evaluate(() => [scrollX, scrollY]);
+
+    await page.keyboard.press("Enter");
+    await opened("dp-field");
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector).getAnimations({ subtree: true }).length === 0,
+      content("dp-field"),
+    );
+    await rendered();
+
+    const shortOpen = await page.evaluate((selector) => {
+      const popup = document.querySelector(selector);
+      const outer = popup.getBoundingClientRect();
+      const day = document.activeElement.getBoundingClientRect();
+      const top = outer.top + popup.clientTop;
+      const left = outer.left + popup.clientLeft;
+
+      return {
+        label: document.activeElement.getAttribute("aria-label"),
+        day: { left: day.left, top: day.top, right: day.right, bottom: day.bottom },
+        visible: {
+          left,
+          top,
+          right: left + popup.clientWidth,
+          bottom: top + popup.clientHeight,
+        },
+        overflows: popup.scrollHeight > popup.clientHeight,
+        page: [scrollX, scrollY],
+      };
+    }, content("dp-field"));
+
+    assert.equal(shortOpen.label, "Tuesday, October 27, 2026");
+    assert.ok(shortOpen.overflows, "the short popup scrolls");
+    inside(shortOpen.day, 0, shortOpen.visible, "the focused day in the short popup");
+    assert.deepEqual(shortOpen.page, pageBeforeOpen, "the page didn't scroll");
+    await page.keyboard.press("Escape");
+    await closed("dp-field");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+
+    // 320px wide, two columns: the DateTimeField's and the field-shape picker's boxes stay in
+    // their columns, the picker's trigger inside its box and outside the scrolling row. Moving
+    // through the segments, by Tab and the arrows each way, shows every one wholly inside the
+    // box and whatever clips it, and never scrolls the page sideways.
+    await page.setViewportSize({ width: 320, height: 720 });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    // The focused element's rect, and the box's inner rect cut by every clipping ancestor
+    // between them.
+    const shownIn = (selector) =>
+      page.evaluate((selector) => {
+        const box = document.querySelector(selector);
+        const focused = document.activeElement;
+        const { left, top, right, bottom } = focused.getBoundingClientRect();
+        const outer = box.getBoundingClientRect();
+        const visible = {
+          left: outer.left + box.clientLeft,
+          top: outer.top + box.clientTop,
+          right: outer.right - box.clientLeft,
+          bottom: outer.bottom - box.clientTop,
+        };
+
+        for (
+          let element = focused.parentElement;
+          element !== box;
+          element = element.parentElement
+        ) {
+          if (getComputedStyle(element).overflowX === "visible") {
+            continue;
+          }
+
+          const clip = element.getBoundingClientRect();
+
+          visible.left = Math.max(visible.left, clip.left);
+          visible.top = Math.max(visible.top, clip.top);
+          visible.right = Math.min(visible.right, clip.right);
+          visible.bottom = Math.min(visible.bottom, clip.bottom);
+        }
+
+        return {
+          index: [...box.querySelectorAll("[data-slot=date-field-segment]")].indexOf(focused),
+          text: focused.textContent,
+          rect: { left, top, right, bottom },
+          visible,
+          pageX: scrollX,
+        };
+      }, selector);
+    const narrow = [
+      ["dtf", "Tab", "ArrowLeft", 5],
+      ["dp-field", "ArrowRight", "ArrowLeft", 3],
+    ];
+
+    for (const [id, forward, backward, count] of narrow) {
+      const column = await rect(`#${id}-field`);
+      const narrowBox = await rect(box(id));
+
+      assert.ok(
+        narrowBox.left >= column.left - 0.5 && narrowBox.right <= column.right + 0.5,
+        `${id}'s box ${JSON.stringify(narrowBox)} leaves its column ${JSON.stringify(column)}`,
+      );
+
+      // The first unit, found without the row, so a box without it fails on what it shows.
+      await keyboardFocus(
+        `#${id} [data-slot=date-field-cell]:first-child > [data-slot=date-field-segment]`,
+      );
+
+      const keys = [];
+      const expected = [0];
+
+      for (let index = 1; index < count; index += 1) {
+        keys.push(forward);
+        expected.push(index);
+      }
+
+      for (let index = count - 2; index >= 0; index -= 1) {
+        keys.push(backward);
+        expected.push(index);
+      }
+
+      const seen = [await shownIn(box(id))];
+
+      for (const key of keys) {
+        await page.keyboard.press(key);
+        await rendered();
+        seen.push(await shownIn(box(id)));
+      }
+
+      const visited = [];
+
+      for (const shown of seen) {
+        visited.push(shown.index);
+        inside(shown.rect, 0, shown.visible, `${id}'s focused "${shown.text}"`);
+        assert.equal(shown.pageX, 0, `the page scrolled sideways at ${id}'s "${shown.text}"`);
+      }
+
+      assert.deepEqual(visited, expected, `${id}'s segments by ${forward} and ${backward}`);
+    }
+
+    const pickerBox = await rect(box("dp-field"));
+    const pickerTrigger = await rect(trigger("dp-field"));
+    const pickerRow = await rect(row("dp-field"));
+
+    inside(
+      pickerTrigger,
+      0,
+      {
+        left: pickerBox.left + 1,
+        top: pickerBox.top + 1,
+        right: pickerBox.right - 1,
+        bottom: pickerBox.bottom - 1,
+      },
+      "the narrow picker's trigger",
+    );
+    assert.ok(pickerTrigger.left >= pickerRow.right - 0.5, "the trigger sits after the row");
+    await keyboardFocus(segment("dp-field", 2));
+    await page.keyboard.press("Tab");
+    assert.equal(await activeId(), "dp-field-trigger");
+    assert.equal(await page.evaluate(() => scrollX), 0);
+
+    // The scrolling row is never a Tab stop of its own, which an overflowing scroller would be
+    // (Chromium's keyboard-focusable scrollers, Gecko's scroll frames): Tab from the control
+    // before an overflowing box lands on its first segment and Shift+Tab leaves it for that
+    // control, and Tab passes over overflowing root-disabled boxes whole.
+    const overflows = (id) =>
+      page.evaluate((selector) => {
+        const element = document.querySelector(selector);
+
+        return element.scrollWidth > element.clientWidth;
+      }, row(id));
+    // The focused element's root, slot and segment index in that root.
+    const focusedPart = () =>
+      page.evaluate(() => {
+        const focused = document.activeElement;
+        const root = focused.closest("[data-slot=date-field], [data-slot=date-picker]");
+
+        return {
+          root: root?.id,
+          slot: focused.dataset.slot,
+          index: [...(root?.querySelectorAll("[data-slot=date-field-segment]") ?? [])].indexOf(
+            focused,
+          ),
+        };
+      });
+    const tabs = [
+      [segment("tf-24s", 2), { root: "tf-24s", slot: "date-field-segment", index: 2 }],
+      [
+        trigger("dp-field-readonly"),
+        { root: "dp-field-readonly", slot: "date-picker-trigger", index: -1 },
+      ],
+    ];
+    const nexts = [
+      { root: "dtf", slot: "date-field-segment", index: 0 },
+      { root: "dp-field-disabled-focusable", slot: "date-picker-trigger", index: -1 },
+    ];
+
+    for (const id of ["dtf", "dp-field-disabled", "dp-field-disabled-focusable"]) {
+      assert.ok(await overflows(id), `${id}'s row overflows at 320px`);
+    }
+
+    for (const [index, [from, start]] of tabs.entries()) {
+      await keyboardFocus(from);
+      assert.deepEqual(await focusedPart(), start);
+      await page.keyboard.press("Tab");
+      await rendered();
+      assert.deepEqual(await focusedPart(), nexts[index], `Tab from ${start.root}`);
+      await page.keyboard.press("Shift+Tab");
+      await rendered();
+      assert.deepEqual(await focusedPart(), start, `Shift+Tab back to ${start.root}`);
+    }
+
+    await blur();
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Forced colors, split by region: a focused segment is Highlight over its chip, its text's
+    // width and 2px each side, and the field's ground over the rest of its cell, on both sides of
+    // a centred digit chip and after the day period's; unfocused filled, placeholder and disabled
+    // cells paint the ground. A painted sizer would break one of these.
     await page.emulateMedia({ forcedColors: "active" });
     await fresh();
     await page.evaluate(() => document.fonts.ready);
@@ -8885,7 +9158,10 @@ try {
 
           if (focused && chip.width < area.width - 1) {
             result.regions.push({ name: "chip", points: pointsIn(chip.left, chip.right) });
-            result.regions.push({ name: "remainder", points: pointsIn(chip.right, area.right) });
+            result.regions.push({
+              name: "remainder",
+              points: [...pointsIn(area.left, chip.left), ...pointsIn(chip.right, area.right)],
+            });
           } else if (focused) {
             result.regions.push({ name: "chip", points: pointsIn(area.left, area.right) });
           } else {
@@ -8954,7 +9230,13 @@ try {
       await checkRegions("df-disabled", null),
     ];
 
-    assert.ok(digitCounts.chip > 0 && yearCounts.chip > 0, "digit chips sampled");
+    for (const counts of [digitCounts, yearCounts]) {
+      assert.ok(
+        counts.chip > 0 && counts.remainder > 0,
+        `a digit's regions sampled: ${JSON.stringify(counts)}`,
+      );
+    }
+
     assert.ok(
       periodCounts.chip > 0 && periodCounts.remainder > 0,
       `the period's regions sampled: ${JSON.stringify(periodCounts)}`,

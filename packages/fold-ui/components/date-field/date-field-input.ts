@@ -22,7 +22,10 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
  * The box of a DateField, TimeField or DateTimeField, or a DatePicker's field shape: Input's
  * 32px control drawn round the typed segments, which it renders in the locale's order with their
  * separators. Each segment sits in a cell as wide as its widest state, so nothing moves while you
- * type. A DatePickerTrigger written inside it sits at its end.
+ * type. The cells and separators sit in a row that scrolls sideways when the box is narrower than
+ * them, with its scrollbar hidden; the focused segment snaps into view. The row itself is out of
+ * the Tab order, which browsers would otherwise give a scroller. A DatePickerTrigger written
+ * inside the box sits at its end, outside that row.
  *
  * It's the root's one Input: Origami gives it `role="group"` and, in a Field, the label's name.
  * Standalone, give it an `aria-label`.
@@ -33,29 +36,35 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
   hostDirectives: [OrigamiDateFieldInput],
   host: { "data-slot": "date-field-input", "[class]": "classes()" },
   template: `
-    @for (part of field.segments(); track part.key) {
-      @if (part.type === "literal") {
-        <span aria-hidden="true" data-slot="date-field-literal" class="whitespace-pre">{{
-          part.text
-        }}</span>
-      } @else {
-        <span data-slot="date-field-cell" class="inline-grid">
-          @for (line of sizerLines()[part.type]; track line) {
+    <span
+      data-slot="date-field-segments"
+      tabindex="-1"
+      class="flex h-full min-w-0 flex-1 snap-x snap-proximity items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      @for (part of field.segments(); track part.key) {
+        @if (part.type === "literal") {
+          <span aria-hidden="true" data-slot="date-field-literal" class="whitespace-pre">{{
+            part.text
+          }}</span>
+        } @else {
+          <span data-slot="date-field-cell" class="inline-grid">
+            @for (line of sizerLines()[part.type]; track line) {
+              <span
+                aria-hidden="true"
+                class="invisible col-start-1 row-start-1 px-0.5 whitespace-pre"
+                >{{ line }}</span
+              >
+            }
             <span
-              aria-hidden="true"
-              class="invisible col-start-1 row-start-1 px-0.5 whitespace-pre"
-              >{{ line }}</span
-            >
-          }
-          <span
-            [ogDateFieldSegment]="part.type"
-            [placeholder]="placeholders[part.type]"
-            data-slot="date-field-segment"
-            [class]="segmentClasses(part.type)"
-          ></span>
-        </span>
+              [ogDateFieldSegment]="part.type"
+              [placeholder]="placeholders[part.type]"
+              data-slot="date-field-segment"
+              [class]="segmentClasses(part.type)"
+            ></span>
+          </span>
+        }
       }
-    }
+    </span>
     <ng-content />
   `,
 })
@@ -107,9 +116,10 @@ export class DateFieldInput {
   });
 
   protected segmentClasses(type: OrigamiDateFieldSegmentType) {
-    let alignment = "";
+    // Every chip hugs its text. A digit unit's is centred in its cell, clear of both separators;
+    // the day period's sits at the cell's start, so its spare width trails into the box.
+    let alignment = "justify-self-center";
 
-    // The day period hugs its text at the cell's start, so its spare width trails into the box.
     if (type === "dayPeriod") {
       alignment = "justify-self-start";
     }
@@ -117,6 +127,8 @@ export class DateFieldInput {
     return cn(
       // The chip and the box's ring carry focus, so the contenteditable's own ring is off.
       "col-start-1 row-start-1 cursor-text rounded-checkbox px-0.5 text-center caret-transparent outline-none",
+      // In a box too narrow for the row, focusing a segment scrolls it into view.
+      "focus:snap-center",
       alignment,
       "data-placeholder:not-focus:text-muted-foreground focus:bg-foreground focus:text-background",
       // A system color for every state, so the chip reads in forced colors.
