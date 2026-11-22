@@ -435,6 +435,42 @@ test("serve watches the scan directory and runs the dev server after the initial
   assert.deepEqual(state.errors, []);
 });
 
+// Generation reads a catalog through its symlink, so an edit of the file it resolves to is a
+// catalog edit, and while the symlink dangles any such file could be the catalog.
+test("an event for the file a catalog symlink resolves to runs a pass", async () => {
+  const directory = await scratchDirectory("linked-catalogs");
+  const target = resolve(directory, "catalog.html");
+  const catalog = resolve(directory, "messages.de.xlf");
+
+  await writeFile(target, "<p>Katalog</p>\n");
+  await symlink(target, catalog);
+
+  const { run, scenario: state } = await started({
+    build: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+    metadata: {
+      i18n: {
+        sourceLocale: "en",
+        locales: {
+          de: `../../.scratch/launch-serve/${process.pid}/linked-catalogs/messages.de.xlf`,
+        },
+      },
+    },
+  });
+
+  await change(state, target);
+  await until(() => state.passes.length === 2, "the pass for the catalog's target");
+  state.passes[1].resolve();
+  await settle();
+
+  await rm(target);
+  await change(state, target, "unlink");
+  await until(() => state.passes.length === 3, "the pass for the dangling catalog");
+  state.passes[2].resolve();
+  await settle();
+
+  await run.stop();
+});
+
 test("a burst of watcher events within the settle delay runs one pass", async () => {
   const { run, scenario: state } = await started();
 

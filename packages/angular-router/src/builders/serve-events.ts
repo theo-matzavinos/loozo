@@ -1,5 +1,6 @@
+import { realpathSync } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { extname } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 
 // Files no generation pass reads: Angular's template compiler never runs in generation, and
 // TypeScript resolves an import of one of these to its declaration (a companion such as
@@ -28,9 +29,9 @@ const inertExtensions = new Set([
 /**
  * Whether a serve watcher event touched only a file no generation pass reads, so it needs no
  * pass: an added, changed or removed template, style, image, font or Markdown file that's a
- * regular file now (or gone, for a removal) and isn't one of the locale `catalogs`. Anything
- * else, a directory event or a symlink included, needs one. The builder still decides whether
- * its pass state allows skipping.
+ * regular file now (or gone, for a removal) and isn't one of the locale `catalogs` or the file one
+ * resolves to. Anything else, a directory event or a symlink included, needs one. The builder
+ * still decides whether its pass state allows skipping.
  */
 export async function isInertFileEvent(
   event: string,
@@ -45,11 +46,30 @@ export async function isInertFileEvent(
     return false;
   }
 
-  // Compared without case: on a case-sensitive filesystem that only costs a pass.
-  const lowerPath = path.toLowerCase();
+  // Compared without case: on a case-sensitive filesystem that only costs a pass. Generation reads
+  // a catalog through any symlink it is, so the file it resolves to is the catalog too, and while
+  // one doesn't resolve this file could be it. Resolved synchronously: a few calls, only for these
+  // extensions with catalogs configured.
+  const spellings = [path.toLowerCase()];
+
+  if (catalogs.length > 0) {
+    try {
+      spellings.push(join(realpathSync(dirname(path)), basename(path)).toLowerCase());
+    } catch {
+      // A removed directory: its events regenerate anyway.
+    }
+  }
 
   for (const catalog of catalogs) {
-    if (catalog.toLowerCase() === lowerPath) {
+    let target: string;
+
+    try {
+      target = realpathSync(catalog);
+    } catch {
+      return false;
+    }
+
+    if (spellings.includes(catalog.toLowerCase()) || spellings.includes(target.toLowerCase())) {
       return false;
     }
   }
