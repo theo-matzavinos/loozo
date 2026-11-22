@@ -1,6 +1,7 @@
 name: Publish
 
-# Releases one package from main: bumps it to its next patch or minor, runs the gate
+# Releases one package from main: bumps it to its next patch, minor or major (the operator
+# picks; scripts/bump-version.mjs refuses a level below what the changes need), runs the gate
 # on the bumped tree, pushes the release commit and a <package>@<version> tag,
 # publishes packages/<package>/dist to npm through trusted publishing (OIDC, no
 # token), then creates the tag's GitHub release with its release notes.
@@ -14,9 +15,9 @@ on:
         type: choice
         options: [angular-router, angular-launch, origami-ui, fold-ui, ui-sdk-angular]
       bump:
-        description: Version to bump
+        description: Version to bump (patch, minor or major)
         type: choice
-        options: [patch, minor]
+        options: [patch, minor, major]
         default: patch
       dry_run:
         description: Dry run (no push, publish or release)
