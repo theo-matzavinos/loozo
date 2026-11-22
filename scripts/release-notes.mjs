@@ -2,6 +2,8 @@
 // it since its last <package>@<version> tag reachable from <ref> (default HEAD),
 // grouped as breaking changes, features, fixes and other changes. Release commits
 // are left out, so passing a release commit's parent lists exactly that release.
+// A first release, with no earlier tag, lists only its features, `!` ones included:
+// nothing released could break, and its fixes and build changes touched unreleased code.
 //
 // Usage: node scripts/release-notes.mjs <package> [<ref>]
 import { execFileSync } from "node:child_process";
@@ -37,6 +39,14 @@ export function changesSinceRelease(packageName, ref = "HEAD") {
     }
 
     const match = subjectPattern.exec(subject);
+
+    if (!since) {
+      if (match?.groups.type === "feat") {
+        changes.features.push(match.groups.description);
+      }
+
+      continue;
+    }
 
     if (!match) {
       changes.other.push(subject);
