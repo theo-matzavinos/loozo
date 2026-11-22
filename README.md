@@ -30,7 +30,7 @@ pnpm typecheck
 pnpm test
 ```
 
-Root commands run the corresponding script across `packages/*`, not the example applications. Run package-specific commands with `pnpm --filter <package-name> run <script>`; see each package’s README for its examples and extended proofs.
+Root commands run the corresponding script across `packages/*`, not the example applications; `pnpm test` also runs the release scripts' tests (`scripts/*.test.mjs`). Run package-specific commands with `pnpm --filter <package-name> run <script>`; see each package’s README for its examples and extended proofs.
 
 Each package’s `build` ends with `scripts/finish-package.mjs`, which makes `packages/<package>/dist/` the complete npm package: its own `package.json`, `README.md`, `LICENSE` and compiled files. The published README inlines its snippet embeds and points its relative links at the package's release tag on GitHub, so they work on npmjs.com.
 
@@ -38,9 +38,9 @@ Pack and publish only from `dist/`; publishing from a package root fails on purp
 
 ## Releasing
 
-Release a package from the Actions tab: run the **Publish** workflow on `main`, pick the package and pick a `patch` or `minor` bump. The router's [versioning policy](packages/angular-router/README.md#versions) says which one a release needs. The workflow:
+Release a package from the Actions tab: run the **Publish** workflow on `main`, pick the package and pick a `patch`, `minor` or `major` bump. The router's [versioning policy](packages/angular-router/README.md#versions) says which one a release needs. The workflow:
 
-1. Bumps the package with `scripts/bump-version.mjs`. From `0.1.0` on, a patch fails when a commit since the last release is marked breaking (`!`); release a minor instead. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
+1. Bumps the package with `scripts/bump-version.mjs`, which refuses a level below what the commits since the last release need and never raises one on its own. On `0.0.x` any level goes. From `0.1.0` until `1.0.0`, a patch fails when a commit is marked breaking (`!`); release a minor instead. From `1.0.0` on, a breaking commit needs a major and a `feat` commit a minor. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. While Launch is `0.x`, a pin that moves across a router minor or major needs a Launch minor; a router patch can ship in a Launch patch. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
 2. Builds the package and the workspace packages it depends on, then runs its `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one.
 3. Commits the bump as `chore(release): <package>@<version>`, tags it `<package>@<version>` and pushes both to `main` over the `publish` deploy key, the only actor that bypasses `main`'s ruleset (pull request with green `checks`, `origami-commit-gate`, the six `router-browser (<test>)` checks, the two `router-platforms (<os>)` checks, `launch-browser`, `fold-consumer` and the three `ui-sdk-browser (<engine>)` checks, no force-push or deletion). If `main` moved during the run, the push fails and nothing is published.
 4. Publishes `dist/` to npm through trusted publishing, with provenance and no stored token.
