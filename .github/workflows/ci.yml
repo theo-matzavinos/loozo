@@ -241,6 +241,46 @@ jobs:
             !${{ runner.temp }}/evidence/workspace-access/
           if-no-files-found: ignore
 
+  # Launch's Node tests (generation, builders, serve's watcher) on the other hosts; checks covers
+  # Linux. The browser proofs stay on Linux.
+  launch-platforms:
+    needs: affected
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    env:
+      REACHED: ${{ needs.affected.outputs.launch != 'false' }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/angular-launch
+    steps:
+      - if: env.REACHED != 'true'
+        working-directory: .
+        run: echo "This pull request doesn't reach Launch; skipped."
+      - if: env.REACHED == 'true'
+        uses: actions/checkout@v7
+      - if: env.REACHED == 'true'
+        uses: pnpm/action-setup@v6
+      - if: env.REACHED == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - if: env.REACHED == 'true'
+        run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - if: env.REACHED == 'true'
+        run: pnpm --filter @loozo/angular-router --filter @loozo/angular-launch run build
+      - if: env.REACHED == 'true'
+        run: pnpm test
+
   # Launch's example, built and served, proven in Chromium: SSR, hydration without a second RPC,
   # outcomes, streams and channels, then its prerender builds. verify.mjs starts and stops the
   # built server itself.

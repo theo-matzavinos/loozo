@@ -1,6 +1,7 @@
 import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { DOCUMENT, REQUEST, REQUEST_CONTEXT, createEnvironmentInjector } from "@angular/core";
 import {
@@ -50,7 +51,7 @@ const require = createRequire(
   new URL("../../../examples/angular-launch/package.json", import.meta.url),
 );
 const { sanitizeRequestHeaders } = await import(
-  new URL("./_validation-chunk.mjs", `file://${require.resolve("@angular/ssr")}`)
+  new URL("./_validation-chunk.mjs", pathToFileURL(require.resolve("@angular/ssr")))
 );
 const id = "test";
 const path = `/_rpc/${id}/read`;
@@ -533,13 +534,19 @@ test("prerendering fails with the failing stage's route, and its error as the ca
 // Angular checks nothing after bootstrap returns: BEFORE_APP_SERIALIZED callbacks run later,
 // and their errors only reach the ErrorHandler.
 test("native prerendering fails for calls before the page is first stable, not ones made while it's serialized", async () => {
-  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
-  const { renderApplication, provideServerRendering, BEFORE_APP_SERIALIZED } = await import(
-    require.resolve("@angular/platform-server")
+  const { bootstrapApplication } = await import(
+    pathToFileURL(require.resolve("@angular/platform-browser")).href
   );
-  const { Component, inject } = await import(require.resolve("@angular/core"));
-  const { HttpClient, provideHttpClient } = await import(require.resolve("@angular/common/http"));
-  const { provideRouter, RouterOutlet } = await import(require.resolve("@angular/router"));
+  const { renderApplication, provideServerRendering, BEFORE_APP_SERIALIZED } = await import(
+    pathToFileURL(require.resolve("@angular/platform-server")).href
+  );
+  const { Component, inject } = await import(pathToFileURL(require.resolve("@angular/core")).href);
+  const { HttpClient, provideHttpClient } = await import(
+    pathToFileURL(require.resolve("@angular/common/http")).href
+  );
+  const { provideRouter, RouterOutlet } = await import(
+    pathToFileURL(require.resolve("@angular/router")).href
+  );
 
   class Page {}
 
@@ -613,15 +620,21 @@ test("native prerendering fails for calls before the page is first stable, not o
 // Route discovery boots without the root component and releases a blocking initial navigation
 // only after the bootstrap returns, then waits for stability itself.
 test("native route discovery with blocking initial navigation completes, running a root resolver's call anonymously and only logging its refusal", async () => {
-  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
-  const { provideServerRendering } = await import(require.resolve("@angular/platform-server"));
-  const { ɵgetRoutesFromAngularRouterConfig: discoverRoutes } = await import(
-    require.resolve("@angular/ssr")
+  const { bootstrapApplication } = await import(
+    pathToFileURL(require.resolve("@angular/platform-browser")).href
   );
-  const { Component, inject } = await import(require.resolve("@angular/core"));
-  const { HttpClient, provideHttpClient } = await import(require.resolve("@angular/common/http"));
+  const { provideServerRendering } = await import(
+    pathToFileURL(require.resolve("@angular/platform-server")).href
+  );
+  const { ɵgetRoutesFromAngularRouterConfig: discoverRoutes } = await import(
+    pathToFileURL(require.resolve("@angular/ssr")).href
+  );
+  const { Component, inject } = await import(pathToFileURL(require.resolve("@angular/core")).href);
+  const { HttpClient, provideHttpClient } = await import(
+    pathToFileURL(require.resolve("@angular/common/http")).href
+  );
   const { provideRouter, RouterOutlet, withEnabledBlockingInitialNavigation } = await import(
-    require.resolve("@angular/router")
+    pathToFileURL(require.resolve("@angular/router")).href
   );
 
   class Page {}
