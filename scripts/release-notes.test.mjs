@@ -77,6 +77,15 @@ test("a first release lists only its features, breaking ones included", async (t
   );
 });
 
+test("a first release without features says only that it's the first", async (t) => {
+  const root = await fixture(t, [
+    "build(demo): import the package",
+    "fix(demo): keep focus on press",
+  ]);
+
+  assert.equal(run(root, process.execPath, [script, "demo"]), "First release.\n");
+});
+
 test("a later release groups every change since its last tag", async (t) => {
   const root = await fixture(t, subjects, 1);
 

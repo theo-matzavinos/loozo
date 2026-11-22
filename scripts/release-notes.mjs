@@ -92,7 +92,7 @@ export function renderReleaseNotes(changes) {
     lines.push("");
   }
 
-  if (lines.length === 0) {
+  if (lines.length === 0 && changes.since) {
     lines.push("No changes to this package since its last release.", "");
   }
 
