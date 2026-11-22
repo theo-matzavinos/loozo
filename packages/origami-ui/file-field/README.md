@@ -9,6 +9,7 @@ A file field takes one file: from the browser's own file picker, through a nativ
 | `ogFileField`         | `value: File \| null` model (default `null`), `disabled` (default `false`)            |
 | `ogFileFieldInput`    | none; a native `<input>`, made `type="file"`                                          |
 | `ogFileFieldDropZone` | none; any element inside the root or the root itself, usually the `<label>` around it |
+| `ogFileFieldClear`    | none; a native `<button>` inside the root, outside the label                          |
 
 ```html
 <div ogFileField [(value)]="invoice">
@@ -16,10 +17,11 @@ A file field takes one file: from the browser's own file picker, through a nativ
     <span class="button-look">Choose a file</span> or drag it here
     <input ogFileFieldInput class="sr-only" accept=".pdf,.jpg,.png" />
   </label>
+  @if (invoice(); as file) {
+  <p>{{ file.name }}</p>
+  <button ogFileFieldClear aria-label="Remove the invoice">×</button>
+  }
 </div>
-@if (invoice(); as file) {
-<p>{{ file.name }}</p>
-}
 ```
 
 One Input per root. The zone is optional: without it the field takes files from the picker only. Make the zone the `<label>` around the Input, as above, so a click anywhere on it opens the picker; a zone that isn't a label opens nothing on click unless a label inside it does.
@@ -106,9 +108,9 @@ readonly billing = form(this.#model, (path) => {
 
 ### Clearing and choosing again
 
-Write `null` through your model, `field().value.set(null)` or `reset({ invoice: null, … })`. **A bare `reset()` only resets touched and dirty and keeps the file**, because Signal Forms resets the value only when you pass one. Writing `null` also empties the native input, so the user can choose the same file again. Cancelling the picker keeps the previous choice. Choosing the same file again without clearing writes nothing in Chromium and WebKit, and a new `File` in Firefox.
+Let the user clear the field with an [`ogFileFieldClear`](#clear). From code, write `null` through your model, `field().value.set(null)` or `reset({ invoice: null, … })`. **A bare `reset()` only resets touched and dirty and keeps the file**, because Signal Forms resets the value only when you pass one. Writing `null` also empties the native input, so the user can choose the same file again. Cancelling the picker keeps the previous choice. Choosing the same file again without clearing writes nothing in Chromium and WebKit, and a new `File` in Firefox.
 
-**With `[formField]`, don't reject a pick by writing the form field back to null inside the pick's own `valueChange`.** Angular Signal Forms 22.2.6 doesn't push that write to the root: the form holds `null` while the root's `value` and the native input keep the file. Signal Forms takes the root's write into the form without recording it as the value it last pushed, so `null` looks unchanged. Write the root's own `value` instead, which reaches the form too, or write the form after the next render:
+**With `[formField]`, don't reject a pick by writing the form field back to null inside the pick's own `valueChange`.** Angular Signal Forms 22.2.6 through 22.3.0 doesn't push that write to the root: the form holds `null` while the root's `value` and the native input keep the file. Signal Forms takes the root's write into the form without recording it as the value it last pushed, so `null` looks unchanged. Write the root's own `value` instead, which reaches the form too, or write the form after the next render:
 
 ```html
 <div
@@ -128,6 +130,8 @@ reject(picker: OrigamiFileField, file: File | null): void {
   }
 }
 ```
+
+The Clear writes the root's own `value`, so this caveat doesn't apply to it.
 
 ### Your own control
 
@@ -154,6 +158,31 @@ export class Attachment {
   }
 }
 ```
+
+## Clear
+
+`ogFileFieldClear` is a button that empties the field. Activating it, by click, Enter or Space, writes `null` through the root's `value`, so `[formField]` and `valueChange` get `null`, and empties the native input, so the user can choose the same file again. Then it moves focus to the Input, before the next render removes the Clear, so focus doesn't fall to the page when your `@if` takes it out.
+
+```html
+<div ogFileField [formField]="billing.invoice" #picker="ogFileField">
+  <label ogFieldLabel ogFileFieldDropZone class="zone">
+    <span class="button-look">Choose a file</span> or drag it here
+    <input ogFileFieldInput class="sr-only" />
+  </label>
+  @if (picker.state.value(); as file) {
+  <p>{{ file.name }}</p>
+  <button ogFileFieldClear aria-label="Remove the invoice">×</button>
+  }
+</div>
+```
+
+- **Name it and show it.** It has no name of its own: give it text or `aria-label`. Render it only while a file is chosen: activated while the field is empty, it writes nothing and only moves focus to the Input.
+- **Place it** inside the root and outside any `<label>`. A label holds only its own control: a Clear inside the Input's label could take its name, and its click wouldn't be a pick.
+- **Touch:** activating it doesn't touch the field. A pick already did, so after a pick the emptied required field shows its error at once. For a file your app wrote, the error waits until the user leaves the Input or submits. Moving focus from the Input to the Clear, with Tab or a press, touches the field through the Input as usual.
+- **Disabled** follows the field: the Clear is natively disabled with `aria-disabled="true"` and `data-disabled`, and does nothing.
+- **Focus:** after a pointer click, the Input has focus without `:focus-visible`, so a `:has(:focus-visible)` ring doesn't show; after Enter or Space it does. If you write `null` some other way while the Clear has focus, your `@if` removes it and focus falls to the page: move it with the root's `focus()`.
+- **Before hydration** a click does nothing: the field keeps what the user picked, and focus stays where they moved it. The Clear is usually absent then anyway, since the server never renders a file.
+- It composes `ogButton`: don't add `ogButton` or another button primitive to the same button.
 
 ## Drops
 
@@ -206,10 +235,11 @@ providers: [
 | Root    | none of its own                                                                                                                                                                    |
 | Input   | `type="file"`, `id` (yours, or a generated one), native `disabled`; in a Field, `aria-describedby`, `aria-invalid="true"` while errors show, `aria-required="true"` while required |
 | Zone    | `data-drag-over` while a file drag is over it and the field is enabled                                                                                                             |
+| Clear   | `type="button"`; native `disabled`, `aria-disabled="true"` and `data-disabled` while the field is disabled                                                                         |
 
 ## Accessibility
 
-The picker, the keyboard and the accessible name all stay native: one control, a button named by its label and described by the Field's Descriptions and Errors. The zone has no role or keyboard handling of its own: the Input is the keyboard and single-pointer alternative to dragging. Screen readers announce the chosen file differently, or not at all, so render its name as text. The acceptance checks the accessibility tree, not a screen reader.
+The picker, the keyboard and the accessible name all stay native: one control, a button named by its label and described by the Field's Descriptions and Errors. The zone has no role or keyboard handling of its own: the Input is the keyboard and single-pointer alternative to dragging. Screen readers announce the chosen file differently, or not at all, so render its name as text. Nothing announces a Clear's removal: the name goes away and focus lands on the Input, which reads its label; add your own live region if you need more. The acceptance checks the accessibility tree, not a screen reader.
 
 ## Server rendering and hydration
 
@@ -217,4 +247,4 @@ The server renders the Input with its `id`, `disabled` and Field ARIA, and the L
 
 ## Not included
 
-No multiple files, uploading, progress, previews, existing server files or remove actions; no size, type or count validation of its own, and no `accept` enforcement; no `readonly`; no `name`, native form submission or `<form>` reset; no page-wide drop guard; no clean-up of a drag cancelled with Escape; no picker button or `showPicker()`; no `capture`, folders or paste. These are yours or out of scope.
+No multiple files, uploading, progress, previews or existing server files (the Clear only empties the field; deleting an uploaded file on your server is yours); no announcement of a removal; no size, type or count validation of its own, and no `accept` enforcement; no `readonly`; no `name`, native form submission or `<form>` reset; no page-wide drop guard; no clean-up of a drag cancelled with Escape; no picker button or `showPicker()`; no `capture`, folders or paste. These are yours or out of scope.

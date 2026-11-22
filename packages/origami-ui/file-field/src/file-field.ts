@@ -10,8 +10,9 @@ import { OrigamiFileFieldState } from "./file-field-state";
  * native `<input type="file">` the consumer hides visually and names with a `<label>`, or dropped
  * on an optional `ogFileFieldDropZone`. It is usually a wrapper element around those parts; the
  * zone may be the root's own element or the `<label>` around the Input, so a click anywhere on it
- * opens the picker. Origami owns the selection, the drag-over state and the ARIA; the consumer
- * owns the markup, the visible file name, previews, uploading and error text.
+ * opens the picker. An optional `ogFileFieldClear` button inside the root, outside the label,
+ * empties it and moves focus to the Input. Origami owns the selection, the drag-over state and the
+ * ARIA; the consumer owns the markup, the visible file name, previews, uploading and error text.
  *
  * Selection: a pick and a drop write the first file, a multi-file drop included; a selection whose
  * `File` is the value already writes nothing. Re-picking the same file without clearing writes

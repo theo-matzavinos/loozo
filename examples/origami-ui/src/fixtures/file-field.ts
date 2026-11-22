@@ -29,6 +29,7 @@ import {
 } from "@loozo/origami-ui/field";
 import {
   OrigamiFileField,
+  OrigamiFileFieldClear,
   OrigamiFileFieldDropZone,
   OrigamiFileFieldInput,
   OrigamiFileFieldOptions,
@@ -270,6 +271,7 @@ export class FocusLeaveReplace implements AfterViewInit {
     OrigamiFileField,
     OrigamiFileFieldInput,
     OrigamiFileFieldDropZone,
+    OrigamiFileFieldClear,
     FileComposer,
     OwnedFile,
     PlainFile,
@@ -350,6 +352,7 @@ export class FocusLeaveReplace implements AfterViewInit {
       <h2>Billing, in a Field</h2>
       <!-- The controls come first: the Error appearing on blur must not move them mid-click. -->
       <output data-testid="billing-value">{{ name(billing.invoice().value()) }}</output>
+      <output data-testid="billing-root-value">{{ name(billingPicker.state.value()) }}</output>
       <output data-testid="billing-errors">{{ kinds(billing.invoice()) }}</output>
       <output data-testid="billing-touched">{{ billing.invoice().touched() }}</output>
       <output data-testid="billing-writes">{{ billingWrites() }}</output>
@@ -366,7 +369,11 @@ export class FocusLeaveReplace implements AfterViewInit {
       <button type="button" data-testid="billing-model-null" (click)="writeInvoice(null)">
         Write null
       </button>
-      <button type="button" data-testid="billing-write" (click)="writeInvoice(createdFile('written.pdf', 3))">
+      <button
+        type="button"
+        data-testid="billing-write"
+        (click)="writeInvoice(createdFile('written.pdf', 3))"
+      >
         Write a file
       </button>
       <button
@@ -376,7 +383,11 @@ export class FocusLeaveReplace implements AfterViewInit {
       >
         Focus the bound control
       </button>
-      <button type="button" data-testid="billing-lock" (click)="billingLocked.set(!billingLocked())">
+      <button
+        type="button"
+        data-testid="billing-lock"
+        (click)="billingLocked.set(!billingLocked())"
+      >
         Toggle disabled
       </button>
       <button type="button" data-testid="billing-before">Before billing</button>
@@ -384,12 +395,19 @@ export class FocusLeaveReplace implements AfterViewInit {
       <div ogField #billingField="ogField">
         <div
           ogFileField
+          #billingPicker="ogFileField"
           [formField]="billing.invoice"
           (valueChange)="billingWrites.set(billingWrites() + 1)"
           (touch)="billingTouches.set(billingTouches() + 1)"
           data-testid="billing-root"
         >
-          <label ogFieldLabel ogFileFieldDropZone class="zone" id="billing-label" data-testid="billing-zone">
+          <label
+            ogFieldLabel
+            ogFileFieldDropZone
+            class="zone"
+            id="billing-label"
+            data-testid="billing-zone"
+          >
             <span class="button-look">Επιλέξτε αρχείο</span> ή σύρετέ το εδώ
             <span class="row" data-testid="billing-p">
               <span data-testid="billing-span">Τιμολόγιο</span>
@@ -401,6 +419,11 @@ export class FocusLeaveReplace implements AfterViewInit {
               data-testid="billing-input"
             />
           </label>
+          @if (billing.invoice().value()) {
+            <button ogFileFieldClear aria-label="Αφαίρεση τιμολογίου" data-testid="billing-clear">
+              ×
+            </button>
+          }
         </div>
         <p ogFieldDescription id="billing-description">PDF, JPG ή PNG (max. 25MB)</p>
         @if (billingField.state.errorsShown()) {
@@ -413,9 +436,17 @@ export class FocusLeaveReplace implements AfterViewInit {
 
       <h2>Image slot, no zone</h2>
       <output data-testid="image-value">{{ name(media.file().value()) }}</output>
+      <output data-testid="image-writes">{{ imageWrites() }}</output>
+      <output data-testid="image-touches">{{ imageTouches() }}</output>
       <div ogField>
         <label ogFieldLabel id="image-label">Εικόνα Προώθησης</label>
-        <div ogFileField [formField]="media.file" data-testid="image-root">
+        <div
+          ogFileField
+          [formField]="media.file"
+          (valueChange)="imageWrites.set(imageWrites() + 1)"
+          (touch)="imageTouches.set(imageTouches() + 1)"
+          data-testid="image-root"
+        >
           <label class="choose" data-testid="image-choose">
             Επιλέξτε αρχείο
             <input
@@ -425,6 +456,8 @@ export class FocusLeaveReplace implements AfterViewInit {
               data-testid="image-input"
             />
           </label>
+          <!-- Always rendered: an empty field's Clear, in server HTML too (FF2, FF7, FF15). -->
+          <button ogFileFieldClear data-testid="image-clear">Αφαίρεση εικόνας</button>
         </div>
         <p ogFieldDescription id="image-description">1280x1280px, JPG ή PNG, έως 1MB.</p>
       </div>
@@ -469,6 +502,9 @@ export class FocusLeaveReplace implements AfterViewInit {
           Disabled attachment
           <input ogFileFieldInput class="sr-only" data-testid="disabled-input" />
         </label>
+        <button ogFileFieldClear data-testid="disabled-clear">
+          Remove the disabled attachment
+        </button>
       </div>
 
       <h2>Nested roots</h2>
@@ -535,7 +571,11 @@ export class FocusLeaveReplace implements AfterViewInit {
       >
         Focus the composed control
       </button>
-      <acceptance-file-composer [formField]="composedForm.file" #composer data-testid="composed-root" />
+      <acceptance-file-composer
+        [formField]="composedForm.file"
+        #composer
+        data-testid="composed-root"
+      />
       <output data-testid="composed-state">{{ name(composer.state.value()) }}</output>
 
       <h2>Existing Options</h2>
@@ -543,7 +583,11 @@ export class FocusLeaveReplace implements AfterViewInit {
       <output data-testid="owned-own-value">{{ name(owned.field.value()) }}</output>
       <output data-testid="owned-state">{{ name(owned.state.value()) }}</output>
       <output data-testid="owned-touched">{{ ownedForm.file().touched() }}</output>
-      <button type="button" data-testid="owned-focus" (click)="ownedForm.file().focusBoundControl()">
+      <button
+        type="button"
+        data-testid="owned-focus"
+        (click)="ownedForm.file().focusBoundControl()"
+      >
         Focus the owned control
       </button>
       <button type="button" data-testid="owned-lock" (click)="ownedLocked.set(!ownedLocked())">
@@ -554,6 +598,7 @@ export class FocusLeaveReplace implements AfterViewInit {
           Owned attachment
           <input ogFileFieldInput class="sr-only" data-testid="owned-input" />
         </label>
+        <button ogFileFieldClear data-testid="owned-clear">Remove the owned attachment</button>
       </div>
 
       <h2>Plain signals, no template read</h2>
@@ -621,7 +666,12 @@ export class FocusLeaveReplace implements AfterViewInit {
             (touch)="replacedTouches.set(replacedTouches() + 1)"
           >
             @if (replacedFirst()) {
-              <input ogFileFieldInput aria-label="First" data-testid="replaced-a" focusLeaveReplace />
+              <input
+                ogFileFieldInput
+                aria-label="First"
+                data-testid="replaced-a"
+                focusLeaveReplace
+              />
             } @else {
               <input ogFileFieldInput aria-label="Replacement" data-testid="replaced-b" />
             }
@@ -653,6 +703,8 @@ export class FileFieldFixture {
   readonly billingTouches = signal(0);
 
   readonly media = form(signal({ file: null as File | null }));
+  readonly imageWrites = signal(0);
+  readonly imageTouches = signal(0);
 
   readonly rejectedForm = form(signal({ file: null as File | null }));
   readonly rejected = signal(0);
