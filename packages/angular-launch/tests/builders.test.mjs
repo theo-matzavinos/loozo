@@ -615,6 +615,64 @@ await test("serve runs one pass for a burst of watcher events", async () => {
   }
 });
 
+// A case-only directory rename is a plain rename on Linux; on case-insensitive macOS and Windows
+// volumes the old and new names are the same entry, so the watcher may see no unlink at all.
+await test("serve republishes a case-only route directory rename under the new casing", async () => {
+  const routes = resolve(fixture, "src/routes");
+  // The route's own path and namespace stay "todos"; only the directory's old spelling must go.
+  const stale = /todos\/|_todos_/;
+
+  function current(files) {
+    const server = files["generated/server.generated.ts"]?.bytes ?? "";
+
+    if (!server.includes('"../src/routes/Todos/route.js"')) {
+      return false;
+    }
+
+    for (const [file, { bytes }] of Object.entries(files)) {
+      if (stale.test(file) || stale.test(bytes)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  try {
+    const served = await start("serve");
+
+    try {
+      await waitFor(
+        () => served.outputs.some((output) => output.success),
+        "dev server never started",
+      );
+      await rename(resolve(routes, "todos"), resolve(routes, "Todos"));
+      await waitFor(
+        async () => current(await snapshot()),
+        "serve didn't republish the case-only rename",
+      );
+      assert.equal(served.error, undefined);
+    } finally {
+      await served.stop();
+    }
+
+    const files = await snapshot();
+    const checked = await run("build", "check");
+
+    assert.equal(checked.output.success, true, checked.errors);
+    assert.match(files["src/routes/Todos/route.generated.ts"].bytes, /\blist\b/);
+    assert.match(files["generated/server.generated.ts"].bytes, /"src\/routes\/Todos\/route\.ts"\]/);
+    assert.deepEqual(await snapshot(), files);
+  } finally {
+    // readdir, not stat: a case-insensitive volume finds either spelling.
+    const renamed = (await readdir(routes)).includes("Todos");
+
+    if (renamed) {
+      await rename(resolve(routes, "Todos"), resolve(routes, "todos"));
+    }
+  }
+});
+
 await test("serve runs no pass for its own outputs checked out with CRLF line endings", async () => {
   const fsPromises = require("node:fs/promises");
   const readManifest = fsPromises.readFile;
