@@ -6,7 +6,7 @@ Angular still does all the routing: matching, activation, guards, resolvers, red
 
 Use it when you want route params, query params and links to be type-checked end to end in an Angular 22 application, and you're happy to run generation through the provided Angular builders.
 
-**Status:** pre-1.0: breaking changes come only in minor releases (see [Versions](#versions)). MIT license.
+**Status:** stable from 1.0.0: from that release on, breaking changes come only in major releases (see [Versions](#versions)). MIT license.
 
 ## Install
 
@@ -16,19 +16,25 @@ pnpm add @loozo/angular-router
 
 Peer dependencies:
 
-| Package           | Range     |
-| ----------------- | --------- |
-| `@angular/core`   | `^22.0.0` |
-| `@angular/router` | `^22.0.0` |
-| `@angular/build`  | `~22.3.0` |
+| Package             | Range     |
+| ------------------- | --------- |
+| `@angular/core`     | `^22.0.0` |
+| `@angular/common`   | `^22.0.0` |
+| `@angular/router`   | `^22.0.0` |
+| `@angular/build`    | `~22.3.0` |
+| `@angular/localize` | `^22.0.0` |
+
+`@angular/localize` is optional: install it only for [translated URLs](#translated-urls) (`translateSegments`). The ranges admit more Angular versions than a release supports; see [Angular versions](#angular-versions).
 
 ## Versions
 
-Releases are numbered `0.MINOR.PATCH` until 1.0. [`SPEC.md`](SPEC.md) is the contract: the exports and their types, the builder names and options, the generated file names and what they export, and the behavior it specifies.
+From 1.0.0, releases follow [semantic versioning](https://semver.org) over the contract in [`SPEC.md`](SPEC.md): the exports and their types, the builder names and options, the generated file names and what they export, and the behavior it specifies. Its [Stability](SPEC.md#stability) section lists what's public and what isn't.
 
-- A patch (0.1.0 → 0.1.1) doesn't break the contract. It fixes bugs, improves the docs or adds something, such as an export, an option or a codec.
-- A minor (0.1.x → 0.2.0) may break it. Every move to a new Angular minor is also a minor release (see [Angular versions](#angular-versions)), so a `^0.1.0` range never picks up a release that needs a different Angular.
-- Generated files aren't part of the contract byte for byte, so any release, a patch included, may change them, and a release supports only the generated files it writes itself. After upgrading, run `ng build` (or `ng serve`) once and commit the regenerated files. Until then, the CI check (`ng build --configuration ci`) fails on them, and `ng test`, `ng extract-i18n` and your editor read the old ones, which the new release doesn't support.
+- A patch (1.0.0 → 1.0.1) fixes bugs or improves the docs.
+- A minor (1.0.x → 1.1.0) adds something without breaking the contract, such as an export, an option or a codec. A move to a new Angular minor is a minor too (see [Angular versions](#angular-versions)).
+- A major (1.x → 2.0.0) breaks the contract. A move to a new Angular major is a major too.
+- Error messages explain a failure; their wording may improve in any release. When and how something fails is part of the contract.
+- Generated files aren't part of the contract byte for byte, only their names, locations and what your code uses from them, so any release, a patch included, may change their contents, and a release supports only the generated files it writes itself. After upgrading, run `ng build` (or `ng serve`) once and commit the regenerated files. Until then, the CI check (`ng build --configuration ci`) fails on them, and `ng test`, `ng extract-i18n` and your editor read the old ones, which the new release doesn't support.
 
 Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-router&expanded=true).
 
@@ -37,6 +43,8 @@ Each release's breaking changes, features and fixes are listed in its [GitHub re
 Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.3 and is tested against 22.3.0. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
 
 When Angular ships a new minor or major, a release built against it follows within a week. Earlier minors stay on the release that supported them; fixes aren't backported. [`@loozo/angular-launch`](../angular-launch/README.md) pins the router exactly and releases in lockstep: each router release is followed by a Launch release that pins it.
+
+From 1.0.0, a release for a new Angular minor is a router minor, and a release for a new Angular major is a router major. For example, router 1.x supports Angular 22.3; when Angular 22.4 ships, router 1.(x+1) supports 22.4 alone, and when Angular 23 ships, router 2.0 supports 23.0. That minor is the one exception to strict semantic versioning over peer ranges: a `^1.x` range picks it up, and it needs the new Angular minor. Angular minors don't break applications, so update Angular's minor when you update the router. To stay on an Angular minor, keep the router on a `~` range, such as `~1.3.0`, until you move Angular.
 
 A weekly canary builds and tests the package against Angular's `latest` and `next` releases, so the release for a new minor is usually ready when Angular ships it.
 
@@ -48,7 +56,7 @@ In `angular.json`:
 
 [angular.json](snippets/angular.json)
 
-The application builder takes the router options (`tsconfig`, `scanDirectories`, `outDirectory`, and optionally `check` and `autoDefineRoutes`) next to your normal Angular application options, which it passes through unchanged. The serve builder takes normal dev-server options and reads the router options from its `buildTarget`. See [Builder options](#builder-options).
+The application builder takes the router options (`tsconfig`, `scanDirectories`, `outDirectory`, and optionally `check`, `translateSegments` and `autoDefineRoutes`) next to your normal Angular application options, which it passes through unchanged. The serve builder takes normal dev-server options and reads the router options from its `buildTarget`. See [Builder options](#builder-options).
 
 Note that `tsconfig` and `tsConfig` are different options. `tsconfig` is the TypeScript config used to find route declarations; `tsConfig` is Angular's own compilation config. The example app uses a small `tsconfig.routes.json` that extends the app config:
 
@@ -443,7 +451,7 @@ src/routes/
 - Environment initializers in a group's `.providers(…)` run the first time Angular tries the group, even on a URL it doesn't own. Start group-only work from a guard, a resolver or the layout instead.
 - A named outlet's route can't hang directly under a group; give it a parent with a path, or declare it beside the groups. When every route of a named outlet refuses its part of the URL (an invalid param, or the branch's own guard), Angular tries that part against the groups too. A group with a route of the same shape, or a catchall, then runs its `.canMatch` guards with those segments (a `UrlTree` they return redirects the navigation) or loads its routes before the navigation fails. Those guards can't tell this attempt from a primary one.
 
-A `+` directory with routes below it and no other pathless route beside it isn't a group: it matches every URL that reaches it, like any pathless route. Adding a pathless leaf beside it, such as `+home/page.ts` or `+index`, makes it a group, with the rules above.
+A `+` directory with routes below it and no other pathless route beside it isn't a group: it keeps Angular's own matching, like any pathless route. Its `.canMatch` guards run, and once they pass its routes load, for every URL that reaches it, including one no route below it matches. That stays so in 1.x ([SPEC.md](SPEC.md#stability)). Adding a pathless leaf beside it, such as `+home/page.ts` or `+index`, makes it a group, with the rules above.
 
 ### Explicit authoring
 
@@ -548,7 +556,7 @@ A locale also fails when its words put a route under another route's catchall th
 Locale de: …/src/routes/docs/$rest[]/route.ts:1:1: Catchall shadows a route: src/routes/docs/$rest[]/route.ts (/dokumente/$rest[]) is tried before src/routes/manuals/start/route.ts (/dokumente/anfang)
 ```
 
-The check compares against your source tree: a route your source words already put under such a catchall, such as a root `docs/special` beside `docs/$rest[]`, is unreachable in every locale and isn't reported.
+The check compares against your source tree: a route your source words already put under such a catchall, such as a root `docs/special` beside `docs/$rest[]`, is unreachable in every locale and isn't reported. Generation doesn't reject that shadowing in your source tree: Angular's table order decides, as in plain Angular, and that stays so in 1.x ([SPEC.md](SPEC.md#stability)).
 
 Every static word is translatable, including ones an outside system depends on, such as `api`, `.well-known` or an OAuth callback path. Give those a translation equal to their source text.
 
@@ -580,7 +588,7 @@ For `<link rel="alternate" hreflang>`, call this from the shell's constructor. I
 [src/alternates.ts](snippets/src/alternates.ts)
 
 - **Locales.** Every locale in `angular.json` `i18n`, whatever `localize` builds, the source locale first. Separately built locales (`localize: ["de"]`, then `["en"]`) give the same list, so hreflang stays reciprocal. A configured locale you don't ship yet gets links that 404: remove it from `i18n` until it ships, or filter it out of the list.
-- **What's carried.** The active form keeps the page's params and declared search keys, so page 2 of a list links to page 2. A search value equal to its `withFallback` value is left out (`/en/products`, not `/en/products?page=1`), and so are undeclared query keys such as `utm_source` and the fragment. To keep a fragment, narrow with `is()` and call `localeUrls(destination, { …, fragment })`. Param and catchall values aren't translated: the not-found page on `/de/products/2` links to `/en/products/2`.
+- **What's carried.** The active form keeps the page's params and declared search keys, so page 2 of a list links to page 2. A search value equal to its `withFallback` value is left out (`/en/products`, not `/en/products?page=1`), and so are undeclared query keys such as `utm_source` and the fragment. To keep a fragment, narrow with `is()` and call `localeUrls(destination, { …, fragment })`. Open [named outlet](#named-outlets) branches are left out: the URLs carry the primary page alone, so switching language closes an open panel. That stays so in 1.x ([SPEC.md](SPEC.md#stability)). Param and catchall values aren't translated: the not-found page on `/de/products/2` links to `/en/products/2`.
 - **Base hrefs.** Each URL starts with that locale build's `<base href>`, as Angular computes it from `baseHref` and the locale's `subPath` or `baseHref`, so it's absolute when the base is. A locale whose base Angular leaves to the build (an empty `baseHref`) uses the build's `baseHref`, else `/`; an `index.html` base other than `/` isn't read. A relative base, such as `baseHref: "app/"`, gives relative URLs, and the build warns about it.
 - **No list.** Both forms give `[]` wherever no build defined the locale table: an unlocalized build, a multi-locale `ng serve`, `ng test`, and a build that doesn't run the router's or Launch's builders. A switcher then renders nothing and the snippet adds no links. The values are still checked, so a wrong call fails in unit tests too.
 - **Hydrated pages.** The active route is `undefined` from hydration until the browser's first navigation completes, so the switcher re-renders its links and the snippet rewrites its head links then; crawlers and readers without JavaScript have the server's HTML either way. With [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), a page with a usable seed keeps the server's links. The provider has costs and cases without a seed, which that section lists; it's optional for a switcher.
@@ -719,7 +727,7 @@ All `@angular/build:dev-server` options, set in `angular.json` or on the command
 
 Invalid options stop the serve builder before it generates anything, and so does an invalid build target. It watches the scan directory and regenerates when files are added, changed or removed. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build. Later errors are logged, and the server keeps running until you fix them. The build target must not resolve `check: true`, because serving always writes generated files.
 
-Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. Polling costs some idle CPU (about 3% of one core on the example app at 1000 ms, against under 0.1% without), and more on larger workspaces.
+Polling is on by default because Angular's native file watcher missed edits to files inside a renamed directory when this was checked on Angular 22.2.2, which left the dev server serving stale output. Polling costs some idle CPU (about 3% of one core on the example app at 1000 ms, against under 0.1% without), and more on larger workspaces.
 
 To go back to native file events, set `"poll": false` in the serve target or one of its configurations. The router then adds no default, and Angular's own configuration applies, including a `poll` set on the build target. A positive number overrides the build target's `poll`. `0` is rejected. On the command line, `--poll` accepts milliseconds only; set `false` in `angular.json`.
 
@@ -732,7 +740,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
 - [Translated URLs](#translated-urls) have no locale detection or redirects, switching locale inside one build, or translated param, catchall or search values (`localeUrls` keeps them as they are), and no built-in head manager: hreflang links are the documented snippet in your app; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
-- Angular 22.2.2 drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`.
+- Angular drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`. This was found on Angular 22.2.2, and the package's lifecycle test still checks it on 22.3.0.
 - Writes are individual file replacements. A write error or an interrupted run can leave mixed output; the next successful run repairs it.
 
 ## Further reading
