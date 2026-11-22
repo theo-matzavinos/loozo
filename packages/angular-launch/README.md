@@ -286,6 +286,8 @@ export const reqHandler = createNodeRequestHandler(app);
 
 Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks). The upgrade handler only matters if you define [channels](#channels); `ng serve` uses it too. See [Channels on Node](#channels-on-node).
 
+Launch sets no limit on request size, time or connections: it reads an RPC's whole body before any stage runs. In production, limit request bodies (bytes and read time), request targets, concurrent connections and concurrent requests, open streams and channels included, in your host or a proxy in front of this server; a body-parsing middleware such as `express.json()` isn't the place, since it consumes the body `handleRequest` reads. See [Deploying](#deploying) and the [threat model](SPEC.md#threat-model).
+
 Import `server.generated` before any module that reaches a route, as above: with [translated URLs](#translated-urls) that order is required.
 
 Always pass `scope.request` together with `scope`, not your original request. The scope ties the render's stages to the request Angular renders; if they don't match, RPC calls during rendering fail with `INTERNAL` and a server log entry. This catches wiring mistakes only; it doesn't check your authentication.
@@ -1080,6 +1082,8 @@ The server bundle includes your dependencies by default, so the host doesn't nee
 | `NG_ALLOWED_HOSTS`       | Comma-separated hostnames allowed for pages and RPCs. The server entry above reads it and passes the list to both; it defaults to `localhost` there. Other hosts get a 400.                  |
 | `NG_TRUST_PROXY_HEADERS` | Read by `AngularNodeAppEngine`: comma-separated `Forwarded` and `X-Forwarded-*` headers that Angular should trust. Set it only behind a proxy that overwrites those headers. Off by default. |
 
+Before exposing the server, limit what reaches it in the host or a proxy in front of it: request body size and read time, request target and header size, concurrent connections, and concurrent in-flight requests, open streams and channels, per client and in total. Over HTTP/2 one connection carries many requests, so a connection cap alone doesn't bound them. Launch sets none of these. It reads an RPC's whole body before any stage runs, so authentication in your stages can't stop an oversized one, and each open stream or channel holds its connection, or HTTP/2 stream, for as long as it runs. Body-parsing middleware isn't the place for the limit: it consumes the body `handleRequest` reads. The [threat model](SPEC.md#threat-model) lists what else the host and your stages own.
+
 Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even when the app has a different `<base href>`. If the app is served under a path prefix, route `/_rpc/` to the same server.
 
 Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
@@ -1145,7 +1149,7 @@ Launch's browser client always sends one of the two headers. curl, scripts, Node
 const rpc = await handleRequest(web, { allowedHosts, origins: ["https://app.example.com"] });
 ```
 
-List a sibling site's origin the same way to let it call. Only HTTP requests are checked: calls made during server rendering carry the page request, whose `Sec-Fetch-Site` is `cross-site` or `none` on an ordinary navigation, and run without these checks.
+List a sibling site's origin the same way to pass Launch's check. For HTTP RPCs and streams that isn't enough on its own: the browser sends a CORS preflight before the JSON `POST`, which Launch refuses, so your host must answer it and add CORS headers to responses. Channels need no CORS. Only HTTP requests are checked: calls made during server rendering carry the page request, whose `Sec-Fetch-Site` is `cross-site` or `none` on an ordinary navigation, and run without these checks.
 
 ### Other runtimes
 
