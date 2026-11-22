@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { Component, PLATFORM_ID, signal } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 
@@ -18,8 +19,12 @@ import { RpcError } from "../dist/index.js";
 const require = createRequire(
   new URL("../../../examples/angular-launch/package.json", import.meta.url),
 );
-const { ɵDominoAdapter: DominoAdapter } = await import(require.resolve("@angular/platform-server"));
-const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
+const { ɵDominoAdapter: DominoAdapter } = await import(
+  pathToFileURL(require.resolve("@angular/platform-server")).href
+);
+const { bootstrapApplication } = await import(
+  pathToFileURL(require.resolve("@angular/platform-browser")).href
+);
 
 globalThis.ngServerMode = false;
 

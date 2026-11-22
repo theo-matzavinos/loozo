@@ -1,6 +1,7 @@
 import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import {
   Component,
@@ -379,9 +380,11 @@ test("native SSR denies admitted mutations before middleware/schema/handler/writ
   const require = createRequire(
     new URL("../../../examples/angular-launch/package.json", import.meta.url),
   );
-  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
+  const { bootstrapApplication } = await import(
+    pathToFileURL(require.resolve("@angular/platform-browser")).href
+  );
   const { renderApplication, provideServerRendering } = await import(
-    require.resolve("@angular/platform-server")
+    pathToFileURL(require.resolve("@angular/platform-server")).href
   );
   const counts = { contexts: 0, schemas: 0, middleware: 0, handlers: 0, writes: 0, fallback: 0 };
   const namespaces = {

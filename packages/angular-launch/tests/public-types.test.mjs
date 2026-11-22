@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { relative } from "node:path";
+import { relative, sep } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-const dist = new URL("../dist/", import.meta.url).pathname;
+const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 
 // "_" entries couple generated code to this package; they're not public API.
 const entries = [];
@@ -15,7 +16,7 @@ for (const [entry, target] of Object.entries(manifest.exports)) {
     continue;
   }
 
-  entries.push(new URL(`../${target.types}`, import.meta.url).pathname);
+  entries.push(fileURLToPath(new URL(`../${target.types}`, import.meta.url)));
 }
 
 const namedTypes =
@@ -65,7 +66,9 @@ function location(root, node) {
 // `problems` lists anything that would make that check pass without looking: compiler errors
 // (such as a missing module), a public entry with no exports, and exports or references that
 // don't resolve to a declaration.
-function checkDeclarations(root, files) {
+function checkDeclarations(directory, files) {
+  // With / separators, as TypeScript names its source files on every platform.
+  const root = directory.split(sep).join("/");
   const program = ts.createProgram(files, {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
@@ -252,7 +255,7 @@ await test("published declarations only reference types exported from public ent
 });
 
 await test("a type alias exported through an export list counts as exported", () => {
-  const fixture = new URL("fixtures/export-list/", import.meta.url).pathname;
+  const fixture = fileURLToPath(new URL("fixtures/export-list/", import.meta.url));
   const { problems, offenders } = checkDeclarations(fixture, [`${fixture}index.d.ts`]);
 
   assert.deepEqual(problems, []);
@@ -263,7 +266,10 @@ await test("a type alias exported through an export list counts as exported", ()
 
 // A consumer module type-checked against the built package and the real router, as an app's
 // route.ts files are: the package resolves itself by name through its exports map.
-const consumerDirectory = new URL("./.types/", import.meta.url).pathname;
+// With / separators, as TypeScript names the files it asks the host for.
+const consumerDirectory = fileURLToPath(new URL("./.types/", import.meta.url))
+  .split(sep)
+  .join("/");
 
 function program(files, options = {}) {
   const compilerOptions = {

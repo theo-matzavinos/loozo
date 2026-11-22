@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import {
   DOCUMENT,
   createEnvironmentInjector,
@@ -545,15 +546,19 @@ async function render(url, cookie = "alice") {
   const require = createRequire(
     new URL("../../../examples/angular-launch/package.json", import.meta.url),
   );
-  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
-  const { renderApplication, provideServerRendering } = await import(
-    require.resolve("@angular/platform-server")
+  const { bootstrapApplication } = await import(
+    pathToFileURL(require.resolve("@angular/platform-browser")).href
   );
-  const { Component } = await import(require.resolve("@angular/core"));
-  const { Location } = await import(require.resolve("@angular/common"));
-  const { provideHttpClient } = await import(require.resolve("@angular/common/http"));
+  const { renderApplication, provideServerRendering } = await import(
+    pathToFileURL(require.resolve("@angular/platform-server")).href
+  );
+  const { Component } = await import(pathToFileURL(require.resolve("@angular/core")).href);
+  const { Location } = await import(pathToFileURL(require.resolve("@angular/common")).href);
+  const { provideHttpClient } = await import(
+    pathToFileURL(require.resolve("@angular/common/http")).href
+  );
   const { provideRouter, RouterOutlet, withNavigationErrorHandler } = await import(
-    require.resolve("@angular/router")
+    pathToFileURL(require.resolve("@angular/router")).href
   );
   const scope = createRequestScope(
     bound(application, namespaces),

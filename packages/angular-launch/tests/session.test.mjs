@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, readFile, readdir, writeFile, stat, rm, rename } from "node:fs/promises";
-import { dirname, resolve, relative } from "node:path";
+import { dirname, resolve, relative, sep } from "node:path";
 import { generate, createGenerationSession } from "../dist/generation/index.js";
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
@@ -113,7 +113,8 @@ async function snapshot(root) {
           stat(path, { bigint: true }),
         ]);
 
-        files[relative(root, path)] = { bytes, mtime: String(info.mtimeNs) };
+        // Keyed with / on every platform, as the tests look files up.
+        files[relative(root, path).split(sep).join("/")] = { bytes, mtime: String(info.mtimeNs) };
       }
     }
   }
@@ -237,6 +238,44 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
     await assert.rejects(session.generate({ check: true }), /changed/);
     assert.deepEqual(await snapshot(root), drift);
     await session.generate();
+  } finally {
+    await session.dispose();
+  }
+});
+
+// A case-only directory rename is a plain rename on Linux; on case-insensitive macOS and Windows
+// volumes the old and new names are the same entry, which a warm session may still know by its
+// old spelling.
+test("a warm session republishes a case-only route directory rename under the new casing, with cold parity", async () => {
+  const root = await fixture();
+  const session = createGenerationSession(root, options);
+
+  try {
+    await session.generate();
+    await rename(resolve(root, "src/routes/left"), resolve(root, "src/routes/Left"));
+    await put(
+      root,
+      "src/checks.ts",
+      "import {injectRoute} from './routes/Left/route.generated';const result:Promise<{length:number;value:number}>=injectRoute().remote.todos.read('hello');void result;",
+    );
+    await session.generate();
+
+    const files = await snapshot(root);
+    const server = files["generated/server.generated.ts"].bytes;
+
+    assert.match(files["src/routes/Left/route.generated.ts"].bytes, /todos/);
+    assert.match(server, /from "\.\.\/src\/routes\/Left\/route\.js";/);
+    assert.match(server, /"src\/routes\/Left\/route\.ts"\]/);
+
+    // The route's own path stays "left"; only the directory's old spelling must be gone.
+    for (const [file, { bytes }] of Object.entries(files)) {
+      assert.doesNotMatch(file, /left\//, file);
+      assert.doesNotMatch(bytes, /left\/|_left_/, file);
+    }
+
+    await session.generate({ check: true });
+    await generate(root, options);
+    assert.deepEqual(await snapshot(root), files);
   } finally {
     await session.dispose();
   }
