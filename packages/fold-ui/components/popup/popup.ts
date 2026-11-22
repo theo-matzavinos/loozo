@@ -9,8 +9,11 @@ export const popupClasses = [
   ...popupMotionClasses,
 ];
 
-/** A list anchored to its trigger: as wide as it at least, scrolling within the room left. */
+/**
+ * A list anchored to its trigger: as wide as it at least, at most 20rem tall or the room left less
+ * 8px, and a flex column while open, so a ScrollArea inside it scrolls. It doesn't scroll itself.
+ */
 export const popupListClasses = [
   "min-w-(--og-anchor-width) max-w-[calc(100vw_-_1rem)] max-h-[min(20rem,calc(var(--og-available-height)_-_8px))]",
-  "overflow-y-auto overscroll-contain",
+  "open:flex flex-col",
 ];

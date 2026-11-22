@@ -26,6 +26,10 @@ const THUMB =
  * max height or a flex parent to bound it, and lay out your content in an element of your own inside
  * it. Its template reference has `viewport()`, the native scroller.
  *
+ * The viewport is a Tab stop, so the keyboard can reach and scroll it. `[viewportTabIndex]="-1"`
+ * removes the stop when its content is all controls, and `[viewportTabIndex]="null"` removes the
+ * attribute so the browser decides.
+ *
  * @example
  * ```html
  * <section class="h-80 rounded-surface border border-border">
@@ -59,6 +63,7 @@ const THUMB =
       #viewport
       ogScrollAreaViewport
       data-slot="scroll-area-viewport"
+      [attr.tabindex]="viewportTabIndex()"
       class="${VIEWPORT}"
       [attr.role]="role()"
       [attr.aria-label]="ariaLabel()"
@@ -93,6 +98,8 @@ const THUMB =
   `,
 })
 export class ScrollArea {
+  /** The viewport's tabindex, replacing Origami's `0`; `null` removes the attribute. */
+  readonly viewportTabIndex = input<number | null>(0);
   readonly orientation = input<"vertical" | "horizontal" | "both">("vertical");
   readonly ariaLabel = input<string | null>(null, { alias: "aria-label" });
   readonly ariaLabelledby = input<string | null>(null, { alias: "aria-labelledby" });

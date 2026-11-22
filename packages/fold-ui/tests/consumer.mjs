@@ -1,6 +1,7 @@
 // End to end, the way a consumer meets fold: a fresh `ng new --style=tailwind --ssr` app installs
 // the packed fold and Origami, runs `ng add` and `add` for every component with the prefix `zz`,
-// builds for production with prerendering and passes a Chromium smoke (consumer-smoke.mjs).
+// builds for production with prerendering and passes a Chromium smoke (consumer-smoke.mjs) and the
+// scrolling suite (consumer-scrolling.mjs) in each engine.
 //
 // Browser and AOT build steps take Origami's machine-wide gate lock. Needs network access for the
 // app's npm install.
@@ -203,5 +204,13 @@ run(
   app,
 );
 run("sh", [gateLock, "node", join(packageDirectory, "tests/consumer-smoke.mjs"), app], app);
+
+for (const engine of ["chromium", "firefox", "webkit"]) {
+  run(
+    "sh",
+    [gateLock, "node", join(packageDirectory, "tests/consumer-scrolling.mjs"), app, engine],
+    app,
+  );
+}
 
 console.log("\nfold consumer check passed.");

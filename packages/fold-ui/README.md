@@ -53,7 +53,7 @@ ng generate @loozo/fold-ui:add --names scroll-area avatar progress
 ng generate @loozo/fold-ui:add --names calendar
 ```
 
-NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar and Progress import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar` and `/progress`, which no published Origami has yet (npm has 0.0.4); Select, Tabs, Tooltip and Popover import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar and Progress import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar` and `/progress`, which no published Origami has yet (npm has 0.0.4). Select, Popover, Dialog and Sheet scroll in a ScrollArea, so adding one adds `scroll-area` and needs `/scroll-area` too. Tabs and Tooltip import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Calendar forwards Origami's `selectedDescription`, which no published Origami has yet: on 0.0.4 the build fails with `NG2017: Directive OrigamiCalendar does not have an input with a public name of selectedDescription.`, once per Calendar root.
 
@@ -145,7 +145,7 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name` and `file-field-size`). OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name` and `file-field-size`). OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside. Select's, Combobox's, Menu's and Popover's Content, DialogBody and SheetBody render a ScrollArea inside, so its `scroll-area…` slots are there too: target their scroller as `[&_[data-slot=scroll-area-viewport]]`.
 
 State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. An OtpField's cells have `data-filled`, `data-caret` and `data-selected`; like NumberField, the row reads its input's `:focus-visible`, `:disabled`, `[readonly]` and `[aria-invalid=true]` through `:has()`. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton `data-disabled` while its field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. A toast has `data-kind`, `data-entering` and `data-leaving`, is `inert` through its exit, and sets `--toast-index`, its place in the deck, 0 for the newest. A ScrollArea has `data-overflow-x` and `data-overflow-y` while its viewport overflows that way, and each scrollbar `data-orientation` and, while shown, `data-visible`. An Avatar has `data-status`: `idle`, `loading`, `loaded` or `error`. A Progress has `data-complete` or `data-indeterminate`, and the `--og-progress-percent` custom property while its value is known. fold's Field adds `data-orientation`.
 
@@ -263,12 +263,14 @@ Dialog is a centered modal for a task, such as editing a record or filling in se
         <h2 foldDialogTitle>Edit contract</h2>
         <p foldDialogDescription>Changes apply from the next billing period.</p>
       </div>
-      <div foldDialogBody class="grid gap-4">
-        <div foldField>
-          <label foldFieldLabel>Reference</label>
-          <input foldInput [readOnly]="pending()" [formField]="f.reference" />
+      <div foldDialogBody>
+        <div class="grid gap-4">
+          <div foldField>
+            <label foldFieldLabel>Reference</label>
+            <input foldInput [readOnly]="pending()" [formField]="f.reference" />
+          </div>
+          …
         </div>
-        …
       </div>
       <div foldDialogFooter>
         <button foldDialogClose [disabled]="pending()" focusableWhenDisabled>Cancel</button>
@@ -292,7 +294,7 @@ Dialog is a centered modal for a task, such as editing a record or filling in se
 - `DialogContent`: the modal `<dialog>` over a scrim, centered, 512px wide and at most the viewport's height less 32px; on narrow screens it keeps 16px from each edge. It lays its children out in a column, 20px apart. It takes `id`, `returnFocus`, `closeButton` and `closeLabel`. When it closes, focus returns to what had it before the dialog opened, or to `returnFocus` if that can take focus; see Origami's [Focus](../origami-ui/dialog/README.md#focus) for when focus was lost.
 - `DialogHeader`: stacks the title and description, clear of the close button.
 - `DialogTitle` and `DialogDescription`: name and describe the dialog for assistive technology. They take `id`.
-- `DialogBody`: the part that scrolls when the dialog runs out of height, so the header and footer stay in place. Without a Body, the whole dialog scrolls, close button and footer included.
+- `DialogBody`: the part that scrolls when the dialog runs out of height, so the header and footer stay in place. It scrolls in a [ScrollArea](#scrollarea) with its scrollbar at the panel's edge: lay out its content in an element of your own inside it, as the examples do; its `class` sizes and places the Body itself. A control focused near its top or bottom scrolls fully into view, focus ring included; the Body's 16px scroll padding keeps it clear of the edge as far as the Body can scroll, so the distance left also depends on the content before or after the control and on the browser's focus scrolling. The dialog keeps the page behind it scroll-locked, including when you wheel over the scrollbar at either end. Without a Body, the whole dialog scrolls, close button and footer included.
 - `DialogFooter`: the actions, right-aligned.
 - `DialogClose`: closes the dialog, whatever `dismissible` says. Secondary by default; it takes Button's inputs, `disabled` and `focusableWhenDisabled`.
 
@@ -352,7 +354,7 @@ import {
     <dialog foldDialogContent class="w-[min(640px,calc(100%-32px))]">
       <form class="contents" (submit)="submit($event)">
         <div foldDialogHeader><h2 foldDialogTitle>Search invoices</h2></div>
-        <div foldDialogBody class="grid gap-4 sm:grid-cols-2">…</div>
+        <div foldDialogBody><div class="grid gap-4 sm:grid-cols-2">…</div></div>
         <div foldDialogFooter>
           <button foldButton variant="primary" type="submit">Search</button>
         </div>
@@ -418,12 +420,14 @@ Sheet is a full-height modal panel against the right or left edge of the screen,
         <h2 foldSheetTitle>Filters</h2>
         <p foldSheetDescription>12 contracts match.</p>
       </div>
-      <div foldSheetBody class="grid gap-4">
-        <div foldField>
-          <label foldFieldLabel>Search</label>
-          <input foldInput [formField]="f.search" />
+      <div foldSheetBody>
+        <div class="grid gap-4">
+          <div foldField>
+            <label foldFieldLabel>Search</label>
+            <input foldInput [formField]="f.search" />
+          </div>
+          …
         </div>
-        …
       </div>
       <div foldSheetFooter>
         <button foldButton variant="primary" type="submit">Apply</button>
@@ -438,7 +442,7 @@ Sheet is a full-height modal panel against the right or left edge of the screen,
 - `SheetContent`: the modal `<dialog>` over a scrim, the viewport's full height and 320px wide, or the viewport's width when that's narrower, against the right edge, or the left one with `side="left"`. A border separates it from the page. It lays its children out in a column, 20px apart. It takes `id`, `returnFocus`, `side`, `closeButton` and `closeLabel`. When it closes, focus returns to what had it before the sheet opened, or to `returnFocus` if that can take focus; see Origami's [Focus](../origami-ui/dialog/README.md#focus) for when focus was lost.
 - `SheetHeader`: stacks the title and description, clear of the close button.
 - `SheetTitle` and `SheetDescription`: name and describe the sheet for assistive technology. They take `id`.
-- `SheetBody`: the part that scrolls when the sheet runs out of height, so the header and footer stay in place. Without a Body, the whole sheet scrolls, close button and footer included.
+- `SheetBody`: the part that scrolls when the sheet runs out of height, so the header and footer stay in place. It scrolls in a [ScrollArea](#scrollarea) with its scrollbar at the panel's edge: lay out its content in an element of your own inside it, as the examples do; its `class` sizes and places the Body itself. A control focused near its top or bottom scrolls fully into view, focus ring included; the Body's 16px scroll padding keeps it clear of the edge as far as the Body can scroll, so the distance left also depends on the content before or after the control and on the browser's focus scrolling. The sheet keeps the page behind it scroll-locked, including when you wheel over the scrollbar at either end. Without a Body, the whole sheet scrolls, close button and footer included.
 - `SheetFooter`: the actions, right-aligned, at the bottom of the sheet.
 - `SheetClose`: closes the sheet, whatever `dismissible` says. Secondary by default; it takes Button's inputs, `disabled` and `focusableWhenDisabled`.
 
@@ -963,6 +967,7 @@ Set `label` on every option: the Trigger's text and typeahead read it, and an op
 - **Long lists.** Every option is mounted while the list is closed; for hundreds of options, use a [Combobox](#combobox) and render only the matches.
 - **One value.** There's no multiple selection; Origami's [`ogSelectMultiple`](../origami-ui/select/README.md) composes with fold's Trigger, Content and Option if you need it.
 - **In a Dialog.** The list opens over the dialog in the top layer; the first Escape closes the list, the next one the dialog.
+- **Scrolling.** The list scrolls in a fold [ScrollArea](#scrollarea) whose viewport isn't a Tab stop. Its 4px padding is fold's: the scroller fills the list inside its border, with the options 4px in, so a `class` that changes the list's padding leaves the scroller misplaced. At the list's end, a wheel over its scrollbar can scroll the page behind it.
 
 [Origami's README](../origami-ui/select/README.md) describes the keys, typeahead, hydration and the rest.
 
@@ -1033,7 +1038,7 @@ A server search without a Trigger, with two-line rows:
 - `Combobox`: the root. It takes `value` (two-way), `query` (two-way), `open` (two-way), `disabled` and `class`, and emits `valueChange`, `queryChange`, `openChange` and `touch`; `[formField]` binds the value and follows the field's `disabled()` and `readonly()` rules, which make the input natively disabled or readonly. Its template reference, `#planet="foldCombobox"` with your prefix, has `state`, with `value`, `query`, `open` and `disabled` signals. Its `focus()` focuses the input.
 - `ComboboxInput`: the text box and the list's anchor. It takes `id` and `class`.
 - `ComboboxTrigger`: a 32px chevron button over the input's end, out of the Tab order; a click leaves focus in the input. Write it directly after the input, inside the root, so the input makes room for it, and give it an `aria-label`. It takes `id` and `class`.
-- `ComboboxContent`, `ComboboxOption`: as Select's. The list stays open with no options.
+- `ComboboxContent`, `ComboboxOption`: as Select's. The list stays open with no options. It scrolls in a ScrollArea like Select's, and at its end a wheel over its scrollbar can scroll the page behind it.
 - `ComboboxEmpty`: a muted row lined up with the options' text, for no matches or a pending search. It takes `class`.
 
 Choosing an option puts its `label` in the input. Closing without a choice puts the last chosen label back, and only emptying the input clears the value.
@@ -1181,15 +1186,15 @@ readonly filtersOpen = signal(false);
 
 - `Popover`: the root, layout-transparent (`display: contents`). It takes `open` (two-way), `disabled`, `dismissible` (`true` by default; `false` keeps it open on Escape and outside clicks) and `class`, and emits `openChange`. Its template reference has `state`, with `open`, `disabled` and `dismissible` signals.
 - `PopoverTrigger`: a `<button>` that opens and closes it, secondary by default. It takes Button's `variant`, `size` and `class`, plus `id`, `disabled` and `focusableWhenDisabled`. It's also the panel's anchor; there's no separate Anchor part. It renders `aria-haspopup="dialog"`, matching Content's default role: if you give Content another popup role, such as `menu` or `listbox`, set the matching token on the Trigger, and for `group`, `region` or no role, set `aria-haspopup="false"`.
-- `PopoverContent`: the panel, `role="dialog"` by default. It takes `id`, `side` (default `block-end`), `align` (default `start`), `gap` (default 4, in CSS pixels) and `class`. Its template reference, `#filters="foldPopoverContent"`, has `state`, with an `open` signal that stays `true` through the closing animation.
+- `PopoverContent`: the panel, `role="dialog"` by default. It takes `id`, `side` (default `block-end`), `align` (default `start`), `gap` (default 4, in CSS pixels), `tabindex`, which goes to its scroller, and `class`. Its template reference, `#filters="foldPopoverContent"`, has `state`, with an `open` signal that stays `true` through the closing animation.
 
 Name the panel with `aria-labelledby` or `aria-label`, and author it right after its Trigger, so Tab moves from the Trigger into it. Escape and an outside click close it; Escape returns focus to the Trigger. There's no close part: close it from your own button by setting `open` to `false`.
 
 - **Gate heavy content** on the Content's `state.open()`, as above; the panel's own markup is always rendered.
-- **Layout inside.** fold sets no `display` on Content, which must keep the browser's closed `display: none`; lay out an inner element, like the `grid` above.
+- **Layout inside.** Content is a flex column only while open, so it keeps the browser's closed `display: none`, and its content sits in a ScrollArea with the 12px padding inside the scroller; lay out an inner element, like the `grid` above. Content's `class` sizes the panel: padding there goes outside the scroller.
 - **Not a focus trap.** It's non-modal: Tab leaves it for the next element on the page, and focus can move anywhere while it's open.
 - **Tooltips inside it** show once it's open and hide when it finishes closing, staying visible through its closing animation.
-- **Keyboard and scrolling.** Content scrolls when it's taller than the room left below or above the Trigger. Text-only Content that can scroll needs `tabindex="0"`, so the keyboard can reach and scroll it in every browser (Safari skips it otherwise). Interactive Content needs nothing; Firefox adds one Tab stop on the panel while it scrolls, which `tabindex="-1"` removes. Whenever the panel takes keyboard focus, it shows the focus ring.
+- **Keyboard and scrolling.** Content scrolls in a [ScrollArea](#scrollarea) when it's taller than the room left below or above the Trigger. Text-only Content that can scroll needs `tabindex="0"`, which fold moves to the scroller, so the keyboard can reach and scroll it in every browser (Safari skips it otherwise); the scroller then shows its inset focus ring. Interactive Content needs nothing; Firefox adds one Tab stop on the scroller while it scrolls, which `tabindex="-1"` removes. A control focused near an edge scrolls fully into view, focus ring included; the viewport's 16px scroll padding keeps it clear of the edge as far as the panel can scroll, so the distance left also depends on the content before or after the control and on the browser's focus scrolling. A wheel over the scrollbar stays in the panel like one over its content, though in Firefox either can scroll the page at the panel's end.
 - **In a Dialog.** It opens over the dialog in the top layer; the first Escape closes the Popover, the next one the dialog.
 - **One button primitive per element.** Don't add `foldButton` to a PopoverTrigger; it already has the Button look.
 
@@ -1280,6 +1285,7 @@ Listen to `select`, not `click`: it runs for a click, Enter or Space. A click or
 - **Layout on the root.** Menu and MenuSub are `display: contents`, so their classes don't lay anything out; style the Trigger and Content.
 - **One button primitive per element.** Don't add `foldButton` to a MenuTrigger; it already has the Button look.
 - **Forms don't belong in a menu.** Menu rows are actions and options; for inputs, use a [Popover](#popover).
+- **Scrolling.** The panel scrolls in a [ScrollArea](#scrollarea) whose viewport isn't a Tab stop. A row the keyboard focuses scrolls fully into view, focus ring included; the viewport's 16px scroll padding keeps it clear of the edge as far as the panel can scroll, so the distance left also depends on the rows before or after it and on the browser's focus scrolling. At the panel's end, a wheel over its scrollbar can scroll the page.
 
 [Origami's README](../origami-ui/menu/README.md) describes the [keys](../origami-ui/menu/README.md#keyboard) and typeahead, [removing the row a menu belongs to](../origami-ui/menu/README.md#removing-the-row-a-menu-belongs-to), and [server rendering and hydration](../origami-ui/menu/README.md#server-rendering-and-hydration).
 
@@ -1375,12 +1381,12 @@ import { ScrollArea } from "#ui/scroll-area";
 <div foldScrollArea [aria-label]="panelName()" class="h-60">…</div>
 ```
 
-`ScrollArea` takes `orientation` (`vertical` by default, `horizontal` or `both`), `aria-label`, `aria-labelledby` and `class`. Its template reference, `#area="foldScrollArea"`, has `viewport()`, the scrolling `HTMLElement`, and `state`, with `overflowX`, `overflowY` and `active` signals.
+`ScrollArea` takes `orientation` (`vertical` by default, `horizontal` or `both`), `aria-label`, `aria-labelledby`, `viewportTabIndex` and `class`. Its template reference, `#area="foldScrollArea"`, has `viewport()`, the scrolling `HTMLElement`, and `state`, with `overflowX`, `overflowY` and `active` signals.
 
-- **Size it.** Give the root a definite height (`h-*`, or `size-full` of a sized parent, with `min-h-0` in flex and grid parents), a `max-h-*` (it grows with its content up to the cap, then scrolls), or `grow` in a flex column. Without one, it grows with its content instead of scrolling. Between fixed bands in a flex column, give the bands `shrink-0`, as above, or long content shrinks them.
+- **Size it.** fold's Select, Combobox, Menu and Popover Content and Dialog and Sheet bodies size their ScrollArea themselves. Elsewhere, give the root a definite height (`h-*`, or `size-full` of a sized parent, with `min-h-0` in flex and grid parents), a `max-h-*` (it grows with its content up to the cap, then scrolls), or `grow` in a flex column. Without one, it grows with its content instead of scrolling. Between fixed bands in a flex column, give the bands `shrink-0`, as above, or long content shrinks them.
 - **Lay out inside.** The root is a flex column fold relies on, and the scrollbars sit on its edge. Put padding, `gap`, grid or flex on an element of your own inside it. On the root, `grid` stops it scrolling, padding moves the content away from the scrollbar, and `gap` does nothing.
 - **Naming.** `aria-label` and `aria-labelledby` name the viewport, the focusable scroller, which is then a `region`. Bind a changing name as `[aria-label]`, not `[attr.aria-label]`, which names the root instead. Unnamed, it's a focusable scroller without the region role.
-- **The viewport.** `area.viewport()` is the native scroller, for `scrollTo()`, `scrollTop` and listeners. Call it from events and effects: during the first render it throws, since the view doesn't exist yet. It's a Tab stop, so the keyboard can scroll text and tables in every browser; when its content is all controls, set `tabindex="-1"` on the viewport in your copy of `scroll-area.ts` to remove the extra stop.
+- **The viewport.** `area.viewport()` is the native scroller, for `scrollTo()`, `scrollTop` and listeners. Call it from events and effects: during the first render it throws, since the view doesn't exist yet. It's a Tab stop by default, so the keyboard can scroll text and tables in every browser. `[viewportTabIndex]="-1"` removes the stop when its content is all controls, and `[viewportTabIndex]="null"` removes the attribute so the browser decides. A modal dialog's first scroller needs `null`: an explicit `-1` can still take the dialog's initial focus. fold's lists, Menu, Popover and Bodies set it for you. Bind it, as `[viewportTabIndex]="-1"`: the static attribute is a string and doesn't type-check.
 - **CDK overlays.** Origami doesn't register the viewport with the CDK. If a CDK overlay anchored inside it must follow its scrolling, add `cdkScrollable` (from `@angular/cdk/scrolling`) to the viewport in your copy. fold's own floating layers don't need it.
 - **Orientation.** `vertical` wraps text to the box's width; `horizontal` and `both` let wide content scroll sideways. Changing it mounts or removes only the affected scrollbar.
 - **Visibility** is Origami's: the scrollbars show on hover, scroll, drag and keyboard or script scrolling, and hide 600ms after the last of those, then fade out over 120ms. Under reduced motion they don't fade. In forced-colors mode the thumb is `CanvasText` on a `Canvas` rail. Before hydration the viewport scrolls natively and no thumbs are drawn; they appear once measured.
@@ -1507,13 +1513,13 @@ A step bar between a [Dialog](#dialog)'s header and body, flush to its edges, wi
       <p foldDialogDescription>Step 2 of 3 · Review details</p>
     </div>
     <div foldProgress value="2" max="3" aria-label="Deposit steps" class="-mx-5 w-auto shrink-0 rounded-none"></div>
-    <div foldDialogBody class="my-0 py-5">…</div>
+    <div foldDialogBody class="my-0"><div class="py-4">…</div></div>
     <div foldDialogFooter>…</div>
   </dialog>
 </div>
 ```
 
-- `gap-0` on the Content removes the 20px gaps that would otherwise sit around the bar; `pb-5` on the Header and `py-5` on the Body put that space back inside them.
+- `gap-0` on the Content removes the 20px gaps that would otherwise sit around the bar; `pb-5` on the Header and `py-4` on your element inside the Body, plus the Body's own 4px, put that space back inside them.
 - `-mx-5 w-auto` stretches the bar across the Content's 20px padding to its border, and `rounded-none` squares its ends there.
 - `shrink-0` keeps it 2px when the dialog runs out of height and its Body scrolls.
 - `my-0` cancels the Body's own negative margins, which make room for focus rings, so it starts right under the bar.
@@ -1627,7 +1633,7 @@ Select, Combobox, Popover and Menu share one look from `popup`, and Tooltip shar
 
 - `popupClasses`: a floating surface: 12px radius, the surface fill, a 1px border, 4px padding, the popover shadow, and the entrance and exit animations. Width and padding beyond that are yours.
 - `popupMotionClasses`: the entrance and exit animations alone, for a floating layer with a look of its own, like Tooltip's chip. `popupClasses` includes them.
-- `popupListClasses`: a list anchored to its trigger: at least as wide as it, at most the viewport's width less 16px, and at most 20rem tall or the room left less 8px, scrolling inside itself.
+- `popupListClasses`: a list anchored to its trigger: at least as wide as it, at most the viewport's width less 16px, and at most 20rem tall or the room left less 8px, and a flex column while open, so a ScrollArea inside it scrolls.
 - `optionClasses`: a 32px option row with a 6px radius, an 8% foreground tint while highlighted, a check (its direct `<svg>` child) shown while selected, and 50% opacity when disabled.
 - `menuItemClasses`: a 32px menu row with a 6px radius, the 8% foreground fill on real focus (`:focus`, which the mouse moves too), the 2px focus ring on keyboard focus, and 50% opacity when disabled.
 
@@ -1639,7 +1645,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 ```
 
 - **Motion.** The list, panel or chip fades in and scales from 96% over 120ms once Origami has placed it, and reverses when it closes, from its center whichever side it opens on. Under reduced motion it doesn't animate, and it's hidden when Angular renders the close.
-- **Out of the Tab order.** Select's and Combobox's Content have `tabindex="-1"`: in Chromium and Firefox a scrolling list is otherwise a Tab stop, and Tab from the open list lands on it instead of the next control. If you compose `popupListClasses` over Origami's Content yourself, add it too. Popover Content has none, because its panel can hold text the keyboard needs to reach; see its [keyboard and scrolling](#popover) note.
+- **Out of the Tab order.** Select's, Combobox's and Menu's Content scroll in a ScrollArea whose viewport has `tabindex="-1"`: in Chromium and Firefox a scrolling list is otherwise a Tab stop, and Tab from the open list lands on it instead of the next control. If you compose `popupListClasses` over Origami's Content yourself, render `<div foldScrollArea [viewportTabIndex]="-1" class="-m-1 min-h-0"><div class="p-1">…options…</div></div>` inside it. Popover's scroller takes your `tabindex`, because its panel can hold text the keyboard needs to reach; see its [keyboard and scrolling](#popover) note.
 - **Forced colors.** In forced-colors mode, such as Windows High Contrast, the highlighted option or focused menu row paints `Highlight` with `HighlightText`, and a disabled one `GrayText`; a destructive menu row keeps the system text color, and a menu separator is `GrayText`. Text you put in an option or a menu row follows its row's system color, whatever its own color class. A descendant's own background, border or fill keeps its color, so give it `forced-colors:` classes. To keep a deliberate system color on a descendant's text, write `forced-colors:text-[Mark]!`: the `!` is required, because the shared rule has the same specificity and comes later.
 
 ## Limitations
@@ -1668,7 +1674,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 
 ```sh
 pnpm --filter @loozo/fold-ui test           # typecheck schematics and components, build, schematic tests
-pnpm --filter @loozo/fold-ui test:consumer  # ng new → ng add → add → production build → Chromium smoke
+pnpm --filter @loozo/fold-ui test:consumer  # ng new → ng add → add → production build → Chromium smoke → scrolling suite
 ```
 
-`test:consumer` needs network access for the app's `npm install`, and runs its build and browser steps under Origami's machine-wide gate lock.
+`test:consumer` needs network access for the app's `npm install`, and runs its build and browser steps under Origami's machine-wide gate lock. After the Chromium smoke it runs the scrolling suite, `tests/consumer-scrolling.mjs`, in Chromium, Firefox and WebKit; WebKit launches through Origami's `webkitLaunchOptions`, so set `ORIGAMI_WEBKIT_DEPS_ROOT` locally where Playwright's WebKit lacks its system libraries.

@@ -4,12 +4,11 @@
 // control styling, Checkbox's, Switch's and RadioGroup's states, keys, layout, nesting and forced
 // colors, the Number field's and Slider's server state, geometry, typing, stepping, keys,
 // pointer and touch, validation, states and forced colors, and Select's and Combobox's server
-// state, geometry, pointer and keys, scrolling and placement, Tab order, motion, touch, bound
-// values, states, themes and forced colors, and Tabs', Tooltip's and Popover's server state,
-// geometry, keys, pointer and hover, guarded unavailable actions, placement and flipping, Tab
-// order and scrolling, nesting, motion and forced colors, Menu's server state, placement, focus
-// highlight and ring, destructive rows, checkable and disabled rows, submenu, motion, forced colors
-// and class merging, ScrollArea's, Avatar's and Progress's server state, bounds, scrollbars,
+// state, geometry, pointer and keys, placement, motion, touch, bound values, states, themes and
+// forced colors, and Tabs', Tooltip's and Popover's server state, geometry, keys, pointer and
+// hover, guarded unavailable actions, placement and flipping, Tab order, nesting, motion and
+// forced colors, Menu's server state, placement, focus highlight and ring, destructive rows,
+// checkable and disabled rows, submenu, motion, forced colors and class merging, ScrollArea's, Avatar's and Progress's server state, bounds, scrollbars,
 // naming, sizes, loading delay, sweep, dialog recipe, themes, reduced motion and forced colors,
 // the OTP field's server state, geometry, typing and paste, masking, autofill paint, validation,
 // states and forced colors, Toast's server region, collapsed and expanded deck geometry,
@@ -18,54 +17,21 @@
 // geometry, colors, names, keys, pointer, the pending range, the focus ring's pixels, Field
 // states, right to left and forced colors, and the File field's server state, geometry, picks and
 // sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
-// forced colors.
+// forced colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog and Sheet
+// bodies (thumbs, Tab out of an open list, menu or Popover, initial focus, revealing the active
+// option or the focused control, and height caps) is consumer-scrolling.mjs's, in every engine.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
-import { createServer } from "node:net";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { chromium } from "playwright";
+import { startServer } from "./consumer-server.mjs";
 
 const app = process.argv[2];
 
 assert.ok(app, "Usage: node tests/consumer-smoke.mjs <app directory>");
-
-async function freePort() {
-  const server = createServer();
-
-  await new Promise((done) => server.listen(0, "127.0.0.1", done));
-
-  const { port } = server.address();
-
-  await new Promise((done) => server.close(done));
-
-  return port;
-}
-
-async function waitForServer(url, server) {
-  const deadline = Date.now() + 30_000;
-
-  while (Date.now() < deadline) {
-    assert.equal(server.exitCode, null, "the SSR server exited");
-
-    try {
-      const response = await fetch(url);
-
-      if (response.ok) {
-        return response.text();
-      }
-    } catch {
-      // Not listening yet.
-    }
-
-    await new Promise((done) => setTimeout(done, 200));
-  }
-
-  throw new Error(`${url} didn't respond within 30 s`);
-}
 
 function openingTag(html, id) {
   const match = new RegExp(`<[a-z]+\\b[^>]*\\bid="${id}"[^>]*>`).exec(html);
@@ -84,17 +50,12 @@ function element(html, id) {
   return html.slice(start, html.indexOf(`</${name}>`, start));
 }
 
-const port = await freePort();
-const base = `http://localhost:${port}/`;
-const server = spawn("node", [join(app, "dist/consumer/server/server.mjs")], {
-  env: { ...process.env, PORT: String(port), NG_ALLOWED_HOSTS: "localhost" },
-  stdio: ["ignore", "inherit", "inherit"],
-});
+const { base, server, ready } = await startServer(app);
 
 let browser;
 
 try {
-  const html = await waitForServer(base, server);
+  const html = await ready;
 
   // Server rendering: Origami's and fold's host attributes are in the prerendered HTML.
   const md = openingTag(html, "md");
@@ -2869,6 +2830,45 @@ try {
   assert.match(openingTag(html, "planet-content"), /\btabindex="-1"/);
   assert.match(openingTag(html, "planet-content"), /\bdata-slot="combobox-content"/);
   assert.match(openingTag(html, "scrolling-planet-content"), /\btabindex="-1"/);
+
+  // Each scrolling surface renders a ScrollArea whose viewport has its final tabindex on the
+  // server: -1 in the lists and menus, the authored 0 in the text Popover, and none in an
+  // interactive Popover or a Dialog or Sheet body.
+  const viewportTag = (id) => {
+    const start = html.indexOf(openingTag(html, id));
+    const match = /<div\b[^>]*\bdata-slot="scroll-area-viewport"[^>]*>/.exec(html.slice(start));
+
+    assert.ok(match, `the server HTML has no viewport after #${id}`);
+
+    return match[0];
+  };
+
+  for (const id of [
+    "status-content",
+    "country-content",
+    "planet-content",
+    "scrolling-planet-content",
+    "country-search-content",
+    "menu-row-content",
+    "menu-long-content",
+    "menu-long-sub-content",
+  ]) {
+    assert.match(viewportTag(id), /\btabindex="-1"/, `${id}'s viewport`);
+  }
+
+  assert.match(openingTag(html, "country-search-content"), /\btabindex="-1"/);
+  assert.match(viewportTag("notes-content"), /\btabindex="0"/);
+
+  for (const id of [
+    "scrollform-content",
+    "filters-content",
+    "dialog-content",
+    "long-dialog",
+    "sheet-content",
+    "long-sheet",
+  ]) {
+    assert.doesNotMatch(viewportTag(id), /\stabindex=/, `${id}'s viewport`);
+  }
   assert.equal(textIn(element(html, "country-trigger")), "Greece");
   assert.doesNotMatch(openingTag(html, "country-trigger"), /\sdata-placeholder[\s=>]/);
   assert.match(openingTag(html, "country-gr"), /\baria-selected="true"/);
@@ -2971,12 +2971,6 @@ try {
     );
   const hasAttribute = (id, name) =>
     page.evaluate(([id, name]) => document.getElementById(id).hasAttribute(name), [id, name]);
-  const scrolls = (id) =>
-    page.evaluate((id) => {
-      const list = document.getElementById(id);
-
-      return list.scrollHeight > list.clientHeight;
-    }, id);
   const optionIds = (id) =>
     page.evaluate((id) => {
       const ids = [];
@@ -3302,52 +3296,13 @@ try {
   await page.keyboard.press("Escape");
   await hidden("rtl-select-content");
 
-  // Scrolling and placement, in a 600px viewport: a long list scrolls within the room left less
-  // 8px and shows the chosen option without scrolling the page; near the viewport's bottom it
-  // opens 4px above; a wide list beside the viewport's end stays inside it.
+  // Placement, in a 600px viewport: near the viewport's bottom a list opens 4px above; a wide list
+  // beside the viewport's end stays inside it.
   await page.setViewportSize({ width: 1280, height: 600 });
   await page.evaluate(() =>
     document.getElementById("country-trigger").scrollIntoView({ block: "center" }),
   );
   await page.focus("#country-trigger");
-
-  const scrollBefore = await page.evaluate(() => window.scrollY);
-
-  await page.keyboard.press("ArrowDown");
-  await shown("country-content");
-
-  const country = await page.evaluate(() => {
-    const list = document.getElementById("country-content");
-    const style = getComputedStyle(list);
-    const rect = list.getBoundingClientRect();
-    const greece = document.getElementById("country-gr").getBoundingClientRect();
-
-    return {
-      scrolls: list.scrollHeight > list.clientHeight,
-      maxHeight: parseFloat(style.maxHeight),
-      available: parseFloat(style.getPropertyValue("--og-available-height")),
-      greeceInside: greece.top >= rect.top && greece.bottom <= rect.bottom,
-      scrollY: window.scrollY,
-    };
-  });
-
-  assert.equal(country.scrolls, true, "the country list scrolls");
-  near(country.maxHeight, Math.min(320, country.available - 8), 1, "the list's max height");
-  assert.equal(country.greeceInside, true, "the chosen country is in view");
-  assert.equal(country.scrollY, scrollBefore, "opening doesn't scroll the page");
-  await page.keyboard.press("End");
-  await page.waitForSelector("#country-ch[data-active]");
-  assert.ok(
-    await page.evaluate(() => {
-      const list = document.getElementById("country-content").getBoundingClientRect();
-      const last = document.getElementById("country-ch").getBoundingClientRect();
-
-      return last.top >= list.top && last.bottom <= list.bottom;
-    }),
-    "End shows the last country",
-  );
-  await page.keyboard.press("Escape");
-  await hidden("country-content");
 
   await page.evaluate(() => {
     const trigger = document.getElementById("country-trigger").getBoundingClientRect();
@@ -3389,43 +3344,6 @@ try {
   assert.ok(Math.min(edge.startDelta, edge.endDelta) <= 0.5, "the edge list aligns to its trigger");
   await page.keyboard.press("Escape");
   await hidden("edge-select-content");
-
-  // Tab out of an open list, from a fresh page: a scrolling list isn't a Tab stop, so focus
-  // reaches the next control and the list closes.
-  await fresh();
-  await page.evaluate(() =>
-    document.getElementById("country-trigger").scrollIntoView({ block: "center" }),
-  );
-  await page.focus("#country-trigger");
-  await page.keyboard.press("ArrowDown");
-  await shown("country-content");
-  assert.equal(await scrolls("country-content"), true);
-  await page.keyboard.press("Tab");
-  await rendered();
-  assert.equal(await activeId(), "picks-save");
-  assert.equal(await attribute("country-trigger", "aria-expanded"), "false");
-
-  await page.evaluate(() =>
-    document.getElementById("scrolling-planet-input").scrollIntoView({ block: "center" }),
-  );
-  await page.focus("#scrolling-planet-input");
-  await page.keyboard.press("ArrowDown");
-  await shown("scrolling-planet-content");
-  assert.equal(await scrolls("scrolling-planet-content"), true);
-  await page.keyboard.press("Tab");
-  await rendered();
-  assert.equal(await activeId(), "after-scrolling-planet");
-
-  await page.evaluate(() =>
-    document.getElementById("planet-input").scrollIntoView({ block: "start" }),
-  );
-  await page.focus("#planet-input");
-  await page.keyboard.press("ArrowDown");
-  await shown("planet-content");
-  assert.equal(await scrolls("planet-content"), false);
-  await page.keyboard.press("Tab");
-  await rendered();
-  assert.equal(await activeId(), "country-trigger");
   await page.setViewportSize({ width: 1280, height: 720 });
 
   // Motion: the list fades and scales in on data-entering and reverses on data-leaving, which
@@ -4490,7 +4408,7 @@ try {
   assert.match(filtersContent, /\sinert[\s=>]/);
   assert.match(filtersContent, /\bdata-slot="popover-content"/);
   assert.doesNotMatch(filtersContent, /\stabindex=/);
-  assert.match(openingTag(html, "notes-content"), /\btabindex="0"/);
+  assert.doesNotMatch(openingTag(html, "notes-content"), /\stabindex=/);
   assert.match(openingTag(html, "filters"), /\bdata-slot="popover"/);
 
   // Tabs from a fresh page. The first label's x and its text edges, read from the label's own
@@ -4789,11 +4707,16 @@ try {
     ]),
     {
       width: "288px",
-      paddingTop: "12px",
+      paddingTop: "0px",
       backgroundColor: darkSurface,
       borderTopLeftRadius: "12px",
       borderTopWidth: "1px",
     },
+  );
+  // The 12px padding is inside the panel's scroller.
+  assert.deepEqual(
+    await styleOf("#filters-content [data-slot=scroll-area-content] > div", ["paddingTop"]),
+    { paddingTop: "12px" },
   );
 
   // Tab runs from the Trigger through its controls to what follows, focusing the nested
@@ -4878,49 +4801,6 @@ try {
   near(bottomTrigger.top - flipped.bottom, 4, 0.5, "the flipped Popover's gap");
   await page.keyboard.press("Escape");
   await dismissed("filters-content");
-
-  // Long text in a 600px viewport scrolls inside, within the room left less 8px. Its authored
-  // tabindex="0" makes it the Tab stop after the Trigger, with the ring, and ArrowDown scrolls it.
-  await page.setViewportSize({ width: 1280, height: 600 });
-  await scrollToTop("notes-trigger");
-  await page.click("#notes-trigger");
-  await opened("notes-content");
-
-  const notes = await page.evaluate(() => {
-    const content = document.getElementById("notes-content");
-
-    return {
-      height: content.getBoundingClientRect().height,
-      available: parseFloat(getComputedStyle(content).getPropertyValue("--og-available-height")),
-      scrolls: content.scrollHeight > content.clientHeight,
-    };
-  });
-
-  assert.ok(notes.scrolls, "the notes scroll");
-  assert.ok(
-    notes.height <= notes.available - 8 + 0.5,
-    `notes ${notes.height} of ${notes.available}`,
-  );
-  await page.keyboard.press("Tab");
-  assert.equal(await activeId(), "notes-content");
-  assert.deepEqual(await outline("#notes-content"), ringOutline("rgb(76, 196, 111)"));
-  await page.keyboard.press("ArrowDown");
-  await page.waitForFunction(() => document.getElementById("notes-content").scrollTop > 0);
-  await page.keyboard.press("Escape");
-  await dismissed("notes-content");
-
-  // Interactive Content taller than a short viewport: Chromium skips the scrolling panel, so Tab
-  // from the Trigger reaches the first field.
-  await page.setViewportSize({ width: 1280, height: 400 });
-  await scrollToTop("scrollform-trigger");
-  await page.click("#scrollform-trigger");
-  await opened("scrollform-content");
-  assert.equal(await scrolls("scrollform-content"), true);
-  await page.keyboard.press("Tab");
-  assert.equal(await activeId(), "scrollform-0");
-  await page.keyboard.press("Escape");
-  await dismissed("scrollform-content");
-  await page.setViewportSize({ width: 1280, height: 720 });
 
   // Motion: both fade and scale in with the floating surfaces' popup-in, and not under reduced
   // motion.
@@ -5011,9 +4891,20 @@ try {
 
   assert.equal(forcedPanel.borderTopWidth, "1px");
   assert.match(forcedPanel.borderTopColor, /^rgb\(/, "the forced panel's border is opaque");
+  // The authored tabindex="0" is on the panel's scroller, which shows its inset ring.
   await page.keyboard.press("Tab");
-  assert.equal(await activeId(), "notes-content");
-  assert.deepEqual(await outline("#notes-content"), ringOutline(systemColors.highlight));
+  assert.ok(
+    await page.evaluate(() =>
+      document.activeElement.matches("#notes-content [data-slot=scroll-area-viewport]"),
+    ),
+    "the notes scroller has focus",
+  );
+  assert.deepEqual(await outline("#notes-content [data-slot=scroll-area-viewport]"), {
+    style: "solid",
+    width: "2px",
+    offset: "-2px",
+    color: systemColors.highlight,
+  });
   await page.keyboard.press("Escape");
   await dismissed("notes-content");
   await page.emulateMedia({ forcedColors: "none" });
@@ -5837,13 +5728,13 @@ try {
       const rect = (id) => document.getElementById(id).getBoundingClientRect();
       const dialog = rect("steps-dialog");
       const bar = rect("steps-progress");
-      const body = document.getElementById("steps-body");
+      const body = document.querySelector("#steps-body [data-slot=scroll-area-viewport]");
 
       return {
         start: bar.left - dialog.left,
         end: dialog.right - bar.right,
         above: bar.top - rect("steps-description").bottom,
-        below: body.firstElementChild.getBoundingClientRect().top - bar.bottom,
+        below: document.querySelector("#steps-body p").getBoundingClientRect().top - bar.bottom,
         height: bar.height,
         bodyScrolls: body.scrollHeight > body.clientHeight,
       };

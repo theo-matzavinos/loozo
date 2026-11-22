@@ -725,33 +725,35 @@ export class FileFields {
               <h2 zzDialogTitle id="dialog-title">Edit contract</h2>
               <p zzDialogDescription>Changes apply from the next billing period.</p>
             </div>
-            <div zzDialogBody class="grid gap-4">
-              <div zzField>
-                <label zzFieldLabel>Reference</label>
-                <input zzInput autofocus [readOnly]="editPending()" id="dialog-reference" />
-              </div>
-              <div zzField id="dialog-status-field">
-                <span zzFieldLabel>Contract status</span>
-                <div
-                  zzSelect
-                  [(value)]="dialogStatus"
-                  #dialogStatusSelect="zzSelect"
-                  id="dialog-status"
-                >
-                  <button zzSelectTrigger id="dialog-status-trigger">
-                    {{ dialogStatusSelect.state.selectedOption()?.label ?? "Choose a status" }}
-                  </button>
-                  <div zzSelectContent id="dialog-status-content">
-                    @for (option of statuses; track option.value) {
-                      <div
-                        zzSelectOption
-                        [value]="option.value"
-                        [label]="option.label"
-                        [disabled]="option.retired"
-                      >
-                        {{ option.label }}
-                      </div>
-                    }
+            <div zzDialogBody>
+              <div class="grid gap-4">
+                <div zzField>
+                  <label zzFieldLabel>Reference</label>
+                  <input zzInput autofocus [readOnly]="editPending()" id="dialog-reference" />
+                </div>
+                <div zzField id="dialog-status-field">
+                  <span zzFieldLabel>Contract status</span>
+                  <div
+                    zzSelect
+                    [(value)]="dialogStatus"
+                    #dialogStatusSelect="zzSelect"
+                    id="dialog-status"
+                  >
+                    <button zzSelectTrigger id="dialog-status-trigger">
+                      {{ dialogStatusSelect.state.selectedOption()?.label ?? "Choose a status" }}
+                    </button>
+                    <div zzSelectContent id="dialog-status-content">
+                      @for (option of statuses; track option.value) {
+                        <div
+                          zzSelectOption
+                          [value]="option.value"
+                          [label]="option.label"
+                          [disabled]="option.retired"
+                        >
+                          {{ option.label }}
+                        </div>
+                      }
+                    </div>
                   </div>
                 </div>
               </div>
@@ -807,14 +809,16 @@ export class FileFields {
               <h2 zzSheetTitle id="sheet-title">Filters</h2>
               <p zzSheetDescription>12 contracts match.</p>
             </div>
-            <div zzSheetBody class="grid gap-4">
-              <div zzField>
-                <label zzFieldLabel>Status</label>
-                <input zzInput [readOnly]="filtersPending()" />
-              </div>
-              <div zzField>
-                <label zzFieldLabel>Search</label>
-                <input zzInput autofocus [readOnly]="filtersPending()" id="sheet-search" />
+            <div zzSheetBody>
+              <div class="grid gap-4">
+                <div zzField>
+                  <label zzFieldLabel>Status</label>
+                  <input zzInput [readOnly]="filtersPending()" />
+                </div>
+                <div zzField>
+                  <label zzFieldLabel>Search</label>
+                  <input zzInput autofocus [readOnly]="filtersPending()" id="sheet-search" />
+                </div>
               </div>
             </div>
             <div zzSheetFooter>
@@ -2079,14 +2083,16 @@ export class FileFields {
               class="-mx-5 w-auto shrink-0 rounded-none"
               id="steps-progress"
             ></div>
-            <div zzDialogBody class="my-0 grid gap-4 py-5" id="steps-body">
-              <p>Confirm the amount and the account before you continue.</p>
-              @for (line of stepFields; track line) {
-                <div zzField>
-                  <label zzFieldLabel>{{ line }}</label>
-                  <input zzInput />
-                </div>
-              }
+            <div zzDialogBody class="my-0" id="steps-body">
+              <div class="grid gap-4 py-4">
+                <p>Confirm the amount and the account before you continue.</p>
+                @for (line of stepFields; track line) {
+                  <div zzField>
+                    <label zzFieldLabel>{{ line }}</label>
+                    <input zzInput />
+                  </div>
+                }
+              </div>
             </div>
             <div zzDialogFooter>
               <button zzDialogClose>Back</button>
@@ -2125,6 +2131,87 @@ export class FileFields {
     <a href="#after-region" id="after-region">After</a>
 
     <app-calendars />
+
+    <!-- Scrolling fixtures for consumer-scrolling.mjs: an overflowing Menu with a submenu, long
+         Dialog and Sheet bodies without autofocus, and an uncapped Combobox over every country,
+         chosen Sweden. Each sits between buttons of its own, off the page's other Tab routes. -->
+    <section id="scrolling" class="flex flex-wrap items-start gap-4 p-5">
+      <button zzButton id="before-menu-long">Before the long menu</button>
+      <div zzMenu id="menu-long">
+        <button zzMenuTrigger id="menu-long-trigger">Long menu</button>
+        <div zzMenuContent id="menu-long-content">
+          @for (row of longMenuRows; track row) {
+            @if (row === 20) {
+              <div zzMenuSub>
+                <button zzMenuSubTrigger id="menu-long-sub">More actions</button>
+                <div zzMenuContent id="menu-long-sub-content">
+                  @for (sub of longSubmenuRows; track sub) {
+                    <button zzMenuItem [id]="'menu-long-sub-' + sub">
+                      More action {{ sub + 1 }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+            <button zzMenuItem [id]="'menu-long-' + row">Action {{ row + 1 }}</button>
+          }
+        </div>
+      </div>
+      <button zzButton id="after-menu-long">After the long menu</button>
+
+      <div zzDialog>
+        <button zzDialogTrigger id="long-dialog-trigger">Long dialog</button>
+        <dialog zzDialogContent id="long-dialog">
+          <div zzDialogHeader><h2 zzDialogTitle>Long dialog</h2></div>
+          <div zzDialogBody>
+            <div class="grid gap-4">
+              @for (row of longFormRows; track row) {
+                <div zzField>
+                  <label zzFieldLabel>Field {{ row + 1 }}</label>
+                  <input zzInput [id]="'long-dialog-' + row" />
+                </div>
+              }
+            </div>
+          </div>
+          <div zzDialogFooter><button zzDialogClose>Close</button></div>
+        </dialog>
+      </div>
+
+      <div zzSheet>
+        <button zzSheetTrigger id="long-sheet-trigger">Long sheet</button>
+        <dialog zzSheetContent id="long-sheet">
+          <div zzSheetHeader><h2 zzSheetTitle>Long sheet</h2></div>
+          <div zzSheetBody>
+            <div class="grid gap-4">
+              @for (row of longFormRows; track row) {
+                <div zzField>
+                  <label zzFieldLabel>Field {{ row + 1 }}</label>
+                  <input zzInput [id]="'long-sheet-' + row" />
+                </div>
+              }
+            </div>
+          </div>
+          <div zzSheetFooter><button zzSheetClose>Close</button></div>
+        </dialog>
+      </div>
+
+      <div zzCombobox [(value)]="countrySearch" class="w-80" id="country-search">
+        <input zzComboboxInput aria-label="Country search" id="country-search-input" />
+        <div zzComboboxContent id="country-search-content">
+          @for (option of countries; track option.code) {
+            <div
+              zzComboboxOption
+              [value]="option.code"
+              [label]="option.name"
+              [id]="'country-search-' + option.code.toLowerCase()"
+            >
+              {{ option.name }}
+            </div>
+          }
+        </div>
+      </div>
+      <button zzButton id="after-country-search">After the country search</button>
+    </section>
   `,
 })
 export class App {
@@ -2193,6 +2280,10 @@ export class App {
   protected readonly dialogStatus = signal<string | null>("active");
   protected readonly planetQuery = signal("");
   protected readonly scrollingPlanet = signal<number | null>(null);
+  protected readonly countrySearch = signal<string | null>("SE");
+  protected readonly longMenuRows = Array.from({ length: 40 }, (_, index) => index);
+  protected readonly longSubmenuRows = this.longMenuRows.slice(0, 30);
+  protected readonly longFormRows = this.longMenuRows.slice(0, 20);
   protected readonly sort = signal<string | null>(null);
   protected readonly customerId = signal<number | null>(null);
   protected readonly customerQuery = signal("");
