@@ -278,8 +278,9 @@ jobs:
           pnpm_config_verify_deps_before_run: error
       - if: env.REACHED == 'true'
         run: pnpm --filter @loozo/angular-router --filter @loozo/angular-launch run build
+      # DIAGNOSTIC (temporary): a per-test timeout so a hang names its test.
       - if: env.REACHED == 'true'
-        run: pnpm test
+        run: node --test --experimental-test-module-mocks --test-timeout=240000 tests/*.test.mjs
 
   # Launch's example, built and served, proven in Chromium: SSR, hydration without a second RPC,
   # outcomes, streams and channels, then its prerender builds. verify.mjs starts and stops the
