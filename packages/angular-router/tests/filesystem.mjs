@@ -1294,6 +1294,8 @@ const logger = new core.logging.Logger("filesystem-serve");
 const logs = [];
 const outputs = [];
 const errors = [];
+// Each browser page's timeline, so a load the proof recovered stays classifiable.
+const pages = [];
 
 logger.subscribe((entry) => logs.push(entry));
 
@@ -1330,15 +1332,133 @@ try {
 
   const browserErrors = [];
 
+  // A page that loads while the dev server rebuilds can request a lazy chunk the rebuild
+  // removed; the router then fails the navigation, resets the URL to `/` and leaves the outlet
+  // empty, and a dev-server reload reaches only pages whose HMR socket was already open. Only
+  // that failure earns one retry, in a fresh page that the old page's client can't reload.
   async function rendered(path, text) {
-    const view = await browser.newPage();
+    const url = new URL(path, output.baseUrl).href;
+    const timeline = [];
+    const record = { path, url, timeline };
 
-    view.on("pageerror", (error) => browserErrors.push(String(error)));
-    await view.goto(new URL(path, output.baseUrl).href);
-    await view.locator('[data-proof="filesystem"]').waitFor();
-    assert.equal(await view.locator('[data-proof="filesystem"]').textContent(), text);
+    pages.push(record);
+
+    let view = await attempt(url, text, timeline, 1);
+
+    if (!view) {
+      record.recovery = await missingChunk(timeline);
+
+      if (record.recovery.eligible) {
+        view = await attempt(url, text, timeline, 2);
+      }
+
+      if (!view) {
+        throw new Error(`${url} didn't render: ${JSON.stringify(record)}`);
+      }
+
+      record.recovery.outcome = "a fresh page rendered";
+      // The upload keeps evidence only for failed runs, so a recovery is logged as well.
+      console.log(`Filesystem proof recovered ${url}: ${JSON.stringify(record)}`);
+    }
+
     await writeFile(join(evidence, `browser-${text}.html`), await view.content());
     await view.close();
+  }
+
+  // Loads `url` in a new page and returns the page once it shows `text`, or closes it and returns
+  // undefined. Either way `timeline` keeps what the page did.
+  async function attempt(url, text, timeline, page) {
+    const view = await browser.newPage();
+    const proof = view.locator('[data-proof="filesystem"]');
+    const note = (entry) => timeline.push({ page, at: new Date().toISOString(), ...entry });
+
+    view.on("pageerror", (error) => browserErrors.push(String(error)));
+    view.on("console", (message) => {
+      if (message.type() === "error") {
+        note({ event: "console", text: message.text() });
+      }
+    });
+    view.on("request", (request) => {
+      if (request.isNavigationRequest() && request.frame() === view.mainFrame()) {
+        note({ event: "document", url: request.url() });
+      }
+    });
+    view.on("response", (response) => {
+      if (response.status() >= 400) {
+        note({ event: "response", url: response.url(), status: response.status() });
+      }
+    });
+    view.on("requestfailed", (request) => {
+      note({ event: "requestfailed", url: request.url(), failure: request.failure()?.errorText });
+    });
+    view.on("load", () => note({ event: "load", url: view.url() }));
+    view.on("websocket", (socket) => {
+      note({ event: "websocket", url: socket.url() });
+      socket.on("framereceived", ({ payload }) => {
+        if (String(payload).includes('"full-reload"')) {
+          note({ event: "full-reload" });
+        }
+      });
+      socket.on("close", () => note({ event: "websocket closed" }));
+    });
+
+    try {
+      note({ event: "navigate", url });
+      await view.goto(url);
+      await proof.waitFor();
+      assert.equal(await proof.textContent(), text);
+
+      return view;
+    } catch (error) {
+      note({ event: "failed", message: error.message });
+      await view.close();
+
+      return undefined;
+    }
+  }
+
+  // The page's first failed lazy import, and whether it was a content-hashed output chunk of this
+  // dev server that's missing both for the page and for a fresh request: the trace of a rebuild
+  // the page straddled.
+  async function missingChunk(timeline) {
+    const failure = timeline.find(
+      (entry) =>
+        entry.event === "console" &&
+        entry.text.includes("Failed to fetch dynamically imported module"),
+    );
+    const module =
+      failure && /Failed to fetch dynamically imported module: (\S+)/.exec(failure.text)?.[1];
+    const recovery = { failure, module, chunk: false, published: {} };
+
+    if (module) {
+      const { origin, pathname } = new URL(module);
+
+      // esbuild names Angular's lazy chunks `chunk-` and an 8-character base32 hash; Vite may
+      // add a query, which `pathname` leaves out.
+      recovery.chunk =
+        origin === new URL(output.baseUrl).origin && /^\/chunk-[A-Z2-7]{8}\.js$/.test(pathname);
+      recovery.status = timeline.find(
+        (entry) => entry.event === "response" && entry.url === module,
+      )?.status;
+    }
+
+    if (recovery.chunk) {
+      recovery.statusNow = (await fetch(module)).status;
+    }
+
+    // When the router last wrote each generated file. One written after the first navigate is
+    // evidence of the router's publication; earlier times leave the trigger unresolved.
+    for (const [file, entry] of Object.entries(await snapshot())) {
+      if (file.endsWith(".generated.ts")) {
+        recovery.published[file] = new Date(
+          Number(BigInt(entry.mtimeNs) / 1_000_000n),
+        ).toISOString();
+      }
+    }
+
+    recovery.eligible = recovery.chunk && recovery.status === 404 && recovery.statusNow === 404;
+
+    return recovery;
   }
 
   await rendered("home", "home");
@@ -1446,7 +1566,7 @@ try {
   await server.stop();
   await writeFile(
     join(evidence, "serve-reports.json"),
-    JSON.stringify({ logs, outputs, errors }, null, 2),
+    JSON.stringify({ logs, outputs, errors, pages }, null, 2),
   );
 }
 
