@@ -18,7 +18,9 @@
 // geometry, colors, names, keys, pointer, the pending range, the focus ring's pixels, Field
 // states, right to left and forced colors, and the File field's server state, geometry, picks and
 // sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
-// forced colors.
+// forced colors, and the date fields' and DatePicker's server state, cells that keep their width
+// while typing, gaps, looks, popup placement, choosing, Escape in a Dialog, readonly and disabled
+// policies and forced colors.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -6990,6 +6992,108 @@ try {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
 
+  // Decodes one of Chromium's 8-bit RGB or RGBA screenshots into rows of [r, g, b]. The Calendar
+  // and date entry blocks read pixels with it.
+  const decodePng = (png) => {
+    const data = [];
+    let offset = 8;
+    let width = 0;
+    let height = 0;
+    let channels = 0;
+
+    while (offset < png.length) {
+      const length = png.readUInt32BE(offset);
+      const type = png.toString("ascii", offset + 4, offset + 8);
+      const body = png.subarray(offset + 8, offset + 8 + length);
+
+      if (type === "IHDR") {
+        width = body.readUInt32BE(0);
+        height = body.readUInt32BE(4);
+        assert.equal(body[8], 8, "8-bit PNG");
+        assert.equal(body[12], 0, "non-interlaced PNG");
+        assert.ok(body[9] === 2 || body[9] === 6, "RGB or RGBA PNG");
+        channels = body[9] === 6 ? 4 : 3;
+      }
+
+      if (type === "IDAT") {
+        data.push(body);
+      }
+
+      offset += length + 12;
+    }
+
+    const raw = inflateSync(Buffer.concat(data));
+    const stride = width * channels;
+    const pixels = Buffer.alloc(height * stride);
+
+    for (let y = 0; y < height; y += 1) {
+      const filter = raw[y * (stride + 1)];
+
+      for (let x = 0; x < stride; x += 1) {
+        const value = raw[y * (stride + 1) + 1 + x];
+        const left = x >= channels ? pixels[y * stride + x - channels] : 0;
+        const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+        const upLeft = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
+        let predictor = 0;
+
+        if (filter === 1) {
+          predictor = left;
+        } else if (filter === 2) {
+          predictor = up;
+        } else if (filter === 3) {
+          predictor = Math.floor((left + up) / 2);
+        } else if (filter === 4) {
+          const estimate = left + up - upLeft;
+          const toLeft = Math.abs(estimate - left);
+          const toUp = Math.abs(estimate - up);
+          const toUpLeft = Math.abs(estimate - upLeft);
+
+          if (toLeft <= toUp && toLeft <= toUpLeft) {
+            predictor = left;
+          } else if (toUp <= toUpLeft) {
+            predictor = up;
+          } else {
+            predictor = upLeft;
+          }
+        }
+
+        pixels[y * stride + x] = (value + predictor) & 0xff;
+      }
+    }
+
+    return (x, y) => {
+      const index = y * stride + x * channels;
+
+      return [pixels[index], pixels[index + 1], pixels[index + 2]];
+    };
+  };
+  // The viewport's pixels at whole CSS (DPR 1) coordinates, from one screenshot. Points are
+  // offsets from layout edges, which can be fractional; Chromium paints boxes and outlines at
+  // edges rounded to the nearest pixel, so the point is rounded the same way.
+  const screenPixels = async (points) => {
+    await rendered();
+
+    const read = decodePng(await page.screenshot({ animations: "disabled" }));
+
+    return points.map(([x, y]) => read(Math.round(x), Math.round(y)));
+  };
+  // The same, with the pointer out of the way.
+  const pixelsAt = async (points) => {
+    await page.mouse.move(0, 0);
+
+    return screenPixels(points);
+  };
+  const channels = (color) => color.match(/[\d.]+/g).map(Number);
+  // `color` painted over the opaque `ground`, as the compositor rounds it.
+  const over = (color, ground) => {
+    const [red, green, blue, alpha = 1] = channels(color);
+    const under = Array.isArray(ground) ? ground : channels(ground);
+
+    return [red, green, blue].map((value, index) =>
+      Math.round(value * alpha + under[index] * (1 - alpha)),
+    );
+  };
+
   // Calendar, in its own block. Exact geometry and pixels are DPR-1 values. Every day root pins
   // today to 27 October 2026 and the Monday week start: October's rows are 28 September–4
   // October, 5–11, 12–18, 19–25 and 26 October–1 November.
@@ -7091,106 +7195,6 @@ try {
     };
     const light = { foreground: "rgb(27, 27, 27)", background: "rgb(233, 233, 231)" };
 
-    // Decodes one of Chromium's 8-bit RGB or RGBA screenshots into rows of [r, g, b].
-    const decodePng = (png) => {
-      const data = [];
-      let offset = 8;
-      let width = 0;
-      let height = 0;
-      let channels = 0;
-
-      while (offset < png.length) {
-        const length = png.readUInt32BE(offset);
-        const type = png.toString("ascii", offset + 4, offset + 8);
-        const body = png.subarray(offset + 8, offset + 8 + length);
-
-        if (type === "IHDR") {
-          width = body.readUInt32BE(0);
-          height = body.readUInt32BE(4);
-          assert.equal(body[8], 8, "8-bit PNG");
-          assert.equal(body[12], 0, "non-interlaced PNG");
-          assert.ok(body[9] === 2 || body[9] === 6, "RGB or RGBA PNG");
-          channels = body[9] === 6 ? 4 : 3;
-        }
-
-        if (type === "IDAT") {
-          data.push(body);
-        }
-
-        offset += length + 12;
-      }
-
-      const raw = inflateSync(Buffer.concat(data));
-      const stride = width * channels;
-      const pixels = Buffer.alloc(height * stride);
-
-      for (let y = 0; y < height; y += 1) {
-        const filter = raw[y * (stride + 1)];
-
-        for (let x = 0; x < stride; x += 1) {
-          const value = raw[y * (stride + 1) + 1 + x];
-          const left = x >= channels ? pixels[y * stride + x - channels] : 0;
-          const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
-          const upLeft = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
-          let predictor = 0;
-
-          if (filter === 1) {
-            predictor = left;
-          } else if (filter === 2) {
-            predictor = up;
-          } else if (filter === 3) {
-            predictor = Math.floor((left + up) / 2);
-          } else if (filter === 4) {
-            const estimate = left + up - upLeft;
-            const toLeft = Math.abs(estimate - left);
-            const toUp = Math.abs(estimate - up);
-            const toUpLeft = Math.abs(estimate - upLeft);
-
-            if (toLeft <= toUp && toLeft <= toUpLeft) {
-              predictor = left;
-            } else if (toUp <= toUpLeft) {
-              predictor = up;
-            } else {
-              predictor = upLeft;
-            }
-          }
-
-          pixels[y * stride + x] = (value + predictor) & 0xff;
-        }
-      }
-
-      return (x, y) => {
-        const index = y * stride + x * channels;
-
-        return [pixels[index], pixels[index + 1], pixels[index + 2]];
-      };
-    };
-    // The viewport's pixels at whole CSS (DPR 1) coordinates, from one screenshot. Points are
-    // offsets from layout edges, which can be fractional; Chromium paints boxes and outlines at
-    // edges rounded to the nearest pixel, so the point is rounded the same way.
-    const screenPixels = async (points) => {
-      await rendered();
-
-      const read = decodePng(await page.screenshot({ animations: "disabled" }));
-
-      return points.map(([x, y]) => read(Math.round(x), Math.round(y)));
-    };
-    // The same, with the pointer out of the way.
-    const pixelsAt = async (points) => {
-      await page.mouse.move(0, 0);
-
-      return screenPixels(points);
-    };
-    const channels = (color) => color.match(/[\d.]+/g).map(Number);
-    // `color` painted over the opaque `ground`, as the compositor rounds it.
-    const over = (color, ground) => {
-      const [red, green, blue, alpha = 1] = channels(color);
-      const under = Array.isArray(ground) ? ground : channels(ground);
-
-      return [red, green, blue].map((value, index) =>
-        Math.round(value * alpha + under[index] * (1 - alpha)),
-      );
-    };
     // Focuses a cell the way a keyboard user does, so it matches :focus-visible.
     const focusCell = async (selector) => {
       await page.locator(selector).scrollIntoViewIfNeeded();
@@ -8043,6 +8047,990 @@ try {
         forcedMonth.boxShadow.includes(forcedColors.highlight),
       `forced month ring ${forcedMonth.boxShadow}`,
     );
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
+
+  // Date entry, in its own block: DateField, TimeField, DateTimeField and the single DatePicker in
+  // both shapes. Exact geometry and pixels are DPR-1 values; every Calendar pins today to 27
+  // October 2026.
+  {
+    const box = (id) => `#${id} [data-slot=date-field-input]`;
+    // Every specimen's units alternate with literals, starting with a unit, so unit `index` is
+    // the box's child 2 × index + 1.
+    const segment = (id, index) =>
+      `${box(id)} > :nth-child(${2 * index + 1}) > [data-slot=date-field-segment]`;
+    const trigger = (id) => `#${id} [data-slot=date-picker-trigger]`;
+    const content = (id) => `#${id} [data-slot=date-picker-content]`;
+    const rect = (selector) =>
+      page.evaluate((selector) => {
+        const { left, top, right, bottom, width, height } = document
+          .querySelector(selector)
+          .getBoundingClientRect();
+
+        return { left, top, right, bottom, width, height };
+      }, selector);
+    const segmentTexts = (id) =>
+      page.evaluate(
+        (id) =>
+          [...document.querySelectorAll(`#${id} [data-slot=date-field-segment]`)].map(
+            (element) => element.textContent,
+          ),
+        id,
+      );
+    // A theme token's computed color inside an element's subtree, so it follows a `.light`
+    // ancestor.
+    const tokenIn = (selector, token) =>
+      page.evaluate(
+        ([selector, token]) => {
+          const probe = document.createElement("span");
+
+          probe.style.color = `var(--${token})`;
+          document.querySelector(selector).append(probe);
+
+          const color = getComputedStyle(probe).color;
+
+          probe.remove();
+
+          return color;
+        },
+        [selector, token],
+      );
+    const keyboardFocus = async (selector) => {
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await page.keyboard.press("Shift");
+      await page.focus(selector);
+      await rendered();
+    };
+    const blur = async () => {
+      await page.evaluate(() => document.activeElement?.blur());
+      await rendered();
+    };
+    const isOpen = (id) =>
+      page.evaluate(
+        (selector) => document.querySelector(selector).matches(":popover-open"),
+        content(id),
+      );
+    const opened = (id) =>
+      page.waitForFunction((selector) => {
+        const element = document.querySelector(selector);
+
+        return element.matches(":popover-open") && getComputedStyle(element).opacity === "1";
+      }, content(id));
+    const closed = (id) =>
+      page.waitForFunction(
+        (selector) => !document.querySelector(selector).matches(":popover-open"),
+        content(id),
+      );
+    const dayCell = (id, label) => `${content(id)} td[aria-label="${label}"]`;
+    const ring = (color) => ({ style: "solid", width: "2px", offset: "2px", color });
+    const dark = {
+      foreground: "rgb(237, 237, 235)",
+      background: "rgb(20, 20, 20)",
+      muted: "rgb(163, 163, 160)",
+      input: "rgb(107, 107, 104)",
+      ring: "rgb(76, 196, 111)",
+      orange: "rgb(224, 144, 111)",
+    };
+
+    // Each cell and literal of a box, its x and width at 0.5px, and the text gaps on either side
+    // of every literal between two units, from the text's own Range rects.
+    const boxGeometry = (id) =>
+      page.evaluate((selector) => {
+        const round = (value) => Math.round(value * 2) / 2;
+        const textRect = (element) => {
+          const range = document.createRange();
+
+          range.selectNodeContents(element);
+
+          return range.getBoundingClientRect();
+        };
+        const children = [...document.querySelector(selector).children].filter((child) =>
+          ["date-field-cell", "date-field-literal"].includes(child.dataset.slot),
+        );
+        const parts = [];
+        const literals = [];
+        const cells = [];
+
+        for (const child of children) {
+          const { x, width } = child.getBoundingClientRect();
+
+          parts.push({ slot: child.dataset.slot, x: round(x), width: round(width) });
+        }
+
+        for (const child of children) {
+          if (child.dataset.slot !== "date-field-cell") {
+            continue;
+          }
+
+          const segment = child.querySelector("[data-slot=date-field-segment]");
+          const cell = child.getBoundingClientRect();
+          const text = textRect(segment);
+
+          cells.push({
+            left: cell.left,
+            width: cell.width,
+            segmentLeft: segment.getBoundingClientRect().left,
+            textWidth: text.width,
+          });
+        }
+
+        for (let index = 1; index < children.length - 1; index += 1) {
+          const literal = children[index];
+
+          if (literal.dataset.slot !== "date-field-literal") {
+            continue;
+          }
+
+          const before = textRect(
+            children[index - 1].querySelector("[data-slot=date-field-segment]"),
+          );
+          const after = textRect(
+            children[index + 1].querySelector("[data-slot=date-field-segment]"),
+          );
+          const own = textRect(literal);
+
+          literals.push({
+            text: literal.textContent,
+            gapBefore: round(own.left - before.right),
+            gapAfter: round(after.left - own.right),
+            textToText: after.left - before.right,
+            width: own.width,
+          });
+        }
+
+        return { parts, cells, literals };
+      }, box(id));
+
+    // Server HTML, parsed by a page without scripts: the boxes, their cells and sizer lines, the
+    // placeholder tokens, the closed pickers with no Calendar, and fold's two trigger markers.
+    const datesPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await datesPrerendered.goto(base);
+
+    const dateServer = await datesPrerendered.evaluate(() => {
+      const root = (id) => document.getElementById(id);
+      const boxOf = (id) => root(id).querySelector("[data-slot=date-field-input]");
+      const units = {};
+      const sizers = {};
+      const tokens = {};
+
+      for (const id of ["df-birth", "df-en-us", "df-el", "tf-12", "tf-24s", "dtf", "dp-field"]) {
+        units[id] = boxOf(id).querySelectorAll("[role=spinbutton]").length;
+        sizers[id] = [...boxOf(id).querySelectorAll("[data-slot=date-field-cell]")].map((cell) =>
+          [...cell.querySelectorAll(":scope > [aria-hidden=true]")].map((line) => line.textContent),
+        );
+        tokens[id] = [...boxOf(id).querySelectorAll("[data-slot=date-field-segment]")].map(
+          (segment) => [segment.textContent, segment.getAttribute("data-placeholder")],
+        );
+      }
+
+      const triggers = {};
+
+      for (const element of document.querySelectorAll("[data-slot=date-picker-trigger]")) {
+        triggers[element.closest("[data-slot=date-picker]").id] = {
+          placeholder: element.getAttribute("data-placeholder"),
+          readonly: element.getAttribute("data-readonly"),
+        };
+      }
+
+      const dueContent = root("dp-field").querySelector("[data-slot=date-picker-content]");
+      const dueTrigger = root("dp-field").querySelector("[data-slot=date-picker-trigger]");
+
+      return {
+        roles: ["df-birth", "tf-12", "dtf", "dp-field"].map((id) => boxOf(id).getAttribute("role")),
+        layouts: ["df-birth", "tf-12", "dtf"].map((id) => root(id).hasAttribute("data-layout")),
+        literals: [...boxOf("dtf").querySelectorAll("[data-slot=date-field-literal]")].map(
+          (literal) => [literal.textContent, literal.getAttribute("aria-hidden")],
+        ),
+        units,
+        sizers,
+        tokens,
+        triggers,
+        haspopup: dueTrigger.getAttribute("aria-haspopup"),
+        expanded: dueTrigger.getAttribute("aria-expanded"),
+        contentRole: dueContent.getAttribute("role"),
+        contentInert: dueContent.hasAttribute("inert"),
+        calendars: document.querySelectorAll("[data-slot=date-picker-content] [data-slot=calendar]")
+          .length,
+      };
+    });
+
+    await datesPrerendered.close();
+
+    const enDate = [
+      ["dd", "mm", "00"],
+      ["dd", "mm", "00"],
+      ["dd00", "mm00", "yyyy", "0000"],
+    ];
+
+    assert.deepEqual(dateServer.roles, ["group", "group", "group", "group"]);
+    assert.deepEqual(dateServer.layouts, [true, true, true]);
+    assert.deepEqual(dateServer.units, {
+      "df-birth": 3,
+      "df-en-us": 3,
+      "df-el": 3,
+      "tf-12": 3,
+      "tf-24s": 3,
+      dtf: 5,
+      "dp-field": 3,
+    });
+    // B's sizer lines: every two-digit unit is sized by the field's two-digit tokens and 00, the
+    // year by each of them followed by two digits, its own token and 0000, the day period by its
+    // token.
+    assert.deepEqual(dateServer.sizers["df-birth"], enDate);
+    assert.deepEqual(dateServer.sizers["df-en-us"], [
+      ["mm", "dd", "00"],
+      ["mm", "dd", "00"],
+      ["mm00", "dd00", "yyyy", "0000"],
+    ]);
+    assert.deepEqual(dateServer.sizers["df-el"], [
+      ["ηη", "μμ", "00"],
+      ["ηη", "μμ", "00"],
+      ["ηη00", "μμ00", "εεεε", "0000"],
+    ]);
+    assert.deepEqual(dateServer.sizers["tf-12"], [
+      ["hh", "mm", "00"],
+      ["hh", "mm", "00"],
+      ["AM/PM"],
+    ]);
+    assert.deepEqual(dateServer.sizers["tf-24s"], Array(3).fill(["hh", "mm", "ss", "00"]));
+    assert.deepEqual(dateServer.sizers.dtf, [
+      ["dd", "mm", "hh", "00"],
+      ["dd", "mm", "hh", "00"],
+      ["dd00", "mm00", "hh00", "yyyy", "0000"],
+      ["dd", "mm", "hh", "00"],
+      ["dd", "mm", "hh", "00"],
+    ]);
+    assert.deepEqual(dateServer.sizers["dp-field"], enDate);
+    assert.deepEqual(dateServer.tokens["df-birth"], [
+      ["dd", ""],
+      ["mm", ""],
+      ["yyyy", ""],
+    ]);
+    assert.deepEqual(dateServer.tokens["df-el"], [
+      ["ηη", ""],
+      ["μμ", ""],
+      ["εεεε", ""],
+    ]);
+    assert.deepEqual(dateServer.tokens["tf-12"], [
+      ["hh", ""],
+      ["mm", ""],
+      ["AM/PM", ""],
+    ]);
+    assert.deepEqual(dateServer.tokens["dp-field"], [
+      ["27", null],
+      ["10", null],
+      ["2026", null],
+    ]);
+    assert.deepEqual(dateServer.literals, [
+      ["/", "true"],
+      ["/", "true"],
+      [", ", "true"],
+      [":", "true"],
+    ]);
+    assert.equal(dateServer.haspopup, "dialog");
+    assert.equal(dateServer.expanded, "false");
+    assert.equal(dateServer.contentRole, "dialog");
+    assert.equal(dateServer.contentInert, true);
+    assert.equal(dateServer.calendars, 0, "no Calendar renders inside a closed, gated Content");
+
+    // fold's markers: data-placeholder on a button-shape trigger while its value is null,
+    // data-readonly while its picker is readonly by any route, both "" or absent, and neither on
+    // the field shape.
+    const readonlyButtons = [
+      "dp-button-readonly-direct",
+      "dp-button-readonly-disabled",
+      "dp-button-readonly-disabled-focusable",
+      "dp-button-readonly-schema",
+    ];
+    const emptyButtons = ["dp-button-empty", "dp-dialog-button", "dp-light-button"];
+
+    for (const [id, markers] of Object.entries(dateServer.triggers)) {
+      let placeholder = null;
+      let readonly = null;
+
+      if (emptyButtons.includes(id)) {
+        placeholder = "";
+      }
+
+      if (readonlyButtons.includes(id)) {
+        readonly = "";
+      }
+
+      assert.deepEqual(markers, { placeholder, readonly }, `${id}'s trigger markers`);
+    }
+
+    assert.equal(Object.keys(dateServer.triggers).length, 17);
+
+    // Without transitions, colors read settled.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    // Geometry: Input's 32px box and 10px radius; the field-shape trigger a 28px square 2px inside
+    // the box's end; h-class sizes follow.
+    const birthBox = await styleOf(box("df-birth"), [
+      "height",
+      "borderTopLeftRadius",
+      "borderTopWidth",
+      "paddingLeft",
+      "cursor",
+    ]);
+
+    assert.deepEqual(birthBox, {
+      height: "32px",
+      borderTopLeftRadius: "10px",
+      borderTopWidth: "1px",
+      paddingLeft: "10px",
+      cursor: "auto",
+    });
+    assert.equal((await styleOf(segment("df-birth", 0), ["cursor"])).cursor, "text");
+
+    const dueBox = await rect(box("dp-field"));
+    const dueTrigger = await rect(trigger("dp-field"));
+
+    assert.equal((await styleOf(trigger("dp-field"), ["cursor"])).cursor, "pointer");
+    assert.equal(dueTrigger.width, 28);
+    assert.equal(dueTrigger.height, 28);
+    assert.equal(dueBox.right - dueTrigger.right, 2);
+    assert.equal(dueTrigger.top - dueBox.top, 2);
+
+    const rtlBox = await rect(box("dp-rtl"));
+    const rtlTrigger = await rect(trigger("dp-rtl"));
+
+    assert.equal(rtlTrigger.left - rtlBox.left, 2, "in RTL the trigger sits at the box's left end");
+
+    // Typing moves nothing (D11-B): every cell and literal keeps its x and width through each key,
+    // and once filled the text sits evenly round every literal between two digit units. At the
+    // literal before the day period, the minute's spare width S makes the gap wider by S/2.
+    const typeAndWatch = async (id, keys) => {
+      await keyboardFocus(segment(id, 0));
+
+      const before = (await boxGeometry(id)).parts;
+
+      for (const key of keys.split("")) {
+        await page.keyboard.press(key);
+        await rendered();
+        assert.deepEqual((await boxGeometry(id)).parts, before, `${id} moved after typing ${key}`);
+      }
+
+      return boxGeometry(id);
+    };
+    const filledBirth = await typeAndWatch("df-birth", "27102026");
+
+    assert.deepEqual(await segmentTexts("df-birth"), ["27", "10", "2026"]);
+
+    for (const literal of filledBirth.literals) {
+      assert.ok(
+        Math.abs(literal.gapBefore - literal.gapAfter) <= 1,
+        `df-birth's "${literal.text}" gaps ${literal.gapBefore}/${literal.gapAfter}`,
+      );
+    }
+
+    const filledTime = await typeAndWatch("tf-12", "0930p");
+
+    assert.deepEqual(await segmentTexts("tf-12"), ["09", "30", "PM"]);
+    assert.equal(await textOf("tf-12-value"), "21:30");
+
+    const [hourToMinute, minuteToPeriod] = filledTime.literals;
+    const minute = filledTime.cells[1];
+    const period = filledTime.cells[2];
+    const spare = minute.width - 4 - minute.textWidth;
+
+    assert.ok(
+      Math.abs(hourToMinute.gapBefore - hourToMinute.gapAfter) <= 1,
+      `tf-12's ":" gaps ${hourToMinute.gapBefore}/${hourToMinute.gapAfter}`,
+    );
+    assert.ok(
+      minuteToPeriod.textToText <= minuteToPeriod.width + 4 + spare / 2 + 1,
+      `tf-12's minute to PM ${minuteToPeriod.textToText}px, S ${spare}px`,
+    );
+    assert.ok(Math.abs(period.segmentLeft - period.left) <= 0.5, "PM starts at its cell's start");
+
+    // Backspace empties each unit without moving anything.
+    await keyboardFocus(segment("df-birth", 2));
+
+    const filledParts = filledBirth.parts;
+
+    for (let count = 0; count < 4; count += 1) {
+      await page.keyboard.press("Backspace");
+      await rendered();
+      assert.deepEqual((await boxGeometry("df-birth")).parts, filledParts);
+    }
+
+    assert.deepEqual(await segmentTexts("df-birth"), ["27", "10", "yyyy"]);
+
+    // Field: a half-typed date shows the incomplete message once focus leaves; completing it
+    // clears it; emptying a required one shows the rule's message.
+    await blur();
+    assert.equal(await textOf("df-birth-error"), "Enter a complete date");
+    assert.equal(await attribute("df-birth-input", "aria-labelledby"), "df-birth-label");
+    await keyboardFocus(segment("df-birth", 2));
+    await page.keyboard.type("2026");
+    await blur();
+    assert.equal(await page.locator("#df-birth-error").count(), 0);
+
+    // Looks, dark: muted placeholders, the focused segment an inverse chip with no outline or
+    // caret; the box draws the ring while a segment has focus.
+    await keyboardFocus(segment("df-en-us", 1));
+    assert.deepEqual(
+      await styleOf(segment("df-en-us", 1), [
+        "backgroundColor",
+        "color",
+        "outlineStyle",
+        "caretColor",
+      ]),
+      {
+        backgroundColor: dark.foreground,
+        color: dark.background,
+        outlineStyle: "none",
+        caretColor: "rgba(0, 0, 0, 0)",
+      },
+    );
+    assert.equal((await styleOf(segment("df-en-us", 0), ["color"])).color, dark.muted);
+    assert.equal((await styleOf(box("df-en-us"), ["borderTopColor"])).borderTopColor, dark.ring);
+    assert.deepEqual(await outline(box("df-en-us")), ring(dark.ring));
+
+    // The field-shape trigger's ring is inset; the box has none while the trigger has focus.
+    await keyboardFocus(trigger("dp-field"));
+    assert.deepEqual(await outline(trigger("dp-field")), {
+      style: "solid",
+      width: "2px",
+      offset: "-2px",
+      color: dark.ring,
+    });
+    assert.equal((await outline(box("dp-field"))).style, "none");
+    await blur();
+
+    // Invalid: the border turns orange once errors show, and stays orange under the ring while a
+    // segment has focus (fold Input's intersection).
+    await keyboardFocus(segment("df-invalid", 0));
+    await blur();
+    assert.equal(await textOf("df-invalid-error"), "Enter a date from 1900.");
+    assert.equal(
+      (await styleOf(box("df-invalid"), ["borderTopColor"])).borderTopColor,
+      dark.orange,
+    );
+    await keyboardFocus(segment("df-invalid", 0));
+    assert.equal(
+      (await styleOf(box("df-invalid"), ["borderTopColor"])).borderTopColor,
+      dark.orange,
+    );
+    assert.deepEqual(await outline(box("df-invalid")), ring(dark.ring));
+    await blur();
+
+    // Readonly dashes the box and drops its fill; disabled dims it once.
+    assert.deepEqual(
+      await styleOf(box("df-readonly"), ["borderTopStyle", "backgroundColor", "opacity"]),
+      { borderTopStyle: "dashed", backgroundColor: "rgba(0, 0, 0, 0)", opacity: "1" },
+    );
+    assert.deepEqual(await styleOf(box("df-disabled"), ["opacity", "cursor", "borderTopColor"]), {
+      opacity: "0.5",
+      cursor: "not-allowed",
+      borderTopColor: dark.input,
+    });
+
+    // The field shape's disabled cases: a disabled root dims the box, not the trigger again; a
+    // trigger disabled on its own dims itself. A focusable disabled trigger doesn't open.
+    const opacities = async (id) => [
+      (await styleOf(box(id), ["opacity"])).opacity,
+      (await styleOf(trigger(id), ["opacity"])).opacity,
+    ];
+
+    assert.deepEqual(await opacities("dp-field-disabled"), ["0.5", "1"]);
+    assert.deepEqual(await opacities("dp-field-disabled-focusable"), ["0.5", "1"]);
+    assert.deepEqual(await opacities("dp-field-trigger-disabled"), ["1", "0.5"]);
+    await keyboardFocus(trigger("dp-field-disabled-focusable"));
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.equal(await isOpen("dp-field-disabled-focusable"), false);
+    await blur();
+
+    // Button shape: Select's trigger look; muted while empty; readonly by either route dashed,
+    // unfilled, shadowless and with the default cursor.
+    assert.deepEqual(
+      await styleOf(trigger("dp-button"), ["height", "borderTopLeftRadius", "color", "cursor"]),
+      { height: "32px", borderTopLeftRadius: "10px", color: dark.foreground, cursor: "pointer" },
+    );
+    assert.equal((await styleOf(trigger("dp-button-empty"), ["color"])).color, dark.muted);
+    assert.equal(await textOf("dp-button-trigger"), "27 Oct 2026");
+
+    for (const id of ["dp-button-readonly-direct", "dp-button-readonly-schema"]) {
+      const look = await styleOf(trigger(id), [
+        "borderTopStyle",
+        "backgroundColor",
+        "boxShadow",
+        "cursor",
+        "opacity",
+      ]);
+
+      assert.equal(look.borderTopStyle, "dashed", id);
+      assert.ok(transparent(look.backgroundColor), `${id} background ${look.backgroundColor}`);
+      assert.ok(shadowless(look.boxShadow), `${id} shadow ${look.boxShadow}`);
+      assert.equal(look.cursor, "default", id);
+      assert.equal(look.opacity, "1", id);
+    }
+
+    // Readonly and disabled together: both markers, the disabled cursor and one dim, with the
+    // dashed readonly border and no painted shadow. Neither opens, by click or keys.
+    for (const id of ["dp-button-readonly-disabled", "dp-button-readonly-disabled-focusable"]) {
+      const look = await styleOf(trigger(id), [
+        "borderTopStyle",
+        "backgroundColor",
+        "boxShadow",
+        "cursor",
+        "opacity",
+      ]);
+
+      assert.equal(await page.getAttribute(trigger(id), "data-readonly"), "");
+      assert.equal(await page.getAttribute(trigger(id), "data-disabled"), "");
+      assert.equal(look.cursor, "not-allowed", id);
+      assert.equal(look.borderTopStyle, "dashed", id);
+      assert.ok(transparent(look.backgroundColor), `${id} background ${look.backgroundColor}`);
+      assert.ok(shadowless(look.boxShadow), `${id} shadow ${look.boxShadow}`);
+      assert.equal(look.opacity, "0.5", id);
+      assert.equal((await styleOf(`#${id}`, ["opacity"])).opacity, "1", `${id} root`);
+      await page.click(trigger(id), { force: true });
+      await rendered();
+      assert.equal(await page.getAttribute(trigger(id), "aria-expanded"), "false", id);
+    }
+
+    await keyboardFocus(trigger("dp-button-readonly-disabled-focusable"));
+
+    for (const key of ["Enter", " "]) {
+      await page.keyboard.press(key);
+      await rendered();
+      assert.equal(
+        await page.getAttribute(trigger("dp-button-readonly-disabled-focusable"), "aria-expanded"),
+        "false",
+      );
+    }
+
+    await blur();
+    assert.equal(await textOf("dp-policy-writes"), "0");
+    assert.deepEqual(await styleOf(trigger("dp-button-disabled"), ["cursor", "borderTopStyle"]), {
+      cursor: "not-allowed",
+      borderTopStyle: "solid",
+    });
+
+    // The field-shape popup: 4px below the trigger, its end lined up with the trigger's, 2px
+    // inside the box (D13-A); the Calendar inside has no frame of its own. Choosing closes it,
+    // writes the value and returns focus to the trigger.
+    await page.click(trigger("dp-field"));
+    await opened("dp-field");
+
+    const dueContent = await rect(content("dp-field"));
+    const dueOpenTrigger = await rect(trigger("dp-field"));
+    const dueOpenBox = await rect(box("dp-field"));
+
+    assert.equal(dueContent.width, 250);
+    assert.ok(Math.abs(dueContent.right - dueOpenTrigger.right) <= 1, "popup end at the trigger's");
+    assert.equal(dueContent.top - dueOpenTrigger.bottom, 4);
+    assert.equal(dueOpenBox.right - dueContent.right, 2);
+    assert.deepEqual(
+      await styleOf(`#dp-field-calendar`, [
+        "borderTopWidth",
+        "backgroundColor",
+        "paddingTop",
+        "borderTopLeftRadius",
+      ]),
+      {
+        borderTopWidth: "0px",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        paddingTop: "0px",
+        borderTopLeftRadius: "0px",
+      },
+    );
+    assert.equal(await page.getAttribute(trigger("dp-field"), "aria-expanded"), "true");
+    assert.equal(await page.getAttribute(content("dp-field"), "aria-label"), "Choose due date");
+    await page.click(dayCell("dp-field", "Wednesday, October 28, 2026"));
+    await closed("dp-field");
+    assert.deepEqual(await segmentTexts("dp-field"), ["28", "10", "2026"]);
+    assert.equal(await activeId(), "dp-field-trigger");
+
+    // The button shape: Enter opens on the chosen day, the arrows move and Enter chooses; the
+    // trigger's text follows and its placeholder marker goes.
+    await keyboardFocus(trigger("dp-button-empty"));
+    await page.keyboard.press("Enter");
+    await opened("dp-button-empty");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await closed("dp-button-empty");
+    assert.equal(await textOf("dp-button-empty-trigger"), "28 Oct 2026");
+    assert.equal(await page.getAttribute(trigger("dp-button-empty"), "data-placeholder"), null);
+    assert.equal(await activeId(), "dp-button-empty-trigger");
+    assert.equal(
+      await page.getAttribute(content("dp-button"), "aria-labelledby"),
+      "dp-button-label",
+    );
+
+    // A readonly picker opens and browses but doesn't choose.
+    await page.click(trigger("dp-button-readonly-direct"));
+    await opened("dp-button-readonly-direct");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.equal(await textOf("dp-policy-writes"), "0");
+    await page.keyboard.press("Escape");
+    await closed("dp-button-readonly-direct");
+
+    // clear() discards the value: every segment shows its token again.
+    await page.click("#df-clear-button");
+    await rendered();
+    assert.deepEqual(await segmentTexts("df-clear"), ["dd", "mm", "yyyy"]);
+
+    // In a Dialog: Escape closes the picker first, then the Dialog.
+    await page.click("#dp-dialog-trigger");
+    await page.waitForFunction(() => document.getElementById("dp-dialog-content").open);
+
+    for (const id of ["dp-dialog", "dp-dialog-button"]) {
+      await page.click(trigger(id));
+      await opened(id);
+      await page.keyboard.press("Escape");
+      await closed(id);
+      assert.equal(
+        await page.evaluate(() => document.getElementById("dp-dialog-content").open),
+        true,
+        `the first Escape closes only ${id}'s popup`,
+      );
+      assert.equal(
+        await page.evaluate(
+          (selector) => document.activeElement === document.querySelector(selector),
+          trigger(id),
+        ),
+        true,
+      );
+    }
+
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.getElementById("dp-dialog-content").open);
+
+    // Light: the box and the button trigger take the subtree's tokens.
+    assert.equal(
+      (await styleOf(box("dp-light"), ["backgroundColor"])).backgroundColor,
+      await tokenIn("#dp-light", "surface"),
+    );
+    assert.equal(
+      (await styleOf(trigger("dp-light-button"), ["color"])).color,
+      await tokenIn("#dp-light-button", "muted-foreground"),
+    );
+    assert.notEqual(
+      (await styleOf(box("dp-light"), ["backgroundColor"])).backgroundColor,
+      (await styleOf(box("dp-field"), ["backgroundColor"])).backgroundColor,
+    );
+
+    await keyboardFocus(segment("dp-light", 0));
+    assert.deepEqual(await styleOf(segment("dp-light", 0), ["backgroundColor", "color"]), {
+      backgroundColor: await tokenIn("#dp-light", "foreground"),
+      color: await tokenIn("#dp-light", "background"),
+    });
+    await blur();
+
+    // Light, per state: the same specimens under a light ancestor take the light tokens.
+    // Invalid keeps its orange border under the light ring; readonly dashes and drops the fill;
+    // disabled dims once over the input border; both readonly ∩ disabled buttons keep the
+    // disabled cursor and one dim over the dashed, unfilled, shadowless readonly look.
+    await page.evaluate(() => document.getElementById("date-entries").classList.add("light"));
+
+    const light = {
+      muted: await tokenIn("#date-entries", "muted-foreground"),
+      input: await tokenIn("#date-entries", "input"),
+      ring: await tokenIn("#date-entries", "ring"),
+      orange: await tokenIn("#date-entries", "destructive-text"),
+    };
+
+    assert.notEqual(light.orange, dark.orange, "the light tokens apply");
+    assert.equal((await styleOf(segment("df-en-us", 0), ["color"])).color, light.muted);
+    assert.equal(await textOf("df-invalid-error"), "Enter a date from 1900.");
+    assert.deepEqual(await styleOf(box("df-invalid"), ["borderTopColor", "outlineStyle"]), {
+      borderTopColor: light.orange,
+      outlineStyle: "none",
+    });
+    await keyboardFocus(segment("df-invalid", 0));
+    assert.equal(
+      (await styleOf(box("df-invalid"), ["borderTopColor"])).borderTopColor,
+      light.orange,
+    );
+    assert.deepEqual(await outline(box("df-invalid")), ring(light.ring));
+    await blur();
+    assert.deepEqual(
+      await styleOf(box("df-readonly"), [
+        "borderTopStyle",
+        "borderTopColor",
+        "backgroundColor",
+        "opacity",
+      ]),
+      {
+        borderTopStyle: "dashed",
+        borderTopColor: light.input,
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        opacity: "1",
+      },
+    );
+    assert.deepEqual(await styleOf(box("df-disabled"), ["opacity", "cursor", "borderTopColor"]), {
+      opacity: "0.5",
+      cursor: "not-allowed",
+      borderTopColor: light.input,
+    });
+
+    for (const id of ["dp-button-readonly-disabled", "dp-button-readonly-disabled-focusable"]) {
+      const look = await styleOf(trigger(id), [
+        "borderTopStyle",
+        "borderTopColor",
+        "backgroundColor",
+        "boxShadow",
+        "cursor",
+        "opacity",
+      ]);
+
+      assert.equal(look.borderTopStyle, "dashed", `light ${id}`);
+      assert.equal(look.borderTopColor, light.input, `light ${id}`);
+      assert.ok(
+        transparent(look.backgroundColor),
+        `light ${id} background ${look.backgroundColor}`,
+      );
+      assert.ok(shadowless(look.boxShadow), `light ${id} shadow ${look.boxShadow}`);
+      assert.equal(look.cursor, "not-allowed", `light ${id}`);
+      assert.equal(look.opacity, "0.5", `light ${id}`);
+      assert.equal((await styleOf(`#${id}`, ["opacity"])).opacity, "1", `light ${id} root`);
+    }
+
+    await page.evaluate(() => document.getElementById("date-entries").classList.remove("light"));
+
+    // The sizers are hidden from the accessibility tree: an empty field reads only its units'
+    // tokens.
+    const usTree = await page.locator(box("df-en-us")).ariaSnapshot();
+
+    assert.equal((usTree.match(/spinbutton/g) ?? []).length, 3, usTree);
+    assert.doesNotMatch(usTree, /00/, usTree);
+
+    // Forced colors, split by region: a focused digit cell is Highlight wherever its glyphs
+    // aren't; a focused day period is Highlight over its text's width and the field's ground over
+    // the rest of its cell; unfocused filled, placeholder and disabled cells paint the ground. A
+    // painted sizer would break one of these.
+    await page.emulateMedia({ forcedColors: "active" });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const systemColors = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      const read = (value) => {
+        probe.style.cssText = `position: fixed; forced-color-adjust: none; color: ${value}`;
+
+        return getComputedStyle(probe).color;
+      };
+
+      document.body.append(probe);
+
+      const result = {
+        highlight: read("Highlight"),
+        highlightText: read("HighlightText"),
+        canvasText: read("CanvasText"),
+        grayText: read("GrayText"),
+      };
+
+      probe.remove();
+
+      return result;
+    });
+    // Points 1px or more from the segment's glyphs, along each cell's middle row, by region.
+    const regionPoints = (id) =>
+      page.evaluate((selector) => {
+        const element = document.querySelector(selector);
+        const outer = element.getBoundingClientRect();
+        const result = { ground: [outer.left + 5, (outer.top + outer.bottom) / 2], regions: [] };
+
+        for (const cell of element.querySelectorAll("[data-slot=date-field-cell]")) {
+          const segment = cell.querySelector("[data-slot=date-field-segment]");
+          const range = document.createRange();
+
+          range.selectNodeContents(segment);
+
+          const glyphs = range.getBoundingClientRect();
+          const area = cell.getBoundingClientRect();
+          const chip = segment.getBoundingClientRect();
+          const y = Math.round((area.top + area.bottom) / 2);
+          const focused = segment === document.activeElement;
+          const radius = parseFloat(getComputedStyle(segment).borderTopLeftRadius);
+          // Along the middle row beside the glyphs, and along a row below them, clear of the
+          // chip's rounded corners. Chromium paints boxes at rounded edges, so a pixel whose
+          // centre is a quarter pixel inside an edge is painted.
+          const pointsIn = (left, right) => {
+            const points = [];
+
+            for (let x = Math.floor(left); x < Math.ceil(right); x += 1) {
+              const centre = x + 0.5;
+
+              if (centre < left + 0.25 || centre > right - 0.25) {
+                continue;
+              }
+
+              if (centre > glyphs.left - 1 && centre < glyphs.right + 1) {
+                continue;
+              }
+
+              points.push([x, y]);
+            }
+
+            const below = Math.floor((glyphs.bottom + area.bottom) / 2);
+
+            if (below + 0.5 >= glyphs.bottom + 1 && below + 0.5 <= area.bottom - 1) {
+              for (let x = Math.ceil(left + radius); x < Math.floor(right - radius); x += 1) {
+                points.push([x, below]);
+              }
+            }
+
+            return points;
+          };
+
+          if (focused && chip.width < area.width - 1) {
+            result.regions.push({ name: "chip", points: pointsIn(chip.left, chip.right) });
+            result.regions.push({ name: "remainder", points: pointsIn(chip.right, area.right) });
+          } else if (focused) {
+            result.regions.push({ name: "chip", points: pointsIn(area.left, area.right) });
+          } else {
+            result.regions.push({ name: "ground", points: pointsIn(area.left, area.right) });
+          }
+        }
+
+        return result;
+      }, box(id));
+    const checkRegions = async (id, focusIndex) => {
+      await page.locator(box(id)).scrollIntoViewIfNeeded();
+
+      if (focusIndex === null) {
+        await blur();
+      } else {
+        await keyboardFocus(segment(id, focusIndex));
+      }
+
+      await page.mouse.move(0, 0);
+
+      const layout = await regionPoints(id);
+      const points = [layout.ground];
+
+      for (const region of layout.regions) {
+        points.push(...region.points);
+      }
+
+      const colors = await screenPixels(points);
+      const ground = colors[0];
+      let index = 1;
+      const counts = {};
+
+      for (const region of layout.regions) {
+        let expected = ground;
+
+        // Chromium's emulated Highlight is translucent, composited over the field's ground.
+        if (region.name === "chip") {
+          expected = over(systemColors.highlight, ground);
+        }
+
+        counts[region.name] = (counts[region.name] ?? 0) + region.points.length;
+
+        for (const point of region.points) {
+          const color = colors[index];
+
+          index += 1;
+          assert.ok(
+            color.every((value, channel) => Math.abs(value - expected[channel]) <= 2),
+            `${id} ${region.name} at ${point}: ${color} ≠ ${expected}`,
+          );
+        }
+      }
+
+      return counts;
+    };
+
+    await keyboardFocus(segment("tf-12", 0));
+    await page.keyboard.type("0930p");
+
+    const digitCounts = await checkRegions("df-clear", 0);
+    const yearCounts = await checkRegions("df-clear", 2);
+    const periodCounts = await checkRegions("tf-12", 2);
+    const unfocused = [
+      await checkRegions("df-clear", null),
+      await checkRegions("df-en-us", null),
+      await checkRegions("df-disabled", null),
+    ];
+
+    assert.ok(digitCounts.chip > 0 && yearCounts.chip > 0, "digit chips sampled");
+    assert.ok(
+      periodCounts.chip > 0 && periodCounts.remainder > 0,
+      `the period's regions sampled: ${JSON.stringify(periodCounts)}`,
+    );
+
+    for (const counts of unfocused) {
+      assert.ok(counts.ground > 0, "unfocused cells sampled");
+    }
+
+    assert.equal((await styleOf(segment("df-en-us", 0), ["color"])).color, systemColors.grayText);
+    assert.equal(
+      (await styleOf(segment("df-disabled", 0), ["color"])).color,
+      systemColors.grayText,
+    );
+
+    // The focused segment's text, apart from the pixel regions above, which sample beside the
+    // glyphs: HighlightText on Highlight for a filled digit, the day period and a placeholder.
+    for (const [id, index, placeholder] of [
+      ["df-clear", 0, null],
+      ["tf-12", 2, null],
+      ["df-en-us", 0, ""],
+    ]) {
+      await keyboardFocus(segment(id, index));
+      assert.equal(await page.getAttribute(segment(id, index), "data-placeholder"), placeholder);
+      assert.deepEqual(
+        await styleOf(segment(id, index), ["color", "backgroundColor"]),
+        { color: systemColors.highlightText, backgroundColor: systemColors.highlight },
+        `forced focused ${id} ${index}`,
+      );
+    }
+
+    assert.equal((await outline(box("df-en-us"))).style, "solid");
+    await blur();
+
+    // Readonly ∩ disabled buttons keep the disabled cursor and one dim over the dashed, unfilled,
+    // shadowless readonly look.
+    for (const id of ["dp-button-readonly-disabled", "dp-button-readonly-disabled-focusable"]) {
+      const look = await styleOf(trigger(id), [
+        "borderTopStyle",
+        "backgroundColor",
+        "boxShadow",
+        "cursor",
+        "opacity",
+      ]);
+
+      assert.equal(look.borderTopStyle, "dashed", `forced ${id}`);
+      assert.ok(
+        transparent(look.backgroundColor),
+        `forced ${id} background ${look.backgroundColor}`,
+      );
+      assert.ok(shadowless(look.boxShadow), `forced ${id} shadow ${look.boxShadow}`);
+      assert.equal(look.cursor, "not-allowed", `forced ${id}`);
+      assert.equal(look.opacity, "0.5", `forced ${id}`);
+      assert.equal((await styleOf(`#${id}`, ["opacity"])).opacity, "1", `forced ${id} root`);
+      // Natively disabled or only focusable-disabled, the text is GrayText, like a TabsTrigger.
+      assert.equal(
+        (await styleOf(trigger(id), ["color"])).color,
+        systemColors.grayText,
+        `forced ${id} text`,
+      );
+    }
+
+    // A disabled field-shape trigger's icon is GrayText, by a disabled root, a focusable one or
+    // its own disabled; an enabled one's is CanvasText.
+    const iconStroke = async (id) =>
+      (await styleOf(`${trigger(id)} > [data-slot=date-picker-icon]`, ["stroke"])).stroke;
+
+    for (const id of [
+      "dp-field-disabled",
+      "dp-field-disabled-focusable",
+      "dp-field-trigger-disabled",
+    ]) {
+      assert.equal(await iconStroke(id), systemColors.grayText, `forced ${id} icon`);
+    }
+
+    assert.equal(await iconStroke("dp-field"), systemColors.canvasText);
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 
