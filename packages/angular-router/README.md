@@ -24,7 +24,7 @@ Peer dependencies:
 | `@angular/build`    | `~22.3.0` |
 | `@angular/localize` | `^22.0.0` |
 
-`@angular/localize` is optional: install it only for [translated URLs](#translated-urls) (`translateSegments`). The ranges admit more Angular versions than a release supports; see [Angular versions](#angular-versions).
+`@angular/localize` is optional for the router: it needs it only for [translated URLs](#translated-urls) (`translateSegments`). Angular's own i18n needs it too, so a localized application installs it either way. The ranges admit more Angular versions than a release supports; see [Angular versions](#angular-versions).
 
 ## Versions
 
