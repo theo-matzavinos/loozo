@@ -467,7 +467,7 @@ test("a live event before the first bind waits in the queue and reaches core onc
   // event, and the trigger's ArrowDown on an open list does nothing visible. So the count of
   // `defaultPrevented` reads (observer.early) tells them apart: one call is the wrapper's entry
   // check plus one read in core's development check of the open change (core's
-  // kernel/change.js, unchanged through 0.1.0-beta.13); a second call adds its own entry check, making three. A core upgrade that
+  // kernel/change.js, unchanged through 0.1.0-beta.14); a second call adds its own entry check, making three. A core upgrade that
   // changes that count fails here loudly; recount it then.
   expect(prevented).toBe(true);
   expect(records.earlyDelivery.defaultPreventedReads).toBe(2);
